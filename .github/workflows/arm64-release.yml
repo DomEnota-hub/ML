@@ -1,0 +1,102 @@
+name: MediaLoader ARM64 release
+
+on:
+  push:
+    branches:
+      - feature/1.5.3-instagram-names-history-search-icons
+      - feature/1.5.5-duplicates-share-devtools
+      - feature/1.5.7-media-viewer-editor
+      - feature/1.5.8-media-polish
+      - feature/1.5.9-editor-ux
+      - feature/1.6.5-hitmoz-search-stability-artwork
+      - release/1.5.8
+      - release/1.5.9
+      - release/1.6.5
+      - release/1.6.6
+      - fix/medialoader-1.6.6-stability
+      - fix/medialoader-1.6.7-search-safety
+      - feature/medialoader-1.6.8-integrated
+      - fix/medialoader-1.6.9-network-diagnostics
+      - fix/medialoader-1.6.10-full-song-input-lock
+      - feature/medialoader-1.6.11-muzmo-manual
+      - feature/medialoader-1.6.18-integrated-from-1.6.17
+      - feature/1.7.0-photo-inpainting
+      - feature/1.7.1-lama-mask-text
+      - fix/1.7.2-lama-unified-mask
+      - fix/1.7.3-lama-text-controls-visible
+      - feature/1.7.4-music-log-polish
+      - feature/1.7.5-bulk-experience
+      - release/1.7.6-youtube-status
+      - feature/1.7.7-diagnostics-stage1
+      - feature/1.7.7-diagnostics-stage2-local-checks
+      - feature/1.7.7-diagnostics-stage3-source-checks
+      - feature/1.7.7-diagnostics-stage4-fault-journal
+      - feature/1.7.7-diagnostics-stage5-journal-polish
+      - feature/1.7.7-diagnostics-stage6-screen
+      - feature/1.7.7-diagnostics-stage7-safe-report
+      - release/1.7.7-diagnostics-integration-arm64
+  workflow_dispatch:
+
+concurrency:
+  group: medialoader-arm64-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  release-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Check WebView injections
+        run: node scripts/test-youtube-thumbnail.cjs
+      - name: Verify native HitMoz JavaScript
+        run: node scripts/test-hitmoz-native-script.cjs
+      - name: Verify Muzmo JavaScript
+        run: node scripts/test-muzmo-native-script.cjs
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Assemble unsigned ARM64 release
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify production package, version and ABI
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          expected_code=$(sed -nE 's/^[[:space:]]*versionCode ([0-9]+)[[:space:]]*$/\1/p' app/build.gradle | head -n 1)
+          expected_name=$(sed -nE "s/^[[:space:]]*versionName '([^']+)'[[:space:]]*$/\1/p" app/build.gradle | head -n 1)
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='$expected_code' versionName='$expected_name'"
+          test "$(unzip -Z1 "$apk" | grep '^lib/' | cut -d/ -f2 | sort -u)" = arm64-v8a
+      - name: Prepare unsigned APK and local signing tools
+        run: |
+          set -euo pipefail
+          mkdir -p output signing-tools
+          cp app/build/outputs/apk/release/app-release-unsigned.apk output/MediaLoader_arm64_UNSIGNED.apk
+          cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib/apksigner.jar" signing-tools/
+          cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign" signing-tools/
+          cp -a "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib64" signing-tools/
+          sha256sum output/MediaLoader_arm64_UNSIGNED.apk > output/sha256.txt
+      - name: Upload unsigned release
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaLoader-arm64-signing-handoff
+          path: |
+            output/
+            signing-tools/
+          if-no-files-found: error
+          retention-days: 1

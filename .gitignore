@@ -1,0 +1,23 @@
+# Android / Gradle
+.gradle/
+.kotlin/
+build/
+**/build/
+# The local build directory can be a symlink to a larger temporary volume.
+/app/build
+# User diagnostics may contain session data; keep local copies out of Git.
+/.local-inputs/
+local.properties
+.idea/
+*.iml
+
+# Signing material — NEVER COMMIT PRIVATE KEYS OR CREDENTIALS
+*.jks
+*.keystore
+*.p12
+*.pfx
+signing-credentials.txt
+keystore.properties
+signing.properties
+.env
+.env.*

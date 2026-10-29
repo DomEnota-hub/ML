@@ -1,0 +1,33 @@
+name: MediaLoader 1.4.3 release
+on:
+  push:
+    branches:
+      - feature/medialoader-1-4-3-download-filters
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build release
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+      - name: Stage release APK
+        run: cp app/build/outputs/apk/release/app-release-unsigned.apk MediaLoader_1.4.3_unsigned.apk
+      - name: Publish unsigned release for local signing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="medialoader-1.4.3-unsigned-${GITHUB_RUN_ID}"
+          gh release create "$TAG" MediaLoader_1.4.3_unsigned.apk --title "MediaLoader 1.4.3 unsigned" --notes "Unsigned release APK for DomEnota signing. Unit tests, lint and assembleRelease passed." --prerelease --target "$GITHUB_SHA"

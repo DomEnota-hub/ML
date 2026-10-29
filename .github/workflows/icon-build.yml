@@ -1,0 +1,36 @@
+name: MediaLoader icon build
+on:
+  push:
+    branches:
+      - feature/medialoader-1-4-2-icon-fix
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Test, lint, assemble
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+      - name: Stage unsigned APK
+        run: |
+          cp app/build/outputs/apk/release/app-release-unsigned.apk MediaLoader_1.4.2_icon-fix_unsigned.apk
+      - name: Upload unsigned APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaLoader-1.4.2-icon-fix-unsigned
+          path: MediaLoader_1.4.2_icon-fix_unsigned.apk
+          if-no-files-found: error
+          retention-days: 1

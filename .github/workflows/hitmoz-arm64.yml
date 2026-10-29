@@ -1,0 +1,76 @@
+name: Music preview · ARM64 check
+
+on:
+  push:
+    branches:
+      - feature/1.4.8-hitmoz-search
+      - fix/1.5.0-bulk-pacing-missing-history
+  workflow_dispatch:
+
+concurrency:
+  group: hitmoz-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Browser script checks
+        run: node scripts/test-youtube-thumbnail.cjs
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest -PhitmozArm64=true --stacktrace
+      # IMPORTANT: do not commit a private signing key to the PUBLIC repository.
+      # A dedicated test-only PKCS12 keystore is stored in the Actions secret
+      # MEDIA_DEBUG_KEYSTORE_B64. Alias=androiddebugkey, password=android.
+      # Unlike the runner-generated default, this identity remains unchanged.
+      - name: Install persistent debug signature
+        env:
+          MEDIA_DEBUG_KEYSTORE_B64: ${{ secrets.MEDIA_DEBUG_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MEDIA_DEBUG_KEYSTORE_B64:-}" ]; then
+            echo "::error::Missing MEDIA_DEBUG_KEYSTORE_B64. Add the dedicated test key in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          keystore="$RUNNER_TEMP/medialoader-debug.keystore"
+          printf '%s' "$MEDIA_DEBUG_KEYSTORE_B64" | tr -d '\r\n ' | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          keytool -list -keystore "$keystore" -storepass android -alias androiddebugkey >/dev/null
+          echo "MEDIA_DEBUG_KEYSTORE_PATH=$keystore" >> "$GITHUB_ENV"
+          echo "Persistent test-only signing certificate loaded; private key not printed."
+      - name: Assemble debug ARM64
+        run: gradle :app:assembleDebug -PhitmozArm64=true --stacktrace
+      - name: Verify APK uses persistent debug signature
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          verifier="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
+          "$verifier" verify "$apk"
+          expected=$(keytool -exportcert -keystore "$MEDIA_DEBUG_KEYSTORE_PATH" -storepass android -alias androiddebugkey | sha256sum | cut -d' ' -f1)
+          actual=$("$verifier" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
+          if [ -z "$actual" ] || [ "$expected" != "$actual" ]; then
+            echo "::error::APK certificate differs from MEDIA_DEBUG_KEYSTORE_B64"
+            exit 1
+          fi
+          echo "APK signature matches the persistent debug key."
+      - name: Upload ARM64 debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaLoader-ARM64-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

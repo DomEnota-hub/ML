@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Media3 reapplies this margin on size/orientation changes. Bring its timeline closer
+         to the bottom controls while preserving the 48dp native touch target. -->
+    <dimen name="exo_styled_progress_margin_bottom">38dp</dimen>
+</resources>

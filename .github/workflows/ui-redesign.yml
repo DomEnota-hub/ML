@@ -1,0 +1,36 @@
+name: MediaLoader UI redesign
+on:
+  push:
+    branches:
+      - feature/medialoader-1-4-3-ui-redesign
+      - feature/medialoader-1-4-5-rutube
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Test, lint and build release
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+      - name: Publish unsigned APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release-unsigned.apk MediaLoader_1.4.5_RUTUBE_unsigned.apk
+          TAG="medialoader-1.4.5-rutube-unsigned-${GITHUB_RUN_ID}"
+          gh release create "$TAG" MediaLoader_1.4.5_RUTUBE_unsigned.apk \
+            --title "MediaLoader 1.4.5 RUTUBE unsigned" \
+            --notes "Unsigned APK from the UI redesign branch. Unit tests, lint and assembleRelease passed." \
+            --prerelease --target "$GITHUB_SHA"

@@ -1,0 +1,124 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+    id 'org.jetbrains.kotlin.kapt'
+}
+
+android {
+    namespace 'com.domenota.medialoader'
+    compileSdk 35
+
+    signingConfigs {
+        debug {
+            // CI must sign with the persistent test key, not a runner-generated key.
+            def persistentKey = System.getenv('MEDIA_DEBUG_KEYSTORE_PATH')
+            if (persistentKey) {
+                storeFile file(persistentKey)
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
+
+    defaultConfig {
+        applicationId 'com.domenota.medialoader'
+        minSdk 26
+        targetSdk 35
+        versionCode 161
+        versionName '1.7.99'
+        manifestPlaceholders = [launcherLabel: '@string/app_name']
+        // Package only ARM64 native libraries without changing the release app ID.
+        if (project.hasProperty('arm64Release')) {
+            ndk { abiFilters 'arm64-v8a' }
+        }
+        // Install this experimental ARM64 APK alongside the signed production app.
+        if (project.hasProperty('hitmozArm64')) {
+            applicationIdSuffix '.hitmoz'
+            versionNameSuffix '-debug'
+            // Keep each CI preview's versionCode increasing so Android upgrades
+            // instead of requiring a reinstall. The production version code is set above.
+            versionCode 100000 + Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '0')
+            manifestPlaceholders = [launcherLabel: 'Загрузчик · Debug']
+            ndk { abiFilters 'arm64-v8a' }
+        }
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all { systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2' }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+    }
+}
+
+dependencies {
+    implementation platform('androidx.compose:compose-bom:2024.10.00')
+    implementation 'androidx.activity:activity-compose:1.9.3'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.material:material-icons-extended'
+    implementation 'androidx.navigation:navigation-compose:2.8.3'
+
+    // Built-in local media playback and lightweight editing.
+    // Keep every Media3 module on the same version.
+    implementation 'androidx.media3:media3-exoplayer:1.9.0'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.9.0'
+    implementation 'androidx.media3:media3-exoplayer-dash:1.9.0'
+    implementation 'androidx.media3:media3-ui:1.9.0'
+    implementation 'androidx.media3:media3-session:1.9.0'
+    implementation 'androidx.media3:media3-transformer:1.9.0'
+    implementation 'androidx.media3:media3-effect:1.9.0'
+
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.8.7'
+    implementation 'androidx.work:work-runtime-ktx:2.9.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+    implementation 'androidx.room:room-runtime:2.6.1'
+    implementation 'androidx.room:room-ktx:2.6.1'
+    kapt 'androidx.room:room-compiler:2.6.1'
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    implementation 'org.jsoup:jsoup:1.17.2'
+    // ARM64 CPU inference; LaMa weights download separately on explicit user approval.
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'
+    // Offline Russian and English OCR with genuine per-character boxes.
+    implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
+    // Audio-only LGPL build with libmp3lame; actual transcoding, not an extension change.
+    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7'
+    // The audio AAR references this class at runtime; this variant does not bring it into the APK.
+    implementation 'com.arthenica:smart-exception-java:0.2.1'
+    implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
+    implementation 'io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1'
+    implementation 'org.chromium.net:cronet-bundled:500.1.0'
+
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'androidx.compose.ui:ui-test-junit4'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+    testImplementation 'org.json:json:20240303'
+}
