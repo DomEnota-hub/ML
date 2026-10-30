@@ -4,12 +4,14 @@ import android.content.Context
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.*
 
 /** Keep music decoded to PCM so changing EQ in-flight never needs a session/queue restart.
  * Video players have their own default renderers and are unaffected. Encoded passthrough and
  * hardware offload cannot process these bands, so neither is advertised by this music sink.
  */
+@OptIn(UnstableApi::class)
 internal class EqualizerRenderersFactory(context: Context, private val processor: EqualizerAudioProcessor) : DefaultRenderersFactory(context) {
     override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink {
         val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(false)

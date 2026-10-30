@@ -1039,7 +1039,6 @@ fun MediaLoaderApp(
             composable(PLAYLIST_ADD_ROUTE) { entry ->
                 val playlistId = entry.arguments?.getString("playlistId")
                 val playlist = playlists.firstOrNull { it.id == playlistId }
-                    ?: libraryModel.playlistRepository.playlists.value.firstOrNull { it.id == playlistId }
                 if (playlist == null) {
                     if (!playlistsReady) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                     else LaunchedEffect(playlistId) { navController.popBackStack() }

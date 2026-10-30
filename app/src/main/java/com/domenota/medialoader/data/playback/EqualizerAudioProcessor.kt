@@ -3,6 +3,7 @@ package com.domenota.medialoader.data.playback
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
+import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.*
@@ -19,6 +20,7 @@ internal object EqualizerPlaybackFormat {
  * Gain changes approach their targets over ~20ms. Positive gains reserve aggregate headroom;
  * the final clamp is a guard for malformed/overshooting inputs, never a wrapping integer cast.
  */
+@OptIn(UnstableApi::class)
 class EqualizerAudioProcessor : BaseAudioProcessor() {
     @Volatile private var target = EqualizerSettings()
     private var rate = 0

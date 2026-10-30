@@ -4,6 +4,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import kotlinx.coroutines.launch
@@ -14,6 +15,7 @@ import com.domenota.medialoader.data.MediaRepository
 import com.domenota.medialoader.data.privatevault.PrivateAccessManager
 
 /** Owns audio playback so music can continue after the viewer leaves the foreground. */
+@OptIn(UnstableApi::class)
 class AudioPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val privateScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
