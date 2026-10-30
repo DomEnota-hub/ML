@@ -102,7 +102,21 @@ class PhoneMediaLibraryTest {
         assertEquals(0, provider.fileOpens)
     }
 
-    private class RecordingProvider(private val path: String? = null) : ContentProvider() {
+    @Test fun firstScanPublishesFirstPageWithoutOpeningEveryFileEvenWhenPathsAreUnavailable() = runBlocking {
+        val app = RuntimeEnvironment.getApplication()
+        val provider = RecordingProvider(rowCount = 257)
+        ShadowContentResolver.registerProviderInternal("media", provider)
+        shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES)
+        shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        val sizes = mutableListOf<Int>()
+        val snapshot = PhoneMediaLibrary(app).scanSnapshot(AppMode.GALLERY, onProgress = { sizes += it.items.size })
+        assertEquals(64, sizes.first())
+        assertEquals(257, snapshot.items.size)
+        assertEquals(1, provider.queries.size)
+        assertEquals(0, provider.fileOpens)
+    }
+
+    private class RecordingProvider(private val path: String? = null, private val rowCount: Int = 1) : ContentProvider() {
         val queries = mutableListOf<String>()
         var fileOpens = 0
         var modified = 123L
@@ -116,8 +130,8 @@ class PhoneMediaLibraryTest {
             queries += uri.toString()
             val columns = requireNotNull(projection)
             return MatrixCursor(columns).apply {
-                if (present) addRow(columns.map { column -> when (column) {
-                    "_id" -> 42L
+                if (present) repeat(rowCount) { offset -> addRow(columns.map { column -> when (column) {
+                    "_id" -> 42L + offset
                     "_display_name" -> "photo.jpg"
                     "_size" -> 100L
                     "_data" -> path
@@ -125,7 +139,7 @@ class PhoneMediaLibraryTest {
                     "date_modified" -> modified
                     "bucket_display_name" -> "Camera"
                     else -> null
-                } })
+                } }) }
             }
         }
         override fun getType(uri: Uri): String? = null

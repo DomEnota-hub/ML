@@ -15,6 +15,15 @@ class GalleryViewerStateTest {
         assertTrue(GalleryViewerState.publicCandidates(listOf(ref), setOf("physical:42")).isEmpty())
         assertTrue(GalleryViewerState.publicCandidates(listOf(ref), null).isEmpty())
     }
+    @Test fun downloaderSnapshotAliasesResolveOnlyThroughValidatedPublicReferences() {
+        val ref = LibraryMediaRef("canonical", setOf("canonical", "download-alias", "physical:42"),
+            row("canonical", MediaType.PHOTO), "canonical")
+        val routes = setOf("download-alias", "unknown")
+        assertEquals(setOf("canonical", "download-alias"),
+            GalleryViewerState.publicCandidates(listOf(ref), emptySet(), routes).map { it.id }.toSet())
+        assertTrue(GalleryViewerState.publicCandidates(listOf(ref), setOf("physical:42"), routes).isEmpty())
+        assertTrue(GalleryViewerState.publicCandidates(listOf(ref), null, routes).isEmpty())
+    }
     private fun row(id: String, type: MediaType) = DownloadEntity(id, "device", id, type,
         DownloadState.COMPLETED, "content://media/$id", null, 0)
 

@@ -941,6 +941,16 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
+            if (Build.VERSION.SDK_INT >= 31) {
+                SettingRow(Icons.Rounded.DeleteSweep, "Управление медиафайлами",
+                    "Разрешить удаление без повторного запроса Android", grouped = true,
+                    iconTone = SettingIconTone.TRASH, onClick = {
+                        try { context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,
+                            Uri.parse("package:${context.packageName}"))) }
+                        catch (_: Exception) { Toast.makeText(context, "Настройка недоступна на этом устройстве", Toast.LENGTH_SHORT).show() }
+                    })
+                GroupDivider()
+            }
             SettingRow(Icons.Rounded.RestoreFromTrash, "Корзина",
                 "Удалённые файлы · $hiddenCount", grouped = true,
                 iconTone = SettingIconTone.TRASH,

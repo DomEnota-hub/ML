@@ -65,6 +65,17 @@ internal object PublicMediaIdentity {
     suspend fun capture(context: Context, value: String): Set<String> = withContext(Dispatchers.IO) {
         val keys = uriKeys(value).toMutableSet()
         val uri = Uri.parse(value)
+        // Resolve a provider's path before canonicalize/openFileDescriptor. The latter can
+        // invoke cloud/transcoding providers and must not be the normal indexing path.
+        val paths = keys.filter { it.startsWith("file:") }.map { it.removePrefix("file:") }.toMutableList()
+        if (uri.authority == "media") try {
+            context.contentResolver.query(uri, arrayOf("_data"), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getColumnIndex("_data").takeIf { it >= 0 && !cursor.isNull(it) }
+                    ?.let(cursor::getString)?.takeIf { it.isNotBlank() }?.let(paths::add)
+            }
+        } catch (_: Exception) { /* Documents and remote providers may have no path. */ }
+        paths.forEach { keys += pathKeys(it) }
+        if (keys.any { it.startsWith("file-stat:") }) return@withContext keys
         try {
             context.contentResolver.canonicalize(uri)?.let { keys += uriKeys(it.toString()) }
         } catch (_: Exception) { /* Providers need not support canonicalization. */ }

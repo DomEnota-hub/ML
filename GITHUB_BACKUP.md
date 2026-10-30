@@ -23,3 +23,10 @@ Current APK: https://drive.google.com/file/d/18se3ra7DhPPEfXqYlScSQgt_s1WHLROm/v
 
 This is a clean starting snapshot; the original local Git history remains in the
 original workspace. Future development can proceed on branches in this repository.
+
+
+## Update 2026-10-30 — 1.7.100 / 162
+
+Source checkpoint361af16. Progressive catalog/indexing, Downloader grid swipes and single deletion consent.
+18 focused checks passed; signed release uploaded to Drive. Details: docs/RELEASE_1.7.100.md.
+Handset validation of the previously reported gallery loading is still pending.

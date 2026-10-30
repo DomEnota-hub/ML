@@ -26,7 +26,10 @@ class PhoneMediaLibrary(context: Context) {
 
     suspend fun scan(mode: AppMode): List<DownloadEntity> = scanSnapshot(mode).items
 
-    internal suspend fun scanSnapshot(mode: AppMode, previous: PhoneMediaSnapshot? = null): PhoneMediaSnapshot = withContext(Dispatchers.IO) {
+    internal suspend fun scanSnapshot(mode: AppMode, previous: PhoneMediaSnapshot? = null,
+        protectedPhysicalKeys: Set<String> = emptySet(),
+        onProgress: suspend (PhoneMediaSnapshot) -> Unit = {},
+    ): PhoneMediaSnapshot = withContext(Dispatchers.IO) {
         val identities = mutableMapOf<String, Set<String>>()
         val fingerprints = mutableMapOf<String, String>()
         val types = when (mode) {
@@ -35,6 +38,9 @@ class PhoneMediaLibrary(context: Context) {
             AppMode.DOWNLOADER -> emptyList()
         }
         val scannedAccess = mutableMapOf<MediaType, Int>()
+        val completedRows = mutableListOf<DownloadEntity>()
+        var lastProgress = 0L
+        var published = false
         val items = types.flatMap { type ->
             coroutineContext.ensureActive()
             val access = accessLevel(type)
@@ -71,14 +77,25 @@ class PhoneMediaLibrary(context: Context) {
                         identities[savedUri] = previous?.identities?.get(savedUri)?.takeIf { reusable } ?: run {
                             val identity = com.domenota.medialoader.data.playback.PublicMediaIdentity
                             val pathKeys = path?.let(identity::pathKeys).orEmpty()
-                            if (pathKeys.any { it.startsWith("file-stat:") }) identity.uriKeys(savedUri) + pathKeys
+                            if (protectedPhysicalKeys.isEmpty() || pathKeys.any { it.startsWith("file-stat:") })
+                                identity.uriKeys(savedUri) + pathKeys
                             else identity.capture(context, savedUri) + pathKeys
                         }
                         rows += row
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if ((!published && rows.size >= 64) || (published && now - lastProgress >= 1000)) {
+                            // Deliver a usable first page without waiting for every file/provider.
+                            // Recheck collection access before exposing an incremental snapshot.
+                            if (scannedAccess.all { (kind, level) -> accessLevel(kind) >= level }) {
+                                onProgress(PhoneMediaSnapshot(completedRows + rows, identities.toMap(), fingerprints.toMap()))
+                                published = true
+                                lastProgress = android.os.SystemClock.elapsedRealtime()
+                            }
+                        }
                     }
                 }
                 // A revocation during a scan must not publish the rows gathered before it.
-                if (accessLevel(type) >= access) rows else emptyList()
+                if (accessLevel(type) >= access) rows.also { completedRows += it } else emptyList()
             } catch (_: SecurityException) {
                 emptyList()
             }

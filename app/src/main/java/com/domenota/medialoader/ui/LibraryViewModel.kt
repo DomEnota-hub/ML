@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.map
@@ -26,6 +27,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,8 +48,8 @@ private data class LibraryIndexInput(val app: List<DownloadEntity>, val gallery:
 
 /** Retained editor references are not validated public display data until this snapshot lands. */
 internal fun phoneValidationPending(index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState): Boolean =
-    (gallery.requiresValidation && (gallery.loading || gallery.revision != index.galleryRevision)) ||
-        (music.requiresValidation && (music.loading || music.revision != index.musicRevision))
+    (gallery.requiresValidation && ((gallery.loading && !gallery.loaded) || gallery.revision != index.galleryRevision)) ||
+        (music.requiresValidation && ((music.loading && !music.loaded) || music.revision != index.musicRevision))
 internal fun hasPhoneLibraryAccess(context: Context, mode: AppMode): Boolean =
     PhoneMediaLibrary.permissions(mode).any {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
@@ -93,26 +97,40 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     // Active download progress is not library content. Do not cancel/restart identity indexing
     // on every byte/progress update while a gallery scan is in flight.
     private val completedDownloads = mediaRepository.downloads.map { rows ->
-        rows.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED }
+        rows.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED &&
+            !it.hidden && !it.isPrivate && !it.savedUri.isNullOrBlank() }
     }.distinctUntilChanged()
-    val index = combine(completedDownloads, gallery, music, privateKeys) { app, pictures, audio, private ->
-        LibraryIndexInput(app, pictures, audio, private)
-    }.mapLatest { (app, pictures, audio, private) ->
-        if (private == null) LibraryIndex() else withContext(Dispatchers.IO) {
-            val phone = pictures.items + audio.items
-            val scannedIdentities = pictures.identities + audio.identities
-            val activeUris = (app + phone).mapNotNullTo(mutableSetOf()) { it.savedUri }
-            identityCache.keys.retainAll(activeUris)
-            suspend fun references(rows: List<DownloadEntity>, isApp: Boolean): List<LibraryMediaRef> = rows.map { row ->
-                coroutineContext.ensureActive()
-                val uri = row.savedUri
-                val identities = if (uri == null) emptySet() else scannedIdentities[uri] ?: identityCache[uri]
-                    ?: PublicMediaIdentity.capture(application, uri).also { identityCache[uri] = it }
-                LibraryMediaRef(row.id, identities + row.id, row, row.id.takeIf { isApp },
-                    deviceAlbumId = if (isApp) null else row.bulkMediaKey ?: row.groupId,
-                    deviceAlbumName = if (isApp) null else row.groupId)
-            }
-            LibraryIndex(true, UnifiedMediaLibrary.merge(references(app, true), references(phone, false), private), pictures.revision, audio.revision)
+    private suspend fun references(rows: List<DownloadEntity>, isApp: Boolean,
+        scannedIdentities: Map<String, Set<String>> = emptyMap()): List<LibraryMediaRef> = withContext(Dispatchers.IO) {
+        suspend fun reference(row: DownloadEntity): LibraryMediaRef {
+            coroutineContext.ensureActive()
+            val uri = row.savedUri
+            val identities = if (uri == null) emptySet() else scannedIdentities[uri] ?: identityCache[uri]
+                ?: PublicMediaIdentity.capture(getApplication(), uri).also { identityCache[uri] = it }
+            return LibraryMediaRef(row.id, identities + row.id, row, row.id.takeIf { isApp },
+                deviceAlbumId = if (isApp) null else row.bulkMediaKey ?: row.groupId,
+                deviceAlbumName = if (isApp) null else row.groupId)
+        }
+        if (isApp) rows.chunked(8).flatMap { batch -> coroutineScope {
+            batch.map { row -> async { reference(row) } }.awaitAll()
+        } } else rows.map { reference(it) }
+    }
+    private val appReferences = completedDownloads.transformLatest<List<DownloadEntity>, List<LibraryMediaRef>?> { rows ->
+        // Phone revisions must not restart this work, and a large history must not delay
+        // the first visible page until its last provider URI has been resolved.
+        val resolved = mutableListOf<LibraryMediaRef>()
+        if (rows.isEmpty()) emit(emptyList())
+        for (batch in rows.chunked(16)) {
+            resolved += references(batch, true)
+            emit(resolved.toList())
+        }
+        com.domenota.medialoader.core.logging.AppLog.i("Library", "App identity index ready · count=${resolved.size}")
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val index = combine(appReferences, gallery, music, privateKeys) { app, pictures, audio, private ->
+        if (private == null || app == null) LibraryIndex() else withContext(Dispatchers.IO) {
+            LibraryIndex(true, UnifiedMediaLibrary.merge(app,
+                references(pictures.items + audio.items, false, pictures.identities + audio.identities), private),
+                pictures.revision, audio.revision)
         }
     }.onEach { index ->
         try { playlistRepository.reconcileAliases(index.refs.flatMap { ref ->
@@ -230,7 +248,20 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 val previous = state.value.takeIf { !blocking && it.loaded }?.let {
                     PhoneMediaSnapshot(it.items, it.identities, it.fingerprints)
                 }
-                val snapshot = phone.scanSnapshot(mode, previous)
+                val startedAt = android.os.SystemClock.elapsedRealtime()
+                com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan started · mode=$mode · retained=${previous?.items?.size ?: 0}")
+                val snapshot = phone.scanSnapshot(mode, previous, keys.filterTo(mutableSetOf()) { it.startsWith("file-stat:") }) { partialSnapshot ->
+                    if (blocking && !partial && stillAllowed()) {
+                        state.value = PhoneLibraryState(items = partialSnapshot.items, identities = partialSnapshot.identities,
+                            fingerprints = partialSnapshot.fingerprints, loaded = true, loading = true,
+                            revision = ++revision, requiresValidation = true)
+                        // Save useful progress too: process death must not lose the whole first scan.
+                        try { phoneCache.write(mode, accessKey, privacy, PhoneStoreStamp(stamp.versions, null), partialSnapshot) }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { /* The completed snapshot will retry persistence. */ }
+                    }
+                }
+                com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan finished · mode=$mode · count=${snapshot.items.size} · ms=${android.os.SystemClock.elapsedRealtime() - startedAt}")
                 val after = phone.storeStamp()
                 if (!stillAllowed()) { refresh(mode, force = true, invalidate = true); return@launch }
                 if (stamp.versions != null && after.versions != stamp.versions)

@@ -19,7 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Phone deletion is separate from app trash and always starts with explicit confirmation. */
+/** Phone deletion is separate from app trash and uses exactly one confirmation on Android 11+: app or system. */
 @Composable
 internal fun PhoneMediaDeleteHost(item: DownloadEntity, onDismiss: () -> Unit, onDeleted: () -> Unit) {
     val context = LocalContext.current
@@ -48,27 +48,34 @@ internal fun PhoneMediaDeleteHost(item: DownloadEntity, onDismiss: () -> Unit, o
             catch (_: Exception) { fail() }
         }
     }
-    if (!confirmed) AlertDialog(onDismissRequest = onDismiss,
-        title = { Text("Удалить файл с телефона?") },
-        text = { Text(error ?: "«${item.originalName}» будет удалён с устройства.") },
-        confirmButton = { TextButton(onClick = {
-            confirmed = true
-            scope.launch {
-                try {
-                    require(uri != null && item.id.startsWith("phone:"))
-                    when {
-                        Build.VERSION.SDK_INT >= 30 -> consent.launch(IntentSenderRequest.Builder(
-                            MediaStore.createDeleteRequest(context.contentResolver, listOf(uri)).intentSender).build())
-                        Build.VERSION.SDK_INT < 29 -> legacy.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                        else -> if (remove()) onDeleted() else fail()
-                    }
-                } catch (e: CancellationException) { throw e }
-                catch (e: Exception) {
-                    if (Build.VERSION.SDK_INT == 29 && e is RecoverableSecurityException) {
-                        consent.launch(IntentSenderRequest.Builder(e.userAction.actionIntent.intentSender).build())
-                    } else fail()
+    fun beginDelete() {
+        confirmed = true
+        scope.launch {
+            try {
+                require(uri != null && item.id.startsWith("phone:"))
+                when {
+                    Build.VERSION.SDK_INT >= 30 -> consent.launch(IntentSenderRequest.Builder(
+                        MediaStore.createDeleteRequest(context.contentResolver, listOf(uri)).intentSender).build())
+                    Build.VERSION.SDK_INT < 29 -> legacy.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    else -> if (remove()) onDeleted() else fail()
                 }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (Build.VERSION.SDK_INT == 29 && e is RecoverableSecurityException) {
+                    consent.launch(IntentSenderRequest.Builder(e.userAction.actionIntent.intentSender).build())
+                } else fail()
             }
-        }) { Text("Удалить", color = MaterialTheme.colorScheme.error) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } })
+        }
+    }
+    // MediaStore's own consent is the confirmation when special media access is absent.
+    // With MANAGE_MEDIA the request executes without a system dialog, so confirm here.
+    val systemConfirmation = Build.VERSION.SDK_INT >= 30 &&
+        (Build.VERSION.SDK_INT < 31 || !MediaStore.canManageMedia(context))
+    LaunchedEffect(item.id) { if (systemConfirmation && !confirmed) beginDelete() }
+    if ((!systemConfirmation || error != null) && !confirmed) AlertDialog(onDismissRequest = onDismiss,
+        title = { Text("Удалить выбранный объект?") },
+        text = error?.let { message -> { Text(message) } },
+        confirmButton = { TextButton(onClick = { error = null; beginDelete() }) {
+            Text("Удалить", color = MaterialTheme.colorScheme.error)
+        } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } })
 }

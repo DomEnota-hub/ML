@@ -184,3 +184,11 @@ preparation/session resolution. Raw diagnostic files and signing secrets not com
 First full catalog scan is expected to seed cache. User has full photo/video access;
 subsequent cold starts restore cache when its access/privacy/database tags match.
 HTML main-mode work remains paused. Await phone feedback; do not rerun finished gates.
+
+
+2026-10-30: Released1.7.100/code162 with progressive phone/history indexing,
+metadata fast path, Downloader grid GalleryMediaViewer route and single delete
+confirmation plus optional MANAGE_MEDIA. See2026-10-30-library-startup-and-deletion.md.
+18 focused checks passed across bounded runs; final arm64 build5m3s, signed with
+existing key and uploaded to Drive. Real handset freeze is not reproduced locally;
+user must confirm the observed loading behavior. Main-mode HTML remains paused.

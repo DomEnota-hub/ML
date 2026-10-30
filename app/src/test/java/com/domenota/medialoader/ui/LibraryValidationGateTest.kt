@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LibraryValidationGateTest {
+    @Test fun validatedFirstPageBecomesVisibleWhileRemainingScanContinues() {
+        val partial = PhoneLibraryState(loaded = true, loading = true, revision = 7)
+        val other = PhoneLibraryState()
+        assertTrue(phoneValidationPending(LibraryIndex(galleryRevision = 6), partial, other))
+        assertFalse(phoneValidationPending(LibraryIndex(ready = true, galleryRevision = 7), partial, other))
+    }
     @Test fun everyLibrarySurfaceStaysShieldedUntilCorrespondingIndexIsPublished() {
         val validated = PhoneLibraryState(loaded = true, revision = 1)
         val index = LibraryIndex(ready = true, galleryRevision = 1, musicRevision = 1)

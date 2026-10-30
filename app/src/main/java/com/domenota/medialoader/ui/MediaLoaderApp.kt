@@ -693,7 +693,8 @@ fun MediaLoaderApp(
                 navController.navigate("viewer/${item.id}")
                 navController.currentBackStackEntry?.savedStateHandle?.set("grid_viewer_ids", queueIds)
                 navController.currentBackStackEntry?.savedStateHandle?.set("gallery_presentation",
-                    appMode == AppMode.GALLERY && item.mediaType != MediaType.AUDIO && !item.isPrivate)
+                    item.mediaType != MediaType.AUDIO && !item.isPrivate &&
+                        (appMode == AppMode.GALLERY || queueIds.isNotEmpty()))
             } else {
                 openSavedFile(context, item)
             }
@@ -710,8 +711,16 @@ fun MediaLoaderApp(
     val shareLibraryFile: (String) -> Unit = { id ->
         publicLibraryRows.firstOrNull { it.id == id && !it.isPrivate }?.let { shareSavedFile(context, it) }
     }
+    var deleteAppId by rememberSaveable { mutableStateOf<String?>(null) }
     val deleteLibraryFile: (String) -> Unit = { id ->
-        if (id.startsWith("phone:")) phoneDeleteId = id else viewModel.hideDownload(id)
+        if (id.startsWith("phone:")) phoneDeleteId = id else deleteAppId = id
+    }
+    deleteAppId?.let { id ->
+        AlertDialog(onDismissRequest = { deleteAppId = null },
+            title = { Text("Удалить выбранный объект?") },
+            confirmButton = { TextButton(onClick = { deleteAppId = null; viewModel.hideDownload(id) }) {
+                Text("Удалить", color = MaterialTheme.colorScheme.error)
+            } }, dismissButton = { TextButton(onClick = { deleteAppId = null }) { Text("Отмена") } })
     }
     val previewLibraryAudio: (String, List<String>) -> Unit = { id, ids ->
         libraryPreviewJob?.cancel()
@@ -955,7 +964,7 @@ fun MediaLoaderApp(
                     onOpenDownload = openDownload,
                     onCancelDownload = viewModel::cancelDownload,
                     onShareDownload = shareDownload,
-                    onHideDownload = viewModel::hideDownload,
+                    onHideDownload = deleteLibraryFile,
                     onRetryDownload = viewModel::retryDownload,
                     onReanalyzeMissing = reanalyzeMissingFile,
                     onRenameDownload = viewModel::renameDownload,
@@ -1081,7 +1090,7 @@ fun MediaLoaderApp(
                     onOpenGrid = openDownloadWithQueue,
                     onCancelDownload = viewModel::cancelDownload,
                     onShareDownload = shareDownload,
-                    onHideDownload = viewModel::hideDownload,
+                    onHideDownload = deleteLibraryFile,
                     onRetryDownload = viewModel::retryDownload,
                     onReanalyzeMissing = reanalyzeMissingFile,
                     onRenameDownload = viewModel::renameDownload,
@@ -1238,7 +1247,8 @@ fun MediaLoaderApp(
                 val galleryPresentation = entry.savedStateHandle.get<Boolean>("gallery_presentation") == true
                 val snapshot = entry.savedStateHandle.get<List<String>>("grid_viewer_ids").orEmpty()
                 val currentGalleryId = entry.savedStateHandle.get<String>("gallery_current_id") ?: downloadId
-                val galleryCandidates = if (galleryPresentation) GalleryViewerState.publicCandidates(publicLibraryRefs, libraryPrivateKeys).filter { row ->
+                val galleryCandidates = if (galleryPresentation) GalleryViewerState.publicCandidates(publicLibraryRefs, libraryPrivateKeys,
+                    snapshot.toSet() + listOfNotNull(downloadId)).filter { row ->
                     !row.hidden && !row.isPrivate && row.savedUri != null && row.state == DownloadState.COMPLETED &&
                         fileStatuses[row.id] != SavedFileStatus.MISSING && fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE
                 } else emptyList()

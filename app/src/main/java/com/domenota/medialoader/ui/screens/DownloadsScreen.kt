@@ -203,13 +203,12 @@ fun DownloadsScreen(
             CircularProgressIndicator(Modifier.size(28.dp)); Text("Обрабатываем группу…")
         } })
     if (deleteGroupTargets.isNotEmpty()) AlertDialog(onDismissRequest = { deleteGroupTargets = emptyList() },
-        title = { Text("Удалить группу?") },
-        text = { Text("Файлов: ${deleteGroupTargets.size}. Они будут перемещены в корзину.") },
+        title = { Text(com.domenota.medialoader.ui.components.deleteSelectionTitle(deleteGroupTargets.size)) },
         confirmButton = { TextButton(onClick = { val ids = deleteGroupTargets; deleteGroupTargets = emptyList(); groupAction(ids) { id ->
                 require(items.firstOrNull { it.id == id }?.state == DownloadUiState.COMPLETED) { "Дождитесь завершения загрузки" }
                 onDeleteGroupFile(id)
             } }) {
-            Text("В корзину", color = MaterialTheme.colorScheme.error)
+            Text("Удалить", color = MaterialTheme.colorScheme.error)
         } },
         dismissButton = { TextButton(onClick = { deleteGroupTargets = emptyList() }) { Text("Отмена") } })
 

@@ -64,7 +64,6 @@ internal fun GalleryMediaViewer(
     var landscape by rememberSaveable(current.id) { mutableStateOf(false) }
     var menu by remember(current.id) { mutableStateOf(false) }
     var info by remember(current.id) { mutableStateOf(false) }
-    var confirmDelete by remember(current.id) { mutableStateOf(false) }
     var chooseFolder by remember(current.id) { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -119,7 +118,7 @@ internal fun GalleryMediaViewer(
                         Icon(if (current.id in favoriteIds) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Избранное",
                             tint = if (current.id in favoriteIds) MaterialTheme.colorScheme.primary else Color.White)
                     }
-                    IconButton({ confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, "Удалить", tint = MaterialTheme.colorScheme.error) }
+                    IconButton({ onDelete(current) }) { Icon(Icons.Rounded.DeleteOutline, "Удалить", tint = MaterialTheme.colorScheme.error) }
                     IconButton({ menu = true }) { Icon(Icons.Rounded.MoreHoriz, "Ещё", tint = Color.White) }
                 }
             }) { padding ->
@@ -158,11 +157,6 @@ internal fun GalleryMediaViewer(
             }
         }
     }
-    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Удалить файл?") },
-        text = { Text(current.originalName) }, confirmButton = { TextButton({ confirmDelete = false; onDelete(current) }) {
-            Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
-            Text("Удалить", color = MaterialTheme.colorScheme.error)
-        } }, dismissButton = { TextButton({ confirmDelete = false }) { Text("Отмена") } })
     if (chooseFolder) AlertDialog(onDismissRequest = { chooseFolder = false }, title = { Text("Добавить в альбом") },
         text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             TextButton({ mutate { onSetFolder(current.id, null); chooseFolder = false } }) { Text("Без папки") }
