@@ -34,7 +34,8 @@ jobs:
           gradle-version: '8.9'
       - name: ARM64 debug build
         run: gradle :app:assembleDebug -Parm64Release=true --stacktrace
-      - name: Android lint
-        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
       - name: Unit tests
         run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        if: success() || failure()
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
