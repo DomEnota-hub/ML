@@ -483,7 +483,7 @@ internal fun normalizeWaveformRms(rms: FloatArray): List<Float> {
     val reference = active[kotlin.math.ceil(active.lastIndex * 0.985f).toInt()].coerceAtLeast(0.0001f)
     val calibrated = rms.map { value ->
         if (!value.isFinite() || value <= 0f) 0f
-        else (0.92f * (value / reference).coerceIn(0f, 1f).pow(1.08f)).coerceIn(0f, 0.92f)
+        else (0.90f * (value / reference).coerceIn(0f, 1f).pow(0.80f)).coerceIn(0f, 0.90f)
     }
     // Light three-bin low-pass smoothing softens spiky edges without flattening
     // actual changes of loudness. Keep digital silence silent.
