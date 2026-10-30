@@ -1,5 +1,8 @@
 package com.domenota.medialoader.ui.screens.gallery
 
+import com.domenota.medialoader.core.database.DownloadEntity
+import com.domenota.medialoader.core.model.DownloadState
+import com.domenota.medialoader.core.model.MediaType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -40,6 +43,15 @@ class GalleryAlbumOrganizationTest {
         assertFalse("device:1" in settings.excludedFromMedia)
         assertTrue("device:2" in settings.excludedFromMedia)
         assertFalse("device:2" in settings.hiddenAlbums)
+    }
+
+    @Test fun hiddenDeviceAlbumMediaIsNotDisplayedButSourceIsUntouched() {
+        val item = DownloadEntity("phone:1", "device", "clip.jpg", MediaType.PHOTO,
+            DownloadState.COMPLETED, "content://media/external/images/media/1", 600L, 10L)
+        val deviceAlbum = DeviceAlbum("camera", "Camera")
+        assertFalse(visibleInGalleryMedia(item, null, deviceAlbum, setOf("device:camera")))
+        assertTrue(visibleInGalleryMedia(item, null, deviceAlbum, emptySet()))
+        assertEquals("clip.jpg", item.originalName)
     }
 
     @Test fun deletingFolderClearsOnlyPresentationSettings() {
