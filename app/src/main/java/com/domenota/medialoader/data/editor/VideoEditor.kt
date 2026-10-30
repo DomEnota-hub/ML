@@ -35,6 +35,7 @@ data class VideoEditSpec(
     val cropBottom: Float = 0f,
     val rotationDegrees: Int = 0,
     val removeAudio: Boolean = false,
+    val reverse: Boolean = false,
     val textLayers: List<TextLayer> = emptyList(),
 ) {
     init {
@@ -64,8 +65,14 @@ class VideoEditor(private val context: Context) {
             .setRemoveAudio(spec.removeAudio)
             .setEffects(Effects(emptyList(), previewEffects(spec)))
             .build()
-        return runExport(edited, File(context.cacheDir, "video-edit-${UUID.randomUUID()}.mp4"),
-            onProgress = onProgress)
+        val intermediate = runExport(edited, File(context.cacheDir, "video-edit-${UUID.randomUUID()}.mp4"),
+            onProgress = if (spec.reverse) ({ progress -> onProgress(progress * 45 / 100) }) else onProgress)
+        if (!spec.reverse) return intermediate
+        try {
+            return VideoReverseEngine(context.cacheDir).reverse(intermediate, onProgress)
+        } finally {
+            intermediate.delete()
+        }
     }
 
     internal fun previewEffects(spec: VideoEditSpec, timeOffsetMs: Long = 0L): List<Effect> {

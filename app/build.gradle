@@ -26,8 +26,8 @@ android {
         applicationId 'com.domenota.medialoader'
         minSdk 26
         targetSdk 35
-        versionCode 164
-        versionName '1.7.102'
+        versionCode 165
+        versionName '1.7.103'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
         // Package only ARM64 native libraries without changing the release app ID.
         if (project.hasProperty('arm64Release')) {
@@ -107,7 +107,7 @@ dependencies {
     // Offline Russian and English OCR with genuine per-character boxes.
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     // Audio-only LGPL build with libmp3lame; actual transcoding, not an extension change.
-    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7'
+    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7'
     // The audio AAR references this class at runtime; this variant does not bring it into the APK.
     implementation 'com.arthenica:smart-exception-java:0.2.1'
     implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
