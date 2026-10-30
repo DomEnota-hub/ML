@@ -81,8 +81,12 @@ internal fun moveGalleryAlbum(
     if (from == before) return settings
     val keys = orderedGalleryAlbums(allAlbums, settings).map { it.key }.toMutableList()
     if (from !in keys || before !in keys) return settings
-    keys.remove(from)
-    keys.add(keys.indexOf(before), from)
+    val fromIndex = keys.indexOf(from)
+    val targetIndex = keys.indexOf(before)
+    keys.removeAt(fromIndex)
+    // Dropping a card on one below it must move it after that card.
+    val insertion = keys.indexOf(before) + if (fromIndex < targetIndex) 1 else 0
+    keys.add(insertion.coerceIn(0, keys.size), from)
     return settings.copy(order = keys)
 }
 
