@@ -182,8 +182,10 @@ fun MediaLoaderApp(
     var appMode by rememberSaveable { mutableStateOf(libraryPreferences.mode) }
     var privateNavigation by remember { mutableStateOf(false) }
     var galleryTab by rememberSaveable { mutableIntStateOf(0) }
+    var galleryTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDetailOpen by remember { mutableStateOf(false) }
     var musicTab by rememberSaveable { mutableIntStateOf(0) }
+    var musicTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var musicDetailOpen by remember { mutableStateOf(false) }
     var libraryPreviewJob by remember { mutableStateOf<Job?>(null) }
     var gallerySource by rememberSaveable { mutableStateOf(libraryPreferences.source(AppMode.GALLERY)) }
@@ -895,7 +897,13 @@ fun MediaLoaderApp(
                     if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route) {
                         if ((appMode == AppMode.GALLERY && !galleryDetailOpen) || (appMode == AppMode.MUSIC && !musicDetailOpen))
                             LibraryBottomSwitcher(appMode, if (appMode == AppMode.GALLERY) galleryTab else musicTab) {
-                                if (appMode == AppMode.GALLERY) galleryTab = it else musicTab = it
+                                if (appMode == AppMode.GALLERY) {
+                                    if (galleryTab == 0 && it == 0) galleryTopRequest++
+                                    galleryTab = it
+                                } else {
+                                    if (musicTab == 0 && it == 0) musicTopRequest++
+                                    musicTab = it
+                                }
                             }
                     } else NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                         AppDestination.entries.filter { appMode == AppMode.DOWNLOADER || it != AppDestination.Downloads }.forEach { destination ->
@@ -994,7 +1002,11 @@ fun MediaLoaderApp(
                     onCreateFolder = viewModel::createCatalogFolder, onShare = shareLibraryFile,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles, onRename = viewModel::renameDownload,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
-                    searchVisible = librarySearchVisible, tabOverride = galleryTab, onTabChange = { galleryTab = it },
+                    searchVisible = librarySearchVisible, tabOverride = galleryTab,
+                     scrollToTopRequest = galleryTopRequest, onTabChange = {
+                         if (galleryTab == 0 && it == 0) galleryTopRequest++
+                         galleryTab = it
+                     },
                     onDetailChange = { galleryDetailOpen = it }, onSettings = { navController.navigate(AppDestination.Settings.route) },
                     deviceAlbums = publicLibraryRefs.mapNotNull { ref -> ref.deviceAlbumId?.let { id ->
                         ref.key to DeviceAlbum(id, ref.deviceAlbumName ?: "Без альбома")
@@ -1013,7 +1025,11 @@ fun MediaLoaderApp(
                     },
                     onRemoveTrack = libraryModel.playlistRepository::removeTrack, onMoveTrack = libraryModel.playlistRepository::moveTrack,
                     onShare = shareLibraryFile, onDeleteFile = deleteLibraryFile,
-                    searchVisible = librarySearchVisible, tabOverride = musicTab, onTabChange = { musicTab = it },
+                    searchVisible = librarySearchVisible, tabOverride = musicTab,
+                     scrollToTopRequest = musicTopRequest, onTabChange = {
+                         if (musicTab == 0 && it == 0) musicTopRequest++
+                         musicTab = it
+                     },
                     onEnqueue = { id, next ->
                         fileActionScope.launch {
                             val ref = libraryRefsByAlias[id] ?: return@launch
