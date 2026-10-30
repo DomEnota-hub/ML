@@ -1,5 +1,8 @@
 package com.domenota.medialoader.ui.components
 
+import android.media.AudioFormat
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -16,6 +19,16 @@ class WaveformBackgroundRenderingTest {
         val peaks = listOf(0.05f, 0.8f, 0.15f, 0.9f)
         assertArrayEquals(peaks.toFloatArray(), waveformColumnPeaks(peaks, 4), 0f)
         assertArrayEquals(floatArrayOf(0.8f, 0.9f), waveformColumnPeaks(peaks, 2), 0f)
+    }
+
+    @Test fun pcmEnergyRepresentsAverageLoudnessNotOnlyAbsolutePeak() {
+        val data = ByteBuffer.allocate(6).order(ByteOrder.LITTLE_ENDIAN)
+        data.putShort(0)
+        data.putShort(16384)
+        data.putShort(-16384)
+        val energy = pcmEnergy(data, 0, 6, AudioFormat.ENCODING_PCM_16BIT)
+        assertEquals(3L, energy.count)
+        assertEquals(0.5, energy.total, 0.0001)
     }
 
     @Test fun revisedTrackAndBucketCountNeverReuseObsoleteCache() {
