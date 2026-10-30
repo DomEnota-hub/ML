@@ -62,17 +62,27 @@ internal object PhotoGraphicWatermarkRenderer {
         } ?: throw java.io.IOException("Не удалось открыть водяной знак.")
     }
 
-    fun overlay(context: Context, source: Bitmap, graphic: PhotoGraphicWatermark?): Bitmap {
-        if (graphic == null) return source
+    /** Paint directly onto a mutable output; avoid creating another full-resolution copy. */
+    fun draw(context: Context, canvas: Canvas, width: Int, height: Int, graphic: PhotoGraphicWatermark) {
         val mark = decode(context, graphic.uri)
-        return try {
-            val output = source.copy(Bitmap.Config.ARGB_8888, true)
-            Canvas(output).drawBitmap(mark, null,
-                photoWatermarkBounds(source.width, source.height, mark.width, mark.height, graphic),
+        try {
+            canvas.drawBitmap(mark, null,
+                photoWatermarkBounds(width, height, mark.width, mark.height, graphic),
                 Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
                     alpha = (graphic.opacity * 255).roundToInt().coerceIn(0, 255)
                 })
-            output
         } finally { mark.recycle() }
+    }
+
+    fun overlay(context: Context, source: Bitmap, graphic: PhotoGraphicWatermark?): Bitmap {
+        if (graphic == null) return source
+        val output = source.copy(Bitmap.Config.ARGB_8888, true)
+        try {
+            draw(context, Canvas(output), output.width, output.height, graphic)
+            return output
+        } catch (error: Throwable) {
+            output.recycle()
+            throw error
+        }
     }
 }
