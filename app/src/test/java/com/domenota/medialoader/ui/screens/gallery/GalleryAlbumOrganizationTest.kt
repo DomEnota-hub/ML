@@ -54,6 +54,14 @@ class GalleryAlbumOrganizationTest {
         assertEquals("clip.jpg", item.originalName)
     }
 
+    @Test fun dragNearGridEdgesScrollsInCorrectDirection() {
+        assertTrue(galleryAlbumEdgeScrollDelta(12f, 800f, 100f) < 0f)
+        assertTrue(galleryAlbumEdgeScrollDelta(788f, 800f, 100f) > 0f)
+        assertEquals(0f, galleryAlbumEdgeScrollDelta(400f, 800f, 100f), 0f)
+        assertEquals(0f, galleryAlbumEdgeScrollDelta(10f, 0f, 100f), 0f)
+        assertTrue(galleryAlbumEdgeScrollDelta(2f, 800f, 100f) < galleryAlbumEdgeScrollDelta(70f, 800f, 100f))
+    }
+
     @Test fun deletingFolderClearsOnlyPresentationSettings() {
         val settings = GalleryAlbumSettings(
             hiddenAlbums = setOf("folder:custom"),
