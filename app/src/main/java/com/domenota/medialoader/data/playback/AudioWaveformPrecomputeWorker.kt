@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
-import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import androidx.work.Constraints
@@ -94,10 +93,13 @@ class AudioWaveformPrecomputeWorker(
     }
 
     private fun readDurationMs(context: Context, uri: Uri): Long = runCatching {
-        MediaMetadataRetriever().use { retriever ->
+        val retriever = MediaMetadataRetriever()
+        try {
             retriever.setDataSource(context, uri)
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
+        } finally {
+            retriever.release()
         }
     }.getOrDefault(0L)
 }
