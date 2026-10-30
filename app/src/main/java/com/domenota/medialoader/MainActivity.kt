@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import com.domenota.medialoader.core.logging.AppLog
 import com.domenota.medialoader.data.instagramprofile.InstagramProfileController
 import com.domenota.medialoader.ui.MediaLoaderApp
+import com.domenota.medialoader.data.playback.AudioWaveformPrecompute
 import com.domenota.medialoader.ui.theme.MediaLoaderTheme
 import com.domenota.medialoader.data.share.InstagramShareActivity
 import com.domenota.medialoader.data.share.InstagramShareRouting
@@ -27,6 +28,10 @@ class MainActivity : ComponentActivity() {
             finish()
             return
         }
+        // Never interfere with share routing or activity launch if WorkManager
+        // is not initialized yet (e.g. an isolated Android/Robolectric environment).
+        runCatching { AudioWaveformPrecompute.schedule(applicationContext) }
+            .onFailure { AppLog.w("AudioWaveform", "Background scan deferred: ${it.javaClass.simpleName}") }
         com.domenota.medialoader.ui.theme.edgeToEdgeWindow(window)
         val archivePrefs = getSharedPreferences("module_archive", MODE_PRIVATE)
         if (!archivePrefs.getBoolean("instagram_profile_disabled", false)) {

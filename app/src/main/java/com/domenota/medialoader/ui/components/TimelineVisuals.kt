@@ -43,6 +43,8 @@ import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import com.domenota.medialoader.data.playback.AudioWaveformPrecompute
 
 @Composable
 fun VideoTimelineStrip(
@@ -135,8 +137,26 @@ fun AudioWaveformTimeline(
 
     LaunchedEffect(uri, durationMs) {
         if (durationMs <= 0L) return@LaunchedEffect
-        waveform = withContext(Dispatchers.IO) {
-            loadAudioWaveform(context, uri, durationMs, AUDIO_WAVEFORM_BUCKETS)
+        // Editor NEVER decodes an uncached audio file or blocks on another decoder.
+        // Only read a completed atomic cache and request a priority background job.
+        val saved = withContext(Dispatchers.IO) {
+            readCachedAudioWaveform(context, uri, durationMs)
+        }
+        if (saved != null) {
+            waveform = saved
+        } else {
+            AudioWaveformPrecompute.requestImmediate(context, uri, durationMs)
+            // WorkManager may be deferred by Android; UI stays responsive while it runs.
+            repeat(240) {
+                delay(1000L)
+                val ready = withContext(Dispatchers.IO) {
+                    readCachedAudioWaveform(context, uri, durationMs)
+                }
+                if (ready != null) {
+                    waveform = ready
+                    return@LaunchedEffect
+                }
+            }
         }
     }
 
@@ -149,12 +169,15 @@ fun AudioWaveformTimeline(
             ),
     ) {
         if (waveform.isEmpty()) return@Canvas
+        // AIMP-like: individual narrow vertical strokes, almost touching at phone scale.
+        // Never fill a continuous polygon; preserve actual amplitude differences.
+        val columns = (size.width / 1.35f).toInt().coerceIn(1, waveform.size)
+        val amplitudes = waveformColumnPeaks(waveform, columns)
         val center = size.height / 2f
-        val slot = size.width / waveform.size.coerceAtLeast(1)
-        val stroke = max(1f, slot * 0.56f)
-        waveform.forEachIndexed { index, raw ->
-            val value = raw.coerceIn(0.04f, 1f)
-            val half = value * size.height * 0.43f
+        val slot = size.width / columns
+        val stroke = (slot * 0.84f).coerceIn(0.85f, 1.6f)
+        amplitudes.forEachIndexed { index, raw ->
+            val half = raw.coerceIn(0f, 1f) * size.height * 0.46f
             val x = (index + 0.5f) * slot
             drawLine(
                 color = barColor,
@@ -163,6 +186,21 @@ fun AudioWaveformTimeline(
                 strokeWidth = stroke,
             )
         }
+    }
+}
+
+/** One non-overlapping window per visible column; preserves transients when resized. */
+internal fun waveformColumnPeaks(peaks: List<Float>, columns: Int): FloatArray {
+    require(columns > 0)
+    if (peaks.isEmpty()) return FloatArray(columns)
+    return FloatArray(columns) { column ->
+        val first = column * peaks.size / columns
+        val lastExclusive = ((column + 1) * peaks.size / columns).coerceAtLeast(first + 1)
+        var peak = 0f
+        for (index in first until lastExclusive.coerceAtMost(peaks.size)) {
+            peak = max(peak, peaks[index])
+        }
+        peak.coerceIn(0f, 1f)
     }
 }
 
@@ -236,30 +274,82 @@ private fun loadVideoTimelineFrames(
     }
 }
 
-private fun loadAudioWaveform(
+private val audioCacheLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+/** Content and file updates invalidate a saved waveform, even when their URI is unchanged. */
+internal fun waveformCacheIdentity(uri: String, durationMs: Long, size: Long, modified: Long, buckets: Int): String =
+    "v5|$uri|$durationMs|$size|$modified|$buckets"
+
+private fun audioWaveformCacheFile(context: Context, uri: Uri, durationMs: Long, buckets: Int): File {
+    var bytes = -1L
+    var modified = -1L
+    if (uri.scheme == "file") {
+        val file = uri.path?.let(::File)
+        if (file != null) { bytes = file.length(); modified = file.lastModified() }
+    } else if (uri.scheme == "content") {
+        runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(android.provider.MediaStore.MediaColumns.SIZE,
+                    android.provider.MediaStore.MediaColumns.DATE_MODIFIED),
+                null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val sizeCol = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.SIZE)
+                    val modifiedCol = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
+                    if (sizeCol >= 0 && !cursor.isNull(sizeCol)) bytes = cursor.getLong(sizeCol)
+                    if (modifiedCol >= 0 && !cursor.isNull(modifiedCol)) modified = cursor.getLong(modifiedCol)
+                }
+            }
+        }
+    }
+    val identity = waveformCacheIdentity(uri.toString(), durationMs, bytes, modified, buckets)
+    return File(context.filesDir, "timeline/audio/${cacheKey(identity)}.wave")
+}
+
+/** Read-only UI path: never decode or wait for a decoder on the UI coroutine. */
+internal fun readCachedAudioWaveform(
+    context: Context, uri: Uri, durationMs: Long,
+    bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
+): List<Float>? = readAudioWaveformCacheFile(audioWaveformCacheFile(context, uri, durationMs, bucketCount), bucketCount)
+
+private fun readAudioWaveformCacheFile(cache: File, bucketCount: Int): List<Float>? {
+    if (!cache.isFile) return null
+    return runCatching {
+        cache.readText().split(',').mapNotNull(String::toFloatOrNull)
+            .takeIf { it.size == bucketCount && it.all { value -> value.isFinite() && value in 0f..1f } }
+    }.getOrNull()
+}
+
+internal fun hasCachedAudioWaveform(context: Context, uri: Uri, durationMs: Long): Boolean =
+    readCachedAudioWaveform(context, uri, durationMs) != null
+
+/** Only the background worker calls this. Per-key locks prevent duplicate decoding. */
+internal fun loadAudioWaveform(
     context: Context,
     uri: Uri,
     durationMs: Long,
-    bucketCount: Int,
+    bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
 ): List<Float> {
-    val cache = File(context.filesDir, "timeline/audio/${cacheKey(uri.toString())}.wave")
-    if (cache.isFile) {
-        runCatching {
-            cache.readText()
-                .split(',')
-                .mapNotNull(String::toFloatOrNull)
-                .takeIf { it.size == bucketCount }
-        }.getOrNull()?.let { return it }
-    }
-
-    val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount)
-    if (decoded.isNotEmpty()) {
-        runCatching {
-            cache.parentFile?.mkdirs()
-            cache.writeText(decoded.joinToString(","))
+    val cache = audioWaveformCacheFile(context, uri, durationMs, bucketCount)
+    val lock = audioCacheLocks.computeIfAbsent(cache.name) { Any() }
+    return synchronized(lock) {
+        readAudioWaveformCacheFile(cache, bucketCount)?.let { return@synchronized it }
+        val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount)
+        if (decoded.size == bucketCount && decoded.any { it > 0f }) {
+            runCatching {
+                cache.parentFile?.mkdirs()
+                val temporary = File.createTempFile("waveform-", ".tmp", cache.parentFile)
+                try {
+                    temporary.writeText(decoded.joinToString(","))
+                    check(temporary.renameTo(cache))
+                } finally {
+                    temporary.delete()
+                }
+            }
         }
+        decoded
     }
-    return decoded
 }
 
 private fun decodeAudioWaveform(
@@ -297,7 +387,8 @@ private fun decodeAudioWaveform(
                 ?: inputFormat.getLongOrNull(MediaFormat.KEY_DURATION)
                 ?: 1L
             ).coerceAtLeast(1L)
-        val peaks = FloatArray(bucketCount)
+        val energy = DoubleArray(bucketCount)
+        val sampleCounts = LongArray(bucketCount)
         val info = MediaCodec.BufferInfo()
         var inputEnded = false
         var outputEnded = false
@@ -343,11 +434,12 @@ private fun decodeAudioWaveform(
                 else -> if (outputIndex >= 0) {
                     if (info.size > 0) {
                         decoder.getOutputBuffer(outputIndex)?.let { buffer ->
-                            val peak = pcmPeak(buffer, info.offset, info.size, pcmEncoding)
+                            val part = pcmEnergy(buffer, info.offset, info.size, pcmEncoding)
                             val bucket = (
                                 info.presentationTimeUs.coerceAtLeast(0L) * bucketCount / durationUs
                                 ).toInt().coerceIn(0, bucketCount - 1)
-                            peaks[bucket] = max(peaks[bucket], peak)
+                            energy[bucket] += part.total
+                            sampleCounts[bucket] += part.count
                         }
                     }
                     outputEnded = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
@@ -356,10 +448,16 @@ private fun decodeAudioWaveform(
             }
         }
 
-        val maxPeak = peaks.maxOrNull()?.coerceAtLeast(0.0001f) ?: return emptyList()
-        peaks.map { peak ->
-            sqrt((peak / maxPeak).coerceIn(0f, 1f))
+        // Average sound energy (RMS) preserves dynamics on compressed modern music.
+        // The previous maximum-sample approach made nearly every column full height.
+        val rms = FloatArray(bucketCount) { index ->
+            if (sampleCounts[index] == 0L) 0f
+            else sqrt(energy[index] / sampleCounts[index]).toFloat()
         }
+        val active = rms.filter { it > 0f }.sorted()
+        if (active.isEmpty()) return emptyList()
+        val reference = active[(active.lastIndex * 0.97).toInt()].coerceAtLeast(0.0001f)
+        rms.map { value -> sqrt((value / reference).coerceIn(0f, 1f)) }
     } catch (_: Exception) {
         emptyList()
     } finally {
@@ -369,35 +467,43 @@ private fun decodeAudioWaveform(
     }
 }
 
-private fun pcmPeak(
+internal data class PcmEnergy(val total: Double, val count: Long)
+
+/** Accumulate squared PCM samples; RMS is evaluated over actual decoded audio. */
+internal fun pcmEnergy(
     source: ByteBuffer,
     offset: Int,
     size: Int,
     encoding: Int,
-): Float {
-    if (size <= 0) return 0f
+): PcmEnergy {
+    if (size <= 0) return PcmEnergy(0.0, 0)
     val buffer = source.duplicate().order(ByteOrder.LITTLE_ENDIAN)
     buffer.position(offset.coerceIn(0, buffer.limit()))
     buffer.limit((offset + size).coerceIn(buffer.position(), buffer.limit()))
-    var peak = 0f
+    var energy = 0.0
+    var count = 0L
+    fun accumulate(value: Double) {
+        energy += value * value
+        count++
+    }
     when (encoding) {
         AudioFormat.ENCODING_PCM_FLOAT -> {
             while (buffer.remaining() >= 4) {
-                peak = max(peak, abs(buffer.float).coerceAtMost(1f))
+                accumulate(buffer.float.toDouble().coerceIn(-1.0, 1.0))
             }
         }
         AudioFormat.ENCODING_PCM_8BIT -> {
             while (buffer.hasRemaining()) {
-                peak = max(peak, abs((buffer.get().toInt() and 0xFF) - 128) / 128f)
+                accumulate(((buffer.get().toInt() and 0xFF) - 128) / 128.0)
             }
         }
         else -> {
             while (buffer.remaining() >= 2) {
-                peak = max(peak, abs(buffer.short.toInt()) / 32768f)
+                accumulate(buffer.short.toDouble() / 32768.0)
             }
         }
     }
-    return peak.coerceIn(0f, 1f)
+    return PcmEnergy(energy, count)
 }
 
 private fun Bitmap.scaledDown(maxSide: Int): Bitmap {
@@ -424,7 +530,7 @@ private fun cacheKey(value: String): String =
         .joinToString("") { "%02x".format(it) }
 
 private const val VIDEO_TIMELINE_FRAMES = 8
-private const val AUDIO_WAVEFORM_BUCKETS = 120
+internal const val AUDIO_WAVEFORM_BUCKETS = 1024
 private const val MAX_VIDEO_TIMELINE_SIDE = 360
 private const val MAX_VIDEO_PREVIEW_SIDE = 720
 private const val SCRUB_FRAME_STEP_MS = 250L
