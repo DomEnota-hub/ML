@@ -38,4 +38,12 @@ jobs:
         run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint
         if: success() || failure()
-        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+        run: |
+          set +e
+          gradle :app:lintDebug -Parm64Release=true --stacktrace
+          code=$?
+          echo "===== COMPLETE ANDROID LINT REPORT ====="
+          report=app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          if test -f "$report"; then cat "$report"; else echo "No lint text report"; fi
+          echo "===== END ANDROID LINT REPORT ====="
+          exit "$code"
