@@ -33,6 +33,13 @@ class WaveformBackgroundRenderingTest {
         assertTrue(shaped[1] < 0.40f)
     }
 
+    @Test fun shortSharpSpikesAreSoftenedButNotErased() {
+        val calibrated = normalizeWaveformRms(floatArrayOf(0.1f, 0.1f, 0.6f, 0.1f, 0.1f))
+        assertTrue(calibrated[2] > calibrated[1])
+        assertTrue(calibrated[2] < 0.92f)
+        assertTrue(calibrated[0] < calibrated[2])
+    }
+
     @Test fun pcmEnergyRepresentsAverageLoudnessNotOnlyAbsolutePeak() {
         val data = ByteBuffer.allocate(6).order(ByteOrder.LITTLE_ENDIAN)
         data.putShort(0)
