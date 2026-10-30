@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,7 +37,7 @@ fun MusicModeScreen(
     onCreate: suspend (String) -> String, onRename: suspend (String, String) -> Unit, onDeletePlaylist: suspend (String) -> Unit,
     onAddTracks: suspend (String, List<String>) -> Unit, onRemoveTrack: suspend (String, String) -> Unit,
     onMoveTrack: suspend (String, String, Int) -> Unit, onShare: (String) -> Unit, onDeleteFile: (String) -> Unit,
-    searchVisible: Boolean? = null, tabOverride: Int? = null, onTabChange: (Int) -> Unit = {},
+    searchVisible: Boolean? = null, tabOverride: Int? = null, scrollToTopRequest: Int = 0, onTabChange: (Int) -> Unit = {},
     onPreview: ((String, List<String>) -> Unit)? = null, onAddPlaylistTracks: ((String) -> Unit)? = null,
     onEnqueue: ((String, Boolean) -> Unit)? = null,
     onDetailChange: (Boolean) -> Unit = {}, currentPlayingId: String? = null, playing: Boolean = false,
@@ -46,6 +47,9 @@ fun MusicModeScreen(
     fun selectTab(value: Int) { localTab = value; onTabChange(value) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var search by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
+    var sortMenu by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
     var creating by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<MediaPlaylist?>(null) }
     var deleteTarget by remember { mutableStateOf<MediaPlaylist?>(null) }
@@ -74,15 +78,19 @@ fun MusicModeScreen(
             { addingPlaylist = null }, onPreview ?: onOpen, { onAddTracks(toAdd.id, it) })
         return
     }
-    val displayed = (if (tab == 0) tracks else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
+    val filtered = (if (tab == 0) tracks else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
         .filter { matchesMusicSearch(it, search) }
+    val displayed = if (tab == 0) sortMusicRows(filtered, sort) else filtered
+    LaunchedEffect(tab, scrollToTopRequest) {
+        if (tab == 0) listState.scrollToItem(0)
+    }
     val displayedIds = if (playlist == null) displayed.map { it.id } else playlist.trackIds.filter { id ->
         available[id]?.let { matchesMusicSearch(it, search) } ?: search.isBlank()
     }
     val queue = displayed.map { it.id }
     fun preview(id: String) { (onPreview ?: onOpen)(id, queue) }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        LazyColumn(Modifier.weight(1f).testTag("music-library"), contentPadding = PaddingValues(bottom = 12.dp)) {
+        LazyColumn(Modifier.weight(1f).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "music-controls") {
                 Column {
                     if (playlist == null) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -93,6 +101,23 @@ fun MusicModeScreen(
                     if (searchVisible != false && playlist == null) OutlinedTextField(search, { search = it },
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp), singleLine = true,
                         label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
+                    if (tab == 0) Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+                        Text("Сортировка: ${sort.label}", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box {
+                            IconButton(onClick = { sortMenu = true }) {
+                                Icon(Icons.Rounded.Sort, contentDescription = "Сортировка треков")
+                            }
+                            DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                                MusicLibrarySort.entries.forEach { option ->
+                                    DropdownMenuItem(text = { Text(option.label) },
+                                        onClick = { sort = option; sortMenu = false },
+                                        leadingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) })
+                                }
+                            }
+                        }
+                    }
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading, message, error,
                         tab == 0 && displayed.isEmpty(), "Нет аудиофайлов") }
                 }
@@ -144,7 +169,23 @@ fun MusicModeScreen(
                     if (missing > 0) Text("Недоступно треков: $missing. Записи сохранены в плейлисте.", Modifier.padding(horizontal = 17.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                items(displayedIds, key = { it }) { id ->
+                if (tab == 0) {
+                    val sections = displayed.groupBy { musicGroupLetter(musicDisplayTitle(it)) }
+                    sections.forEach { (letter, records) ->
+                        item(key = "music-letter:$letter") {
+                            Text(letter, Modifier.fillMaxWidth().padding(start = 17.dp, top = 15.dp, bottom = 7.dp),
+                                color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                        items(records, key = { it.id }) { track ->
+                            val id = track.id
+                            MusicLibraryTrackRow(track, { preview(id) }, id == currentPlayingId, playing) {
+                                MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } },
+                                    { onOpen(id, queue) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
+                                    null, null, null)
+                            }
+                        }
+                    }
+                } else items(displayedIds, key = { it }) { id ->
                     val track = available[id] ?: tracks.firstOrNull { it.id == id }
                     if (track == null && playlist != null) UnavailablePlaylistTrackRow(playlist.trackIds.indexOf(id) + 1) {
                         mutate { onRemoveTrack(playlist.id, id) }

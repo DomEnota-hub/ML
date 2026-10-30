@@ -42,7 +42,7 @@ fun GalleryModeScreen(
     onFavorite: suspend (String, Boolean) -> Unit, onSetFolder: suspend (String, String?) -> Unit,
     onCreateFolder: suspend (String) -> String, onShare: (String) -> Unit, onDelete: (String) -> Unit,
     onRename: (String, String) -> Unit, onMoveToPrivate: (String) -> Unit,
-    searchVisible: Boolean? = null, tabOverride: Int? = null, onTabChange: (Int) -> Unit = {},
+    searchVisible: Boolean? = null, tabOverride: Int? = null, scrollToTopRequest: Int = 0, onTabChange: (Int) -> Unit = {},
     deviceAlbums: Map<String, DeviceAlbum> = emptyMap(),
     onDetailChange: (Boolean) -> Unit = {}, onSettings: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
@@ -89,6 +89,7 @@ fun GalleryModeScreen(
     val selectedSet = remember(selectedIds) { selectedIds.toHashSet() }
     val mediaGridState = rememberLazyGridState()
     val albumGridState = rememberLazyGridState()
+    LaunchedEffect(tab, scrollToTopRequest) { if (tab == 0) mediaGridState.scrollToItem(0) }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
