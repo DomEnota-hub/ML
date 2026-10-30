@@ -6,19 +6,38 @@ import java.nio.ByteOrder
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WaveformBackgroundRenderingTest {
     @Test fun denseColumnsKeepHighestAmplitudeAndDoNotInventUniformHeight() {
         val peaks = listOf(0.05f, 0.20f, 0.8f, 0.1f, 0.3f, 0.9f, 0.02f, 0.6f)
-        assertArrayEquals(floatArrayOf(0.2f, 0.8f, 0.9f, 0.6f),
+        assertArrayEquals(floatArrayOf(0.13625f, 0.5025f, 0.645f, 0.3535f),
             waveformColumnPeaks(peaks, 4), 0.0001f)
     }
 
     @Test fun drawingMoreColumnsKeepsDistinctSoundDynamics() {
         val peaks = listOf(0.05f, 0.8f, 0.15f, 0.9f)
         assertArrayEquals(peaks.toFloatArray(), waveformColumnPeaks(peaks, 4), 0f)
-        assertArrayEquals(floatArrayOf(0.8f, 0.9f), waveformColumnPeaks(peaks, 2), 0f)
+        assertArrayEquals(floatArrayOf(0.48125f, 0.58125f), waveformColumnPeaks(peaks, 2), 0.0001f)
+    }
+
+    @Test fun calibratedRmsPreservesDynamicsAndAvoidsSaturatedFullHeight() {
+        val rms = floatArrayOf(0.0f, 0.12f, 0.2f, 0.35f, 0.4f)
+        val shaped = normalizeWaveformRms(rms)
+        assertEquals(0f, shaped[0], 0f)
+        assertTrue(shaped[1] < shaped[2])
+        assertTrue(shaped[2] < shaped[3])
+        assertTrue(shaped[3] < shaped[4])
+        assertTrue(shaped[4] <= 0.92f)
+        assertTrue(shaped[1] < 0.40f)
+    }
+
+    @Test fun shortSharpSpikesAreSoftenedButNotErased() {
+        val calibrated = normalizeWaveformRms(floatArrayOf(0.1f, 0.1f, 0.6f, 0.1f, 0.1f))
+        assertTrue(calibrated[2] > calibrated[1])
+        assertTrue(calibrated[2] < 0.92f)
+        assertTrue(calibrated[0] < calibrated[2])
     }
 
     @Test fun pcmEnergyRepresentsAverageLoudnessNotOnlyAbsolutePeak() {
