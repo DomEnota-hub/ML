@@ -421,9 +421,10 @@ private fun PhotoWorkspaceTools(
                         { onActiveLevel(control) }, !locked)
                 }
                 PhotoWorkspaceTab.EFFECTS -> PhotoEffect.entries.forEach { effect ->
-                    PhotoToolCard(effect.label, Icons.Rounded.AutoAwesome,
-                        edit.color.effect == effect,
-                        { onEdit(edit.copy(color = edit.color.copy(effect = effect))) }, !locked)
+                    PhotoEffectCard(effect = effect, info = info, base = edit.color,
+                        selected = edit.color.effect == effect,
+                        enabled = !locked && info != null,
+                        onClick = { onEdit(edit.copy(color = edit.color.copy(effect = effect))) })
                 }
                 PhotoWorkspaceTab.TEXT, PhotoWorkspaceTab.WATERMARK -> {
                     PhotoToolCard(if (tab == PhotoWorkspaceTab.TEXT) "Добавить надпись" else "Текстовый знак",
@@ -440,6 +441,33 @@ private fun PhotoWorkspaceTools(
             PhotoWorkspaceTab.entries.forEach { category ->
                 FilterChip(selected = tab == category, onClick = { onTab(category) },
                     label = { Text(category.title, fontSize = 13.sp) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhotoEffectCard(
+    effect: PhotoEffect, info: PhotoSourceInfo?, base: PhotoColorAdjustments,
+    selected: Boolean, enabled: Boolean, onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.width(91.dp).height(67.dp), onClick = onClick, enabled = enabled,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF232328),
+    ) {
+        Box(Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(9.dp)),
+            contentAlignment = Alignment.BottomCenter) {
+            info?.let { source ->
+                val adjusted = base.copy(effect = effect)
+                Image(source.preview.asImageBitmap(), contentDescription = null,
+                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                    colorFilter = if (adjusted.isNeutral()) null
+                    else ColorFilter.colorMatrix(ComposeColorMatrix(PhotoColorMath.matrix(adjusted).array)))
+            }
+            Box(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .55f)),
+                contentAlignment = Alignment.Center) {
+                Text(effect.label, fontSize = 11.sp, color = Color.White, maxLines = 1)
             }
         }
     }
