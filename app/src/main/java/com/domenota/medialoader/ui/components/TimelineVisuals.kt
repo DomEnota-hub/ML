@@ -40,6 +40,7 @@ import java.security.MessageDigest
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.sqrt
+import kotlin.math.pow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -197,10 +198,17 @@ internal fun waveformColumnPeaks(peaks: List<Float>, columns: Int): FloatArray {
         val first = column * peaks.size / columns
         val lastExclusive = ((column + 1) * peaks.size / columns).coerceAtLeast(first + 1)
         var peak = 0f
+        var sum = 0f
+        var count = 0
         for (index in first until lastExclusive.coerceAtMost(peaks.size)) {
-            peak = max(peak, peaks[index])
+            val value = peaks[index].coerceIn(0f, 1f)
+            peak = max(peak, value)
+            sum += value
+            count++
         }
-        peak.coerceIn(0f, 1f)
+        // Average body level, retain a small contribution from brief transients.
+        // The old peak-only reduction made every stroke close to full height.
+        if (count == 0) 0f else (sum / count * 0.85f + peak * 0.15f).coerceIn(0f, 1f)
     }
 }
 
@@ -278,7 +286,7 @@ private val audioCacheLocks = java.util.concurrent.ConcurrentHashMap<String, Any
 
 /** Content and file updates invalidate a saved waveform, even when their URI is unchanged. */
 internal fun waveformCacheIdentity(uri: String, durationMs: Long, size: Long, modified: Long, buckets: Int): String =
-    "v5|$uri|$durationMs|$size|$modified|$buckets"
+    "v6|$uri|$durationMs|$size|$modified|$buckets"
 
 private fun audioWaveformCacheFile(context: Context, uri: Uri, durationMs: Long, buckets: Int): File {
     var bytes = -1L
@@ -454,16 +462,28 @@ private fun decodeAudioWaveform(
             if (sampleCounts[index] == 0L) 0f
             else sqrt(energy[index] / sampleCounts[index]).toFloat()
         }
-        val active = rms.filter { it > 0f }.sorted()
-        if (active.isEmpty()) return emptyList()
-        val reference = active[(active.lastIndex * 0.97).toInt()].coerceAtLeast(0.0001f)
-        rms.map { value -> sqrt((value / reference).coerceIn(0f, 1f)) }
+        normalizeWaveformRms(rms)
     } catch (_: Exception) {
         emptyList()
     } finally {
         runCatching { codec?.stop() }
         runCatching { codec?.release() }
         extractor.release()
+    }
+}
+
+/**
+ * Calm amplitude calibration for the gallery editor, similar in dynamic range to AIMP:
+ * quieter passages remain visibly shorter; mastered peaks no longer saturate the strip.
+ * Uses a robust high percentile but intentionally does NOT apply a square-root loudness boost.
+ */
+internal fun normalizeWaveformRms(rms: FloatArray): List<Float> {
+    val active = rms.filter { it.isFinite() && it > 0f }.sorted()
+    if (active.isEmpty()) return emptyList()
+    val reference = active[(active.lastIndex * 0.985f).toInt()].coerceAtLeast(0.0001f)
+    return rms.map { value ->
+        if (!value.isFinite() || value <= 0f) 0f
+        else (0.92f * (value / reference).coerceIn(0f, 1f).pow(1.08f)).coerceIn(0f, 0.92f)
     }
 }
 
