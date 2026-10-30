@@ -6,73 +6,62 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Flip
-import androidx.compose.material.icons.rounded.FlipToFront
-import androidx.compose.material.icons.rounded.RotateRight
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix as ComposeColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.core.database.DownloadEntity
-import com.domenota.medialoader.data.editor.CropAspectPreset
-import com.domenota.medialoader.data.editor.CropFractions
-import com.domenota.medialoader.data.editor.EditorExportState
-import com.domenota.medialoader.data.editor.PhotoEditSpec
-import com.domenota.medialoader.data.editor.MaskStroke
-import com.domenota.medialoader.data.editor.VideoCropMath
+import com.domenota.medialoader.data.editor.*
 import com.domenota.medialoader.ui.components.CropFrameOverlay
 import com.domenota.medialoader.ui.components.EditorTextDialog
-import com.domenota.medialoader.data.editor.TextLayer
-import com.domenota.medialoader.data.editor.TextLayerRenderer
 import com.domenota.medialoader.ui.components.rememberEditorExitRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-private data class PhotoSourceInfo(
-    val width: Int,
-    val height: Int,
-    val preview: Bitmap,
+private data class PhotoSourceInfo(val width: Int, val height: Int, val preview: Bitmap)
+
+private enum class PhotoWorkspaceTab(val title: String) {
+    CROP("Обрезка"), LEVELS("Уровни"), EFFECTS("Эффекты"),
+    TEXT("Надпись"), WATERMARK("Водяной знак"), AI("AI")
+}
+private enum class PhotoLevelControl(val title: String) {
+    EXPOSURE("Выдержка"), BRIGHTNESS("Яркость"), CONTRAST("Контраст"),
+    SATURATION("Насыщенность"), WARMTH("Теплота")
+}
+
+private data class PhotoEditSnapshot(
+    val crop: CropFractions = CropFractions(),
+    val cropPreset: CropAspectPreset = CropAspectPreset.FREE,
+    val rotation: Int = 0,
+    val mirrorHorizontal: Boolean = false,
+    val mirrorVertical: Boolean = false,
+    val color: PhotoColorAdjustments = PhotoColorAdjustments(),
+    val textLayers: List<TextLayer> = emptyList(),
+    val overlayPath: String? = null,
+    val appliedMasks: List<List<MaskStroke>> = emptyList(),
+    val inpaintPreview: Bitmap? = null,
 )
 
-@kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PhotoEditorScreen(
     item: DownloadEntity,
@@ -84,91 +73,151 @@ fun PhotoEditorScreen(
     val context = LocalContext.current
     val uri = item.savedUri?.let(Uri::parse)
     val ownExport = exportState.exporting && exportState.sourceId == item.id
-    val busyWithOther = exportState.exporting && exportState.sourceId != null &&
-        exportState.sourceId != item.id
-    var sourceInfo by remember(uri) { mutableStateOf<PhotoSourceInfo?>(null) }
+    val busyWithOther = exportState.exporting && exportState.sourceId != null && exportState.sourceId != item.id
+    val locked = ownExport || busyWithOther
     var originalInfo by remember(uri) { mutableStateOf<PhotoSourceInfo?>(null) }
-    var removeObjects by remember(item.id) { mutableStateOf(false) }
-    var overlayPath by remember(item.id) { mutableStateOf<String?>(null) }
-    var appliedMasks by remember(item.id) { mutableStateOf<List<List<MaskStroke>>>(emptyList()) }
-    var crop by remember(item.id) { mutableStateOf(CropFractions()) }
-    var cropPreset by remember(item.id) { mutableStateOf(CropAspectPreset.FREE) }
-    var rotation by remember(item.id) { mutableIntStateOf(0) }
-    var mirrorHorizontal by remember(item.id) { mutableStateOf(false) }
-    var mirrorVertical by remember(item.id) { mutableStateOf(false) }
-    var textLayers by remember(item.id) { mutableStateOf<List<TextLayer>>(emptyList()) }
+    var edit by remember(item.id) { mutableStateOf(PhotoEditSnapshot()) }
+    val undoHistory = remember(item.id) { mutableStateListOf<PhotoEditSnapshot>() }
+    val redoHistory = remember(item.id) { mutableStateListOf<PhotoEditSnapshot>() }
+    var pendingGesture by remember(item.id) { mutableStateOf<PhotoEditSnapshot?>(null) }
     var textEditorOpen by remember(item.id) { mutableStateOf(false) }
-    var showTextResult by remember(item.id) { mutableStateOf(false) }
+    var removeObjects by remember(item.id) { mutableStateOf(false) }
+    var currentTab by remember(item.id) { mutableStateOf(PhotoWorkspaceTab.CROP) }
+    var activeLevel by remember(item.id) { mutableStateOf(PhotoLevelControl.BRIGHTNESS) }
+    var cropTool by remember(item.id) { mutableStateOf("ratio") }
+    var menuOpen by remember { mutableStateOf(false) }
     var textResultPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
 
-    val hasUnsavedChanges = crop != CropFractions() ||
-        cropPreset != CropAspectPreset.FREE ||
-        rotation != 0 || mirrorHorizontal || mirrorVertical || overlayPath != null || textLayers.isNotEmpty()
-    val requestExit = rememberEditorExitRequest(
-        hasUnsavedChanges = hasUnsavedChanges && !ownExport,
-        onExit = onBack,
-    )
-    fun resetEdits() {
-        crop = CropFractions()
-        cropPreset = CropAspectPreset.FREE
-        rotation = 0
-        mirrorHorizontal = false
-        mirrorVertical = false
-        textLayers = emptyList()
-        showTextResult = false
-        if (!ownExport) overlayPath?.let { runCatching { java.io.File(it).delete() } }
-        overlayPath = null
-        appliedMasks = emptyList()
-        originalInfo?.let { sourceInfo = it }
+    fun commit(next: PhotoEditSnapshot) {
+        if (locked || edit == next) return
+        if (undoHistory.size >= 32) undoHistory.removeAt(0)
+        undoHistory.add(edit)
+        edit = next
+        redoHistory.clear()
     }
-
-    LaunchedEffect(uri) {
-        if (uri == null) return@LaunchedEffect
-        val loaded = withContext(Dispatchers.IO) { readPhotoSource(context, uri) }
-        originalInfo = loaded
-        sourceInfo = loaded
-    }
-
-    if (textEditorOpen && sourceInfo != null) EditorTextDialog(
-        initial = textLayers,
-        loadPreview = { withContext(Dispatchers.Default) {
-            TextLayerRenderer.preview(requireNotNull(sourceInfo).preview, crop, rotation, mirrorHorizontal, mirrorVertical)
-        } },
-        onApply = { textLayers = it; textEditorOpen = false; showTextResult = it.isNotEmpty() },
-        onDismiss = { textEditorOpen = false },
-    )
-    LaunchedEffect(sourceInfo, crop, rotation, mirrorHorizontal, mirrorVertical, textLayers, showTextResult) {
-        val source = sourceInfo?.preview
-        if (showTextResult && source != null) {
-            textResultPreview = withContext(Dispatchers.Default) {
-                val transformed = TextLayerRenderer.preview(source, crop, rotation, mirrorHorizontal, mirrorVertical)
-                val rendered = transformed.copy(Bitmap.Config.ARGB_8888, true)
-                transformed.recycle()
-                TextLayerRenderer.draw(context, android.graphics.Canvas(rendered), rendered.width,
-                    rendered.height, textLayers, includeAll = true)
-                rendered
+    fun finishGesture() {
+        pendingGesture?.let { before ->
+            if (before != edit) {
+                if (undoHistory.size >= 32) undoHistory.removeAt(0)
+                undoHistory.add(before)
+                redoHistory.clear()
             }
+        }
+        pendingGesture = null
+    }
+    fun undo() {
+        if (!locked && undoHistory.isNotEmpty()) {
+            redoHistory.add(edit)
+            edit = undoHistory.removeAt(undoHistory.lastIndex)
+        }
+    }
+    fun redo() {
+        if (!locked && redoHistory.isNotEmpty()) {
+            undoHistory.add(edit)
+            edit = redoHistory.removeAt(redoHistory.lastIndex)
+        }
+    }
+    fun reset() {
+        if (!locked) {
+            commit(PhotoEditSnapshot())
+            pendingGesture = null
         }
     }
 
+    val info = originalInfo?.let { base ->
+        edit.inpaintPreview?.let { base.copy(preview = it) } ?: base
+    }
+    val dirty = edit != PhotoEditSnapshot()
+    val requestExit = rememberEditorExitRequest(
+        hasUnsavedChanges = dirty && !ownExport, onExit = onBack
+    )
+    LaunchedEffect(uri) {
+        if (uri != null) {
+            originalInfo = withContext(Dispatchers.IO) { readPhotoSource(context, uri) }
+        }
+    }
+
+    // Text is composited after color adjustments, matching the full-resolution exporter.
+    LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
+        edit.color, edit.textLayers) {
+        val source = info?.preview
+        if (source == null || edit.textLayers.isEmpty()) {
+            textResultPreview = null
+            return@LaunchedEffect
+        }
+        delay(80L)
+        textResultPreview = withContext(Dispatchers.Default) {
+            val transformed = TextLayerRenderer.preview(source, edit.crop, edit.rotation,
+                edit.mirrorHorizontal, edit.mirrorVertical)
+            val colored = PhotoColorMath.apply(transformed, edit.color)
+            val output = colored.copy(Bitmap.Config.ARGB_8888, true)
+            TextLayerRenderer.draw(context, android.graphics.Canvas(output),
+                output.width, output.height, edit.textLayers, includeAll = true)
+            if (colored !== transformed) colored.recycle()
+            transformed.recycle()
+            output
+        }
+    }
+
+    if (textEditorOpen && info != null) {
+        EditorTextDialog(
+            initial = edit.textLayers,
+            loadPreview = { _: Long -> withContext(Dispatchers.Default) {
+                val transformed = TextLayerRenderer.preview(info.preview, edit.crop, edit.rotation,
+                    edit.mirrorHorizontal, edit.mirrorVertical)
+                val colored = PhotoColorMath.apply(transformed, edit.color)
+                if (colored !== transformed) transformed.recycle()
+                colored
+            } },
+            onApply = { layers -> commit(edit.copy(textLayers = layers)); textEditorOpen = false },
+            onDismiss = { textEditorOpen = false },
+        )
+    }
+
     Scaffold(
+        containerColor = Color.Black,
+        contentColor = Color.White,
         topBar = {
-            TopAppBar(
-                title = { Text("Редактор фото") },
-                navigationIcon = {
-                    IconButton(onClick = { if (removeObjects) removeObjects = false else requestExit() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
+            Row(Modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 7.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { if (removeObjects) removeObjects = false else requestExit() }) {
+                    Icon(Icons.Rounded.Close, "Закрыть редактор", tint = Color.White)
+                }
+                IconButton(onClick = ::undo, enabled = !locked && undoHistory.isNotEmpty() && !removeObjects) {
+                    Icon(Icons.Rounded.Undo, "Отменить", tint = if (undoHistory.isNotEmpty()) Color.White else Color.Gray)
+                }
+                IconButton(onClick = ::redo, enabled = !locked && redoHistory.isNotEmpty() && !removeObjects) {
+                    Icon(Icons.Rounded.Redo, "Повторить", tint = if (redoHistory.isNotEmpty()) Color.White else Color.Gray)
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = {
+                        onExport(PhotoEditSpec(
+                            cropLeft = edit.crop.left, cropRight = edit.crop.right,
+                            cropTop = edit.crop.top, cropBottom = edit.crop.bottom,
+                            rotationDegrees = edit.rotation,
+                            mirrorHorizontal = edit.mirrorHorizontal, mirrorVertical = edit.mirrorVertical,
+                            inpaintOverlayPath = edit.overlayPath, textLayers = edit.textLayers,
+                            colorAdjustments = edit.color,
+                        ))
+                    },
+                    enabled = dirty && info != null && !locked && !removeObjects,
+                ) { Text("Сохранить", color = if (dirty && !locked) Color.White else Color.Gray) }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Rounded.MoreVert, "Дополнительно", tint = Color.White)
                     }
-                },
-                actions = {
-                    if (!removeObjects) TextButton(
-                        onClick = ::resetEdits,
-                        enabled = hasUnsavedChanges && !ownExport,
-                    ) {
-                        Text("Сбросить")
+                    DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(text = { Text("Сбросить изменения") },
+                            enabled = dirty && !locked,
+                            onClick = { menuOpen = false; reset() },
+                            leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) })
+                        DropdownMenuItem(text = { Text("Исходник сохранится без изменений") },
+                            onClick = { menuOpen = false },
+                            leadingIcon = { Icon(Icons.Rounded.Info, null) })
                     }
-                },
-            )
+                }
+            }
         },
     ) { padding ->
         if (uri == null) {
@@ -177,18 +226,14 @@ fun PhotoEditorScreen(
             }
             return@Scaffold
         }
-
-        if (removeObjects && sourceInfo != null) {
+        if (removeObjects && info != null) {
             ObjectRemovalPanel(
-                modifier = Modifier.padding(padding),
-                originalWorkingImage = requireNotNull(sourceInfo).preview,
-                earlierMasks = appliedMasks,
+                modifier = Modifier.fillMaxSize().padding(padding),
+                originalWorkingImage = info.preview,
+                earlierMasks = edit.appliedMasks,
                 onAccept = { bitmap, masks, path ->
-                    if (!ownExport) {
-                        overlayPath?.let { runCatching { java.io.File(it).delete() } }
-                        overlayPath = path
-                        appliedMasks = masks
-                        sourceInfo = sourceInfo?.copy(preview = bitmap)
+                    if (!locked) {
+                        commit(edit.copy(overlayPath = path, appliedMasks = masks, inpaintPreview = bitmap))
                         removeObjects = false
                     }
                 },
@@ -196,239 +241,225 @@ fun PhotoEditorScreen(
             )
             return@Scaffold
         }
-
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-        ) {
-            if (textLayers.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !showTextResult, onClick = { showTextResult = false }, label = { Text("Кадрирование") })
-                FilterChip(selected = showTextResult, onClick = { showTextResult = true }, label = { Text("Итог с текстом") })
-            }
-            val info = sourceInfo
-            if (info == null) {
-                Box(
-                    Modifier.fillMaxWidth().height(280.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("Открываем изображение…")
-                }
-            } else if (showTextResult && textResultPreview != null) {
-                val rendered = requireNotNull(textResultPreview)
-                Image(rendered.asImageBitmap(), contentDescription = "Итог с текстом",
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp), contentScale = ContentScale.Fit)
-            } else {
-                PhotoCropPreview(
-                    info = info,
-                    crop = crop,
-                    cropPreset = cropPreset,
-                    rotation = rotation,
-                    mirrorHorizontal = mirrorHorizontal,
-                    mirrorVertical = mirrorVertical,
-                    onCropChange = { crop = it },
-                )
-            }
-
-            Spacer(Modifier.height(14.dp))
-            Button(onClick = { textEditorOpen = true },
-                enabled = sourceInfo != null && !ownExport && !busyWithOther,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(if (textLayers.isEmpty()) "Добавить текст" else "Текст · ${textLayers.size} слоёв — просмотреть и изменить")
-            }
-            Spacer(Modifier.height(10.dp))
-            Button(
-                onClick = { removeObjects = true },
-                enabled = sourceInfo != null && !ownExport && !busyWithOther,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            ) { Text("Удалить объект с фото · LaMa") }
-            Spacer(Modifier.height(18.dp))
-            Text("Кадрирование", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Потяни сторону или угол рамки. Затемнённая область будет удалена.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(10.dp))
-
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CropAspectPreset.entries.forEach { preset ->
-                    FilterChip(
-                        selected = cropPreset == preset,
-                        onClick = {
-                            cropPreset = preset
-                            sourceInfo?.let { source ->
-                                if (preset != CropAspectPreset.FREE) {
-                                    crop = VideoCropMath.centerCrop(
-                                        source.width,
-                                        source.height,
-                                        preset,
-                                    )
-                                }
-                            }
+        Column(Modifier.fillMaxSize().padding(padding).background(Color.Black)) {
+            Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 10.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center) {
+                if (info == null) {
+                    Text("Открываем изображение…", color = Color.LightGray)
+                } else if (currentTab != PhotoWorkspaceTab.CROP &&
+                    edit.textLayers.isNotEmpty() && textResultPreview != null) {
+                    Image(requireNotNull(textResultPreview).asImageBitmap(), "Предпросмотр фотографии",
+                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                } else {
+                    PhotoWorkspacePreview(
+                        info = info, edit = edit,
+                        cropFrameVisible = currentTab == PhotoWorkspaceTab.CROP && !locked,
+                        onCropChange = {
+                            if (pendingGesture == null) pendingGesture = edit
+                            edit = edit.copy(crop = it)
                         },
-                        label = { Text(preset.label) },
+                        onCropFinished = ::finishGesture,
                     )
                 }
             }
-
-            sourceInfo?.let { source ->
-                Spacer(Modifier.height(10.dp))
-                val outWidth = (source.width * crop.keptWidth).roundToInt().coerceAtLeast(1)
-                val outHeight = (source.height * crop.keptHeight).roundToInt().coerceAtLeast(1)
-                val rotated = rotation % 180 != 0
-                Text(
-                    "Итог: ${if (rotated) outHeight else outWidth} × ${if (rotated) outWidth else outHeight} px",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-            }
-
-            Spacer(Modifier.height(22.dp))
-            Text("Поворот и отражение", style = MaterialTheme.typography.titleMedium)
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilterChip(
-                    selected = rotation != 0,
-                    onClick = { rotation = (rotation + 90) % 360 },
-                    label = { Text(if (rotation == 0) "Повернуть 90°" else "Поворот $rotation°") },
-                    leadingIcon = { Icon(Icons.Rounded.RotateRight, contentDescription = null) },
-                )
-                FilterChip(
-                    selected = mirrorHorizontal,
-                    onClick = { mirrorHorizontal = !mirrorHorizontal },
-                    label = { Text("По горизонтали") },
-                    leadingIcon = { Icon(Icons.Rounded.Flip, contentDescription = null) },
-                )
-                FilterChip(
-                    selected = mirrorVertical,
-                    onClick = { mirrorVertical = !mirrorVertical },
-                    label = { Text("По вертикали") },
-                    leadingIcon = { Icon(Icons.Rounded.FlipToFront, contentDescription = null) },
-                )
-            }
-
-            Spacer(Modifier.height(26.dp))
             if (ownExport) {
-                Text("${exportState.operation} · ${exportState.progress}%")
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { exportState.progress / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "Можно выйти из редактора — обработка продолжится в фоне.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                Spacer(Modifier.height(4.dp))
-                TextButton(onClick = onCancelExport) { Text("Отменить") }
-            } else {
-                if (busyWithOther) {
-                    Text(
-                        "Сейчас обрабатывается другой файл. Дождись завершения или отмени обработку из уведомления.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 10.dp),
-                    )
-                }
-                Button(
-                    onClick = {
-                        onExport(
-                            PhotoEditSpec(
-                                cropLeft = crop.left,
-                                cropRight = crop.right,
-                                cropTop = crop.top,
-                                cropBottom = crop.bottom,
-                                rotationDegrees = rotation,
-                                mirrorHorizontal = mirrorHorizontal,
-                                mirrorVertical = mirrorVertical,
-                                inpaintOverlayPath = overlayPath,
-                                textLayers = textLayers,
-                            ),
-                        )
+                Text(exportState.operation + " · " + exportState.progress + "%",
+                    modifier = Modifier.padding(horizontal = 16.dp))
+                LinearProgressIndicator(progress = { exportState.progress / 100f },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                TextButton(onClick = onCancelExport) { Text("Отменить обработку") }
+            } else if (busyWithOther) {
+                Text("Обрабатывается другой файл. Редактирование временно недоступно.",
+                    modifier = Modifier.padding(12.dp), color = Color.LightGray)
+            }
+            if (!removeObjects) {
+                PhotoWorkspaceTools(
+                    tab = currentTab, onTab = { currentTab = it },
+                    cropTool = cropTool, onCropTool = { cropTool = it },
+                    edit = edit, info = info, locked = locked,
+                    activeLevel = activeLevel, onActiveLevel = { activeLevel = it },
+                    onEdit = ::commit,
+                    onLiveEdit = { update ->
+                        if (pendingGesture == null) pendingGesture = edit
+                        edit = update
                     },
-                    enabled = sourceInfo != null && !busyWithOther,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                ) {
-                    Text("Сохранить копию")
-                }
-                Text(
-                    "Исходное фото не изменяется.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
+                    onEditFinished = ::finishGesture,
+                    onText = { textEditorOpen = true },
+                    onLaMa = { removeObjects = true },
                 )
             }
-
             exportState.message
                 ?.takeIf { exportState.sourceId == null || exportState.sourceId == item.id }
-                ?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                }
-            Spacer(Modifier.height(24.dp))
+                ?.let { Text(it, color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) }
         }
     }
 }
 
 @Composable
-private fun PhotoCropPreview(
-    info: PhotoSourceInfo,
-    crop: CropFractions,
-    cropPreset: CropAspectPreset,
-    rotation: Int,
-    mirrorHorizontal: Boolean,
-    mirrorVertical: Boolean,
-    onCropChange: (CropFractions) -> Unit,
+private fun PhotoWorkspacePreview(
+    info: PhotoSourceInfo, edit: PhotoEditSnapshot,
+    cropFrameVisible: Boolean, onCropChange: (CropFractions) -> Unit,
+    onCropFinished: () -> Unit,
 ) {
     var showOriginal by remember(info.preview) { mutableStateOf(false) }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .aspectRatio((info.width.toFloat() / info.height.coerceAtLeast(1)).coerceIn(0.35f, 2.4f))
-            .background(Color.Black),
-    ) {
-        Image(
-            bitmap = info.preview.asImageBitmap(),
-            contentDescription = null,
+    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        val adjust = if (showOriginal) PhotoColorAdjustments() else edit.color
+        Image(info.preview.asImageBitmap(), null,
             contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    rotationZ = if (showOriginal) 0f else rotation.toFloat()
-                    scaleX = if (!showOriginal && mirrorHorizontal) -1f else 1f
-                    scaleY = if (!showOriginal && mirrorVertical) -1f else 1f
-                },
-        )
-        CropFrameOverlay(
-            crop = crop,
-            sourceWidth = info.width,
-            sourceHeight = info.height,
-            preset = cropPreset,
-            onCropChange = onCropChange,
-            modifier = Modifier.fillMaxSize(),
-            showFrame = !showOriginal,
-            onCompareOriginalChange = { showOriginal = it },
-        )
-        if (showOriginal) {
-            Text(
-                "Оригинал",
-                color = Color.White,
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(10.dp)
-                    .background(Color.Black.copy(alpha = 0.62f), MaterialTheme.shapes.small)
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            colorFilter = if (adjust.isNeutral()) null else ColorFilter.colorMatrix(
+                ComposeColorMatrix(PhotoColorMath.matrix(adjust).array)),
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                rotationZ = if (showOriginal) 0f else edit.rotation.toFloat()
+                scaleX = if (!showOriginal && edit.mirrorHorizontal) -1f else 1f
+                scaleY = if (!showOriginal && edit.mirrorVertical) -1f else 1f
+            })
+        if (cropFrameVisible) {
+            CropFrameOverlay(
+                crop = edit.crop, sourceWidth = info.width, sourceHeight = info.height,
+                preset = edit.cropPreset, onCropChange = onCropChange,
+                modifier = Modifier.fillMaxSize(),
+                showFrame = !showOriginal,
+                onCompareOriginalChange = { showOriginal = it },
+                onCropChangeFinished = onCropFinished,
             )
+        }
+    }
+}
+
+@Composable
+private fun PhotoWorkspaceTools(
+    tab: PhotoWorkspaceTab, onTab: (PhotoWorkspaceTab) -> Unit,
+    cropTool: String, onCropTool: (String) -> Unit,
+    edit: PhotoEditSnapshot, info: PhotoSourceInfo?, locked: Boolean,
+    activeLevel: PhotoLevelControl, onActiveLevel: (PhotoLevelControl) -> Unit,
+    onEdit: (PhotoEditSnapshot) -> Unit,
+    onLiveEdit: (PhotoEditSnapshot) -> Unit,
+    onEditFinished: () -> Unit,
+    onText: () -> Unit, onLaMa: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().background(Color.Black).height(188.dp)) {
+        Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
+            when (tab) {
+                PhotoWorkspaceTab.CROP -> {
+                    if (cropTool == "ratio") Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CropAspectPreset.entries.forEach { preset ->
+                            FilterChip(selected = edit.cropPreset == preset,
+                                enabled = !locked && info != null,
+                                onClick = {
+                                    val crop = if (preset == CropAspectPreset.FREE) CropFractions()
+                                        else info?.let {
+                                            VideoCropMath.centerCrop(it.width, it.height, preset)
+                                        } ?: CropFractions()
+                                    onEdit(edit.copy(cropPreset = preset, crop = crop))
+                                }, label = { Text(preset.label) })
+                        }
+                    } else Text(
+                        if (cropTool == "rotate") "Поворот: " + edit.rotation + "°"
+                        else "Нажми инструмент ещё раз для отражения",
+                        fontSize = 13.sp, color = Color.LightGray)
+                }
+                PhotoWorkspaceTab.LEVELS -> {
+                    val value = when(activeLevel) {
+                        PhotoLevelControl.EXPOSURE -> edit.color.exposure
+                        PhotoLevelControl.BRIGHTNESS -> edit.color.brightness
+                        PhotoLevelControl.CONTRAST -> edit.color.contrast
+                        PhotoLevelControl.SATURATION -> edit.color.saturation
+                        PhotoLevelControl.WARMTH -> edit.color.warmth
+                    }
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(activeLevel.title, fontSize = 12.sp, color = Color.LightGray)
+                            Text(value.roundToInt().toString(), fontSize = 12.sp, color = Color.LightGray)
+                        }
+                        Slider(
+                            value = value, onValueChange = { next ->
+                                val color = when(activeLevel) {
+                                    PhotoLevelControl.EXPOSURE -> edit.color.copy(exposure = next)
+                                    PhotoLevelControl.BRIGHTNESS -> edit.color.copy(brightness = next)
+                                    PhotoLevelControl.CONTRAST -> edit.color.copy(contrast = next)
+                                    PhotoLevelControl.SATURATION -> edit.color.copy(saturation = next)
+                                    PhotoLevelControl.WARMTH -> edit.color.copy(warmth = next)
+                                }
+                                onLiveEdit(edit.copy(color = color))
+                            },
+                            onValueChangeFinished = onEditFinished,
+                            valueRange = -100f..100f, enabled = !locked && info != null,
+                        )
+                    }
+                }
+                PhotoWorkspaceTab.EFFECTS -> {
+                    Text("Выбери эффект — изменения сразу появятся на фотографии",
+                        fontSize = 12.sp, color = Color.LightGray)
+                }
+                PhotoWorkspaceTab.TEXT, PhotoWorkspaceTab.WATERMARK ->
+                    Text("Текст добавляется слоями и не изменяет исходное изображение",
+                        fontSize = 12.sp, color = Color.LightGray)
+                PhotoWorkspaceTab.AI ->
+                    Text("LaMa · удаление объектов на устройстве",
+                        fontSize = 12.sp, color = Color.LightGray)
+            }
+        }
+        Row(Modifier.fillMaxWidth().height(76.dp).horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            when(tab) {
+                PhotoWorkspaceTab.CROP -> {
+                    PhotoToolCard("Соотношение", Icons.Rounded.Crop, cropTool == "ratio",
+                        { onCropTool("ratio") }, !locked)
+                    PhotoToolCard("Поворот", Icons.Rounded.RotateRight, false,
+                        { onCropTool("rotate"); onEdit(edit.copy(rotation = (edit.rotation + 90) % 360)) }, !locked)
+                    PhotoToolCard("Горизонтально", Icons.Rounded.Flip, false,
+                        { onCropTool("horizontal"); onEdit(edit.copy(mirrorHorizontal = !edit.mirrorHorizontal)) }, !locked)
+                    PhotoToolCard("Вертикально", Icons.Rounded.FlipToFront, false,
+                        { onCropTool("vertical"); onEdit(edit.copy(mirrorVertical = !edit.mirrorVertical)) }, !locked)
+                }
+                PhotoWorkspaceTab.LEVELS -> PhotoLevelControl.entries.forEach { control ->
+                    PhotoToolCard(control.title, Icons.Rounded.Tune, activeLevel == control,
+                        { onActiveLevel(control) }, !locked)
+                }
+                PhotoWorkspaceTab.EFFECTS -> PhotoEffect.entries.forEach { effect ->
+                    PhotoToolCard(effect.label, Icons.Rounded.AutoAwesome,
+                        edit.color.effect == effect,
+                        { onEdit(edit.copy(color = edit.color.copy(effect = effect))) }, !locked)
+                }
+                PhotoWorkspaceTab.TEXT, PhotoWorkspaceTab.WATERMARK -> {
+                    PhotoToolCard(if (tab == PhotoWorkspaceTab.TEXT) "Добавить надпись" else "Текстовый знак",
+                        Icons.Rounded.TextFields, false, onText, !locked && info != null)
+                }
+                PhotoWorkspaceTab.AI ->
+                    PhotoToolCard("AI-ластик · LaMa", Icons.Rounded.AutoFixHigh,
+                        false, onLaMa, !locked && info != null)
+            }
+        }
+        Row(Modifier.fillMaxWidth().height(48.dp).horizontalScroll(rememberScrollState())
+            .padding(horizontal = 11.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            PhotoWorkspaceTab.entries.forEach { category ->
+                FilterChip(selected = tab == category, onClick = { onTab(category) },
+                    label = { Text(category.title, fontSize = 13.sp) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhotoToolCard(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean, onClick: () -> Unit, enabled: Boolean) {
+    Surface(onClick = onClick, enabled = enabled,
+        modifier = Modifier.width(106.dp).height(67.dp),
+        shape = RoundedCornerShape(15.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF242428)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 5.dp),
+            verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, null, modifier = Modifier.size(22.dp),
+                tint = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White)
+            Spacer(Modifier.height(4.dp))
+            Text(label, fontSize = 11.sp, maxLines = 2,
+                overflow = TextOverflow.Ellipsis, lineHeight = 12.sp,
+                color = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White)
         }
     }
 }
