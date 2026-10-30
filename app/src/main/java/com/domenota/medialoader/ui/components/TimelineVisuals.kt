@@ -387,7 +387,8 @@ private fun decodeAudioWaveform(
                 ?: inputFormat.getLongOrNull(MediaFormat.KEY_DURATION)
                 ?: 1L
             ).coerceAtLeast(1L)
-        val peaks = FloatArray(bucketCount)
+        val energy = DoubleArray(bucketCount)
+        val sampleCounts = LongArray(bucketCount)
         val info = MediaCodec.BufferInfo()
         var inputEnded = false
         var outputEnded = false
@@ -433,11 +434,12 @@ private fun decodeAudioWaveform(
                 else -> if (outputIndex >= 0) {
                     if (info.size > 0) {
                         decoder.getOutputBuffer(outputIndex)?.let { buffer ->
-                            val peak = pcmPeak(buffer, info.offset, info.size, pcmEncoding)
+                            val part = pcmEnergy(buffer, info.offset, info.size, pcmEncoding)
                             val bucket = (
                                 info.presentationTimeUs.coerceAtLeast(0L) * bucketCount / durationUs
                                 ).toInt().coerceIn(0, bucketCount - 1)
-                            peaks[bucket] = max(peaks[bucket], peak)
+                            energy[bucket] += part.total
+                            sampleCounts[bucket] += part.count
                         }
                     }
                     outputEnded = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
@@ -446,10 +448,16 @@ private fun decodeAudioWaveform(
             }
         }
 
-        val maxPeak = peaks.maxOrNull()?.coerceAtLeast(0.0001f) ?: return emptyList()
-        peaks.map { peak ->
-            sqrt((peak / maxPeak).coerceIn(0f, 1f))
+        // Average sound energy (RMS) preserves dynamics on compressed modern music.
+        // The previous maximum-sample approach made nearly every column full height.
+        val rms = FloatArray(bucketCount) { index ->
+            if (sampleCounts[index] == 0L) 0f
+            else sqrt(energy[index] / sampleCounts[index]).toFloat()
         }
+        val active = rms.filter { it > 0f }.sorted()
+        if (active.isEmpty()) return emptyList()
+        val reference = active[(active.lastIndex * 0.97).toInt()].coerceAtLeast(0.0001f)
+        rms.map { value -> sqrt((value / reference).coerceIn(0f, 1f)) }
     } catch (_: Exception) {
         emptyList()
     } finally {
@@ -459,35 +467,43 @@ private fun decodeAudioWaveform(
     }
 }
 
-private fun pcmPeak(
+internal data class PcmEnergy(val total: Double, val count: Long)
+
+/** Accumulate squared PCM samples; RMS is evaluated over actual decoded audio. */
+internal fun pcmEnergy(
     source: ByteBuffer,
     offset: Int,
     size: Int,
     encoding: Int,
-): Float {
-    if (size <= 0) return 0f
+): PcmEnergy {
+    if (size <= 0) return PcmEnergy(0.0, 0)
     val buffer = source.duplicate().order(ByteOrder.LITTLE_ENDIAN)
     buffer.position(offset.coerceIn(0, buffer.limit()))
     buffer.limit((offset + size).coerceIn(buffer.position(), buffer.limit()))
-    var peak = 0f
+    var energy = 0.0
+    var count = 0L
+    fun accumulate(value: Double) {
+        energy += value * value
+        count++
+    }
     when (encoding) {
         AudioFormat.ENCODING_PCM_FLOAT -> {
             while (buffer.remaining() >= 4) {
-                peak = max(peak, abs(buffer.float).coerceAtMost(1f))
+                accumulate(buffer.float.toDouble().coerceIn(-1.0, 1.0))
             }
         }
         AudioFormat.ENCODING_PCM_8BIT -> {
             while (buffer.hasRemaining()) {
-                peak = max(peak, abs((buffer.get().toInt() and 0xFF) - 128) / 128f)
+                accumulate(((buffer.get().toInt() and 0xFF) - 128) / 128.0)
             }
         }
         else -> {
             while (buffer.remaining() >= 2) {
-                peak = max(peak, abs(buffer.short.toInt()) / 32768f)
+                accumulate(buffer.short.toDouble() / 32768.0)
             }
         }
     }
-    return peak.coerceIn(0f, 1f)
+    return PcmEnergy(energy, count)
 }
 
 private fun Bitmap.scaledDown(maxSide: Int): Bitmap {
