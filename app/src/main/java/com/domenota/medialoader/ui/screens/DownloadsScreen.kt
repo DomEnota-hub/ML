@@ -305,6 +305,17 @@ fun DownloadsScreen(
             .apply()
     }
 
+    fun selectOnlyType(type: DownloadTypeFilter) {
+        musicEnabled = type == DownloadTypeFilter.MUSIC
+        videoEnabled = type == DownloadTypeFilter.VIDEO
+        photoEnabled = type == DownloadTypeFilter.PHOTO
+        prefs.edit()
+            .putBoolean(DownloadTypeFilter.MUSIC.preferenceKey, musicEnabled)
+            .putBoolean(DownloadTypeFilter.VIDEO.preferenceKey, videoEnabled)
+            .putBoolean(DownloadTypeFilter.PHOTO.preferenceKey, photoEnabled)
+            .apply()
+    }
+
     val allEnabled = visibleSources.all(::isEnabled)
     val allTypesEnabled = DownloadTypeFilter.entries.all(::isTypeEnabled)
     val filteredItems = remember(items, instagramEnabled, youtubeEnabled, vkEnabled, rutubeEnabled,
@@ -426,9 +437,7 @@ fun DownloadsScreen(
                     if (selected && DownloadTypeFilter.entries.count(::isTypeEnabled) == 1) {
                         enableAllTypes()
                     } else {
-                        DownloadTypeFilter.entries.forEach { candidate ->
-                            setTypeEnabled(candidate, candidate == type)
-                        }
+                        selectOnlyType(type)
                     }
                 })
             }
