@@ -953,12 +953,12 @@ fun SettingsScreen(
         SettingsGroup {
             SettingRow(Icons.Rounded.MusicNote, "Найти полную песню",
                 "Поиск по названию и исполнителю",
-                grouped = true, iconTone = SettingIconTone.MUSIC,
+                grouped = true, iconTone = SettingIconTone.AMBER,
                 onClick = { fullSongSearchOpen = true })
             GroupDivider()
             SettingRow(Icons.Rounded.GraphicEq, "Эквалайзер",
                 "Настройка звука для всей музыки",
-                grouped = true, iconTone = SettingIconTone.PURPLE,
+                grouped = true, iconTone = SettingIconTone.BLUE,
                 onClick = onOpenEqualizer)
             GroupDivider()
             SettingRow(Icons.Rounded.MusicNote, "Источник полной песни",
@@ -1030,7 +1030,7 @@ fun SettingsScreen(
             if (Build.VERSION.SDK_INT >= 31 && !mediaManagementGranted) {
                 SettingRow(Icons.Rounded.DeleteSweep, "Управление медиафайлами",
                     "Разрешить удаление без повторного запроса Android", grouped = true,
-                    iconTone = SettingIconTone.TRASH, onClick = {
+                    iconTone = SettingIconTone.GREEN, onClick = {
                         try { context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,
                             Uri.parse("package:${context.packageName}"))) }
                         catch (_: Exception) { Toast.makeText(context, "Настройка недоступна на этом устройстве", Toast.LENGTH_SHORT).show() }
@@ -1039,12 +1039,12 @@ fun SettingsScreen(
             }
             SettingRow(Icons.Rounded.RestoreFromTrash, "Корзина",
                 "Удалённые файлы · $hiddenCount", grouped = true,
-                iconTone = SettingIconTone.TRASH,
+                iconTone = SettingIconTone.RED,
                 onClick = onOpenTrash)
             GroupDivider()
             SettingRow(Icons.Rounded.DeleteSweep, "Очистить историю",
                 "Удалить список загрузок", grouped = true,
-                iconTone = SettingIconTone.CLEAR_HISTORY, onClick = { confirmClear = true })
+                iconTone = SettingIconTone.AMBER, onClick = { confirmClear = true })
             GroupDivider()
             SettingRow(Icons.Rounded.SystemUpdate,
                 if (ytDlpUpdating) "Обновляем yt-dlp…" else "Обновить yt-dlp",
