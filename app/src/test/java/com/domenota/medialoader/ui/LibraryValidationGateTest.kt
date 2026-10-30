@@ -81,7 +81,7 @@ class LibraryValidationGateTest {
         val index = LibraryIndex(ready = true, galleryRevision = 12, musicRevision = 8)
         assertFalse(visibleLibraryValidationPending(AppMode.GALLERY, index,
             refreshing, PhoneLibraryState()))
-        assertFalse(phoneValidationPending(index, refreshing, PhoneLibraryState()))
+        assertFalse(phoneValidationPending(index, refreshing, PhoneLibraryState(loaded = true, revision = 8)))
     }
 
     @Test fun permissionAndPrivateMediaChangesStillRequireValidation() {
