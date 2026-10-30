@@ -1,0 +1,90 @@
+name: MediaLoader main UI v6 checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/main/**'
+      - 'app/src/test/**'
+      - 'app/build.gradle'
+      - '.github/workflows/main-ui-v6-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: main-ui-v6-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: ARM64 debug build
+        run: gradle :app:assembleDebug -Parm64Release=true --stacktrace
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        if: success() || failure()
+        run: |
+          set +e
+          gradle :app:lintDebug -Parm64Release=true --stacktrace
+          code=$?
+          echo "===== COMPLETE ANDROID LINT REPORT ====="
+          report=app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          if test -f "$report"; then cat "$report"; else echo "No lint text report"; fi
+          echo "===== END ANDROID LINT REPORT ====="
+          exit "$code"
+
+  arm64-release-package:
+    needs: android-check
+    if: success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Assemble ARM64 release (for private DomEnota signing)
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify release package metadata and ABI
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='164' versionName='1.7.102'"
+          test "$(unzip -Z1 "$apk" | grep '^lib/' | cut -d/ -f2 | sort -u)" = "arm64-v8a"
+          mkdir -p handoff/signing-tools
+          cp "$apk" handoff/MediaLoader_1.7.102_arm64_UNSIGNED.apk
+          cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib/apksigner.jar" handoff/signing-tools/
+          cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign" handoff/signing-tools/
+          cp -a "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib64" handoff/signing-tools/
+          sha256sum handoff/MediaLoader_1.7.102_arm64_UNSIGNED.apk > handoff/unsigned_sha256.txt
+      - name: Transfer unsigned release for existing DomEnota signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaLoader-1.7.102-arm64-signing-handoff
+          path: handoff/
+          if-no-files-found: error
+          retention-days: 1

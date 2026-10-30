@@ -111,10 +111,30 @@ internal fun DownloadFolderSheet(
                 choose(CATALOG_UNFILED, null)
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            if (targetDownloadId == null) {
+                androidx.compose.material3.Button(
+                    onClick = { creating = true; name = ""; error = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null)
+                    Text("Новая папка", modifier = Modifier.padding(start = 8.dp))
+                }
+                Spacer(Modifier.height(6.dp))
+            }
             Text("Мои папки", style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (folders.isEmpty()) Text("Пока нет папок", modifier = Modifier.padding(12.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (targetDownloadId != null) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { creating = true; name = ""; error = null },
+                    modifier = Modifier.fillMaxWidth(), enabled = !busy,
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null)
+                    Text("Новая папка", modifier = Modifier.padding(start = 8.dp))
+                }
+            }
             folders.forEach { folder ->
                 val count = completed.count { assignments[it.id]?.folderId == folder.id }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -139,12 +159,6 @@ internal fun DownloadFolderSheet(
                         }
                     }
                 }
-            }
-            Spacer(Modifier.height(6.dp))
-            OutlinedButton(onClick = { creating = true; name = ""; error = null },
-                modifier = Modifier.fillMaxWidth(), enabled = !busy) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
-                Text("Создать папку", modifier = Modifier.padding(start = 8.dp))
             }
         }
     }

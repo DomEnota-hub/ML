@@ -50,6 +50,62 @@ private data class LibraryIndexInput(val app: List<DownloadEntity>, val gallery:
 internal fun phoneValidationPending(index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState): Boolean =
     (gallery.requiresValidation && ((gallery.loading && !gallery.loaded) || gallery.revision != index.galleryRevision)) ||
         (music.requiresValidation && ((music.loading && !music.loaded) || music.revision != index.musicRevision))
+/**
+ * For a visible library home screen, only the active media kind can block it.
+ * An audio-only refresh must never cover a validated photo grid (or vice versa).
+ * Full shared validation is retained for routes which can display both kinds.
+ */
+internal fun visibleLibraryValidationPending(
+    mode: AppMode, index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState,
+): Boolean {
+    if (mode == AppMode.DOWNLOADER) return false
+    if (!index.ready) return true
+    val state = if (mode == AppMode.GALLERY) gallery else music
+    val indexedRevision = if (mode == AppMode.GALLERY) index.galleryRevision else index.musicRevision
+    return state.requiresValidation &&
+        ((state.loading && !state.loaded) || state.revision != indexedRevision)
+}
+
+/**
+ * A completed, already validated library can be refreshed entirely out of view.
+ * Permission changes, new private-media exclusions, or Android's selected-only
+ * media access still require revalidation before old entries may be displayed.
+ */
+internal fun canRefreshLibrarySilently(
+    state: PhoneLibraryState, indexed: LibraryIndex, indexedRevision: Long,
+    accessChanged: Boolean, selectedOnlyAccess: Boolean, privacyInvalidated: Boolean,
+): Boolean = indexed.ready && state.loaded &&
+    (!state.requiresValidation || state.revision == indexedRevision) &&
+    !accessChanged && !selectedOnlyAccess && !privacyInvalidated
+
+/** Map MediaStore notifications to the affected library without guessing for unknown URIs. */
+internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
+    val both = setOf(AppMode.GALLERY, AppMode.MUSIC)
+    if (uri.isNullOrBlank()) return both
+    val segments = runCatching { java.net.URI(uri).path.orEmpty()
+        .split('/').map { it.lowercase(java.util.Locale.ROOT) } }.getOrNull() ?: return both
+    val pictures = "images" in segments || "video" in segments
+    val audio = "audio" in segments
+    return when {
+        pictures && !audio -> setOf(AppMode.GALLERY)
+        audio && !pictures -> setOf(AppMode.MUSIC)
+        else -> both
+    }
+}
+
+/**
+ * A ContentObserver callback can be redundant (e.g. provider/thumbnail metadata).
+ * Only skip when the MediaStore generation AND version are unchanged, permission
+ * access is identical, and the library isn't using Android's selected-only access.
+ * Selected-only grants may change independently of the MediaStore generation.
+ */
+internal fun maySkipUnchangedMediaNotification(
+    before: PhoneStoreStamp?, after: PhoneStoreStamp,
+    permissionsUnchanged: Boolean, selectedOnlyAccess: Boolean,
+): Boolean = permissionsUnchanged && !selectedOnlyAccess &&
+    before?.versions != null && before.versions == after.versions &&
+    before.generation != null && before.generation == after.generation
+
 internal fun hasPhoneLibraryAccess(context: Context, mode: AppMode): Boolean =
     PhoneMediaLibrary.permissions(mode).any {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
@@ -153,16 +209,44 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private val storeStamps = mutableMapOf<AppMode, PhoneStoreStamp>()
     private var observedPrivateKeys: Set<String>? = null
     private var mediaChangeJob: Job? = null
+    private val pendingMediaChanges = mutableSetOf<AppMode>()
+    private fun scheduleMediaChange(uri: android.net.Uri?) {
+        // Only a changed media kind needs rescanning. Preserve unknown URI events
+        // conservatively, and coalesce successive callbacks while scans are busy.
+        pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
+        mediaChangeJob?.cancel()
+        mediaChangeJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(500)
+            val affected = pendingMediaChanges.toSet()
+            // The current scan must finish before the next reconciliation starts.
+            affected.forEach { jobs[it]?.join() }
+            pendingMediaChanges.removeAll(affected)
+            affected.forEach { mode ->
+                val state = if (mode == AppMode.GALLERY) galleryState else musicState
+                if (!state.value.loaded) return@forEach
+                val permissions = PhoneMediaLibrary.permissions(mode)
+                val signature = permissions.map { permission ->
+                    ContextCompat.checkSelfPermission(getApplication(), permission) == PackageManager.PERMISSION_GRANTED
+                }
+                val selectedOnly = android.os.Build.VERSION.SDK_INT >= 34 && mode == AppMode.GALLERY &&
+                    permissions.zip(signature).any { (name, granted) ->
+                        name == android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && granted
+                    } && permissions.zip(signature).any { (name, granted) ->
+                        name != android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && !granted
+                    }
+                val currentStamp = phone.storeStamp()
+                if (maySkipUnchangedMediaNotification(storeStamps[mode], currentStamp,
+                        accessSignatures[mode] == signature, selectedOnly)) return@forEach
+                refresh(mode, force = true)
+            }
+        }
+    }
     private val mediaObserver = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
-            mediaChangeJob?.cancel()
-            mediaChangeJob = viewModelScope.launch {
-                kotlinx.coroutines.delay(500)
-                // An event during a scan must trigger another reconciliation, not be lost.
-                jobs.values.toList().forEach { it.join() }
-                if (galleryState.value.loaded) refresh(AppMode.GALLERY, force = true)
-                if (musicState.value.loaded) refresh(AppMode.MUSIC, force = true)
-            }
+            scheduleMediaChange(null)
+        }
+        override fun onChange(selfChange: Boolean, uri: android.net.Uri?) {
+            scheduleMediaChange(uri)
         }
     }
     init {
@@ -197,11 +281,16 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             permissions.zip(signature).any { (name, granted) -> name == android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && granted } &&
             permissions.zip(signature).any { (name, granted) -> name != android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && !granted }
         val state = if (mode == AppMode.GALLERY) galleryState else musicState
-        var blocking = !state.value.loaded || changedAccess || partial || invalidate
+        val canonical = index.value
+        val indexedRevision = if (mode == AppMode.GALLERY) canonical.galleryRevision else canonical.musicRevision
+        val silent = canRefreshLibrarySilently(state.value, canonical, indexedRevision,
+            changedAccess, partial, invalidate)
+        var blocking = !silent
         val now = android.os.SystemClock.elapsedRealtime()
-        // Multiple entry/resume effects must not cancel the initial disk restoration.
-        if (!changedAccess && !invalidate && !partial && jobs[mode]?.isActive == true) return
-        if (!blocking && (jobs[mode]?.isActive == true || (!force && now - (refreshedAt[mode] ?: Long.MIN_VALUE / 2) < 60_000))) return
+        // Even selected-only access must not repeatedly cancel an ongoing validation.
+        // Permission/privacy invalidation is the only reason to restart it.
+        if (!changedAccess && !invalidate && jobs[mode]?.isActive == true) return
+        if (silent && !force && now - (refreshedAt[mode] ?: Long.MIN_VALUE / 2) < 60_000) return
         jobs.remove(mode)?.cancel()
         accessSignatures[mode] = signature
         if (signature.none { it }) {
@@ -212,8 +301,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             viewModelScope.launch { phoneCache.clear(mode) }
             return
         }
+        // Routine updates are strictly internal: keep the validated snapshot and
+        // avoid publishing even a loading flag that the gallery UI could display.
         state.value = if (blocking) PhoneLibraryState(loading = true, requiresValidation = !(coldStart && !partial), revision = state.value.revision + 1)
-            else state.value.copy(loading = true, requiresValidation = false, message = null)
+            else state.value.copy(loading = false, requiresValidation = false, message = null)
         jobs[mode] = viewModelScope.launch {
             var revision = state.value.revision
             try {
@@ -229,7 +320,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                         blocking = false
                         revision++
                         state.value = PhoneLibraryState(items = cached.snapshot.items, identities = cached.snapshot.identities,
-                            fingerprints = cached.snapshot.fingerprints, loaded = true, loading = true,
+                            fingerprints = cached.snapshot.fingerprints, loaded = true, loading = false,
                             revision = revision, requiresValidation = false)
                         storeStamps[mode] = cached.stamp
                     }
