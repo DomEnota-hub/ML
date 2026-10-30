@@ -36,3 +36,9 @@ Handset validation of the previously reported gallery loading is still pending.
 
 Source checkpoint1226ec9. Gallery multiple selection, batched deletion and one-time MANAGE_MEDIA offer.
 Five focused checks passed; release signed and uploaded. Details: docs/RELEASE_1.7.101.md.
+
+
+## Main-mode HTML draft — 2026-10-30
+
+Source checkpoint5c348cf. Standalone 26-route interactive proposal, screenshots and continuation roadmap in docs/superpowers/references/2026-10-30-downloader-ui/.
+No native app changes; last APK remains1.7.101. Await concrete UI feedback before native transfer.
