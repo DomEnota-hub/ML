@@ -10,6 +10,11 @@ class VideoReversePlanTest {
             ReverseSegment(0L, 2000L)), reverseSegments(5001L, 2000L))
     }
 
+    @Test fun tinyTerminalRemainderMergesIntoPreviousSegment() {
+        assertEquals(listOf(ReverseSegment(2000L, 2001L), ReverseSegment(0L, 2000L)),
+            reverseSegments(4001L, 2000L))
+    }
+
     @Test fun shortVideoIsSingleReversedSegment() {
         assertEquals(listOf(ReverseSegment(0L, 700L)), reverseSegments(700L, 2000L))
     }

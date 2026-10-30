@@ -19,7 +19,11 @@ internal fun reverseSegments(durationMs: Long, segmentMs: Long): List<ReverseSeg
     val segments = mutableListOf<ReverseSegment>()
     var start = 0L
     while (start < durationMs) {
-        val length = minOf(segmentMs, durationMs - start)
+        var length = minOf(segmentMs, durationMs - start)
+        // Avoid a tiny terminal piece with no decodable video frame.
+        if (durationMs - (start + length) in 1L..100L) {
+            length = durationMs - start
+        }
         segments += ReverseSegment(start, length)
         start += length
     }

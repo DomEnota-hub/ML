@@ -433,7 +433,7 @@ fun VideoEditorScreen(
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = {
-                        if (reversePreviewFile != null) return@OutlinedButton
+                        if (reversePreviewFile == null) {
                         previewPlayer?.pause()
                         reversePreviewJob = previewScope.launch {
                             reversePreviewBusy = true
@@ -452,6 +452,7 @@ fun VideoEditorScreen(
                             } finally {
                                 reversePreviewBusy = false
                             }
+                        }
                         }
                     },
                     enabled = info != null && !reversePreviewBusy && !ownExport && !busyWithOther,
@@ -501,7 +502,7 @@ fun VideoEditorScreen(
                     onClick = {
                         onExport(exportSpec())
                     },
-                    enabled = info != null && !busyWithOther,
+                    enabled = info != null && !busyWithOther && !reversePreviewBusy,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 ) {
                     Text("Сохранить копию")
