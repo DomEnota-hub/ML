@@ -75,7 +75,8 @@ class LibraryValidationGateTest {
 
     @Test fun routinePhoneRefreshRetainsExistingGalleryWithoutAnyVisibleLoadingState() {
         val visible = PhoneLibraryState(loaded = true, revision = 12, requiresValidation = false)
-        assertTrue(canRefreshLibrarySilently(visible, false, false, false))
+        val canonical = LibraryIndex(ready = true, galleryRevision = 12)
+        assertTrue(canRefreshLibrarySilently(visible, canonical, 12, false, false, false))
         val refreshing = visible.copy(loading = false, requiresValidation = false)
         val index = LibraryIndex(ready = true, galleryRevision = 12, musicRevision = 8)
         assertFalse(visibleLibraryValidationPending(AppMode.GALLERY, index,
@@ -85,11 +86,14 @@ class LibraryValidationGateTest {
 
     @Test fun permissionAndPrivateMediaChangesStillRequireValidation() {
         val retained = PhoneLibraryState(loaded = true)
-        assertFalse(canRefreshLibrarySilently(PhoneLibraryState(), false, false, false))
-        assertFalse(canRefreshLibrarySilently(retained, true, false, false))
-        assertFalse(canRefreshLibrarySilently(retained, false, true, false))
-        assertFalse(canRefreshLibrarySilently(retained, false, false, true))
-        assertTrue(canRefreshLibrarySilently(retained, false, false, false))
+        val canonical = LibraryIndex(ready = true, galleryRevision = 0)
+        assertFalse(canRefreshLibrarySilently(PhoneLibraryState(), canonical, 0, false, false, false))
+        assertFalse(canRefreshLibrarySilently(retained, canonical, 0, true, false, false))
+        assertFalse(canRefreshLibrarySilently(retained, canonical, 0, false, true, false))
+        assertFalse(canRefreshLibrarySilently(retained, canonical, 0, false, false, true))
+        assertFalse(canRefreshLibrarySilently(retained, LibraryIndex(), 0, false, false, false))
+        assertFalse(canRefreshLibrarySilently(retained.copy(revision = 1), canonical, 0, false, false, false))
+        assertTrue(canRefreshLibrarySilently(retained, canonical, 0, false, false, false))
     }
 
     @Test fun backgroundRefreshKeepsValidatedContentUsableButPermissionChangeStillShieldsIt() {

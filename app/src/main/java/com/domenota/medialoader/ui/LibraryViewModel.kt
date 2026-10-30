@@ -72,9 +72,11 @@ internal fun visibleLibraryValidationPending(
  * media access still require revalidation before old entries may be displayed.
  */
 internal fun canRefreshLibrarySilently(
-    state: PhoneLibraryState, accessChanged: Boolean,
-    selectedOnlyAccess: Boolean, privacyInvalidated: Boolean,
-): Boolean = state.loaded && !accessChanged && !selectedOnlyAccess && !privacyInvalidated
+    state: PhoneLibraryState, indexed: LibraryIndex, indexedRevision: Long,
+    accessChanged: Boolean, selectedOnlyAccess: Boolean, privacyInvalidated: Boolean,
+): Boolean = indexed.ready && state.loaded &&
+    (!state.requiresValidation || state.revision == indexedRevision) &&
+    !accessChanged && !selectedOnlyAccess && !privacyInvalidated
 
 /** Map MediaStore notifications to the affected library without guessing for unknown URIs. */
 internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
@@ -279,7 +281,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             permissions.zip(signature).any { (name, granted) -> name == android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && granted } &&
             permissions.zip(signature).any { (name, granted) -> name != android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && !granted }
         val state = if (mode == AppMode.GALLERY) galleryState else musicState
-        val silent = canRefreshLibrarySilently(state.value, changedAccess, partial, invalidate)
+        val canonical = index.value
+        val indexedRevision = if (mode == AppMode.GALLERY) canonical.galleryRevision else canonical.musicRevision
+        val silent = canRefreshLibrarySilently(state.value, canonical, indexedRevision,
+            changedAccess, partial, invalidate)
         var blocking = !silent
         val now = android.os.SystemClock.elapsedRealtime()
         // Even selected-only access must not repeatedly cancel an ongoing validation.
