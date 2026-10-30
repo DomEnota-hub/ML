@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import com.domenota.medialoader.core.logging.AppLog
 import com.domenota.medialoader.data.instagramprofile.InstagramProfileController
 import com.domenota.medialoader.ui.MediaLoaderApp
+import com.domenota.medialoader.data.playback.AudioWaveformPrecompute
 import com.domenota.medialoader.ui.theme.MediaLoaderTheme
 import com.domenota.medialoader.data.share.InstagramShareActivity
 import com.domenota.medialoader.data.share.InstagramShareRouting
@@ -23,6 +24,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         AppLog.init(applicationContext)
         super.onCreate(savedInstanceState)
+        // Quiet precomputation survives leaving the app and never blocks the editor.
+        AudioWaveformPrecompute.schedule(applicationContext)
         if (savedInstanceState == null && forwardAutomaticShare(intent, false)) {
             finish()
             return
