@@ -86,7 +86,7 @@ fun PhotoEditorScreen(
     var activeLevel by remember(item.id) { mutableStateOf(PhotoLevelControl.BRIGHTNESS) }
     var cropTool by remember(item.id) { mutableStateOf("ratio") }
     var menuOpen by remember { mutableStateOf(false) }
-    var textResultPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    var composedPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
 
     fun commit(next: PhotoEditSnapshot) {
         if (locked || edit == next) return
@@ -137,25 +137,29 @@ fun PhotoEditorScreen(
         }
     }
 
-    // Text is composited after color adjustments, matching the full-resolution exporter.
+    // All non-crop tabs show the *actual* edited geometry, color and text.
+    // Debounced previews are calculated away from the UI thread; full-resolution
+    // export applies the same operations in the same order.
     LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
         edit.color, edit.textLayers) {
         val source = info?.preview
-        if (source == null || edit.textLayers.isEmpty()) {
-            textResultPreview = null
-            return@LaunchedEffect
-        }
-        delay(80L)
-        textResultPreview = withContext(Dispatchers.Default) {
+        if (source == null) { composedPreview = null; return@LaunchedEffect }
+        delay(100L)
+        composedPreview = withContext(Dispatchers.Default) {
             val transformed = TextLayerRenderer.preview(source, edit.crop, edit.rotation,
                 edit.mirrorHorizontal, edit.mirrorVertical)
             val colored = PhotoColorMath.apply(transformed, edit.color)
-            val output = colored.copy(Bitmap.Config.ARGB_8888, true)
-            TextLayerRenderer.draw(context, android.graphics.Canvas(output),
-                output.width, output.height, edit.textLayers, includeAll = true)
-            if (colored !== transformed) colored.recycle()
-            transformed.recycle()
-            output
+            if (edit.textLayers.isEmpty()) {
+                if (colored !== transformed) transformed.recycle()
+                colored
+            } else {
+                val output = colored.copy(Bitmap.Config.ARGB_8888, true)
+                TextLayerRenderer.draw(context, android.graphics.Canvas(output),
+                    output.width, output.height, edit.textLayers, includeAll = true)
+                if (colored !== transformed) colored.recycle()
+                transformed.recycle()
+                output
+            }
         }
     }
 
@@ -247,8 +251,8 @@ fun PhotoEditorScreen(
                 if (info == null) {
                     Text("Открываем изображение…", color = Color.LightGray)
                 } else if (currentTab != PhotoWorkspaceTab.CROP &&
-                    edit.textLayers.isNotEmpty() && textResultPreview != null) {
-                    Image(requireNotNull(textResultPreview).asImageBitmap(), "Предпросмотр фотографии",
+                    composedPreview != null) {
+                    Image(requireNotNull(composedPreview).asImageBitmap(), "Предпросмотр фотографии",
                         modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 } else {
                     PhotoWorkspacePreview(
