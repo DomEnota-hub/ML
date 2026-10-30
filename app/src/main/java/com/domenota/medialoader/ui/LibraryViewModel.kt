@@ -50,6 +50,36 @@ private data class LibraryIndexInput(val app: List<DownloadEntity>, val gallery:
 internal fun phoneValidationPending(index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState): Boolean =
     (gallery.requiresValidation && ((gallery.loading && !gallery.loaded) || gallery.revision != index.galleryRevision)) ||
         (music.requiresValidation && ((music.loading && !music.loaded) || music.revision != index.musicRevision))
+/**
+ * For a visible library home screen, only the active media kind can block it.
+ * An audio-only refresh must never cover a validated photo grid (or vice versa).
+ * Full shared validation is retained for routes which can display both kinds.
+ */
+internal fun visibleLibraryValidationPending(
+    mode: AppMode, index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState,
+): Boolean {
+    if (mode == AppMode.DOWNLOADER) return false
+    if (!index.ready) return true
+    val state = if (mode == AppMode.GALLERY) gallery else music
+    val indexedRevision = if (mode == AppMode.GALLERY) index.galleryRevision else index.musicRevision
+    return state.requiresValidation &&
+        ((state.loading && !state.loaded) || state.revision != indexedRevision)
+}
+
+/** Map MediaStore notifications to the affected library without guessing for unknown URIs. */
+internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
+    val both = setOf(AppMode.GALLERY, AppMode.MUSIC)
+    if (uri.isNullOrBlank()) return both
+    val segments = android.net.Uri.parse(uri).pathSegments.map { it.lowercase(java.util.Locale.ROOT) }
+    val pictures = "images" in segments || "video" in segments
+    val audio = "audio" in segments
+    return when {
+        pictures && !audio -> setOf(AppMode.GALLERY)
+        audio && !pictures -> setOf(AppMode.MUSIC)
+        else -> both
+    }
+}
+
 internal fun hasPhoneLibraryAccess(context: Context, mode: AppMode): Boolean =
     PhoneMediaLibrary.permissions(mode).any {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
@@ -153,16 +183,30 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private val storeStamps = mutableMapOf<AppMode, PhoneStoreStamp>()
     private var observedPrivateKeys: Set<String>? = null
     private var mediaChangeJob: Job? = null
+    private val pendingMediaChanges = mutableSetOf<AppMode>()
+    private fun scheduleMediaChange(uri: android.net.Uri?) {
+        // Only a changed media kind needs rescanning. Preserve unknown URI events
+        // conservatively, and coalesce successive callbacks while scans are busy.
+        pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
+        mediaChangeJob?.cancel()
+        mediaChangeJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(500)
+            val affected = pendingMediaChanges.toSet()
+            // The current scan must finish before the next reconciliation starts.
+            affected.forEach { jobs[it]?.join() }
+            pendingMediaChanges.removeAll(affected)
+            affected.forEach { mode ->
+                val state = if (mode == AppMode.GALLERY) galleryState else musicState
+                if (state.value.loaded) refresh(mode, force = true)
+            }
+        }
+    }
     private val mediaObserver = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
-            mediaChangeJob?.cancel()
-            mediaChangeJob = viewModelScope.launch {
-                kotlinx.coroutines.delay(500)
-                // An event during a scan must trigger another reconciliation, not be lost.
-                jobs.values.toList().forEach { it.join() }
-                if (galleryState.value.loaded) refresh(AppMode.GALLERY, force = true)
-                if (musicState.value.loaded) refresh(AppMode.MUSIC, force = true)
-            }
+            scheduleMediaChange(null)
+        }
+        override fun onChange(selfChange: Boolean, uri: android.net.Uri?) {
+            scheduleMediaChange(uri)
         }
     }
     init {

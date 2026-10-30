@@ -24,6 +24,39 @@ class LibraryValidationGateTest {
         // Publishing a retained-row index during the scan is insufficient too.
         assertTrue(phoneValidationPending(index.copy(galleryRevision = 2), refreshing, validated))
     }
+    @Test fun unrelatedAudioValidationNeverMasksAnAlreadyValidatedGallery() {
+        val ready = LibraryIndex(ready = true, galleryRevision = 7, musicRevision = 3)
+        val photos = PhoneLibraryState(loaded = true, revision = 7, requiresValidation = true)
+        val audio = PhoneLibraryState(loaded = false, loading = true, revision = 4, requiresValidation = true)
+        assertTrue(phoneValidationPending(ready, photos, audio))
+        assertFalse(visibleLibraryValidationPending(AppMode.GALLERY, ready, photos, audio))
+        assertTrue(visibleLibraryValidationPending(AppMode.MUSIC, ready, photos, audio))
+        assertTrue(visibleLibraryValidationPending(AppMode.GALLERY,
+            ready, photos.copy(revision = 8), audio))
+    }
+
+    @Test fun galleryStillBlocksWhenItsOwnPermissionOrPrivacyIsUnvalidated() {
+        val ready = LibraryIndex(ready = true, galleryRevision = 7, musicRevision = 7)
+        val photos = PhoneLibraryState(loaded = false, loading = true, revision = 8, requiresValidation = true)
+        assertTrue(visibleLibraryValidationPending(AppMode.GALLERY, ready, photos, PhoneLibraryState()))
+        assertTrue(visibleLibraryValidationPending(AppMode.GALLERY,
+            LibraryIndex(), photos, PhoneLibraryState()))
+        assertFalse(visibleLibraryValidationPending(AppMode.DOWNLOADER,
+            LibraryIndex(), photos, PhoneLibraryState()))
+    }
+
+    @Test fun mediaStoreNotificationsRefreshOnlyTheRelevantLibrary() {
+        assertEquals(setOf(AppMode.GALLERY), phoneModesForMediaChange(
+            "content://media/external_primary/images/media/123"))
+        assertEquals(setOf(AppMode.GALLERY), phoneModesForMediaChange(
+            "content://media/external/video/media"))
+        assertEquals(setOf(AppMode.MUSIC), phoneModesForMediaChange(
+            "content://media/external_primary/audio/media/44"))
+        assertEquals(setOf(AppMode.GALLERY, AppMode.MUSIC),
+            phoneModesForMediaChange("content://media/external/file/20"))
+        assertEquals(setOf(AppMode.GALLERY, AppMode.MUSIC), phoneModesForMediaChange(null))
+    }
+
     @Test fun backgroundRefreshKeepsValidatedContentUsableButPermissionChangeStillShieldsIt() {
         val retained = PhoneLibraryState(loaded = true, loading = true, revision = 2, requiresValidation = false)
         val index = LibraryIndex(ready = true, galleryRevision = 1, musicRevision = 1)

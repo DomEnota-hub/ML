@@ -867,7 +867,9 @@ fun MediaLoaderApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val checkingPhoneAccess = phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
+    val checkingPhoneAccess = if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)
+        visibleLibraryValidationPending(appMode, libraryIndex, phoneGallery, phoneMusic)
+    else phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
     MediaManagementAccessPrompt(enabled = appMode != AppMode.DOWNLOADER &&
         currentRoute == AppDestination.Home.route && !checkingPhoneAccess)
     LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
