@@ -20,6 +20,12 @@ class GalleryAlbumOrganizationTest {
         assertEquals(listOf("device:1", "device:2", "folder:custom"), albums.map { it.key })
     }
 
+    @Test fun movingAnAlbumDownwardsPlacesItAfterTheDropTarget() {
+        val settings = moveGalleryAlbum(GalleryAlbumSettings(), albums, "device:1", "device:2")
+        assertEquals(listOf("device:2", "device:1", "folder:custom"),
+            orderedGalleryAlbums(albums, settings).map { it.key })
+    }
+
     @Test fun unknownAlbumCannotAccidentallyChangeOrder() {
         val settings = GalleryAlbumSettings(order = listOf("device:1"))
         assertEquals(settings, moveGalleryAlbum(settings, albums, "missing", "device:2"))
