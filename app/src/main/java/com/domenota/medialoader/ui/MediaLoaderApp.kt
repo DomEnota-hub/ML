@@ -1177,6 +1177,22 @@ fun MediaLoaderApp(
                     editorItems = accessibleDownloads.filter {
                         it.state == DownloadState.COMPLETED && it.savedUri != null
                     }.map { it.toUi() },
+                    editorAlbumsById = remember(
+                        accessibleDownloads, libraryRefsByAlias, libraryCatalogAssignments, catalogFolders
+                    ) {
+                        val folderNames = catalogFolders.associate { it.id to it.name }
+                        val assigned = libraryCatalogAssignments.associateBy { it.downloadId }
+                        accessibleDownloads.associate { file ->
+                            val ref = libraryRefsByAlias[file.id]
+                            val assignment = assigned[file.id] ?: ref?.let { assigned[it.key] }
+                            val names = listOfNotNull(
+                                assignment?.folderId?.let(folderNames::get),
+                                ref?.deviceAlbumName?.takeIf { it.isNotBlank() },
+                            ).distinct()
+                            file.id to names
+                        }
+                    },
+
                     onEditFile = { id ->
                         when (accessibleDownloads.firstOrNull { it.id == id }?.mediaType) {
                             MediaType.PHOTO -> navController.navigate("photo-editor/$id")
