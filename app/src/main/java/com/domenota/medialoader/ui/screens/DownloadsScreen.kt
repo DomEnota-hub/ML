@@ -175,7 +175,6 @@ fun DownloadsScreen(
     var musicEnabled by rememberSaveable { mutableStateOf(prefs.getBoolean(DownloadTypeFilter.MUSIC.preferenceKey, true)) }
     var videoEnabled by rememberSaveable { mutableStateOf(prefs.getBoolean(DownloadTypeFilter.VIDEO.preferenceKey, true)) }
     var photoEnabled by rememberSaveable { mutableStateOf(prefs.getBoolean(DownloadTypeFilter.PHOTO.preferenceKey, true)) }
-    var filterMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
     var searchText by rememberSaveable { mutableStateOf("") }
     var selectedCatalog by rememberSaveable { mutableStateOf(CATALOG_ALL) }
@@ -388,57 +387,6 @@ fun DownloadsScreen(
                     contentDescription = if (searchVisible) "Закрыть поиск" else "Поиск по загрузкам",
                 )
             }
-            Box {
-                Row(Modifier.background(MaterialTheme.colorScheme.primaryContainer,
-                    RoundedCornerShape(22.dp)).clickable { filterMenuExpanded = true }
-                    .padding(horizontal = 8.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Tune, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                    Text("Тип", color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 6.dp))
-                    Icon(Icons.Rounded.ExpandMore, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                }
-                DropdownMenu(
-                    expanded = filterMenuExpanded,
-                    onDismissRequest = { filterMenuExpanded = false },
-                ) {
-                    Text(
-                        "Тип файлов",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Все файлы") },
-                        onClick = { enableAllTypes() },
-                        leadingIcon = {
-                            Icon(Icons.Rounded.Download, contentDescription = null)
-                        },
-                        trailingIcon = {
-                            Checkbox(
-                                checked = allTypesEnabled,
-                                onCheckedChange = { checked -> if (checked) enableAllTypes() },
-                            )
-                        },
-                    )
-                    HorizontalDivider()
-                    DownloadTypeFilter.entries.forEach { type ->
-                        val checked = isTypeEnabled(type)
-                        DropdownMenuItem(
-                            text = { Text(type.label) },
-                            onClick = { setTypeEnabled(type, !checked) },
-                            leadingIcon = { Icon(type.icon, contentDescription = null) },
-                            trailingIcon = {
-                                Checkbox(
-                                    checked = checked,
-                                    onCheckedChange = { setTypeEnabled(type, it) },
-                                )
-                            },
-                        )
-                    }
-                }
-            }
         }
         if (searchVisible) {
             Spacer(Modifier.height(12.dp))
@@ -465,10 +413,27 @@ fun DownloadsScreen(
             visibleSources.forEach { source ->
                 SourceChip(source.label,
                     source.name.lowercase().takeIf { source != DownloadSourceFilter.OTHER },
-                    isEnabled(source), onClick = { setEnabled(source, !isEnabled(source)) })
+                    !allEnabled && isEnabled(source), onClick = { setEnabled(source, !isEnabled(source)) })
             }
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SourceChip("Все файлы", null, allTypesEnabled, onClick = ::enableAllTypes)
+            DownloadTypeFilter.entries.forEach { type ->
+                val selected = !allTypesEnabled && isTypeEnabled(type)
+                SourceChip(type.label, null, selected, onClick = {
+                    if (selected && DownloadTypeFilter.entries.count(::isTypeEnabled) == 1) {
+                        enableAllTypes()
+                    } else {
+                        DownloadTypeFilter.entries.forEach { candidate ->
+                            setTypeEnabled(candidate, candidate == type)
+                        }
+                    }
+                })
+            }
+        }
+        Spacer(Modifier.height(20.dp))
         SectionTitle(title = "Активные")
         Spacer(Modifier.height(12.dp))
        }
