@@ -176,6 +176,8 @@ fun DownloadsScreen(
     var videoEnabled by rememberSaveable { mutableStateOf(prefs.getBoolean(DownloadTypeFilter.VIDEO.preferenceKey, true)) }
     var photoEnabled by rememberSaveable { mutableStateOf(prefs.getBoolean(DownloadTypeFilter.PHOTO.preferenceKey, true)) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedHistoryIds by rememberSaveable { mutableStateOf(setOf<String>()) }
     var searchText by rememberSaveable { mutableStateOf("") }
     var selectedCatalog by rememberSaveable { mutableStateOf(CATALOG_ALL) }
     var folderSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -203,7 +205,12 @@ fun DownloadsScreen(
         } })
     if (deleteGroupTargets.isNotEmpty()) AlertDialog(onDismissRequest = { deleteGroupTargets = emptyList() },
         title = { Text(com.domenota.medialoader.ui.components.deleteSelectionTitle(deleteGroupTargets.size)) },
-        confirmButton = { TextButton(onClick = { val ids = deleteGroupTargets; deleteGroupTargets = emptyList(); groupAction(ids) { id ->
+        confirmButton = { TextButton(onClick = {
+            val ids = deleteGroupTargets
+            deleteGroupTargets = emptyList()
+            selectedHistoryIds = emptySet()
+            selectionMode = false
+            groupAction(ids) { id ->
                 require(items.firstOrNull { it.id == id }?.state == DownloadUiState.COMPLETED) { "Дождитесь завершения загрузки" }
                 onDeleteGroupFile(id)
             } }) {
@@ -332,6 +339,14 @@ fun DownloadsScreen(
         }
     }.filter { it.isNotEmpty() } }
     val searchedHistory = remember(history, searchText) { HistorySearch.filterGroups(history, searchText) }
+    val selectableHistoryItems = remember(searchedHistory) {
+        searchedHistory.flatten().filter { it.state == DownloadUiState.COMPLETED }
+            .distinctBy { it.id }
+    }
+    val selectableIds = selectableHistoryItems.map { it.id }.toSet()
+    LaunchedEffect(selectableIds) {
+        selectedHistoryIds = selectedHistoryIds.intersect(selectableIds)
+    }
 
     val thumbnailRows = remember(active, searchedHistory, expandedGroups, groupLimits, gridMode) {
         (active + if (gridMode) emptyList() else searchedHistory).flatMap { group ->
@@ -484,19 +499,60 @@ fun DownloadsScreen(
             else -> folderNames[selectedCatalog.removePrefix("folder:")] ?: "История"
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(catalogLabel, style = MaterialTheme.typography.titleMedium,
+            Text(if (selectionMode) "Выбрано: ${selectedHistoryIds.size}" else catalogLabel,
+                style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f), maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
-            IconButton(onClick = {
-                gridMode = !gridMode
-                prefs.edit().putBoolean("downloads_grid", gridMode).apply()
-            }) {
-                Icon(if (gridMode) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                    contentDescription = if (gridMode) "Показать списком" else "Показать сеткой")
+            if (selectionMode) {
+                TextButton(onClick = {
+                    selectionMode = false
+                    selectedHistoryIds = emptySet()
+                }) { Text("Отмена") }
+            } else {
+                TextButton(
+                    enabled = selectableHistoryItems.isNotEmpty(),
+                    onClick = { selectionMode = true; selectedHistoryIds = emptySet() }
+                ) { Text("Выбрать") }
+                IconButton(onClick = {
+                    gridMode = !gridMode
+                    prefs.edit().putBoolean("downloads_grid", gridMode).apply()
+                }) {
+                    Icon(if (gridMode) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                        contentDescription = if (gridMode) "Показать списком" else "Показать сеткой")
+                }
+                if (selectedCatalog != CATALOG_ALL) TextButton(onClick = {
+                    selectedCatalog = CATALOG_ALL
+                }) { Text("Все файлы") }
             }
-            if (selectedCatalog != CATALOG_ALL) TextButton(onClick = {
-                selectedCatalog = CATALOG_ALL
-            }) { Text("Все файлы") }
+        }
+        if (selectionMode) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                TextButton(onClick = {
+                    selectedHistoryIds = if (selectedHistoryIds.size == selectableIds.size) {
+                        emptySet()
+                    } else selectableIds
+                }) { Text(if (selectedHistoryIds.size == selectableIds.size) "Снять всё" else "Выбрать всё") }
+                TextButton(enabled = selectedHistoryIds.isNotEmpty(), onClick = {
+                    val ids = selectedHistoryIds.toList()
+                    groupAction(ids) { id -> onSetFavorite(id, true) }
+                    selectionMode = false
+                    selectedHistoryIds = emptySet()
+                }) { Text("Избранное") }
+                TextButton(enabled = selectedHistoryIds.isNotEmpty(), onClick = {
+                    folderGroupTargets = selectedHistoryIds.toList()
+                    folderTargetId = folderGroupTargets.firstOrNull()
+                    folderSheetOpen = true
+                }) { Text("В папку") }
+                TextButton(enabled = selectedHistoryIds.isNotEmpty(), onClick = {
+                    onMoveGroupToPrivate(selectedHistoryIds.toList())
+                    selectionMode = false
+                    selectedHistoryIds = emptySet()
+                }) { Text("В личное") }
+                TextButton(enabled = selectedHistoryIds.isNotEmpty(), onClick = {
+                    deleteGroupTargets = selectedHistoryIds.toList()
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            }
         }
         Spacer(Modifier.height(12.dp))
        }
@@ -520,7 +576,39 @@ fun DownloadsScreen(
             )
           }
         } else {
-            DownloadRows(searchedHistory, { id ->
+            if (selectionMode) {
+                items(selectableHistoryItems, key = { "select:${it.id}" }, contentType = { "selected-file" }) { file ->
+                    val checked = file.id in selectedHistoryIds
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(15.dp))
+                            .clickable {
+                                selectedHistoryIds = if (checked) selectedHistoryIds - file.id
+                                    else selectedHistoryIds + file.id
+                            }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = { value ->
+                                selectedHistoryIds = if (value) selectedHistoryIds + file.id
+                                    else selectedHistoryIds - file.id
+                            },
+                        )
+                        DownloadThumbnail(file.savedUri, file.previewUrl, file.kind, Modifier.size(52.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(file.title, maxLines = 2, style = MaterialTheme.typography.bodyMedium,
+                                overflow = TextOverflow.Ellipsis)
+                            Text(file.subtitle, maxLines = 1,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            } else DownloadRows(searchedHistory, { id ->
                 if (gridMode && onOpenGrid != null) onOpenGrid(id, searchedHistory.flatten().map { it.id })
                 else onOpenDownload(id)
             }, onCancelDownload, onShareDownload, onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload, recognitionEnabled, onRecognizeDownload,
