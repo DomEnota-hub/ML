@@ -259,20 +259,6 @@ fun DownloadsScreen(
         DownloadSourceFilter.OTHER -> otherEnabled
     }
 
-    fun setEnabled(source: DownloadSourceFilter, enabled: Boolean) {
-        val enabledCount = visibleSources.count(::isEnabled)
-        if (!enabled && isEnabled(source) && enabledCount <= 1) return
-
-        when (source) {
-            DownloadSourceFilter.INSTAGRAM -> instagramEnabled = enabled
-            DownloadSourceFilter.YOUTUBE -> youtubeEnabled = enabled
-            DownloadSourceFilter.VK -> vkEnabled = enabled
-            DownloadSourceFilter.RUTUBE -> rutubeEnabled = enabled
-            DownloadSourceFilter.OTHER -> otherEnabled = enabled
-        }
-        prefs.edit().putBoolean(source.preferenceKey, enabled).apply()
-    }
-
     fun enableAll() {
         instagramEnabled = true
         youtubeEnabled = true
@@ -288,20 +274,29 @@ fun DownloadsScreen(
             .apply()
     }
 
+    fun selectSource(source: DownloadSourceFilter) {
+        val all = visibleSources.toSet()
+        val next = com.domenota.medialoader.ui.model.exclusiveFilterClick(
+            all, visibleSources.filter(::isEnabled).toSet(), source,
+        )
+        instagramEnabled = DownloadSourceFilter.INSTAGRAM in next
+        youtubeEnabled = DownloadSourceFilter.YOUTUBE in next
+        vkEnabled = DownloadSourceFilter.VK in next
+        rutubeEnabled = DownloadSourceFilter.RUTUBE in next
+        otherEnabled = if (hasOther) DownloadSourceFilter.OTHER in next else true
+        prefs.edit()
+            .putBoolean(DownloadSourceFilter.INSTAGRAM.preferenceKey, instagramEnabled)
+            .putBoolean(DownloadSourceFilter.YOUTUBE.preferenceKey, youtubeEnabled)
+            .putBoolean(DownloadSourceFilter.VK.preferenceKey, vkEnabled)
+            .putBoolean(DownloadSourceFilter.RUTUBE.preferenceKey, rutubeEnabled)
+            .putBoolean(DownloadSourceFilter.OTHER.preferenceKey, otherEnabled)
+            .apply()
+    }
+
     fun isTypeEnabled(type: DownloadTypeFilter): Boolean = when (type) {
         DownloadTypeFilter.MUSIC -> musicEnabled
         DownloadTypeFilter.VIDEO -> videoEnabled
         DownloadTypeFilter.PHOTO -> photoEnabled
-    }
-
-    fun setTypeEnabled(type: DownloadTypeFilter, enabled: Boolean) {
-        if (!enabled && isTypeEnabled(type) && DownloadTypeFilter.entries.count(::isTypeEnabled) <= 1) return
-        when (type) {
-            DownloadTypeFilter.MUSIC -> musicEnabled = enabled
-            DownloadTypeFilter.VIDEO -> videoEnabled = enabled
-            DownloadTypeFilter.PHOTO -> photoEnabled = enabled
-        }
-        prefs.edit().putBoolean(type.preferenceKey, enabled).apply()
     }
 
     fun enableAllTypes() {
@@ -316,9 +311,14 @@ fun DownloadsScreen(
     }
 
     fun selectOnlyType(type: DownloadTypeFilter) {
-        musicEnabled = type == DownloadTypeFilter.MUSIC
-        videoEnabled = type == DownloadTypeFilter.VIDEO
-        photoEnabled = type == DownloadTypeFilter.PHOTO
+        val next = com.domenota.medialoader.ui.model.exclusiveFilterClick(
+            DownloadTypeFilter.entries.toSet(),
+            DownloadTypeFilter.entries.filter(::isTypeEnabled).toSet(),
+            type,
+        )
+        musicEnabled = DownloadTypeFilter.MUSIC in next
+        videoEnabled = DownloadTypeFilter.VIDEO in next
+        photoEnabled = DownloadTypeFilter.PHOTO in next
         prefs.edit()
             .putBoolean(DownloadTypeFilter.MUSIC.preferenceKey, musicEnabled)
             .putBoolean(DownloadTypeFilter.VIDEO.preferenceKey, videoEnabled)
@@ -442,7 +442,7 @@ fun DownloadsScreen(
             visibleSources.forEach { source ->
                 SourceChip(source.label,
                     source.name.lowercase().takeIf { source != DownloadSourceFilter.OTHER },
-                    !allEnabled && isEnabled(source), onClick = { setEnabled(source, !isEnabled(source)) })
+                    !allEnabled && isEnabled(source), onClick = { selectSource(source) })
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -451,13 +451,7 @@ fun DownloadsScreen(
             SourceChip("Все файлы", null, allTypesEnabled, onClick = ::enableAllTypes)
             DownloadTypeFilter.entries.forEach { type ->
                 val selected = !allTypesEnabled && isTypeEnabled(type)
-                SourceChip(type.label, null, selected, onClick = {
-                    if (selected && DownloadTypeFilter.entries.count(::isTypeEnabled) == 1) {
-                        enableAllTypes()
-                    } else {
-                        selectOnlyType(type)
-                    }
-                })
+                SourceChip(type.label, null, selected, onClick = { selectOnlyType(type) })
             }
         }
         Spacer(Modifier.height(20.dp))

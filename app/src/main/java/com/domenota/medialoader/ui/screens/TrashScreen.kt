@@ -98,7 +98,7 @@ fun TrashScreen(
             TopAppBar(
                 title = { Column {
                     Text("Корзина")
-                    Text("${items.size} файлов", style = MaterialTheme.typography.labelMedium,
+                    Text(com.domenota.medialoader.ui.model.russianFileCount(items.size), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } },
                 navigationIcon = {
