@@ -2,6 +2,9 @@ package com.domenota.medialoader.ui.screens
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -58,6 +61,7 @@ private data class PhotoEditSnapshot(
     val color: PhotoColorAdjustments = PhotoColorAdjustments(),
     val textLayers: List<TextLayer> = emptyList(),
     val drawing: List<PhotoMark> = emptyList(),
+    val graphicWatermark: PhotoGraphicWatermark? = null,
     val overlayPath: String? = null,
     val appliedMasks: List<List<MaskStroke>> = emptyList(),
     val inpaintPreview: Bitmap? = null,
@@ -89,6 +93,7 @@ fun PhotoEditorScreen(
     var cropTool by remember(item.id) { mutableStateOf("ratio") }
     var menuOpen by remember { mutableStateOf(false) }
     var composedPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    var previewError by remember(item.id) { mutableStateOf<String?>(null) }
 
     fun commit(next: PhotoEditSnapshot) {
         if (locked || edit == next) return
@@ -126,6 +131,16 @@ fun PhotoEditorScreen(
         }
     }
 
+    val graphicPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { selected ->
+        if (selected != null && !locked) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    selected, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            commit(edit.copy(graphicWatermark = PhotoGraphicWatermark(uri = selected.toString())))
+        }
+    }
+
     val info = originalInfo?.let { base ->
         edit.inpaintPreview?.let { base.copy(preview = it) } ?: base
     }
@@ -143,28 +158,41 @@ fun PhotoEditorScreen(
     // Debounced previews are calculated away from the UI thread; full-resolution
     // export applies the same operations in the same order.
     LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
-        edit.color, edit.textLayers, edit.drawing) {
+        edit.color, edit.textLayers, edit.drawing, edit.graphicWatermark) {
         val source = info?.preview
         if (source == null) { composedPreview = null; return@LaunchedEffect }
         delay(100L)
-        composedPreview = withContext(Dispatchers.Default) {
-            val transformed = TextLayerRenderer.preview(source, edit.crop, edit.rotation,
-                edit.mirrorHorizontal, edit.mirrorVertical)
-            val colored = PhotoColorMath.apply(transformed, edit.color)
-            val drawn = PhotoDrawing.overlay(colored, edit.drawing)
-            if (edit.textLayers.isEmpty()) {
-                if (colored !== transformed) transformed.recycle()
-                if (drawn !== colored) colored.recycle()
-                drawn
-            } else {
-                val output = drawn.copy(Bitmap.Config.ARGB_8888, true)
-                TextLayerRenderer.draw(context, android.graphics.Canvas(output),
-                    output.width, output.height, edit.textLayers, includeAll = true)
-                if (drawn !== colored) drawn.recycle()
-                if (colored !== transformed) colored.recycle()
-                transformed.recycle()
-                output
+        try {
+            val rendered = withContext(Dispatchers.IO) {
+                val transformed = TextLayerRenderer.preview(source, edit.crop, edit.rotation,
+                    edit.mirrorHorizontal, edit.mirrorVertical)
+                var colored: Bitmap? = null
+                var withWatermark: Bitmap? = null
+                var drawn: Bitmap? = null
+                try {
+                    colored = PhotoColorMath.apply(transformed, edit.color)
+                    withWatermark = PhotoGraphicWatermarkRenderer.overlay(
+                        context, colored, edit.graphicWatermark)
+                    drawn = PhotoDrawing.overlay(withWatermark, edit.drawing)
+                    val output = if (edit.textLayers.isEmpty()) drawn
+                    else drawn.copy(Bitmap.Config.ARGB_8888, true).also {
+                        TextLayerRenderer.draw(context, android.graphics.Canvas(it),
+                            it.width, it.height, edit.textLayers, includeAll = true)
+                    }
+                    if (output !== drawn) drawn.recycle()
+                    drawn = null
+                    output
+                } finally {
+                    drawn?.recycle()
+                    if (withWatermark != null && withWatermark !== colored) withWatermark.recycle()
+                    if (colored != null && colored !== transformed) colored.recycle()
+                    transformed.recycle()
+                }
             }
+            composedPreview = rendered
+            previewError = null
+        } catch (error: Exception) {
+            previewError = "Не удалось открыть водяной знак: ${error.message.orEmpty()}"
         }
     }
 
@@ -220,6 +248,7 @@ fun PhotoEditorScreen(
                             inpaintOverlayPath = edit.overlayPath, textLayers = edit.textLayers,
                             colorAdjustments = edit.color,
                             drawing = edit.drawing,
+                            graphicWatermark = edit.graphicWatermark,
                         ))
                     },
                     enabled = dirty && info != null && !locked && !removeObjects,
@@ -307,9 +336,12 @@ fun PhotoEditorScreen(
                     onEditFinished = ::finishGesture,
                     onText = { textEditorOpen = true },
                     onDraw = { drawingEditorOpen = true },
+                    onPickGraphic = { graphicPicker.launch(arrayOf("image/png", "image/jpeg", "image/webp")) },
                     onLaMa = { removeObjects = true },
                 )
             }
+            previewError?.let { Text(it, color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 3.dp)) }
             exportState.message
                 ?.takeIf { exportState.sourceId == null || exportState.sourceId == item.id }
                 ?.let { Text(it, color = MaterialTheme.colorScheme.error,
@@ -358,7 +390,8 @@ private fun PhotoWorkspaceTools(
     onEdit: (PhotoEditSnapshot) -> Unit,
     onLiveEdit: (PhotoEditSnapshot) -> Unit,
     onEditFinished: () -> Unit,
-    onText: () -> Unit, onDraw: () -> Unit, onLaMa: () -> Unit,
+    onText: () -> Unit, onDraw: () -> Unit,
+    onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().background(Color.Black).height(188.dp)) {
         Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
@@ -416,9 +449,31 @@ private fun PhotoWorkspaceTools(
                     Text("Выбери эффект — изменения сразу появятся на фотографии",
                         fontSize = 12.sp, color = Color.LightGray)
                 }
-                PhotoWorkspaceTab.TEXT, PhotoWorkspaceTab.WATERMARK ->
+                PhotoWorkspaceTab.TEXT ->
                     Text("Надписи, кисти и фигуры накладываются поверх снимка",
                         fontSize = 12.sp, color = Color.LightGray)
+                PhotoWorkspaceTab.WATERMARK -> {
+                    val mark = edit.graphicWatermark
+                    if (mark == null) Text("Выбери изображение PNG/JPG/WebP для водяного знака",
+                        fontSize = 12.sp, color = Color.LightGray)
+                    else Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("Размер", color = Color.White, fontSize = 10.sp)
+                        Slider(value = mark.relativeWidth,
+                            onValueChange = { onLiveEdit(edit.copy(graphicWatermark =
+                                mark.copy(relativeWidth = it))) },
+                            onValueChangeFinished = onEditFinished,
+                            valueRange = .04f..0.90f, modifier = Modifier.weight(1f),
+                            enabled = !locked)
+                        Text("Непрозр.", color = Color.White, fontSize = 10.sp)
+                        Slider(value = mark.opacity,
+                            onValueChange = { onLiveEdit(edit.copy(graphicWatermark =
+                                mark.copy(opacity = it))) },
+                            onValueChangeFinished = onEditFinished,
+                            valueRange = .05f..1f, modifier = Modifier.weight(1f),
+                            enabled = !locked)
+                    }
+                }
                 PhotoWorkspaceTab.AI ->
                     Text("LaMa · удаление объектов на устройстве",
                         fontSize = 12.sp, color = Color.LightGray)
@@ -455,8 +510,23 @@ private fun PhotoWorkspaceTools(
                         false, onDraw, !locked && info != null)
                 }
                 PhotoWorkspaceTab.WATERMARK -> {
+                    PhotoToolCard("Графический знак", Icons.Rounded.AddPhotoAlternate,
+                        false, onPickGraphic, !locked && info != null)
                     PhotoToolCard("Текстовый знак", Icons.Rounded.TextFields,
                         false, onText, !locked && info != null)
+                    edit.graphicWatermark?.let { mark ->
+                        PhotoToolCard("Слева", Icons.Rounded.ArrowBack, false,
+                            { onEdit(edit.copy(graphicWatermark =
+                                mark.copy(centerX = .18f, centerY = .84f))) }, !locked)
+                        PhotoToolCard("Центр", Icons.Rounded.CenterFocusStrong, false,
+                            { onEdit(edit.copy(graphicWatermark =
+                                mark.copy(centerX = .5f, centerY = .5f))) }, !locked)
+                        PhotoToolCard("Справа", Icons.Rounded.ArrowForward, false,
+                            { onEdit(edit.copy(graphicWatermark =
+                                mark.copy(centerX = .82f, centerY = .84f))) }, !locked)
+                        PhotoToolCard("Убрать знак", Icons.Rounded.DeleteOutline, false,
+                            { onEdit(edit.copy(graphicWatermark = null)) }, !locked)
+                    }
                 }
                 PhotoWorkspaceTab.AI ->
                     PhotoToolCard("AI-ластик · LaMa", Icons.Rounded.AutoFixHigh,
