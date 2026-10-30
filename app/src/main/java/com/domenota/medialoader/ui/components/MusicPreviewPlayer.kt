@@ -100,7 +100,7 @@ internal class MusicPreviewPlayer(private val player: ExoPlayer) {
     }
 }
 
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 internal fun rememberMusicPreviewPlayer(): MusicPreviewPlayer {
     val context = LocalContext.current

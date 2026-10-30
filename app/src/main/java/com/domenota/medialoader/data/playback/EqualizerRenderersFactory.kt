@@ -11,7 +11,7 @@ import androidx.media3.exoplayer.audio.*
  * Video players have their own default renderers and are unaffected. Encoded passthrough and
  * hardware offload cannot process these bands, so neither is advertised by this music sink.
  */
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 internal class EqualizerRenderersFactory(context: Context, private val processor: EqualizerAudioProcessor) : DefaultRenderersFactory(context) {
     override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink {
         val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(false)

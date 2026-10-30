@@ -44,7 +44,7 @@ import com.domenota.medialoader.data.privatevault.PrivateFileStore
 import kotlinx.coroutines.*
 
 /** App-owned floating window. System PiP reserves double taps and its controls for Android. */
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 class FloatingVideoService : Service() {
     companion object {
         private const val CHANNEL = "floating_video"

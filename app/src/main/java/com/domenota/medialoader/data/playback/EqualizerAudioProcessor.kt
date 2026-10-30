@@ -20,7 +20,7 @@ internal object EqualizerPlaybackFormat {
  * Gain changes approach their targets over ~20ms. Positive gains reserve aggregate headroom;
  * the final clamp is a guard for malformed/overshooting inputs, never a wrapping integer cast.
  */
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 class EqualizerAudioProcessor : BaseAudioProcessor() {
     @Volatile private var target = EqualizerSettings()
     private var rate = 0
