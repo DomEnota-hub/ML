@@ -140,6 +140,10 @@ fun TrashScreen(
                             onClick = { val ids = selected; selected = emptySet(); onRestore(ids) },
                             modifier = Modifier.weight(1f),
                             enabled = selected.isNotEmpty(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF087E67),
+                                contentColor = Color.White,
+                            ),
                         ) { Text("Восстановить") }
                         OutlinedButton(
                             onClick = { deleteAll = false; confirmDelete = true },
