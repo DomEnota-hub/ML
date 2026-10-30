@@ -23,8 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import com.domenota.medialoader.ui.components.EditorWindow
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.ui.model.DownloadUiState
@@ -115,11 +114,12 @@ internal fun EditorFilePickerDialog(
     val choices = remember(available, query, album, albumsById, sort) {
         editorPickerChoices(available, kind, query, album, albumsById, sort)
     }
-    Dialog(onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    // Reuse the project's full-window dialog host: Compose 1.7.4 mismeasures
+    // Dialog height with usePlatformDefaultWidth=false on some Android devices.
+    EditorWindow(onDismissRequest = onDismiss) {
         Surface(
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(.94f)
-                .padding(horizontal = 9.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surface,
         ) {
