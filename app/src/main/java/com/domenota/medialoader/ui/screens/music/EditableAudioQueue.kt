@@ -44,9 +44,11 @@ internal fun EditableAudioQueue(items: List<MediaItem>, player: Player?, current
             }
         }
     }
-    LaunchedEffect(currentIndex, items, query) {
-        val position = filtered.indexOfFirst { it.index == currentIndex }
-        if (position >= 0) listState.scrollToItem(position)
+    LaunchedEffect(currentIndex, query.isBlank()) {
+        if (query.isBlank()) {
+            val position = filtered.indexOfFirst { it.index == currentIndex }
+            if (position >= 0) listState.scrollToItem(position)
+        }
     }
     Column {
       OutlinedTextField(query, { query = it },

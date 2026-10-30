@@ -1,6 +1,14 @@
 name: MediaLoader main UI v6 checks
 
 on:
+  push:
+    branches:
+      - feature/music-library-gallery-ux-1.7.104
+    paths:
+      - 'app/src/main/**'
+      - 'app/src/test/**'
+      - 'app/build.gradle'
+      - '.github/workflows/main-ui-v6-ci.yml'
   pull_request:
     branches: [main]
     paths:
@@ -73,18 +81,18 @@ jobs:
           set -euo pipefail
           apk=app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$apk"
-          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='165' versionName='1.7.103'"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='166' versionName='1.7.104'"
           test "$(unzip -Z1 "$apk" | grep '^lib/' | cut -d/ -f2 | sort -u)" = "arm64-v8a"
           mkdir -p handoff/signing-tools
-          cp "$apk" handoff/MediaLoader_1.7.103_arm64_UNSIGNED.apk
+          cp "$apk" handoff/MediaLoader_1.7.104_arm64_UNSIGNED.apk
           cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib/apksigner.jar" handoff/signing-tools/
           cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign" handoff/signing-tools/
           cp -a "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib64" handoff/signing-tools/
-          sha256sum handoff/MediaLoader_1.7.103_arm64_UNSIGNED.apk > handoff/unsigned_sha256.txt
+          sha256sum handoff/MediaLoader_1.7.104_arm64_UNSIGNED.apk > handoff/unsigned_sha256.txt
       - name: Transfer unsigned release for existing DomEnota signing
         uses: actions/upload-artifact@v4
         with:
-          name: MediaLoader-1.7.103-arm64-signing-handoff
+          name: MediaLoader-1.7.104-arm64-signing-handoff
           path: handoff/
           if-no-files-found: error
           retention-days: 1
