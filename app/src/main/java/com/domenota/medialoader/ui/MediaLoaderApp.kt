@@ -1153,6 +1153,18 @@ fun MediaLoaderApp(
                     hiddenItems = hiddenItems.map { entry ->
                         entry.toUi().copy(savedUri = viewModel.trashedUri(entry.id))
                     },
+                    editorItems = accessibleDownloads.filter {
+                        it.state == DownloadState.COMPLETED && it.savedUri != null
+                    }.map { it.toUi() },
+                    onEditFile = { id ->
+                        when (accessibleDownloads.firstOrNull { it.id == id }?.mediaType) {
+                            MediaType.PHOTO -> navController.navigate("photo-editor/$id")
+                            MediaType.VIDEO -> navController.navigate("video-editor/$id")
+                            MediaType.AUDIO -> navController.navigate("audio-editor/$id")
+                            null -> Unit
+                        }
+                    },
+                    onOpenEqualizer = { navController.navigate("equalizer") },
                     onChangeFolder = viewModel::changeFolder,
                     onSelectFolder = { folderLauncher.launch(null) },
                     onRestore = viewModel::restoreHidden,
