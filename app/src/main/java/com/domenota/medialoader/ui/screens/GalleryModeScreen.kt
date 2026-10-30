@@ -18,6 +18,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.foundation.gestures.scrollBy
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,6 +72,7 @@ fun GalleryModeScreen(
         } else settingsError = "Не удалось сохранить расположение альбомов"
     }
     var deletingAlbum by remember(source) { mutableStateOf<GalleryAlbum?>(null) }
+    var otherAlbumsExpanded by rememberSaveable(source.name) { mutableStateOf(false) }
     var search by rememberSaveable(source.name) { mutableStateOf("") }
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var selection by rememberSaveable(source.name) { mutableStateOf("all") }
@@ -120,6 +127,23 @@ fun GalleryModeScreen(
     val selectedSet = remember(selectedIds) { selectedIds.toHashSet() }
     val mediaGridState = rememberLazyGridState()
     val albumGridState = rememberLazyGridState()
+    val density = LocalDensity.current
+    val edgeHeightPx = with(density) { 84.dp.toPx() }
+    var draggingAlbumKey by remember { mutableStateOf<String?>(null) }
+    var draggedPointer by remember { mutableStateOf(Offset.Zero) }
+    var albumViewport by remember { mutableStateOf(IntSize.Zero) }
+    LaunchedEffect(draggingAlbumKey, tab) {
+        if (tab == 1 && draggingAlbumKey != null) {
+            // The gesture stays on the grid, not on its recyclable items.
+            // This continues scrolling even if the source card leaves the viewport.
+            while (draggingAlbumKey != null) {
+                val delta = galleryAlbumEdgeScrollDelta(
+                    draggedPointer.y, albumViewport.height.toFloat(), edgeHeightPx)
+                if (delta != 0f) albumGridState.scrollBy(delta)
+                delay(16L)
+            }
+        }
+    }
     val dateSections = remember(visibleDisplayed) {
         visibleDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
             .atZone(ZoneId.systemDefault()).toLocalDate() }
@@ -146,8 +170,53 @@ fun GalleryModeScreen(
                 Icon(Icons.Rounded.Delete, "Удалить выбранное", tint = MaterialTheme.colorScheme.error)
             }
         }
+        Box(Modifier.weight(1f)) {
         LazyVerticalGrid(columns = GridCells.Fixed(4), state = if (tab == 1) albumGridState else mediaGridState,
-            modifier = Modifier.weight(1f).testTag("gallery-library"),
+            modifier = Modifier.fillMaxSize().testTag("gallery-library")
+                .onSizeChanged { albumViewport = it }
+                .pointerInput(tab, albums, albumSettings.hiddenAlbums, otherAlbumsExpanded) {
+                    if (tab != 1) return@pointerInput
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { point ->
+                            val hit = albumGridState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                item.key.toString().startsWith("album:") &&
+                                    point.x >= item.offset.x && point.x < item.offset.x + item.size.width &&
+                                    point.y >= item.offset.y && point.y < item.offset.y + item.size.height
+                            }
+                            draggingAlbumKey = hit?.key?.toString()?.removePrefix("album:")
+                            draggedPointer = point
+                        },
+                        onDrag = { change, distance ->
+                            if (draggingAlbumKey != null) {
+                                change.consume()
+                                draggedPointer += distance
+                            }
+                        },
+                        onDragEnd = {
+                            val from = draggingAlbumKey
+                            if (from != null) {
+                                val target = albumGridState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                    item.key.toString().startsWith("album:") &&
+                                        item.key != "album:$from" &&
+                                        draggedPointer.x >= item.offset.x &&
+                                        draggedPointer.x < item.offset.x + item.size.width &&
+                                        draggedPointer.y >= item.offset.y &&
+                                        draggedPointer.y < item.offset.y + item.size.height
+                                }?.key?.toString()?.removePrefix("album:")
+                                if (target != null &&
+                                    (from in albumSettings.hiddenAlbums) == (target in albumSettings.hiddenAlbums)) {
+                                    saveSettings(moveGalleryAlbum(albumSettings, albums, from, target))
+                                }
+                            }
+                            draggingAlbumKey = null
+                            draggedPointer = Offset.Zero
+                        },
+                        onDragCancel = {
+                            draggingAlbumKey = null
+                            draggedPointer = Offset.Zero
+                        },
+                    )
+                },
             horizontalArrangement = Arrangement.spacedBy(if (tab == 1) 0.dp else 2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
@@ -210,9 +279,11 @@ fun GalleryModeScreen(
                     GalleryAlbumCell(
                         album = album, index = index, hidden = false,
                         mediaExcluded = album.key in albumSettings.excludedFromMedia,
-                        gridState = albumGridState,
+                        dragged = draggingAlbumKey == album.key,
                         onOpen = { openAlbum(album.key, album.name) },
-                        onHide = { saveSettings(albumSettings.copy(hiddenAlbums = albumSettings.hiddenAlbums + album.key)) },
+                        onHide = {
+                            saveSettings(albumSettings.copy(hiddenAlbums = albumSettings.hiddenAlbums + album.key))
+                        },
                         onToggleMedia = {
                             val next = if (album.key in albumSettings.excludedFromMedia)
                                 albumSettings.excludedFromMedia - album.key
@@ -220,56 +291,53 @@ fun GalleryModeScreen(
                             saveSettings(albumSettings.copy(excludedFromMedia = next))
                         },
                         onDelete = { deletingAlbum = album },
-                        onMoveBefore = { key -> saveSettings(moveGalleryAlbum(albumSettings, albums, album.key, key)) },
-                        onMoveUp = {
-                            if (index > 0) saveSettings(moveGalleryAlbum(albumSettings, albums, album.key, visibleAlbums[index - 1].key))
-                        },
-                        onMoveDown = {
-                            if (index < visibleAlbums.lastIndex) {
-                                val keys = orderedAlbums.map { it.key }.toMutableList()
-                                val a = keys.indexOf(album.key); val b = keys.indexOf(visibleAlbums[index + 1].key)
-                                if (a >= 0 && b >= 0) {
-                                    java.util.Collections.swap(keys, a, b)
-                                    saveSettings(albumSettings.copy(order = keys))
-                                }
-                            }
-                        },
                     )
                 }
                 if (otherAlbums.isNotEmpty()) {
                     item(key = "other-albums-title", span = { GridItemSpan(maxLineSpan) }) {
-                        GallerySectionTitle("Другие альбомы")
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 10.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            onClick = { otherAlbumsExpanded = !otherAlbumsExpanded },
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(Icons.Rounded.FolderOpen, null,
+                                    tint = MaterialTheme.colorScheme.primary)
+                                Text("Другие альбомы", modifier = Modifier.weight(1f),
+                                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                                Text("${otherAlbums.size}",
+                                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(if (otherAlbumsExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                    if (otherAlbumsExpanded) "Свернуть" else "Развернуть")
+                            }
+                        }
                     }
-                    itemsIndexed(otherAlbums, key = { _, album -> "album:${album.key}" },
-                        span = { _, _ -> GridItemSpan(2) }) { index, album ->
-                        GalleryAlbumCell(
-                            album = album, index = index, hidden = true,
-                            mediaExcluded = album.key in albumSettings.excludedFromMedia,
-                            gridState = albumGridState,
-                            onOpen = { openAlbum(album.key, album.name) },
-                            onHide = { saveSettings(albumSettings.copy(hiddenAlbums = albumSettings.hiddenAlbums - album.key)) },
-                            onToggleMedia = {
-                                val next = if (album.key in albumSettings.excludedFromMedia)
-                                    albumSettings.excludedFromMedia - album.key
-                                else albumSettings.excludedFromMedia + album.key
-                                saveSettings(albumSettings.copy(excludedFromMedia = next))
-                            },
-                            onDelete = { deletingAlbum = album },
-                            onMoveBefore = { key -> saveSettings(moveGalleryAlbum(albumSettings, albums, album.key, key)) },
-                            onMoveUp = {
-                                if (index > 0) saveSettings(moveGalleryAlbum(albumSettings, albums, album.key, otherAlbums[index - 1].key))
-                            },
-                            onMoveDown = {
-                                if (index < otherAlbums.lastIndex) {
-                                    val keys = orderedAlbums.map { it.key }.toMutableList()
-                                    val a = keys.indexOf(album.key); val b = keys.indexOf(otherAlbums[index + 1].key)
-                                    if (a >= 0 && b >= 0) {
-                                        java.util.Collections.swap(keys, a, b)
-                                        saveSettings(albumSettings.copy(order = keys))
-                                    }
-                                }
-                            },
-                        )
+                    if (otherAlbumsExpanded) {
+                        itemsIndexed(otherAlbums, key = { _, album -> "album:${album.key}" },
+                            span = { _, _ -> GridItemSpan(2) }) { index, album ->
+                            GalleryAlbumCell(
+                                album = album, index = index, hidden = true,
+                                mediaExcluded = album.key in albumSettings.excludedFromMedia,
+                                dragged = draggingAlbumKey == album.key,
+                                onOpen = { openAlbum(album.key, album.name) },
+                                onHide = {
+                                    saveSettings(albumSettings.copy(
+                                        hiddenAlbums = albumSettings.hiddenAlbums - album.key))
+                                },
+                                onToggleMedia = {
+                                    val next = if (album.key in albumSettings.excludedFromMedia)
+                                        albumSettings.excludedFromMedia - album.key
+                                    else albumSettings.excludedFromMedia + album.key
+                                    saveSettings(albumSettings.copy(excludedFromMedia = next))
+                                },
+                                onDelete = { deletingAlbum = album },
+                            )
+                        }
                     }
                 }
             } else {
@@ -290,6 +358,35 @@ fun GalleryModeScreen(
                         }
                     }
             }
+        }
+        // Floating drag preview remains present even when its original row scrolls out of view.
+        draggingAlbumKey?.let { key ->
+            orderedAlbums.firstOrNull { it.key == key }?.let { album ->
+                Surface(
+                    modifier = Modifier.offset {
+                        IntOffset(
+                            (draggedPointer.x - with(density) { 67.dp.toPx() }).roundToInt()
+                                .coerceAtLeast(0),
+                            (draggedPointer.y - with(density) { 48.dp.toPx() }).roundToInt()
+                                .coerceAtLeast(0)
+                        )
+                    }.width(134.dp).zIndex(5f).alpha(0.93f),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shadowElevation = 9.dp,
+                ) {
+                    Column(Modifier.padding(9.dp)) {
+                        album.cover?.let { cover ->
+                            DownloadThumbnail(cover.savedUri, cover.previewUrl,
+                                cover.toUi().kind,
+                                Modifier.fillMaxWidth().height(65.dp).clip(RoundedCornerShape(9.dp)))
+                        }
+                        Text(album.name, fontSize = 12.sp, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
         }
         if (tabOverride == null && !detailOpen) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
     }
@@ -348,45 +445,15 @@ fun GalleryModeScreen(
 @Composable
 private fun GalleryAlbumCell(
     album: GalleryAlbum, index: Int, hidden: Boolean, mediaExcluded: Boolean,
-    gridState: LazyGridState, onOpen: () -> Unit, onHide: () -> Unit,
+    dragged: Boolean, onOpen: () -> Unit, onHide: () -> Unit,
     onToggleMedia: () -> Unit, onDelete: () -> Unit,
-    onMoveBefore: (String) -> Unit, onMoveUp: () -> Unit, onMoveDown: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    var dragging by remember { mutableStateOf(false) }
-    var dragShift by remember(album.key) { mutableStateOf(Offset.Zero) }
     Column(
         Modifier
-            .offset { IntOffset(dragShift.x.roundToInt(), dragShift.y.roundToInt()) }
-            .zIndex(if (dragging) 2f else 0f)
+            .alpha(if (dragged) 0.30f else 1f)
             .padding(start = if (index % 2 == 0) 17.dp else 6.dp,
                 end = if (index % 2 == 0) 6.dp else 17.dp, bottom = 18.dp)
-            .pointerInput(album.key) {
-                detectDragGesturesAfterLongPress(
-                    onDragStart = { dragging = true; dragShift = Offset.Zero },
-                    onDrag = { change, distance ->
-                        change.consume()
-                        dragShift += distance
-                    },
-                    onDragEnd = {
-                        val source = gridState.layoutInfo.visibleItemsInfo
-                            .firstOrNull { it.key == "album:${album.key}" }
-                        if (source != null) {
-                            val x = source.offset.x + source.size.width / 2f + dragShift.x
-                            val y = source.offset.y + source.size.height / 2f + dragShift.y
-                            val target = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
-                                info.key != source.key && info.key.toString().startsWith("album:") &&
-                                    x >= info.offset.x && x < info.offset.x + info.size.width &&
-                                    y >= info.offset.y && y < info.offset.y + info.size.height
-                            }
-                            target?.let { onMoveBefore(it.key.toString().removePrefix("album:")) }
-                        }
-                        dragging = false
-                        dragShift = Offset.Zero
-                    },
-                    onDragCancel = { dragging = false; dragShift = Offset.Zero },
-                )
-            }
             .clickable(onClick = onOpen)
     ) {
         Box(
@@ -400,6 +467,16 @@ private fun GalleryAlbumCell(
             )
             else Icon(Icons.Rounded.PhotoLibrary, null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (mediaExcluded) {
+                Box(
+                    Modifier.align(Alignment.TopStart).padding(7.dp)
+                        .background(Color.Black.copy(alpha = .65f), RoundedCornerShape(8.dp))
+                        .padding(5.dp)
+                ) {
+                    Icon(Icons.Rounded.VisibilityOff, "Файлы скрыты из «Медиа»",
+                        Modifier.size(19.dp), tint = Color.White)
+                }
+            }
             Box(Modifier.align(Alignment.TopEnd)) {
                 IconButton({ menu = true }) {
                     Icon(Icons.Rounded.MoreVert, "Управление альбомом ${album.name}",
@@ -415,10 +492,6 @@ private fun GalleryAlbumCell(
                         Text(if (mediaExcluded) "Показывать файлы в «Медиа»" else "Скрыть файлы из «Медиа»")
                     }, { menu = false; onToggleMedia() },
                         leadingIcon = { Icon(Icons.Rounded.RemoveRedEye, null) })
-                    DropdownMenuItem({ Text("Переместить выше") }, { menu = false; onMoveUp() },
-                        leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) })
-                    DropdownMenuItem({ Text("Переместить ниже") }, { menu = false; onMoveDown() },
-                        leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })
                     DropdownMenuItem({ Text("Удалить альбом", color = MaterialTheme.colorScheme.error) },
                         { menu = false; onDelete() },
                         leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) })
