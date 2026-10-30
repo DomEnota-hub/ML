@@ -24,12 +24,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         AppLog.init(applicationContext)
         super.onCreate(savedInstanceState)
-        // Quiet precomputation survives leaving the app and never blocks the editor.
-        AudioWaveformPrecompute.schedule(applicationContext)
         if (savedInstanceState == null && forwardAutomaticShare(intent, false)) {
             finish()
             return
         }
+        // Share forwarding must run before scheduling background work.
+        runCatching { AudioWaveformPrecompute.schedule(applicationContext) }
+            .onFailure { AppLog.w("AudioWaveform", "Background scan deferred: ${it.javaClass.simpleName}") }
         com.domenota.medialoader.ui.theme.edgeToEdgeWindow(window)
         val archivePrefs = getSharedPreferences("module_archive", MODE_PRIVATE)
         if (!archivePrefs.getBoolean("instagram_profile_disabled", false)) {
