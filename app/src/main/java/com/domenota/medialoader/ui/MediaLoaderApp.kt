@@ -999,7 +999,11 @@ fun MediaLoaderApp(
                     onOpen = openDownloadWithQueue,
                     onOpenPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onFavorite = setLibraryFavorite, onSetFolder = setLibraryFolder,
-                    onCreateFolder = viewModel::createCatalogFolder, onShare = shareLibraryFile,
+                    onCreateFolder = viewModel::createCatalogFolder,
+                    onDeleteFolder = { folderId ->
+                        viewModel.deleteCatalogFolder(folderId)
+                        libraryModel.externalCatalog.removeFolder(folderId)
+                    }, onShare = shareLibraryFile,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles, onRename = viewModel::renameDownload,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
                     searchVisible = librarySearchVisible, tabOverride = galleryTab,
