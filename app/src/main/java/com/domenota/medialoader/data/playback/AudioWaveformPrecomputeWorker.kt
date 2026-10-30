@@ -17,12 +17,14 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.MediaRepository
 import com.domenota.medialoader.ui.components.hasCachedAudioWaveform
 import com.domenota.medialoader.ui.components.loadAudioWaveform
 import java.util.concurrent.TimeUnit
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -38,6 +40,18 @@ class AudioWaveformPrecomputeWorker(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val app = applicationContext
+        val requested = inputData.getString("requestedUri")
+        if (requested != null) {
+            // Priority single-track request, independent of the backlog of public music.
+            // No list, notification, or UI state is exposed.
+            return@withContext runCatching {
+                val uri = Uri.parse(requested)
+                val duration = readDurationMs(app, uri).takeIf { it > 0L }
+                    ?: inputData.getLong("durationMs", 0L)
+                if (duration > 0L) loadAudioWaveform(app, uri, duration)
+                Result.success()
+            }.getOrElse { Result.failure() }
+        }
         val tracks = linkedMapOf<String, Long>()
         // Never index the application's hidden or private audio history.
         runCatching {
@@ -119,6 +133,18 @@ object AudioWaveformPrecompute {
                 .setConstraints(constraints).build()
         )
         request(context)
+    }
+
+    /** Priority cache miss from the editor is queued separately from the library sweep. */
+    fun requestImmediate(context: Context, uri: Uri, durationMs: Long) {
+        val id = MessageDigest.getInstance("SHA-256")
+            .digest(uri.toString().toByteArray()).joinToString("") { "%02x".format(it) }
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            "waveform-priority-$id", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<AudioWaveformPrecomputeWorker>()
+                .setInputData(workDataOf("requestedUri" to uri.toString(), "durationMs" to durationMs))
+                .build()
+        )
     }
 
     /** A new local track or MediaStore audio update triggers a silent incremental pass. */
