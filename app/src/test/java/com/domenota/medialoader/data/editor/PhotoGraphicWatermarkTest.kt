@@ -3,7 +3,12 @@ package com.domenota.medialoader.data.editor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PhotoGraphicWatermarkTest {
     private val watermark = PhotoGraphicWatermark(
         uri = "content://com.android.providers.media.documents/document/image%3A17",
