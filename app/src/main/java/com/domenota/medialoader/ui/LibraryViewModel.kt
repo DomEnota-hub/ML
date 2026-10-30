@@ -70,7 +70,8 @@ internal fun visibleLibraryValidationPending(
 internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
     val both = setOf(AppMode.GALLERY, AppMode.MUSIC)
     if (uri.isNullOrBlank()) return both
-    val segments = android.net.Uri.parse(uri).pathSegments.map { it.lowercase(java.util.Locale.ROOT) }
+    val segments = runCatching { java.net.URI(uri).path.orEmpty()
+        .split('/').map { it.lowercase(java.util.Locale.ROOT) } }.getOrNull() ?: return both
     val pictures = "images" in segments || "video" in segments
     val audio = "audio" in segments
     return when {
