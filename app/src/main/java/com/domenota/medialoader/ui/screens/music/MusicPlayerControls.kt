@@ -91,8 +91,6 @@ internal fun MusicPlayerControls(
             IconButton(onClick = { onEqualizer?.invoke() }, enabled = onEqualizer != null) { Icon(Icons.Rounded.Equalizer, "Эквалайзер") }
             IconButton(onQueue, enabled = player != null) { Icon(Icons.Rounded.QueueMusic, "Очередь") }
         }
-        Text("Эквалайзер · общая настройка для всей музыки", Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (speedMenu) AlertDialog(onDismissRequest = { speedMenu = false }, title = { Text("Скорость воспроизведения") },
         text = { Column { listOf(.75f, 1f, 1.25f, 1.5f, 2f).forEach { value ->

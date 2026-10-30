@@ -40,7 +40,21 @@ internal fun reverseChunkMillis(width: Int, height: Int): Long {
     }
 }
 
-/** FFmpeg reverse filters buffer decoded frames, so only short slices are processed in memory. */
+/** Lossless, independently reversed PCM segments: one AAC encoder is used only at mux time. */
+internal fun reverseAudioPcmArgs(input: File, segment: ReverseSegment, output: File): List<String> =
+    listOf(
+        "-hide_banner", "-nostdin", "-y",
+        "-ss", "%1.3f".format(Locale.US, segment.startMs / 1000.0),
+        "-t", "%1.3f".format(Locale.US, segment.durationMs / 1000.0),
+        "-i", input.absolutePath, "-map", "0:a:0", "-vn",
+        "-af", "aresample=48000,areverse,asetpts=PTS-STARTPTS",
+        "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", output.absolutePath,
+    )
+
+/** FFmpeg reverse filters buffer decoded frames, so only short slices are processed in memory.
+ * Reverse audio to lossless PCM chunks and encode it exactly once at the final mux.
+ * AAC per-fragment encoding adds encoder-delay/padding at every boundary and audibly stutters.
+ */
 internal class VideoReverseEngine(private val cacheDir: File) {
     suspend fun reverse(input: File, onProgress: (Int) -> Unit): File {
         val info = readMediaInfo(input)
@@ -49,6 +63,7 @@ internal class VideoReverseEngine(private val cacheDir: File) {
         val result = File(cacheDir, "reversed-" + UUID.randomUUID() + ".mp4")
         try {
             val created = mutableListOf<File>()
+            val createdAudio = mutableListOf<File>()
             for ((index, segment) in segments.withIndex()) {
                 currentCoroutineContext().ensureActive()
                 val part = File(work, "part-%05d.mp4".format(Locale.ROOT, index))
@@ -64,25 +79,43 @@ internal class VideoReverseEngine(private val cacheDir: File) {
                     "-c:v", "mpeg4", "-q:v", "2", "-pix_fmt", "yuv420p",
                     "-video_track_timescale", "30000",
                 )
-                if (info.hasAudio) {
-                    args += listOf("-map", "0:a:0", "-af", "areverse,asetpts=PTS-STARTPTS",
-                        "-c:a", "aac", "-b:a", "192k")
-                } else args += "-an"
+                // Video chunks are silent. PCM audio is produced separately to avoid
+                // gap/padding from hundreds of separately encoded AAC packets.
+                args += "-an"
                 args += listOf("-movflags", "+faststart", part.absolutePath)
                 check(runFFmpeg(args)) { "Не удалось обработать реверс (фрагмент ${index + 1})" }
                 check(part.exists() && part.length() > 0) { "Не удалось записать фрагмент реверса" }
                 created += part
-                onProgress(45 + (index + 1) * 47 / segments.size)
+                if (info.hasAudio) {
+                    currentCoroutineContext().ensureActive()
+                    val audio = File(work, "audio-%05d.wav".format(Locale.ROOT, index))
+                    check(runFFmpeg(reverseAudioPcmArgs(input, segment, audio))) {
+                        "Не удалось обратить звуковую дорожку (фрагмент ${index + 1})"
+                    }
+                    check(audio.isFile && audio.length() > 44L) { "Не удалось записать звуковой фрагмент" }
+                    createdAudio += audio
+                }
+                onProgress(45 + (index + 1) * 45 / segments.size)
             }
-            val manifest = File(work, "segments.txt")
-            manifest.writeText(created.joinToString("\n", postfix = "\n") { segment ->
-                "file '" + segment.absolutePath.replace("'", "'\\''") + "'"
-            })
-            val joined = runFFmpeg(listOf(
+            fun manifest(files: List<File>, name: String) =
+                File(work, name).also { manifest ->
+                    manifest.writeText(files.joinToString("\n", postfix = "\n") { segment ->
+                        "file '" + segment.absolutePath.replace("'", "'\\''") + "'"
+                    })
+                }
+            val videoManifest = manifest(created, "video.txt")
+            val audioManifest = if (createdAudio.isNotEmpty()) manifest(createdAudio, "audio.txt") else null
+            val args = mutableListOf(
                 "-hide_banner", "-nostdin", "-y", "-f", "concat", "-safe", "0",
-                "-i", manifest.absolutePath,
-                "-c", "copy", "-movflags", "+faststart", result.absolutePath,
-            ))
+                "-i", videoManifest.absolutePath,
+            )
+            if (audioManifest != null) args += listOf(
+                "-f", "concat", "-safe", "0", "-i", audioManifest.absolutePath,
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest",
+            ) else args += listOf("-map", "0:v:0", "-c", "copy")
+            args += listOf("-movflags", "+faststart", result.absolutePath)
+            val joined = runFFmpeg(args)
             check(joined && result.exists() && result.length() > 0) {
                 "Не удалось объединить фрагменты обратного видео"
             }

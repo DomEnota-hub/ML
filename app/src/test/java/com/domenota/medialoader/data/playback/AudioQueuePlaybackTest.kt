@@ -124,7 +124,7 @@ class AudioQueuePlaybackTest {
             assertEquals(listOf("a", "b", "d", "c"), (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId })
             assertTrue(AudioQueuePlayback.enqueue(player, item("a"), next = true))
             assertTrue(AudioQueuePlayback.enqueue(player, item("c"), next = false))
-            assertEquals(listOf("b", "a", "d", "c"), (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId })
+            assertEquals(listOf("b", "d", "a", "c"), (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId })
             assertEquals("b", player.currentMediaItem?.mediaId)
             assertEquals(4567L, player.currentPosition)
             assertFalse(player.playWhenReady)
@@ -132,6 +132,18 @@ class AudioQueuePlaybackTest {
             assertEquals(4, player.mediaItemCount)
         } finally { player.release() }
     }
+    @Test fun multiplePlayNextRequestsKeepRequestOrder() {
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            player.setMediaItems(listOf(item("now"), item("original-next")))
+            assertTrue(AudioQueuePlayback.enqueue(player, item("first"), next = true))
+            assertTrue(AudioQueuePlayback.enqueue(player, item("second"), next = true))
+            assertTrue(AudioQueuePlayback.enqueue(player, item("third"), next = true))
+            assertEquals(listOf("now", "first", "second", "third", "original-next"),
+                (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId })
+        } finally { player.release() }
+    }
+
     @Test fun removingCurrentEntryAdvancesWithoutPausingTheQueue() {
         val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
         try {

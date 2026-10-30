@@ -55,6 +55,7 @@ fun MediaTrimControls(
     snapIntervalMs: Long? = null,
     timelineVisual: @Composable (Modifier) -> Unit = {},
     scrubPreview: (@Composable (Long) -> Unit)? = null,
+    showSolidTrimBar: Boolean = true,
 ) {
     var positionMs by remember(player) { mutableLongStateOf(0L) }
     var isPlaying by remember(player) { mutableStateOf(player.isPlaying) }
@@ -258,20 +259,24 @@ fun MediaTrimControls(
                 )
             }
 
-            drawLine(
-                color = baseColor.copy(alpha = 0.72f),
-                start = Offset(0f, centerY),
-                end = Offset(width, centerY),
-                strokeWidth = 10.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            drawLine(
-                color = selectedColor,
-                start = Offset(startX, centerY),
-                end = Offset(endX, centerY),
-                strokeWidth = 10.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
+            // The audio editor displays real PCM peaks under the trim overlay.
+            // A thick opaque timeline line would obscure their amplitudes.
+            if (showSolidTrimBar) {
+                drawLine(
+                    color = baseColor.copy(alpha = 0.72f),
+                    start = Offset(0f, centerY),
+                    end = Offset(width, centerY),
+                    strokeWidth = 10.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = selectedColor,
+                    start = Offset(startX, centerY),
+                    end = Offset(endX, centerY),
+                    strokeWidth = 10.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+            }
             drawLine(
                 color = handleColor,
                 start = Offset(startX, centerY - 26.dp.toPx()),

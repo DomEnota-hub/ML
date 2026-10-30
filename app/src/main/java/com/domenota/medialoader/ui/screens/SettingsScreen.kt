@@ -995,7 +995,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
             SettingRow(Icons.Rounded.GraphicEq, "Эквалайзер",
-                "Настройка звука для всей музыки",
+                "Настройка звука",
                 grouped = true, iconTone = SettingIconTone.BLUE,
                 onClick = onOpenEqualizer)
             GroupDivider()

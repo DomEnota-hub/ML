@@ -42,7 +42,7 @@ fun GalleryModeScreen(
     onFavorite: suspend (String, Boolean) -> Unit, onSetFolder: suspend (String, String?) -> Unit,
     onCreateFolder: suspend (String) -> String, onShare: (String) -> Unit, onDelete: (String) -> Unit,
     onRename: (String, String) -> Unit, onMoveToPrivate: (String) -> Unit,
-    searchVisible: Boolean? = null, tabOverride: Int? = null, onTabChange: (Int) -> Unit = {},
+    searchVisible: Boolean? = null, tabOverride: Int? = null, scrollToTopRequest: Int = 0, onTabChange: (Int) -> Unit = {},
     deviceAlbums: Map<String, DeviceAlbum> = emptyMap(),
     onDetailChange: (Boolean) -> Unit = {}, onSettings: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
@@ -56,6 +56,8 @@ fun GalleryModeScreen(
     var creating by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var detailMenu by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var selectedJumpDate by remember { mutableStateOf<LocalDate?>(null) }
     val detailOpen = selectionTitle.isNotEmpty()
     LaunchedEffect(detailOpen) { onDetailChange(detailOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
@@ -89,6 +91,20 @@ fun GalleryModeScreen(
     val selectedSet = remember(selectedIds) { selectedIds.toHashSet() }
     val mediaGridState = rememberLazyGridState()
     val albumGridState = rememberLazyGridState()
+    val dateSections = remember(displayed) {
+        displayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
+            .atZone(ZoneId.systemDefault()).toLocalDate() }
+    }
+    LaunchedEffect(tab, scrollToTopRequest) { if (tab == 0) mediaGridState.scrollToItem(0) }
+    LaunchedEffect(selectedJumpDate, dateSections, tab) {
+        if (tab == 0) {
+            selectedJumpDate?.let { chosen ->
+                galleryDateSectionIndex(dateSections.mapValues { it.value.size }, chosen)?.let {
+                    mediaGridState.animateScrollToItem(it)
+                }
+            }
+        }
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -121,6 +137,16 @@ fun GalleryModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
                         leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                    if (tab == 0 && !detailOpen) Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 17.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = { showDatePicker = true }, enabled = displayed.isNotEmpty()) {
+                            Icon(Icons.Rounded.CalendarMonth, null)
+                            Spacer(Modifier.width(7.dp))
+                            Text("Перейти к дате")
+                        }
+                    }
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading, message, error,
                         tab == 0 && displayed.isEmpty(), "Нет фото и видео") }
                 }
@@ -163,8 +189,7 @@ fun GalleryModeScreen(
                     }
                 }
             } else {
-                displayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis).atZone(ZoneId.systemDefault()).toLocalDate() }
-                    .forEach { (date, rows) ->
+                dateSections.forEach { (date, rows) ->
                         item(key = "date:$date", span = { GridItemSpan(maxLineSpan) }) {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                                 val today = LocalDate.now()
@@ -183,6 +208,15 @@ fun GalleryModeScreen(
             }
         }
         if (tabOverride == null && !detailOpen) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
+    }
+    if (showDatePicker) {
+        GalleryDatePicker(
+            onDismiss = { showDatePicker = false },
+            onPick = { chosen ->
+                showDatePicker = false
+                selectedJumpDate = chosen
+            },
+        )
     }
     if (creating) LibraryNameDialog("Новая папка", "", { creating = false }) { name ->
         val id = onCreateFolder(name); creating = false; openAlbum("folder:$id", name)
@@ -235,5 +269,25 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
             DropdownMenuItem({ Text("Удалить", color = MaterialTheme.colorScheme.error) }, { menu = false; onDelete() },
                 leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) })
         }
+    }
+}
+
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GalleryDatePicker(onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
+    val state = rememberDatePickerState()
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = {
+                state.selectedDateMillis?.let { millis ->
+                    // Material DatePicker encodes dates in UTC, not the phone's current timezone.
+                    onPick(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate())
+                }
+            }, enabled = state.selectedDateMillis != null) { Text("Перейти") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    ) {
+        DatePicker(state = state)
     }
 }

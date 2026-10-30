@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -30,9 +32,34 @@ internal fun EditableAudioQueue(items: List<MediaItem>, player: Player?, current
     val scope = rememberCoroutineScope()
     val rowHeight = with(LocalDensity.current) { 76.dp.toPx() }
     var dragDistance by remember { mutableFloatStateOf(0f) }
-    LazyColumn(Modifier.heightIn(max = 440.dp), state = listState) {
-        if (items.isEmpty()) item { Text("Очередь пуста", Modifier.padding(24.dp)) }
-        itemsIndexed(items, key = { _, media -> media.mediaId }) { index, media ->
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(items, lookup, blocked, query) {
+        items.withIndex().filter { (_, media) ->
+            if (query.isBlank()) true else {
+                val record = AudioPlaybackMetadata.publicRow(media, lookup, blocked)
+                record != null && listOfNotNull(
+                    record.originalName, record.recognizedTitle, record.sourceAudioTitle,
+                    record.recognizedArtist, record.sourceAudioArtist,
+                ).any { it.contains(query.trim(), ignoreCase = true) }
+            }
+        }
+    }
+    LaunchedEffect(currentIndex, query.isBlank()) {
+        if (query.isBlank()) {
+            val position = filtered.indexOfFirst { it.index == currentIndex }
+            if (position >= 0) listState.scrollToItem(position)
+        }
+    }
+    Column {
+      OutlinedTextField(query, { query = it },
+          Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+          singleLine = true, label = { Text("Поиск в очереди") },
+          leadingIcon = { Icon(Icons.Rounded.Search, null) })
+      LazyColumn(Modifier.heightIn(max = 440.dp), state = listState) {
+        if (filtered.isEmpty()) item { Text(if (items.isEmpty()) "Очередь пуста" else "Ничего не найдено", Modifier.padding(24.dp)) }
+        itemsIndexed(filtered, key = { _, entry -> entry.value.mediaId }) { _, entry ->
+            val index = entry.index
+            val media = entry.value
             val row = AudioPlaybackMetadata.publicRow(media, lookup, blocked)
             if (row != null) MusicLibraryTrackRow(row, { onSelect(index) }, index == currentIndex, playing) {
                 var menu by remember { mutableStateOf(false) }
@@ -67,6 +94,10 @@ internal fun EditableAudioQueue(items: List<MediaItem>, player: Player?, current
                 Box {
                     IconButton({ menu = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreVert, "Действия в очереди") }
                     DropdownMenu(menu, { menu = false }) {
+                        if (index != currentIndex) DropdownMenuItem({ Text("Играть далее") }, {
+                            menu = false
+                            player?.let { AudioQueuePlayback.enqueue(it, media, true) }
+                        }, leadingIcon = { Icon(Icons.Rounded.SkipNext, null) })
                         DropdownMenuItem({ Text("Выше") }, { menu = false; move(-1) }, enabled = index > 0,
                             leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) })
                         DropdownMenuItem({ Text("Ниже") }, { menu = false; move(1) }, enabled = index < items.lastIndex,
@@ -78,5 +109,6 @@ internal fun EditableAudioQueue(items: List<MediaItem>, player: Player?, current
                 }
             }
         }
+      }
     }
 }

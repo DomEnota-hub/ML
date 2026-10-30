@@ -26,8 +26,8 @@ android {
         applicationId 'com.domenota.medialoader'
         minSdk 26
         targetSdk 35
-        versionCode 165
-        versionName '1.7.103'
+        versionCode 166
+        versionName '1.7.104'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
         // Package only ARM64 native libraries without changing the release app ID.
         if (project.hasProperty('arm64Release')) {
