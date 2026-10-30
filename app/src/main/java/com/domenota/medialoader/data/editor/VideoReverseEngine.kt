@@ -58,9 +58,11 @@ internal class VideoReverseEngine(private val cacheDir: File) {
                     "-hide_banner", "-nostdin", "-y", "-ss", start, "-t", duration,
                     "-i", input.absolutePath,
                     "-map", "0:v:0",
-                    "-vf", "reverse,setpts=PTS-STARTPTS",
+                    // Keep the source frame rate. Crop at most one pixel on odd dimensions
+                    // because the MP4 encoder requires an even YUV420 image size.
+                    "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2,reverse,setpts=PTS-STARTPTS",
                     "-c:v", "mpeg4", "-q:v", "2", "-pix_fmt", "yuv420p",
-                    "-r", "30", "-video_track_timescale", "30000",
+                    "-video_track_timescale", "30000",
                 )
                 if (info.hasAudio) {
                     args += listOf("-map", "0:a:0", "-af", "areverse,asetpts=PTS-STARTPTS",
