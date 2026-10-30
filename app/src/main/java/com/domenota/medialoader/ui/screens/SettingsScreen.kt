@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Bolt
@@ -760,9 +762,19 @@ fun SettingsScreen(
     }
 
     editorKind?.let { kind ->
-        val choices = editorItems.filter { it.kind == kind &&
-            it.state == DownloadUiState.COMPLETED && it.savedUri != null }
-            .distinctBy { it.id }
+        var editorSearch by remember(kind) { mutableStateOf("") }
+        val available = remember(editorItems, kind) {
+            editorItems.filter { it.kind == kind &&
+                it.state == DownloadUiState.COMPLETED && it.savedUri != null }
+                .distinctBy { it.id }
+        }
+        val choices = remember(available, editorSearch) {
+            val query = editorSearch.trim()
+            if (query.isEmpty()) available else available.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                    it.subtitle.contains(query, ignoreCase = true)
+            }
+        }
         AlertDialog(
             onDismissRequest = { editorKind = null },
             title = { Text(when (kind) {
@@ -771,26 +783,45 @@ fun SettingsScreen(
                 MediaKind.AUDIO -> "Выбрать аудио"
             }) },
             text = {
-                if (choices.isEmpty()) {
-                    Text("Подходящих файлов в доступной медиатеке пока нет.")
-                } else {
-                    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                        choices.take(80).forEach { file ->
-                            Row(
-                                Modifier.fillMaxWidth().clickable {
-                                    editorKind = null
-                                    onEditFile(file.id)
-                                }.padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                DownloadThumbnail(file.savedUri, file.previewUrl, file.kind,
-                                    Modifier.size(48.dp))
-                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                    Text(file.title, maxLines = 2,
-                                        style = MaterialTheme.typography.bodyMedium)
-                                    Text(file.subtitle, maxLines = 1,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column {
+                    if (available.isNotEmpty()) {
+                        OutlinedTextField(
+                            value = editorSearch,
+                            onValueChange = { editorSearch = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Поиск файла") },
+                            placeholder = { Text("Название файла") },
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text("Найдено: ${choices.size}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    if (choices.isEmpty()) {
+                        Text(if (available.isEmpty())
+                            "Подходящих файлов в доступной медиатеке пока нет."
+                            else "По запросу ничего не найдено.")
+                    } else {
+                        LazyColumn(Modifier.heightIn(max = 390.dp)) {
+                            items(choices, key = { it.id }) { file ->
+                                Row(
+                                    Modifier.fillMaxWidth().clickable {
+                                        editorKind = null
+                                        onEditFile(file.id)
+                                    }.padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    DownloadThumbnail(file.savedUri, file.previewUrl, file.kind,
+                                        Modifier.size(48.dp))
+                                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                        Text(file.title, maxLines = 2,
+                                            style = MaterialTheme.typography.bodyMedium)
+                                        Text(file.subtitle, maxLines = 1,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                             }
                         }
