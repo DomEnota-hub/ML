@@ -82,7 +82,8 @@ class AudioWaveformPrecomputeWorker(
             val (source, knownDuration) = entries[index]
             runCatching {
                 val uri = Uri.parse(source)
-                val duration = knownDuration.takeIf { it > 0L } ?: readDurationMs(app, uri)
+                // Use the same metadata retriever as the editor: MediaStore durations can differ by rounding.
+                val duration = readDurationMs(app, uri).takeIf { it > 0L } ?: knownDuration
                 if (duration > 0L && !hasCachedAudioWaveform(app, uri, duration)) {
                     loadAudioWaveform(app, uri, duration)
                 }
