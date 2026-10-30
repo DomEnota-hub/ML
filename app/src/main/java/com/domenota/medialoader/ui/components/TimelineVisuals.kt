@@ -149,12 +149,15 @@ fun AudioWaveformTimeline(
             ),
     ) {
         if (waveform.isEmpty()) return@Canvas
+        // AIMP-like: individual narrow vertical strokes, almost touching at phone scale.
+        // Never fill a continuous polygon; preserve actual amplitude differences.
+        val columns = (size.width / 1.35f).toInt().coerceIn(1, waveform.size)
+        val amplitudes = waveformColumnPeaks(waveform, columns)
         val center = size.height / 2f
-        val slot = size.width / waveform.size.coerceAtLeast(1)
-        val stroke = max(1f, slot * 0.56f)
-        waveform.forEachIndexed { index, raw ->
-            val value = raw.coerceIn(0.04f, 1f)
-            val half = value * size.height * 0.43f
+        val slot = size.width / columns
+        val stroke = (slot * 0.84f).coerceIn(0.85f, 1.6f)
+        amplitudes.forEachIndexed { index, raw ->
+            val half = raw.coerceIn(0f, 1f) * size.height * 0.46f
             val x = (index + 0.5f) * slot
             drawLine(
                 color = barColor,
@@ -163,6 +166,21 @@ fun AudioWaveformTimeline(
                 strokeWidth = stroke,
             )
         }
+    }
+}
+
+/** One non-overlapping window per visible column; preserves transients when resized. */
+internal fun waveformColumnPeaks(peaks: List<Float>, columns: Int): FloatArray {
+    require(columns > 0)
+    if (peaks.isEmpty()) return FloatArray(columns)
+    return FloatArray(columns) { column ->
+        val first = column * peaks.size / columns
+        val lastExclusive = ((column + 1) * peaks.size / columns).coerceAtLeast(first + 1)
+        var peak = 0f
+        for (index in first until lastExclusive.coerceAtMost(peaks.size)) {
+            peak = max(peak, peaks[index])
+        }
+        peak.coerceIn(0f, 1f)
     }
 }
 
@@ -236,30 +254,73 @@ private fun loadVideoTimelineFrames(
     }
 }
 
-private fun loadAudioWaveform(
+private val audioCacheLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+/** Content and file updates invalidate a saved waveform, even when their URI is unchanged. */
+internal fun waveformCacheIdentity(uri: String, durationMs: Long, size: Long, modified: Long, buckets: Int): String =
+    "v5|$uri|$durationMs|$size|$modified|$buckets"
+
+private fun audioWaveformCacheFile(context: Context, uri: Uri, durationMs: Long, buckets: Int): File {
+    var bytes = -1L
+    var modified = -1L
+    if (uri.scheme == "file") {
+        val file = uri.path?.let(::File)
+        if (file != null) { bytes = file.length(); modified = file.lastModified() }
+    } else if (uri.scheme == "content") {
+        runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(android.provider.MediaStore.MediaColumns.SIZE,
+                    android.provider.MediaStore.MediaColumns.DATE_MODIFIED),
+                null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val sizeCol = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.SIZE)
+                    val modifiedCol = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
+                    if (sizeCol >= 0 && !cursor.isNull(sizeCol)) bytes = cursor.getLong(sizeCol)
+                    if (modifiedCol >= 0 && !cursor.isNull(modifiedCol)) modified = cursor.getLong(modifiedCol)
+                }
+            }
+        }
+    }
+    val identity = waveformCacheIdentity(uri.toString(), durationMs, bytes, modified, buckets)
+    return File(context.filesDir, "timeline/audio/${cacheKey(identity)}.wave")
+}
+
+internal fun hasCachedAudioWaveform(context: Context, uri: Uri, durationMs: Long): Boolean =
+    audioWaveformCacheFile(context, uri, durationMs, AUDIO_WAVEFORM_BUCKETS)
+        .let { it.isFile && it.length() > 0L }
+
+internal fun loadAudioWaveform(
     context: Context,
     uri: Uri,
     durationMs: Long,
-    bucketCount: Int,
+    bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
 ): List<Float> {
-    val cache = File(context.filesDir, "timeline/audio/${cacheKey(uri.toString())}.wave")
-    if (cache.isFile) {
-        runCatching {
-            cache.readText()
-                .split(',')
-                .mapNotNull(String::toFloatOrNull)
-                .takeIf { it.size == bucketCount }
-        }.getOrNull()?.let { return it }
-    }
-
-    val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount)
-    if (decoded.isNotEmpty()) {
-        runCatching {
-            cache.parentFile?.mkdirs()
-            cache.writeText(decoded.joinToString(","))
+    val cache = audioWaveformCacheFile(context, uri, durationMs, bucketCount)
+    val lock = audioCacheLocks.computeIfAbsent(cache.name) { Any() }
+    return synchronized(lock) {
+        if (cache.isFile) {
+            runCatching {
+                cache.readText().split(',').mapNotNull(String::toFloatOrNull)
+                    .takeIf { it.size == bucketCount && it.all(Float::isFinite) }
+            }.getOrNull()?.let { return@synchronized it }
         }
+        val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount)
+        if (decoded.size == bucketCount && decoded.any { it > 0f }) {
+            runCatching {
+                cache.parentFile?.mkdirs()
+                val temporary = File.createTempFile("waveform-", ".tmp", cache.parentFile)
+                try {
+                    temporary.writeText(decoded.joinToString(","))
+                    check(temporary.renameTo(cache))
+                } finally {
+                    temporary.delete()
+                }
+            }
+        }
+        decoded
     }
-    return decoded
 }
 
 private fun decodeAudioWaveform(
@@ -424,7 +485,7 @@ private fun cacheKey(value: String): String =
         .joinToString("") { "%02x".format(it) }
 
 private const val VIDEO_TIMELINE_FRAMES = 8
-private const val AUDIO_WAVEFORM_BUCKETS = 120
+internal const val AUDIO_WAVEFORM_BUCKETS = 1024
 private const val MAX_VIDEO_TIMELINE_SIDE = 360
 private const val MAX_VIDEO_PREVIEW_SIDE = 720
 private const val SCRUB_FRAME_STEP_MS = 250L
