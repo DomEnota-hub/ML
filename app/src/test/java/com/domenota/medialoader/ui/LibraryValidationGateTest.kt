@@ -73,6 +73,25 @@ class LibraryValidationGateTest {
             stamp.copy(generation = null), true, false))
     }
 
+    @Test fun routinePhoneRefreshRetainsExistingGalleryWithoutAnyVisibleLoadingState() {
+        val visible = PhoneLibraryState(loaded = true, revision = 12, requiresValidation = false)
+        assertTrue(canRefreshLibrarySilently(visible, false, false, false))
+        val refreshing = visible.copy(loading = false, requiresValidation = false)
+        val index = LibraryIndex(ready = true, galleryRevision = 12, musicRevision = 8)
+        assertFalse(visibleLibraryValidationPending(AppMode.GALLERY, index,
+            refreshing, PhoneLibraryState()))
+        assertFalse(phoneValidationPending(index, refreshing, PhoneLibraryState()))
+    }
+
+    @Test fun permissionAndPrivateMediaChangesStillRequireValidation() {
+        val retained = PhoneLibraryState(loaded = true)
+        assertFalse(canRefreshLibrarySilently(PhoneLibraryState(), false, false, false))
+        assertFalse(canRefreshLibrarySilently(retained, true, false, false))
+        assertFalse(canRefreshLibrarySilently(retained, false, true, false))
+        assertFalse(canRefreshLibrarySilently(retained, false, false, true))
+        assertTrue(canRefreshLibrarySilently(retained, false, false, false))
+    }
+
     @Test fun backgroundRefreshKeepsValidatedContentUsableButPermissionChangeStillShieldsIt() {
         val retained = PhoneLibraryState(loaded = true, loading = true, revision = 2, requiresValidation = false)
         val index = LibraryIndex(ready = true, galleryRevision = 1, musicRevision = 1)

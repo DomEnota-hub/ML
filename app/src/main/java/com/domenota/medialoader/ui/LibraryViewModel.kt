@@ -66,6 +66,16 @@ internal fun visibleLibraryValidationPending(
         ((state.loading && !state.loaded) || state.revision != indexedRevision)
 }
 
+/**
+ * A completed, already validated library can be refreshed entirely out of view.
+ * Permission changes, new private-media exclusions, or Android's selected-only
+ * media access still require revalidation before old entries may be displayed.
+ */
+internal fun canRefreshLibrarySilently(
+    state: PhoneLibraryState, accessChanged: Boolean,
+    selectedOnlyAccess: Boolean, privacyInvalidated: Boolean,
+): Boolean = state.loaded && !accessChanged && !selectedOnlyAccess && !privacyInvalidated
+
 /** Map MediaStore notifications to the affected library without guessing for unknown URIs. */
 internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
     val both = setOf(AppMode.GALLERY, AppMode.MUSIC)
@@ -269,11 +279,13 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             permissions.zip(signature).any { (name, granted) -> name == android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && granted } &&
             permissions.zip(signature).any { (name, granted) -> name != android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && !granted }
         val state = if (mode == AppMode.GALLERY) galleryState else musicState
-        var blocking = !state.value.loaded || changedAccess || partial || invalidate
+        val silent = canRefreshLibrarySilently(state.value, changedAccess, partial, invalidate)
+        var blocking = !silent
         val now = android.os.SystemClock.elapsedRealtime()
-        // Multiple entry/resume effects must not cancel the initial disk restoration.
-        if (!changedAccess && !invalidate && !partial && jobs[mode]?.isActive == true) return
-        if (!blocking && (jobs[mode]?.isActive == true || (!force && now - (refreshedAt[mode] ?: Long.MIN_VALUE / 2) < 60_000))) return
+        // Even selected-only access must not repeatedly cancel an ongoing validation.
+        // Permission/privacy invalidation is the only reason to restart it.
+        if (!changedAccess && !invalidate && jobs[mode]?.isActive == true) return
+        if (silent && !force && now - (refreshedAt[mode] ?: Long.MIN_VALUE / 2) < 60_000) return
         jobs.remove(mode)?.cancel()
         accessSignatures[mode] = signature
         if (signature.none { it }) {
@@ -284,8 +296,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             viewModelScope.launch { phoneCache.clear(mode) }
             return
         }
+        // Routine updates are strictly internal: keep the validated snapshot and
+        // avoid publishing even a loading flag that the gallery UI could display.
         state.value = if (blocking) PhoneLibraryState(loading = true, requiresValidation = !(coldStart && !partial), revision = state.value.revision + 1)
-            else state.value.copy(loading = true, requiresValidation = false, message = null)
+            else state.value.copy(loading = false, requiresValidation = false, message = null)
         jobs[mode] = viewModelScope.launch {
             var revision = state.value.revision
             try {
@@ -301,7 +315,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                         blocking = false
                         revision++
                         state.value = PhoneLibraryState(items = cached.snapshot.items, identities = cached.snapshot.identities,
-                            fingerprints = cached.snapshot.fingerprints, loaded = true, loading = true,
+                            fingerprints = cached.snapshot.fingerprints, loaded = true, loading = false,
                             revision = revision, requiresValidation = false)
                         storeStamps[mode] = cached.stamp
                     }
