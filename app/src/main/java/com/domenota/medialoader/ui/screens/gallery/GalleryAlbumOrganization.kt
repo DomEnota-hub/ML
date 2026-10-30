@@ -90,6 +90,18 @@ internal fun moveGalleryAlbum(
     return settings.copy(order = keys)
 }
 
+/** Continuous drag auto-scroll in px per animation frame, including when the source item scrolls away. */
+internal fun galleryAlbumEdgeScrollDelta(pointerY: Float, viewportHeight: Float, edgePx: Float): Float {
+    if (viewportHeight <= 0f || edgePx <= 0f) return 0f
+    val edge = edgePx.coerceAtMost(viewportHeight / 3f)
+    return when {
+        pointerY < edge -> -(4f + 22f * ((edge - pointerY) / edge).coerceIn(0f, 1f))
+        pointerY > viewportHeight - edge ->
+            4f + 22f * ((pointerY - viewportHeight + edge) / edge).coerceIn(0f, 1f)
+        else -> 0f
+    }
+}
+
 internal fun removeGalleryAlbumSettings(settings: GalleryAlbumSettings, key: String) =
     settings.copy(
         hiddenAlbums = settings.hiddenAlbums - key,
