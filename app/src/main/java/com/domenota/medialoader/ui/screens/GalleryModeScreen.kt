@@ -111,7 +111,7 @@ fun GalleryModeScreen(
     val visibleAlbums = orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
     val otherAlbums = orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
     val visibleDisplayed = remember(displayed, selection, detailOpen, tab, albumSettings.excludedFromMedia, assignments, buckets) {
-        if (tab == 0 && !detailOpen && selection == "all") displayed.filter { row ->
+        if (tab == 0 && selection == "all") displayed.filter { row ->
             visibleInGalleryMedia(row, catalog[row.id], buckets[row.id], albumSettings.excludedFromMedia)
         } else displayed
     }
@@ -184,7 +184,9 @@ fun GalleryModeScreen(
                 item(key = "quick-title", span = { GridItemSpan(maxLineSpan) }) { GallerySectionTitle("Быстрый доступ") }
                 val quick = listOf("all" to "Все медиа", "favorites" to "Избранное", "videos" to "Видео")
                 itemsIndexed(quick, key = { _, pair -> "quick:${pair.first}" }, span = { _, _ -> GridItemSpan(2) }) { index, (key, title) ->
-                    val count = GalleryLibraryState.filter(media, assignments, key, "", buckets).size
+                    val count = if (key == "all") media.count { row ->
+                        visibleInGalleryMedia(row, catalog[row.id], buckets[row.id], albumSettings.excludedFromMedia)
+                    } else GalleryLibraryState.filter(media, assignments, key, "", buckets).size
                     Surface(modifier = Modifier.padding(start = if (index % 2 == 0) 17.dp else 5.dp,
                         end = if (index % 2 == 0) 4.dp else 17.dp, top = 4.dp, bottom = 4.dp),
                         shape = RoundedCornerShape(15.dp), color = MaterialTheme.colorScheme.surfaceContainer,
