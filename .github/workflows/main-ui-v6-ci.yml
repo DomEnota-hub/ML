@@ -1,0 +1,36 @@
+name: MediaLoader main UI v6 checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/main/**'
+      - 'app/src/test/**'
+      - '.github/workflows/main-ui-v6-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: main-ui-v6-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Unit tests, lint, ARM64 debug build
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug -Parm64Release=true --stacktrace
