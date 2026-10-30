@@ -41,6 +41,7 @@ fun CropFrameOverlay(
     modifier: Modifier = Modifier,
     showFrame: Boolean = true,
     onCompareOriginalChange: ((Boolean) -> Unit)? = null,
+    onCropChangeFinished: () -> Unit = {},
 ) {
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var activeHandle by remember { mutableStateOf<VideoCropHandle?>(null) }
@@ -131,6 +132,7 @@ fun CropFrameOverlay(
                         }
                     }
                     activeHandle = null
+                    onCropChangeFinished()
                 }
             },
     ) {
