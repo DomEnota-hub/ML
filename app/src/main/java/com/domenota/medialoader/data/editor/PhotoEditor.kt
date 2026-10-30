@@ -30,9 +30,11 @@ data class PhotoEditSpec(
     val inpaintOverlayPath: String? = null,
     val textLayers: List<TextLayer> = emptyList(),
     val colorAdjustments: PhotoColorAdjustments = PhotoColorAdjustments(),
+    val drawing: List<PhotoMark> = emptyList(),
 ) {
     init {
         require(textLayers.size <= 8)
+        require(drawing.size <= PhotoDrawing.MAX_MARKS)
         require(cropLeft in 0f..0.95f && cropRight in 0f..0.95f)
         require(cropTop in 0f..0.95f && cropBottom in 0f..0.95f)
         require(cropLeft + cropRight <= 0.95f)
@@ -67,6 +69,7 @@ class PhotoEditor(private val context: Context) {
         var transformed: Bitmap? = null
         var withText: Bitmap? = null
         var withColor: Bitmap? = null
+        var withDrawing: Bitmap? = null
         try {
             sourceBitmap = context.contentResolver.openInputStream(source)?.use { input ->
                 BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply {
@@ -149,14 +152,18 @@ class PhotoEditor(private val context: Context) {
             // Apply color to the photo before adding text; text colors remain untouched.
             withColor = if (spec.colorAdjustments.isNeutral()) null
                 else PhotoColorMath.apply(requireNotNull(transformed), spec.colorAdjustments)
+            // Draw vector marks in final image coordinates at the output's full resolution.
+            if (spec.drawing.isNotEmpty()) {
+                withDrawing = PhotoDrawing.overlay(requireNotNull(withColor ?: transformed), spec.drawing)
+            }
             if (spec.textLayers.isNotEmpty()) {
-                val base = requireNotNull(withColor ?: transformed)
+                val base = requireNotNull(withDrawing ?: withColor ?: transformed)
                 withText = base.copy(Bitmap.Config.ARGB_8888, true)
                 TextLayerRenderer.draw(context, Canvas(withText), withText.width, withText.height,
                     spec.textLayers, includeAll = true)
             }
             FileOutputStream(output).use { stream ->
-                val ok = requireNotNull(withText ?: withColor ?: transformed).compress(
+                val ok = requireNotNull(withText ?: withDrawing ?: withColor ?: transformed).compress(
                     if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
                     if (png) 100 else 95,
                     stream,
@@ -171,6 +178,7 @@ class PhotoEditor(private val context: Context) {
             throw error
         } finally {
             withText?.recycle()
+            withDrawing?.recycle()
             withColor?.recycle()
             if (transformed != null && transformed !== cropped && transformed !== sourceBitmap) {
                 transformed?.recycle()
