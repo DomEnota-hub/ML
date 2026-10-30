@@ -30,3 +30,9 @@ original workspace. Future development can proceed on branches in this repositor
 Source checkpoint361af16. Progressive catalog/indexing, Downloader grid swipes and single deletion consent.
 18 focused checks passed; signed release uploaded to Drive. Details: docs/RELEASE_1.7.100.md.
 Handset validation of the previously reported gallery loading is still pending.
+
+
+## Update 2026-10-30 — 1.7.101 / 163
+
+Source checkpoint1226ec9. Gallery multiple selection, batched deletion and one-time MANAGE_MEDIA offer.
+Five focused checks passed; release signed and uploaded. Details: docs/RELEASE_1.7.101.md.

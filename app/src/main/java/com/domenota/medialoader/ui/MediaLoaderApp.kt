@@ -12,7 +12,9 @@ import com.domenota.medialoader.ui.screens.gallery.DeviceAlbum
 import com.domenota.medialoader.ui.screens.gallery.GalleryMediaViewer
 import com.domenota.medialoader.ui.screens.gallery.GalleryViewerState
 import com.domenota.medialoader.ui.screens.music.PlaylistTracksScreen
-import com.domenota.medialoader.ui.components.PhoneMediaDeleteHost
+import com.domenota.medialoader.ui.components.LibraryMediaDeleteHost
+import com.domenota.medialoader.ui.components.MediaDeletionTarget
+import com.domenota.medialoader.ui.components.MediaManagementAccessPrompt
 import com.domenota.medialoader.ui.components.label
 import com.domenota.medialoader.ui.screens.GalleryModeScreen
 import com.domenota.medialoader.ui.screens.MusicModeScreen
@@ -219,7 +221,6 @@ fun MediaLoaderApp(
         catch (e: CancellationException) { throw e } catch (_: Exception) { /* A later play request can reconnect. */ }
     }
     val phoneRows = phoneGallery.items + phoneMusic.items
-    var phoneDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
     var permissionMode by rememberSaveable { mutableStateOf(AppMode.GALLERY) }
     val libraryPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         libraryModel.refresh(permissionMode)
@@ -711,16 +712,31 @@ fun MediaLoaderApp(
     val shareLibraryFile: (String) -> Unit = { id ->
         publicLibraryRows.firstOrNull { it.id == id && !it.isPrivate }?.let { shareSavedFile(context, it) }
     }
-    var deleteAppId by rememberSaveable { mutableStateOf<String?>(null) }
-    val deleteLibraryFile: (String) -> Unit = { id ->
-        if (id.startsWith("phone:")) phoneDeleteId = id else deleteAppId = id
+    // Store ID/URI pairs rather than re-looking up provider rows after Android deletes them.
+    var pendingDeleteRecords by rememberSaveable(stateSaver = com.domenota.medialoader.ui.components.MediaSelectionState.saver) { mutableStateOf(arrayListOf<String>()) }
+    val deleteLibraryFiles: (List<String>) -> Unit = { ids ->
+        val phoneById = phoneRows.associateBy { it.id }
+        val appById = accessibleDownloads.associateBy { it.id }
+        pendingDeleteRecords = ArrayList(ids.distinct().mapNotNull { id ->
+            val row = if (id.startsWith("phone:")) phoneById[id]
+                else appById[id] ?: libraryRefsByAlias[id]?.item
+            row?.takeUnless { it.isPrivate || it.hidden }?.let { listOf(id, it.savedUri.orEmpty()) }
+        }.flatten())
     }
-    deleteAppId?.let { id ->
-        AlertDialog(onDismissRequest = { deleteAppId = null },
-            title = { Text("Удалить выбранный объект?") },
-            confirmButton = { TextButton(onClick = { deleteAppId = null; viewModel.hideDownload(id) }) {
-                Text("Удалить", color = MaterialTheme.colorScheme.error)
-            } }, dismissButton = { TextButton(onClick = { deleteAppId = null }) { Text("Отмена") } })
+    val deleteLibraryFile: (String) -> Unit = { deleteLibraryFiles(listOf(it)) }
+    if (pendingDeleteRecords.isNotEmpty()) {
+        val targets = remember(pendingDeleteRecords) { pendingDeleteRecords.chunked(2).map {
+            MediaDeletionTarget(it[0], it[1].ifBlank { null })
+        } }
+        fun finishDeletion() {
+            pendingDeleteRecords = arrayListOf()
+            if (targets.any { it.phone }) {
+                libraryModel.refresh(AppMode.GALLERY, force = true)
+                libraryModel.refresh(AppMode.MUSIC, force = true)
+            }
+        }
+        LibraryMediaDeleteHost(targets, onDismiss = ::finishDeletion,
+            onDeleteApp = viewModel::hideLibraryFile, onDeleted = ::finishDeletion)
     }
     val previewLibraryAudio: (String, List<String>) -> Unit = { id, ids ->
         libraryPreviewJob?.cancel()
@@ -736,14 +752,6 @@ fun MediaLoaderApp(
                 }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { Toast.makeText(context, "Не удалось начать воспроизведение", Toast.LENGTH_SHORT).show() }
-        }
-    }
-    phoneDeleteId?.let { id ->
-        phoneRows.firstOrNull { it.id == id }?.let { target ->
-            PhoneMediaDeleteHost(target, onDismiss = { phoneDeleteId = null }, onDeleted = {
-                phoneDeleteId = null
-                libraryModel.refresh(if (target.mediaType == MediaType.AUDIO) AppMode.MUSIC else AppMode.GALLERY)
-            })
         }
     }
 
@@ -860,6 +868,8 @@ fun MediaLoaderApp(
     }
 
     val checkingPhoneAccess = phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
+    MediaManagementAccessPrompt(enabled = appMode != AppMode.DOWNLOADER &&
+        currentRoute == AppDestination.Home.route && !checkingPhoneAccess)
     LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -980,7 +990,7 @@ fun MediaLoaderApp(
                     onOpenPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onFavorite = setLibraryFavorite, onSetFolder = setLibraryFolder,
                     onCreateFolder = viewModel::createCatalogFolder, onShare = shareLibraryFile,
-                    onDelete = deleteLibraryFile, onRename = viewModel::renameDownload,
+                    onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles, onRename = viewModel::renameDownload,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
                     searchVisible = librarySearchVisible, tabOverride = galleryTab, onTabChange = { galleryTab = it },
                     onDetailChange = { galleryDetailOpen = it }, onSettings = { navController.navigate(AppDestination.Settings.route) },

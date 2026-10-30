@@ -132,6 +132,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     suspend fun setCatalogFolder(downloadId: String, folderId: String?) =
         repository.setDownloadFolder(downloadId, folderId)
     suspend fun setCatalogFavorite(downloadId: String, favorite: Boolean) = repository.setDownloadFavorite(downloadId, favorite)
+    suspend fun hideLibraryFile(id: String) = repository.hide(id)
     suspend fun hideGroupFile(id: String) = repository.hide(id, completedOnly = true)
     suspend fun toggleCatalogFavorite(downloadId: String) = repository.toggleDownloadFavorite(downloadId)
     val hiddenCount: StateFlow<Int> =

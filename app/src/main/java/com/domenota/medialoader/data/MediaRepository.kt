@@ -930,6 +930,7 @@ class MediaRepository private constructor(context: Context) {
     suspend fun hide(id: String, completedOnly: Boolean = false) = musicPostProcessGate.withPermit {
         AppLog.verbose("Trash", "Move requested · id=$id")
         val item = history.byId(id) ?: return@withPermit
+        if (item.hidden) return@withPermit // Idempotent retry after interruption of a batch.
         requireMediaAccess(item)
         require(!item.isPrivate) { "Удалите файл через приватный раздел" }
         require(!completedOnly || item.state == DownloadState.COMPLETED) { "Действие доступно только для завершённых файлов" }

@@ -45,6 +45,7 @@ fun GalleryModeScreen(
     searchVisible: Boolean? = null, tabOverride: Int? = null, onTabChange: (Int) -> Unit = {},
     deviceAlbums: Map<String, DeviceAlbum> = emptyMap(),
     onDetailChange: (Boolean) -> Unit = {}, onSettings: (() -> Unit)? = null,
+    onDeleteSelected: ((List<String>) -> Unit)? = null,
 ) {
     var search by rememberSaveable(source.name) { mutableStateOf("") }
     var localTab by rememberSaveable { mutableIntStateOf(0) }
@@ -64,6 +65,10 @@ fun GalleryModeScreen(
     fun closeAlbum() { selection = "all"; selectionTitle = ""; selectTab(1) }
     BackHandler(detailOpen || tab != 0) { if (detailOpen) closeAlbum() else selectTab(0) }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
+    var selectedIds by rememberSaveable(source.name, selection, search, tab, stateSaver = MediaSelectionState.saver) { mutableStateOf(arrayListOf<String>()) }
+    val selecting = selectedIds.isNotEmpty()
+    fun toggle(id: String) { selectedIds = ArrayList(if (id in selectedIds) selectedIds - id else selectedIds + id) }
+    BackHandler(selecting) { selectedIds = arrayListOf() }
     val scope = rememberCoroutineScope()
     fun mutate(action: suspend () -> Unit) { scope.launch {
         try { action(); error = null } catch (e: CancellationException) { throw e }
@@ -80,15 +85,28 @@ fun GalleryModeScreen(
     }
     val albums = remember(media, folders, assignments, buckets) { GalleryLibraryState.albums(media, folders, assignments, buckets) }
     val queue = remember(displayed) { displayed.map { it.id } }
+    LaunchedEffect(queue) { val visible = queue.toHashSet(); selectedIds = ArrayList(selectedIds.filter { it in visible }) }
+    val selectedSet = remember(selectedIds) { selectedIds.toHashSet() }
     val mediaGridState = rememberLazyGridState()
     val albumGridState = rememberLazyGridState()
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        if (selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            IconButton({ selectedIds = arrayListOf() }) { Icon(Icons.Rounded.Close, "Отменить выбор") }
+            Text("Выбрано: ${selectedIds.size}", Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            IconButton({ selectedIds = if (selectedIds.size == queue.size) arrayListOf() else ArrayList(queue) }) {
+                Icon(Icons.Rounded.SelectAll, "Выбрать все")
+            }
+            IconButton({ onDeleteSelected?.invoke(queue.filter { it in selectedSet }) }, enabled = onDeleteSelected != null) {
+                Icon(Icons.Rounded.Delete, "Удалить выбранное", tint = MaterialTheme.colorScheme.error)
+            }
+        }
         LazyVerticalGrid(columns = GridCells.Fixed(4), state = if (tab == 1) albumGridState else mediaGridState,
             modifier = Modifier.weight(1f).testTag("gallery-library"),
             horizontalArrangement = Arrangement.spacedBy(if (tab == 1) 0.dp else 2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
-                Column {
+                if (!selecting) Column {
                     if (!detailOpen) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(::closeAlbum) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Все альбомы") }
                         Text(selectionTitle, Modifier.weight(1f), fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -156,9 +174,10 @@ fun GalleryModeScreen(
                             }
                         }
                         items(rows, key = { it.id }) { row ->
-                            GalleryMediaCell(row, catalog[row.id]?.isFavorite == true, { onOpen(row.id, queue) },
+                            GalleryMediaCell(row, catalog[row.id]?.isFavorite == true, { if (selecting) toggle(row.id) else onOpen(row.id, queue) },
                                 { mutate { onFavorite(row.id, catalog[row.id]?.isFavorite != true) } }, { folderTarget = row.id },
-                                { onShare(row.id) }, { onDelete(row.id) }, { renameTarget = row }, { onMoveToPrivate(row.id) })
+                                { onShare(row.id) }, { onDelete(row.id) }, { renameTarget = row }, { onMoveToPrivate(row.id) },
+                                selecting = selecting, selected = row.id in selectedSet, onSelect = { toggle(row.id) })
                         }
                     }
             }
@@ -185,12 +204,19 @@ private fun GallerySectionTitle(text: String) { Text(text, Modifier.padding(hori
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: () -> Unit, onFavorite: () -> Unit,
-                             onFolder: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit, onRename: () -> Unit, onPrivate: () -> Unit) {
+                             onFolder: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit, onRename: () -> Unit, onPrivate: () -> Unit,
+                             selecting: Boolean, selected: Boolean, onSelect: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
         .semantics { contentDescription = item.originalName }
-        .combinedClickable(onClick = onOpen, onLongClick = { menu = true }, onLongClickLabel = "Действия с файлом")) {
+        .combinedClickable(onClick = onOpen, onLongClick = onSelect, onLongClickLabel = "Выбрать файл")) {
         DownloadThumbnail(item.savedUri, item.previewUrl, item.toUi().kind, Modifier.fillMaxSize())
+        if (selected) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = .25f)))
+        if (selecting) Checkbox(selected, { onSelect() }, Modifier.align(Alignment.TopEnd))
+        else IconButton({ menu = true }, Modifier.align(Alignment.TopEnd).size(32.dp)) {
+            Icon(Icons.Rounded.MoreVert, "Действия: ${item.originalName}", tint = Color.White,
+                modifier = Modifier.background(Color.Black.copy(alpha = .3f), RoundedCornerShape(8.dp)).size(22.dp))
+        }
         if (item.mediaType == MediaType.VIDEO) Row(Modifier.align(Alignment.BottomEnd).padding(4.dp)
             .background(Color.Black.copy(alpha = .45f), RoundedCornerShape(4.dp)).padding(3.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.PlayArrow, "Видео", Modifier.size(13.dp), Color.White)

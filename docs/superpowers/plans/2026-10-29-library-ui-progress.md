@@ -192,3 +192,11 @@ confirmation plus optional MANAGE_MEDIA. See2026-10-30-library-startup-and-delet
 18 focused checks passed across bounded runs; final arm64 build5m3s, signed with
 existing key and uploaded to Drive. Real handset freeze is not reproduced locally;
 user must confirm the observed loading behavior. Main-mode HTML remains paused.
+
+
+2026-10-30: Released1.7.101/code163. Gallery long-press multi-selection and
+batched deletion; optional one-time MANAGE_MEDIA settings offer on first library
+entry. Stable compressed selection/request state; unchanged app-trash semantics.
+Five focused checks passed, final release3m6s; signed and uploaded. See
+2026-10-30-gallery-selection-media-access.md. Actual OEM special-access grant is
+for user verification. HTML remains paused.

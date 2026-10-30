@@ -60,16 +60,16 @@ class LibraryModeScreensTest {
         compose.onNodeWithText("Альбомы").performClick()
         compose.onNodeWithText("Camera").performClick()
         compose.onNodeWithContentDescription("Действия: Screen.jpg").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Camera.jpg").performTouchInput { longClick() }
+        compose.onNodeWithContentDescription("Действия: Camera.jpg").performClick()
         compose.onNodeWithText("Переименовать").assertDoesNotExist()
         compose.onNodeWithText("Переместить в личное").assertDoesNotExist()
         compose.onNodeWithText("В избранное").performClick()
         compose.waitForIdle()
         assertEquals("a" to true, favorite)
-        compose.onNodeWithContentDescription("Camera.jpg").performTouchInput { longClick() }
+        compose.onNodeWithContentDescription("Действия: Camera.jpg").performClick()
         compose.onNodeWithText("Открыть").performClick()
         assertEquals("a" to listOf("a"), opened)
-        compose.onNodeWithContentDescription("Camera.jpg").performTouchInput { longClick() }
+        compose.onNodeWithContentDescription("Действия: Camera.jpg").performClick()
         compose.onNodeWithText("Удалить").performClick()
         assertEquals("a", deleted)
     }
