@@ -65,16 +65,6 @@ fun HomeScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(22.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceCard("instagram", "Instagram", "Фото и видео", Modifier.weight(1f), onOpenSource)
-            SourceCard("youtube", "YouTube", "Видео и музыка", Modifier.weight(1f), onOpenSource)
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceCard("vk", "VK", "Фото и видео", Modifier.weight(1f), onOpenSource)
-            SourceCard("rutube", "RUTUBE", "Видео и музыка", Modifier.weight(1f), onOpenSource)
-        }
-        Spacer(Modifier.height(24.dp))
         AppCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -112,6 +102,18 @@ fun HomeScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        Spacer(Modifier.height(24.dp))
+        Text("Источники", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SourceCard("instagram", "Instagram", "Фото и видео", Modifier.weight(1f), onOpenSource)
+            SourceCard("youtube", "YouTube", "Видео и музыка", Modifier.weight(1f), onOpenSource)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SourceCard("vk", "VK", "Фото и видео", Modifier.weight(1f), onOpenSource)
+            SourceCard("rutube", "RUTUBE", "Видео и музыка", Modifier.weight(1f), onOpenSource)
         }
         Spacer(Modifier.height(24.dp))
         MusicHomeSection()
