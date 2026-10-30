@@ -206,7 +206,13 @@ fun PrivateScreen(
             }
         })
     if (state.unlocked && deleteTarget != null) AlertDialog(
-        onDismissRequest = { deleteTarget = null }, title = { Text(com.domenota.medialoader.ui.components.deleteSelectionTitle(deleteTarget!!.size)) },
-        confirmButton = { TextButton(onClick = { val ids = deleteTarget!!; deleteTarget = null; action { batch(ids, onDelete) } }) { Text("Удалить", color = MaterialTheme.colorScheme.error) } },
+        onDismissRequest = { deleteTarget = null },
+        title = { Text("Удалить личные файлы (${deleteTarget!!.size})?") },
+        text = { Text("Файлы (${deleteTarget!!.size}) будут удалены навсегда. Вернуть их из корзины не получится.") },
+        confirmButton = { TextButton(onClick = {
+            val ids = deleteTarget!!
+            deleteTarget = null
+            action { batch(ids, onDelete) }
+        }) { Text("Удалить навсегда", color = MaterialTheme.colorScheme.error) } },
         dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Отмена") } })
 }
