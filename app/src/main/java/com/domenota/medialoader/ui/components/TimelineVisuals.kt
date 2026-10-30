@@ -43,6 +43,8 @@ import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import com.domenota.medialoader.data.playback.AudioWaveformPrecompute
 
 @Composable
 fun VideoTimelineStrip(
@@ -135,8 +137,26 @@ fun AudioWaveformTimeline(
 
     LaunchedEffect(uri, durationMs) {
         if (durationMs <= 0L) return@LaunchedEffect
-        waveform = withContext(Dispatchers.IO) {
-            loadAudioWaveform(context, uri, durationMs, AUDIO_WAVEFORM_BUCKETS)
+        // Editor NEVER decodes an uncached audio file or blocks on another decoder.
+        // Only read a completed atomic cache and request a priority background job.
+        val saved = withContext(Dispatchers.IO) {
+            readCachedAudioWaveform(context, uri, durationMs)
+        }
+        if (saved != null) {
+            waveform = saved
+        } else {
+            AudioWaveformPrecompute.requestImmediate(context, uri, durationMs)
+            // WorkManager may be deferred by Android; UI stays responsive while it runs.
+            repeat(240) {
+                delay(1000L)
+                val ready = withContext(Dispatchers.IO) {
+                    readCachedAudioWaveform(context, uri, durationMs)
+                }
+                if (ready != null) {
+                    waveform = ready
+                    return@LaunchedEffect
+                }
+            }
         }
     }
 
@@ -287,10 +307,24 @@ private fun audioWaveformCacheFile(context: Context, uri: Uri, durationMs: Long,
     return File(context.filesDir, "timeline/audio/${cacheKey(identity)}.wave")
 }
 
-internal fun hasCachedAudioWaveform(context: Context, uri: Uri, durationMs: Long): Boolean =
-    audioWaveformCacheFile(context, uri, durationMs, AUDIO_WAVEFORM_BUCKETS)
-        .let { it.isFile && it.length() > 0L }
+/** Read-only UI path: never decode or wait for a decoder on the UI coroutine. */
+internal fun readCachedAudioWaveform(
+    context: Context, uri: Uri, durationMs: Long,
+    bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
+): List<Float>? = readAudioWaveformCacheFile(audioWaveformCacheFile(context, uri, durationMs, bucketCount), bucketCount)
 
+private fun readAudioWaveformCacheFile(cache: File, bucketCount: Int): List<Float>? {
+    if (!cache.isFile) return null
+    return runCatching {
+        cache.readText().split(',').mapNotNull(String::toFloatOrNull)
+            .takeIf { it.size == bucketCount && it.all { value -> value.isFinite() && value in 0f..1f } }
+    }.getOrNull()
+}
+
+internal fun hasCachedAudioWaveform(context: Context, uri: Uri, durationMs: Long): Boolean =
+    readCachedAudioWaveform(context, uri, durationMs) != null
+
+/** Only the background worker calls this. Per-key locks prevent duplicate decoding. */
 internal fun loadAudioWaveform(
     context: Context,
     uri: Uri,
@@ -300,12 +334,7 @@ internal fun loadAudioWaveform(
     val cache = audioWaveformCacheFile(context, uri, durationMs, bucketCount)
     val lock = audioCacheLocks.computeIfAbsent(cache.name) { Any() }
     return synchronized(lock) {
-        if (cache.isFile) {
-            runCatching {
-                cache.readText().split(',').mapNotNull(String::toFloatOrNull)
-                    .takeIf { it.size == bucketCount && it.all(Float::isFinite) }
-            }.getOrNull()?.let { return@synchronized it }
-        }
+        readAudioWaveformCacheFile(cache, bucketCount)?.let { return@synchronized it }
         val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount)
         if (decoded.size == bucketCount && decoded.any { it > 0f }) {
             runCatching {
