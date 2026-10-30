@@ -31,6 +31,7 @@ data class PhotoEditSpec(
     val textLayers: List<TextLayer> = emptyList(),
     val colorAdjustments: PhotoColorAdjustments = PhotoColorAdjustments(),
     val drawing: List<PhotoMark> = emptyList(),
+    val graphicWatermark: PhotoGraphicWatermark? = null,
 ) {
     init {
         require(textLayers.size <= 8)
@@ -70,6 +71,7 @@ class PhotoEditor(private val context: Context) {
         var withText: Bitmap? = null
         var withColor: Bitmap? = null
         var withDrawing: Bitmap? = null
+        var withWatermark: Bitmap? = null
         try {
             sourceBitmap = context.contentResolver.openInputStream(source)?.use { input ->
                 BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply {
@@ -152,18 +154,24 @@ class PhotoEditor(private val context: Context) {
             // Apply color to the photo before adding text; text colors remain untouched.
             withColor = if (spec.colorAdjustments.isNeutral()) null
                 else PhotoColorMath.apply(requireNotNull(transformed), spec.colorAdjustments)
-            // Draw vector marks in final image coordinates at the output's full resolution.
+            // Apply image-based watermark and vector marks after color correction,
+            // before text layers; each is non-destructive to the original file.
+            if (spec.graphicWatermark != null) {
+                withWatermark = PhotoGraphicWatermarkRenderer.overlay(context,
+                    requireNotNull(withColor ?: transformed), spec.graphicWatermark)
+            }
             if (spec.drawing.isNotEmpty()) {
-                withDrawing = PhotoDrawing.overlay(requireNotNull(withColor ?: transformed), spec.drawing)
+                withDrawing = PhotoDrawing.overlay(
+                    requireNotNull(withWatermark ?: withColor ?: transformed), spec.drawing)
             }
             if (spec.textLayers.isNotEmpty()) {
-                val base = requireNotNull(withDrawing ?: withColor ?: transformed)
+                val base = requireNotNull(withDrawing ?: withWatermark ?: withColor ?: transformed)
                 withText = base.copy(Bitmap.Config.ARGB_8888, true)
                 TextLayerRenderer.draw(context, Canvas(withText), withText.width, withText.height,
                     spec.textLayers, includeAll = true)
             }
             FileOutputStream(output).use { stream ->
-                val ok = requireNotNull(withText ?: withDrawing ?: withColor ?: transformed).compress(
+                val ok = requireNotNull(withText ?: withDrawing ?: withWatermark ?: withColor ?: transformed).compress(
                     if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
                     if (png) 100 else 95,
                     stream,
@@ -179,6 +187,7 @@ class PhotoEditor(private val context: Context) {
         } finally {
             withText?.recycle()
             withDrawing?.recycle()
+            withWatermark?.recycle()
             withColor?.recycle()
             if (transformed != null && transformed !== cropped && transformed !== sourceBitmap) {
                 transformed?.recycle()
