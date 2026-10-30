@@ -7,7 +7,7 @@ with sync_playwright() as p:
  browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
  page=browser.new_page(viewport={'width':1100,'height':1100},device_scale_factor=1)
  errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
- page.set_content(src.read_text());page.wait_for_timeout(150)
+ page.set_content(src.read_text());page.evaluate("go('home')");page.wait_for_timeout(150)
  phone=page.locator('#phone')
  phone.screenshot(path=str(output/'01-home.png'))
  page.locator('#url').fill('https://youtube.com/watch?v=demo')

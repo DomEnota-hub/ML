@@ -14,3 +14,9 @@ Proposed sequence is recorded in README. Detailed editor redesign remains undeci
 Do not describe mockup-only behaviors as Android features or ship a version-only APK.
 Last real app is1.7.101/code163, source1226ec9. No app source changed in this checkpoint.
 User asks to minimize checks and stop at reviewable pieces if quota runs low.
+
+
+User requested a colored-icon preview. Added semantic icon/background tones for
+Tools/Settings and a monochrome/colored comparison toggle, both themes.
+Current default opens Tools/colored. Preview and bounded evidence in reference README.
+No native changes, palette still awaits user feedback. Source app remains1.7.101.
