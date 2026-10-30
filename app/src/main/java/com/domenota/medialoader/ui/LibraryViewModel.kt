@@ -10,6 +10,7 @@ import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.data.MediaRepository
 import com.domenota.medialoader.data.playback.PublicMediaIdentity
+import com.domenota.medialoader.data.playback.AudioWaveformPrecompute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ensureActive
@@ -156,6 +157,18 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         rows.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED &&
             !it.hidden && !it.isPrivate && !it.savedUri.isNullOrBlank() }
     }.distinctUntilChanged()
+    init {
+        // Only completed public audio may enter the silent index. Active download progress
+        // does not continually restart background waveform work.
+        viewModelScope.launch {
+            completedDownloads.map { rows ->
+                rows.filter { it.mediaType == com.domenota.medialoader.core.model.MediaType.AUDIO }
+                    .map { "${it.savedUri}:${it.createdAtEpochMillis}" }
+            }.distinctUntilChanged().collect {
+                AudioWaveformPrecompute.request(getApplication())
+            }
+        }
+    }
     private suspend fun references(rows: List<DownloadEntity>, isApp: Boolean,
         scannedIdentities: Map<String, Set<String>> = emptyMap()): List<LibraryMediaRef> = withContext(Dispatchers.IO) {
         suspend fun reference(row: DownloadEntity): LibraryMediaRef {
@@ -214,6 +227,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         // Only a changed media kind needs rescanning. Preserve unknown URI events
         // conservatively, and coalesce successive callbacks while scans are busy.
         pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
+        if (AppMode.MUSIC in pendingMediaChanges) AudioWaveformPrecompute.request(getApplication())
         mediaChangeJob?.cancel()
         mediaChangeJob = viewModelScope.launch {
             kotlinx.coroutines.delay(500)
@@ -274,6 +288,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         val permissions = PhoneMediaLibrary.permissions(mode)
         fun currentSignature() = permissions.map { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
         val signature = currentSignature()
+        if (mode == AppMode.MUSIC && signature.any { it }) AudioWaveformPrecompute.request(context)
         val coldStart = accessSignatures[mode] == null && !invalidate
         val accessKey = permissions.zip(signature).filter { it.second }.map { it.first }.sorted().joinToString("|")
         val changedAccess = accessSignatures[mode] != signature
