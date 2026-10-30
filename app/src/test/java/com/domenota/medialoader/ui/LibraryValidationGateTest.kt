@@ -57,6 +57,21 @@ class LibraryValidationGateTest {
         assertEquals(setOf(AppMode.GALLERY, AppMode.MUSIC), phoneModesForMediaChange(null))
     }
 
+    @Test fun unchangedMediaStoreGenerationDoesNotTriggerRedundantScan() {
+        val stamp = com.domenota.medialoader.data.library.PhoneStoreStamp("volume:v1", "volume:43")
+        assertTrue(maySkipUnchangedMediaNotification(stamp, stamp, true, false))
+        assertFalse(maySkipUnchangedMediaNotification(stamp,
+            stamp.copy(generation = "volume:44"), true, false))
+        assertFalse(maySkipUnchangedMediaNotification(stamp,
+            stamp.copy(versions = "volume:v2"), true, false))
+        assertFalse(maySkipUnchangedMediaNotification(stamp, stamp, false, false))
+        // A selected-only Android grant may change visible media without incrementing generation.
+        assertFalse(maySkipUnchangedMediaNotification(stamp, stamp, true, true))
+        assertFalse(maySkipUnchangedMediaNotification(null, stamp, true, false))
+        assertFalse(maySkipUnchangedMediaNotification(stamp.copy(generation = null),
+            stamp.copy(generation = null), true, false))
+    }
+
     @Test fun backgroundRefreshKeepsValidatedContentUsableButPermissionChangeStillShieldsIt() {
         val retained = PhoneLibraryState(loaded = true, loading = true, revision = 2, requiresValidation = false)
         val index = LibraryIndex(ready = true, galleryRevision = 1, musicRevision = 1)

@@ -80,6 +80,19 @@ internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
     }
 }
 
+/**
+ * A ContentObserver callback can be redundant (e.g. provider/thumbnail metadata).
+ * Only skip when the MediaStore generation AND version are unchanged, permission
+ * access is identical, and the library isn't using Android's selected-only access.
+ * Selected-only grants may change independently of the MediaStore generation.
+ */
+internal fun maySkipUnchangedMediaNotification(
+    before: PhoneStoreStamp?, after: PhoneStoreStamp,
+    permissionsUnchanged: Boolean, selectedOnlyAccess: Boolean,
+): Boolean = permissionsUnchanged && !selectedOnlyAccess &&
+    before?.versions != null && before.versions == after.versions &&
+    before.generation != null && before.generation == after.generation
+
 internal fun hasPhoneLibraryAccess(context: Context, mode: AppMode): Boolean =
     PhoneMediaLibrary.permissions(mode).any {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
@@ -197,7 +210,21 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             pendingMediaChanges.removeAll(affected)
             affected.forEach { mode ->
                 val state = if (mode == AppMode.GALLERY) galleryState else musicState
-                if (state.value.loaded) refresh(mode, force = true)
+                if (!state.value.loaded) return@forEach
+                val permissions = PhoneMediaLibrary.permissions(mode)
+                val signature = permissions.map { permission ->
+                    ContextCompat.checkSelfPermission(getApplication(), permission) == PackageManager.PERMISSION_GRANTED
+                }
+                val selectedOnly = android.os.Build.VERSION.SDK_INT >= 34 && mode == AppMode.GALLERY &&
+                    permissions.zip(signature).any { (name, granted) ->
+                        name == android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && granted
+                    } && permissions.zip(signature).any { (name, granted) ->
+                        name != android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && !granted
+                    }
+                val currentStamp = phone.storeStamp()
+                if (maySkipUnchangedMediaNotification(storeStamps[mode], currentStamp,
+                        accessSignatures[mode] == signature, selectedOnly)) return@forEach
+                refresh(mode, force = true)
             }
         }
     }
