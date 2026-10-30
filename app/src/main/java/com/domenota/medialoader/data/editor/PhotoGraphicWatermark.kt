@@ -47,9 +47,12 @@ internal object PhotoGraphicWatermarkRenderer {
         val uri = Uri.parse(uriString)
         require(uri.scheme == "content")
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
+        val initialStream = context.contentResolver.openInputStream(uri)
+            ?: throw java.io.IOException("Графический водяной знак недоступен.")
+        initialStream.use {
+            // DecodeStream intentionally returns null when inJustDecodeBounds=true.
             BitmapFactory.decodeStream(it, null, bounds)
-        } ?: throw java.io.IOException("Графический водяной знак недоступен.")
+        }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0)
             throw java.io.IOException("Не удалось прочитать изображение водяного знака.")
         var scale = 1
