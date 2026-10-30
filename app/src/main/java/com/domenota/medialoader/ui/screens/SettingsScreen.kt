@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -110,6 +111,9 @@ import com.domenota.medialoader.ui.components.AppCard
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.components.SourceIcon
 import com.domenota.medialoader.ui.model.DownloadUiItem
+import com.domenota.medialoader.ui.model.MediaKind
+import com.domenota.medialoader.ui.model.DownloadUiState
+import com.domenota.medialoader.ui.components.FullSongSearchDialog
 import com.domenota.medialoader.ui.model.AdvancedDownloadToolsVisibility
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -137,6 +141,9 @@ fun SettingsScreen(
     onRutubeSignOut: () -> Unit,
     hiddenCount: Int,
     hiddenItems: List<DownloadUiItem>,
+    editorItems: List<DownloadUiItem> = emptyList(),
+    onEditFile: (String) -> Unit = {},
+    onOpenEqualizer: () -> Unit = {},
     onChangeFolder: (String) -> Unit,
     onSelectFolder: () -> Unit,
     onRestore: (Set<String>) -> Unit,
@@ -166,6 +173,11 @@ fun SettingsScreen(
     onMusicSourceChange: (FullSongSource) -> Unit = {},
 ) {
     val context = LocalContext.current
+    var editorKind by remember { mutableStateOf<MediaKind?>(null) }
+    var fullSongSearchOpen by remember { mutableStateOf(false) }
+    var mediaManagementGranted by remember {
+        mutableStateOf(Build.VERSION.SDK_INT >= 31 && MediaStore.canManageMedia(context))
+    }
     var instagramVerification by remember { mutableStateOf<DiagnosticOutcome?>(null) }
     var instagramMediaVerified by remember { mutableStateOf(false) }
     var instagramVerificationRevision by remember { mutableStateOf(0) }
@@ -207,6 +219,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 systemNotificationsAllowed = allowed()
+                mediaManagementGranted = Build.VERSION.SDK_INT >= 31 && MediaStore.canManageMedia(context)
                 instagramMediaVerified = MediaRepository.get(context).sessions.hasWorkingMediaSession()
                 onRefreshInstagramSession()
             }
@@ -731,6 +744,59 @@ fun SettingsScreen(
         confirmButton = { TextButton(onClick = { themeDialog = false }) { Text("Закрыть") } },
     )
 
+    if (fullSongSearchOpen) {
+        FullSongSearchDialog(
+            source = musicSource,
+            initialArtist = "",
+            initialTitle = "",
+            recognizedArtworkUrl = null,
+            recognitionMessage = null,
+            onDismiss = { fullSongSearchOpen = false },
+        )
+    }
+
+    editorKind?.let { kind ->
+        val choices = editorItems.filter { it.kind == kind &&
+            it.state == DownloadUiState.COMPLETED && it.savedUri != null }
+            .distinctBy { it.id }
+        AlertDialog(
+            onDismissRequest = { editorKind = null },
+            title = { Text(when (kind) {
+                MediaKind.IMAGE -> "Выбрать фото"
+                MediaKind.VIDEO -> "Выбрать видео"
+                MediaKind.AUDIO -> "Выбрать аудио"
+            }) },
+            text = {
+                if (choices.isEmpty()) {
+                    Text("Подходящих файлов в доступной медиатеке пока нет.")
+                } else {
+                    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                        choices.take(80).forEach { file ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable {
+                                    editorKind = null
+                                    onEditFile(file.id)
+                                }.padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                DownloadThumbnail(file.savedUri, file.previewUrl, file.kind,
+                                    Modifier.size(48.dp))
+                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(file.title, maxLines = 2,
+                                        style = MaterialTheme.typography.bodyMedium)
+                                    Text(file.subtitle, maxLines = 1,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { editorKind = null }) { Text("Закрыть") } },
+        )
+    }
+
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
         Text("Настройки", modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).pointerInput(Unit) {
@@ -750,7 +816,20 @@ fun SettingsScreen(
             })
         }, style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(22.dp))
-        Text("Аккаунты", style = MaterialTheme.typography.titleMedium,
+        Text("Редактирование", style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EditorShortcut("Фото", Icons.Rounded.PhotoCamera, Color(0xFF45B9D5),
+                Modifier.weight(1f)) { editorKind = MediaKind.IMAGE }
+            EditorShortcut("Видео", Icons.Rounded.VideoLibrary, Color(0xFF549CFC),
+                Modifier.weight(1f)) { editorKind = MediaKind.VIDEO }
+            EditorShortcut("Аудио", Icons.Rounded.MusicNote, Color(0xFFE58FB6),
+                Modifier.weight(1f)) { editorKind = MediaKind.AUDIO }
+        }
+
+        Spacer(Modifier.height(26.dp))
+        Text("Источники и загрузка", style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
@@ -790,9 +869,6 @@ fun SettingsScreen(
                 onClick = { spareAuthorizationDialog = true })
         }
 
-        Spacer(Modifier.height(26.dp))
-        Text("Загрузка", style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
             SettingRow(Icons.Rounded.Folder, "Папка загрузок", downloadFolder,
@@ -875,6 +951,16 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
+            SettingRow(Icons.Rounded.MusicNote, "Найти полную песню",
+                "Поиск по названию и исполнителю",
+                grouped = true, iconTone = SettingIconTone.MUSIC,
+                onClick = { fullSongSearchOpen = true })
+            GroupDivider()
+            SettingRow(Icons.Rounded.GraphicEq, "Эквалайзер",
+                "Настройка звука для всей музыки",
+                grouped = true, iconTone = SettingIconTone.PURPLE,
+                onClick = onOpenEqualizer)
+            GroupDivider()
             SettingRow(Icons.Rounded.MusicNote, "Источник полной песни",
                 when (musicSource) {
                     FullSongSource.AUTO -> "Автоматически"
@@ -941,7 +1027,7 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
-            if (Build.VERSION.SDK_INT >= 31) {
+            if (Build.VERSION.SDK_INT >= 31 && !mediaManagementGranted) {
                 SettingRow(Icons.Rounded.DeleteSweep, "Управление медиафайлами",
                     "Разрешить удаление без повторного запроса Android", grouped = true,
                     iconTone = SettingIconTone.TRASH, onClick = {
@@ -1113,6 +1199,27 @@ private enum class SettingIconTone(val tint: Color) {
     CLEAR_HISTORY(Color(0xFFE15A69)),
     YTDLP(Color(0xFF48A6DC)),
     ABOUT(Color(0xFF9098AC)),
+}
+
+
+@Composable
+private fun EditorShortcut(
+    label: String,
+    icon: ImageVector,
+    tint: Color,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    AppCard(modifier.clickable(onClick = onClick)) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 15.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge)
+        }
+    }
 }
 
 @Composable
