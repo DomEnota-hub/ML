@@ -32,5 +32,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Unit tests, lint, ARM64 debug build
-        run: gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug -Parm64Release=true --stacktrace
+      - name: ARM64 debug build
+        run: gradle :app:assembleDebug -Parm64Release=true --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
