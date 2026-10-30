@@ -174,6 +174,10 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var editorKind by remember { mutableStateOf<MediaKind?>(null) }
+    var accountsExpanded by rememberSaveable { mutableStateOf(false) }
+    var downloadExpanded by rememberSaveable { mutableStateOf(false) }
+    var musicOptionsExpanded by rememberSaveable { mutableStateOf(false) }
+    var interfaceOptionsExpanded by rememberSaveable { mutableStateOf(false) }
     var fullSongSearchOpen by remember { mutableStateOf(false) }
     var mediaManagementGranted by remember {
         mutableStateOf(Build.VERSION.SDK_INT >= 31 && MediaStore.canManageMedia(context))
@@ -833,7 +837,12 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
-            SettingRow(Icons.Rounded.PhotoCamera, "Аккаунт Instagram",
+            SettingRow(Icons.Rounded.Groups, "Аккаунты",
+                "Instagram, YouTube, VK и RUTUBE", grouped = true,
+                iconTone = SettingIconTone.BLUE, onClick = { accountsExpanded = !accountsExpanded })
+            if (accountsExpanded) {
+                GroupDivider()
+                SettingRow(Icons.Rounded.PhotoCamera, "Аккаунт Instagram",
                 instagramLabel.text,
                 brand = "instagram", statusColor = when (instagramLabel.tone) {
                     InstagramSessionTone.SUCCESS -> successColor()
@@ -867,11 +876,15 @@ fun SettingsScreen(
                 "sessionid Instagram · Cookies YouTube", grouped = true,
                 iconTone = SettingIconTone.PURPLE,
                 onClick = { spareAuthorizationDialog = true })
-        }
-
-        Spacer(Modifier.height(10.dp))
-        SettingsGroup {
-            SettingRow(Icons.Rounded.Folder, "Папка загрузок", downloadFolder,
+            }
+            GroupDivider()
+            SettingRow(Icons.Rounded.Download, "Загрузка",
+                "Качество видео, папка и режим Instagram", grouped = true,
+                iconTone = SettingIconTone.FOLDER,
+                onClick = { downloadExpanded = !downloadExpanded })
+            if (downloadExpanded) {
+                GroupDivider()
+                SettingRow(Icons.Rounded.Folder, "Папка загрузок", downloadFolder,
                 grouped = true, iconTone = SettingIconTone.FOLDER,
                 onClick = {
                     folderName = downloadFolder.substringAfter("Download/", "MediaLoader")
@@ -932,6 +945,7 @@ fun SettingsScreen(
                     Switch(checked = closePickerAfterDownload,
                         onCheckedChange = onClosePickerAfterDownloadChange)
                 })
+            }
             if (AdvancedDownloadToolsVisibility.showBulkLinks(advancedDownloadToolsVisible)) {
                 GroupDivider()
                 SettingRow(Icons.Rounded.PlaylistAddCheck, "Массовая загрузка",
@@ -961,7 +975,13 @@ fun SettingsScreen(
                 grouped = true, iconTone = SettingIconTone.BLUE,
                 onClick = onOpenEqualizer)
             GroupDivider()
-            SettingRow(Icons.Rounded.MusicNote, "Источник полной песни",
+            SettingRow(Icons.Rounded.MusicNote, "Настройки музыки",
+                "Распознавание, источники и имена треков", grouped = true,
+                iconTone = SettingIconTone.RENAME,
+                onClick = { musicOptionsExpanded = !musicOptionsExpanded })
+            if (musicOptionsExpanded) {
+                GroupDivider()
+                SettingRow(Icons.Rounded.MusicNote, "Источник полной песни",
                 when (musicSource) {
                     FullSongSource.AUTO -> "Автоматически"
                     FullSongSource.HITMOZ -> "Основной"
@@ -993,6 +1013,7 @@ fun SettingsScreen(
                         onCheckedChange = onRenameRecognizedTracksChange,
                     )
                 })
+            }
         }
 
         Spacer(Modifier.height(26.dp))
@@ -1000,7 +1021,13 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
-            SettingRow(Icons.Rounded.Palette, "Тема", "Светлая, тёмная или системная",
+            SettingRow(Icons.Rounded.Palette, "Оформление и просмотр",
+                "Тема, миниатюры и проигрыватель", grouped = true,
+                iconTone = SettingIconTone.THEME,
+                onClick = { interfaceOptionsExpanded = !interfaceOptionsExpanded })
+            if (interfaceOptionsExpanded) {
+                GroupDivider()
+                SettingRow(Icons.Rounded.Palette, "Тема", "Светлая, тёмная или системная",
                 grouped = true, iconTone = SettingIconTone.THEME, onClick = { themeDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.VideoLibrary, "Миниатюра видео", thumbnailMode.label,
@@ -1020,6 +1047,7 @@ fun SettingsScreen(
                     )
                 },
             )
+            }
         }
 
         Spacer(Modifier.height(26.dp))
