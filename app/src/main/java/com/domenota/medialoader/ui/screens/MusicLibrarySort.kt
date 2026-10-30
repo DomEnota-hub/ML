@@ -9,8 +9,19 @@ internal enum class MusicLibrarySort(val label: String) {
 }
 
 internal fun musicDisplayTitle(track: DownloadEntity): String =
-    (track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName)
-        .substringBeforeLast('.', track.originalName).ifBlank { track.originalName }
+    (track.recognizedTitle?.takeIf { it.isNotBlank() }
+        ?: track.sourceAudioTitle?.takeIf { it.isNotBlank() }
+        ?: track.originalName.substringBeforeLast('.', track.originalName))
+        .ifBlank { track.originalName }
+
+internal fun musicGroupHeading(track: DownloadEntity, order: MusicLibrarySort): String = when (order) {
+    MusicLibrarySort.TITLE -> musicGroupLetter(musicDisplayTitle(track))
+    MusicLibrarySort.ARTIST -> musicGroupLetter(
+        track.recognizedArtist ?: track.sourceAudioArtist ?: "#"
+    )
+    MusicLibrarySort.DATE -> java.time.Instant.ofEpochMilli(track.createdAtEpochMillis)
+        .atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+}
 
 internal fun musicGroupLetter(title: String): String {
     val first = title.trim().firstOrNull()?.uppercaseChar() ?: return "#"

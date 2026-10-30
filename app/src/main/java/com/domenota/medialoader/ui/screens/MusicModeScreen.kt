@@ -170,7 +170,7 @@ fun MusicModeScreen(
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (tab == 0) {
-                    val sections = displayed.groupBy { musicGroupLetter(musicDisplayTitle(it)) }
+                    val sections = displayed.groupBy { musicGroupHeading(it, sort) }
                     sections.forEach { (letter, records) ->
                         item(key = "music-letter:$letter") {
                             Text(letter, Modifier.fillMaxWidth().padding(start = 17.dp, top = 15.dp, bottom = 7.dp),
