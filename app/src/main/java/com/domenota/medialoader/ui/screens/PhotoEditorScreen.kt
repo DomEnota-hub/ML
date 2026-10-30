@@ -57,6 +57,7 @@ private data class PhotoEditSnapshot(
     val mirrorVertical: Boolean = false,
     val color: PhotoColorAdjustments = PhotoColorAdjustments(),
     val textLayers: List<TextLayer> = emptyList(),
+    val drawing: List<PhotoMark> = emptyList(),
     val overlayPath: String? = null,
     val appliedMasks: List<List<MaskStroke>> = emptyList(),
     val inpaintPreview: Bitmap? = null,
@@ -81,6 +82,7 @@ fun PhotoEditorScreen(
     val redoHistory = remember(item.id) { mutableStateListOf<PhotoEditSnapshot>() }
     var pendingGesture by remember(item.id) { mutableStateOf<PhotoEditSnapshot?>(null) }
     var textEditorOpen by remember(item.id) { mutableStateOf(false) }
+    var drawingEditorOpen by remember(item.id) { mutableStateOf(false) }
     var removeObjects by remember(item.id) { mutableStateOf(false) }
     var currentTab by remember(item.id) { mutableStateOf(PhotoWorkspaceTab.CROP) }
     var activeLevel by remember(item.id) { mutableStateOf(PhotoLevelControl.BRIGHTNESS) }
@@ -141,7 +143,7 @@ fun PhotoEditorScreen(
     // Debounced previews are calculated away from the UI thread; full-resolution
     // export applies the same operations in the same order.
     LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
-        edit.color, edit.textLayers) {
+        edit.color, edit.textLayers, edit.drawing) {
         val source = info?.preview
         if (source == null) { composedPreview = null; return@LaunchedEffect }
         delay(100L)
@@ -149,13 +151,16 @@ fun PhotoEditorScreen(
             val transformed = TextLayerRenderer.preview(source, edit.crop, edit.rotation,
                 edit.mirrorHorizontal, edit.mirrorVertical)
             val colored = PhotoColorMath.apply(transformed, edit.color)
+            val drawn = PhotoDrawing.overlay(colored, edit.drawing)
             if (edit.textLayers.isEmpty()) {
                 if (colored !== transformed) transformed.recycle()
-                colored
+                if (drawn !== colored) colored.recycle()
+                drawn
             } else {
-                val output = colored.copy(Bitmap.Config.ARGB_8888, true)
+                val output = drawn.copy(Bitmap.Config.ARGB_8888, true)
                 TextLayerRenderer.draw(context, android.graphics.Canvas(output),
                     output.width, output.height, edit.textLayers, includeAll = true)
+                if (drawn !== colored) drawn.recycle()
                 if (colored !== transformed) colored.recycle()
                 transformed.recycle()
                 output
@@ -175,6 +180,17 @@ fun PhotoEditorScreen(
             } },
             onApply = { layers -> commit(edit.copy(textLayers = layers)); textEditorOpen = false },
             onDismiss = { textEditorOpen = false },
+        )
+    }
+
+    if (drawingEditorOpen && composedPreview != null) {
+        PhotoDrawDialog(
+            preview = requireNotNull(composedPreview),
+            onApply = { marks ->
+                if (marks.isNotEmpty()) commit(edit.copy(drawing = edit.drawing + marks))
+                drawingEditorOpen = false
+            },
+            onDismiss = { drawingEditorOpen = false },
         )
     }
 
@@ -203,6 +219,7 @@ fun PhotoEditorScreen(
                             mirrorHorizontal = edit.mirrorHorizontal, mirrorVertical = edit.mirrorVertical,
                             inpaintOverlayPath = edit.overlayPath, textLayers = edit.textLayers,
                             colorAdjustments = edit.color,
+                            drawing = edit.drawing,
                         ))
                     },
                     enabled = dirty && info != null && !locked && !removeObjects,
@@ -289,6 +306,7 @@ fun PhotoEditorScreen(
                     },
                     onEditFinished = ::finishGesture,
                     onText = { textEditorOpen = true },
+                    onDraw = { drawingEditorOpen = true },
                     onLaMa = { removeObjects = true },
                 )
             }
@@ -340,7 +358,7 @@ private fun PhotoWorkspaceTools(
     onEdit: (PhotoEditSnapshot) -> Unit,
     onLiveEdit: (PhotoEditSnapshot) -> Unit,
     onEditFinished: () -> Unit,
-    onText: () -> Unit, onLaMa: () -> Unit,
+    onText: () -> Unit, onDraw: () -> Unit, onLaMa: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().background(Color.Black).height(188.dp)) {
         Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
@@ -399,7 +417,7 @@ private fun PhotoWorkspaceTools(
                         fontSize = 12.sp, color = Color.LightGray)
                 }
                 PhotoWorkspaceTab.TEXT, PhotoWorkspaceTab.WATERMARK ->
-                    Text("Текст добавляется слоями и не изменяет исходное изображение",
+                    Text("Надписи, кисти и фигуры накладываются поверх снимка",
                         fontSize = 12.sp, color = Color.LightGray)
                 PhotoWorkspaceTab.AI ->
                     Text("LaMa · удаление объектов на устройстве",
@@ -430,9 +448,15 @@ private fun PhotoWorkspaceTools(
                         enabled = !locked && info != null,
                         onClick = { onEdit(edit.copy(color = edit.color.copy(effect = effect))) })
                 }
-                PhotoWorkspaceTab.TEXT, PhotoWorkspaceTab.WATERMARK -> {
-                    PhotoToolCard(if (tab == PhotoWorkspaceTab.TEXT) "Добавить надпись" else "Текстовый знак",
-                        Icons.Rounded.TextFields, false, onText, !locked && info != null)
+                PhotoWorkspaceTab.TEXT -> {
+                    PhotoToolCard("Надпись", Icons.Rounded.TextFields,
+                        false, onText, !locked && info != null)
+                    PhotoToolCard("Кисть и фигуры", Icons.Rounded.Brush,
+                        false, onDraw, !locked && info != null)
+                }
+                PhotoWorkspaceTab.WATERMARK -> {
+                    PhotoToolCard("Текстовый знак", Icons.Rounded.TextFields,
+                        false, onText, !locked && info != null)
                 }
                 PhotoWorkspaceTab.AI ->
                     PhotoToolCard("AI-ластик · LaMa", Icons.Rounded.AutoFixHigh,
