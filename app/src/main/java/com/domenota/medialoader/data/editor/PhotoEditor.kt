@@ -29,6 +29,7 @@ data class PhotoEditSpec(
     /** App-owned alpha PNG, never a third-party file path. */
     val inpaintOverlayPath: String? = null,
     val textLayers: List<TextLayer> = emptyList(),
+    val colorAdjustments: PhotoColorAdjustments = PhotoColorAdjustments(),
 ) {
     init {
         require(textLayers.size <= 8)
@@ -65,6 +66,7 @@ class PhotoEditor(private val context: Context) {
         var cropped: Bitmap? = null
         var transformed: Bitmap? = null
         var withText: Bitmap? = null
+        var withColor: Bitmap? = null
         try {
             sourceBitmap = context.contentResolver.openInputStream(source)?.use { input ->
                 BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply {
@@ -144,13 +146,17 @@ class PhotoEditor(private val context: Context) {
 
             currentCoroutineContext().ensureActive()
             onProgress(75)
+            // Apply color to the photo before adding text; text colors remain untouched.
+            withColor = if (spec.colorAdjustments.isNeutral()) null
+                else PhotoColorMath.apply(requireNotNull(transformed), spec.colorAdjustments)
             if (spec.textLayers.isNotEmpty()) {
-                withText = requireNotNull(transformed).copy(Bitmap.Config.ARGB_8888, true)
+                val base = requireNotNull(withColor ?: transformed)
+                withText = base.copy(Bitmap.Config.ARGB_8888, true)
                 TextLayerRenderer.draw(context, Canvas(withText), withText.width, withText.height,
                     spec.textLayers, includeAll = true)
             }
             FileOutputStream(output).use { stream ->
-                val ok = requireNotNull(withText ?: transformed).compress(
+                val ok = requireNotNull(withText ?: withColor ?: transformed).compress(
                     if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
                     if (png) 100 else 95,
                     stream,
@@ -165,6 +171,7 @@ class PhotoEditor(private val context: Context) {
             throw error
         } finally {
             withText?.recycle()
+            withColor?.recycle()
             if (transformed != null && transformed !== cropped && transformed !== sourceBitmap) {
                 transformed?.recycle()
             }
