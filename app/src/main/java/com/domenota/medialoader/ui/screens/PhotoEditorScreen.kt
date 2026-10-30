@@ -166,27 +166,34 @@ fun PhotoEditorScreen(
             val rendered = withContext(Dispatchers.IO) {
                 val transformed = TextLayerRenderer.preview(source, edit.crop, edit.rotation,
                     edit.mirrorHorizontal, edit.mirrorVertical)
-                var colored: Bitmap? = null
-                var withWatermark: Bitmap? = null
-                var drawn: Bitmap? = null
+                val colored = try { PhotoColorMath.apply(transformed, edit.color) }
+                    catch (error: Throwable) { transformed.recycle(); throw error }
+                val hasOverlays = edit.graphicWatermark != null ||
+                    edit.drawing.isNotEmpty() || edit.textLayers.isNotEmpty()
+                val output = if (hasOverlays) colored.copy(Bitmap.Config.ARGB_8888, true)
+                    else colored
                 try {
-                    colored = PhotoColorMath.apply(transformed, edit.color)
-                    withWatermark = PhotoGraphicWatermarkRenderer.overlay(
-                        context, colored, edit.graphicWatermark)
-                    drawn = PhotoDrawing.overlay(withWatermark, edit.drawing)
-                    val output = if (edit.textLayers.isEmpty()) drawn
-                    else drawn.copy(Bitmap.Config.ARGB_8888, true).also {
-                        TextLayerRenderer.draw(context, android.graphics.Canvas(it),
-                            it.width, it.height, edit.textLayers, includeAll = true)
+                    if (hasOverlays) {
+                        val canvas = android.graphics.Canvas(output)
+                        edit.graphicWatermark?.let {
+                            PhotoGraphicWatermarkRenderer.draw(context, canvas, output.width, output.height, it)
+                        }
+                        if (edit.drawing.isNotEmpty())
+                            PhotoDrawing.draw(canvas, output.width, output.height, edit.drawing)
+                        if (edit.textLayers.isNotEmpty())
+                            TextLayerRenderer.draw(context, canvas, output.width, output.height,
+                                edit.textLayers, includeAll = true)
                     }
-                    if (output !== drawn) drawn.recycle()
-                    drawn = null
                     output
+                } catch (error: Throwable) {
+                    if (output !== colored) output.recycle()
+                    else if (colored !== transformed) colored.recycle()
+                    throw error
                 } finally {
-                    drawn?.recycle()
-                    if (withWatermark != null && withWatermark !== colored) withWatermark.recycle()
-                    if (colored != null && colored !== transformed) colored.recycle()
-                    transformed.recycle()
+                    // Never recycle the bitmap returned to Compose.
+                    if (colored !== output && !colored.isRecycled) colored.recycle()
+                    if (transformed !== output && transformed !== colored && !transformed.isRecycled)
+                        transformed.recycle()
                 }
             }
             composedPreview = rendered
