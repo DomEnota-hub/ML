@@ -8,10 +8,16 @@ import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +35,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Bolt
@@ -45,6 +53,11 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Cookie
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.ColorLens
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Hearing
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.InsertPhoto
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PhotoCamera
@@ -110,6 +123,8 @@ import com.domenota.medialoader.ui.components.AppCard
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.components.SourceIcon
 import com.domenota.medialoader.ui.model.DownloadUiItem
+import com.domenota.medialoader.ui.model.MediaKind
+import com.domenota.medialoader.ui.model.DownloadUiState
 import com.domenota.medialoader.ui.model.AdvancedDownloadToolsVisibility
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -137,6 +152,9 @@ fun SettingsScreen(
     onRutubeSignOut: () -> Unit,
     hiddenCount: Int,
     hiddenItems: List<DownloadUiItem>,
+    editorItems: List<DownloadUiItem> = emptyList(),
+    onEditFile: (String) -> Unit = {},
+    onOpenEqualizer: () -> Unit = {},
     onChangeFolder: (String) -> Unit,
     onSelectFolder: () -> Unit,
     onRestore: (Set<String>) -> Unit,
@@ -166,6 +184,14 @@ fun SettingsScreen(
     onMusicSourceChange: (FullSongSource) -> Unit = {},
 ) {
     val context = LocalContext.current
+    var editorKind by remember { mutableStateOf<MediaKind?>(null) }
+    var accountsExpanded by rememberSaveable { mutableStateOf(false) }
+    var downloadExpanded by rememberSaveable { mutableStateOf(false) }
+    var musicOptionsExpanded by rememberSaveable { mutableStateOf(false) }
+    var interfaceOptionsExpanded by rememberSaveable { mutableStateOf(false) }
+    var mediaManagementGranted by remember {
+        mutableStateOf(Build.VERSION.SDK_INT >= 31 && MediaStore.canManageMedia(context))
+    }
     var instagramVerification by remember { mutableStateOf<DiagnosticOutcome?>(null) }
     var instagramMediaVerified by remember { mutableStateOf(false) }
     var instagramVerificationRevision by remember { mutableStateOf(0) }
@@ -207,6 +233,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 systemNotificationsAllowed = allowed()
+                mediaManagementGranted = Build.VERSION.SDK_INT >= 31 && MediaStore.canManageMedia(context)
                 instagramMediaVerified = MediaRepository.get(context).sessions.hasWorkingMediaSession()
                 onRefreshInstagramSession()
             }
@@ -731,6 +758,77 @@ fun SettingsScreen(
         confirmButton = { TextButton(onClick = { themeDialog = false }) { Text("Закрыть") } },
     )
 
+    editorKind?.let { kind ->
+        var editorSearch by remember(kind) { mutableStateOf("") }
+        val available = remember(editorItems, kind) {
+            editorItems.filter { it.kind == kind &&
+                it.state == DownloadUiState.COMPLETED && it.savedUri != null }
+                .distinctBy { it.id }
+        }
+        val choices = remember(available, editorSearch) {
+            val query = editorSearch.trim()
+            if (query.isEmpty()) available else available.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                    it.subtitle.contains(query, ignoreCase = true)
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { editorKind = null },
+            title = { Text(when (kind) {
+                MediaKind.IMAGE -> "Выбрать фото"
+                MediaKind.VIDEO -> "Выбрать видео"
+                MediaKind.AUDIO -> "Выбрать аудио"
+            }) },
+            text = {
+                Column {
+                    if (available.isNotEmpty()) {
+                        OutlinedTextField(
+                            value = editorSearch,
+                            onValueChange = { editorSearch = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Поиск файла") },
+                            placeholder = { Text("Название файла") },
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text("Найдено: ${choices.size}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    if (choices.isEmpty()) {
+                        Text(if (available.isEmpty())
+                            "Подходящих файлов в доступной медиатеке пока нет."
+                            else "По запросу ничего не найдено.")
+                    } else {
+                        LazyColumn(Modifier.heightIn(max = 390.dp)) {
+                            items(choices, key = { it.id }) { file ->
+                                Row(
+                                    Modifier.fillMaxWidth().clickable {
+                                        editorKind = null
+                                        onEditFile(file.id)
+                                    }.padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    DownloadThumbnail(file.savedUri, file.previewUrl, file.kind,
+                                        Modifier.size(48.dp))
+                                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                        Text(file.title, maxLines = 2,
+                                            style = MaterialTheme.typography.bodyMedium)
+                                        Text(file.subtitle, maxLines = 1,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { editorKind = null }) { Text("Закрыть") } },
+        )
+    }
+
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
         Text("Настройки", modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).pointerInput(Unit) {
@@ -750,11 +848,30 @@ fun SettingsScreen(
             })
         }, style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(22.dp))
-        Text("Аккаунты", style = MaterialTheme.typography.titleMedium,
+        Text("Редактирование", style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EditorShortcut("Фото", Icons.Rounded.PhotoCamera, Color(0xFF45B9D5),
+                Modifier.weight(1f)) { editorKind = MediaKind.IMAGE }
+            EditorShortcut("Видео", Icons.Rounded.VideoLibrary, Color(0xFF549CFC),
+                Modifier.weight(1f)) { editorKind = MediaKind.VIDEO }
+            EditorShortcut("Аудио", Icons.Rounded.MusicNote, Color(0xFFE58FB6),
+                Modifier.weight(1f)) { editorKind = MediaKind.AUDIO }
+        }
+
+        Spacer(Modifier.height(26.dp))
+        Text("Источники и загрузка", style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
-            SettingRow(Icons.Rounded.PhotoCamera, "Аккаунт Instagram",
+            SettingRow(Icons.Rounded.Groups, "Аккаунты",
+                "Instagram, YouTube, VK и RUTUBE", grouped = true,
+                iconTone = SettingIconTone.PURPLE, expanded = accountsExpanded,
+                onClick = { accountsExpanded = !accountsExpanded })
+            ExpandableSettingsBody(accountsExpanded) {
+                GroupDivider()
+                SettingRow(Icons.Rounded.PhotoCamera, "Аккаунт Instagram",
                 instagramLabel.text,
                 brand = "instagram", statusColor = when (instagramLabel.tone) {
                     InstagramSessionTone.SUCCESS -> successColor()
@@ -762,48 +879,49 @@ fun SettingsScreen(
                     InstagramSessionTone.ERROR -> MaterialTheme.colorScheme.error
                     InstagramSessionTone.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                grouped = true,
+                grouped = true, nested = true,
                 onClick = if (instagramSignedIn) ({ confirmInstagramSignOut = true }) else onInstagramSignIn)
             GroupDivider()
             SettingRow(Icons.Rounded.PlayCircle, "Аккаунт YouTube",
                 if (youtubeSignedIn) "Подключён" else "Не подключён",
                 brand = "youtube", statusColor = if (youtubeSignedIn) successColor() else MaterialTheme.colorScheme.error,
-                grouped = true,
+                grouped = true, nested = true,
                 onClick = if (youtubeSignedIn) ({ confirmYouTubeSignOut = true }) else onYouTubeSignIn)
             GroupDivider()
             SettingRow(Icons.Rounded.VideoLibrary, "Аккаунт VK",
                 if (vkSignedIn) "Подключён" else "Не подключён",
                 brand = "vk", statusColor = if (vkSignedIn) successColor() else MaterialTheme.colorScheme.error,
-                grouped = true,
+                grouped = true, nested = true,
                 onClick = if (vkSignedIn) ({ confirmVkSignOut = true }) else onVkSignIn)
             GroupDivider()
             SettingRow(Icons.Rounded.PlayCircle, "Аккаунт RUTUBE",
                 if (rutubeSignedIn) "Подключен" else "Не подключён",
                 brand = "rutube", statusColor = if (rutubeSignedIn) successColor()
                     else MaterialTheme.colorScheme.onSurfaceVariant,
-                grouped = true,
+                grouped = true, nested = true,
                 onClick = if (rutubeSignedIn) ({ confirmRutubeSignOut = true }) else onRutubeSignIn)
             GroupDivider()
             SettingRow(Icons.Rounded.Key, "Запасная авторизация",
-                "sessionid Instagram · Cookies YouTube", grouped = true,
+                "sessionid Instagram · Cookies YouTube", grouped = true, nested = true,
                 iconTone = SettingIconTone.PURPLE,
                 onClick = { spareAuthorizationDialog = true })
-        }
-
-        Spacer(Modifier.height(26.dp))
-        Text("Загрузка", style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(10.dp))
-        SettingsGroup {
-            SettingRow(Icons.Rounded.Folder, "Папка загрузок", downloadFolder,
-                grouped = true, iconTone = SettingIconTone.FOLDER,
+            }
+            GroupDivider()
+            SettingRow(Icons.Rounded.Download, "Загрузка",
+                "Качество видео, папка и режим Instagram", grouped = true,
+                iconTone = SettingIconTone.BLUE, expanded = downloadExpanded,
+                onClick = { downloadExpanded = !downloadExpanded })
+            ExpandableSettingsBody(downloadExpanded) {
+                GroupDivider()
+                SettingRow(Icons.Rounded.Folder, "Папка загрузок", downloadFolder,
+                grouped = true, nested = true, iconTone = SettingIconTone.FOLDER,
                 onClick = {
                     folderName = downloadFolder.substringAfter("Download/", "MediaLoader")
                     folderDialog = true
                 })
             GroupDivider()
             SettingRow(Icons.Rounded.HighQuality, "Приоритетное качество", VideoPreferences.qualityLabel(preferredHeight),
-                grouped = true, iconTone = SettingIconTone.BLUE,
+                grouped = true, nested = true, iconTone = SettingIconTone.BLUE,
                 onClick = { qualityExpanded = !qualityExpanded },
                 trailing = { Icon(if (qualityExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = if (qualityExpanded) "Свернуть качество" else "Выбрать качество") })
@@ -829,7 +947,7 @@ fun SettingsScreen(
             GroupDivider()
             SettingRow(Icons.Rounded.Notifications, "Уведомления",
                 if (!systemNotificationsAllowed) "Разрешить в настройках Android" else "О завершении загрузок",
-                grouped = true, iconTone = SettingIconTone.NOTIFICATIONS,
+                grouped = true, nested = true, iconTone = SettingIconTone.NOTIFICATIONS,
                 onClick = {
                     if (notificationsEnabled && systemNotificationsAllowed) {
                         notificationsEnabled = false
@@ -846,16 +964,17 @@ fun SettingsScreen(
             GroupDivider()
             SettingRow(Icons.Rounded.Bolt, "Режим загрузки Instagram",
                 if (automaticInstagram) "Автоматический" else "Ручной",
-                grouped = true, iconTone = SettingIconTone.INSTAGRAM,
+                grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM,
                 onClick = { instagramModeDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.CloseFullscreen, "Закрывать окно после выбора файла",
-                "После добавления в загрузки", grouped = true, iconTone = SettingIconTone.CLOSE_PICKER,
+                "После добавления в загрузки", grouped = true, nested = true, iconTone = SettingIconTone.CLOSE_PICKER,
                 onClick = { onClosePickerAfterDownloadChange(!closePickerAfterDownload) },
                 trailing = {
                     Switch(checked = closePickerAfterDownload,
                         onCheckedChange = onClosePickerAfterDownloadChange)
                 })
+            }
             if (AdvancedDownloadToolsVisibility.showBulkLinks(advancedDownloadToolsVisible)) {
                 GroupDivider()
                 SettingRow(Icons.Rounded.PlaylistAddCheck, "Массовая загрузка",
@@ -875,26 +994,37 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
-            SettingRow(Icons.Rounded.MusicNote, "Источник полной песни",
+            SettingRow(Icons.Rounded.GraphicEq, "Эквалайзер",
+                "Настройка звука для всей музыки",
+                grouped = true, iconTone = SettingIconTone.BLUE,
+                onClick = onOpenEqualizer)
+            GroupDivider()
+            SettingRow(Icons.Rounded.Tune, "Настройки музыки",
+                "Распознавание, источники и имена треков", grouped = true,
+                iconTone = SettingIconTone.PURPLE, expanded = musicOptionsExpanded,
+                onClick = { musicOptionsExpanded = !musicOptionsExpanded })
+            ExpandableSettingsBody(musicOptionsExpanded) {
+                GroupDivider()
+                SettingRow(Icons.Rounded.LibraryMusic, "Источник полной песни",
                 when (musicSource) {
                     FullSongSource.AUTO -> "Автоматически"
                     FullSongSource.HITMOZ -> "Основной"
                     FullSongSource.MUZMO -> "Резервный"
                 },
-                grouped = true, iconTone = SettingIconTone.MUSIC,
+                grouped = true, nested = true, iconTone = SettingIconTone.MUSIC,
                 onClick = { musicSourceDialog = true })
             GroupDivider()
-            SettingRow(Icons.Rounded.GraphicEq, "Распознавание музыки",
+            SettingRow(Icons.Rounded.Hearing, "Распознавание музыки",
                 when (musicRecognitionMode) {
                     MusicRecognitionMode.AUTO -> "Автоматически после загрузки"
                     MusicRecognitionMode.MANUAL -> "Только вручную"
                     MusicRecognitionMode.OFF -> "Выключено"
                 },
-                grouped = true, iconTone = SettingIconTone.RECOGNITION,
+                grouped = true, nested = true, iconTone = SettingIconTone.RECOGNITION,
                 onClick = { recognitionDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.DriveFileRenameOutline, "Переименовывать найденные треки",
-                "Исполнитель — Название.mp3", grouped = true,
+                "Исполнитель — Название.mp3", grouped = true, nested = true,
                 iconTone = if (musicRecognitionMode == MusicRecognitionMode.OFF)
                     SettingIconTone.NEUTRAL else SettingIconTone.RENAME,
                 onClick = if (musicRecognitionMode == MusicRecognitionMode.OFF) null else ({
@@ -907,6 +1037,7 @@ fun SettingsScreen(
                         onCheckedChange = onRenameRecognizedTracksChange,
                     )
                 })
+            }
         }
 
         Spacer(Modifier.height(26.dp))
@@ -914,17 +1045,23 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
-            SettingRow(Icons.Rounded.Palette, "Тема", "Светлая, тёмная или системная",
-                grouped = true, iconTone = SettingIconTone.THEME, onClick = { themeDialog = true })
+            SettingRow(Icons.Rounded.Palette, "Оформление и просмотр",
+                "Тема, миниатюры и проигрыватель", grouped = true,
+                iconTone = SettingIconTone.PURPLE, expanded = interfaceOptionsExpanded,
+                onClick = { interfaceOptionsExpanded = !interfaceOptionsExpanded })
+            ExpandableSettingsBody(interfaceOptionsExpanded) {
+                GroupDivider()
+                SettingRow(Icons.Rounded.ColorLens, "Тема", "Светлая, тёмная или системная",
+                grouped = true, nested = true, iconTone = SettingIconTone.THEME, onClick = { themeDialog = true })
             GroupDivider()
-            SettingRow(Icons.Rounded.VideoLibrary, "Миниатюра видео", thumbnailMode.label,
-                grouped = true, iconTone = SettingIconTone.PLAYER, onClick = { videoThumbnailDialog = true })
+            SettingRow(Icons.Rounded.InsertPhoto, "Миниатюра видео", thumbnailMode.label,
+                grouped = true, nested = true, iconTone = SettingIconTone.PLAYER, onClick = { videoThumbnailDialog = true })
             GroupDivider()
             SettingRow(
                 Icons.Rounded.SmartDisplay,
                 "Встроенный проигрыватель",
                 "Открывать видео, музыку и фото внутри приложения",
-                grouped = true,
+                grouped = true, nested = true,
                 iconTone = SettingIconTone.PLAYER,
                 onClick = { onInternalViewerEnabledChange(!internalViewerEnabled) },
                 trailing = {
@@ -934,6 +1071,7 @@ fun SettingsScreen(
                     )
                 },
             )
+            }
         }
 
         Spacer(Modifier.height(26.dp))
@@ -941,10 +1079,10 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
-            if (Build.VERSION.SDK_INT >= 31) {
+            if (Build.VERSION.SDK_INT >= 31 && !mediaManagementGranted) {
                 SettingRow(Icons.Rounded.DeleteSweep, "Управление медиафайлами",
                     "Разрешить удаление без повторного запроса Android", grouped = true,
-                    iconTone = SettingIconTone.TRASH, onClick = {
+                    iconTone = SettingIconTone.GREEN, onClick = {
                         try { context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,
                             Uri.parse("package:${context.packageName}"))) }
                         catch (_: Exception) { Toast.makeText(context, "Настройка недоступна на этом устройстве", Toast.LENGTH_SHORT).show() }
@@ -953,12 +1091,12 @@ fun SettingsScreen(
             }
             SettingRow(Icons.Rounded.RestoreFromTrash, "Корзина",
                 "Удалённые файлы · $hiddenCount", grouped = true,
-                iconTone = SettingIconTone.TRASH,
+                iconTone = SettingIconTone.RED,
                 onClick = onOpenTrash)
             GroupDivider()
             SettingRow(Icons.Rounded.DeleteSweep, "Очистить историю",
                 "Удалить список загрузок", grouped = true,
-                iconTone = SettingIconTone.CLEAR_HISTORY, onClick = { confirmClear = true })
+                iconTone = SettingIconTone.AMBER, onClick = { confirmClear = true })
             GroupDivider()
             SettingRow(Icons.Rounded.SystemUpdate,
                 if (ytDlpUpdating) "Обновляем yt-dlp…" else "Обновить yt-dlp",
@@ -1043,23 +1181,25 @@ private fun SettingRow(
     statusColor: Color? = null,
     showChevron: Boolean = true,
     grouped: Boolean = false,
+    nested: Boolean = false,
+    expanded: Boolean? = null,
     iconTone: SettingIconTone = SettingIconTone.NEUTRAL,
 ) {
-    val tint = iconTone.tint
-    val iconBackground = tint.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.12f else 0.22f)
+    val tint = if (nested) MaterialTheme.colorScheme.onSurfaceVariant else iconTone.tint
+    val iconBackground = tint.copy(alpha = if (nested) 0.10f else if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.12f else 0.22f)
     val content: @Composable ColumnScope.() -> Unit = {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(modifier)
                 .let { base -> if (onClick != null) base.clickable(onClick = onClick) else base }
-                .padding(horizontal = 16.dp, vertical = 15.dp),
+                .padding(horizontal = if (nested) 12.dp else 16.dp, vertical = if (nested) 9.dp else 15.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (brand != null) SourceIcon(brand, 44.dp) else Row(
+            if (brand != null) SourceIcon(brand, if (nested) 34.dp else 44.dp) else Row(
                 modifier = Modifier
-                    .size(44.dp)
-                    .background(iconBackground, RoundedCornerShape(14.dp)),
+                    .size(if (nested) 34.dp else 44.dp)
+                    .background(iconBackground, RoundedCornerShape(if (nested) 11.dp else 14.dp)),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
             ) {
@@ -1067,11 +1207,11 @@ private fun SettingRow(
                     imageVector = icon,
                     contentDescription = null,
                     tint = tint,
-                    modifier = Modifier.size(23.dp),
+                    modifier = Modifier.size(if (nested) 19.dp else 23.dp),
                 )
             }
-            Column(modifier = Modifier.weight(1f).padding(start = 14.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
+            Column(modifier = Modifier.weight(1f).padding(start = if (nested) 11.dp else 14.dp)) {
+                Text(title, style = if (nested) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(3.dp))
                 Text(
                     subtitle,
@@ -1082,8 +1222,12 @@ private fun SettingRow(
             when {
                 trailing != null -> trailing()
                 onClick != null && showChevron -> Icon(
-                    imageVector = Icons.Rounded.ChevronRight,
-                    contentDescription = null,
+                    imageVector = when (expanded) {
+                        true -> Icons.Rounded.ExpandLess
+                        false -> Icons.Rounded.ExpandMore
+                        null -> Icons.Rounded.ChevronRight
+                    },
+                    contentDescription = if (expanded == null) null else if (expanded) "Свернуть" else "Раскрыть",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1113,6 +1257,51 @@ private enum class SettingIconTone(val tint: Color) {
     CLEAR_HISTORY(Color(0xFFE15A69)),
     YTDLP(Color(0xFF48A6DC)),
     ABOUT(Color(0xFF9098AC)),
+}
+
+
+@Composable
+private fun EditorShortcut(
+    label: String,
+    icon: ImageVector,
+    tint: Color,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    AppCard(modifier.clickable(onClick = onClick)) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 15.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+@Composable
+private fun ExpandableSettingsBody(
+    expanded: Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    AnimatedVisibility(
+        visible = expanded,
+        enter = expandVertically() + fadeIn(),
+        exit = shrinkVertically() + fadeOut(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                    RoundedCornerShape(16.dp),
+                )
+                .padding(vertical = 6.dp),
+            content = content,
+        )
+    }
 }
 
 @Composable

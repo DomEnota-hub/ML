@@ -25,7 +25,9 @@ import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.RotateRight
 import androidx.compose.material.icons.rounded.VolumeOff
+import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -46,6 +48,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +68,7 @@ import com.domenota.medialoader.data.editor.CropAspectPreset
 import com.domenota.medialoader.data.editor.CropFractions
 import com.domenota.medialoader.data.editor.VideoCropMath
 import com.domenota.medialoader.data.editor.VideoEditSpec
+import com.domenota.medialoader.data.editor.VideoEditor
 import com.domenota.medialoader.data.editor.VideoFramePosition
 import com.domenota.medialoader.data.editor.EditorExportState
 import com.domenota.medialoader.ui.components.CropFrameOverlay
@@ -77,8 +81,14 @@ import com.domenota.medialoader.ui.components.VideoScrubFrame
 import com.domenota.medialoader.ui.components.VideoTimelineStrip
 import com.domenota.medialoader.ui.components.rememberEditorExitRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import java.io.File
 
 private data class VideoInfo(
     val width: Int,
@@ -109,6 +119,13 @@ fun VideoEditorScreen(
     var cropPreset by remember { mutableStateOf(CropAspectPreset.FREE) }
     var rotation by remember { mutableIntStateOf(0) }
     var removeAudio by remember { mutableStateOf(false) }
+    var reverseVideo by remember(item.id) { mutableStateOf(false) }
+    var reversePreviewFile by remember(item.id) { mutableStateOf<File?>(null) }
+    var reversePreviewBusy by remember(item.id) { mutableStateOf(false) }
+    var reversePreviewPercent by remember(item.id) { mutableIntStateOf(0) }
+    var reversePreviewError by remember(item.id) { mutableStateOf<String?>(null) }
+    var reversePreviewJob by remember(item.id) { mutableStateOf<Job?>(null) }
+    val previewScope = rememberCoroutineScope()
     var trimStart by remember { mutableLongStateOf(0L) }
     var trimEnd by remember { mutableLongStateOf(0L) }
     var textLayers by remember(item.id) { mutableStateOf<List<TextLayer>>(emptyList()) }
@@ -118,7 +135,7 @@ fun VideoEditorScreen(
     val fullDuration = info?.durationMs ?: 0L
     val hasUnsavedChanges = crop != CropFractions() ||
         cropPreset != CropAspectPreset.FREE ||
-        rotation != 0 || removeAudio || trimStart != 0L || textLayers.isNotEmpty() ||
+        rotation != 0 || removeAudio || reverseVideo || trimStart != 0L || textLayers.isNotEmpty() ||
         (fullDuration > 0L && trimEnd != 0L && trimEnd != fullDuration)
     val requestExit = rememberEditorExitRequest(
         hasUnsavedChanges = hasUnsavedChanges && !ownExport,
@@ -129,10 +146,40 @@ fun VideoEditorScreen(
         cropPreset = CropAspectPreset.FREE
         rotation = 0
         removeAudio = false
+        reverseVideo = false
         trimStart = 0L
         trimEnd = fullDuration
         textLayers = emptyList()
         showTextResult = false
+    }
+
+    fun exportSpec(): VideoEditSpec = VideoEditSpec(
+        startMs = trimStart,
+        endMs = trimEnd.takeIf { end -> end > 0 && end < (info?.durationMs ?: Long.MAX_VALUE) },
+        cropLeft = crop.left,
+        cropRight = crop.right,
+        cropTop = crop.top,
+        cropBottom = crop.bottom,
+        rotationDegrees = rotation,
+        removeAudio = removeAudio,
+        reverse = reverseVideo,
+        textLayers = textLayers.mapNotNull { it.within(trimEnd - trimStart) },
+    )
+
+    LaunchedEffect(reverseVideo, trimStart, trimEnd, crop, rotation, removeAudio, textLayers) {
+        reversePreviewJob?.cancel()
+        reversePreviewJob = null
+        reversePreviewFile?.delete()
+        reversePreviewFile = null
+        reversePreviewPercent = 0
+        reversePreviewBusy = false
+        reversePreviewError = null
+    }
+    DisposableEffect(item.id) {
+        onDispose {
+            reversePreviewJob?.cancel()
+            reversePreviewFile?.delete()
+        }
     }
 
     val previewPlayer = remember(uri) {
@@ -365,6 +412,67 @@ fun VideoEditorScreen(
                 Switch(checked = removeAudio, onCheckedChange = { removeAudio = it })
             }
 
+            Spacer(Modifier.height(16.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.FastRewind, contentDescription = null)
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text("Обратное воспроизведение", style = MaterialTheme.typography.titleMedium)
+                        Text("С конца к началу. Звук также будет обращён, если не отключён.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Switch(checked = reverseVideo, onCheckedChange = { reverseVideo = it })
+            }
+            if (reverseVideo) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = {
+                        if (reversePreviewFile == null) {
+                        previewPlayer?.pause()
+                        reversePreviewJob = previewScope.launch {
+                            reversePreviewBusy = true
+                            reversePreviewError = null
+                            reversePreviewPercent = 0
+                            try {
+                                val file = VideoEditor(context).export(uri, exportSpec()) {
+                                    reversePreviewPercent = it
+                                }
+                                currentCoroutineContext().ensureActive()
+                                reversePreviewFile = file
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                reversePreviewError = error.message ?: "Не удалось создать предпросмотр реверса"
+                            } finally {
+                                reversePreviewBusy = false
+                            }
+                        }
+                        }
+                    },
+                    enabled = info != null && !reversePreviewBusy && !ownExport && !busyWithOther,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) {
+                    Icon(Icons.Rounded.FastRewind, contentDescription = null)
+                    Text("  Посмотреть в обратном порядке")
+                }
+                if (reversePreviewBusy) {
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { reversePreviewPercent / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TextButton(onClick = { reversePreviewJob?.cancel() }) { Text("Отменить предпросмотр") }
+                }
+                reversePreviewError?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.error)
+                }
+            }
             Spacer(Modifier.height(24.dp))
             if (ownExport) {
                 Text("${exportState.operation} · ${exportState.progress}%")
@@ -392,23 +500,9 @@ fun VideoEditorScreen(
                 }
                 Button(
                     onClick = {
-                        onExport(
-                            VideoEditSpec(
-                                startMs = trimStart,
-                                endMs = trimEnd.takeIf { end ->
-                                    end > 0 && end < (info?.durationMs ?: Long.MAX_VALUE)
-                                },
-                                cropLeft = crop.left,
-                                cropRight = crop.right,
-                                cropTop = crop.top,
-                                cropBottom = crop.bottom,
-                                rotationDegrees = rotation,
-                                removeAudio = removeAudio,
-                                textLayers = textLayers.mapNotNull { it.within(trimEnd - trimStart) },
-                            ),
-                        )
+                        onExport(exportSpec())
                     },
-                    enabled = info != null && !busyWithOther,
+                    enabled = info != null && !busyWithOther && !reversePreviewBusy,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 ) {
                     Text("Сохранить копию")
@@ -463,6 +557,44 @@ fun VideoEditorScreen(
             Spacer(Modifier.height(24.dp))
         }
     }
+    reversePreviewFile?.let { file ->
+        ReverseVideoPreviewDialog(file) {
+            reversePreviewFile = null
+            file.delete()
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun ReverseVideoPreviewDialog(file: File, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val player = remember(file) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(player) { onDispose { player.release() } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Предпросмотр реверса") },
+        text = {
+            AndroidView(
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        this.player = player
+                        useController = true
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                },
+                update = { it.player = player },
+                modifier = Modifier.fillMaxWidth().height(260.dp),
+            )
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    )
 }
 
 @OptIn(UnstableApi::class)

@@ -2,6 +2,8 @@ package com.domenota.medialoader.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +22,8 @@ import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -65,24 +69,18 @@ fun HomeScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(22.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceCard("instagram", "Instagram", "Фото и видео", Modifier.weight(1f), onOpenSource)
-            SourceCard("youtube", "YouTube", "Видео и музыка", Modifier.weight(1f), onOpenSource)
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceCard("vk", "VK", "Фото и видео", Modifier.weight(1f), onOpenSource)
-            SourceCard("rutube", "RUTUBE", "Видео и музыка", Modifier.weight(1f), onOpenSource)
-        }
-        Spacer(Modifier.height(24.dp))
         AppCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Link, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary)
-                    Text("Ссылка на файл", style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(start = 10.dp))
-                }
+            Column(Modifier
+                .background(Brush.linearGradient(listOf(
+                    MaterialTheme.colorScheme.primaryContainer,
+                    MaterialTheme.colorScheme.surface,
+                )))
+                .padding(18.dp)) {
+                Text("Что скачаем?", style = MaterialTheme.typography.headlineMedium)
+                Spacer(Modifier.height(4.dp))
+                Text("Фото, видео или музыку по ссылке",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
                 OutlinedTextField(value = url, onValueChange = onUrlChange,
                     modifier = Modifier.fillMaxWidth(),
@@ -104,14 +102,18 @@ fun HomeScreen(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline))
                 Spacer(Modifier.height(14.dp))
-                GradientActionButton("Поиск", onClick = onCheckClick,
+                GradientActionButton("Найти файл", onClick = onCheckClick,
                     enabled = url.isNotBlank(), leadingIcon = Icons.Rounded.Search)
-                Spacer(Modifier.height(13.dp))
-                Text("Вставьте ссылку и выберите, что скачать",
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+             }
+        }
+        Spacer(Modifier.height(24.dp))
+        Text("Открыть источник", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SourceCard("instagram", "Instagram", Modifier.weight(1f), onOpenSource)
+            SourceCard("youtube", "YouTube", Modifier.weight(1f), onOpenSource)
+            SourceCard("vk", "VK", Modifier.weight(1f), onOpenSource)
+            SourceCard("rutube", "RUTUBE", Modifier.weight(1f), onOpenSource)
         }
         Spacer(Modifier.height(24.dp))
         MusicHomeSection()
@@ -134,16 +136,16 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SourceCard(id: String, title: String, caption: String, modifier: Modifier, onOpen: (String) -> Unit) {
+private fun SourceCard(id: String, title: String, modifier: Modifier, onOpen: (String) -> Unit) {
     AppCard(modifier.clickable(onClickLabel = "Открыть $title") { onOpen(id) }) {
-        Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.Start) {
-            SourceIcon(id, 34.dp)
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 3.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            SourceIcon(id, 36.dp)
             Spacer(Modifier.height(8.dp))
-            Text(title, style = MaterialTheme.typography.labelLarge,
+            Text(title, style = MaterialTheme.typography.labelSmall,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(caption, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
