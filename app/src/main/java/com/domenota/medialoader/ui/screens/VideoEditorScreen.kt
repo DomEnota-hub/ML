@@ -2,6 +2,13 @@ package com.domenota.medialoader.ui.screens
 
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.media3.common.Player
+import com.domenota.medialoader.data.editor.VideoClipDraft
+import java.util.UUID
+import kotlinx.coroutines.delay
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -135,19 +142,67 @@ fun VideoEditorScreen(
     var selectedTool by remember(item.id) { mutableStateOf<VideoWorkspaceTool?>(null) }
 
     val fullDuration = info?.durationMs ?: 0L
-    // Stage 1 shows one clip; the model accepts multiple clips and tracks.
-    val project = remember(uri, fullDuration, trimStart, trimEnd) {
-        if (uri == null || fullDuration <= 0L) null else {
-            val initial = VideoProjectDraft.single(item.id.toString(), uri.toString(), fullDuration)
-            if (trimEnd > trimStart && trimEnd <= fullDuration)
-                initial.trimClip(item.id.toString(), trimStart, trimEnd)
-            else initial
+    var project by remember(item.id) { mutableStateOf<VideoProjectDraft?>(null) }
+    var selectedClipId by remember(item.id) { mutableStateOf(item.id.toString()) }
+    var playheadMs by remember(item.id) { mutableLongStateOf(0L) }
+    var timelineIsPlaying by remember(item.id) { mutableStateOf(false) }
+    var clipError by remember(item.id) { mutableStateOf<String?>(null) }
+    val projectScope = rememberCoroutineScope()
+    val currentClip = project?.clips?.firstOrNull { it.id == selectedClipId }
+
+    fun applyProject(next: VideoProjectDraft, selectedId: String = selectedClipId) {
+        project = next
+        selectedClipId = selectedId
+        val index = next.indexOf(selectedId).coerceAtLeast(0)
+        playheadMs = next.timelineStart(index)
+        clipError = null
+    }
+
+    val addClips = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()) { selected ->
+        if (selected.isEmpty()) return@rememberLauncherForActivityResult
+        projectScope.launch {
+            val obtained = selected.mapNotNull { nextUri ->
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(nextUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val metadata = withContext(Dispatchers.IO) { readVideoInfo(context, nextUri) }
+                if (metadata != null && metadata.durationMs > 0L) {
+                    VideoClipDraft(UUID.randomUUID().toString(), nextUri.toString(),
+                        metadata.durationMs)
+                } else null
+            }
+            val previous = project
+            if (previous != null && obtained.isNotEmpty()) {
+                runCatching { previous.addAfter(selectedClipId, obtained) }
+                    .onSuccess { applyProject(it, obtained.first().id) }
+                    .onFailure { clipError = it.message ?: "Не удалось добавить клипы" }
+            } else clipError = "Не удалось прочитать выбранные видео"
+        }
+    }
+    val replaceClip = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()) { nextUri ->
+        if (nextUri == null) return@rememberLauncherForActivityResult
+        projectScope.launch {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(nextUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val metadata = withContext(Dispatchers.IO) { readVideoInfo(context, nextUri) }
+            val p = project
+            if (p != null && metadata != null && metadata.durationMs > 0L) {
+                runCatching { p.replace(selectedClipId, nextUri.toString(), metadata.durationMs) }
+                    .onSuccess { applyProject(it) }
+                    .onFailure { clipError = it.message ?: "Не удалось заменить клип" }
+            } else clipError = "Не удалось прочитать выбранное видео"
         }
     }
     val hasUnsavedChanges = crop != CropFractions() ||
         cropPreset != CropAspectPreset.FREE ||
-        rotation != 0 || removeAudio || reverseVideo || trimStart != 0L || textLayers.isNotEmpty() ||
-        (fullDuration > 0L && trimEnd != 0L && trimEnd != fullDuration)
+        rotation != 0 || removeAudio || reverseVideo || textLayers.isNotEmpty() ||
+        (project != null && project!!.clips !=
+            listOf(VideoClipDraft(item.id.toString(), uri.toString(), fullDuration.coerceAtLeast(1L))))
     val requestExit = rememberEditorExitRequest(
         hasUnsavedChanges = hasUnsavedChanges && !ownExport,
         onExit = onBack,
@@ -160,13 +215,18 @@ fun VideoEditorScreen(
         reverseVideo = false
         trimStart = 0L
         trimEnd = fullDuration
+        project = uri?.takeIf { fullDuration > 0L }?.let {
+            VideoProjectDraft.single(item.id.toString(), it.toString(), fullDuration)
+        }
+        selectedClipId = item.id.toString()
+        playheadMs = 0L
         textLayers = emptyList()
         showTextResult = false
     }
 
     fun exportSpec(): VideoEditSpec = VideoEditSpec(
-        startMs = trimStart,
-        endMs = trimEnd.takeIf { end -> end > 0 && end < (info?.durationMs ?: Long.MAX_VALUE) },
+        startMs = 0L,
+        endMs = null,
         cropLeft = crop.left,
         cropRight = crop.right,
         cropTop = crop.top,
@@ -174,7 +234,8 @@ fun VideoEditorScreen(
         rotationDegrees = rotation,
         removeAudio = removeAudio,
         reverse = reverseVideo,
-        textLayers = textLayers.mapNotNull { it.within(trimEnd - trimStart) },
+        textLayers = textLayers.mapNotNull { it.within(project?.durationMs ?: 0L) },
+        project = project,
     )
 
     LaunchedEffect(reverseVideo, trimStart, trimEnd, crop, rotation, removeAudio, textLayers) {
@@ -231,6 +292,48 @@ fun VideoEditorScreen(
         if (uri == null) return@LaunchedEffect
         info = withContext(Dispatchers.IO) { readVideoInfo(context, uri) }
         trimEnd = info?.durationMs ?: 0L
+        info?.takeIf { it.durationMs > 0L }?.let {
+            project = VideoProjectDraft.single(item.id.toString(), uri.toString(), it.durationMs)
+            selectedClipId = item.id.toString()
+        }
+    }
+
+    LaunchedEffect(previewPlayer, project?.clips) {
+        val p = project ?: return@LaunchedEffect
+        val player = previewPlayer ?: return@LaunchedEffect
+        delay(160L) // Debounce trim-handle dragging rather than rebuilding every frame.
+        val location = p.locateAt(playheadMs.coerceIn(0L, p.durationMs))
+        val items = p.clips.map { clip ->
+            MediaItem.Builder().setUri(Uri.parse(clip.sourceUri))
+                .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(clip.inMs)
+                    .setEndPositionMs(clip.outMs)
+                    .build())
+                .build()
+        }
+        player.pause()
+        player.setMediaItems(items, location.clipIndex,
+            location.positionWithinClipMs.coerceAtMost(
+                (p.clips[location.clipIndex].durationMs - 1L).coerceAtLeast(0L)))
+        player.prepare()
+    }
+    LaunchedEffect(previewPlayer, project) {
+        val player = previewPlayer ?: return@LaunchedEffect
+        val p = project ?: return@LaunchedEffect
+        while (true) {
+            val index = player.currentMediaItemIndex
+            if (index in p.clips.indices) {
+                val pos = p.timelinePosition(index, player.currentPosition)
+                if (player.isPlaying || pos != playheadMs) playheadMs = pos
+                if (player.isPlaying) selectedClipId = p.clips[index].id
+            }
+            timelineIsPlaying = player.isPlaying
+            delay(75L)
+        }
+    }
+    LaunchedEffect(selectedClipId, project?.clips) {
+        val clip = project?.clips?.firstOrNull { it.id == selectedClipId }
+        if (clip != null) { trimStart = clip.inMs; trimEnd = clip.outMs }
     }
 
     if (textEditorOpen && uri != null && trimEnd > trimStart) EditorTextDialog(
