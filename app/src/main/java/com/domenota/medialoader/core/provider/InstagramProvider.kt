@@ -335,7 +335,7 @@ class InstagramProvider(
             val videos = value.optJSONArray("video_versions")
             val images = value.optJSONObject("image_versions2")?.optJSONArray("candidates")
             val imageEntry = largest(images)
-            val videoEntry = largest(videos)
+            val videoEntry = bestVideo(videos)
             val image = imageEntry?.optString("url")?.takeIf(::safeMediaUrl)
             val video = videoEntry?.optString("url")?.takeIf(::safeMediaUrl)
             val isVideo = video != null
@@ -352,7 +352,27 @@ class InstagramProvider(
                 downloadUrl = url, previewUrl = image,
                 audioAvailable = if (isVideo && value.has("has_audio")) value.optBoolean("has_audio") else null,
                 sourceGroupId = code, position = carouselIndex,
+                // Informational only. Instagram bulk always uses the best available
+                // variant even if the API doesn't expose reliable dimensions.
+                qualityLabel = if (isVideo) videoEntry?.let { entry ->
+                    val width = entry.optInt("width")
+                    val height = entry.optInt("height")
+                    if (width in 144..10000 && height in 144..10000)
+                        "${width}×${height}" else null
+                } else null,
             )
+        }
+
+        /** Choose the highest-area available progressive video without new requests. */
+        private fun bestVideo(values: JSONArray?): JSONObject? = values?.let { array ->
+            (0 until array.length()).mapNotNull(array::optJSONObject)
+                .filter { safeMediaUrl(it.optString("url")) }
+                .maxWithOrNull(compareBy<JSONObject> { entry ->
+                    val width = entry.optInt("width").coerceAtLeast(0)
+                    val height = entry.optInt("height").coerceAtLeast(0)
+                    if (width > 0 && height > 0) width.toLong() * height else 0L
+                }.thenBy { it.optInt("width", 0) }
+                    .thenBy { it.optLong("bitrate", 0L) })
         }
 
         private fun largest(values: JSONArray?): JSONObject? = values?.let { array ->
