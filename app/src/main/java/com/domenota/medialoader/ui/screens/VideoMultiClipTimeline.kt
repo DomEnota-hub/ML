@@ -19,6 +19,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,6 +53,8 @@ internal fun VideoMultiClipTimeline(
     positionMs: Long,
     isPlaying: Boolean,
     enabled: Boolean,
+    frameIntervalMs: Long?,
+    onFrameStep: (Int) -> Unit,
     onSelect: (String) -> Unit,
     onSeek: (Long) -> Unit,
     onTrim: (String, Long, Long) -> Unit,
@@ -69,11 +73,24 @@ internal fun VideoMultiClipTimeline(
             Text(formatPreciseMediaTime(positionMs) + " / " +
                 formatPreciseMediaTime(project.durationMs),
                 style = MaterialTheme.typography.labelMedium)
+            if (frameIntervalMs != null && frameIntervalMs > 0L) {
+                IconButton(onClick = { onFrameStep(-1) }, enabled = enabled,
+                    modifier = Modifier.size(29.dp)) {
+                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "Предыдущий кадр")
+                }
+                IconButton(onClick = { onFrameStep(1) }, enabled = enabled,
+                    modifier = Modifier.size(29.dp)) {
+                    Icon(Icons.Rounded.SkipNext, contentDescription = "Следующий кадр")
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Масштаб", fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Slider(value = zoom, onValueChange = { zoom = it },
                 valueRange = .6f..2.5f,
-                modifier = Modifier.width(96.dp).height(34.dp), enabled = enabled)
+                modifier = Modifier.weight(1f).height(34.dp), enabled = enabled)
         }
         LazyRow(Modifier.fillMaxWidth().height(77.dp),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -199,23 +216,25 @@ private fun VideoClipStrip(
             // Trim handles operate directly on original clip source coordinates.
             Box(Modifier.align(Alignment.CenterStart).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
-                .pointerInput(clip.inMs, clip.outMs, enabled) {
-                    if (!enabled) return@pointerInput
+                .pointerInput(clip.id, enabled) {
+                    if (!enabled || clip.durationMs < 200L) return@pointerInput
                     detectDragGestures { change, delta ->
                         change.consume()
                         val shift = (delta.x / pixelWidth * clip.durationMs).roundToLong()
-                        onTrim((clip.inMs + shift).coerceIn(0L, clip.outMs - 100L), clip.outMs)
+                        val limit = (clip.outMs - 100L).coerceAtLeast(0L)
+                        onTrim((clip.inMs + shift).coerceIn(0L, limit), clip.outMs)
                     }
                 })
             Box(Modifier.align(Alignment.CenterEnd).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
-                .pointerInput(clip.inMs, clip.outMs, enabled) {
-                    if (!enabled) return@pointerInput
+                .pointerInput(clip.id, enabled) {
+                    if (!enabled || clip.durationMs < 200L) return@pointerInput
                     detectDragGestures { change, delta ->
                         change.consume()
-                        val shift = (delta.x / pixelWidth * clip.sourceDurationMs).roundToLong()
-                        onTrim(clip.inMs, (clip.outMs + shift).coerceIn(
-                            clip.inMs + 100L, clip.sourceDurationMs))
+                        val shift = (delta.x / pixelWidth * clip.durationMs).roundToLong()
+                        val minEnd = (clip.inMs + 100L).coerceAtMost(clip.sourceDurationMs)
+                        onTrim(clip.inMs, (clip.outMs + shift)
+                            .coerceIn(minEnd, clip.sourceDurationMs))
                     }
                 })
         }
