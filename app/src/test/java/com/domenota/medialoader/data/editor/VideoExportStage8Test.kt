@@ -22,7 +22,7 @@ class VideoExportStage8Test {
 
     @Test fun outputUsesPostCropAndRotationCanvas() {
         val settings = VideoExportSettings(resolution = VideoExportResolution.HD_720)
-        val rotated = settings.dimensions(1920, 1080, .5f, 1f, 90)
+        val rotated = settings.dimensions(1920, 1080, .8f, 1f, 90)
         assertTrue(rotated.width < rotated.height)
         assertEquals(720, minOf(rotated.width, rotated.height))
         assertThrows(IllegalArgumentException::class.java) {
