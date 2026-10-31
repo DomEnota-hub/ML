@@ -72,6 +72,43 @@ class BulkLogicTest {
             listOf(variant("unknown", null)), BulkRules(maxHeight = null)).single().id)
     }
 
+    @Test fun instagramVideoWithUnknownQualityIsNeverDroppedByForeignCeiling() {
+        val reel = MediaItem(
+            "reel_1", "instagram", MediaType.VIDEO, "reel.mp4",
+            "https://scontent.fbcdn.net/video.mp4", sourceGroupId = "reel",
+            qualityLabel = null)
+        for (limit in listOf(480, 720, 1080, 2160)) {
+            val report = BulkSelection.withReport(listOf(reel), BulkRules(maxHeight = limit))
+            assertEquals(listOf("reel_1"), report.items.map { it.id })
+            assertEquals(0, report.videosWithoutSuitableQuality)
+            assertEquals(0, report.videosWithoutKnownQuality)
+        }
+    }
+
+    @Test fun instagramHigherResolutionWinsEvenIfSharedCeilingIs480() {
+        val low = MediaItem("post", "instagram", MediaType.VIDEO, "low.mp4",
+            "https://scontent.fbcdn.net/low.mp4", qualityLabel = "640×480")
+        val portrait = low.copy(downloadUrl = "https://scontent.fbcdn.net/high.mp4",
+            qualityLabel = "1080×1920")
+        val result = BulkSelection.withReport(
+            listOf(low, portrait), BulkRules(maxHeight = 480))
+        assertEquals(1, result.items.size)
+        assertEquals(portrait.downloadUrl, result.items.single().downloadUrl)
+        assertEquals(0, result.videosWithoutSuitableQuality)
+    }
+
+    @Test fun mixedSourcesKeepStrictRulesForNonInstagramVideo() {
+        val reel = MediaItem("reel", "instagram", MediaType.VIDEO, "reel.mp4",
+            "https://scontent.fbcdn.net/reel.mp4")
+        val youtube = MediaItem("yt", "youtube", MediaType.VIDEO, "yt.mp4",
+            "https://youtube.com/watch?v=AbcdEf01234", qualityLabel = "1080p")
+        val report = BulkSelection.withReport(
+            listOf(reel, youtube), BulkRules(maxHeight = 720))
+        assertEquals(listOf("reel"), report.items.map { it.id })
+        assertEquals(1, report.videosWithoutSuitableQuality)
+        assertEquals(0, report.videosWithoutKnownQuality)
+    }
+
     @Test fun qualityGroupingPreservesInstagramCarouselItems() {
         val posts = listOf(1, 2).map { pos ->
             MediaItem("part_$pos", "instagram", MediaType.VIDEO, "part_$pos.mp4",
