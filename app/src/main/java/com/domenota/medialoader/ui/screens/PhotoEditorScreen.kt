@@ -548,11 +548,14 @@ private fun PhotoWorkspaceTools(
     onText: () -> Unit, onDraw: () -> Unit, onMosaic: () -> Unit,
     onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
+    var effectCategory by remember { mutableStateOf(PhotoEffectCategory.POPULAR) }
+    var effectParameter by remember { mutableStateOf("preset") }
     // Stage 1: a persistent, compact tool strip and a contextual panel that
     // appears only when the user selects a parameter. No empty 188/242dp tray.
     val hasParameters = when (tab) {
         PhotoWorkspaceTab.CROP -> cropTool == "ratio"
-        PhotoWorkspaceTab.LEVELS, PhotoWorkspaceTab.HSL, PhotoWorkspaceTab.WATERMARK -> true
+        PhotoWorkspaceTab.LEVELS, PhotoWorkspaceTab.HSL,
+        PhotoWorkspaceTab.EFFECTS, PhotoWorkspaceTab.WATERMARK -> true
         else -> false
     }
     Column(Modifier.fillMaxWidth().background(Color(0xFF101012)).animateContentSize()) {
@@ -565,6 +568,12 @@ private fun PhotoWorkspaceTools(
                         PhotoWorkspaceTab.CROP -> "Соотношение сторон"
                         PhotoWorkspaceTab.LEVELS -> activeLevel.title
                         PhotoWorkspaceTab.HSL -> activeHslRange.label + " · " + activeHslControl.title
+                        PhotoWorkspaceTab.EFFECTS -> when (effectParameter) {
+                            "glow" -> "Свечение"
+                            "vignette" -> "Виньетка"
+                            "dispersion" -> "Дисперсия"
+                            else -> "Интенсивность · " + edit.color.effect.label
+                        }
                         PhotoWorkspaceTab.WATERMARK -> "Параметры водяного знака"
                         else -> ""
                     }, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -578,6 +587,8 @@ private fun PhotoWorkspaceTools(
                     PhotoWorkspaceTab.LEVELS ->
                         if (activeLevel == PhotoLevelControl.RGB_CURVES) 282.dp else 64.dp
                     PhotoWorkspaceTab.WATERMARK -> 82.dp
+                    PhotoWorkspaceTab.EFFECTS ->
+                        if (effectParameter == "preset") 56.dp else 104.dp
                     else -> 64.dp
                 }), contentAlignment = Alignment.Center) {
                     when (tab) {
@@ -702,8 +713,52 @@ private fun PhotoWorkspaceTools(
                     }
                 }
                 PhotoWorkspaceTab.EFFECTS -> {
-                    Text("Выбери эффект — изменения сразу появятся на фотографии",
-                        fontSize = 12.sp, color = Color.LightGray)
+                    val strength = when (effectParameter) {
+                        "vignette" -> edit.color.vignette
+                        "glow" -> edit.color.glow
+                        "dispersion" -> edit.color.dispersion
+                        else -> edit.color.effectStrength
+                    }
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Сила", fontSize = 12.sp, color = Color.LightGray)
+                            Slider(strength, onValueChange = { next ->
+                                val color = when (effectParameter) {
+                                    "vignette" -> edit.color.copy(vignette = next)
+                                    "glow" -> edit.color.copy(glow = next)
+                                    "dispersion" -> edit.color.copy(dispersion = next)
+                                    else -> edit.color.copy(effectStrength = next)
+                                }
+                                onLiveEdit(edit.copy(color = color))
+                            }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
+                                enabled = !locked && info != null, valueRange = 0f..100f,
+                                onValueChangeFinished = onEditFinished)
+                            Text(strength.roundToInt().toString(), color = Color.White,
+                                fontSize = 12.sp)
+                        }
+                        if (effectParameter != "preset") {
+                            val size = when (effectParameter) {
+                                "glow" -> edit.color.glowSize
+                                "vignette" -> edit.color.vignetteSize
+                                else -> edit.color.dispersionSize
+                            }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Размер", fontSize = 11.sp, color = Color.LightGray)
+                                Slider(size, onValueChange = { next ->
+                                    val color = when (effectParameter) {
+                                        "glow" -> edit.color.copy(glowSize = next)
+                                        "vignette" -> edit.color.copy(vignetteSize = next)
+                                        else -> edit.color.copy(dispersionSize = next)
+                                    }
+                                    onLiveEdit(edit.copy(color = color))
+                                }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
+                                    enabled = !locked && info != null, valueRange = 0f..100f,
+                                    onValueChangeFinished = onEditFinished)
+                                Text(size.roundToInt().toString(), color = Color.White,
+                                    fontSize = 11.sp)
+                            }
+                        }
+                    }
                 }
                 PhotoWorkspaceTab.TEXT ->
                     Text("Надписи, кисти и фигуры накладываются поверх снимка",
@@ -737,6 +792,18 @@ private fun PhotoWorkspaceTools(
                 }
             }
         }
+        if (tab == PhotoWorkspaceTab.EFFECTS) {
+            Row(Modifier.fillMaxWidth().height(43.dp).horizontalScroll(rememberScrollState())
+                .padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                PhotoEffectCategory.entries.forEach { category ->
+                    FilterChip(selected = effectCategory == category,
+                        onClick = { effectCategory = category },
+                        enabled = !locked,
+                        label = { Text(category.label, fontSize = 11.sp) })
+                }
+            }
+        }
         Row(Modifier.fillMaxWidth().height(68.dp).horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -762,11 +829,24 @@ private fun PhotoWorkspaceTools(
                 PhotoWorkspaceTab.EFFECTS -> {
                     PhotoToolCard("Мозаика", Icons.Rounded.GridOn, false,
                         onMosaic, !locked && info != null)
-                    PhotoEffect.entries.forEach { effect ->
-                        PhotoEffectCard(effect = effect, info = info, base = edit.color,
+                    PhotoToolCard("Свечение", Icons.Rounded.Flare,
+                        effectParameter == "glow" && panelOpen,
+                        { effectParameter = "glow"; onPanelOpen(true) }, !locked && info != null)
+                    PhotoToolCard("Виньетка", Icons.Rounded.FilterCenterFocus,
+                        effectParameter == "vignette" && panelOpen,
+                        { effectParameter = "vignette"; onPanelOpen(true) }, !locked && info != null)
+                    PhotoToolCard("Дисперсия", Icons.Rounded.BlurOn,
+                        effectParameter == "dispersion" && panelOpen,
+                        { effectParameter = "dispersion"; onPanelOpen(true) }, !locked && info != null)
+                    PhotoEffectCatalog.forCategory(effectCategory).forEach { effect ->
+                        PhotoEffectCard(effect = effect, info = info,
                             selected = edit.color.effect == effect,
                             enabled = !locked && info != null,
-                            onClick = { onEdit(edit.copy(color = edit.color.copy(effect = effect))) })
+                            onClick = {
+                                effectParameter = "preset"
+                                onEdit(edit.copy(color = edit.color.copy(effect = effect)))
+                                onPanelOpen(true)
+                            })
                     }
                 }
                 PhotoWorkspaceTab.TEXT -> {
@@ -848,26 +928,38 @@ internal fun PhotoCategoryTab(
 
 @Composable
 private fun PhotoEffectCard(
-    effect: PhotoEffect, info: PhotoSourceInfo?, base: PhotoColorAdjustments,
+    effect: PhotoEffect, info: PhotoSourceInfo?,
     selected: Boolean, enabled: Boolean, onClick: () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.width(91.dp).height(67.dp), onClick = onClick, enabled = enabled,
-        shape = RoundedCornerShape(12.dp),
-        color = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF232328),
-    ) {
+    val source = info?.preview
+    // Cache an actual filtered thumbnail for each preset; a color matrix
+    // alone cannot preview grain, matte film and other nonlinear treatments.
+    val thumbnail = remember(source, effect) {
+        if (source == null) null else try {
+            val sample = Bitmap.createScaledBitmap(source, 96, 96, true)
+            val rendered = PhotoColorMath.apply(sample,
+                PhotoColorAdjustments(effect = effect))
+            if (sample !== rendered) sample.recycle()
+            rendered
+        } catch (_: Throwable) { null }
+    }
+    DisposableEffect(thumbnail) {
+        onDispose { if (thumbnail != null && thumbnail !== source && !thumbnail.isRecycled)
+            thumbnail.recycle() }
+    }
+    Surface(modifier = Modifier.width(94.dp).height(67.dp),
+        onClick = onClick, enabled = enabled,
+        shape = RoundedCornerShape(13.dp),
+        color = if (selected) PhotoEditorGold else Color(0xFF232328)) {
         Box(Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(9.dp)),
             contentAlignment = Alignment.BottomCenter) {
-            info?.let { source ->
-                val adjusted = base.copy(effect = effect)
-                Image(source.preview.asImageBitmap(), contentDescription = null,
-                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
-                    colorFilter = if (adjusted.isNeutral()) null
-                    else ColorFilter.colorMatrix(ComposeColorMatrix(PhotoColorMath.matrix(adjusted).array)))
+            thumbnail?.let {
+                Image(it.asImageBitmap(), contentDescription = null,
+                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             }
-            Box(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .55f)),
+            Box(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .67f)),
                 contentAlignment = Alignment.Center) {
-                Text(effect.label, fontSize = 11.sp, color = Color.White, maxLines = 1)
+                Text(effect.label, fontSize = 10.sp, color = Color.White, maxLines = 1)
             }
         }
     }
