@@ -100,6 +100,8 @@ fun PhotoEditorScreen(
     var cropTool by remember(item.id) { mutableStateOf("ratio") }
     var menuOpen by remember { mutableStateOf(false) }
     var composedPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    var cropColorPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    val photoViewport = remember(item.id) { PhotoViewportState() }
     var previewError by remember(item.id) { mutableStateOf<String?>(null) }
 
     fun commit(next: PhotoEditSnapshot) {
@@ -148,8 +150,10 @@ fun PhotoEditorScreen(
         }
     }
 
-    val info = originalInfo?.let { base ->
-        edit.inpaintPreview?.let { base.copy(preview = it) } ?: base
+    val info = remember(originalInfo, edit.inpaintPreview) {
+        originalInfo?.let { base ->
+            edit.inpaintPreview?.let { base.copy(preview = it) } ?: base
+        }
     }
     val dirty = edit != PhotoEditSnapshot()
     val requestExit = rememberEditorExitRequest(
@@ -161,11 +165,34 @@ fun PhotoEditorScreen(
         }
     }
 
+    // Pixel previews are ownership-managed; don't let repeated slider gestures retain bitmaps.
+    DisposableEffect(composedPreview) {
+        val old = composedPreview
+        onDispose { if (old != null && !old.isRecycled) old.recycle() }
+    }
+    DisposableEffect(cropColorPreview, info?.preview) {
+        val previous = cropColorPreview
+        val original = info?.preview
+        onDispose {
+            if (previous != null && previous !== original && !previous.isRecycled) previous.recycle()
+        }
+    }
+    LaunchedEffect(info, edit.color) {
+        val source = info?.preview ?: return@LaunchedEffect
+        delay(100L)
+        cropColorPreview = withContext(Dispatchers.IO) {
+            PhotoColorMath.apply(source, edit.color)
+        }
+    }
+    LaunchedEffect(edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical) {
+        photoViewport.reset()
+    }
+
     // All non-crop tabs show the *actual* edited geometry, color and text.
     // Debounced previews are calculated away from the UI thread; full-resolution
     // export applies the same operations in the same order.
     LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
-        edit.color, edit.textLayers, edit.drawing, edit.graphicWatermark) {
+        edit.color, edit.textLayers, edit.drawing, edit.graphicWatermark, currentTab) {
         val source = info?.preview
         if (source == null) { composedPreview = null; return@LaunchedEffect }
         delay(100L)
@@ -175,14 +202,17 @@ fun PhotoEditorScreen(
                     edit.mirrorHorizontal, edit.mirrorVertical)
                 val colored = try { PhotoColorMath.apply(transformed, edit.color) }
                     catch (error: Throwable) { transformed.recycle(); throw error }
-                val hasOverlays = edit.graphicWatermark != null ||
+                // In the watermark tab its graphic is a separate interactive layer,
+                // avoiding expensive bitmap recompositing on every finger movement.
+                val includeWatermark = currentTab != PhotoWorkspaceTab.WATERMARK
+                val hasOverlays = (includeWatermark && edit.graphicWatermark != null) ||
                     edit.drawing.isNotEmpty() || edit.textLayers.isNotEmpty()
                 val output = if (hasOverlays) colored.copy(Bitmap.Config.ARGB_8888, true)
                     else colored
                 try {
                     if (hasOverlays) {
                         val canvas = android.graphics.Canvas(output)
-                        edit.graphicWatermark?.let {
+                        if (includeWatermark) edit.graphicWatermark?.let {
                             PhotoGraphicWatermarkRenderer.draw(context, canvas, output.width, output.height, it)
                         }
                         if (edit.drawing.isNotEmpty())
@@ -312,11 +342,24 @@ fun PhotoEditorScreen(
                     Text("Открываем изображение…", color = Color.LightGray)
                 } else if (currentTab != PhotoWorkspaceTab.CROP &&
                     composedPreview != null) {
-                    Image(requireNotNull(composedPreview).asImageBitmap(), "Предпросмотр фотографии",
-                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    PhotoZoomViewport(
+                        bitmap = requireNotNull(composedPreview), state = photoViewport,
+                        graphic = if (currentTab == PhotoWorkspaceTab.WATERMARK)
+                            edit.graphicWatermark else null,
+                        onMoveGraphic = { dx, dy ->
+                            val mark = edit.graphicWatermark
+                            if (mark != null && !locked) {
+                                if (pendingGesture == null) pendingGesture = edit
+                                edit = edit.copy(graphicWatermark = mark.copy(
+                                    centerX = (mark.centerX + dx).coerceIn(0f, 1f),
+                                    centerY = (mark.centerY + dy).coerceIn(0f, 1f)))
+                            }
+                        },
+                        onGraphicDragEnd = ::finishGesture,
+                    )
                 } else {
                     PhotoWorkspacePreview(
-                        info = info, edit = edit,
+                        info = info, edit = edit, colorPreview = cropColorPreview,
                         cropFrameVisible = currentTab == PhotoWorkspaceTab.CROP && !locked,
                         onCropChange = {
                             if (pendingGesture == null) pendingGesture = edit
@@ -368,17 +411,15 @@ fun PhotoEditorScreen(
 
 @Composable
 private fun PhotoWorkspacePreview(
-    info: PhotoSourceInfo, edit: PhotoEditSnapshot,
+    info: PhotoSourceInfo, edit: PhotoEditSnapshot, colorPreview: Bitmap?,
     cropFrameVisible: Boolean, onCropChange: (CropFractions) -> Unit,
     onCropFinished: () -> Unit,
 ) {
     var showOriginal by remember(info.preview) { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-        val adjust = if (showOriginal) PhotoColorAdjustments() else edit.color
-        Image(info.preview.asImageBitmap(), null,
+        val displayed = if (showOriginal) info.preview else colorPreview ?: info.preview
+        Image(displayed.asImageBitmap(), null,
             contentScale = ContentScale.Fit,
-            colorFilter = if (adjust.isNeutral()) null else ColorFilter.colorMatrix(
-                ComposeColorMatrix(PhotoColorMath.matrix(adjust).array)),
             modifier = Modifier.fillMaxSize().graphicsLayer {
                 rotationZ = if (showOriginal) 0f else edit.rotation.toFloat()
                 scaleX = if (!showOriginal && edit.mirrorHorizontal) -1f else 1f
