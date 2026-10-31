@@ -7,7 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -161,7 +162,15 @@ private fun VideoClipStrip(
         .border(if (isSelected) 3.dp else 1.dp,
             if (isSelected) selectedYellow else MaterialTheme.colorScheme.outlineVariant,
             RoundedCornerShape(9.dp))) {
-        Row(Modifier.fillMaxSize().clickable(enabled = enabled, onClick = onSelect)
+        Row(Modifier.fillMaxSize()
+            .onSizeChanged { pixelWidth = it.width.toFloat().coerceAtLeast(1f) }
+            .pointerInput(clip.id, enabled) {
+                if (!enabled) return@pointerInput
+                detectTapGestures(onTap = { point ->
+                    onSelect()
+                    onSeek((point.x / pixelWidth).coerceIn(0f, 1f))
+                })
+            }
             .pointerInput(clip.id, clip.inMs, clip.outMs, enabled) {
                 if (!enabled) return@pointerInput
                 detectDragGesturesAfterLongPress(
@@ -197,7 +206,7 @@ private fun VideoClipStrip(
                     if (!enabled) return@pointerInput
                     detectDragGestures { change, delta ->
                         change.consume()
-                        val shift = (delta.x / pixelWidth * clip.sourceDurationMs).roundToLong()
+                        val shift = (delta.x / pixelWidth * clip.durationMs).roundToLong()
                         onTrim((clip.inMs + shift).coerceIn(0L, clip.outMs - 100L), clip.outMs)
                     }
                 })
@@ -215,12 +224,9 @@ private fun VideoClipStrip(
         }
         if (localPositionMs != null) {
             Canvas(Modifier.fillMaxSize()) {
-                pixelWidth = size.width.coerceAtLeast(1f)
                 val x = localPositionMs.toFloat() / clip.durationMs * size.width
                 drawLine(Color.White, Offset(x, 0f), Offset(x, size.height), 2.dp.toPx())
             }
-        } else {
-            Canvas(Modifier.fillMaxSize()) { pixelWidth = size.width.coerceAtLeast(1f) }
         }
         Text(formatPreciseMediaTime(clip.durationMs),
             color = Color.White, fontSize = 10.sp,
