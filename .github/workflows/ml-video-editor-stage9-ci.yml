@@ -1,0 +1,66 @@
+name: ML video editor stage 9 full integration and ARM64 release QA
+on:
+  push:
+    branches: [feature/ml-video-editor-stage9-final-integration-20261031]
+  workflow_dispatch:
+
+concurrency:
+  group: ml-video-stage9-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  final-video-editor-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Validate embedded WebView source scripts
+        run: |
+          node scripts/test-youtube-thumbnail.cjs
+          node scripts/test-hitmoz-native-script.cjs
+          node scripts/test-muzmo-native-script.cjs
+      - name: Full Android unit and integration tests
+        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Compile production ARM64 release APK (unsigned)
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify production identity, version, ABI and unsigned status
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          code=$(sed -nE 's/^[[:space:]]*versionCode ([0-9]+)[[:space:]]*$/\1/p' app/build.gradle | head -1)
+          name=$(sed -nE "s/^[[:space:]]*versionName '([^']+)'[[:space:]]*$/\1/p" app/build.gradle | head -1)
+          test -n "$code" && test -n "$name"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" |
+            grep -F "package: name='com.domenota.medialoader' versionCode='$code' versionName='$name'"
+          mapfile -t abis < <(unzip -Z1 "$apk" | awk -F/ '$1 == "lib" {print $2}' | sort -u)
+          test "${#abis[@]}" -eq 1
+          test "${abis[0]}" = arm64-v8a
+          if "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify "$apk" 2>/dev/null; then
+            echo "::error::Release-candidate verification expected an unsigned APK"
+            exit 1
+          fi
+          echo "APK is unsigned, ARM64 only, appId unchanged; no publish or upload performed."
+      - name: Record release-candidate fingerprint (no APK artifact)
+        run: |
+          echo "### Stage 9 release candidate check" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Unit tests, scripts, lint and ARM64 release assemble verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Device manual QA: NOT performed by CI" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release signing: NOT performed by CI" >> "$GITHUB_STEP_SUMMARY"
+          echo 'SHA256 of unsigned RC:' >> "$GITHUB_STEP_SUMMARY"
+          sha256sum app/build/outputs/apk/release/app-release-unsigned.apk >> "$GITHUB_STEP_SUMMARY"

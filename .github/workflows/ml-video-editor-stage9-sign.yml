@@ -1,0 +1,89 @@
+name: ML signed ARM64 release (manual QA gate)
+on:
+  workflow_dispatch:
+    inputs:
+      device_qa_approved:
+        description: 'Confirm real Android device smoke QA has passed'
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+
+jobs:
+  signed-arm64:
+    if: ${{ inputs.device_qa_approved == true && startsWith(github.ref, 'refs/heads/release/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Full QA before signing
+        run: |
+          node scripts/test-youtube-thumbnail.cjs
+          node scripts/test-hitmoz-native-script.cjs
+          node scripts/test-muzmo-native-script.cjs
+          gradle :app:testDebugUnitTest :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Sign with existing ML key and verify expected certificate
+        id: sign
+        shell: bash
+        env:
+          ML_RELEASE_KEYSTORE_BASE64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
+          ML_RELEASE_STORE_PASSWORD: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
+          ML_RELEASE_KEY_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
+          ML_RELEASE_KEY_PASSWORD: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
+          ML_RELEASE_SIGNER_SHA256: ${{ secrets.ML_RELEASE_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          for name in ML_RELEASE_KEYSTORE_BASE64 ML_RELEASE_STORE_PASSWORD ML_RELEASE_KEY_ALIAS ML_RELEASE_KEY_PASSWORD ML_RELEASE_SIGNER_SHA256; do
+            test -n "${!name:-}" || { echo "::error::Missing protected signing input: $name"; exit 1; }
+          done
+          source_apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$source_apk"
+          buildtools="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          key="$RUNNER_TEMP/ml-release.jks"
+          aligned="$RUNNER_TEMP/ML-aligned.apk"
+          signed="$RUNNER_TEMP/ML-arm64-signed.apk"
+          trap 'rm -f "$key" "$aligned"' EXIT
+          printf '%s' "$ML_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          "$buildtools/zipalign" -p -f 4 "$source_apk" "$aligned"
+          "$buildtools/apksigner" sign --min-sdk-version 26 --ks "$key" \
+            --ks-key-alias "$ML_RELEASE_KEY_ALIAS" \
+            --ks-pass env:ML_RELEASE_STORE_PASSWORD \
+            --key-pass env:ML_RELEASE_KEY_PASSWORD \
+            --out "$signed" "$aligned"
+          "$buildtools/apksigner" verify --verbose "$signed"
+          cert=$("$buildtools/apksigner" verify --print-certs "$signed" |
+            sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+).*$/\1/p' | head -n1 |
+            tr '[:upper:]' '[:lower:]' | tr -d ':')
+          expected=$(printf '%s' "$ML_RELEASE_SIGNER_SHA256" |
+            tr '[:upper:]' '[:lower:]' | tr -d ': ')
+          test -n "$cert" && test "$cert" = "$expected" || {
+            echo "::error::Signed file certificate does not match the existing ML signing certificate"
+            rm -f "$signed"
+            exit 1
+          }
+          test "$(unzip -Z1 "$signed" | awk -F/ '$1 == "lib" {print $2}' | sort -u)" = arm64-v8a
+          "$buildtools/aapt" dump badging "$signed" |
+            grep -F "package: name='com.domenota.medialoader'"
+          mkdir -p signed-release
+          cp "$signed" signed-release/ML-arm64-signed.apk
+          sha256sum signed-release/ML-arm64-signed.apk > signed-release/sha256.txt
+          echo "Signed APK validated against existing certificate; no public GitHub Release created."
+      - name: Upload private signed ARM64 artifact after QA approval
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML-arm64-signed-QA-approved
+          path: signed-release/
+          if-no-files-found: error
+          retention-days: 7
