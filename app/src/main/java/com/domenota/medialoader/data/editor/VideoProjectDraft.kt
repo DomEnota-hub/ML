@@ -1,5 +1,7 @@
 package com.domenota.medialoader.data.editor
 
+import kotlin.math.roundToLong
+
 /**
  * Editor timeline model. Stage 1 loads one clip; subsequent stages may add
  * further clips and audio tracks without changing the workspace contract.
@@ -12,15 +14,40 @@ data class VideoClipDraft(
     val sourceDurationMs: Long,
     val inMs: Long = 0L,
     val outMs: Long = sourceDurationMs,
+    val speed: Float = 1f,
+    val crop: CropFractions = CropFractions(),
+    val cropPreset: CropAspectPreset = CropAspectPreset.FREE,
+    val rotationDegrees: Int = 0,
+    val mirrorHorizontal: Boolean = false,
+    val mirrorVertical: Boolean = false,
 ) {
     init {
         require(id.isNotBlank())
         require(sourceUri.isNotBlank())
         require(sourceDurationMs > 0L)
         require(inMs >= 0L && inMs < outMs && outMs <= sourceDurationMs)
+        require(speed.isFinite() && speed in MIN_SPEED..MAX_SPEED)
+        require(rotationDegrees % 90 == 0)
+        require(listOf(crop.left, crop.right, crop.top, crop.bottom).all { it.isFinite() && it in 0f..0.95f })
+        require(crop.left + crop.right <= 0.95f && crop.top + crop.bottom <= 0.95f)
     }
 
-    val durationMs: Long get() = outMs - inMs
+    val sourceSpanMs: Long get() = outMs - inMs
+    /** Project time is after speed conversion; source trim remains in original milliseconds. */
+    val durationMs: Long get() = (sourceSpanMs / speed).roundToLong().coerceAtLeast(1L)
+
+    fun sourceAt(localOutputMs: Long): Long =
+        (inMs + (localOutputMs.coerceIn(0L, durationMs) * speed).roundToLong())
+            .coerceIn(inMs, outMs)
+
+    fun outputAt(sourceMs: Long): Long =
+        ((sourceMs.coerceIn(inMs, outMs) - inMs) / speed).roundToLong()
+            .coerceIn(0L, durationMs)
+
+    companion object {
+        const val MIN_SPEED = 0.25f
+        const val MAX_SPEED = 4f
+    }
 }
 
 data class VideoAudioTrackDraft(
@@ -64,7 +91,7 @@ data class VideoProjectDraft(
             val end = offset + clip.durationMs
             if (clamped < end || index == clips.lastIndex) {
                 val within = (clamped - offset).coerceIn(0L, clip.durationMs)
-                return VideoTimelineLocation(index, clip.id, within, clip.inMs + within)
+                return VideoTimelineLocation(index, clip.id, within, clip.sourceAt(within))
             }
             offset = end
         }
@@ -75,6 +102,22 @@ data class VideoProjectDraft(
         copy(clips = clips.map { clip ->
             if (clip.id == id) clip.copy(inMs = startMs, outMs = endMs) else clip
         })
+
+    fun setSpeed(id: String, speed: Float): VideoProjectDraft =
+        copy(clips = clips.map { if (it.id == id) it.copy(speed = speed) else it })
+
+    fun setGeometry(
+        id: String,
+        crop: CropFractions,
+        preset: CropAspectPreset,
+        rotationDegrees: Int,
+        mirrorHorizontal: Boolean,
+        mirrorVertical: Boolean,
+    ): VideoProjectDraft = copy(clips = clips.map {
+        if (it.id == id) it.copy(crop = crop, cropPreset = preset,
+            rotationDegrees = rotationDegrees, mirrorHorizontal = mirrorHorizontal,
+            mirrorVertical = mirrorVertical) else it
+    })
 
     fun indexOf(id: String): Int = clips.indexOfFirst { it.id == id }
 
