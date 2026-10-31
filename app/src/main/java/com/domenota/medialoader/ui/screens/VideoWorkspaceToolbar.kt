@@ -28,6 +28,7 @@ internal enum class VideoWorkspaceTool(val label: String) {
     REVERSE("Реверс"),
     TEXT("Текст"),
     GRAPHICS("Стикеры"),
+    EXPORT("Экспорт"),
     MORE("Ещё");
 }
 
@@ -43,6 +44,7 @@ private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.REVERSE -> Icons.Rounded.FastRewind
     VideoWorkspaceTool.TEXT -> Icons.Rounded.TextFields
     VideoWorkspaceTool.GRAPHICS -> Icons.Rounded.EmojiEmotions
+    VideoWorkspaceTool.EXPORT -> Icons.Rounded.HighQuality
     VideoWorkspaceTool.MORE -> Icons.Rounded.MoreHoriz
 }
 
