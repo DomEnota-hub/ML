@@ -41,7 +41,7 @@ data class VideoSpecialFxDraft(
 }
 
 /** Source-video timing, after per-clip speed and trim have been accounted for. */
-internal data class VideoTransitionPhase(
+data class VideoTransitionPhase(
     val type: VideoTransitionType,
     val sourceStartMs: Long,
     val sourceEndMs: Long,
