@@ -1335,7 +1335,11 @@ fun MediaLoaderApp(
                         val groupKey = VkDownloadGroup.key(item.id, item.providerId, item.groupId)
                         val grouped = availablePhotos
                             .filter { VkDownloadGroup.key(it.id, it.providerId, it.groupId) == groupKey }
-                            .sortedWith(compareBy({ it.createdAtEpochMillis }, { it.originalName }))
+                            // Match the downloads group (newest at the top), so the first
+                            // visible image is the first page and swiping forward follows
+                            // the same sequence instead of starting at the last photo.
+                            .sortedWith(compareByDescending<DownloadEntity> { it.createdAtEpochMillis }
+                                .thenByDescending { it.originalName })
                         if (grouped.size > 1) grouped else availablePhotos
                     } else {
                         emptyList()
