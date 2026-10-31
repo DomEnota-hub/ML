@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
 import android.media.MediaMetadataRetriever
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -88,6 +89,8 @@ import com.domenota.medialoader.data.editor.VideoEditSpec
 import com.domenota.medialoader.data.editor.VideoEditor
 import com.domenota.medialoader.data.editor.VideoProjectDraft
 import com.domenota.medialoader.data.editor.VideoColorGrade
+import com.domenota.medialoader.data.editor.VideoExportSettings
+import com.domenota.medialoader.data.editor.VideoClipMediaKind
 import com.domenota.medialoader.data.editor.VideoTimelineFrameMath
 import com.domenota.medialoader.data.editor.VideoFramePosition
 import com.domenota.medialoader.data.editor.EditorExportState
@@ -121,6 +124,7 @@ private data class VideoInfo(
     val height: Int,
     val durationMs: Long,
     val frameDurationMs: Long?,
+    val isImage: Boolean = false,
 )
 
 @OptIn(UnstableApi::class)
@@ -157,6 +161,8 @@ fun VideoEditorScreen(
     }
     var selectedOverlayId by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedTool by remember(item.id) { mutableStateOf<VideoWorkspaceTool?>(null) }
+    var exportSettings by remember(item.id) { mutableStateOf(VideoExportSettings()) }
+    var firstClipInfo by remember(item.id) { mutableStateOf<VideoInfo?>(null) }
 
     val fullDuration = info?.durationMs ?: 0L
     var project by remember(item.id) { mutableStateOf<VideoProjectDraft?>(null) }
@@ -223,10 +229,11 @@ fun VideoEditorScreen(
                     context.contentResolver.takePersistableUriPermission(nextUri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                val metadata = withContext(Dispatchers.IO) { readVideoInfo(context, nextUri) }
+                val metadata = withContext(Dispatchers.IO) { readVisualInfo(context, nextUri) }
                 if (metadata != null && metadata.durationMs > 0L) {
                     VideoClipDraft(UUID.randomUUID().toString(), nextUri.toString(),
-                        metadata.durationMs)
+                        metadata.durationMs, mediaKind = if (metadata.isImage)
+                            VideoClipMediaKind.IMAGE else VideoClipMediaKind.VIDEO)
                 } else null
             }
             val previous = project
@@ -234,7 +241,7 @@ fun VideoEditorScreen(
                 runCatching { previous.addAfter(selectedClipId, obtained) }
                     .onSuccess { applyProject(it, obtained.first().id) }
                     .onFailure { clipError = it.message ?: "Не удалось добавить клипы" }
-            } else clipError = "Не удалось прочитать выбранные видео"
+            } else clipError = "Не удалось прочитать выбранные фото или видео"
         }
     }
     val addAudio = rememberLauncherForActivityResult(
@@ -278,13 +285,14 @@ fun VideoEditorScreen(
                 context.contentResolver.takePersistableUriPermission(nextUri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            val metadata = withContext(Dispatchers.IO) { readVideoInfo(context, nextUri) }
+            val metadata = withContext(Dispatchers.IO) { readVisualInfo(context, nextUri) }
             val p = project
             if (p != null && metadata != null && metadata.durationMs > 0L) {
-                runCatching { p.replace(selectedClipId, nextUri.toString(), metadata.durationMs) }
+                runCatching { p.replace(selectedClipId, nextUri.toString(), metadata.durationMs,
+                    if (metadata.isImage) VideoClipMediaKind.IMAGE else VideoClipMediaKind.VIDEO) }
                     .onSuccess { applyProject(it) }
                     .onFailure { clipError = it.message ?: "Не удалось заменить клип" }
-            } else clipError = "Не удалось прочитать выбранное видео"
+            } else clipError = "Не удалось прочитать выбранное фото или видео"
         }
     }
     val pickOverlayImage = rememberLauncherForActivityResult(
@@ -327,6 +335,7 @@ fun VideoEditorScreen(
         graphicLayers = emptyList()
         selectedOverlayId = null
         selectedAudioTrackId = null
+        exportSettings = VideoExportSettings()
         audioPreviewDeck.pause()
     }
 
@@ -341,6 +350,7 @@ fun VideoEditorScreen(
         graphicLayers = VideoOverlayTimeline.validatedGraphics(
             graphicLayers, project?.durationMs ?: 0L),
         project = project,
+        exportSettings = exportSettings,
     )
 
     LaunchedEffect(reverseVideo, project, removeAudio, textLayers, graphicLayers) {
@@ -412,16 +422,27 @@ fun VideoEditorScreen(
 
     LaunchedEffect(uri) {
         if (uri == null) return@LaunchedEffect
-        info = withContext(Dispatchers.IO) { readVideoInfo(context, uri) }
+        info = withContext(Dispatchers.IO) { readVisualInfo(context, uri) }
         trimEnd = info?.durationMs ?: 0L
         info?.takeIf { it.durationMs > 0L }?.let {
-            project = VideoProjectDraft.single(item.id.toString(), uri.toString(), it.durationMs)
+            project = VideoProjectDraft(listOf(VideoClipDraft(item.id.toString(),
+                uri.toString(), it.durationMs, mediaKind = if (it.isImage)
+                    VideoClipMediaKind.IMAGE else VideoClipMediaKind.VIDEO)))
             selectedClipId = item.id.toString()
         }
     }
 
-    // A speed/geometry update doesn't change source playlist identity.
-    val playlistIdentity = project?.clips?.map { Triple(it.sourceUri, it.inMs, it.outMs) }
+    val first = project?.clips?.firstOrNull()
+    LaunchedEffect(first?.sourceUri, first?.mediaKind) {
+        firstClipInfo = first?.let { clip -> withContext(Dispatchers.IO) {
+            readVisualInfo(context, Uri.parse(clip.sourceUri))
+        } }
+    }
+    // Image duration participates in queue identity; the player must rebuild when it changes.
+    val playlistIdentity = project?.clips?.map {
+        listOf(it.sourceUri, it.inMs.toString(), it.outMs.toString(),
+            it.mediaKind.name, it.sourceDurationMs.toString())
+    }
     LaunchedEffect(previewPlayer, playlistIdentity) {
         val p = project ?: return@LaunchedEffect
         val player = previewPlayer ?: return@LaunchedEffect
@@ -429,11 +450,16 @@ fun VideoEditorScreen(
         val location = p.locateAt(playheadMs.coerceIn(0L, p.durationMs))
         val items = p.clips.map { clip ->
             MediaItem.Builder().setUri(Uri.parse(clip.sourceUri))
-                .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
-                    .setStartPositionMs(clip.inMs)
-                    .setEndPositionMs(clip.outMs)
-                    .build())
-                .build()
+                .apply {
+                    if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
+                        setImageDurationMs(clip.durationMs)
+                        setMediaId("image:${clip.id}:${clip.durationMs}")
+                    } else {
+                        setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs(clip.inMs)
+                            .setEndPositionMs(clip.outMs).build())
+                    }
+                }.build()
         }
         player.pause()
         val clip = p.clips[location.clipIndex]
@@ -480,7 +506,7 @@ fun VideoEditorScreen(
             trimStart = clip.inMs
             trimEnd = clip.outMs
             val metadata = withContext(Dispatchers.IO) {
-                readVideoInfo(context, Uri.parse(clip.sourceUri))
+                readVisualInfo(context, Uri.parse(clip.sourceUri))
             }
             selectedFrameDurationMs = metadata?.frameDurationMs
             selectedPreviewInfo = metadata
@@ -656,7 +682,7 @@ fun VideoEditorScreen(
                                 else clip.inMs
                             applyProject(prior.move(id, newIndex), id, focusSourceMs)
                         },
-                        onAdd = { addClips.launch(arrayOf("video/*")) },
+                        onAdd = { addClips.launch(arrayOf("video/*", "image/*")) },
                         onSelectTransition = { id ->
                             val draft = project ?: return@VideoMultiClipTimeline
                             val index = draft.indexOf(id)
@@ -712,7 +738,7 @@ fun VideoEditorScreen(
                             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { addClips.launch(arrayOf("video/*")) }) {
+                                TextButton(onClick = { addClips.launch(arrayOf("video/*", "image/*")) }) {
                                     Text("+ Добавить")
                                 }
                                 TextButton(onClick = {
@@ -738,7 +764,7 @@ fun VideoEditorScreen(
                                             .onFailure { clipError = it.message }
                                     }
                                 }, enabled = selected != null) { Text("Копировать") }
-                                TextButton(onClick = { replaceClip.launch(arrayOf("video/*")) },
+                                TextButton(onClick = { replaceClip.launch(arrayOf("video/*", "image/*")) },
                                     enabled = selected != null) { Text("Заменить") }
                                 TextButton(onClick = {
                                     if (current != null && selected != null && current.clips.size > 1) {
@@ -932,6 +958,21 @@ fun VideoEditorScreen(
                                             }
                                     }
                                 },
+                            )
+                        }
+                        VideoWorkspaceTool.EXPORT -> {
+                            val base = project?.clips?.firstOrNull()
+                            VideoExportPanel(
+                                settings = exportSettings,
+                                sourceWidth = firstClipInfo?.width,
+                                sourceHeight = firstClipInfo?.height,
+                                cropWidth = base?.crop?.keptWidth ?: 1f,
+                                cropHeight = base?.crop?.keptHeight ?: 1f,
+                                rotationDegrees = base?.rotationDegrees ?: 0,
+                                estimatedFrameRate = firstClipInfo?.frameDurationMs
+                                    ?.takeIf { it > 0 }?.let { (1000L / it).toInt() } ?: 30,
+                                enabled = !ownExport && !busyWithOther,
+                                onSettingsChange = { exportSettings = it },
                             )
                         }
                         VideoWorkspaceTool.AUDIO -> {
@@ -1359,4 +1400,16 @@ private fun readAudioDuration(context: android.content.Context, uri: Uri): Long?
     } catch (_: Exception) {
         null
     } finally { retriever.release() }
+}
+
+/** Still images do not carry a video duration; default to a 3-second timeline clip. */
+private fun readVisualInfo(context: android.content.Context, uri: Uri): VideoInfo? {
+    readVideoInfo(context, uri)?.let { if (it.durationMs > 0L) return it }
+    return runCatching {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val input = context.contentResolver.openInputStream(uri) ?: return@runCatching null
+        input.use { BitmapFactory.decodeStream(it, null, options) }
+        if (options.outWidth <= 0 || options.outHeight <= 0) null
+        else VideoInfo(options.outWidth, options.outHeight, 3000L, null, isImage = true)
+    }.getOrNull()
 }
