@@ -14,6 +14,7 @@ import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
@@ -37,6 +38,7 @@ data class VideoEditSpec(
     val removeAudio: Boolean = false,
     val reverse: Boolean = false,
     val textLayers: List<TextLayer> = emptyList(),
+    val project: VideoProjectDraft? = null,
 ) {
     init {
         require(textLayers.size <= 8)
@@ -60,6 +62,8 @@ class VideoEditor(private val context: Context) {
         spec: VideoEditSpec,
         onProgress: (Int) -> Unit = {},
     ): File {
+        val project = spec.project
+        if (project != null) return exportProject(project, spec, onProgress)
         val mediaItem = clippedMediaItem(source, spec.startMs, spec.endMs)
         val edited = EditedMediaItem.Builder(mediaItem)
             .setRemoveAudio(spec.removeAudio)
@@ -67,6 +71,48 @@ class VideoEditor(private val context: Context) {
             .build()
         val intermediate = runExport(edited, File(context.cacheDir, "video-edit-${UUID.randomUUID()}.mp4"),
             onProgress = if (spec.reverse) ({ progress -> onProgress(progress * 45 / 100) }) else onProgress)
+        if (!spec.reverse) return intermediate
+        try {
+            return VideoReverseEngine(context.cacheDir).reverse(intermediate, onProgress)
+        } finally {
+            intermediate.delete()
+        }
+    }
+
+    /**
+     * Media3 1.9 Composition concatenates edited items into a real playable
+     * file, instead of merging thumbnail previews or exporting only clip #1.
+     */
+    private suspend fun exportProject(
+        project: VideoProjectDraft,
+        spec: VideoEditSpec,
+        onProgress: (Int) -> Unit,
+    ): File {
+        val clips = project.clips
+        var globalStart = 0L
+        val edited = clips.map { clip ->
+            val localLayers = spec.textLayers.mapNotNull { layer ->
+                val from = (layer.startMs - globalStart).coerceAtLeast(0L)
+                val to = layer.endMs?.let { it - globalStart }
+                if (from >= clip.durationMs || (to != null && to <= 0L)) null
+                else layer.copy(startMs = from, endMs = to?.coerceAtMost(clip.durationMs)
+                    ?.takeIf { it > from })
+            }
+            globalStart += clip.durationMs
+            val localSpec = spec.copy(textLayers = localLayers, project = null,
+                startMs = clip.inMs, endMs = clip.outMs)
+            EditedMediaItem.Builder(clippedMediaItem(Uri.parse(clip.sourceUri),
+                clip.inMs, clip.outMs))
+                .setRemoveAudio(spec.removeAudio)
+                .setEffects(Effects(emptyList(), previewEffects(localSpec,
+                    timeOffsetMs = clip.inMs)))
+                .build()
+        }
+        val sequence = EditedMediaItemSequence.withAudioAndVideoFrom(edited)
+        val composition = Composition.Builder(sequence).build()
+        val destination = File(context.cacheDir, "video-join-${UUID.randomUUID()}.mp4")
+        val intermediate = runExport(composition = composition, output = destination,
+            onProgress = if (spec.reverse) ({ p -> onProgress(p * 45 / 100) }) else onProgress)
         if (!spec.reverse) return intermediate
         try {
             return VideoReverseEngine(context.cacheDir).reverse(intermediate, onProgress)
@@ -130,7 +176,8 @@ class VideoEditor(private val context: Context) {
     }
 
     private suspend fun runExport(
-        edited: EditedMediaItem,
+        edited: EditedMediaItem? = null,
+        composition: Composition? = null,
         output: File,
         audioMimeType: String? = null,
         onProgress: (Int) -> Unit,
@@ -180,7 +227,8 @@ class VideoEditor(private val context: Context) {
         }
 
         runCatching {
-            transformer.start(edited, output.absolutePath)
+            if (composition != null) transformer.start(composition, output.absolutePath)
+            else transformer.start(requireNotNull(edited), output.absolutePath)
             mainHandler.post(progressPoll)
         }.onFailure { error ->
             mainHandler.removeCallbacks(progressPoll)
