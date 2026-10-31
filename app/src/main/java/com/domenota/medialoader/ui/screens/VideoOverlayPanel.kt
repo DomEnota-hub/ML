@@ -145,7 +145,7 @@ internal fun VideoOverlayPanel(
             else graphic?.let { onChangeGraphic(it.copy(rotation = v)) }
         }
         val from = text?.startMs ?: graphic!!.startMs
-        val to = text?.endMs ?: graphic!!.endMs ?: validDuration
+        val to = text?.endMs ?: graphic?.endMs ?: validDuration
         Text("Интервал на шкале: ${from / 1000f}–${to / 1000f} с",
             style = MaterialTheme.typography.labelMedium)
         OverlaySlider("Начало", from.toFloat(),
