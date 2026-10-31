@@ -26,6 +26,7 @@ data class PhotoEditSpec(
     val rotationDegrees: Int = 0,
     val mirrorHorizontal: Boolean = false,
     val mirrorVertical: Boolean = false,
+    val geometry: PhotoGeometry = PhotoGeometry(),
     /** App-owned alpha PNG, never a third-party file path. */
     val inpaintOverlayPath: String? = null,
     val textLayers: List<TextLayer> = emptyList(),
@@ -70,6 +71,7 @@ class PhotoEditor(private val context: Context) {
         var sourceBitmap: Bitmap? = null
         var cropped: Bitmap? = null
         var transformed: Bitmap? = null
+        var geometric: Bitmap? = null
         var withColor: Bitmap? = null
         var localized: Bitmap? = null
         var composed: Bitmap? = null
@@ -152,20 +154,24 @@ class PhotoEditor(private val context: Context) {
 
             currentCoroutineContext().ensureActive()
             onProgress(75)
-            // Apply color to the photo before adding text; text colors remain untouched.
+            geometric = if (spec.geometry.isNeutral()) null
+                else PhotoGeometryMath.apply(requireNotNull(transformed), spec.geometry)
+            // Apply geometry before photo color and overlays, identically to previews.
             withColor = if (spec.colorAdjustments.isNeutral()) null
-                else PhotoColorMath.apply(requireNotNull(transformed), spec.colorAdjustments)
+                else PhotoColorMath.apply(requireNotNull(geometric ?: transformed),
+                    spec.colorAdjustments)
             // Local mosaic is applied before drawing/text overlays, using the same
             // normalized masks as the preview, never touching the source file.
             if (spec.localEffects.isNotEmpty())
-                localized = PhotoLocalEffects.apply(requireNotNull(withColor ?: transformed),
+                localized = PhotoLocalEffects.apply(
+                    requireNotNull(withColor ?: geometric ?: transformed),
                     spec.localEffects)
             // A single mutable output for all overlays: importing a watermark should
             // not require 3–4 extra full-resolution bitmap copies.
             val needLayers = spec.graphicWatermark != null ||
                 spec.drawing.isNotEmpty() || spec.textLayers.isNotEmpty()
             if (needLayers) {
-                val base = requireNotNull(localized ?: withColor ?: transformed)
+                val base = requireNotNull(localized ?: withColor ?: geometric ?: transformed)
                 composed = base.copy(Bitmap.Config.ARGB_8888, true)
                 val canvas = Canvas(requireNotNull(composed))
                 spec.graphicWatermark?.let { mark ->
@@ -182,7 +188,7 @@ class PhotoEditor(private val context: Context) {
                 }
             }
             FileOutputStream(output).use { stream ->
-                val ok = requireNotNull(composed ?: localized ?: withColor ?: transformed).compress(
+                val ok = requireNotNull(composed ?: localized ?: withColor ?: geometric ?: transformed).compress(
                     if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
                     if (png) 100 else 95,
                     stream,
@@ -199,6 +205,7 @@ class PhotoEditor(private val context: Context) {
             composed?.recycle()
             localized?.recycle()
             withColor?.recycle()
+            geometric?.recycle()
             if (transformed != null && transformed !== cropped && transformed !== sourceBitmap) {
                 transformed?.recycle()
             }
