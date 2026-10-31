@@ -1,0 +1,45 @@
+name: Instagram and diagnostics validation (no release)
+
+on:
+  push:
+    branches:
+      - fix/instagram-webview-diagnostics-20261031
+    paths:
+      - 'app/src/main/**'
+      - 'app/src/test/**'
+      - 'scripts/test-instagram-backdrop-recovery.cjs'
+      - '.github/workflows/instagram-diagnostics-checks.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: instagram-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Instagram stalled-backdrop safety regression
+        run: node scripts/test-instagram-backdrop-recovery.cjs
+      - name: Compile Android code (without producing an APK)
+        run: gradle :app:compileDebugKotlin -Parm64Release=true --stacktrace
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        if: success() || failure()
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace

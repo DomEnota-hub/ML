@@ -471,6 +471,92 @@ private val browserScript = """
     MediaLoaderBridge.location(lastLocation);
   }
 
+  // Instagram occasionally leaves a page-sized modal scrim with no active modal.
+  // Only clear an actual click-blocking backdrop after it persists across scans.
+  // Never dismiss login/privacy/consent dialogs or interactive overlays.
+  var stalledBackdrop = null, stalledBackdropSince = 0;
+  var stalledBackdropPath = location.pathname;
+  function recoverInstagramStalledBackdrop() {
+    if (source !== 'instagram' || !document.body || document.visibilityState === 'hidden') return;
+    if (stalledBackdropPath !== location.pathname) {
+      stalledBackdropPath = location.pathname;
+      stalledBackdrop = null;
+      stalledBackdropSince = 0;
+    }
+    function shown(el) {
+      if (!el || !el.isConnected) return false;
+      var style = getComputedStyle(el), r = el.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' &&
+        r.width > 20 && r.height > 20 && r.bottom > 0 && r.top < innerHeight;
+    }
+    // An actual dialog, even an Instagram login prompt, always wins over recovery.
+    var realDialog = Array.from(document.querySelectorAll(
+      '[role="dialog"],[role="alertdialog"],[aria-modal="true"],dialog[open]'
+    )).some(function(el) { return shown(el); });
+    if (realDialog) {
+      stalledBackdrop = null;
+      stalledBackdropSince = 0;
+      return;
+    }
+    function coloredScrim(style) {
+      var color = style.backgroundColor || '';
+      if (!color || color === 'transparent' || color === 'rgba(0, 0, 0, 0)') return false;
+      var rgba = color.match(/^rgba\([^)]*,\s*([0-9.]+)\)$/);
+      if (rgba && parseFloat(rgba[1]) < 0.12) return false;
+      var modern = color.match(/\/\s*([0-9.]+)\s*\)/);
+      if (modern && parseFloat(modern[1]) < 0.12) return false;
+      return /^rgba?\(/.test(color);
+    }
+    function orphanScrim(el) {
+      if (!el || el === document.body || el === document.documentElement) return false;
+      var style = getComputedStyle(el), rect = el.getBoundingClientRect();
+      if (style.position !== 'fixed' || style.pointerEvents === 'none' ||
+          !shown(el) || rect.width < innerWidth * .90 || rect.height < innerHeight * .80)
+        return false;
+      if (!coloredScrim(style) &&
+          (style.backdropFilter === 'none' || !style.backdropFilter)) return false;
+      // Fullscreen real pages contain navigation, forms, dialogs, text or media.
+      // Those must NOT be treated as inert scrims.
+      if (el.matches('main,nav,header,[role="dialog"],[aria-modal="true"]')) return false;
+      if (el.querySelector('main,nav,header,[role="dialog"],[role="alertdialog"],' +
+          '[aria-modal="true"],input,button,a[href],textarea,[role="button"],video')) return false;
+      if ((el.textContent || '').trim().length > 40) return false;
+      return true;
+    }
+    var candidate = null;
+    [[.50,.50],[.10,.15],[.90,.15],[.10,.85],[.90,.85]].some(function(p) {
+      var element = document.elementFromPoint(innerWidth * p[0], innerHeight * p[1]);
+      for (var depth = 0; element && depth < 14; depth++, element = element.parentElement) {
+        if (orphanScrim(element)) { candidate = element; return true; }
+      }
+      return false;
+    });
+    if (!candidate) {
+      stalledBackdrop = null;
+      stalledBackdropSince = 0;
+      return;
+    }
+    if (stalledBackdrop !== candidate) {
+      stalledBackdrop = candidate;
+      stalledBackdropSince = Date.now();
+      return;
+    }
+    if (Date.now() - stalledBackdropSince < 4500) return;
+    // Last possible moment: re-check that no real modal has appeared.
+    if (orphanScrim(candidate) && !document.querySelector(
+      '[role="dialog"],[role="alertdialog"],[aria-modal="true"],dialog[open]'
+    )) {
+      candidate.remove();
+      MediaLoaderBridge.debug('Instagram orphan backdrop cleared; no dialog or controls found');
+      if (['hidden','clip'].indexOf(getComputedStyle(document.body).overflowY) >= 0)
+        document.body.style.overflow = 'auto';
+      if (['hidden','clip'].indexOf(getComputedStyle(document.documentElement).overflowY) >= 0)
+        document.documentElement.style.overflow = 'auto';
+    }
+    stalledBackdrop = null;
+    stalledBackdropSince = 0;
+  }
+
   var recoveryUntil = Date.now() + 15000, recoveryPath = location.pathname;
   function recoverInstagramHome() {
     if (source !== 'instagram') return;
@@ -1245,7 +1331,10 @@ private val browserScript = """
 
     var recovery = setInterval(function() {
       if (!document.documentElement.contains(document.body)) clearInterval(recovery);
-      else recoverInstagramHome();
+      else {
+        recoverInstagramHome();
+        recoverInstagramStalledBackdrop();
+      }
     }, 900);
   }
 })();

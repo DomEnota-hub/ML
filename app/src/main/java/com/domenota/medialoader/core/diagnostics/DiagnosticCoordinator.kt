@@ -18,7 +18,21 @@ class DiagnosticCoordinator(
     probes: List<DiagnosticProbe>,
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) {
-    private val checks = probes.toList()
+    // Match execution and visible card order. Stable within each component, so
+    // the on-screen 'Проверяется' indicator and persisted report agree.
+    private val checks = probes.withIndex().sortedWith(
+        compareBy<IndexedValue<DiagnosticProbe>> {
+            when (it.value.spec.component) {
+                DiagnosticComponent.SOURCES -> 0
+                DiagnosticComponent.MEDIA_RUNTIME -> 1
+                DiagnosticComponent.DOWNLOAD_QUEUE -> 2
+                DiagnosticComponent.STORAGE -> 3
+                DiagnosticComponent.PHOTO_EDITOR -> 4
+                DiagnosticComponent.FAULT_JOURNAL -> 5
+                DiagnosticComponent.DEVICE -> 6
+            }
+        }.thenBy { it.index }
+    ).map { it.value }
     private val running = Mutex()
 
     init {

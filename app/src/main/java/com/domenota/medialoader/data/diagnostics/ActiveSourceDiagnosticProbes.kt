@@ -69,7 +69,7 @@ object ActiveSourceDiagnosticProbes {
         } catch (timeout: MuzmoDiagnosticTimeout) {
             SourceWorkflowRules.musicTimeout(timeout.stage)
         } catch (_: Exception) {
-            SourceWorkflowRules.blocked()
+            SourceWorkflowRules.musicUnavailable()
         }
     }
 }

@@ -60,6 +60,7 @@ class SourceDiagnosticCoordinatorTest {
         assertEquals(DiagnosticState.UNAVAILABLE,
             DiagnosticAssessment.component(DiagnosticComponent.SOURCES,
                 probes.map { it.spec }, result.findings, 101L).state)
-        assertEquals("HTTP_ACCESS_DENIED", result.findings[1].reasonCode)
+        assertEquals("HTTP_ACCESS_DENIED", result.findings.first().reasonCode)
+        assertEquals(DiagnosticComponent.SOURCES, result.findings.first().spec.component)
     }
 }
