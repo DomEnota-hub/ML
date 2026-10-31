@@ -995,6 +995,7 @@ fun VideoEditorScreen(
                                 rotationDegrees = base?.rotationDegrees ?: 0,
                                 estimatedFrameRate = firstClipInfo?.frameDurationMs
                                     ?.takeIf { it > 0 }?.let { (1000L / it).toInt() } ?: 30,
+                                reverseEnabled = reverseVideo,
                                 enabled = !ownExport && !busyWithOther,
                                 onSettingsChange = { exportSettings = it },
                             )
