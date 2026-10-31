@@ -47,10 +47,12 @@ data class VideoEditSpec(
     val removeAudio: Boolean = false,
     val reverse: Boolean = false,
     val textLayers: List<TextLayer> = emptyList(),
+    val graphicLayers: List<VideoGraphicLayer> = emptyList(),
     val project: VideoProjectDraft? = null,
 ) {
     init {
         require(textLayers.size <= 8)
+        require(graphicLayers.size <= 12)
         require(startMs >= 0)
         require(endMs == null || endMs > startMs)
         require(cropLeft in 0f..0.95f && cropRight in 0f..0.95f)
@@ -139,17 +141,13 @@ class VideoEditor(private val context: Context) {
         spec: VideoEditSpec,
     ): Composition {
         val clips = project.clips
-        var globalStart = 0L
-        val edited = clips.map { clip ->
-            val localLayers = spec.textLayers.mapNotNull { layer ->
-                val from = (layer.startMs - globalStart).coerceAtLeast(0L)
-                val to = layer.endMs?.let { it - globalStart }
-                if (from >= clip.durationMs || (to != null && to <= from)) null
-                else layer.copy(startMs = from, endMs = to?.coerceAtMost(clip.durationMs)
-                    ?.takeIf { it > from })
-            }
-            globalStart += clip.durationMs
-            val localSpec = spec.copy(textLayers = localLayers, project = null,
+        val edited = clips.mapIndexed { index, clip ->
+            val localOverlays = VideoOverlayTimeline.forClip(
+                project, index, spec.textLayers, spec.graphicLayers)
+            val localSpec = spec.copy(
+                textLayers = localOverlays.texts,
+                graphicLayers = localOverlays.graphics,
+                project = null,
                 startMs = clip.inMs, endMs = clip.outMs,
                 cropLeft = clip.crop.left, cropRight = clip.crop.right,
                 cropTop = clip.crop.top, cropBottom = clip.crop.bottom,
@@ -197,8 +195,9 @@ class VideoEditor(private val context: Context) {
                 .build()
         }
         videoEffects += colorEffects(spec.color)
-        if (spec.textLayers.isNotEmpty()) {
-            videoEffects += OverlayEffect(listOf(VideoTextOverlay(context, spec.textLayers, timeOffsetMs)))
+        if (spec.textLayers.isNotEmpty() || spec.graphicLayers.isNotEmpty()) {
+            videoEffects += OverlayEffect(listOf(VideoTextOverlay(context,
+                spec.textLayers, timeOffsetMs, spec.graphicLayers)))
         }
         return videoEffects
     }
