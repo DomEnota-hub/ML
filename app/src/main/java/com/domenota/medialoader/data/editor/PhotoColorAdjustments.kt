@@ -31,10 +31,19 @@ data class PhotoColorAdjustments(
     val rgbCurves: PhotoCurves = PhotoCurves(),
     val hsl: Map<HslRange, HslCorrection> = emptyMap(),
     val effect: PhotoEffect = PhotoEffect.NONE,
+    val effectStrength: Float = 100f,
+    val vignette: Float = 0f,
+    val vignetteSize: Float = 60f,
+    val glow: Float = 0f,
+    val glowSize: Float = 35f,
+    val dispersion: Float = 0f,
+    val dispersionSize: Float = 35f,
 ) {
     init {
         require(listOf(brightness, contrast, saturation, warmth, exposure, shadows, highlights,
-            blackPoint, curve, vibrance, tint, sharpness, clarity)
+            blackPoint, curve, vibrance, tint, sharpness, clarity,
+            effectStrength, vignette, vignetteSize, glow, glowSize,
+            dispersion, dispersionSize)
             .all { it.isFinite() && it in -100f..100f })
         require(hsl.size <= HslRange.entries.size)
     }
@@ -53,28 +62,76 @@ data class HslCorrection(
     fun isNeutral() = hue == 0f && saturation == 0f && lightness == 0f
 }
 
-enum class PhotoEffect(val label: String) {
-    NONE("Оригинал"), MONO("Ч/Б"), VIVID("Яркий"), WARM("Тёплый"), COOL("Холодный")
+enum class PhotoEffectCategory(val label: String) {
+    ALL("Все"), POPULAR("Популярное"), FILM("Плёнка"), CLASSIC("Классика"),
+    PORTRAIT("Портрет"), FOOD("Еда"), CINEMA("Кино"), TRAVEL("Путешествия"),
+    NIGHT("Ночь"), TEXTURE("Текстуры")
+}
+
+/** Original names/values stay stable for existing editing sessions. No Xiaomi assets. */
+enum class PhotoEffect(
+    val label: String,
+    val category: PhotoEffectCategory,
+    val saturationMultiplier: Float = 1f,
+    val warmthOffset: Float = 0f,
+    val contrastOffset: Float = 0f,
+    val fade: Float = 0f,
+    val grain: Float = 0f,
+) {
+    NONE("Оригинал", PhotoEffectCategory.POPULAR),
+    MONO("Ч/Б", PhotoEffectCategory.CLASSIC, saturationMultiplier = 0f),
+    VIVID("Яркий", PhotoEffectCategory.POPULAR, saturationMultiplier = 1.3f),
+    WARM("Тёплый", PhotoEffectCategory.CLASSIC, warmthOffset = 20f),
+    COOL("Холодный", PhotoEffectCategory.CLASSIC, warmthOffset = -20f),
+    PORTRAIT_SOFT("Мягкий", PhotoEffectCategory.PORTRAIT, contrastOffset = -12f, fade = 8f),
+    PORTRAIT_GLOW("Сияние", PhotoEffectCategory.PORTRAIT, warmthOffset = 9f, fade = 12f),
+    FOOD_POP("Аппетитный", PhotoEffectCategory.FOOD, saturationMultiplier = 1.16f,
+        warmthOffset = 11f, contrastOffset = 9f),
+    FOOD_FRESH("Свежий", PhotoEffectCategory.FOOD, saturationMultiplier = 1.11f,
+        warmthOffset = -7f),
+    FILM_FADED("Плёнка", PhotoEffectCategory.FILM, contrastOffset = -13f,
+        fade = 24f, grain = 12f),
+    FILM_WARM("Ретро", PhotoEffectCategory.FILM, warmthOffset = 18f,
+        contrastOffset = -8f, fade = 22f, grain = 15f),
+    CINEMA_COLD("Драма", PhotoEffectCategory.CINEMA, warmthOffset = -20f,
+        contrastOffset = 20f, saturationMultiplier = .85f),
+    CINEMA_GOLD("Золотой", PhotoEffectCategory.CINEMA, warmthOffset = 22f,
+        contrastOffset = 13f),
+    TRAVEL_BLUE("Море", PhotoEffectCategory.TRAVEL, warmthOffset = -13f,
+        saturationMultiplier = 1.1f),
+    TRAVEL_SUN("Закат", PhotoEffectCategory.TRAVEL, warmthOffset = 26f,
+        saturationMultiplier = 1.12f),
+    NIGHT_CYAN("Неон", PhotoEffectCategory.NIGHT, warmthOffset = -25f,
+        contrastOffset = 20f, saturationMultiplier = 1.15f),
+    NIGHT_MOODY("Ночной", PhotoEffectCategory.NIGHT, contrastOffset = 17f,
+        saturationMultiplier = .78f),
+    TEXTURE_GRAIN("Зерно", PhotoEffectCategory.TEXTURE, grain = 38f),
+    TEXTURE_VINTAGE("Старая плёнка", PhotoEffectCategory.TEXTURE,
+        saturationMultiplier = .8f, fade = 26f, grain = 27f),
+    CLASSIC_FADE("Матовый", PhotoEffectCategory.CLASSIC, contrastOffset = -20f, fade = 22f),
+}
+object PhotoEffectCatalog {
+    fun forCategory(category: PhotoEffectCategory): List<PhotoEffect> =
+        if (category == PhotoEffectCategory.ALL) PhotoEffect.entries
+        else PhotoEffect.entries.filter { it.category == category ||
+            (category == PhotoEffectCategory.POPULAR &&
+                it in listOf(PhotoEffect.MONO, PhotoEffect.WARM, PhotoEffect.FILM_FADED,
+                    PhotoEffect.FOOD_POP, PhotoEffect.TRAVEL_SUN)) }
 }
 
 object PhotoColorMath {
     fun matrix(values: PhotoColorAdjustments): ColorMatrix {
-        val presetSaturation = when (values.effect) {
-            PhotoEffect.MONO -> 0f
-            PhotoEffect.VIVID -> 1.3f
-            else -> 1f
-        }
-        val presetWarmth = when (values.effect) {
-            PhotoEffect.WARM -> 20f
-            PhotoEffect.COOL -> -20f
-            else -> 0f
-        }
-        val saturation = if (values.effect == PhotoEffect.MONO) 0f
-            else (presetSaturation * (1f + values.saturation / 100f)).coerceIn(0f, 2.6f)
+        val strength = values.effectStrength / 100f
+        val preset = values.effect
+        val presetSaturation = 1f + (preset.saturationMultiplier - 1f) * strength
+        val saturation = (presetSaturation * (1f + values.saturation / 100f)).coerceIn(0f, 2.6f)
         val inverse = 1f - saturation
-        val contrast = (1f + values.contrast / 100f * 0.8f).coerceIn(0.2f, 1.8f)
+        val contrast = (1f + (values.contrast +
+            preset.contrastOffset * strength).coerceIn(-100f, 100f) / 100f * .8f)
+            .coerceIn(.2f, 1.8f)
         val exposure = 2f.pow(values.exposure / 100f)
-        val warmth = (values.warmth + presetWarmth).coerceIn(-100f, 100f) / 350f
+        val warmth = (values.warmth + preset.warmthOffset * strength)
+            .coerceIn(-100f, 100f) / 350f
         // Green / magenta tint is separate from the orange / blue warmth axis.
         val tint = values.tint / 100f * .18f
         val redGain = contrast * exposure * (1f + warmth) * (1f + tint * .38f)
@@ -118,16 +175,24 @@ object PhotoColorMath {
                 top += count
             }
         }
-        if (values.sharpness != 0f || values.clarity != 0f) {
-            try {
-                val detailed = PhotoDetailMath.apply(output, values.sharpness, values.clarity)
-                if (detailed !== output) output.recycle()
-                return detailed
-            } catch (error: Throwable) {
-                output.recycle()
-                throw error
+        var working: Bitmap = output
+        try {
+            if (values.sharpness != 0f || values.clarity != 0f) {
+                val detailed = PhotoDetailMath.apply(working, values.sharpness, values.clarity)
+                if (detailed !== working) {
+                    working.recycle()
+                    working = detailed
+                }
             }
+            val styled = PhotoStylizeMath.apply(working, values)
+            if (styled !== working) {
+                working.recycle()
+                working = styled
+            }
+            return working
+        } catch (error: Throwable) {
+            if (!working.isRecycled) working.recycle()
+            throw error
         }
-        return output
     }
 }
