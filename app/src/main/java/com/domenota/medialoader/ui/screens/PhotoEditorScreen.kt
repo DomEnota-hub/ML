@@ -262,11 +262,45 @@ fun PhotoEditorScreen(
         )
     }
 
-    if (drawingEditorOpen && composedPreview != null) {
+    // Build a clean drawing canvas rather than painting on the already baked
+    // marks. Existing vectors stay selectable across reopening the editor.
+    var drawingBackground by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(drawingEditorOpen, info, edit.crop, edit.rotation, edit.mirrorHorizontal,
+        edit.mirrorVertical, edit.color, edit.graphicWatermark) {
+        if (!drawingEditorOpen) { drawingBackground = null; return@LaunchedEffect }
+        val source = info?.preview ?: return@LaunchedEffect
+        drawingBackground = withContext(Dispatchers.Default) {
+            val transformed = TextLayerRenderer.preview(source, edit.crop, edit.rotation,
+                edit.mirrorHorizontal, edit.mirrorVertical)
+            val colored = PhotoColorMath.apply(transformed, edit.color)
+            if (colored !== transformed) transformed.recycle()
+            val graphic = edit.graphicWatermark
+            if (graphic == null) colored else {
+                val output = colored.copy(Bitmap.Config.ARGB_8888, true)
+                try {
+                    PhotoGraphicWatermarkRenderer.draw(context, android.graphics.Canvas(output),
+                        output.width, output.height, graphic)
+                    output
+                } catch (error: Exception) {
+                    output.recycle()
+                    throw error
+                } finally {
+                    if (!colored.isRecycled) colored.recycle()
+                }
+            }
+        }
+    }
+    DisposableEffect(drawingBackground) {
+        val owned = drawingBackground
+        onDispose { if (owned != null && !owned.isRecycled) owned.recycle() }
+    }
+    if (drawingEditorOpen && drawingBackground != null) {
         PhotoDrawDialog(
-            preview = requireNotNull(composedPreview),
+            preview = requireNotNull(drawingBackground),
+            initial = edit.drawing,
+            textLayers = edit.textLayers,
             onApply = { marks ->
-                if (marks.isNotEmpty()) commit(edit.copy(drawing = edit.drawing + marks))
+                commit(edit.copy(drawing = marks))
                 drawingEditorOpen = false
             },
             onDismiss = { drawingEditorOpen = false },
