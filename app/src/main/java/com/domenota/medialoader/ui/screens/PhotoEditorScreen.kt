@@ -65,6 +65,7 @@ private enum class PhotoHslControl(val title: String) {
 private data class PhotoEditSnapshot(
     val crop: CropFractions = CropFractions(),
     val cropPreset: CropAspectPreset = CropAspectPreset.FREE,
+    val geometry: PhotoGeometry = PhotoGeometry(),
     val rotation: Int = 0,
     val mirrorHorizontal: Boolean = false,
     val mirrorVertical: Boolean = false,
@@ -99,6 +100,7 @@ fun PhotoEditorScreen(
     var textEditorOpen by remember(item.id) { mutableStateOf(false) }
     var drawingEditorOpen by remember(item.id) { mutableStateOf(false) }
     var localEffectEditorOpen by remember(item.id) { mutableStateOf(false) }
+    var geometryEditorOpen by remember(item.id) { mutableStateOf(false) }
     var removeObjects by remember(item.id) { mutableStateOf(false) }
     var currentTab by remember(item.id) { mutableStateOf(PhotoWorkspaceTab.CROP) }
     var activeLevel by remember(item.id) { mutableStateOf(PhotoLevelControl.BRIGHTNESS) }
@@ -192,7 +194,8 @@ fun PhotoEditorScreen(
             PhotoColorMath.apply(source, edit.color)
         }
     }
-    LaunchedEffect(edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical) {
+    LaunchedEffect(edit.crop, edit.rotation, edit.mirrorHorizontal,
+        edit.mirrorVertical, edit.geometry) {
         photoViewport.reset()
     }
 
@@ -205,14 +208,15 @@ fun PhotoEditorScreen(
     // Debounced previews are calculated away from the UI thread; full-resolution
     // export applies the same operations in the same order.
     LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
-        edit.color, edit.textLayers, edit.drawing, edit.localEffects, bakedGraphic, currentTab) {
+        edit.geometry, edit.color, edit.textLayers, edit.drawing, edit.localEffects,
+        bakedGraphic, currentTab) {
         val source = info?.preview
         if (source == null) { composedPreview = null; return@LaunchedEffect }
         delay(100L)
         try {
             val rendered = withContext(Dispatchers.IO) {
-                val transformed = TextLayerRenderer.preview(source, edit.crop, edit.rotation,
-                    edit.mirrorHorizontal, edit.mirrorVertical)
+                val transformed = PhotoGeometryMath.preview(source, edit.crop, edit.rotation,
+                    edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
                 val colored = try { PhotoColorMath.apply(transformed, edit.color) }
                     catch (error: Throwable) { transformed.recycle(); throw error }
                 val localized = try { PhotoLocalEffects.apply(colored, edit.localEffects) }
@@ -261,8 +265,8 @@ fun PhotoEditorScreen(
         EditorTextDialog(
             initial = edit.textLayers,
             loadPreview = { _: Long -> withContext(Dispatchers.Default) {
-                val transformed = TextLayerRenderer.preview(info.preview, edit.crop, edit.rotation,
-                    edit.mirrorHorizontal, edit.mirrorVertical)
+                val transformed = PhotoGeometryMath.preview(info.preview, edit.crop, edit.rotation,
+                    edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
                 val colored = PhotoColorMath.apply(transformed, edit.color)
                 if (colored !== transformed) transformed.recycle()
                 colored
@@ -276,12 +280,12 @@ fun PhotoEditorScreen(
     // marks. Existing vectors stay selectable across reopening the editor.
     var drawingBackground by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(drawingEditorOpen, info, edit.crop, edit.rotation, edit.mirrorHorizontal,
-        edit.mirrorVertical, edit.color, edit.graphicWatermark) {
+        edit.mirrorVertical, edit.geometry, edit.color, edit.graphicWatermark) {
         if (!drawingEditorOpen) { drawingBackground = null; return@LaunchedEffect }
         val source = info?.preview ?: return@LaunchedEffect
         drawingBackground = withContext(Dispatchers.Default) {
-            val transformed = TextLayerRenderer.preview(source, edit.crop, edit.rotation,
-                edit.mirrorHorizontal, edit.mirrorVertical)
+            val transformed = PhotoGeometryMath.preview(source, edit.crop, edit.rotation,
+                edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
             val colored = PhotoColorMath.apply(transformed, edit.color)
             if (colored !== transformed) transformed.recycle()
             val graphic = edit.graphicWatermark
@@ -321,12 +325,12 @@ fun PhotoEditorScreen(
     // Existing text and drawings remain vector overlays above the effect.
     var effectBackground by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(localEffectEditorOpen, info, edit.crop, edit.rotation,
-        edit.mirrorHorizontal, edit.mirrorVertical, edit.color) {
+        edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry, edit.color) {
         if (!localEffectEditorOpen) { effectBackground = null; return@LaunchedEffect }
         val src = info?.preview ?: return@LaunchedEffect
         effectBackground = withContext(Dispatchers.Default) {
-            val transformed = TextLayerRenderer.preview(src, edit.crop, edit.rotation,
-                edit.mirrorHorizontal, edit.mirrorVertical)
+            val transformed = PhotoGeometryMath.preview(src, edit.crop, edit.rotation,
+                edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
             val colored = PhotoColorMath.apply(transformed, edit.color)
             if (colored !== transformed) transformed.recycle()
             colored
@@ -345,6 +349,32 @@ fun PhotoEditorScreen(
                 localEffectEditorOpen = false
             },
             onDismiss = { localEffectEditorOpen = false },
+        )
+    }
+
+    var geometryBackground by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(geometryEditorOpen, info, edit.crop, edit.rotation,
+        edit.mirrorHorizontal, edit.mirrorVertical) {
+        if (!geometryEditorOpen) { geometryBackground = null; return@LaunchedEffect }
+        val original = info?.preview ?: return@LaunchedEffect
+        geometryBackground = withContext(Dispatchers.Default) {
+            TextLayerRenderer.preview(original, edit.crop, edit.rotation,
+                edit.mirrorHorizontal, edit.mirrorVertical)
+        }
+    }
+    DisposableEffect(geometryBackground) {
+        val owned = geometryBackground
+        onDispose { if (owned != null && !owned.isRecycled) owned.recycle() }
+    }
+    if (geometryEditorOpen && geometryBackground != null) {
+        PhotoGeometryDialog(
+            source = requireNotNull(geometryBackground),
+            initial = edit.geometry,
+            onApply = { next ->
+                commit(edit.copy(geometry = next))
+                geometryEditorOpen = false
+            },
+            onDismiss = { geometryEditorOpen = false },
         )
     }
 
@@ -370,6 +400,7 @@ fun PhotoEditorScreen(
                             cropLeft = edit.crop.left, cropRight = edit.crop.right,
                             cropTop = edit.crop.top, cropBottom = edit.crop.bottom,
                             rotationDegrees = edit.rotation,
+                            geometry = edit.geometry,
                             mirrorHorizontal = edit.mirrorHorizontal, mirrorVertical = edit.mirrorVertical,
                             inpaintOverlayPath = edit.overlayPath, textLayers = edit.textLayers,
                             colorAdjustments = edit.color,
@@ -491,6 +522,7 @@ fun PhotoEditorScreen(
                     onText = { textEditorOpen = true },
                     onDraw = { drawingEditorOpen = true },
                     onMosaic = { localEffectEditorOpen = true },
+                    onGeometry = { geometryEditorOpen = true },
                     onPickGraphic = { graphicPicker.launch(arrayOf("image/png", "image/jpeg", "image/webp")) },
                     onLaMa = { removeObjects = true },
                 )
@@ -547,6 +579,7 @@ private fun PhotoWorkspaceTools(
     onLiveEdit: (PhotoEditSnapshot) -> Unit,
     onEditFinished: () -> Unit,
     onText: () -> Unit, onDraw: () -> Unit, onMosaic: () -> Unit,
+    onGeometry: () -> Unit,
     onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
     var effectCategory by remember { mutableStateOf(PhotoEffectCategory.POPULAR) }
@@ -818,6 +851,8 @@ private fun PhotoWorkspaceTools(
             verticalAlignment = Alignment.CenterVertically) {
             when(tab) {
                 PhotoWorkspaceTab.CROP -> {
+                    PhotoToolCard("Геометрия", Icons.Rounded.AspectRatio, false,
+                        onGeometry, !locked && info != null)
                     PhotoToolCard("Соотношение", Icons.Rounded.Crop, cropTool == "ratio",
                         { onCropTool("ratio") }, !locked)
                     PhotoToolCard("Поворот", Icons.Rounded.RotateRight, false,
