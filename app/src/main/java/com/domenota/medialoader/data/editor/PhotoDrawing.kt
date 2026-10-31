@@ -13,7 +13,8 @@ data class PhotoPoint(val x: Float, val y: Float) {
 }
 
 enum class PhotoMarkKind(val title: String) {
-    PEN("Кисть"), LINE("Линия"), RECTANGLE("Прямоугольник"),
+    PEN("Карандаш"), MARKER("Маркер"), NEON("Неоновая кисть"),
+    LINE("Линия"), RECTANGLE("Прямоугольник"),
     OVAL("Овал"), ARROW("Стрелка")
 }
 
@@ -23,10 +24,13 @@ data class PhotoMark(
     val color: Int = android.graphics.Color.WHITE,
     /** Fraction of the shorter image side. */
     val thickness: Float = .008f,
+    /** Rotation of a vector shape around its own center. */
+    val rotationDegrees: Float = 0f,
 ) {
     init {
         require(points.isNotEmpty() && points.size <= 900)
         require(thickness.isFinite() && thickness in .001f..0.08f)
+        require(rotationDegrees.isFinite() && rotationDegrees in -360f..360f)
     }
 }
 
@@ -47,6 +51,7 @@ object PhotoDrawing {
                 strokeJoin = Paint.Join.ROUND
                 strokeCap = Paint.Cap.ROUND
                 strokeWidth = (strokeScale * mark.thickness).coerceAtLeast(1f)
+                if (mark.kind == PhotoMarkKind.MARKER) alpha = 140
             }
             val first = mark.points.first()
             val last = mark.points.last()
@@ -54,8 +59,23 @@ object PhotoDrawing {
             val y1 = first.y * height
             val x2 = last.x * width
             val y2 = last.y * height
+            val vector = mark.kind !in setOf(PhotoMarkKind.PEN, PhotoMarkKind.MARKER, PhotoMarkKind.NEON)
+            val save = if (vector && mark.rotationDegrees != 0f) canvas.save() else -1
+            if (save >= 0) canvas.rotate(mark.rotationDegrees, (x1 + x2) / 2f, (y1 + y2) / 2f)
             when (mark.kind) {
-                PhotoMarkKind.PEN -> {
+                PhotoMarkKind.PEN, PhotoMarkKind.MARKER, PhotoMarkKind.NEON -> {
+                    if (mark.kind == PhotoMarkKind.NEON) {
+                        val glow = Paint(paint).apply {
+                            strokeWidth *= 3.2f
+                            alpha = 65
+                        }
+                        val glowPath = Path().apply {
+                            moveTo(x1, y1)
+                            mark.points.drop(1).forEach { lineTo(it.x * width, it.y * height) }
+                        }
+                        if (mark.points.size == 1) canvas.drawPoint(x1, y1, glow)
+                        else canvas.drawPath(glowPath, glow)
+                    }
                     val path = Path().apply {
                         moveTo(x1, y1)
                         mark.points.drop(1).forEach { lineTo(it.x * width, it.y * height) }
@@ -85,6 +105,7 @@ object PhotoDrawing {
                     }
                 }
             }
+            if (save >= 0) canvas.restoreToCount(save)
         }
     }
 
