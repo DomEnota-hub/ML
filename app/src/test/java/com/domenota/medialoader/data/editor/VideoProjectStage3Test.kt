@@ -57,7 +57,7 @@ class VideoProjectStage3Test {
         assertTrue(p.clips[0].mirrorHorizontal && p.clips[0].mirrorVertical)
         assertEquals(CropFractions(), p.clips[1].crop)
         assertEquals(48000L, p.clips[1].durationMs)
-        assertEquals(1f, p.clips[0].speed)
+        assertEquals(1f, p.clips[0].speed, 0f)
     }
 
     @Test fun invalidSpeedAndGeometryAreRejected() {
