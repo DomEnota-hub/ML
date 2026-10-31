@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -99,6 +100,7 @@ fun PhotoEditorScreen(
     var activeHslRange by remember(item.id) { mutableStateOf(HslRange.RED) }
     var activeHslControl by remember(item.id) { mutableStateOf(PhotoHslControl.HUE) }
     var cropTool by remember(item.id) { mutableStateOf("ratio") }
+    var toolPanelOpen by remember(item.id) { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var composedPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     var cropColorPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
@@ -386,12 +388,24 @@ fun PhotoEditorScreen(
             }
             if (!removeObjects) {
                 PhotoWorkspaceTools(
-                    tab = currentTab, onTab = { currentTab = it },
-                    cropTool = cropTool, onCropTool = { cropTool = it },
+                    tab = currentTab, onTab = { next ->
+                        if (currentTab == next) toolPanelOpen = !toolPanelOpen
+                        else { currentTab = next; toolPanelOpen = false }
+                    },
+                    panelOpen = toolPanelOpen, onPanelOpen = { toolPanelOpen = it },
+                    cropTool = cropTool, onCropTool = {
+                        cropTool = it; toolPanelOpen = (it == "ratio")
+                    },
                     edit = edit, info = info, locked = locked,
-                    activeLevel = activeLevel, onActiveLevel = { activeLevel = it },
-                    activeHslRange = activeHslRange, onHslRange = { activeHslRange = it },
-                    activeHslControl = activeHslControl, onHslControl = { activeHslControl = it },
+                    activeLevel = activeLevel, onActiveLevel = {
+                        activeLevel = it; toolPanelOpen = true
+                    },
+                    activeHslRange = activeHslRange, onHslRange = {
+                        activeHslRange = it; toolPanelOpen = true
+                    },
+                    activeHslControl = activeHslControl, onHslControl = {
+                        activeHslControl = it; toolPanelOpen = true
+                    },
                     onEdit = ::commit,
                     onLiveEdit = { update ->
                         if (pendingGesture == null) pendingGesture = edit
@@ -446,6 +460,7 @@ private fun PhotoWorkspacePreview(
 @Composable
 private fun PhotoWorkspaceTools(
     tab: PhotoWorkspaceTab, onTab: (PhotoWorkspaceTab) -> Unit,
+    panelOpen: Boolean, onPanelOpen: (Boolean) -> Unit,
     cropTool: String, onCropTool: (String) -> Unit,
     edit: PhotoEditSnapshot, info: PhotoSourceInfo?, locked: Boolean,
     activeLevel: PhotoLevelControl, onActiveLevel: (PhotoLevelControl) -> Unit,
@@ -457,12 +472,37 @@ private fun PhotoWorkspaceTools(
     onText: () -> Unit, onDraw: () -> Unit,
     onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().background(Color.Black)
-        .height(if (tab == PhotoWorkspaceTab.HSL) 242.dp else 188.dp)) {
-        Box(Modifier.fillMaxWidth()
-            .height(if (tab == PhotoWorkspaceTab.HSL) 118.dp else 64.dp),
-            contentAlignment = Alignment.Center) {
-            when (tab) {
+    // Stage 1: a persistent, compact tool strip and a contextual panel that
+    // appears only when the user selects a parameter. No empty 188/242dp tray.
+    val hasParameters = when (tab) {
+        PhotoWorkspaceTab.CROP -> cropTool == "ratio"
+        PhotoWorkspaceTab.LEVELS, PhotoWorkspaceTab.HSL, PhotoWorkspaceTab.WATERMARK -> true
+        else -> false
+    }
+    Column(Modifier.fillMaxWidth().background(Color(0xFF101012)).animateContentSize()) {
+        if (panelOpen && hasParameters) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(18.dp)).background(Color(0xFF252529))) {
+                Row(Modifier.fillMaxWidth().height(34.dp).padding(start = 15.dp, end = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(when (tab) {
+                        PhotoWorkspaceTab.CROP -> "Соотношение сторон"
+                        PhotoWorkspaceTab.LEVELS -> activeLevel.title
+                        PhotoWorkspaceTab.HSL -> activeHslRange.label + " · " + activeHslControl.title
+                        PhotoWorkspaceTab.WATERMARK -> "Параметры водяного знака"
+                        else -> ""
+                    }, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { onPanelOpen(false) }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Rounded.KeyboardArrowDown, "Свернуть параметры",
+                            tint = Color.LightGray, modifier = Modifier.size(22.dp))
+                    }
+                }
+                Box(Modifier.fillMaxWidth().height(when (tab) {
+                    PhotoWorkspaceTab.HSL -> 108.dp
+                    PhotoWorkspaceTab.WATERMARK -> 82.dp
+                    else -> 64.dp
+                }), contentAlignment = Alignment.Center) {
+                    when (tab) {
                 PhotoWorkspaceTab.CROP -> {
                     if (cropTool == "ratio") Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                         .padding(horizontal = 12.dp),
@@ -591,9 +631,11 @@ private fun PhotoWorkspaceTools(
                 PhotoWorkspaceTab.AI ->
                     Text("LaMa · удаление объектов на устройстве",
                         fontSize = 12.sp, color = Color.LightGray)
+                    }
+                }
             }
         }
-        Row(Modifier.fillMaxWidth().height(76.dp).horizontalScroll(rememberScrollState())
+        Row(Modifier.fillMaxWidth().height(68.dp).horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.CenterVertically) {
             when(tab) {
@@ -633,6 +675,8 @@ private fun PhotoWorkspaceTools(
                     PhotoToolCard("Текстовый знак", Icons.Rounded.TextFields,
                         false, onText, !locked && info != null)
                     edit.graphicWatermark?.let { mark ->
+                        PhotoToolCard("Параметры", Icons.Rounded.Tune, panelOpen,
+                            { onPanelOpen(!panelOpen) }, !locked)
                         PhotoToolCard("Слева", Icons.Rounded.ArrowBack, false,
                             { onEdit(edit.copy(graphicWatermark =
                                 mark.copy(centerX = .18f, centerY = .84f))) }, !locked)
@@ -651,13 +695,47 @@ private fun PhotoWorkspaceTools(
                         false, onLaMa, !locked && info != null)
             }
         }
-        Row(Modifier.fillMaxWidth().height(48.dp).horizontalScroll(rememberScrollState())
-            .padding(horizontal = 11.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Row(Modifier.fillMaxWidth().height(50.dp).horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             PhotoWorkspaceTab.entries.forEach { category ->
-                FilterChip(selected = tab == category, onClick = { onTab(category) },
-                    label = { Text(category.title, fontSize = 13.sp) })
+                PhotoCategoryTab(
+                    title = category.title,
+                    icon = when (category) {
+                        PhotoWorkspaceTab.CROP -> Icons.Rounded.Crop
+                        PhotoWorkspaceTab.LEVELS -> Icons.Rounded.Tune
+                        PhotoWorkspaceTab.HSL -> Icons.Rounded.Palette
+                        PhotoWorkspaceTab.EFFECTS -> Icons.Rounded.AutoAwesome
+                        PhotoWorkspaceTab.TEXT -> Icons.Rounded.TextFields
+                        PhotoWorkspaceTab.WATERMARK -> Icons.Rounded.BrandingWatermark
+                        PhotoWorkspaceTab.AI -> Icons.Rounded.AutoFixHigh
+                    },
+                    selected = tab == category, onClick = { onTab(category) })
             }
+        }
+    }
+}
+
+private val PhotoEditorGold = Color(0xFFFFBD19)
+
+@Composable
+internal fun PhotoCategoryTab(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(onClick = onClick,
+        shape = RoundedCornerShape(19.dp),
+        color = if (selected) PhotoEditorGold else Color.Transparent) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp),
+                tint = if (selected) Color.Black else Color.LightGray)
+            Text(title, maxLines = 1, fontSize = 12.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = if (selected) Color.Black else Color.LightGray)
         }
     }
 }
@@ -693,17 +771,18 @@ private fun PhotoEffectCard(
 private fun PhotoToolCard(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
     selected: Boolean, onClick: () -> Unit, enabled: Boolean) {
     Surface(onClick = onClick, enabled = enabled,
-        modifier = Modifier.width(106.dp).height(67.dp),
-        shape = RoundedCornerShape(15.dp),
-        color = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF242428)) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 5.dp),
+        modifier = Modifier.width(94.dp).height(61.dp),
+        shape = RoundedCornerShape(17.dp),
+        color = if (selected) PhotoEditorGold else Color(0xFF252529)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 5.dp),
             verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, null, modifier = Modifier.size(22.dp),
-                tint = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White)
-            Spacer(Modifier.height(4.dp))
+            Icon(icon, contentDescription = label, modifier = Modifier.size(26.dp),
+                tint = if (selected) Color.Black else Color.White)
+            Spacer(Modifier.height(3.dp))
             Text(label, fontSize = 11.sp, maxLines = 2,
                 overflow = TextOverflow.Ellipsis, lineHeight = 12.sp,
-                color = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White)
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) Color.Black else Color.White)
         }
     }
 }
