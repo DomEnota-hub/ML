@@ -28,7 +28,9 @@ class PhotoGeometryTest {
         val a = PhotoGeometryMath.destination(geometry, 100, 50)
         val b = PhotoGeometryMath.destination(geometry, 500, 250)
         for (i in a.indices) assertEquals(a[i] * 5f, b[i], .01f)
-        assertTrue(PhotoGeometryMath.transformMatrix(geometry, 100, 50).isFinite)
+        val mapped = floatArrayOf(10f, 10f, 80f, 30f)
+        PhotoGeometryMath.transformMatrix(geometry, 100, 50).mapPoints(mapped)
+        assertTrue(mapped.all { it.isFinite() })
     }
 
     @Test fun movingCornerChangesOnlyOneCornerAndDoesNotAlterOriginal() {
