@@ -1207,6 +1207,7 @@ fun MediaLoaderApp(
                     onRestore = viewModel::restoreHidden,
                     onEmptyTrash = viewModel::clearHidden,
                     onOpenTrash = { navController.navigate("trash") },
+                    onRequestLibraryAccess = ::requestLibraryAccess,
                     onClearHistory = viewModel::clearHistory,
                     ytDlpUpdate = ytDlpUpdate,
                     ytDlpUpdating = ytDlpUpdating,
