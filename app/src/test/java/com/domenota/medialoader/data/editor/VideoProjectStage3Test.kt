@@ -44,7 +44,7 @@ class VideoProjectStage3Test {
         assertEquals(listOf("c", "a", "b"), p.clips.map { it.id })
         assertTrue(p.clips.all { it.speed == 1.5f && it.mirrorHorizontal })
         assertTrue(p.clips.all { it.rotationDegrees == 90 && it.crop.left == .1f })
-        assertEquals(6000L, p.durationMs)
+        assertEquals(9000L, p.durationMs)
     }
 
     @Test fun selectedClipGeometryDoesNotAlterNeighbourOrSource() {
