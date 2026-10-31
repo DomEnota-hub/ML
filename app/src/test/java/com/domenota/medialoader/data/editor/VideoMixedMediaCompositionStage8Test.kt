@@ -31,7 +31,7 @@ class VideoMixedMediaCompositionStage8Test {
             VideoEditSpec(project = project, exportSettings = settings), canvas)
         val items = media3.sequences.single().editedMediaItems
         assertEquals(2, items.size)
-        assertEquals(3000L, items[1].mediaItem.imageDurationMs)
+        assertEquals(3000L, items[1].mediaItem.localConfiguration!!.imageDurationMs)
         assertEquals(2f, items[0].speedProvider.getSpeed(0L), .001f)
         assertTrue(items.all { edited ->
             edited.effects.videoEffects.any { it is Presentation }
