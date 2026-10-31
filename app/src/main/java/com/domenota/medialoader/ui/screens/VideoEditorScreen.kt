@@ -647,6 +647,55 @@ fun VideoEditorScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        VideoWorkspaceTool.SPEED -> {
+                            val selected = currentClip
+                            Text("Скорость выбранного клипа", style = MaterialTheme.typography.titleMedium)
+                            Text("Длительность на шкале пересчитывается автоматически; " +
+                                "звук меняет скорость вместе с видео.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (selected != null) {
+                                Text("×" + "%.2f".format(java.util.Locale.US, selected.speed) +
+                                    " · " + "%.1f".format(java.util.Locale.US,
+                                        selected.durationMs / 1000f) + " с",
+                                    style = MaterialTheme.typography.titleMedium)
+                                Slider(value = selected.speed,
+                                    onValueChange = { newSpeed ->
+                                        val existing = project ?: return@Slider
+                                        val focus = existing.locateAt(
+                                            playheadMs.coerceIn(0L, existing.durationMs - 1L))
+                                        val sourceMs = if (focus.clipId == selected.id)
+                                            focus.absoluteSourceMs else selected.inMs
+                                        val rounded = (kotlin.math.round(newSpeed * 4f) / 4f)
+                                            .coerceIn(VideoClipDraft.MIN_SPEED, VideoClipDraft.MAX_SPEED)
+                                        if (rounded != selected.speed) {
+                                            previewPlayer?.pause()
+                                            applyProject(existing.setSpeed(selected.id, rounded),
+                                                selected.id, sourceMs)
+                                        }
+                                    },
+                                    valueRange = VideoClipDraft.MIN_SPEED..VideoClipDraft.MAX_SPEED,
+                                    steps = 14,
+                                )
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf(0.25f, 0.5f, 1f, 1.5f, 2f, 3f, 4f).forEach { value ->
+                                        FilterChip(
+                                            selected = selected.speed == value,
+                                            onClick = {
+                                                val existing = project ?: return@FilterChip
+                                                val focus = existing.locateAt(
+                                                    playheadMs.coerceIn(0L, existing.durationMs - 1L))
+                                                previewPlayer?.pause()
+                                                applyProject(existing.setSpeed(selected.id, value),
+                                                    selected.id, if (focus.clipId == selected.id)
+                                                        focus.absoluteSourceMs else selected.inMs)
+                                            },
+                                            label = { Text("×" + value.toString()) })
+                                    }
+                                }
+                            }
+                        }
                         VideoWorkspaceTool.CROP -> {
             Text("Кадрирование", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -713,6 +762,22 @@ fun VideoEditorScreen(
             }
 
             Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = mirrorHorizontal,
+                    onClick = { updateSelectedGeometry(updatedMirrorHorizontal = !mirrorHorizontal) },
+                    label = { Text("Отразить ↔") },
+                )
+                FilterChip(
+                    selected = mirrorVertical,
+                    onClick = { updateSelectedGeometry(updatedMirrorVertical = !mirrorVertical) },
+                    label = { Text("Отразить ↕") },
+                )
+            }
+            Text("Поворот и отражение применяются к выбранному клипу.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         }
                         VideoWorkspaceTool.AUDIO -> {
@@ -748,7 +813,8 @@ fun VideoEditorScreen(
                     Icon(Icons.Rounded.FastRewind, contentDescription = null)
                     Column(Modifier.padding(start = 12.dp)) {
                         Text("Обратное воспроизведение", style = MaterialTheme.typography.titleMedium)
-                        Text("С конца к началу. Звук также будет обращён, если не отключён.",
+                        Text("Обратное воспроизведение итогового проекта. " +
+                            "Звук тоже обращается, если не отключён.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -805,14 +871,15 @@ fun VideoEditorScreen(
                             Button(onClick = { previewPlayer?.pause(); textEditorOpen = true },
                                 enabled = info != null && !ownExport && !busyWithOther &&
                                     project?.clips?.size == 1 &&
-                                    currentClip?.sourceUri == uri.toString(),
+                                    currentClip?.sourceUri == uri.toString() &&
+                                    currentClip?.speed == 1f,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                 Text(if (textLayers.isEmpty()) "Добавить текст"
                                     else "Изменить текст · " + textLayers.size + " слоёв")
                             }
-                            if ((project?.clips?.size ?: 0) > 1) {
-                                Text("Текст поверх нескольких клипов — этап 6. " +
-                                    "Существующие текстовые слои сохраняются при монтаже.",
+                            if ((project?.clips?.size ?: 0) > 1 || currentClip?.speed != 1f) {
+                                Text("Новые текстовые слои поверх нескольких или ускоренных клипов " +
+                                    "будут добавлены на этапе 6.",
                                     style = MaterialTheme.typography.bodySmall)
                             }
                         }
