@@ -67,7 +67,7 @@ data class VideoAudioTrackDraft(
         require(atMs >= 0L)
         require(sourceDurationMs > 0L && inMs >= 0L &&
             outMs > inMs && outMs <= sourceDurationMs)
-        require(volume.isFinite() && volume in 0f..2f)
+        require(volume.isFinite() && volume in 0f..1f)
         require(fadeInMs >= 0L && fadeOutMs >= 0L)
         require(fadeInMs + fadeOutMs <= durationMs) {
             "Сумма затуханий не должна превышать длину дорожки"
