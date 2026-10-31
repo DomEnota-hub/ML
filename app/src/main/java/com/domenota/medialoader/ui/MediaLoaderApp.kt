@@ -1338,7 +1338,7 @@ fun MediaLoaderApp(
                             // Match the downloads group (newest at the top), so the first
                             // visible image is the first page and swiping forward follows
                             // the same sequence instead of starting at the last photo.
-                            .sortedWith(compareByDescending<DownloadEntity> { it.createdAtEpochMillis }
+                            .sortedWith(compareByDescending<com.domenota.medialoader.core.database.DownloadEntity> { it.createdAtEpochMillis }
                                 .thenByDescending { it.originalName })
                         if (grouped.size > 1) grouped else availablePhotos
                     } else {
