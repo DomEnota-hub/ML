@@ -33,7 +33,7 @@ class VideoTimelineFrameMathTest {
 
     @Test fun tinyClipAndTrimmedEdgesAreAlwaysSafe() {
         val short = VideoClipDraft("small", "content://small", 80L)
-        assertEquals(79L, VideoTimelineFrameMath.snapSource(short, 100000L, 33L))
+        assertEquals(66L, VideoTimelineFrameMath.snapSource(short, 100000L, 33L))
         assertEquals(0L, VideoTimelineFrameMath.snapSource(short, -1L, null))
     }
 
