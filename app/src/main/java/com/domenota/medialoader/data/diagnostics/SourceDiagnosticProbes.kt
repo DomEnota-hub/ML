@@ -128,7 +128,7 @@ object SourceDiagnosticProbes {
                     scope = DiagnosticScope.NETWORK, timeoutMillis = 9_000L,
                     maxAgeMillis = 2 * 60_000L) {
                     when (val response = transport.request(source)) {
-                        is SourceDocumentResponse.Http -> SourceDiagnosticRules.http(response.code)
+                        is SourceDocumentResponse.Http -> SourceDiagnosticRules.http(response.code, source.requiresAccountCheck)
                         is SourceDocumentResponse.Unavailable ->
                             SourceDiagnosticRules.transportFailed(response.issue)
                     }

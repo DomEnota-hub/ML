@@ -31,7 +31,7 @@ object SourceDiagnosticRules {
         )
 
     /** Query of an anonymous public document; no media, tokens or search terms. */
-    fun http(statusCode: Int): DiagnosticOutcome = when (statusCode) {
+    fun http(statusCode: Int, requiresAccountCheck: Boolean = true): DiagnosticOutcome = when (statusCode) {
         in 200..299 -> DiagnosticOutcome(
             DiagnosticState.OK, DiagnosticEvidence.VERIFIED,
             "Сервер ответил на анонимный запрос. Поиск, авторизация и скачивание не проверены.",
@@ -49,8 +49,12 @@ object SourceDiagnosticRules {
         )
         403 -> DiagnosticOutcome(
             DiagnosticState.UNAVAILABLE, DiagnosticEvidence.VERIFIED,
-            "Сервер ограничил доступ к документу (HTTP 403). Причина не установлена: " +
-                "возможны ограничения текущего IP или VPN, сессии либо защита ресурса.",
+            if (requiresAccountCheck)
+                "Сервер ограничил доступ к документу (HTTP 403). Причина не установлена: " +
+                    "возможны ограничения текущего IP или VPN, сессии либо защита ресурса."
+            else
+                "Сервер ограничил анонимный доступ к музыкальному сайту (HTTP 403). " +
+                    "Причина не установлена: возможны ограничения сети или защита сайта.",
             "HTTP_ACCESS_DENIED",
             "Можно повторить проверку с другим VPN-сервером. Это не доказательство поломки загрузчика.",
         )

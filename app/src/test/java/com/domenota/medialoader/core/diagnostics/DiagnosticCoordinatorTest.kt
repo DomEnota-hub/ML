@@ -11,6 +11,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticCoordinatorTest {
+    @Test fun executionOrderMatchesVisibleCategoriesAndPreservesWithinCategoryOrder() = runBlocking {
+        val processed = mutableListOf<String>()
+        fun record(name: String, component: DiagnosticComponent): DiagnosticProbe =
+            object : DiagnosticProbe {
+                override val spec = DiagnosticCheckSpec(name, component, DiagnosticImpact.OPTIONAL)
+                override suspend fun check(): DiagnosticOutcome {
+                    processed += name
+                    return DiagnosticOutcome(DiagnosticState.OK, DiagnosticEvidence.VERIFIED, "Проверено")
+                }
+            }
+        val coordinator = DiagnosticCoordinator(listOf(
+            record("queue.test", DiagnosticComponent.DOWNLOAD_QUEUE),
+            record("runtime.test", DiagnosticComponent.MEDIA_RUNTIME),
+            record("storage.test", DiagnosticComponent.STORAGE),
+            record("source.first", DiagnosticComponent.SOURCES),
+            record("editor.test", DiagnosticComponent.PHOTO_EDITOR),
+            record("source.second", DiagnosticComponent.SOURCES),
+        ), clockMillis = { 1000L })
+        val expected = listOf("source.first", "source.second", "runtime.test",
+            "queue.test", "storage.test", "editor.test")
+        assertEquals(expected, coordinator.specifications.map { it.code })
+        val emitted = mutableListOf<String>()
+        coordinator.run(onFinding = { emitted += it.spec.code })
+        assertEquals(expected, processed)
+        assertEquals(expected, emitted)
+    }
+
     @Test fun fullOnlyProbeIsOmittedFromQuickRuns() = runBlocking {
         var calls = 0
         val full = object : DiagnosticProbe {
