@@ -69,6 +69,7 @@ import com.domenota.medialoader.data.editor.CropFractions
 import com.domenota.medialoader.data.editor.VideoCropMath
 import com.domenota.medialoader.data.editor.VideoEditSpec
 import com.domenota.medialoader.data.editor.VideoEditor
+import com.domenota.medialoader.data.editor.VideoProjectDraft
 import com.domenota.medialoader.data.editor.VideoFramePosition
 import com.domenota.medialoader.data.editor.EditorExportState
 import com.domenota.medialoader.ui.components.CropFrameOverlay
@@ -131,8 +132,19 @@ fun VideoEditorScreen(
     var textLayers by remember(item.id) { mutableStateOf<List<TextLayer>>(emptyList()) }
     var textEditorOpen by remember(item.id) { mutableStateOf(false) }
     var showTextResult by remember(item.id) { mutableStateOf(false) }
+    var selectedTool by remember(item.id) { mutableStateOf<VideoWorkspaceTool?>(null) }
 
     val fullDuration = info?.durationMs ?: 0L
+    // This stage intentionally has one clip. The model already supports many,
+    // while insertion, reordering, and multi-clip export arrive in stage 2.
+    val project = remember(uri, fullDuration, trimStart, trimEnd) {
+        if (uri == null || fullDuration <= 0L) null else {
+            val initial = VideoProjectDraft.single(item.id.toString(), uri.toString(), fullDuration)
+            if (trimEnd > trimStart && trimEnd <= fullDuration)
+                initial.trimClip(item.id.toString(), trimStart, trimEnd)
+            else initial
+        }
+    }
     val hasUnsavedChanges = crop != CropFractions() ||
         cropPreset != CropAspectPreset.FREE ||
         rotation != 0 || removeAudio || reverseVideo || trimStart != 0L || textLayers.isNotEmpty() ||
@@ -223,18 +235,7 @@ fun VideoEditorScreen(
     }
 
     if (textEditorOpen && uri != null && trimEnd > trimStart) EditorTextDialog(
-        initial = textLayers.mapNotNull { it.within(trimEnd - trimStart) },
-        durationMs = trimEnd - trimStart,
-        videoSource = TextEditorVideoSource(uri, VideoEditSpec(startMs = trimStart, endMs = trimEnd,
-            cropLeft = crop.left, cropRight = crop.right, cropTop = crop.top, cropBottom = crop.bottom,
-            rotationDegrees = rotation)),
-        initialPositionMs = ((previewPlayer?.currentPosition ?: trimStart) - trimStart).coerceAtLeast(0L),
-        loadPreview = { position -> TextLayerRenderer.videoPreview(context, uri, trimStart + position, crop, rotation) },
-        onApply = { textLayers = it; textEditorOpen = false; showTextResult = it.isNotEmpty() },
-        onDismiss = { textEditorOpen = false },
-    )
-
-    Scaffold(
+        initial = textLayers.mapNo    Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Редактор видео") },
@@ -244,11 +245,14 @@ fun VideoEditorScreen(
                     }
                 },
                 actions = {
-                    TextButton(
-                        onClick = ::resetEdits,
-                        enabled = hasUnsavedChanges && !ownExport,
-                    ) {
+                    TextButton(onClick = ::resetEdits,
+                        enabled = hasUnsavedChanges && !ownExport && !busyWithOther) {
                         Text("Сбросить")
+                    }
+                    TextButton(onClick = { onExport(exportSpec()) },
+                        enabled = info != null && !ownExport && !busyWithOther &&
+                            !reversePreviewBusy) {
+                        Text("Сохранить")
                     }
                 },
             )
@@ -261,37 +265,100 @@ fun VideoEditorScreen(
             return@Scaffold
         }
 
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-        ) {
-            if (textLayers.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !showTextResult, onClick = { showTextResult = false }, label = { Text("Кадрирование") })
-                FilterChip(selected = showTextResult, onClick = { showTextResult = true }, label = { Text("Итог с текстом") })
+        Column(Modifier.fillMaxSize().padding(padding)
+            .background(MaterialTheme.colorScheme.background)) {
+            if (textLayers.isNotEmpty()) {
+                Row(Modifier.padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = !showTextResult,
+                        onClick = { showTextResult = false },
+                        label = { Text("Кадрирование") })
+                    FilterChip(selected = showTextResult,
+                        onClick = { showTextResult = true },
+                        label = { Text("Итог с текстом") })
+                }
             }
-            val previewWidth = ((info?.width ?: 16) * if (showTextResult) crop.keptWidth else 1f).roundToInt().coerceAtLeast(1)
-            val previewHeight = ((info?.height ?: 9) * if (showTextResult) crop.keptHeight else 1f).roundToInt().coerceAtLeast(1)
-            val previewRotated = showTextResult && rotation % 180 != 0
-            CropVideoPreview(
-                player = requireNotNull(previewPlayer),
-                sourceWidth = if (previewRotated) previewHeight else previewWidth,
-                sourceHeight = if (previewRotated) previewWidth else previewHeight,
-                crop = crop,
-                cropPreset = cropPreset,
-                onCropChange = { crop = it },
-                showCropFrame = !showTextResult,
-            )
+            // Only the canvas grows with screen size; trim and tools stay
+            // reachable even with portrait video and Android navigation bars.
+            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center) {
+                val w = ((info?.width ?: 16) *
+                    if (showTextResult) crop.keptWidth else 1f).roundToInt().coerceAtLeast(1)
+                val h = ((info?.height ?: 9) *
+                    if (showTextResult) crop.keptHeight else 1f).roundToInt().coerceAtLeast(1)
+                val isRotated = showTextResult && rotation % 180 != 0
+                CropVideoPreview(
+                    player = requireNotNull(previewPlayer),
+                    sourceWidth = if (isRotated) h else w,
+                    sourceHeight = if (isRotated) w else h,
+                    crop = crop,
+                    cropPreset = cropPreset,
+                    onCropChange = { crop = it },
+                    showCropFrame = selectedTool == VideoWorkspaceTool.CROP && !showTextResult,
+                )
+            }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Таймлайн · " + (project?.clips?.size ?: 1) + " клип",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Обрезка: " + (project?.durationMs ?: 0L) / 1_000L + " с",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            if ((info?.durationMs ?: 0L) > 0L) {
+                MediaTrimControls(
+                    player = requireNotNull(previewPlayer),
+                    durationMs = info!!.durationMs,
+                    trimStartMs = trimStart,
+                    trimEndMs = trimEnd,
+                    onTrimChange = { start, end ->
+                        trimStart = start
+                        trimEnd = end
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    showSolidTrimBar = false,
+                    snapIntervalMs = info!!.frameDurationMs,
+                    timelineVisual = { visualModifier ->
+                        VideoTimelineStrip(
+                            uri = uri,
+                            durationMs = info!!.durationMs,
+                            modifier = visualModifier,
+                        )
+                    },
+                    scrubPreview = { positionMs ->
+                        VideoScrubFrame(
+                            uri = uri,
+                            positionMs = positionMs,
+                        )
+                    },
+                )
+                Text(
+                    "Тап по полосе запускает предпросмотр с выбранной точки до правой границы.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text("Определяем длительность…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
 
-            Spacer(Modifier.height(18.dp))
-            Button(onClick = { previewPlayer?.pause(); textEditorOpen = true },
-                enabled = info != null && !ownExport && !busyWithOther,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(if (textLayers.isEmpty()) "Добавить текст" else "Текст · ${textLayers.size} слоёв — просмотреть и изменить")
+
             }
-            Spacer(Modifier.height(18.dp))
+            if (selectedTool != null) {
+                Column(Modifier.fillMaxWidth().heightIn(max = 218.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .35f))
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    when (selectedTool) {
+                        VideoWorkspaceTool.TRIM -> {
+                            Text("Обрезка", style = MaterialTheme.typography.titleSmall)
+                            Text("Перемещай края выделенного клипа на таймлайне. " +
+                                "Тап по миниатюрам запускает предпросмотр с выбранного момента.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        VideoWorkspaceTool.CROP -> {
             Text("Кадрирование", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Потяни сторону или угол рамки. Затемнённая область будет удалена.",
@@ -336,45 +403,9 @@ fun VideoEditorScreen(
                 )
             }
 
-            Spacer(Modifier.height(22.dp))
-            Text("Обрезка по времени", style = MaterialTheme.typography.titleMedium)
-            if ((info?.durationMs ?: 0L) > 0L) {
-                MediaTrimControls(
-                    player = requireNotNull(previewPlayer),
-                    durationMs = info!!.durationMs,
-                    trimStartMs = trimStart,
-                    trimEndMs = trimEnd,
-                    onTrimChange = { start, end ->
-                        trimStart = start
-                        trimEnd = end
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    showSolidTrimBar = false,
-                    snapIntervalMs = info!!.frameDurationMs,
-                    timelineVisual = { visualModifier ->
-                        VideoTimelineStrip(
-                            uri = uri,
-                            durationMs = info!!.durationMs,
-                            modifier = visualModifier,
-                        )
-                    },
-                    scrubPreview = { positionMs ->
-                        VideoScrubFrame(
-                            uri = uri,
-                            positionMs = positionMs,
-                        )
-                    },
-                )
-                Text(
-                    "Тап по полосе запускает предпросмотр с выбранной точки до правой границы.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text("Определяем длительность…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
 
-            Spacer(Modifier.height(22.dp))
+                        }
+                        VideoWorkspaceTool.ROTATE -> {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -394,6 +425,9 @@ fun VideoEditorScreen(
             }
 
             Spacer(Modifier.height(10.dp))
+
+                        }
+                        VideoWorkspaceTool.AUDIO -> {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -414,6 +448,9 @@ fun VideoEditorScreen(
             }
 
             Spacer(Modifier.height(16.dp))
+
+                        }
+                        VideoWorkspaceTool.REVERSE -> {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -474,7 +511,17 @@ fun VideoEditorScreen(
                     Text(message, color = MaterialTheme.colorScheme.error)
                 }
             }
-            Spacer(Modifier.height(24.dp))
+
+                        }
+                        VideoWorkspaceTool.TEXT -> {
+                            Button(onClick = { previewPlayer?.pause(); textEditorOpen = true },
+                                enabled = info != null && !ownExport && !busyWithOther,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                Text(if (textLayers.isEmpty()) "Добавить текст"
+                                    else "Изменить текст · " + textLayers.size + " слоёв")
+                            }
+                        }
+                        VideoWorkspaceTool.MORE -> {
             if (ownExport) {
                 Text("${exportState.operation} · ${exportState.progress}%")
                 Spacer(Modifier.height(8.dp))
@@ -540,6 +587,46 @@ fun VideoEditorScreen(
                             trimEnd.takeIf { end ->
                                 end > 0 && end < (info?.durationMs ?: Long.MAX_VALUE)
                             },
+                        )
+                    },
+                    enabled = info != null && !busyWithOther,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                ) {
+                    Icon(Icons.Rounded.Audiotrack, contentDescription = null)
+                    Text("  Извлечь аудио")
+                }
+            }
+            exportState.message
+                ?.takeIf { exportState.sourceId == null || exportState.sourceId == item.id }
+                ?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
+
+                        }
+                        null -> Unit
+                    }
+                }
+            }
+            if (ownExport) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)) {
+                    Text("${exportState.operation} · ${exportState.progress}%")
+                    LinearProgressIndicator(progress = { exportState.progress / 100f },
+                        modifier = Modifier.fillMaxWidth())
+                    TextButton(onClick = onCancelExport) { Text("Отменить обработку") }
+                }
+            }
+            VideoWorkspaceToolbar(
+                selected = selectedTool,
+                onSelect = { next ->
+                    selectedTool = next
+                    if (next == VideoWorkspaceTool.TEXT) previewPlayer?.pause()
+                },
+                enabled = info != null && !ownExport && !busyWithOther,
+            )
+        }
+    }
+},
                         )
                     },
                     enabled = info != null && !busyWithOther,
