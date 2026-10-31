@@ -23,8 +23,8 @@ class VideoCompositionStage3Test {
             .compositionForProject(draft, VideoEditSpec(project = draft))
         val items = media3.sequences.single().editedMediaItems
         assertEquals(2, items.size)
-        assertEquals(2f, items[0].speedProvider.getSpeed(0L))
-        assertEquals(.5f, items[1].speedProvider.getSpeed(0L))
+        assertEquals(2f, items[0].speedProvider.getSpeed(0L), 0f)
+        assertEquals(.5f, items[1].speedProvider.getSpeed(0L), 0f)
         assertTrue(items.all { !it.removeAudio })
         assertEquals(20000L, draft.durationMs)
     }
@@ -42,8 +42,8 @@ class VideoCompositionStage3Test {
         val transforms = items[0].effects.videoEffects
             .filterIsInstance<ScaleAndRotateTransformation>()
         assertEquals(1, transforms.size)
-        assertEquals(-1f, transforms.single().scaleX)
-        assertEquals(1f, transforms.single().scaleY)
+        assertEquals(-1f, transforms.single().scaleX, 0f)
+        assertEquals(1f, transforms.single().scaleY, 0f)
         assertTrue(items[1].effects.videoEffects.isEmpty())
     }
 
