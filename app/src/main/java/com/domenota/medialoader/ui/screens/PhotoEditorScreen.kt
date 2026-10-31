@@ -51,9 +51,11 @@ private enum class PhotoWorkspaceTab(val title: String) {
 }
 private enum class PhotoLevelControl(val title: String) {
     EXPOSURE("Выдержка"), BRIGHTNESS("Яркость"), CONTRAST("Контраст"),
-    SATURATION("Насыщенность"), WARMTH("Теплота"),
+    SATURATION("Насыщенность"), VIBRANCE("Красочность"),
+    WARMTH("Теплота"), TINT("Оттенок"),
     SHADOWS("Тени"), HIGHLIGHTS("Светлые участки"),
-    BLACK_POINT("Точка чёрного"), CURVE("Гамма")
+    BLACK_POINT("Точка чёрного"), CURVE("Гамма"),
+    SHARPNESS("Резкость"), CLARITY("Чёткость"), RGB_CURVES("Кривые RGB")
 }
 
 private enum class PhotoHslControl(val title: String) {
@@ -573,6 +575,8 @@ private fun PhotoWorkspaceTools(
                 }
                 Box(Modifier.fillMaxWidth().height(when (tab) {
                     PhotoWorkspaceTab.HSL -> 108.dp
+                    PhotoWorkspaceTab.LEVELS ->
+                        if (activeLevel == PhotoLevelControl.RGB_CURVES) 282.dp else 64.dp
                     PhotoWorkspaceTab.WATERMARK -> 82.dp
                     else -> 64.dp
                 }), contentAlignment = Alignment.Center) {
@@ -598,16 +602,34 @@ private fun PhotoWorkspaceTools(
                         fontSize = 13.sp, color = Color.LightGray)
                 }
                 PhotoWorkspaceTab.LEVELS -> {
+                    if (activeLevel == PhotoLevelControl.RGB_CURVES) {
+                        PhotoCurvesPanel(
+                            curves = edit.color.rgbCurves,
+                            enabled = !locked && info != null,
+                            onLiveEdit = { curves ->
+                                onLiveEdit(edit.copy(color = edit.color.copy(rgbCurves = curves)))
+                            },
+                            onEditFinished = onEditFinished,
+                            onCommit = { curves ->
+                                onEdit(edit.copy(color = edit.color.copy(rgbCurves = curves)))
+                            },
+                        )
+                    } else {
                     val value = when(activeLevel) {
                         PhotoLevelControl.EXPOSURE -> edit.color.exposure
                         PhotoLevelControl.BRIGHTNESS -> edit.color.brightness
                         PhotoLevelControl.CONTRAST -> edit.color.contrast
                         PhotoLevelControl.SATURATION -> edit.color.saturation
+                        PhotoLevelControl.VIBRANCE -> edit.color.vibrance
                         PhotoLevelControl.WARMTH -> edit.color.warmth
+                        PhotoLevelControl.TINT -> edit.color.tint
                         PhotoLevelControl.SHADOWS -> edit.color.shadows
                         PhotoLevelControl.HIGHLIGHTS -> edit.color.highlights
                         PhotoLevelControl.BLACK_POINT -> edit.color.blackPoint
                         PhotoLevelControl.CURVE -> edit.color.curve
+                        PhotoLevelControl.SHARPNESS -> edit.color.sharpness
+                        PhotoLevelControl.CLARITY -> edit.color.clarity
+                        PhotoLevelControl.RGB_CURVES -> 0f // handled by graph above
                     }
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -621,17 +643,23 @@ private fun PhotoWorkspaceTools(
                                     PhotoLevelControl.BRIGHTNESS -> edit.color.copy(brightness = next)
                                     PhotoLevelControl.CONTRAST -> edit.color.copy(contrast = next)
                                     PhotoLevelControl.SATURATION -> edit.color.copy(saturation = next)
+                                    PhotoLevelControl.VIBRANCE -> edit.color.copy(vibrance = next)
                                     PhotoLevelControl.WARMTH -> edit.color.copy(warmth = next)
+                                    PhotoLevelControl.TINT -> edit.color.copy(tint = next)
                                     PhotoLevelControl.SHADOWS -> edit.color.copy(shadows = next)
                                     PhotoLevelControl.HIGHLIGHTS -> edit.color.copy(highlights = next)
                                     PhotoLevelControl.BLACK_POINT -> edit.color.copy(blackPoint = next)
                                     PhotoLevelControl.CURVE -> edit.color.copy(curve = next)
+                                    PhotoLevelControl.SHARPNESS -> edit.color.copy(sharpness = next)
+                                    PhotoLevelControl.CLARITY -> edit.color.copy(clarity = next)
+                                    PhotoLevelControl.RGB_CURVES -> edit.color
                                 }
                                 onLiveEdit(edit.copy(color = color))
                             },
                             onValueChangeFinished = onEditFinished,
                             valueRange = -100f..100f, enabled = !locked && info != null,
                         )
+                    }
                     }
                 }
                 PhotoWorkspaceTab.HSL -> {
