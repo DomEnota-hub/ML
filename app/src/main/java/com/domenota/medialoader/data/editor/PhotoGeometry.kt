@@ -97,11 +97,42 @@ object PhotoGeometryMath {
      */
     fun transformMatrix(settings: PhotoGeometry, width: Int, height: Int): Matrix {
         require(width > 0 && height > 0)
-        val src = floatArrayOf(0f, 0f, width.toFloat(), 0f,
-            width.toFloat(), height.toFloat(), 0f, height.toFloat())
         val dst = destination(settings, width, height)
-        val warp = Matrix()
-        require(warp.setPolyToPoly(src, 0, dst, 0, 4)) { "Недопустимая перспектива" }
+        val x0 = dst[0] / width; val y0 = dst[1] / height
+        val x1 = dst[2] / width; val y1 = dst[3] / height
+        val x2 = dst[4] / width; val y2 = dst[5] / height
+        val x3 = dst[6] / width; val y3 = dst[7] / height
+        // Solve the 4-point homography explicitly instead of relying on
+        // Android Matrix.setPolyToPoly, which is not implemented consistently
+        // by the Robolectric runner. The resulting projective 3x3 matrix is
+        // valid for Android Canvas and independent of source resolution.
+        val dx1 = x1 - x2; val dx2 = x3 - x2
+        val dy1 = y1 - y2; val dy2 = y3 - y2
+        val dx3 = x0 - x1 + x2 - x3
+        val dy3 = y0 - y1 + y2 - y3
+        val g: Float
+        val h: Float
+        if (abs(dx3) < 1e-7f && abs(dy3) < 1e-7f) {
+            g = 0f; h = 0f
+        } else {
+            val det = dx1 * dy2 - dx2 * dy1
+            require(abs(det) >= 1e-7f) { "Недопустимая перспектива" }
+            g = (dx3 * dy2 - dx2 * dy3) / det
+            h = (dx1 * dy3 - dx3 * dy1) / det
+        }
+        val a = x1 - x0 + g * x1
+        val b = x3 - x0 + h * x3
+        val c = x0
+        val d = y1 - y0 + g * y1
+        val e = y3 - y0 + h * y3
+        val f = y0
+        val warp = Matrix().apply {
+            setValues(floatArrayOf(
+                a, b * width / height, c * width,
+                d * height / width, e, f * height,
+                g / width, h / height, 1f,
+            ))
+        }
         if (settings.straighten != 0f) {
             val radians = Math.toRadians(settings.straighten.toDouble())
             val sine = abs(sin(radians)).toFloat()
