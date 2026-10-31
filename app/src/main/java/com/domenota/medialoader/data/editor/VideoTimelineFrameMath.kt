@@ -17,7 +17,7 @@ internal object VideoTimelineFrameMath {
         val at = project.locateAt(absoluteMs)
         val clip = project.clips[at.clipIndex]
         val snapped = snapSource(clip, at.absoluteSourceMs, frameIntervalMs)
-        return project.timelineStart(at.clipIndex) + (snapped - clip.inMs)
+        return project.timelineStart(at.clipIndex) + clip.outputAt(snapped)
     }
 
     fun stepSelected(project: VideoProjectDraft, selectedId: String,
@@ -29,9 +29,9 @@ internal object VideoTimelineFrameMath {
         val clip = project.clips[index]
         val local = (positionMs - project.timelineStart(index))
             .coerceIn(0L, clip.durationMs - 1)
-        val current = snapSource(clip, clip.inMs + local, frameIntervalMs)
+        val current = snapSource(clip, clip.sourceAt(local), frameIntervalMs)
         val next = (current + frameIntervalMs * direction)
             .coerceIn(clip.inMs, clip.outMs - 1)
-        return project.timelineStart(index) + next - clip.inMs
+        return project.timelineStart(index) + clip.outputAt(next)
     }
 }
