@@ -96,12 +96,14 @@ object PhotoColorMath {
             // Bounded row buffers: avoid another width*height int array for 12–48 MP photos.
             val rows = 24
             val colors = IntArray(output.width * rows)
+            val prepared = PhotoToneMath.prepare(values)
+            val rgbScratch = FloatArray(3)
             var top = 0
             while (top < output.height) {
                 val count = min(rows, output.height - top)
                 output.getPixels(colors, 0, output.width, 0, top, output.width, count)
                 for (i in 0 until count * output.width) {
-                    colors[i] = PhotoToneMath.tonePixel(colors[i], values)
+                    colors[i] = PhotoToneMath.tonePixel(colors[i], prepared, rgbScratch)
                 }
                 output.setPixels(colors, 0, output.width, 0, top, output.width, count)
                 top += count
