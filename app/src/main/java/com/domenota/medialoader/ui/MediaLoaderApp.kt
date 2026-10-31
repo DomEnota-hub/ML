@@ -272,7 +272,7 @@ fun MediaLoaderApp(
         (if (id.startsWith("phone:audio:")) !phoneMusic.loaded else !phoneGallery.loaded)
     val libraryHeader: @Composable () -> Unit = {
         LibraryModeHeader(appMode, librarySource, ::changeAppMode, ::changeLibrarySource,
-            onAccess = { requestLibraryAccess(appMode) },
+            onTrash = { navController.navigate("trash") },
             onSettings = { navController.navigate(AppDestination.Settings.route) },
             onSearch = { librarySearchVisible = !librarySearchVisible },
             onPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) })
@@ -886,7 +886,7 @@ fun MediaLoaderApp(
                 currentRoute != "diagnostics" && currentRoute != "vk-community") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
-                    if (!checkingPhoneAccess) AudioMiniPlayer(
+                    AudioMiniPlayer(
                         onOpenQueue = openDownloadWithQueue,
                         onOpen = { mediaId ->
                             if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
@@ -1011,7 +1011,7 @@ fun MediaLoaderApp(
                          if (galleryTab == 0 && it == 0) galleryTopRequest++
                          galleryTab = it
                      },
-                    onDetailChange = { galleryDetailOpen = it }, onSettings = { navController.navigate(AppDestination.Settings.route) },
+                    onDetailChange = { galleryDetailOpen = it }, onTrash = { navController.navigate("trash") },
                     deviceAlbums = publicLibraryRefs.mapNotNull { ref -> ref.deviceAlbumId?.let { id ->
                         ref.key to DeviceAlbum(id, ref.deviceAlbumName ?: "Без альбома")
                     } }.toMap())
