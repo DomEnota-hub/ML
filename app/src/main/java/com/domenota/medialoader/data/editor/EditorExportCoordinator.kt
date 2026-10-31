@@ -10,6 +10,7 @@ import com.domenota.medialoader.data.MediaRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,7 @@ data class EditorExportState(
     val sourceId: String? = null,
     val completedItemId: String? = null,
     val message: String? = null,
+    val outputDetails: String? = null,
 )
 
 /**
@@ -37,6 +39,7 @@ class EditorExportCoordinator private constructor(context: Context) {
     private val appContext = context.applicationContext
     private val repository = MediaRepository.get(appContext)
     private val videoEditor = VideoEditor(appContext)
+    private val videoInspector = VideoExportFileInspector(appContext)
     private val videoFrameExporter = VideoFrameExporter(appContext)
     private val audioEditor = AudioEditor(appContext)
     private val photoEditor = PhotoEditor(appContext)
@@ -73,6 +76,10 @@ class EditorExportCoordinator private constructor(context: Context) {
                         it.copy(exporting = true, progress = progress.coerceIn(0, 100))
                     }
                 }
+                // Do not publish a broken MP4 after apparently successful processing.
+                val inspection = withContext(Dispatchers.IO) {
+                    videoInspector.inspect(requireNotNull(temp), spec)
+                }
                 val stem = StorageNaming.editableStem(source.originalName).ifBlank { "Видео" }
                 val published = repository.publishEditedFile(
                     source = source,
@@ -87,6 +94,7 @@ class EditorExportCoordinator private constructor(context: Context) {
                     operation = "Экспорт видео",
                     sourceId = source.id,
                     completedItemId = published.id,
+                    outputDetails = inspection.summary,
                 )
             } catch (cancelled: CancellationException) {
                 _state.value = EditorExportState()
