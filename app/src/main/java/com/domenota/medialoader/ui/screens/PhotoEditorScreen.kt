@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.content.Intent
@@ -550,6 +551,14 @@ private fun PhotoWorkspaceTools(
 ) {
     var effectCategory by remember { mutableStateOf(PhotoEffectCategory.POPULAR) }
     var effectParameter by remember { mutableStateOf("preset") }
+    val favoritesContext = LocalContext.current
+    val favoriteStorage = remember(favoritesContext) {
+        favoritesContext.getSharedPreferences("ml_filter_favorites", Context.MODE_PRIVATE)
+    }
+    var favoriteEffects by remember(favoriteStorage) {
+        mutableStateOf(PhotoEffect.entries.filter { it.name in
+            favoriteStorage.getStringSet("selected", emptySet<String>()).orEmpty() }.toSet())
+    }
     // Stage 1: a persistent, compact tool strip and a contextual panel that
     // appears only when the user selects a parameter. No empty 188/242dp tray.
     val hasParameters = when (tab) {
@@ -838,10 +847,20 @@ private fun PhotoWorkspaceTools(
                     PhotoToolCard("Дисперсия", Icons.Rounded.BlurOn,
                         effectParameter == "dispersion" && panelOpen,
                         { effectParameter = "dispersion"; onPanelOpen(true) }, !locked && info != null)
-                    PhotoEffectCatalog.forCategory(effectCategory).forEach { effect ->
+                    val available = PhotoEffectCatalog.forCategory(effectCategory, favoriteEffects)
+                    if (available.isEmpty()) Text("Здесь пока нет избранных фильтров",
+                        fontSize = 12.sp, color = Color.LightGray)
+                    available.forEach { effect ->
                         PhotoEffectCard(effect = effect, info = info,
                             selected = edit.color.effect == effect,
+                            favorite = effect in favoriteEffects,
                             enabled = !locked && info != null,
+                            onFavorite = {
+                                favoriteEffects = if (effect in favoriteEffects)
+                                    favoriteEffects - effect else favoriteEffects + effect
+                                favoriteStorage.edit().putStringSet("selected",
+                                    favoriteEffects.map { it.name }.toSet()).apply()
+                            },
                             onClick = {
                                 effectParameter = "preset"
                                 onEdit(edit.copy(color = edit.color.copy(effect = effect)))
@@ -929,7 +948,8 @@ internal fun PhotoCategoryTab(
 @Composable
 private fun PhotoEffectCard(
     effect: PhotoEffect, info: PhotoSourceInfo?,
-    selected: Boolean, enabled: Boolean, onClick: () -> Unit,
+    selected: Boolean, favorite: Boolean, enabled: Boolean,
+    onFavorite: () -> Unit, onClick: () -> Unit,
 ) {
     val source = info?.preview
     // Cache an actual filtered thumbnail for each preset; a color matrix
@@ -960,6 +980,15 @@ private fun PhotoEffectCard(
             Box(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .67f)),
                 contentAlignment = Alignment.Center) {
                 Text(effect.label, fontSize = 10.sp, color = Color.White, maxLines = 1)
+            }
+            if (effect != PhotoEffect.NONE) {
+                IconButton(onClick = onFavorite, enabled = enabled,
+                    modifier = Modifier.align(Alignment.TopEnd).size(30.dp)) {
+                    Icon(if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                        contentDescription = if (favorite) "Убрать из избранного" else "В избранное",
+                        modifier = Modifier.size(18.dp),
+                        tint = if (favorite) PhotoEditorGold else Color.White)
+                }
             }
         }
     }
