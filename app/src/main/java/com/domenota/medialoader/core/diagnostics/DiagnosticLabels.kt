@@ -59,7 +59,8 @@ object DiagnosticLabels {
         finding.reasonCode == "SERVICE_DECLARED" -> "Есть в APK"
         finding.reasonCode == "SERVICE_IDLE" -> "Нет активной задачи"
         finding.state != DiagnosticState.UNAVAILABLE -> state(finding.state)
-        finding.reasonCode in setOf("CHECK_TIMEOUT", "CHECK_EXCEPTION", "WORKFLOW_UNAVAILABLE") ->
+        finding.reasonCode in setOf("CHECK_TIMEOUT", "CHECK_EXCEPTION", "WORKFLOW_UNAVAILABLE",
+            "MUSIC_SEARCH_UNAVAILABLE") ->
             "Не удалось выполнить"
         finding.evidence == DiagnosticEvidence.HISTORICAL -> "Исторические данные"
         finding.evidence == DiagnosticEvidence.OBSERVED -> "Обнаружено"
