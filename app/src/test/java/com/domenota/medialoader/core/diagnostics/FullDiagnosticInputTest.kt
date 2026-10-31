@@ -21,6 +21,18 @@ class FullDiagnosticInputTest {
         assertEquals("Song", input.title)
     }
 
+    @Test fun musicErrorsNeverSuggestAccountSessions() {
+        val music = SourceWorkflowRules.musicUnavailable()
+        assertEquals(DiagnosticState.UNAVAILABLE, music.state)
+        assertEquals(DiagnosticEvidence.NONE, music.evidence)
+        assertEquals("MUSIC_SEARCH_UNAVAILABLE", music.reasonCode)
+        assertTrue(!music.explanation.contains("сесси", ignoreCase = true))
+        assertTrue(!music.explanation.contains("авторизац", ignoreCase = true))
+        val http = SourceDiagnosticRules.http(403, requiresAccountCheck = false)
+        assertTrue(!http.explanation.contains("сесси", ignoreCase = true))
+        assertTrue(http.explanation.contains("403"))
+    }
+
     @Test fun missingControlDataProducesUncheckedOutcome() {
         val outcome = SourceWorkflowRules.missingInput(DiagnosticSource.INSTAGRAM)
         assertEquals(DiagnosticState.UNCHECKED, outcome.state)

@@ -58,6 +58,14 @@ object SourceWorkflowRules {
         "WORKFLOW_ACCESS_LIMITED",
     )
 
+    /** Music search is anonymous: a failed search is not evidence of an expired session. */
+    fun musicUnavailable(): DiagnosticOutcome = DiagnosticOutcome(
+        DiagnosticState.UNAVAILABLE, DiagnosticEvidence.NONE,
+        "Не удалось завершить поиск музыки. Возможны проблемы с соединением, доступностью " +
+            "сайта или изменением формата результатов; точная причина не установлена.",
+        "MUSIC_SEARCH_UNAVAILABLE",
+    )
+
     fun authorizationRequired(): DiagnosticOutcome = DiagnosticOutcome(
         DiagnosticState.UNAVAILABLE, DiagnosticEvidence.VERIFIED,
         "Источник запросил вход для контрольного материала. Текущая сессия не дала доступ.",
