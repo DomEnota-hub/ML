@@ -96,6 +96,7 @@ internal fun PhotoDrawDialog(
     var redo by remember { mutableStateOf<List<List<PhotoMark>>>(emptyList()) }
     var beforeGesture by remember { mutableStateOf<List<PhotoMark>?>(null) }
     var gestureRole by remember { mutableStateOf("move") }
+    var thicknessBefore by remember { mutableStateOf<List<PhotoMark>?>(null) }
 
     fun push(before: List<PhotoMark>) {
         if (before != marks) {
@@ -153,6 +154,7 @@ internal fun PhotoDrawDialog(
                             val point = rect.normalize(offset.x, offset.y)
                             if (tool == DrawingTool.SELECT) {
                                 selected = PhotoMarkEdits.pick(marks, point)
+                                marks.getOrNull(selected)?.let { color = it.color; thickness = it.thickness }
                             } else if (tool == DrawingTool.ERASER) {
                                 selected = -1
                                 change(PhotoMarkEdits.eraseNear(marks, point, thickness * 3f))
@@ -175,6 +177,7 @@ internal fun PhotoDrawDialog(
                                         DrawingTool.SELECT -> {
                                             selected = PhotoMarkEdits.pick(marks, point)
                                             val current = marks.getOrNull(selected)
+                                            current?.let { color = it.color; thickness = it.thickness }
                                             val bounds = current?.let(PhotoMarkEdits::bounds)
                                             gestureRole = when {
                                                 current == null -> "move"
@@ -296,7 +299,17 @@ internal fun PhotoDrawDialog(
                             color = Color.White, fontSize = 12.sp, modifier = Modifier.width(106.dp))
                         AppSlider(thickness, { next ->
                             thickness = next
-                        }, modifier = Modifier.weight(1f), valueRange = .002f..05f)
+                            if (selected in marks.indices) {
+                                if (thicknessBefore == null) thicknessBefore = marks
+                                val updated = marks.toMutableList()
+                                updated[selected] = updated[selected].copy(thickness = next)
+                                marks = updated
+                            }
+                        }, modifier = Modifier.weight(1f), valueRange = .002f..05f,
+                            onValueChangeFinished = {
+                                thicknessBefore?.let(::push)
+                                thicknessBefore = null
+                            })
                     }
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
