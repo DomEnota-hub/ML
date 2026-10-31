@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.media3.common.Player
 import com.domenota.medialoader.data.editor.VideoClipDraft
+import com.domenota.medialoader.data.editor.VideoPreviewQueueSync
 import java.util.UUID
 import kotlinx.coroutines.delay
 import androidx.annotation.OptIn
@@ -149,15 +150,25 @@ fun VideoEditorScreen(
     var timelineIsPlaying by remember(item.id) { mutableStateOf(false) }
     var selectedFrameDurationMs by remember(item.id) { mutableStateOf<Long?>(null) }
     var selectedFrameSourceUri by remember(item.id) { mutableStateOf<String?>(null) }
+    var selectedPreviewInfo by remember(item.id) { mutableStateOf<VideoInfo?>(null) }
     var clipError by remember(item.id) { mutableStateOf<String?>(null) }
     val projectScope = rememberCoroutineScope()
     val currentClip = project?.clips?.firstOrNull { it.id == selectedClipId }
 
-    fun applyProject(next: VideoProjectDraft, selectedId: String = selectedClipId) {
+    fun applyProject(
+        next: VideoProjectDraft,
+        selectedId: String = selectedClipId,
+        focusSourceMs: Long? = null,
+    ) {
+        val index = next.indexOf(selectedId)
+        require(index >= 0) { "Выбранный клип отсутствует в проекте" }
+        val clip = next.clips[index]
+        val localMs = ((focusSourceMs ?: clip.inMs) - clip.inMs)
+            .coerceIn(0L, clip.durationMs - 1L)
         project = next
         selectedClipId = selectedId
-        val index = next.indexOf(selectedId).coerceAtLeast(0)
-        playheadMs = next.timelineStart(index)
+        // Keep the source frame in view across split, reorder and duplicate.
+        playheadMs = next.timelinePosition(index, localMs)
         clipError = null
     }
 
@@ -324,27 +335,36 @@ fun VideoEditorScreen(
         val player = previewPlayer ?: return@LaunchedEffect
         val p = project ?: return@LaunchedEffect
         while (true) {
-            val index = player.currentMediaItemIndex
-            if (index in p.clips.indices) {
-                val pos = p.timelinePosition(index, player.currentPosition)
-                if (player.isPlaying || pos != playheadMs) playheadMs = pos
-                if (player.isPlaying) selectedClipId = p.clips[index].id
+            // During trim, split or reorder the player still has the old playlist
+            // until its debounced rebuild. Never let old positions overwrite the
+            // newly selected source frame before the player is synchronized.
+            val queueIsCurrent = VideoPreviewQueueSync.matches(
+                (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }, p)
+            if (queueIsCurrent) {
+                val index = player.currentMediaItemIndex
+                if (index in p.clips.indices) {
+                    val pos = p.timelinePosition(index, player.currentPosition)
+                    if (player.isPlaying || pos != playheadMs) playheadMs = pos
+                    if (player.isPlaying) selectedClipId = p.clips[index].id
+                }
             }
-            timelineIsPlaying = player.isPlaying
+            timelineIsPlaying = queueIsCurrent && player.isPlaying
             delay(75L)
         }
     }
     LaunchedEffect(selectedClipId, currentClip?.sourceUri) {
         selectedFrameDurationMs = null
         selectedFrameSourceUri = null
+        selectedPreviewInfo = null
         val clip = project?.clips?.firstOrNull { it.id == selectedClipId }
         if (clip != null) {
             trimStart = clip.inMs
             trimEnd = clip.outMs
-            val durationPerFrame = withContext(Dispatchers.IO) {
-                readVideoInfo(context, Uri.parse(clip.sourceUri))?.frameDurationMs
+            val metadata = withContext(Dispatchers.IO) {
+                readVideoInfo(context, Uri.parse(clip.sourceUri))
             }
-            selectedFrameDurationMs = durationPerFrame
+            selectedFrameDurationMs = metadata?.frameDurationMs
+            selectedPreviewInfo = metadata
             selectedFrameSourceUri = clip.sourceUri
         }
     }
@@ -408,9 +428,10 @@ fun VideoEditorScreen(
             // reachable even with portrait video and Android navigation bars.
             Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center) {
-                val w = ((info?.width ?: 16) *
+                val previewDimensions = selectedPreviewInfo ?: info
+                val w = ((previewDimensions?.width ?: 16) *
                     if (showTextResult) crop.keptWidth else 1f).roundToInt().coerceAtLeast(1)
-                val h = ((info?.height ?: 9) *
+                val h = ((previewDimensions?.height ?: 9) *
                     if (showTextResult) crop.keptHeight else 1f).roundToInt().coerceAtLeast(1)
                 val isRotated = showTextResult && rotation % 180 != 0
                 CropVideoPreview(
@@ -505,7 +526,14 @@ fun VideoEditorScreen(
                         },
                         onMove = { id, newIndex ->
                             val prior = project ?: return@VideoMultiClipTimeline
-                            applyProject(prior.move(id, newIndex), id)
+                            val clip = prior.clips.firstOrNull { it.id == id }
+                                ?: return@VideoMultiClipTimeline
+                            val oldFocus = prior.locateAt(
+                                playheadMs.coerceIn(0L, prior.durationMs - 1L))
+                            val focusSourceMs =
+                                if (oldFocus.clipId == id) oldFocus.absoluteSourceMs
+                                else clip.inMs
+                            applyProject(prior.move(id, newIndex), id, focusSourceMs)
                         },
                         onAdd = { addClips.launch(arrayOf("video/*")) },
                         onTogglePlayback = {
@@ -555,10 +583,10 @@ fun VideoEditorScreen(
                                         val local = (playheadMs - current.timelineStart(index))
                                             .coerceIn(0L, selected.durationMs)
                                         val point = selected.inMs + local
+                                        val rightId = UUID.randomUUID().toString()
                                         runCatching {
-                                            current.splitAt(selected.id, point,
-                                                UUID.randomUUID().toString())
-                                        }.onSuccess { applyProject(it, selected.id) }
+                                            current.splitAt(selected.id, point, rightId)
+                                        }.onSuccess { applyProject(it, rightId, point) }
                                             .onFailure { clipError = "Раздели клип не ближе 0,1 с к краю" }
                                     }
                                 }, enabled = selected != null && selected.durationMs >= 200L) {
@@ -566,10 +594,10 @@ fun VideoEditorScreen(
                                 }
                                 TextButton(onClick = {
                                     if (current != null && selected != null) {
+                                        val copyId = UUID.randomUUID().toString()
                                         runCatching {
-                                            current.duplicate(selected.id,
-                                                UUID.randomUUID().toString())
-                                        }.onSuccess { applyProject(it, selected.id) }
+                                            current.duplicate(selected.id, copyId)
+                                        }.onSuccess { applyProject(it, copyId, selected.inMs) }
                                             .onFailure { clipError = it.message }
                                     }
                                 }, enabled = selected != null) { Text("Копировать") }
@@ -631,7 +659,7 @@ fun VideoEditorScreen(
                 }
             }
 
-            val dimensions = info
+            val dimensions = selectedPreviewInfo ?: info
             if (dimensions != null) {
                 Spacer(Modifier.height(10.dp))
                 val outputWidth = (dimensions.width * crop.keptWidth).roundToInt().coerceAtLeast(1)
