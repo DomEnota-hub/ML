@@ -103,4 +103,38 @@ class VideoTransitionStage7Test {
             VideoTransitionDraft(durationMs = 99L)
         }
     }
+    @Test fun splitDoesNotCopyOldTransitionOntoNewSeam() {
+        val original = project().setTransitionAfter("slow",
+            VideoTransitionDraft(VideoTransitionType.DIP_WHITE, 1200L))
+        val result = original.splitAt("slow", 3000L, "new-half")
+        assertEquals(4, result.clips.size)
+        assertEquals(VideoTransitionType.CUT, result.clips[0].transitionOut.type)
+        assertEquals(VideoTransitionType.DIP_WHITE, result.clips[1].transitionOut.type)
+        assertEquals(1, VideoTransitionTiming.enabledCuts(result))
+    }
+
+    @Test fun duplicateAndInsertMoveExistingTransitionToOldNeighborBoundary() {
+        val original = project().setTransitionAfter("slow",
+            VideoTransitionDraft(VideoTransitionType.WIPE_BLACK, 800L))
+        val duplicate = original.duplicate("slow", "duplicate")
+        assertEquals(VideoTransitionType.CUT, duplicate.clips[0].transitionOut.type)
+        assertEquals(VideoTransitionType.WIPE_BLACK, duplicate.clips[1].transitionOut.type)
+        assertEquals(1, VideoTransitionTiming.enabledCuts(duplicate))
+        val inserted = original.addAfter("slow", listOf(
+            VideoClipDraft("new-a", "content://a1", 500L),
+            VideoClipDraft("new-b", "content://a2", 500L)))
+        assertEquals(VideoTransitionType.CUT, inserted.clips[0].transitionOut.type)
+        assertEquals(VideoTransitionType.CUT, inserted.clips[1].transitionOut.type)
+        assertEquals(VideoTransitionType.WIPE_BLACK, inserted.clips[2].transitionOut.type)
+        assertEquals(1, VideoTransitionTiming.enabledCuts(inserted))
+    }
+
+    @Test fun deletingClipCannotKeepDanglingPreviousTransition() {
+        val original = project().setTransitionAfter("slow",
+            VideoTransitionDraft(VideoTransitionType.FLASH))
+        val result = original.delete("fast")
+        assertEquals(VideoTransitionType.CUT, result.clips.first().transitionOut.type)
+        assertEquals(0, VideoTransitionTiming.enabledCuts(result))
+    }
+
 }
