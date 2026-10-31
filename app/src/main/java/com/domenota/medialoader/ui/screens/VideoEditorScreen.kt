@@ -45,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import com.domenota.medialoader.ui.components.NeutralOutlinedButton as OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.material3.TopAppBar
@@ -125,9 +126,6 @@ fun VideoEditorScreen(
     val busyWithOther = exportState.exporting && exportState.sourceId != null &&
         exportState.sourceId != item.id
     var info by remember(uri) { mutableStateOf<VideoInfo?>(null) }
-    var crop by remember { mutableStateOf(CropFractions()) }
-    var cropPreset by remember { mutableStateOf(CropAspectPreset.FREE) }
-    var rotation by remember { mutableIntStateOf(0) }
     var removeAudio by remember { mutableStateOf(false) }
     var reverseVideo by remember(item.id) { mutableStateOf(false) }
     var reversePreviewFile by remember(item.id) { mutableStateOf<File?>(null) }
@@ -154,6 +152,23 @@ fun VideoEditorScreen(
     var clipError by remember(item.id) { mutableStateOf<String?>(null) }
     val projectScope = rememberCoroutineScope()
     val currentClip = project?.clips?.firstOrNull { it.id == selectedClipId }
+    val crop = currentClip?.crop ?: CropFractions()
+    val cropPreset = currentClip?.cropPreset ?: CropAspectPreset.FREE
+    val rotation = currentClip?.rotationDegrees ?: 0
+    val mirrorHorizontal = currentClip?.mirrorHorizontal ?: false
+    val mirrorVertical = currentClip?.mirrorVertical ?: false
+
+    fun updateSelectedGeometry(
+        updatedCrop: CropFractions = crop,
+        updatedPreset: CropAspectPreset = cropPreset,
+        updatedRotation: Int = rotation,
+        updatedMirrorHorizontal: Boolean = mirrorHorizontal,
+        updatedMirrorVertical: Boolean = mirrorVertical,
+    ) {
+        val draft = project ?: return
+        project = draft.setGeometry(selectedClipId, updatedCrop, updatedPreset,
+            updatedRotation, updatedMirrorHorizontal, updatedMirrorVertical)
+    }
 
     fun applyProject(
         next: VideoProjectDraft,
@@ -163,7 +178,7 @@ fun VideoEditorScreen(
         val index = next.indexOf(selectedId)
         require(index >= 0) { "Выбранный клип отсутствует в проекте" }
         val clip = next.clips[index]
-        val localMs = ((focusSourceMs ?: clip.inMs) - clip.inMs)
+        val localMs = clip.outputAt(focusSourceMs ?: clip.inMs)
             .coerceIn(0L, clip.durationMs - 1L)
         project = next
         selectedClipId = selectedId
@@ -212,9 +227,7 @@ fun VideoEditorScreen(
             } else clipError = "Не удалось прочитать выбранное видео"
         }
     }
-    val hasUnsavedChanges = crop != CropFractions() ||
-        cropPreset != CropAspectPreset.FREE ||
-        rotation != 0 || removeAudio || reverseVideo || textLayers.isNotEmpty() ||
+    val hasUnsavedChanges = removeAudio || reverseVideo || textLayers.isNotEmpty() ||
         (project != null && project!!.clips !=
             listOf(VideoClipDraft(item.id.toString(), uri.toString(), fullDuration.coerceAtLeast(1L))))
     val requestExit = rememberEditorExitRequest(
@@ -222,9 +235,6 @@ fun VideoEditorScreen(
         onExit = onBack,
     )
     fun resetEdits() {
-        crop = CropFractions()
-        cropPreset = CropAspectPreset.FREE
-        rotation = 0
         removeAudio = false
         reverseVideo = false
         trimStart = 0L
@@ -241,18 +251,14 @@ fun VideoEditorScreen(
     fun exportSpec(): VideoEditSpec = VideoEditSpec(
         startMs = 0L,
         endMs = null,
-        cropLeft = crop.left,
-        cropRight = crop.right,
-        cropTop = crop.top,
-        cropBottom = crop.bottom,
-        rotationDegrees = rotation,
+        // Each clip supplies its own geometry during Media3 Composition export.
         removeAudio = removeAudio,
         reverse = reverseVideo,
         textLayers = textLayers.mapNotNull { it.within(project?.durationMs ?: 0L) },
         project = project,
     )
 
-    LaunchedEffect(reverseVideo, trimStart, trimEnd, crop, rotation, removeAudio, textLayers) {
+    LaunchedEffect(reverseVideo, project, removeAudio, textLayers) {
         reversePreviewJob?.cancel()
         reversePreviewJob = null
         reversePreviewFile?.delete()
@@ -290,11 +296,16 @@ fun VideoEditorScreen(
     DisposableEffect(previewPlayer) {
         onDispose { previewPlayer?.release() }
     }
-    val textPreviewSpec = if (showTextResult) VideoEditSpec(startMs = trimStart,
-        cropLeft = crop.left, cropRight = crop.right, cropTop = crop.top,
-        cropBottom = crop.bottom, rotationDegrees = rotation,
-        textLayers = textLayers.mapNotNull { it.within(trimEnd - trimStart) }) else null
-    LaunchedEffect(previewPlayer, textPreviewSpec) {
+    val previewCrop = if (selectedTool == VideoWorkspaceTool.CROP && !showTextResult)
+        CropFractions() else crop
+    val textPreviewSpec = VideoEditSpec(startMs = trimStart,
+        cropLeft = previewCrop.left, cropRight = previewCrop.right,
+        cropTop = previewCrop.top, cropBottom = previewCrop.bottom,
+        rotationDegrees = rotation,
+        mirrorHorizontal = mirrorHorizontal, mirrorVertical = mirrorVertical,
+        textLayers = if (showTextResult)
+            textLayers.mapNotNull { it.within(trimEnd - trimStart) } else emptyList())
+    LaunchedEffect(previewPlayer, selectedClipId, textPreviewSpec) {
         val effects = textPreviewSpec?.let {
             com.domenota.medialoader.data.editor.VideoEditor(context).previewEffects(it, timeOffsetMs = it.startMs)
         } ?: emptyList()
@@ -312,7 +323,9 @@ fun VideoEditorScreen(
         }
     }
 
-    LaunchedEffect(previewPlayer, project?.clips) {
+    // A speed/geometry update doesn't change source playlist identity.
+    val playlistIdentity = project?.clips?.map { Triple(it.sourceUri, it.inMs, it.outMs) }
+    LaunchedEffect(previewPlayer, playlistIdentity) {
         val p = project ?: return@LaunchedEffect
         val player = previewPlayer ?: return@LaunchedEffect
         delay(160L) // Debounce trim-handle dragging rather than rebuilding every frame.
@@ -326,9 +339,10 @@ fun VideoEditorScreen(
                 .build()
         }
         player.pause()
-        player.setMediaItems(items, location.clipIndex,
-            location.positionWithinClipMs.coerceAtMost(
-                (p.clips[location.clipIndex].durationMs - 1L).coerceAtLeast(0L)))
+        val clip = p.clips[location.clipIndex]
+        val sourceOffset = (clip.sourceAt(location.positionWithinClipMs) - clip.inMs)
+            .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L))
+        player.setMediaItems(items, location.clipIndex, sourceOffset)
         player.prepare()
     }
     LaunchedEffect(previewPlayer, project) {
@@ -343,9 +357,13 @@ fun VideoEditorScreen(
             if (queueIsCurrent) {
                 val index = player.currentMediaItemIndex
                 if (index in p.clips.indices) {
-                    val pos = p.timelinePosition(index, player.currentPosition)
+                    val clip = p.clips[index]
+                    if (player.playbackParameters.speed != clip.speed)
+                        player.setPlaybackSpeed(clip.speed)
+                    val pos = p.timelinePosition(index, clip.outputAt(
+                        clip.inMs + player.currentPosition))
                     if (player.isPlaying || pos != playheadMs) playheadMs = pos
-                    if (player.isPlaying) selectedClipId = p.clips[index].id
+                    if (player.isPlaying) selectedClipId = clip.id
                 }
             }
             timelineIsPlaying = queueIsCurrent && player.isPlaying
@@ -429,18 +447,19 @@ fun VideoEditorScreen(
             Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center) {
                 val previewDimensions = selectedPreviewInfo ?: info
+                val showEditedFrame = selectedTool != VideoWorkspaceTool.CROP || showTextResult
                 val w = ((previewDimensions?.width ?: 16) *
-                    if (showTextResult) crop.keptWidth else 1f).roundToInt().coerceAtLeast(1)
+                    if (showEditedFrame) crop.keptWidth else 1f).roundToInt().coerceAtLeast(1)
                 val h = ((previewDimensions?.height ?: 9) *
-                    if (showTextResult) crop.keptHeight else 1f).roundToInt().coerceAtLeast(1)
-                val isRotated = showTextResult && rotation % 180 != 0
+                    if (showEditedFrame) crop.keptHeight else 1f).roundToInt().coerceAtLeast(1)
+                val isRotated = rotation % 180 != 0
                 CropVideoPreview(
                     player = requireNotNull(previewPlayer),
                     sourceWidth = if (isRotated) h else w,
                     sourceHeight = if (isRotated) w else h,
                     crop = crop,
                     cropPreset = cropPreset,
-                    onCropChange = { crop = it },
+                    onCropChange = { updateSelectedGeometry(updatedCrop = it) },
                     showCropFrame = selectedTool == VideoWorkspaceTool.CROP && !showTextResult,
                 )
             }
@@ -463,9 +482,10 @@ fun VideoEditorScreen(
                                 val location = draft.locateAt(target)
                                 playheadMs = target
                                 previewPlayer?.pause()
+                                val clip = draft.clips[location.clipIndex]
                                 previewPlayer?.seekTo(location.clipIndex,
-                                    location.positionWithinClipMs.coerceAtMost(
-                                        (draft.clips[location.clipIndex].durationMs - 1L).coerceAtLeast(0L)))
+                                    (clip.sourceAt(location.positionWithinClipMs) - clip.inMs)
+                                        .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L)))
                             }
                         },
                         onSelect = { id ->
@@ -495,10 +515,10 @@ fun VideoEditorScreen(
                             playheadMs = precise
                             if (previewPlayer != null &&
                                 located.clipIndex < previewPlayer.mediaItemCount) {
+                                val clip = activeProject.clips[located.clipIndex]
                                 previewPlayer.seekTo(located.clipIndex,
-                                    located.positionWithinClipMs.coerceAtMost(
-                                    (activeProject.clips[located.clipIndex].durationMs - 1)
-                                        .coerceAtLeast(0)))
+                                    (clip.sourceAt(located.positionWithinClipMs) - clip.inMs)
+                                        .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L)))
                             }
                         },
                         onTrim = { id, from, to ->
@@ -513,7 +533,7 @@ fun VideoEditorScreen(
                                         val sourceTime = oldLocation.absoluteSourceMs.coerceIn(
                                             currentSegment.inMs, currentSegment.outMs - 1L)
                                         playheadMs = revised.timelinePosition(
-                                            currentIndex, sourceTime - currentSegment.inMs)
+                                            currentIndex, currentSegment.outputAt(sourceTime))
                                     }
                                     project = revised
                                     if (id == selectedClipId) {
@@ -582,14 +602,14 @@ fun VideoEditorScreen(
                                     if (current != null && selected != null) {
                                         val local = (playheadMs - current.timelineStart(index))
                                             .coerceIn(0L, selected.durationMs)
-                                        val point = selected.inMs + local
+                                        val point = selected.sourceAt(local)
                                         val rightId = UUID.randomUUID().toString()
                                         runCatching {
                                             current.splitAt(selected.id, point, rightId)
                                         }.onSuccess { applyProject(it, rightId, point) }
                                             .onFailure { clipError = "Раздели клип не ближе 0,1 с к краю" }
                                     }
-                                }, enabled = selected != null && selected.durationMs >= 200L) {
+                                }, enabled = selected != null && selected.sourceSpanMs >= 200L) {
                                     Text("Разделить")
                                 }
                                 TextButton(onClick = {
@@ -644,15 +664,12 @@ fun VideoEditorScreen(
                     FilterChip(
                         selected = cropPreset == preset,
                         onClick = {
-                            cropPreset = preset
-                            val dimensions = info
-                            if (dimensions != null && preset != CropAspectPreset.FREE) {
-                                crop = VideoCropMath.centerCrop(
-                                    dimensions.width,
-                                    dimensions.height,
-                                    preset,
-                                )
-                            }
+                            val dimensions = selectedPreviewInfo ?: info
+                            val updatedCrop =
+                                if (dimensions != null && preset != CropAspectPreset.FREE)
+                                    VideoCropMath.centerCrop(dimensions.width, dimensions.height, preset)
+                                else if (preset == CropAspectPreset.FREE) crop else CropFractions()
+                            updateSelectedGeometry(updatedPreset = preset, updatedCrop = updatedCrop)
                         },
                         label = { Text(preset.label) },
                     )
@@ -687,7 +704,9 @@ fun VideoEditorScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = { rotation = (rotation + 90) % 360 }) {
+                TextButton(onClick = {
+                    updateSelectedGeometry(updatedRotation = (rotation + 90) % 360)
+                }) {
                     Icon(Icons.Rounded.RotateRight, contentDescription = null)
                     Text("  Повернуть")
                 }
