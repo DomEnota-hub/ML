@@ -135,8 +135,7 @@ fun VideoEditorScreen(
     var selectedTool by remember(item.id) { mutableStateOf<VideoWorkspaceTool?>(null) }
 
     val fullDuration = info?.durationMs ?: 0L
-    // This stage intentionally has one clip. The model already supports many,
-    // while insertion, reordering, and multi-clip export arrive in stage 2.
+    // Stage 1 shows one clip; the model accepts multiple clips and tracks.
     val project = remember(uri, fullDuration, trimStart, trimEnd) {
         if (uri == null || fullDuration <= 0L) null else {
             val initial = VideoProjectDraft.single(item.id.toString(), uri.toString(), fullDuration)
@@ -235,7 +234,18 @@ fun VideoEditorScreen(
     }
 
     if (textEditorOpen && uri != null && trimEnd > trimStart) EditorTextDialog(
-        initial = textLayers.mapNo    Scaffold(
+        initial = textLayers.mapNotNull { it.within(trimEnd - trimStart) },
+        durationMs = trimEnd - trimStart,
+        videoSource = TextEditorVideoSource(uri, VideoEditSpec(startMs = trimStart, endMs = trimEnd,
+            cropLeft = crop.left, cropRight = crop.right, cropTop = crop.top, cropBottom = crop.bottom,
+            rotationDegrees = rotation)),
+        initialPositionMs = ((previewPlayer?.currentPosition ?: trimStart) - trimStart).coerceAtLeast(0L),
+        loadPreview = { position -> TextLayerRenderer.videoPreview(context, uri, trimStart + position, crop, rotation) },
+        onApply = { textLayers = it; textEditorOpen = false; showTextResult = it.isNotEmpty() },
+        onDismiss = { textEditorOpen = false },
+    )
+
+    Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Редактор видео") },
