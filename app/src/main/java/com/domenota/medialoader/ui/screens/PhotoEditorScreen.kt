@@ -68,6 +68,7 @@ private data class PhotoEditSnapshot(
     val color: PhotoColorAdjustments = PhotoColorAdjustments(),
     val textLayers: List<TextLayer> = emptyList(),
     val drawing: List<PhotoMark> = emptyList(),
+    val localEffects: List<PhotoLocalStroke> = emptyList(),
     val graphicWatermark: PhotoGraphicWatermark? = null,
     val overlayPath: String? = null,
     val appliedMasks: List<List<MaskStroke>> = emptyList(),
@@ -94,6 +95,7 @@ fun PhotoEditorScreen(
     var pendingGesture by remember(item.id) { mutableStateOf<PhotoEditSnapshot?>(null) }
     var textEditorOpen by remember(item.id) { mutableStateOf(false) }
     var drawingEditorOpen by remember(item.id) { mutableStateOf(false) }
+    var localEffectEditorOpen by remember(item.id) { mutableStateOf(false) }
     var removeObjects by remember(item.id) { mutableStateOf(false) }
     var currentTab by remember(item.id) { mutableStateOf(PhotoWorkspaceTab.CROP) }
     var activeLevel by remember(item.id) { mutableStateOf(PhotoLevelControl.BRIGHTNESS) }
@@ -200,7 +202,7 @@ fun PhotoEditorScreen(
     // Debounced previews are calculated away from the UI thread; full-resolution
     // export applies the same operations in the same order.
     LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
-        edit.color, edit.textLayers, edit.drawing, bakedGraphic, currentTab) {
+        edit.color, edit.textLayers, edit.drawing, edit.localEffects, bakedGraphic, currentTab) {
         val source = info?.preview
         if (source == null) { composedPreview = null; return@LaunchedEffect }
         delay(100L)
@@ -210,12 +212,17 @@ fun PhotoEditorScreen(
                     edit.mirrorHorizontal, edit.mirrorVertical)
                 val colored = try { PhotoColorMath.apply(transformed, edit.color) }
                     catch (error: Throwable) { transformed.recycle(); throw error }
-                // In the watermark tab its graphic is a separate interactive layer,
-                // avoiding expensive bitmap recompositing on every finger movement.
+                val localized = try { PhotoLocalEffects.apply(colored, edit.localEffects) }
+                    catch (error: Throwable) {
+                        if (colored !== transformed) colored.recycle()
+                        transformed.recycle()
+                        throw error
+                    }
+                // Pixelate the photo before compositing text or vector drawings.
                 val hasOverlays = bakedGraphic != null ||
                     edit.drawing.isNotEmpty() || edit.textLayers.isNotEmpty()
-                val output = if (hasOverlays) colored.copy(Bitmap.Config.ARGB_8888, true)
-                    else colored
+                val output = if (hasOverlays) localized.copy(Bitmap.Config.ARGB_8888, true)
+                    else localized
                 try {
                     if (hasOverlays) {
                         val canvas = android.graphics.Canvas(output)
@@ -230,14 +237,14 @@ fun PhotoEditorScreen(
                     }
                     output
                 } catch (error: Throwable) {
-                    if (output !== colored) output.recycle()
-                    else if (colored !== transformed) colored.recycle()
+                    if (output !== localized && !output.isRecycled) output.recycle()
                     throw error
                 } finally {
-                    // Never recycle the bitmap returned to Compose.
-                    if (colored !== output && !colored.isRecycled) colored.recycle()
-                    if (transformed !== output && transformed !== colored && !transformed.isRecycled)
-                        transformed.recycle()
+                    // The output is owned by the screen; all intermediate buffers are freed.
+                    if (localized !== output && !localized.isRecycled) localized.recycle()
+                    if (colored !== output && colored !== localized && !colored.isRecycled) colored.recycle()
+                    if (transformed !== output && transformed !== colored &&
+                        transformed !== localized && !transformed.isRecycled) transformed.recycle()
                 }
             }
             composedPreview = rendered
@@ -307,6 +314,37 @@ fun PhotoEditorScreen(
         )
     }
 
+    // Local effect masks are edited on the clean, color-adjusted photograph.
+    // Existing text and drawings remain vector overlays above the effect.
+    var effectBackground by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(localEffectEditorOpen, info, edit.crop, edit.rotation,
+        edit.mirrorHorizontal, edit.mirrorVertical, edit.color) {
+        if (!localEffectEditorOpen) { effectBackground = null; return@LaunchedEffect }
+        val src = info?.preview ?: return@LaunchedEffect
+        effectBackground = withContext(Dispatchers.Default) {
+            val transformed = TextLayerRenderer.preview(src, edit.crop, edit.rotation,
+                edit.mirrorHorizontal, edit.mirrorVertical)
+            val colored = PhotoColorMath.apply(transformed, edit.color)
+            if (colored !== transformed) transformed.recycle()
+            colored
+        }
+    }
+    DisposableEffect(effectBackground) {
+        val owned = effectBackground
+        onDispose { if (owned != null && !owned.isRecycled) owned.recycle() }
+    }
+    if (localEffectEditorOpen && effectBackground != null) {
+        PhotoLocalEffectsDialog(
+            source = requireNotNull(effectBackground),
+            initial = edit.localEffects,
+            onApply = { strokes ->
+                commit(edit.copy(localEffects = strokes))
+                localEffectEditorOpen = false
+            },
+            onDismiss = { localEffectEditorOpen = false },
+        )
+    }
+
     Scaffold(
         containerColor = Color.Black,
         contentColor = Color.White,
@@ -333,6 +371,7 @@ fun PhotoEditorScreen(
                             inpaintOverlayPath = edit.overlayPath, textLayers = edit.textLayers,
                             colorAdjustments = edit.color,
                             drawing = edit.drawing,
+                            localEffects = edit.localEffects,
                             graphicWatermark = edit.graphicWatermark,
                         ))
                     },
@@ -448,6 +487,7 @@ fun PhotoEditorScreen(
                     onEditFinished = ::finishGesture,
                     onText = { textEditorOpen = true },
                     onDraw = { drawingEditorOpen = true },
+                    onMosaic = { localEffectEditorOpen = true },
                     onPickGraphic = { graphicPicker.launch(arrayOf("image/png", "image/jpeg", "image/webp")) },
                     onLaMa = { removeObjects = true },
                 )
@@ -503,7 +543,7 @@ private fun PhotoWorkspaceTools(
     onEdit: (PhotoEditSnapshot) -> Unit,
     onLiveEdit: (PhotoEditSnapshot) -> Unit,
     onEditFinished: () -> Unit,
-    onText: () -> Unit, onDraw: () -> Unit,
+    onText: () -> Unit, onDraw: () -> Unit, onMosaic: () -> Unit,
     onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
     // Stage 1: a persistent, compact tool strip and a contextual panel that
@@ -691,11 +731,15 @@ private fun PhotoWorkspaceTools(
                     PhotoToolCard(control.title, Icons.Rounded.Palette,
                         activeHslControl == control, { onHslControl(control) }, !locked)
                 }
-                PhotoWorkspaceTab.EFFECTS -> PhotoEffect.entries.forEach { effect ->
-                    PhotoEffectCard(effect = effect, info = info, base = edit.color,
-                        selected = edit.color.effect == effect,
-                        enabled = !locked && info != null,
-                        onClick = { onEdit(edit.copy(color = edit.color.copy(effect = effect))) })
+                PhotoWorkspaceTab.EFFECTS -> {
+                    PhotoToolCard("Мозаика", Icons.Rounded.GridOn, false,
+                        onMosaic, !locked && info != null)
+                    PhotoEffect.entries.forEach { effect ->
+                        PhotoEffectCard(effect = effect, info = info, base = edit.color,
+                            selected = edit.color.effect == effect,
+                            enabled = !locked && info != null,
+                            onClick = { onEdit(edit.copy(color = edit.color.copy(effect = effect))) })
+                    }
                 }
                 PhotoWorkspaceTab.TEXT -> {
                     PhotoToolCard("Надпись", Icons.Rounded.TextFields,
