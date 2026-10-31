@@ -67,8 +67,9 @@ internal fun VideoAudioWaveform(uri: String, modifier: Modifier = Modifier) {
             }
         }
     }
+    val latestWaveform by rememberUpdatedState(waveform)
     DisposableEffect(uri) {
-        onDispose { waveform?.recycle() }
+        onDispose { latestWaveform?.recycle() }
     }
     when {
         waveform != null -> Image(waveform!!.asImageBitmap(),
