@@ -603,6 +603,7 @@ fun VideoEditorScreen(
                                 })
                             val located = activeProject.locateAt(precise)
                             playheadMs = precise
+                            selectedClipId = located.clipId
                             if (previewPlayer != null &&
                                 located.clipIndex < previewPlayer.mediaItemCount) {
                                 val clip = activeProject.clips[located.clipIndex]
