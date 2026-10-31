@@ -53,12 +53,37 @@ data class VideoClipDraft(
 data class VideoAudioTrackDraft(
     val id: String,
     val sourceUri: String,
+    /** Project-timeline position where this track starts. */
     val atMs: Long,
-    val durationMs: Long,
+    val sourceDurationMs: Long,
+    val inMs: Long = 0L,
+    val outMs: Long = sourceDurationMs,
+    val volume: Float = 1f,
+    val fadeInMs: Long = 0L,
+    val fadeOutMs: Long = 0L,
 ) {
     init {
         require(id.isNotBlank() && sourceUri.isNotBlank())
-        require(atMs >= 0L && durationMs > 0L)
+        require(atMs >= 0L)
+        require(sourceDurationMs > 0L && inMs >= 0L &&
+            outMs > inMs && outMs <= sourceDurationMs)
+        require(volume.isFinite() && volume in 0f..1f)
+        require(fadeInMs >= 0L && fadeOutMs >= 0L)
+        require(fadeInMs + fadeOutMs <= durationMs) {
+            "Сумма затуханий не должна превышать длину дорожки"
+        }
+    }
+
+    val durationMs: Long get() = outMs - inMs
+    val endAtMs: Long get() = atMs + durationMs
+    fun gainAt(projectPositionMs: Long): Float {
+        val local = projectPositionMs - atMs
+        if (local < 0L || local >= durationMs) return 0f
+        val startFactor = if (fadeInMs > 0L)
+            (local.toFloat() / fadeInMs).coerceIn(0f, 1f) else 1f
+        val endFactor = if (fadeOutMs > 0L)
+            ((durationMs - local).toFloat() / fadeOutMs).coerceIn(0f, 1f) else 1f
+        return volume * minOf(startFactor, endFactor)
     }
 }
 
@@ -118,6 +143,29 @@ data class VideoProjectDraft(
             rotationDegrees = rotationDegrees, mirrorHorizontal = mirrorHorizontal,
             mirrorVertical = mirrorVertical) else it
     })
+
+    fun addAudioTrack(track: VideoAudioTrackDraft): VideoProjectDraft =
+        copy(audioTracks = audioTracks + track)
+
+    fun removeAudioTrack(id: String): VideoProjectDraft {
+        require(audioTracks.any { it.id == id })
+        return copy(audioTracks = audioTracks.filterNot { it.id == id })
+    }
+
+    fun editAudioTrack(id: String, transform: (VideoAudioTrackDraft) -> VideoAudioTrackDraft): VideoProjectDraft {
+        require(audioTracks.any { it.id == id })
+        return copy(audioTracks = audioTracks.map { if (it.id == id) transform(it) else it })
+    }
+
+    /** Clip overlay to actual project bounds; a track past the project end is omitted. */
+    fun visibleAudioTracks(): List<VideoAudioTrackDraft> = audioTracks.mapNotNull { track ->
+        if (track.atMs >= durationMs) null
+        else track.copy(outMs = minOf(track.outMs, track.inMs + durationMs - track.atMs),
+            fadeInMs = minOf(track.fadeInMs, minOf(track.durationMs, durationMs - track.atMs)),
+            fadeOutMs = minOf(track.fadeOutMs,
+                (minOf(track.durationMs, durationMs - track.atMs) -
+                    minOf(track.fadeInMs, minOf(track.durationMs, durationMs - track.atMs))).coerceAtLeast(0L)))
+    }
 
     fun indexOf(id: String): Int = clips.indexOfFirst { it.id == id }
 
