@@ -69,7 +69,7 @@ class VideoEditor(private val context: Context) {
             .setRemoveAudio(spec.removeAudio)
             .setEffects(Effects(emptyList(), previewEffects(spec)))
             .build()
-        val intermediate = runExport(edited, File(context.cacheDir, "video-edit-${UUID.randomUUID()}.mp4"),
+        val intermediate = runExport(edited = edited, output = File(context.cacheDir, "video-edit-${UUID.randomUUID()}.mp4"),
             onProgress = if (spec.reverse) ({ progress -> onProgress(progress * 45 / 100) }) else onProgress)
         if (!spec.reverse) return intermediate
         try {
