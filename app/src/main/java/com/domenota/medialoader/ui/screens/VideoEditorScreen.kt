@@ -1258,6 +1258,14 @@ fun VideoEditorScreen(
                     TextButton(onClick = onCancelExport) { Text("Отменить обработку") }
                 }
             }
+            exportState.outputDetails
+                ?.takeIf { exportState.sourceId == item.id && !exportState.exporting }
+                ?.let { details ->
+                    Text("Проверенный файл: " + details,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             VideoWorkspaceToolbar(
                 selected = selectedTool,
                 onSelect = { next ->
