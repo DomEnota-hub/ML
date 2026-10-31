@@ -24,12 +24,18 @@ data class PhotoColorAdjustments(
     val highlights: Float = 0f,
     val blackPoint: Float = 0f,
     val curve: Float = 0f,
+    val vibrance: Float = 0f,
+    val tint: Float = 0f,
+    val sharpness: Float = 0f,
+    val clarity: Float = 0f,
+    val rgbCurves: PhotoCurves = PhotoCurves(),
     val hsl: Map<HslRange, HslCorrection> = emptyMap(),
     val effect: PhotoEffect = PhotoEffect.NONE,
 ) {
     init {
         require(listOf(brightness, contrast, saturation, warmth, exposure, shadows, highlights,
-            blackPoint, curve).all { it.isFinite() && it in -100f..100f })
+            blackPoint, curve, vibrance, tint, sharpness, clarity)
+            .all { it.isFinite() && it in -100f..100f })
         require(hsl.size <= HslRange.entries.size)
     }
     fun isNeutral() = this == PhotoColorAdjustments()
@@ -69,9 +75,11 @@ object PhotoColorMath {
         val contrast = (1f + values.contrast / 100f * 0.8f).coerceIn(0.2f, 1.8f)
         val exposure = 2f.pow(values.exposure / 100f)
         val warmth = (values.warmth + presetWarmth).coerceIn(-100f, 100f) / 350f
-        val redGain = contrast * exposure * (1f + warmth)
-        val greenGain = contrast * exposure
-        val blueGain = contrast * exposure * (1f - warmth)
+        // Green / magenta tint is separate from the orange / blue warmth axis.
+        val tint = values.tint / 100f * .18f
+        val redGain = contrast * exposure * (1f + warmth) * (1f + tint * .38f)
+        val greenGain = contrast * exposure * (1f - tint)
+        val blueGain = contrast * exposure * (1f - warmth) * (1f + tint * .38f)
         val offset = 128f * (1f - contrast) + values.brightness * 1.25f
         val red = floatArrayOf(inverse * .213f + saturation, inverse * .715f, inverse * .072f)
         val green = floatArrayOf(inverse * .213f, inverse * .715f + saturation, inverse * .072f)
@@ -92,7 +100,8 @@ object PhotoColorMath {
                 colorFilter = ColorMatrixColorFilter(matrix(values))
             })
         if (values.shadows != 0f || values.highlights != 0f || values.blackPoint != 0f ||
-            values.curve != 0f || values.hsl.values.any { !it.isNeutral() }) {
+            values.curve != 0f || values.vibrance != 0f || !values.rgbCurves.isNeutral() ||
+            values.hsl.values.any { !it.isNeutral() }) {
             // Bounded row buffers: avoid another width*height int array for 12–48 MP photos.
             val rows = 24
             val colors = IntArray(output.width * rows)
@@ -107,6 +116,16 @@ object PhotoColorMath {
                 }
                 output.setPixels(colors, 0, output.width, 0, top, output.width, count)
                 top += count
+            }
+        }
+        if (values.sharpness != 0f || values.clarity != 0f) {
+            try {
+                val detailed = PhotoDetailMath.apply(output, values.sharpness, values.clarity)
+                if (detailed !== output) output.recycle()
+                return detailed
+            } catch (error: Throwable) {
+                output.recycle()
+                throw error
             }
         }
         return output
