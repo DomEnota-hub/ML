@@ -11,6 +11,21 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class PhotoToneMathTest {
+    @Test fun preparedHslReusesBuffersAndMatchesOneShotPixelPath() {
+        val settings = PhotoColorAdjustments(
+            highlights = -24f, shadows = 40f, curve = 12f,
+            hsl = mapOf(HslRange.RED to HslCorrection(hue = 31f, saturation = -22f),
+                HslRange.CYAN to HslCorrection(lightness = 18f)))
+        val prepared = PhotoToneMath.prepare(settings)
+        val scratch = FloatArray(3)
+        listOf(Color.RED, Color.BLUE, Color.WHITE, Color.GRAY,
+            Color.argb(128, 22, 184, 140)).forEach { pixel ->
+            assertEquals(PhotoToneMath.tonePixel(pixel, settings),
+                PhotoToneMath.tonePixel(pixel, prepared, scratch))
+        }
+        assertEquals(2, prepared.activeHsl.size)
+    }
+
     @Test fun hueRoundtripKeepsChannelValues() {
         val colors = listOf(floatArrayOf(1f, 0f, 0f), floatArrayOf(0f, 1f, 0f),
             floatArrayOf(0f, 0f, 1f), floatArrayOf(.45f, .45f, .45f),
