@@ -1,0 +1,32 @@
+name: ML Android signing tools handoff (no secrets)
+on:
+  push:
+    branches:
+      - release/ml-1.7.110-video-editor-arm64
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install official Android SDK build tools
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+      - name: Stage apksigner and zipalign only
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          mkdir -p signing-tools
+          cp "$bt/lib/apksigner.jar" signing-tools/
+          cp "$bt/zipalign" signing-tools/
+          cp -a "$bt/lib64" signing-tools/
+          (cd signing-tools && sha256sum apksigner.jar zipalign > TOOL_SHA256.txt)
+      - name: Downloadable tools archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML-official-Android-35-signing-tools
+          path: signing-tools/
+          retention-days: 2
+          if-no-files-found: error
