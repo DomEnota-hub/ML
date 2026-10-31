@@ -81,6 +81,7 @@ import com.domenota.medialoader.data.editor.VideoCropMath
 import com.domenota.medialoader.data.editor.VideoEditSpec
 import com.domenota.medialoader.data.editor.VideoEditor
 import com.domenota.medialoader.data.editor.VideoProjectDraft
+import com.domenota.medialoader.data.editor.VideoColorGrade
 import com.domenota.medialoader.data.editor.VideoTimelineFrameMath
 import com.domenota.medialoader.data.editor.VideoFramePosition
 import com.domenota.medialoader.data.editor.EditorExportState
@@ -162,6 +163,12 @@ fun VideoEditorScreen(
     val rotation = currentClip?.rotationDegrees ?: 0
     val mirrorHorizontal = currentClip?.mirrorHorizontal ?: false
     val mirrorVertical = currentClip?.mirrorVertical ?: false
+    val clipColor = currentClip?.color ?: VideoColorGrade()
+
+    fun updateSelectedColor(next: VideoColorGrade) {
+        val draft = project ?: return
+        project = draft.setColor(selectedClipId, next)
+    }
 
     fun updateSelectedGeometry(
         updatedCrop: CropFractions = crop,
@@ -344,6 +351,7 @@ fun VideoEditorScreen(
         cropTop = previewCrop.top, cropBottom = previewCrop.bottom,
         rotationDegrees = rotation,
         mirrorHorizontal = mirrorHorizontal, mirrorVertical = mirrorVertical,
+        color = clipColor,
         textLayers = if (showTextResult)
             textLayers.mapNotNull { it.within(trimEnd - trimStart) } else emptyList())
     LaunchedEffect(previewPlayer, selectedClipId, textPreviewSpec) {
@@ -824,6 +832,13 @@ fun VideoEditorScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
 
+                        }
+                        VideoWorkspaceTool.COLOR -> {
+                            VideoColorPanel(
+                                color = clipColor,
+                                enabled = currentClip != null && !ownExport && !busyWithOther,
+                                onColorChange = ::updateSelectedColor,
+                            )
                         }
                         VideoWorkspaceTool.AUDIO -> {
                             VideoAudioTracksPanel(
