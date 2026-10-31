@@ -55,7 +55,7 @@ class PhotoAdvancedColorTest {
         val lut = PhotoCurveMath.lut(curve)
         assertEquals(0, lut[0])
         assertEquals(255, lut[255])
-        assertTrue(lut.zipWithNext().all { (a, b) -> b >= a })
+        assertTrue((1 until lut.size).all { i -> lut[i] >= lut[i - 1] })
         assertTrue(lut.all { it in 0..255 })
     }
 
