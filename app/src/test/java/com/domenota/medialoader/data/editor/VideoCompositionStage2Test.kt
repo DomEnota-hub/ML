@@ -12,7 +12,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class VideoCompositionStage2Test {
     private val editor: VideoEditor
-        get() = VideoEditor(RuntimeEnvironment.getApplication<android.app.Application>())
+        get() = VideoEditor(RuntimeEnvironment.getApplication())
 
     @Test fun compositionOrderAndClipBoundariesMatchTheTimeline() {
         val draft = VideoProjectDraft(listOf(
