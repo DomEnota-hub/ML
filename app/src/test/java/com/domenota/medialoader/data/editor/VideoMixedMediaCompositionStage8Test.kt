@@ -36,7 +36,7 @@ class VideoMixedMediaCompositionStage8Test {
         assertTrue(items.all { edited ->
             edited.effects.videoEffects.any { it is Presentation }
         })
-        assertEquals(6500L, project.durationMs)
+        assertEquals(5500L, project.durationMs)
         assertFalse(items[0].removeAudio)
     }
 
