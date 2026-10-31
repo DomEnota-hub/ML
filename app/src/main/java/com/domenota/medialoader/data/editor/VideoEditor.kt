@@ -94,13 +94,38 @@ class VideoEditor(private val context: Context) {
     ): File {
         val composition = compositionForProject(project, spec)
         val destination = File(context.cacheDir, "video-join-${UUID.randomUUID()}.mp4")
-        val intermediate = runExport(composition = composition, output = destination,
-            onProgress = if (spec.reverse) ({ p -> onProgress(p * 45 / 100) }) else onProgress)
-        if (!spec.reverse) return intermediate
+        val withOverlay = project.visibleAudioTracks().isNotEmpty()
+        val firstPassMax = when {
+            spec.reverse && withOverlay -> 40
+            spec.reverse -> 45
+            withOverlay -> 75
+            else -> 100
+        }
+        var working = runExport(composition = composition, output = destination,
+            onProgress = { p -> onProgress(p * firstPassMax / 100) })
         try {
-            return VideoReverseEngine(context.cacheDir).reverse(intermediate, onProgress)
+            if (withOverlay) {
+                val overlayMax = if (spec.reverse) 60 else 100
+                val mixed = VideoAudioMixEngine(context).mix(working, project,
+                    includeOriginalAudio = !spec.removeAudio) { p ->
+                    onProgress(firstPassMax + p * (overlayMax - firstPassMax) / 100)
+                }
+                if (mixed != working) {
+                    working.delete()
+                    working = mixed
+                }
+            }
+            if (!spec.reverse) return working
+            val reverseStartsAt = if (withOverlay) 60 else 45
+            return VideoReverseEngine(context.cacheDir).reverse(working) { p ->
+                onProgress(reverseStartsAt +
+                    (p - 45).coerceIn(0, 55) * (100 - reverseStartsAt) / 55)
+            }
+        } catch (error: Throwable) {
+            working.delete()
+            throw error
         } finally {
-            intermediate.delete()
+            if (spec.reverse) working.delete()
         }
     }
 
