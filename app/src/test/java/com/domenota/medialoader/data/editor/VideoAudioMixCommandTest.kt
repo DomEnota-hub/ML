@@ -39,7 +39,7 @@ class VideoAudioMixCommandTest {
         assertFalse(filter.contains("[0:a:0]"))
         assertTrue(filter.contains("adelay=1000:all=1"))
         assertTrue(filter.endsWith("[a1]anull[aout]"))
-        assertEquals("[aout]", args[args.indexOf("-map") + 4])
+        assertEquals("[aout]", args[args.indexOf("-map") + 3])
     }
 
     @Test fun audioCannotExtendBeyondProjectAndInputsMustMatch() {
