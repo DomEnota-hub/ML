@@ -12,7 +12,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -58,7 +59,6 @@ internal fun VideoMultiClipTimeline(
     onTogglePlayback: () -> Unit,
 ) {
     var zoom by remember { mutableFloatStateOf(1f) }
-    val scroll = rememberScrollState()
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween) {
@@ -75,11 +75,10 @@ internal fun VideoMultiClipTimeline(
                 valueRange = .6f..2.5f,
                 modifier = Modifier.width(96.dp).height(34.dp), enabled = enabled)
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(scroll).height(77.dp),
+        LazyRow(Modifier.fillMaxWidth().height(77.dp),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            project.clips.forEachIndexed { index, clip ->
-                key(clip.id) {
+            itemsIndexed(project.clips, key = { _, clip -> clip.id }) { index, clip ->
                     val width = (clip.durationMs / 1000f * 15f * zoom)
                         .coerceIn(76f, 380f).dp
                     VideoClipStrip(
@@ -89,10 +88,7 @@ internal fun VideoMultiClipTimeline(
                         localPositionMs = (positionMs - project.timelineStart(index))
                             .takeIf { it >= 0L && it <= clip.durationMs },
                         enabled = enabled,
-                        onSelect = {
-                            onSelect(clip.id)
-                            onSeek(project.timelineStart(index))
-                        },
+                        onSelect = { onSelect(clip.id) },
                         onSeek = { fraction ->
                             onSelect(clip.id)
                             onSeek(project.timelineStart(index) +
@@ -104,10 +100,11 @@ internal fun VideoMultiClipTimeline(
                             if (destination != index) onMove(clip.id, destination)
                         }
                     )
-                }
             }
-            IconButton(onClick = onAdd, enabled = enabled) {
-                Icon(Icons.Rounded.Add, contentDescription = "Добавить клипы")
+            item {
+                IconButton(onClick = onAdd, enabled = enabled) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Добавить клипы")
+                }
             }
         }
     }
