@@ -41,10 +41,10 @@ data class PhotoColorAdjustments(
 ) {
     init {
         require(listOf(brightness, contrast, saturation, warmth, exposure, shadows, highlights,
-            blackPoint, curve, vibrance, tint, sharpness, clarity,
-            effectStrength, vignette, vignetteSize, glow, glowSize,
-            dispersion, dispersionSize)
+            blackPoint, curve, vibrance, tint, sharpness, clarity)
             .all { it.isFinite() && it in -100f..100f })
+        require(listOf(effectStrength, vignette, vignetteSize, glow, glowSize,
+            dispersion, dispersionSize).all { it.isFinite() && it in 0f..100f })
         require(hsl.size <= HslRange.entries.size)
     }
     fun isNeutral() = this == PhotoColorAdjustments()
@@ -63,7 +63,8 @@ data class HslCorrection(
 }
 
 enum class PhotoEffectCategory(val label: String) {
-    ALL("Все"), POPULAR("Популярное"), FILM("Плёнка"), CLASSIC("Классика"),
+    ALL("Все"), FAVORITES("Избранное"), POPULAR("Популярное"),
+    FILM("Плёнка"), CLASSIC("Классика"),
     PORTRAIT("Портрет"), FOOD("Еда"), CINEMA("Кино"), TRAVEL("Путешествия"),
     NIGHT("Ночь"), TEXTURE("Текстуры")
 }
@@ -111,8 +112,11 @@ enum class PhotoEffect(
     CLASSIC_FADE("Матовый", PhotoEffectCategory.CLASSIC, contrastOffset = -20f, fade = 22f),
 }
 object PhotoEffectCatalog {
-    fun forCategory(category: PhotoEffectCategory): List<PhotoEffect> =
+    fun forCategory(category: PhotoEffectCategory,
+        favorites: Set<PhotoEffect> = emptySet()): List<PhotoEffect> =
         if (category == PhotoEffectCategory.ALL) PhotoEffect.entries
+        else if (category == PhotoEffectCategory.FAVORITES)
+            PhotoEffect.entries.filter { it in favorites }
         else PhotoEffect.entries.filter { it.category == category ||
             (category == PhotoEffectCategory.POPULAR &&
                 it in listOf(PhotoEffect.MONO, PhotoEffect.WARM, PhotoEffect.FILM_FADED,
