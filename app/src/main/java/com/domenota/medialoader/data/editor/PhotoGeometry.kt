@@ -70,23 +70,24 @@ object PhotoGeometryMath {
     /** Pixel-space coordinates of the perspective destination, bounded inside the output. */
     fun destination(settings: PhotoGeometry, width: Int, height: Int): FloatArray {
         require(width > 0 && height > 0)
-        val h = settings.horizontalPerspective / 100f
-        val v = settings.verticalPerspective / 100f
-        // +h narrows the top edge; +v narrows the left edge.
-        val offsets = arrayOf(
-            floatArrayOf(h, v),
-            floatArrayOf(1f - h, -v),
-            floatArrayOf(1f + h, 1f + v),
-            floatArrayOf(-h, 1f - v),
+        val h = settings.horizontalPerspective / 250f
+        val v = settings.verticalPerspective / 250f
+        // Horizontal perspective narrows/expands the top edge. Vertical
+        // perspective narrows/expands the left edge. Adjacent points are
+        // kept in the bounds to prevent invalid projective matrices.
+        val delta = arrayOf(
+            floatArrayOf(h, v), floatArrayOf(-h, 0f),
+            floatArrayOf(0f, 0f), floatArrayOf(0f, -v),
         )
-        return FloatArray(8) { component ->
-            val i = component / 2
-            val corner = settings.corners[i]
-            val p = offsets[i][component % 2]
-            val coordinate = if (component % 2 == 0) corner.x + p -
-                (if (i == 0 || i == 3) 0f else 1f)
-                else corner.y + p - (if (i < 2) 0f else 1f)
-            coordinate * (if (component % 2 == 0) width.toFloat() else height.toFloat())
+        val adjusted = List(4) { i ->
+            PhotoGeometryPoint(
+                (settings.corners[i].x + delta[i][0]).coerceIn(0f, 1f),
+                (settings.corners[i].y + delta[i][1]).coerceIn(0f, 1f))
+        }
+        val quad = if (isValidQuad(adjusted)) adjusted else settings.corners
+        return FloatArray(8) { i ->
+            val p = quad[i / 2]
+            if (i % 2 == 0) p.x * width else p.y * height
         }
     }
 
