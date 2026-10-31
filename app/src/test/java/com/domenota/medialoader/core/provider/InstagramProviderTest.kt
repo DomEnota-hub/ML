@@ -131,6 +131,41 @@ class InstagramProviderTest {
         return """<script type="application/json" data-sjs>{"payload":{"item":{"if_not_gated_logged_out":{"pk":"$id","carousel_media":[{"image_versions2":{"candidates":[{"url":"https://scontent.fbcdn.net/small.jpg","width":640},{"url":"$firstUrl","width":1080}]}},{"video_versions":[{"url":"$secondUrl","width":720}],"image_versions2":{"candidates":[{"url":"$secondCover","width":400}]}}]}}}}</script>"""
     }
 
+    @Test fun instagramChoosesLargestPixelAreaNotWidestVideo() {
+        val product = org.json.JSONObject(
+            """{"video_versions":[
+                {"url":"https://scontent.fbcdn.net/wide.mp4","width":1440,"height":720},
+                {"url":"https://scontent.fbcdn.net/portrait.mp4","width":1080,"height":1920},
+                {"url":"https://scontent.fbcdn.net/small.mp4","width":720,"height":1280}
+            ]}""")
+        val selected = InstagramProvider.itemsFromProduct(product, "Ab_12-z").single()
+        assertEquals(MediaType.VIDEO, selected.type)
+        assertEquals("https://scontent.fbcdn.net/portrait.mp4", selected.downloadUrl)
+        assertEquals("1080×1920", selected.qualityLabel)
+    }
+
+    @Test fun instagramVideoWithoutDimensionsRemainsDownloadable() {
+        val product = org.json.JSONObject(
+            """{"video_versions":[
+                {"url":"https://scontent.fbcdn.net/first.mp4"},
+                {"url":"https://scontent.fbcdn.net/second.mp4"}
+            ]}""")
+        val selected = InstagramProvider.itemsFromProduct(product, "Ab_12-z").single()
+        assertEquals(MediaType.VIDEO, selected.type)
+        assertEquals("https://scontent.fbcdn.net/first.mp4", selected.downloadUrl)
+        assertNull(selected.qualityLabel)
+    }
+
+    @Test fun instagramVariantSelectionIgnoresUnsafeHigherResolutionHost() {
+        val product = org.json.JSONObject(
+            """{"video_versions":[
+                {"url":"https://scontent.fbcdn.net/safe.mp4","width":720,"height":1280},
+                {"url":"https://fbcdn.net.bad.example/unsafe.mp4","width":4096,"height":2160}
+            ]}""")
+        val selected = InstagramProvider.itemsFromProduct(product, "Ab_12-z").single()
+        assertEquals("https://scontent.fbcdn.net/safe.mp4", selected.downloadUrl)
+    }
+
     @Test fun photoCarouselIsNumberedFromTheFirstItem() {
         runBlocking {
             val id = InstagramProvider.mediaId("Ab_12-z")
