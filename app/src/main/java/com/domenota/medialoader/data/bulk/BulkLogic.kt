@@ -76,8 +76,9 @@ data class BulkSelectionReport(
 )
 
 /**
- * Pick only a video variant that is PROVEN to fit the user-selected height cap.
- * No guessing unknown heights and no silent fallback to a higher resolution.
+ * Instagram has no user-selectable resolution: always keep the best variant the
+ * provider supplied, even when metadata does not disclose frame dimensions.
+ * For YouTube/VK/RUTUBE the explicit resolution ceiling remains strict.
  */
 object BulkSelection {
     private val pHeight = Regex("""(?i)(?<!\d)(\d{3,4})\s*p\b""")
@@ -89,6 +90,14 @@ object BulkSelection {
             ?: frameSize.find(label)?.groupValues?.get(1)?.toIntOrNull()
         return number?.takeIf { it in 144..4320 }
     }
+
+    private val instagramFrame = Regex("""(?i)\b(\d{3,5})\s*[x×]\s*(\d{3,5})\b""")
+
+    private fun instagramPixels(label: String?): Long =
+        label?.let(instagramFrame::find)?.let {
+            (it.groupValues[1].toLongOrNull() ?: 0L) *
+                (it.groupValues[2].toLongOrNull() ?: 0L)
+        } ?: 0L
 
     fun select(items: List<MediaItem>, rules: BulkRules): List<MediaItem> =
         withReport(items, rules).items
@@ -106,7 +115,12 @@ object BulkSelection {
                 else it.group ?: it.sourceGroupId ?: it.id }
             .values.mapNotNull { group ->
                 val variants = group.map { it to knownHeight(it.qualityLabel) }
-                if (rules.maxHeight == null) {
+                if (group.first().providerId == "instagram") {
+                    // One media object per post/carousel element. InstagramProvider
+                    // already chooses the best CDN version available. Do not apply
+                    // user-selected 480p/720p/1080p limits or reject unknown labels.
+                    group.maxByOrNull { instagramPixels(it.qualityLabel) } ?: group.first()
+                } else if (rules.maxHeight == null) {
                     variants.maxByOrNull { it.second ?: 0 }?.first
                 } else {
                     val suitable = variants.filter { (_, height) ->
