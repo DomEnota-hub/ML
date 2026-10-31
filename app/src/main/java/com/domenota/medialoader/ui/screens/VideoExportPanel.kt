@@ -18,6 +18,7 @@ internal fun VideoExportPanel(
     cropHeight: Float,
     rotationDegrees: Int,
     estimatedFrameRate: Int,
+    reverseEnabled: Boolean,
     enabled: Boolean,
     onSettingsChange: (VideoExportSettings) -> Unit,
 ) {
@@ -54,13 +55,21 @@ internal fun VideoExportPanel(
         val output = settings.dimensions(sourceWidth, sourceHeight,
             cropWidth, cropHeight, rotationDegrees)
         val megabits = settings.targetBitrate(output, estimatedFrameRate) / 1_000_000f
-        Text("Запрос: ${output.width} × ${output.height} · H.264 / MP4 · " +
+        Text("Запрос: ${output.width} × ${output.height} · " +
+            (if (reverseEnabled) "MP4 (дополнительная обработка реверса)"
+            else "H.264 / MP4") + " · " +
             "%.1f".format(java.util.Locale.US, megabits) + " Мбит/с",
             style = MaterialTheme.typography.bodyMedium)
     } else {
         Text("Определяем размер первого клипа…",
             style = MaterialTheme.typography.labelSmall)
     }
+    if (reverseEnabled) Text(
+        "При реверсе итоговый файл дополнительно перекодируется через FFmpeg. " +
+            "Выбранный битрейт и H.264 могут не сохраниться; фактические параметры " +
+            "реверсного MP4 проверяются отдельно.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error)
     Text("Исходники с разной ориентацией помещаются в общий кадр " +
         "без растягивания. Запрошенные FPS, битрейт и разрешение могут " +
         "быть скорректированы кодеком телефона. Низкий FPS не повышается " +
