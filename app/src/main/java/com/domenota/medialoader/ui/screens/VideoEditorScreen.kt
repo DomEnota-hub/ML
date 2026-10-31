@@ -77,6 +77,7 @@ import com.domenota.medialoader.data.editor.VideoCropMath
 import com.domenota.medialoader.data.editor.VideoEditSpec
 import com.domenota.medialoader.data.editor.VideoEditor
 import com.domenota.medialoader.data.editor.VideoProjectDraft
+import com.domenota.medialoader.data.editor.VideoTimelineFrameMath
 import com.domenota.medialoader.data.editor.VideoFramePosition
 import com.domenota.medialoader.data.editor.EditorExportState
 import com.domenota.medialoader.ui.components.CropFrameOverlay
@@ -146,6 +147,7 @@ fun VideoEditorScreen(
     var selectedClipId by remember(item.id) { mutableStateOf(item.id.toString()) }
     var playheadMs by remember(item.id) { mutableLongStateOf(0L) }
     var timelineIsPlaying by remember(item.id) { mutableStateOf(false) }
+    var selectedFrameDurationMs by remember(item.id) { mutableStateOf<Long?>(null) }
     var clipError by remember(item.id) { mutableStateOf<String?>(null) }
     val projectScope = rememberCoroutineScope()
     val currentClip = project?.clips?.firstOrNull { it.id == selectedClipId }
@@ -331,9 +333,16 @@ fun VideoEditorScreen(
             delay(75L)
         }
     }
-    LaunchedEffect(selectedClipId, project?.clips) {
+    LaunchedEffect(selectedClipId, currentClip?.sourceUri) {
+        selectedFrameDurationMs = null
         val clip = project?.clips?.firstOrNull { it.id == selectedClipId }
-        if (clip != null) { trimStart = clip.inMs; trimEnd = clip.outMs }
+        if (clip != null) {
+            trimStart = clip.inMs
+            trimEnd = clip.outMs
+            selectedFrameDurationMs = withContext(Dispatchers.IO) {
+                readVideoInfo(context, Uri.parse(clip.sourceUri))?.frameDurationMs
+            }
+        }
     }
 
     if (textEditorOpen && uri != null && trimEnd > trimStart) EditorTextDialog(
@@ -419,13 +428,32 @@ fun VideoEditorScreen(
                         positionMs = playheadMs,
                         isPlaying = timelineIsPlaying,
                         enabled = !ownExport && !busyWithOther,
+                        frameIntervalMs = selectedFrameDurationMs,
+                        onFrameStep = { direction ->
+                            val interval = selectedFrameDurationMs
+                            val draft = project
+                            if (interval != null && draft != null && draft.indexOf(selectedClipId) >= 0) {
+                                val target = VideoTimelineFrameMath.stepSelected(
+                                    draft, selectedClipId, playheadMs, direction, interval)
+                                val location = draft.locateAt(target)
+                                playheadMs = target
+                                previewPlayer?.pause()
+                                previewPlayer?.seekTo(location.clipIndex,
+                                    location.positionWithinClipMs.coerceAtMost(
+                                        (draft.clips[location.clipIndex].durationMs - 1L).coerceAtLeast(0L)))
+                            }
+                        },
                         onSelect = { id ->
                             selectedClipId = id
                             selectedTool = VideoWorkspaceTool.TRIM
                         },
                         onSeek = { target ->
-                            val located = activeProject.locateAt(target)
-                            playheadMs = target
+                            val original = activeProject.locateAt(target)
+                            val precise = VideoTimelineFrameMath.projectPosition(
+                                activeProject, target,
+                                selectedFrameDurationMs.takeIf { original.clipId == selectedClipId })
+                            val located = activeProject.locateAt(precise)
+                            playheadMs = precise
                             if (previewPlayer != null &&
                                 located.clipIndex < previewPlayer.mediaItemCount) {
                                 previewPlayer.seekTo(located.clipIndex,
