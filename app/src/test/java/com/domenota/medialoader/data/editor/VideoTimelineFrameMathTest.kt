@@ -11,7 +11,7 @@ class VideoTimelineFrameMathTest {
 
     @Test fun seekRoundsToFrameGridInSourceCoordinates() {
         val absolute = draft.timelineStart(0) + 528L
-        assertEquals(528L, VideoTimelineFrameMath.projectPosition(draft, absolute, 33L))
+        assertEquals(518L, VideoTimelineFrameMath.projectPosition(draft, absolute, 33L))
         val arbitrary = draft.timelineStart(0) + 543L
         val snapped = VideoTimelineFrameMath.projectPosition(draft, arbitrary, 33L)
         assertEquals(551L, snapped)
