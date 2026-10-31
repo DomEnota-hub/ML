@@ -29,6 +29,9 @@ class EditorTextDialogLayoutTest {
                     onApply = {}, onDismiss = {})
             }
         }
+        // The default UX keeps the preview large and advanced controls collapsed.
+        compose.onNodeWithText("Удалить надпись").assertDoesNotExist()
+        compose.onNodeWithText("Все настройки текста").performClick()
         compose.waitUntil(timeoutMillis = 15_000) {
             compose.onAllNodesWithText("DejaVu Sans · очень тонкий").fetchSemanticsNodes().isNotEmpty()
         }
@@ -51,6 +54,7 @@ class EditorTextDialogLayoutTest {
                     onApply = {}, onDismiss = {})
             }
         }
+        compose.onNodeWithText("Все настройки текста").performClick()
         val bounds = compose.onNodeWithText("Удалить надпись").fetchSemanticsNode().boundsInWindow
         println("DELETE: $bounds, physical height: $screenHeight")
         assertTrue("Delete extends beyond physical display: $bounds / $screenHeight", bounds.bottom <= screenHeight)
@@ -64,6 +68,7 @@ class EditorTextDialogLayoutTest {
                     onApply = {}, onDismiss = {})
             }
         }
+        compose.onNodeWithText("Все настройки текста").performClick()
         compose.waitUntil(timeoutMillis = 15_000) {
             compose.onAllNodesWithText("Noto Sans").fetchSemanticsNodes().isNotEmpty()
         }

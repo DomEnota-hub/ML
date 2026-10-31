@@ -57,7 +57,7 @@ fun GalleryModeScreen(
     onRename: (String, String) -> Unit, onMoveToPrivate: (String) -> Unit,
     searchVisible: Boolean? = null, tabOverride: Int? = null, scrollToTopRequest: Int = 0, onTabChange: (Int) -> Unit = {},
     deviceAlbums: Map<String, DeviceAlbum> = emptyMap(),
-    onDetailChange: (Boolean) -> Unit = {}, onSettings: (() -> Unit)? = null,
+    onDetailChange: (Boolean) -> Unit = {}, onTrash: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
     onDeleteFolder: suspend (String) -> Unit = {},
 ) {
@@ -81,7 +81,6 @@ fun GalleryModeScreen(
     var renameTarget by remember { mutableStateOf<DownloadEntity?>(null) }
     var creating by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var detailMenu by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var selectedJumpDate by remember { mutableStateOf<LocalDate?>(null) }
     val detailOpen = selectionTitle.isNotEmpty()
@@ -224,11 +223,8 @@ fun GalleryModeScreen(
                     if (!detailOpen) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(::closeAlbum) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Все альбомы") }
                         Text(selectionTitle, Modifier.weight(1f), fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (onSettings != null) Box {
-                            IconButton({ detailMenu = true }) { Icon(Icons.Rounded.MoreVert, "Дополнительно") }
-                            DropdownMenu(detailMenu, { detailMenu = false }) {
-                                DropdownMenuItem({ Text("Настройки") }, { detailMenu = false; onSettings() }, leadingIcon = { Icon(Icons.Rounded.Settings, null) })
-                            }
+                        if (onTrash != null) IconButton(onTrash) {
+                            Icon(Icons.Rounded.DeleteOutline, "Корзина")
                         }
                     }
                     if (searchVisible != false) OutlinedTextField(search, { search = it },

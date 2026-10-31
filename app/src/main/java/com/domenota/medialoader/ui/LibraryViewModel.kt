@@ -300,7 +300,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         val indexedRevision = if (mode == AppMode.GALLERY) canonical.galleryRevision else canonical.musicRevision
         val silent = canRefreshLibrarySilently(state.value, canonical, indexedRevision,
             changedAccess, partial, invalidate)
-        var blocking = !silent
+        // Preserve the current usable snapshot for routine refreshes. Full invalidation
+        // is reserved for permission or private-access changes, not MediaStore churn.
+        var blocking = !silent && !(state.value.loaded && !changedAccess && !partial && !invalidate)
         val now = android.os.SystemClock.elapsedRealtime()
         // Even selected-only access must not repeatedly cancel an ongoing validation.
         // Permission/privacy invalidation is the only reason to restart it.
@@ -342,8 +344,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 }
                 val previousStamp = storeStamps[mode]
                 if (!blocking && previousStamp?.versions != null && previousStamp.versions != stamp.versions) {
-                    blocking = true
-                    state.value = PhoneLibraryState(loading = true, revision = ++revision)
+                    // Android can recreate a MediaStore database without revoking access.
+                    // Reindex in the background; never discard photos/music already visible.
+                    blocking = !state.value.loaded
+                    if (blocking) state.value = PhoneLibraryState(loading = true, revision = ++revision)
                 }
                 if (!blocking && stamp.generation != null && previousStamp == stamp) {
                     state.value = state.value.copy(loading = false)

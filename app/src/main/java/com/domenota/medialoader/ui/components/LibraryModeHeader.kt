@@ -47,21 +47,20 @@ internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
 
 @Composable
 internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource, onMode: (AppMode) -> Unit,
-    onSource: (LibrarySource) -> Unit, onAccess: () -> Unit, onSettings: () -> Unit,
+    onSource: (LibrarySource) -> Unit, onTrash: () -> Unit, onSettings: () -> Unit,
     onSearch: () -> Unit = {}, onPrivate: () -> Unit = {}) {
-    var actionsMenu by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(start = 17.dp, end = 17.dp, top = 9.dp, bottom = 15.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { AppModeTitle(mode, onMode) }
             IconButton(onSearch) { Icon(Icons.Rounded.Search, "Поиск", Modifier.size(23.dp)) }
             IconButton(onPrivate) { Icon(Icons.Rounded.Lock, "Личное", Modifier.size(23.dp)) }
-            Box {
-                IconButton({ actionsMenu = true }) { Icon(Icons.Rounded.MoreVert, "Дополнительно", Modifier.size(23.dp)) }
-                DropdownMenu(actionsMenu, { actionsMenu = false }) {
-                    DropdownMenuItem({ Text("Настройки") }, { actionsMenu = false; onSettings() },
-                        leadingIcon = { Icon(Icons.Rounded.Settings, null) })
-                    if (source == LibrarySource.PHONE) DropdownMenuItem({ Text("Доступ к файлам") },
-                        { actionsMenu = false; onAccess() }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) })
+            if (mode == AppMode.GALLERY) {
+                IconButton(onTrash) {
+                    Icon(Icons.Rounded.DeleteOutline, "Корзина", Modifier.size(23.dp))
+                }
+            } else {
+                IconButton(onSettings) {
+                    Icon(Icons.Rounded.Settings, "Настройки", Modifier.size(23.dp))
                 }
             }
         }

@@ -349,6 +349,7 @@ fun VideoEditorScreen(
                         trimEnd = end
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    showSolidTrimBar = false,
                     snapIntervalMs = info!!.frameDurationMs,
                     timelineVisual = { visualModifier ->
                         VideoTimelineStrip(

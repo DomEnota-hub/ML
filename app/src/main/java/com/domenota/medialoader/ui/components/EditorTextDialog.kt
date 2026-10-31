@@ -81,6 +81,7 @@ internal fun EditorTextDialog(
     var playing by remember { mutableStateOf(false) }
     var intervalEnd by remember { mutableStateOf<Long?>(null) }
     var timingTab by remember { mutableStateOf(false) }
+    var expandedControls by remember { mutableStateOf(false) }
     var previewZoom by remember { mutableStateOf(PreviewZoom()) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     fun seek(time: Long) {
@@ -173,8 +174,13 @@ internal fun EditorTextDialog(
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
                 val compact = maxHeight < 560.dp
-                val minimal = maxHeight < 360.dp
-                val previewHeight = if (minimal) 0.dp else (maxHeight * 0.24f).coerceIn(64.dp, 200.dp)
+                val minimal = maxHeight < 280.dp
+                // Keep the image large by default; expand advanced options only on demand.
+                val previewHeight = when {
+                    minimal -> (maxHeight * 0.27f).coerceAtLeast(48.dp)
+                    expandedControls -> (maxHeight * 0.37f).coerceIn(120.dp, 330.dp)
+                    else -> (maxHeight * 0.58f).coerceIn(170.dp, 460.dp)
+                }
                 LaunchedEffect(minimal) { if (minimal) {
                     videoPlayer?.pause(); playing = false; pickColor = false; inspectedColor = null
                 } }
@@ -329,7 +335,34 @@ internal fun EditorTextDialog(
                             }, label = { Text("Время появления") })
                         }
                     }
-                    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { expandedControls = !expandedControls }) {
+                            Text(if (expandedControls) "Свернуть инструменты" else "Все настройки текста")
+                        }
+                    }
+                    if (!expandedControls) {
+                        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                            .padding(bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                layers.forEachIndexed { index, layer ->
+                                    FilterChip(selected = layer.id == selectedId,
+                                        onClick = { selectedId = layer.id },
+                                        label = { Text("Текст ${index + 1}") })
+                                }
+                                OutlinedButton(onClick = {
+                                    val added = TextLayer(startMs = 0L, endMs = durationMs)
+                                    layers = layers + added; selectedId = added.id
+                                }, enabled = layers.size < 8) { Text("+ Добавить") }
+                            }
+                            selected?.let { layer ->
+                                OutlinedTextField(layer.text,
+                                    { update(layer.copy(text = it.take(500))) },
+                                    label = { Text("Надпись") },
+                                    modifier = Modifier.fillMaxWidth(), maxLines = 3)
+                            }
+                        }
+                    } else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
                         .padding(top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         sample?.let { source ->
@@ -433,7 +466,7 @@ internal fun EditorTextDialog(
                             }
                         }
                     }
-                    selected?.let { layer ->
+                    if (expandedControls) selected?.let { layer ->
                         HorizontalDivider()
                         OutlinedButton(onClick = {
                             pickColor = false; inspectedColor = null; selectSample = false; sampleBounds = null
