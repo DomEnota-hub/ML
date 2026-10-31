@@ -123,6 +123,8 @@ import com.domenota.medialoader.ui.components.AppCard
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.components.SourceIcon
 import com.domenota.medialoader.ui.model.DownloadUiItem
+import com.domenota.medialoader.data.library.AppMode
+import com.domenota.medialoader.ui.hasPhoneLibraryAccess
 import com.domenota.medialoader.ui.model.MediaKind
 import com.domenota.medialoader.ui.model.DownloadUiState
 import com.domenota.medialoader.ui.model.AdvancedDownloadToolsVisibility
@@ -160,6 +162,7 @@ fun SettingsScreen(
     onRestore: (Set<String>) -> Unit,
     onEmptyTrash: () -> Unit,
     onOpenTrash: () -> Unit = {},
+    onRequestLibraryAccess: (AppMode) -> Unit = {},
     onClearHistory: () -> Unit,
     ytDlpUpdate: String? = null,
     ytDlpUpdating: Boolean = false,
@@ -185,6 +188,17 @@ fun SettingsScreen(
     editorAlbumsById: Map<String, List<String>> = emptyMap(),
 ) {
     val context = LocalContext.current
+    val permissionOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var permissionRevision by remember { mutableIntStateOf(0) }
+    DisposableEffect(permissionOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) permissionRevision++
+        }
+        permissionOwner.lifecycle.addObserver(observer)
+        onDispose { permissionOwner.lifecycle.removeObserver(observer) }
+    }
+    val needsGalleryAccess = permissionRevision.let { !hasPhoneLibraryAccess(context, AppMode.GALLERY) }
+    val needsMusicAccess = permissionRevision.let { !hasPhoneLibraryAccess(context, AppMode.MUSIC) }
     var editorKind by remember { mutableStateOf<MediaKind?>(null) }
     var accountsExpanded by rememberSaveable { mutableStateOf(false) }
     var downloadExpanded by rememberSaveable { mutableStateOf(false) }
@@ -1022,6 +1036,13 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
+            if (needsGalleryAccess || needsMusicAccess) {
+                SettingRow(Icons.Rounded.FolderOpen, "Доступ к файлам",
+                    "Разрешения для галереи и музыки", grouped = true,
+                    iconTone = SettingIconTone.FOLDER,
+                    onClick = { onRequestLibraryAccess(if (needsGalleryAccess) AppMode.GALLERY else AppMode.MUSIC) })
+                GroupDivider()
+            }
             if (Build.VERSION.SDK_INT >= 31 && !mediaManagementGranted) {
                 SettingRow(Icons.Rounded.DeleteSweep, "Управление медиафайлами",
                     "Разрешить удаление без повторного запроса Android", grouped = true,
@@ -1128,7 +1149,8 @@ private fun SettingRow(
     expanded: Boolean? = null,
     iconTone: SettingIconTone = SettingIconTone.NEUTRAL,
 ) {
-    val tint = if (nested) MaterialTheme.colorScheme.onSurfaceVariant else iconTone.tint
+    // Preserve semantic accent colors for nested settings too; avoid an all-grey list.
+    val tint = iconTone.tint
     val iconBackground = tint.copy(alpha = if (nested) 0.10f else if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.12f else 0.22f)
     val content: @Composable ColumnScope.() -> Unit = {
         Row(
