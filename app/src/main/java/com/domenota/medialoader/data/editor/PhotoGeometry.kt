@@ -117,6 +117,21 @@ object PhotoGeometryMath {
         return warp
     }
 
+    fun preview(source: Bitmap, crop: CropFractions, rotation: Int,
+        mirrorHorizontal: Boolean, mirrorVertical: Boolean,
+        settings: PhotoGeometry): Bitmap {
+        val prepared = TextLayerRenderer.preview(source, crop, rotation,
+            mirrorHorizontal, mirrorVertical)
+        try {
+            val warped = apply(prepared, settings)
+            if (warped !== prepared && prepared !== source) prepared.recycle()
+            return warped
+        } catch (error: Throwable) {
+            if (prepared !== source && !prepared.isRecycled) prepared.recycle()
+            throw error
+        }
+    }
+
     fun apply(source: Bitmap, settings: PhotoGeometry): Bitmap {
         if (settings.isNeutral()) return source
         val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
