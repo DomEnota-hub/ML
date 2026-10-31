@@ -127,7 +127,11 @@ object PhotoLocalEffects {
                             val scale = min(1f, 640f / max(result.width, result.height))
                             val w = max(2, (result.width * scale).roundToInt())
                             val h = max(2, (result.height * scale).roundToInt())
-                            val small = Bitmap.createScaledBitmap(result, w, h, true)
+                            // Always allocate an independent mutable bitmap, even
+                            // when the source itself is smaller than 640px.
+                            val small = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                            Canvas(small).drawBitmap(result, null, Rect(0, 0, w, h),
+                                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
                             try {
                                 val radius = max(1, (size * scale * 0.7f).roundToInt())
                                 val pixels = IntArray(w * h)
