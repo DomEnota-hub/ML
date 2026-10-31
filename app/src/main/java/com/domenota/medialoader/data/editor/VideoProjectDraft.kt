@@ -205,7 +205,17 @@ data class VideoProjectDraft(
         require(newClips.isNotEmpty())
         val index = indexOf(id)
         require(index >= 0)
-        return copy(clips = clips.take(index + 1) + newClips + clips.drop(index + 1))
+        // A transition belongs to the old cut. Move it to the inserted last
+        // clip instead of multiplying it across every newly created cut.
+        val oldCut = if (index < clips.lastIndex) clips[index].transitionOut
+            else VideoTransitionDraft()
+        val inserted = newClips.mapIndexed { offset, added ->
+            if (offset == newClips.lastIndex) added.copy(transitionOut = oldCut)
+            else added
+        }
+        return copy(clips = clips.take(index) +
+            clips[index].copy(transitionOut = VideoTransitionDraft()) +
+            inserted + clips.drop(index + 1))
     }
 
     fun splitAt(id: String, sourceMs: Long, rightId: String,
@@ -216,7 +226,8 @@ data class VideoProjectDraft(
         require(sourceMs - target.inMs >= minDurationMs &&
             target.outMs - sourceMs >= minDurationMs)
         return copy(clips = clips.take(index) +
-            listOf(target.copy(outMs = sourceMs),
+            listOf(target.copy(outMs = sourceMs,
+                transitionOut = VideoTransitionDraft()),
                 target.copy(id = rightId, inMs = sourceMs)) +
             clips.drop(index + 1))
     }
@@ -224,7 +235,8 @@ data class VideoProjectDraft(
     fun duplicate(id: String, newId: String): VideoProjectDraft {
         val index = indexOf(id)
         require(index >= 0 && newId.isNotBlank())
-        return addAfter(id, listOf(clips[index].copy(id = newId)))
+        return addAfter(id, listOf(clips[index].copy(
+            id = newId, transitionOut = VideoTransitionDraft())))
     }
 
     fun move(id: String, toIndex: Int): VideoProjectDraft {
@@ -247,8 +259,14 @@ data class VideoProjectDraft(
 
     fun delete(id: String): VideoProjectDraft {
         require(clips.size > 1) { "Нельзя удалить последний клип" }
-        require(indexOf(id) >= 0)
-        return copy(clips = clips.filterNot { it.id == id })
+        val index = indexOf(id)
+        require(index >= 0)
+        val updated = clips.mapIndexed { at, clip ->
+            if (index > 0 && at == index - 1)
+                clip.copy(transitionOut = VideoTransitionDraft())
+            else clip
+        }
+        return copy(clips = updated.filterNot { it.id == id })
     }
 
     companion object {
