@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   signed-arm64:
-    if: ${{ inputs.device_qa_approved == true }}
+    if: ${{ inputs.device_qa_approved == true && startsWith(github.ref, 'refs/heads/release/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
