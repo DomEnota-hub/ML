@@ -124,7 +124,7 @@ import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.components.SourceIcon
 import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.data.library.AppMode
-import com.domenota.medialoader.ui.hasPhoneLibraryAccess
+import com.domenota.medialoader.data.library.PhoneMediaLibrary
 import com.domenota.medialoader.ui.model.MediaKind
 import com.domenota.medialoader.ui.model.DownloadUiState
 import com.domenota.medialoader.ui.model.AdvancedDownloadToolsVisibility
@@ -197,8 +197,14 @@ fun SettingsScreen(
         permissionOwner.lifecycle.addObserver(observer)
         onDispose { permissionOwner.lifecycle.removeObserver(observer) }
     }
-    val needsGalleryAccess = permissionRevision.let { !hasPhoneLibraryAccess(context, AppMode.GALLERY) }
-    val needsMusicAccess = permissionRevision.let { !hasPhoneLibraryAccess(context, AppMode.MUSIC) }
+    // Selected-photo access is not equivalent to full access, and granting photos
+    // alone does not grant videos. A settings shortcut remains until both exist.
+    fun lacksFullPermission(mode: AppMode): Boolean =
+        PhoneMediaLibrary.permissions(mode)
+            .filterNot { it == Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED }
+            .any { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+    val needsGalleryAccess = permissionRevision.let { lacksFullPermission(AppMode.GALLERY) }
+    val needsMusicAccess = permissionRevision.let { lacksFullPermission(AppMode.MUSIC) }
     var editorKind by remember { mutableStateOf<MediaKind?>(null) }
     var accountsExpanded by rememberSaveable { mutableStateOf(false) }
     var downloadExpanded by rememberSaveable { mutableStateOf(false) }
