@@ -159,7 +159,7 @@ class MediaProcessingService : Service() {
             )
             .setContentTitle(if (success) "Обработка завершена" else "Ошибка обработки")
             .setContentText(
-                if (success) state.operation
+                if (success) state.outputDetails ?: state.operation
                 else state.message ?: "Не удалось обработать файл",
             )
             .setAutoCancel(true)
