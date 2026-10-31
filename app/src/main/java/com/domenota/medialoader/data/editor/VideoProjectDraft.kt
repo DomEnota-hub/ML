@@ -12,7 +12,6 @@ data class VideoClipDraft(
     val id: String,
     val sourceUri: String,
     val sourceDurationMs: Long,
-    val mediaKind: VideoClipMediaKind = VideoClipMediaKind.VIDEO,
     val inMs: Long = 0L,
     val outMs: Long = sourceDurationMs,
     val speed: Float = 1f,
@@ -24,6 +23,7 @@ data class VideoClipDraft(
     val color: VideoColorGrade = VideoColorGrade(),
     val transitionOut: VideoTransitionDraft = VideoTransitionDraft(),
     val specialFx: VideoSpecialFxDraft = VideoSpecialFxDraft(),
+    val mediaKind: VideoClipMediaKind = VideoClipMediaKind.VIDEO,
 ) {
     init {
         require(id.isNotBlank())
