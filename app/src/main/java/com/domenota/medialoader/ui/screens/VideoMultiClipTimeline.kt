@@ -140,6 +140,8 @@ private fun VideoClipStrip(
     onDragOrder: (Int) -> Unit,
 ) {
     val context = LocalContext.current
+    val latestClip by rememberUpdatedState(clip)
+    val latestOnTrim by rememberUpdatedState(onTrim)
     var thumbnails by remember(clip.sourceUri, clip.inMs, clip.outMs) {
         mutableStateOf<List<Bitmap>>(emptyList())
     }
@@ -217,24 +219,24 @@ private fun VideoClipStrip(
             Box(Modifier.align(Alignment.CenterStart).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
                 .pointerInput(clip.id, enabled) {
-                    if (!enabled || clip.durationMs < 200L) return@pointerInput
+                    if (!enabled || latestClip.durationMs < 200L) return@pointerInput
                     detectDragGestures { change, delta ->
                         change.consume()
-                        val shift = (delta.x / pixelWidth * clip.durationMs).roundToLong()
-                        val limit = (clip.outMs - 100L).coerceAtLeast(0L)
-                        onTrim((clip.inMs + shift).coerceIn(0L, limit), clip.outMs)
+                        val shift = (delta.x / pixelWidth * latestClip.durationMs).roundToLong()
+                        val limit = (latestClip.outMs - 100L).coerceAtLeast(0L)
+                        latestOnTrim((latestClip.inMs + shift).coerceIn(0L, limit), latestClip.outMs)
                     }
                 })
             Box(Modifier.align(Alignment.CenterEnd).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
                 .pointerInput(clip.id, enabled) {
-                    if (!enabled || clip.durationMs < 200L) return@pointerInput
+                    if (!enabled || latestClip.durationMs < 200L) return@pointerInput
                     detectDragGestures { change, delta ->
                         change.consume()
-                        val shift = (delta.x / pixelWidth * clip.durationMs).roundToLong()
-                        val minEnd = (clip.inMs + 100L).coerceAtMost(clip.sourceDurationMs)
-                        onTrim(clip.inMs, (clip.outMs + shift)
-                            .coerceIn(minEnd, clip.sourceDurationMs))
+                        val shift = (delta.x / pixelWidth * latestClip.durationMs).roundToLong()
+                        val minEnd = (latestClip.inMs + 100L).coerceAtMost(latestClip.sourceDurationMs)
+                        latestOnTrim(latestClip.inMs, (latestClip.outMs + shift)
+                            .coerceIn(minEnd, latestClip.sourceDurationMs))
                     }
                 })
         }
