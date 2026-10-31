@@ -121,6 +121,7 @@ import com.domenota.medialoader.data.diagnostics.ActiveSessionDiagnosticProbes
 import com.domenota.medialoader.data.search.FullSongSource
 import com.domenota.medialoader.ui.components.AppCard
 import com.domenota.medialoader.ui.components.DownloadThumbnail
+import com.domenota.medialoader.ui.theme.SettingIconTone
 import com.domenota.medialoader.ui.components.SourceIcon
 import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.data.library.AppMode
@@ -830,7 +831,7 @@ fun SettingsScreen(
         SettingsGroup {
             SettingRow(Icons.Rounded.Groups, "Аккаунты",
                 "Instagram, YouTube, VK и RUTUBE", grouped = true,
-                iconTone = SettingIconTone.PURPLE, expanded = accountsExpanded,
+                iconTone = SettingIconTone.ACCOUNTS, expanded = accountsExpanded,
                 onClick = { accountsExpanded = !accountsExpanded })
             ExpandableSettingsBody(accountsExpanded) {
                 GroupDivider()
@@ -872,7 +873,7 @@ fun SettingsScreen(
             GroupDivider()
             SettingRow(Icons.Rounded.Download, "Загрузка",
                 "Качество видео, папка и режим Instagram", grouped = true,
-                iconTone = SettingIconTone.BLUE, expanded = downloadExpanded,
+                iconTone = SettingIconTone.DOWNLOAD, expanded = downloadExpanded,
                 onClick = { downloadExpanded = !downloadExpanded })
             ExpandableSettingsBody(downloadExpanded) {
                 GroupDivider()
@@ -948,7 +949,7 @@ fun SettingsScreen(
                 GroupDivider()
                 SettingRow(Icons.Rounded.Groups, "Загрузка из сообщества VK",
                     "Поиск и выбор изображений со стены", grouped = true,
-                    iconTone = SettingIconTone.BLUE, onClick = onVkCommunityImages)
+                    iconTone = SettingIconTone.VK_COMMUNITY, onClick = onVkCommunityImages)
             }
         }
 
@@ -959,12 +960,12 @@ fun SettingsScreen(
         SettingsGroup {
             SettingRow(Icons.Rounded.GraphicEq, "Эквалайзер",
                 "Настройка звука",
-                grouped = true, iconTone = SettingIconTone.BLUE,
+                grouped = true, iconTone = SettingIconTone.EQUALIZER,
                 onClick = onOpenEqualizer)
             GroupDivider()
             SettingRow(Icons.Rounded.Tune, "Настройки музыки",
                 "Распознавание, источники и имена треков", grouped = true,
-                iconTone = SettingIconTone.PURPLE, expanded = musicOptionsExpanded,
+                iconTone = SettingIconTone.MUSIC_SETTINGS, expanded = musicOptionsExpanded,
                 onClick = { musicOptionsExpanded = !musicOptionsExpanded })
             ExpandableSettingsBody(musicOptionsExpanded) {
                 GroupDivider()
@@ -1010,7 +1011,7 @@ fun SettingsScreen(
         SettingsGroup {
             SettingRow(Icons.Rounded.Palette, "Оформление и просмотр",
                 "Тема, миниатюры и проигрыватель", grouped = true,
-                iconTone = SettingIconTone.PURPLE, expanded = interfaceOptionsExpanded,
+                iconTone = SettingIconTone.APPEARANCE, expanded = interfaceOptionsExpanded,
                 onClick = { interfaceOptionsExpanded = !interfaceOptionsExpanded })
             ExpandableSettingsBody(interfaceOptionsExpanded) {
                 GroupDivider()
@@ -1155,9 +1156,12 @@ private fun SettingRow(
     expanded: Boolean? = null,
     iconTone: SettingIconTone = SettingIconTone.NEUTRAL,
 ) {
-    // Preserve semantic accent colors for nested settings too; avoid an all-grey list.
-    val tint = iconTone.tint
-    val iconBackground = tint.copy(alpha = if (nested) 0.10f else if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.12f else 0.22f)
+    // Derive the swatch from the *active* Material theme, including System mode.
+    // Unlike an alpha-tinted single-color icon, this stays legible in daylight.
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val swatch = iconTone.swatch(darkTheme)
+    val tint = swatch.foreground
+    val iconBackground = swatch.container
     val content: @Composable ColumnScope.() -> Unit = {
         Row(
             modifier = Modifier
@@ -1206,30 +1210,6 @@ private fun SettingRow(
     }
     if (grouped) Column(content = content) else AppCard(Modifier.fillMaxWidth(), content)
 }
-
-private enum class SettingIconTone(val tint: Color) {
-    PURPLE(Color(0xFF8744ED)),
-    BLUE(Color(0xFF2588E8)),
-    AMBER(Color(0xFFF29A27)),
-    GREEN(Color(0xFF26A84A)),
-    RED(Color(0xFFE94854)),
-    NEUTRAL(Color(0xFF68728F)),
-    FOLDER(Color(0xFF398FF1)),
-    NOTIFICATIONS(Color(0xFFF2A43C)),
-    INSTAGRAM(Color(0xFFE77D9F)),
-    CLOSE_PICKER(Color(0xFF8498DC)),
-    BULK(Color(0xFFDE8B65)),
-    MUSIC(Color(0xFF28BDAA)),
-    RECOGNITION(Color(0xFF4BAEEA)),
-    RENAME(Color(0xFF41BD7B)),
-    THEME(Color(0xFFA47AF1)),
-    PLAYER(Color(0xFF368EE8)),
-    TRASH(Color(0xFF4CB98B)),
-    CLEAR_HISTORY(Color(0xFFE15A69)),
-    YTDLP(Color(0xFF48A6DC)),
-    ABOUT(Color(0xFF9098AC)),
-}
-
 
 @Composable
 private fun EditorShortcut(
