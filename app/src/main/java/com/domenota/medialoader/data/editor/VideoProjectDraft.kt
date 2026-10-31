@@ -21,6 +21,8 @@ data class VideoClipDraft(
     val mirrorHorizontal: Boolean = false,
     val mirrorVertical: Boolean = false,
     val color: VideoColorGrade = VideoColorGrade(),
+    val transitionOut: VideoTransitionDraft = VideoTransitionDraft(),
+    val specialFx: VideoSpecialFxDraft = VideoSpecialFxDraft(),
 ) {
     init {
         require(id.isNotBlank())
@@ -148,6 +150,20 @@ data class VideoProjectDraft(
     fun setColor(id: String, color: VideoColorGrade): VideoProjectDraft {
         require(indexOf(id) >= 0) { "Клип не найден" }
         return copy(clips = clips.map { if (it.id == id) it.copy(color = color) else it })
+    }
+
+    /** The outgoing cut is owned by the left clip; the last clip has no cut. */
+    fun setTransitionAfter(clipId: String, transition: VideoTransitionDraft): VideoProjectDraft {
+        val index = indexOf(clipId)
+        require(index >= 0 && index < clips.lastIndex) { "Нет следующего клипа для перехода" }
+        return copy(clips = clips.map { if (it.id == clipId)
+            it.copy(transitionOut = transition) else it })
+    }
+
+    fun setSpecialFx(clipId: String, effect: VideoSpecialFxDraft): VideoProjectDraft {
+        require(indexOf(clipId) >= 0) { "Клип не найден" }
+        return copy(clips = clips.map { if (it.id == clipId)
+            it.copy(specialFx = effect) else it })
     }
 
     fun addAudioTrack(track: VideoAudioTrackDraft): VideoProjectDraft =
