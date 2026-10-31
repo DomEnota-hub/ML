@@ -6,6 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.Effect
+import androidx.media3.common.C
+import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -35,6 +37,8 @@ data class VideoEditSpec(
     val cropTop: Float = 0f,
     val cropBottom: Float = 0f,
     val rotationDegrees: Int = 0,
+    val mirrorHorizontal: Boolean = false,
+    val mirrorVertical: Boolean = false,
     val removeAudio: Boolean = false,
     val reverse: Boolean = false,
     val textLayers: List<TextLayer> = emptyList(),
@@ -116,12 +120,25 @@ class VideoEditor(private val context: Context) {
             }
             globalStart += clip.durationMs
             val localSpec = spec.copy(textLayers = localLayers, project = null,
-                startMs = clip.inMs, endMs = clip.outMs)
+                startMs = clip.inMs, endMs = clip.outMs,
+                cropLeft = clip.crop.left, cropRight = clip.crop.right,
+                cropTop = clip.crop.top, cropBottom = clip.crop.bottom,
+                rotationDegrees = clip.rotationDegrees,
+                mirrorHorizontal = clip.mirrorHorizontal,
+                mirrorVertical = clip.mirrorVertical)
             EditedMediaItem.Builder(clippedMediaItem(Uri.parse(clip.sourceUri),
                 clip.inMs, clip.outMs))
                 .setRemoveAudio(spec.removeAudio)
                 .setEffects(Effects(emptyList(), previewEffects(localSpec,
                     timeOffsetMs = clip.inMs)))
+                .apply {
+                    if (clip.speed != 1f) {
+                        setSpeed(object : SpeedProvider {
+                            override fun getSpeed(timeUs: Long): Float = clip.speed
+                            override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
+                        })
+                    }
+                }
                 .build()
         }
         val sequence = EditedMediaItemSequence.withAudioAndVideoFrom(edited)
@@ -140,10 +157,12 @@ class VideoEditor(private val context: Context) {
             )
         }
         val rotation = ((spec.rotationDegrees % 360) + 360) % 360
-        if (rotation != 0) {
+        if (rotation != 0 || spec.mirrorHorizontal || spec.mirrorVertical) {
             videoEffects += ScaleAndRotateTransformation.Builder()
                 // Android Canvas and the editor's RotateRight control use clockwise degrees.
                 .setRotationDegrees(-rotation.toFloat())
+                .setScale(if (spec.mirrorHorizontal) -1f else 1f,
+                    if (spec.mirrorVertical) -1f else 1f)
                 .build()
         }
         if (spec.textLayers.isNotEmpty()) {

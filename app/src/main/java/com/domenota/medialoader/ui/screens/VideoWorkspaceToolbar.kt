@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 /** Tool panels are navigational chrome, not separate destructive editing modes. */
 internal enum class VideoWorkspaceTool(val label: String) {
     TRIM("Обрезка"),
+    SPEED("Скорость"),
     CROP("Кадр"),
     ROTATE("Поворот"),
     AUDIO("Звук"),
@@ -28,6 +29,7 @@ internal enum class VideoWorkspaceTool(val label: String) {
 
 private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.TRIM -> Icons.Rounded.ContentCut
+    VideoWorkspaceTool.SPEED -> Icons.Rounded.Speed
     VideoWorkspaceTool.CROP -> Icons.Rounded.Crop
     VideoWorkspaceTool.ROTATE -> Icons.Rounded.RotateRight
     VideoWorkspaceTool.AUDIO -> Icons.Rounded.VolumeUp
