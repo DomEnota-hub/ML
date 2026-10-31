@@ -13,6 +13,8 @@ object PhotoToneMath {
         val highlights: Float,
         val blackPoint: Float,
         val gamma: Float,
+        val vibrance: Float,
+        val curves: PhotoCurveMath.Prepared?,
         val activeHsl: List<Pair<HslRange, HslCorrection>>,
     )
 
@@ -22,6 +24,9 @@ object PhotoToneMath {
         highlights = settings.highlights / 100f,
         blackPoint = settings.blackPoint / 100f * .25f,
         gamma = 2f.pow(-settings.curve / 100f),
+        vibrance = settings.vibrance / 100f,
+        curves = if (settings.rgbCurves.isNeutral()) null
+            else PhotoCurveMath.prepare(settings.rgbCurves),
         activeHsl = settings.hsl.entries.filter { !it.value.isNeutral() }
             .map { it.key to it.value },
     )
@@ -76,9 +81,27 @@ object PhotoToneMath {
             hslToRgbInto(h, sat, light.coerceIn(0f, 1f), scratch)
             r = scratch[0]; g = scratch[1]; b = scratch[2]
         }
-        return Color.argb(alpha, kotlin.math.round(r * 255f).toInt().coerceIn(0, 255),
-            kotlin.math.round(g * 255f).toInt().coerceIn(0, 255),
-            kotlin.math.round(b * 255f).toInt().coerceIn(0, 255))
+        if (profile.vibrance != 0f) {
+            rgbToHslInto(r, g, b, scratch)
+            val sat = scratch[1]
+            // Keep grays neutral; protect already vibrant colors from oversaturation.
+            val next = (sat * (1f + profile.vibrance * (1f - sat)))
+                .coerceIn(0f, 1f)
+            if (next != sat) {
+                hslToRgbInto(scratch[0], next, scratch[2], scratch)
+                r = scratch[0]; g = scratch[1]; b = scratch[2]
+            }
+        }
+        val curves = profile.curves
+        var red = kotlin.math.round(r * 255f).toInt().coerceIn(0, 255)
+        var green = kotlin.math.round(g * 255f).toInt().coerceIn(0, 255)
+        var blue = kotlin.math.round(b * 255f).toInt().coerceIn(0, 255)
+        if (curves != null) {
+            red = curves.mapRed(red)
+            green = curves.mapGreen(green)
+            blue = curves.mapBlue(blue)
+        }
+        return Color.argb(alpha, red, green, blue)
     }
 
     fun circularDistance(a: Float, b: Float): Float {
