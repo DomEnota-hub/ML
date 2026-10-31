@@ -691,10 +691,17 @@ fun VideoEditorScreen(
                         }
                         VideoWorkspaceTool.TEXT -> {
                             Button(onClick = { previewPlayer?.pause(); textEditorOpen = true },
-                                enabled = info != null && !ownExport && !busyWithOther,
+                                enabled = info != null && !ownExport && !busyWithOther &&
+                                    project?.clips?.size == 1 &&
+                                    currentClip?.sourceUri == uri.toString(),
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                 Text(if (textLayers.isEmpty()) "Добавить текст"
                                     else "Изменить текст · " + textLayers.size + " слоёв")
+                            }
+                            if ((project?.clips?.size ?: 0) > 1) {
+                                Text("Текст поверх нескольких клипов — этап 6. " +
+                                    "Существующие текстовые слои сохраняются при монтаже.",
+                                    style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         VideoWorkspaceTool.MORE -> {
@@ -736,7 +743,7 @@ fun VideoEditorScreen(
                     onClick = {
                         previewPlayer?.pause()
                         val positionMs = VideoFramePosition.clamp(
-                            previewPlayer?.currentPosition ?: trimStart,
+                            trimStart + (previewPlayer?.currentPosition ?: 0L),
                             trimStart, trimEnd, fullDuration,
                         )
                         onSaveFrame(positionMs, VideoEditSpec(
@@ -749,7 +756,8 @@ fun VideoEditorScreen(
                             textLayers = textLayers.mapNotNull { it.within(trimEnd - trimStart) },
                         ))
                     },
-                    enabled = info != null && !busyWithOther,
+                    enabled = info != null && !busyWithOther &&
+                        currentClip?.sourceUri == uri.toString(),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 ) {
                     Icon(Icons.Rounded.PhotoCamera, contentDescription = null)
@@ -765,7 +773,8 @@ fun VideoEditorScreen(
                             },
                         )
                     },
-                    enabled = info != null && !busyWithOther,
+                    enabled = info != null && !busyWithOther &&
+                        currentClip?.sourceUri == uri.toString(),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 ) {
                     Icon(Icons.Rounded.Audiotrack, contentDescription = null)
