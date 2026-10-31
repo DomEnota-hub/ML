@@ -148,6 +148,7 @@ fun VideoEditorScreen(
     var playheadMs by remember(item.id) { mutableLongStateOf(0L) }
     var timelineIsPlaying by remember(item.id) { mutableStateOf(false) }
     var selectedFrameDurationMs by remember(item.id) { mutableStateOf<Long?>(null) }
+    var selectedFrameSourceUri by remember(item.id) { mutableStateOf<String?>(null) }
     var clipError by remember(item.id) { mutableStateOf<String?>(null) }
     val projectScope = rememberCoroutineScope()
     val currentClip = project?.clips?.firstOrNull { it.id == selectedClipId }
@@ -335,13 +336,16 @@ fun VideoEditorScreen(
     }
     LaunchedEffect(selectedClipId, currentClip?.sourceUri) {
         selectedFrameDurationMs = null
+        selectedFrameSourceUri = null
         val clip = project?.clips?.firstOrNull { it.id == selectedClipId }
         if (clip != null) {
             trimStart = clip.inMs
             trimEnd = clip.outMs
-            selectedFrameDurationMs = withContext(Dispatchers.IO) {
+            val durationPerFrame = withContext(Dispatchers.IO) {
                 readVideoInfo(context, Uri.parse(clip.sourceUri))?.frameDurationMs
             }
+            selectedFrameDurationMs = durationPerFrame
+            selectedFrameSourceUri = clip.sourceUri
         }
     }
 
@@ -444,14 +448,28 @@ fun VideoEditorScreen(
                             }
                         },
                         onSelect = { id ->
-                            selectedClipId = id
+                            if (selectedClipId != id) {
+                                val nextIndex = activeProject.indexOf(id)
+                                if (nextIndex >= 0) {
+                                    val firstMs = activeProject.timelineStart(nextIndex)
+                                    playheadMs = firstMs
+                                    previewPlayer?.pause()
+                                    if (nextIndex < (previewPlayer?.mediaItemCount ?: 0)) {
+                                        previewPlayer?.seekTo(nextIndex, 0L)
+                                    }
+                                }
+                                selectedClipId = id
+                            }
                             selectedTool = VideoWorkspaceTool.TRIM
                         },
                         onSeek = { target ->
                             val original = activeProject.locateAt(target)
                             val precise = VideoTimelineFrameMath.projectPosition(
                                 activeProject, target,
-                                selectedFrameDurationMs.takeIf { original.clipId == selectedClipId })
+                                selectedFrameDurationMs.takeIf {
+                                    original.clipId == selectedClipId &&
+                                        selectedFrameSourceUri == activeProject.clips[original.clipIndex].sourceUri
+                                })
                             val located = activeProject.locateAt(precise)
                             playheadMs = precise
                             if (previewPlayer != null &&
@@ -464,7 +482,26 @@ fun VideoEditorScreen(
                         },
                         onTrim = { id, from, to ->
                             val prior = project ?: return@VideoMultiClipTimeline
-                            project = prior.trimClip(id, from, to)
+                            val oldLocation = prior.locateAt(
+                                playheadMs.coerceIn(0L, prior.durationMs - 1L))
+                            runCatching { prior.trimClip(id, from, to) }
+                                .onSuccess { revised ->
+                                    val currentIndex = revised.indexOf(oldLocation.clipId)
+                                    if (currentIndex >= 0) {
+                                        val currentSegment = revised.clips[currentIndex]
+                                        val sourceTime = oldLocation.absoluteSourceMs.coerceIn(
+                                            currentSegment.inMs, currentSegment.outMs - 1L)
+                                        playheadMs = revised.timelinePosition(
+                                            currentIndex, sourceTime - currentSegment.inMs)
+                                    }
+                                    project = revised
+                                    if (id == selectedClipId) {
+                                        trimStart = from
+                                        trimEnd = to
+                                    }
+                                    clipError = null
+                                }
+                                .onFailure { clipError = it.message ?: "Недопустимые границы обрезки" }
                         },
                         onMove = { id, newIndex ->
                             val prior = project ?: return@VideoMultiClipTimeline
