@@ -626,25 +626,6 @@ fun VideoEditorScreen(
             )
         }
     }
-},
-                        )
-                    },
-                    enabled = info != null && !busyWithOther,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                ) {
-                    Icon(Icons.Rounded.Audiotrack, contentDescription = null)
-                    Text("  Извлечь аудио")
-                }
-            }
-            exportState.message
-                ?.takeIf { exportState.sourceId == null || exportState.sourceId == item.id }
-                ?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                }
-            Spacer(Modifier.height(24.dp))
-        }
-    }
     reversePreviewFile?.let { file ->
         ReverseVideoPreviewDialog(file) {
             reversePreviewFile = null
