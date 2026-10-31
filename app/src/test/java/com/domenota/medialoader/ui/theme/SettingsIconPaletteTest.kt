@@ -1,0 +1,61 @@
+package com.domenota.medialoader.ui.theme
+
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class SettingsIconPaletteTest {
+    private val primarySections = listOf(
+        SettingIconTone.ACCOUNTS,
+        SettingIconTone.DOWNLOAD,
+        SettingIconTone.BULK,
+        SettingIconTone.VK_COMMUNITY,
+        SettingIconTone.EQUALIZER,
+        SettingIconTone.MUSIC_SETTINGS,
+        SettingIconTone.APPEARANCE,
+    )
+
+    private fun contrast(foreground: Color, background: Color): Float {
+        val light = maxOf(foreground.luminance(), background.luminance())
+        val dark = minOf(foreground.luminance(), background.luminance())
+        return (light + .05f) / (dark + .05f)
+    }
+
+    @Test fun allSevenSectionIconsUseDistinctForegroundsAndContainersInBothThemes() {
+        for (dark in listOf(false, true)) {
+            val swatches = primarySections.map { it.swatch(dark) }
+            assertEquals(7, swatches.map { it.foreground }.toSet().size)
+            assertEquals(7, swatches.map { it.container }.toSet().size)
+        }
+    }
+
+    @Test fun darkAndLightPalettesAreActuallyDifferentForEveryTopLevelSection() {
+        primarySections.forEach { section ->
+            assertNotEquals(section.name + " foreground", section.swatch(true).foreground,
+                section.swatch(false).foreground)
+            assertNotEquals(section.name + " container", section.swatch(true).container,
+                section.swatch(false).container)
+        }
+    }
+
+    @Test fun everyPaletteIconMaintainsReadableContrastInBothThemes() {
+        for (dark in listOf(false, true)) {
+            for (tone in SettingIconTone.entries) {
+                val swatch = tone.swatch(dark)
+                assertTrue(tone.name + " contrast in " +
+                    (if (dark) "dark" else "light") + " theme",
+                    contrast(swatch.foreground, swatch.container) >= 4.5f)
+            }
+        }
+    }
+
+    @Test fun nestedSectionSemanticColorsRemainAvailable() {
+        for (tone in SettingIconTone.entries) {
+            assertTrue(tone.swatch(true).container != Color.Transparent)
+            assertTrue(tone.swatch(false).container != Color.Transparent)
+        }
+    }
+}
