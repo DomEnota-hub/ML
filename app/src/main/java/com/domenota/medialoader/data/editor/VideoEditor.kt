@@ -12,6 +12,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Crop
+import androidx.media3.effect.Brightness
+import androidx.media3.effect.Contrast
+import androidx.media3.effect.HslAdjustment
+import androidx.media3.effect.RgbAdjustment
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.transformer.Composition
@@ -39,6 +43,7 @@ data class VideoEditSpec(
     val rotationDegrees: Int = 0,
     val mirrorHorizontal: Boolean = false,
     val mirrorVertical: Boolean = false,
+    val color: VideoColorGrade = VideoColorGrade(),
     val removeAudio: Boolean = false,
     val reverse: Boolean = false,
     val textLayers: List<TextLayer> = emptyList(),
@@ -150,7 +155,8 @@ class VideoEditor(private val context: Context) {
                 cropTop = clip.crop.top, cropBottom = clip.crop.bottom,
                 rotationDegrees = clip.rotationDegrees,
                 mirrorHorizontal = clip.mirrorHorizontal,
-                mirrorVertical = clip.mirrorVertical)
+                mirrorVertical = clip.mirrorVertical,
+                color = clip.color)
             EditedMediaItem.Builder(clippedMediaItem(Uri.parse(clip.sourceUri),
                 clip.inMs, clip.outMs))
                 .setRemoveAudio(spec.removeAudio)
@@ -190,10 +196,36 @@ class VideoEditor(private val context: Context) {
                     if (spec.mirrorVertical) -1f else 1f)
                 .build()
         }
+        videoEffects += colorEffects(spec.color)
         if (spec.textLayers.isNotEmpty()) {
             videoEffects += OverlayEffect(listOf(VideoTextOverlay(context, spec.textLayers, timeOffsetMs)))
         }
         return videoEffects
+    }
+
+    /** A shared Media3 effect pipeline is used for player preview and export. */
+    internal fun colorEffects(color: VideoColorGrade): List<Effect> {
+        if (color.isNeutral) return emptyList()
+        val adjusted = color.resolved()
+        val effects = mutableListOf<Effect>()
+        if (adjusted.brightness != 0f) effects += Brightness(adjusted.brightness)
+        if (adjusted.contrast != 0f) effects += Contrast(adjusted.contrast)
+        if (adjusted.red != 1f || adjusted.green != 1f || adjusted.blue != 1f) {
+            effects += RgbAdjustment.Builder()
+                .setRedScale(adjusted.red)
+                .setGreenScale(adjusted.green)
+                .setBlueScale(adjusted.blue)
+                .build()
+        }
+        if (adjusted.hue != 0f || adjusted.saturation != 0f ||
+            adjusted.lightness != 0f) {
+            effects += HslAdjustment.Builder()
+                .adjustHue(adjusted.hue)
+                .adjustSaturation(adjusted.saturation)
+                .adjustLightness(adjusted.lightness)
+                .build()
+        }
+        return effects
     }
 
     suspend fun extractAudio(
