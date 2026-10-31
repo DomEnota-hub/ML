@@ -33,8 +33,13 @@ internal fun photoWatermarkBounds(
     graphic: PhotoGraphicWatermark,
 ): RectF {
     require(width > 0 && height > 0 && markWidth > 0 && markHeight > 0)
-    val w = width * graphic.relativeWidth
-    val h = w * markHeight.toFloat() / markWidth
+    val requestedW = width * graphic.relativeWidth
+    val requestedH = requestedW * markHeight.toFloat() / markWidth
+    // Preserve the watermark ratio but prevent extremely tall PNGs from
+    // escaping the image even when the selected width is small.
+    val fit = minOf(1f, height * .94f / requestedH)
+    val w = requestedW * fit
+    val h = requestedH * fit
     // Clamp the center so the watermark stays inside the output whenever it can fit.
     val centerX = (graphic.centerX * width).coerceIn(w / 2f, width - w / 2f)
     val centerY = if (h <= height) (graphic.centerY * height).coerceIn(h / 2f, height - h / 2f)
