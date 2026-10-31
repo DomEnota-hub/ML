@@ -230,10 +230,10 @@ private fun VideoClipStrip(
             Box(Modifier.align(Alignment.CenterStart).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
                 .pointerInput(clip.id, enabled) {
-                    if (!enabled || latestClip.durationMs < 200L) return@pointerInput
+                    if (!enabled || latestClip.sourceSpanMs < 200L) return@pointerInput
                     detectDragGestures { change, delta ->
                         change.consume()
-                        val shift = (delta.x / pixelWidth * latestClip.durationMs).roundToLong()
+                        val shift = (delta.x / pixelWidth * latestClip.sourceSpanMs).roundToLong()
                         val limit = (latestClip.outMs - 100L).coerceAtLeast(0L)
                         latestOnTrim((latestClip.inMs + shift).coerceIn(0L, limit), latestClip.outMs)
                     }
@@ -241,10 +241,10 @@ private fun VideoClipStrip(
             Box(Modifier.align(Alignment.CenterEnd).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
                 .pointerInput(clip.id, enabled) {
-                    if (!enabled || latestClip.durationMs < 200L) return@pointerInput
+                    if (!enabled || latestClip.sourceSpanMs < 200L) return@pointerInput
                     detectDragGestures { change, delta ->
                         change.consume()
-                        val shift = (delta.x / pixelWidth * latestClip.durationMs).roundToLong()
+                        val shift = (delta.x / pixelWidth * latestClip.sourceSpanMs).roundToLong()
                         val minEnd = (latestClip.inMs + 100L).coerceAtMost(latestClip.sourceDurationMs)
                         latestOnTrim(latestClip.inMs, (latestClip.outMs + shift)
                             .coerceIn(minEnd, latestClip.sourceDurationMs))
