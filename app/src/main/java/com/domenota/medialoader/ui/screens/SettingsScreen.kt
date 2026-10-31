@@ -188,8 +188,8 @@ fun SettingsScreen(
     editorAlbumsById: Map<String, List<String>> = emptyMap(),
 ) {
     val context = LocalContext.current
-    val permissionOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var permissionRevision by remember { mutableIntStateOf(0) }
+    val permissionOwner = LocalLifecycleOwner.current
+    var permissionRevision by remember { mutableStateOf(0) }
     DisposableEffect(permissionOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) permissionRevision++
@@ -1037,7 +1037,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
             if (needsGalleryAccess || needsMusicAccess) {
-                SettingRow(Icons.Rounded.FolderOpen, "Доступ к файлам",
+                SettingRow(Icons.Rounded.Folder, "Доступ к файлам",
                     "Разрешения для галереи и музыки", grouped = true,
                     iconTone = SettingIconTone.FOLDER,
                     onClick = { onRequestLibraryAccess(if (needsGalleryAccess) AppMode.GALLERY else AppMode.MUSIC) })
