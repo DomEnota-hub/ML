@@ -411,52 +411,63 @@ fun VideoEditorScreen(
                 )
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("Таймлайн · " + (project?.clips?.size ?: 1) + " клип",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Обрезка: " + (project?.durationMs ?: 0L) / 1_000L + " с",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val activeProject = project
+                if (activeProject != null) {
+                    VideoMultiClipTimeline(
+                        project = activeProject,
+                        selectedClipId = selectedClipId,
+                        positionMs = playheadMs,
+                        isPlaying = timelineIsPlaying,
+                        enabled = !ownExport && !busyWithOther,
+                        onSelect = { id ->
+                            selectedClipId = id
+                            selectedTool = VideoWorkspaceTool.TRIM
+                        },
+                        onSeek = { target ->
+                            val located = activeProject.locateAt(target)
+                            playheadMs = target
+                            if (previewPlayer != null &&
+                                located.clipIndex < previewPlayer.mediaItemCount) {
+                                previewPlayer.seekTo(located.clipIndex,
+                                    located.positionWithinClipMs.coerceAtMost(
+                                    (activeProject.clips[located.clipIndex].durationMs - 1)
+                                        .coerceAtLeast(0)))
+                            }
+                        },
+                        onTrim = { id, from, to ->
+                            val prior = project ?: return@VideoMultiClipTimeline
+                            project = prior.trimClip(id, from, to)
+                        },
+                        onMove = { id, newIndex ->
+                            val prior = project ?: return@VideoMultiClipTimeline
+                            applyProject(prior.move(id, newIndex), id)
+                        },
+                        onAdd = { addClips.launch(arrayOf("video/*")) },
+                        onTogglePlayback = {
+                            previewPlayer?.let {
+                                if (it.isPlaying) it.pause()
+                                else {
+                                    if (playheadMs >= activeProject.durationMs - 40L) {
+                                        playheadMs = 0L
+                                        it.seekTo(0, 0L)
+                                    }
+                                    it.play()
+                                }
+                            }
+                        },
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Клипов: ${activeProject.clips.size}",
+                            style = MaterialTheme.typography.labelSmall)
+                        Text("Выбран: ${activeProject.indexOf(selectedClipId) + 1}",
+                            style = MaterialTheme.typography.labelSmall)
+                    }
+                } else Text("Читаем видео…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                clipError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
                 }
-            if ((info?.durationMs ?: 0L) > 0L) {
-                MediaTrimControls(
-                    player = requireNotNull(previewPlayer),
-                    durationMs = info!!.durationMs,
-                    trimStartMs = trimStart,
-                    trimEndMs = trimEnd,
-                    onTrimChange = { start, end ->
-                        trimStart = start
-                        trimEnd = end
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    showSolidTrimBar = false,
-                    snapIntervalMs = info!!.frameDurationMs,
-                    timelineVisual = { visualModifier ->
-                        VideoTimelineStrip(
-                            uri = uri,
-                            durationMs = info!!.durationMs,
-                            modifier = visualModifier,
-                        )
-                    },
-                    scrubPreview = { positionMs ->
-                        VideoScrubFrame(
-                            uri = uri,
-                            positionMs = positionMs,
-                        )
-                    },
-                )
-                Text(
-                    "Тап по полосе запускает предпросмотр с выбранной точки до правой границы.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text("Определяем длительность…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
-
             }
             if (selectedTool != null) {
                 Column(Modifier.fillMaxWidth().heightIn(max = 218.dp)
@@ -465,9 +476,61 @@ fun VideoEditorScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)) {
                     when (selectedTool) {
                         VideoWorkspaceTool.TRIM -> {
-                            Text("Обрезка", style = MaterialTheme.typography.titleSmall)
-                            Text("Перемещай края выделенного клипа на таймлайне. " +
-                                "Тап по миниатюрам запускает предпросмотр с выбранного момента.",
+                            val current = project
+                            val index = current?.indexOf(selectedClipId) ?: -1
+                            val selected = current?.clips?.getOrNull(index)
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { addClips.launch(arrayOf("video/*")) }) {
+                                    Text("+ Добавить")
+                                }
+                                TextButton(onClick = {
+                                    if (current != null && selected != null) {
+                                        val local = (playheadMs - current.timelineStart(index))
+                                            .coerceIn(0L, selected.durationMs)
+                                        val point = selected.inMs + local
+                                        runCatching {
+                                            current.splitAt(selected.id, point,
+                                                UUID.randomUUID().toString())
+                                        }.onSuccess { applyProject(it, selected.id) }
+                                            .onFailure { clipError = "Раздели клип не ближе 0,1 с к краю" }
+                                    }
+                                }, enabled = selected != null && selected.durationMs >= 200L) {
+                                    Text("Разделить")
+                                }
+                                TextButton(onClick = {
+                                    if (current != null && selected != null) {
+                                        runCatching {
+                                            current.duplicate(selected.id,
+                                                UUID.randomUUID().toString())
+                                        }.onSuccess { applyProject(it, selected.id) }
+                                            .onFailure { clipError = it.message }
+                                    }
+                                }, enabled = selected != null) { Text("Копировать") }
+                                TextButton(onClick = { replaceClip.launch(arrayOf("video/*")) },
+                                    enabled = selected != null) { Text("Заменить") }
+                                TextButton(onClick = {
+                                    if (current != null && selected != null && current.clips.size > 1) {
+                                        val next = current.delete(selected.id)
+                                        applyProject(next, next.clips[index.coerceAtMost(
+                                            next.clips.lastIndex)].id)
+                                    }
+                                }, enabled = selected != null && (current?.clips?.size ?: 0) > 1) {
+                                    Text("Удалить")
+                                }
+                                TextButton(onClick = {
+                                    if (current != null && index > 0)
+                                        applyProject(current.move(selectedClipId, index - 1))
+                                }, enabled = index > 0) { Text("←") }
+                                TextButton(onClick = {
+                                    if (current != null && index in 0 until current.clips.lastIndex)
+                                        applyProject(current.move(selectedClipId, index + 1))
+                                }, enabled = current != null && index >= 0 &&
+                                    index < current.clips.lastIndex) { Text("→") }
+                            }
+                            Text("Жёлтые края — обрезка. Удержание и сдвиг клипа — изменение порядка. " +
+                                "Свайп по таймлайну — прокрутка.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
