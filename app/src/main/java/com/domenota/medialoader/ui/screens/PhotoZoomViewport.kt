@@ -57,8 +57,8 @@ internal fun photoPanLimits(
 }
 
 internal fun clampPhotoPan(offset: Offset, limits: Offset) = Offset(
-    offset.x.coerceIn(-limits.x, limits.x),
-    offset.y.coerceIn(-limits.y, limits.y)
+    if (limits.x <= 0f) 0f else offset.x.coerceIn(-limits.x, limits.x),
+    if (limits.y <= 0f) 0f else offset.y.coerceIn(-limits.y, limits.y)
 )
 
 @Composable
