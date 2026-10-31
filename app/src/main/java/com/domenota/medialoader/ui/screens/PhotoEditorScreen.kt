@@ -188,11 +188,16 @@ fun PhotoEditorScreen(
         photoViewport.reset()
     }
 
+    // Only bake the graphic mark outside its editing tab. While dragging, its
+    // overlay moves independently without decoding/recompositing the full bitmap.
+    val bakedGraphic = if (currentTab == PhotoWorkspaceTab.WATERMARK)
+        null else edit.graphicWatermark
+
     // All non-crop tabs show the *actual* edited geometry, color and text.
     // Debounced previews are calculated away from the UI thread; full-resolution
     // export applies the same operations in the same order.
     LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
-        edit.color, edit.textLayers, edit.drawing, edit.graphicWatermark, currentTab) {
+        edit.color, edit.textLayers, edit.drawing, bakedGraphic, currentTab) {
         val source = info?.preview
         if (source == null) { composedPreview = null; return@LaunchedEffect }
         delay(100L)
@@ -204,15 +209,14 @@ fun PhotoEditorScreen(
                     catch (error: Throwable) { transformed.recycle(); throw error }
                 // In the watermark tab its graphic is a separate interactive layer,
                 // avoiding expensive bitmap recompositing on every finger movement.
-                val includeWatermark = currentTab != PhotoWorkspaceTab.WATERMARK
-                val hasOverlays = (includeWatermark && edit.graphicWatermark != null) ||
+                val hasOverlays = bakedGraphic != null ||
                     edit.drawing.isNotEmpty() || edit.textLayers.isNotEmpty()
                 val output = if (hasOverlays) colored.copy(Bitmap.Config.ARGB_8888, true)
                     else colored
                 try {
                     if (hasOverlays) {
                         val canvas = android.graphics.Canvas(output)
-                        if (includeWatermark) edit.graphicWatermark?.let {
+                        bakedGraphic?.let {
                             PhotoGraphicWatermarkRenderer.draw(context, canvas, output.width, output.height, it)
                         }
                         if (edit.drawing.isNotEmpty())
