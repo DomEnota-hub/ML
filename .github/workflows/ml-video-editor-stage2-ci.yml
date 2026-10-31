@@ -1,7 +1,7 @@
 name: ML video editor stage 2 multiclip validation
 on:
   push:
-    branches: [feature/ml-video-editor-stage2-multiclip-20261031]
+    branches: [feature/ml-video-editor-stage2-multiclip-20261031, fix/ml-video-stage2-acceptance-20261031]
   workflow_dispatch:
 concurrency:
   group: ml-video-stage2-${{ github.ref }}
