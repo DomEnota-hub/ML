@@ -5,6 +5,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,28 +19,38 @@ import org.robolectric.annotation.LooperMode
 @LooperMode(LooperMode.Mode.PAUSED)
 class LibraryRefreshShieldTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    @Test fun refreshHidesContentWithoutDiscardingUnsavedEditorState() {
+
+    @Test fun refreshNeverCoversGalleryOrInterruptsEditableState() {
         val loading = mutableStateOf(false)
-        compose.setContent { MaterialTheme { LibraryRefreshShield(loading.value) {
-            var draft by remember { mutableStateOf("original") }
-            Button(onClick = { draft = "unsaved text" }) { Text(draft) }
-        } } }
-        compose.onNodeWithText("original").performClick()
-        compose.onNodeWithText("unsaved text").assertExists()
-        compose.runOnIdle { loading.value = true }
-        compose.onNodeWithText("unsaved text").assertDoesNotExist()
-        compose.runOnIdle { loading.value = false }
-        compose.onNodeWithText("unsaved text").assertExists()
-        compose.onNodeWithText("original").assertDoesNotExist()
-    }
-    @Test fun loadingOffersAnExitWithoutPublishingUnvalidatedContent() {
-        var exited = false
         compose.setContent { MaterialTheme {
-            LibraryRefreshShield(true, onExit = { exited = true }) { Text("stale private candidate") }
+            LibraryRefreshShield(loading.value) {
+                var draft by remember { mutableStateOf("original") }
+                Button(onClick = { draft = "unsaved text" }) { Text(draft) }
+            }
         } }
-        compose.onNodeWithText("stale private candidate").assertDoesNotExist()
-        compose.onNodeWithText("Вернуться в загрузчик").performClick()
-        compose.runOnIdle { org.junit.Assert.assertTrue(exited) }
+        compose.onNodeWithText("original").performClick()
+        compose.onNodeWithText("unsaved text").assertIsDisplayed()
+        compose.runOnIdle { loading.value = true }
+        compose.onNodeWithText("unsaved text").assertIsDisplayed()
+        compose.onNodeWithText("Проверяем файлы").assertDoesNotExist()
+        compose.runOnIdle { loading.value = false }
+        compose.onNodeWithText("unsaved text").assertIsDisplayed()
     }
 
+    @Test fun refreshDoesNotDisplayExitOrBlockInteractiveContent() {
+        var taps = 0
+        var exited = false
+        compose.setContent { MaterialTheme {
+            LibraryRefreshShield(true, onExit = { exited = true }) {
+                Button(onClick = { taps++ }) { Text("cached gallery") }
+            }
+        } }
+        compose.onNodeWithText("cached gallery").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Вернуться в загрузчик").assertDoesNotExist()
+        compose.onNodeWithText("Проверяем файлы").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(1, taps)
+            assertFalse(exited)
+        }
+    }
 }
