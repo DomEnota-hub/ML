@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun LibraryStatus(loading: Boolean, message: String?, error: String?, empty: Boolean, emptyText: String) {
-    if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+    // Library indexing never reports its progress in the visible media interface.
     message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     if (!loading && empty && message == null) Text(emptyText, Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
