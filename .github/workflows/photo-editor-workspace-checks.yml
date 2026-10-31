@@ -1,0 +1,43 @@
+name: Photo editor workspace validation (no release)
+
+on:
+  push:
+    branches:
+      - feature/photo-editor-workspace-rebuild
+    paths:
+      - 'app/src/main/**'
+      - 'app/src/test/**'
+      - 'app/build.gradle'
+      - '.github/workflows/photo-editor-workspace-checks.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: photo-editor-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compile ARM64 debug (no APK upload)
+        run: gradle :app:assembleDebug -Parm64Release=true --stacktrace
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        if: success() || failure()
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
