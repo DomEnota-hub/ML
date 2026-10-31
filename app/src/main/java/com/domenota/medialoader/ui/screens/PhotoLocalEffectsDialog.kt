@@ -108,7 +108,7 @@ internal fun PhotoLocalEffectsDialog(
                 Image((processed ?: source).asImageBitmap(), "Предпросмотр мозаики",
                     Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 Canvas(Modifier.fillMaxSize().onSizeChanged { viewport = it }
-                    .pointerInput(source, selection, kind, viewport) {
+                    .pointerInput(source, selection, kind, brushFraction, intensity, viewport) {
                         if (viewport.width <= 0 || viewport.height <= 0) return@pointerInput
                         val rect = photoCanvasRect(viewport.width.toFloat(), viewport.height.toFloat(),
                             source.width, source.height)
@@ -121,7 +121,7 @@ internal fun PhotoLocalEffectsDialog(
                             }
                         }
                     }
-                    .pointerInput(source, selection, kind, viewport) {
+                    .pointerInput(source, selection, kind, brushFraction, intensity, viewport) {
                         if (viewport.width <= 0 || viewport.height <= 0) return@pointerInput
                         val rect = photoCanvasRect(viewport.width.toFloat(), viewport.height.toFloat(),
                             source.width, source.height)
