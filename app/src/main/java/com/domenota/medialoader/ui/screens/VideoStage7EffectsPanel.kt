@@ -20,8 +20,12 @@ internal fun VideoStage7EffectsPanel(
     onTransition: (VideoTransitionDraft) -> Unit,
     onSpecialFx: (VideoSpecialFxDraft) -> Unit,
 ) {
-    val index = project?.indexOf(selectedClipId) ?: -1
-    val clip = project?.clips?.getOrNull(index)
+    if (project == null) {
+        Text("Проект пока недоступен", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    val index = project.indexOf(selectedClipId)
+    val clip = project.clips.getOrNull(index)
     if (clip == null) {
         Text("Выбери клип для настройки", style = MaterialTheme.typography.bodySmall)
         return
