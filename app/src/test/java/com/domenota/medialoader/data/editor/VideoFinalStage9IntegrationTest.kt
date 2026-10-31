@@ -68,7 +68,7 @@ class VideoFinalStage9IntegrationTest {
         val spans = project.clips.indices.map { i ->
             VideoOverlayTimeline.forClip(project, i, spec.textLayers, spec.graphicLayers)
         }
-        assertEquals(2, spans.count { it.texts.isNotEmpty() })
+        assertEquals(3, spans.count { it.texts.isNotEmpty() })
         assertEquals(3, spans.count { it.graphics.isNotEmpty() })
     }
 
