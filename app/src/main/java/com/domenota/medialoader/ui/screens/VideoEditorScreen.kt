@@ -7,6 +7,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.media3.common.Player
 import com.domenota.medialoader.data.editor.VideoClipDraft
+import com.domenota.medialoader.data.editor.VideoAudioTrackDraft
+import com.domenota.medialoader.data.editor.VideoAudioPreviewDeck
 import com.domenota.medialoader.data.editor.VideoPreviewQueueSync
 import java.util.UUID
 import kotlinx.coroutines.delay
@@ -150,6 +152,9 @@ fun VideoEditorScreen(
     var selectedFrameSourceUri by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedPreviewInfo by remember(item.id) { mutableStateOf<VideoInfo?>(null) }
     var clipError by remember(item.id) { mutableStateOf<String?>(null) }
+    var selectedAudioTrackId by remember(item.id) { mutableStateOf<String?>(null) }
+    val audioPreviewDeck = remember(item.id) { VideoAudioPreviewDeck(context) }
+    DisposableEffect(audioPreviewDeck) { onDispose { audioPreviewDeck.release() } }
     val projectScope = rememberCoroutineScope()
     val currentClip = project?.clips?.firstOrNull { it.id == selectedClipId }
     val crop = currentClip?.crop ?: CropFractions()
@@ -210,6 +215,39 @@ fun VideoEditorScreen(
             } else clipError = "Не удалось прочитать выбранные видео"
         }
     }
+    val addAudio = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        projectScope.launch {
+            var draft = project ?: return@launch
+            var added = 0
+            uris.forEach { nextUri ->
+                if (draft.audioTracks.size >= VideoProjectDraft.MAX_AUDIO_TRACKS) return@forEach
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(
+                        nextUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val audioDuration = withContext(Dispatchers.IO) {
+                    readAudioDuration(context, nextUri)
+                }
+                if (audioDuration != null && audioDuration > 0L) {
+                    val track = VideoAudioTrackDraft(
+                        id = UUID.randomUUID().toString(),
+                        sourceUri = nextUri.toString(),
+                        atMs = playheadMs.coerceIn(0L, draft.durationMs - 1L),
+                        sourceDurationMs = audioDuration)
+                    draft = draft.addAudioTrack(track)
+                    selectedAudioTrackId = track.id
+                    added++
+                }
+            }
+            if (added > 0) {
+                project = draft
+                selectedTool = VideoWorkspaceTool.AUDIO
+                clipError = null
+            } else clipError = "Не удалось добавить аудиофайлы"
+        }
+    }
     val replaceClip = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()) { nextUri ->
         if (nextUri == null) return@rememberLauncherForActivityResult
@@ -228,6 +266,7 @@ fun VideoEditorScreen(
         }
     }
     val hasUnsavedChanges = removeAudio || reverseVideo || textLayers.isNotEmpty() ||
+        project?.audioTracks?.isNotEmpty() == true ||
         (project != null && project!!.clips !=
             listOf(VideoClipDraft(item.id.toString(), uri.toString(), fullDuration.coerceAtLeast(1L))))
     val requestExit = rememberEditorExitRequest(
@@ -246,6 +285,8 @@ fun VideoEditorScreen(
         playheadMs = 0L
         textLayers = emptyList()
         showTextResult = false
+        selectedAudioTrackId = null
+        audioPreviewDeck.pause()
     }
 
     fun exportSpec(): VideoEditSpec = VideoEditSpec(
@@ -294,7 +335,7 @@ fun VideoEditorScreen(
         }
     }
     DisposableEffect(previewPlayer) {
-        onDispose { previewPlayer?.release() }
+        onDispose { previewPlayer?.release(); audioPreviewDeck.pause() }
     }
     val previewCrop = if (selectedTool == VideoWorkspaceTool.CROP && !showTextResult)
         CropFractions() else crop
@@ -345,9 +386,10 @@ fun VideoEditorScreen(
         player.setMediaItems(items, location.clipIndex, sourceOffset)
         player.prepare()
     }
-    LaunchedEffect(previewPlayer, project) {
+    LaunchedEffect(previewPlayer, project, removeAudio) {
         val player = previewPlayer ?: return@LaunchedEffect
         val p = project ?: return@LaunchedEffect
+        player.volume = if (removeAudio) 0f else 1f
         while (true) {
             // During trim, split or reorder the player still has the old playlist
             // until its debounced rebuild. Never let old positions overwrite the
@@ -367,6 +409,9 @@ fun VideoEditorScreen(
                 }
             }
             timelineIsPlaying = queueIsCurrent && player.isPlaying
+            if (queueIsCurrent) {
+                audioPreviewDeck.synchronize(p, playheadMs, player.isPlaying)
+            } else audioPreviewDeck.pause()
             delay(75L)
         }
     }
@@ -781,27 +826,37 @@ fun VideoEditorScreen(
 
                         }
                         VideoWorkspaceTool.AUDIO -> {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.VolumeOff, contentDescription = null)
-                    Column(Modifier.padding(start = 12.dp)) {
-                        Text("Убрать звук", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Видео сохранится без аудиодорожки",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Switch(checked = removeAudio, onCheckedChange = { removeAudio = it })
-            }
-
-            Spacer(Modifier.height(16.dp))
-
+                            VideoAudioTracksPanel(
+                                project = project,
+                                selectedTrackId = selectedAudioTrackId,
+                                removeOriginalAudio = removeAudio,
+                                enabled = !ownExport && !busyWithOther,
+                                onRemoveOriginalAudio = { removeAudio = it },
+                                onAdd = { addAudio.launch(arrayOf("audio/*")) },
+                                onSelect = { selectedAudioTrackId = it },
+                                onUpdate = { id, transform ->
+                                    val draft = project ?: return@VideoAudioTracksPanel
+                                    runCatching { draft.editAudioTrack(id, transform) }
+                                        .onSuccess { project = it; clipError = null }
+                                        .onFailure { clipError = it.message ?: "Ошибка настройки аудио" }
+                                },
+                                onDelete = { id ->
+                                    val draft = project ?: return@VideoAudioTracksPanel
+                                    project = draft.removeAudioTrack(id)
+                                    selectedAudioTrackId = project?.audioTracks?.firstOrNull()?.id
+                                },
+                                onJumpTo = { next ->
+                                    val draft = project ?: return@VideoAudioTracksPanel
+                                    val position = next.coerceIn(0L, draft.durationMs - 1L)
+                                    val location = draft.locateAt(position)
+                                    val clip = draft.clips[location.clipIndex]
+                                    playheadMs = position
+                                    previewPlayer?.pause()
+                                    previewPlayer?.seekTo(location.clipIndex,
+                                        (clip.sourceAt(location.positionWithinClipMs) - clip.inMs)
+                                            .coerceIn(0L, clip.sourceSpanMs - 1L))
+                                },
+                            )
                         }
                         VideoWorkspaceTool.REVERSE -> {
             Row(
@@ -1113,3 +1168,14 @@ private fun readVideoInfo(context: android.content.Context, uri: Uri): VideoInfo
         }
     }.getOrNull()
 
+
+private fun readAudioDuration(context: android.content.Context, uri: Uri): Long? {
+    val retriever = MediaMetadataRetriever()
+    return try {
+        retriever.setDataSource(context, uri)
+        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            ?.toLongOrNull()?.takeIf { it > 0L }
+    } catch (_: Exception) {
+        null
+    } finally { retriever.release() }
+}
