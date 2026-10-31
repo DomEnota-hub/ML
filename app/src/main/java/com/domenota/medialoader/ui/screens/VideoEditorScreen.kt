@@ -13,7 +13,9 @@ import com.domenota.medialoader.data.editor.VideoPreviewQueueSync
 import java.util.UUID
 import kotlinx.coroutines.delay
 import androidx.annotation.OptIn
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,8 +62,12 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -1189,7 +1195,10 @@ private fun CropVideoPreview(
     cropPreset: CropAspectPreset,
     onCropChange: (CropFractions) -> Unit,
     showCropFrame: Boolean = true,
+    activeOverlayCenter: Pair<Float, Float>? = null,
+    onOverlayDrag: (Float, Float) -> Unit = { _, _ -> },
 ) {
+    val latestOverlayDrag by rememberUpdatedState(onOverlayDrag)
     Box(
         Modifier
             .fillMaxWidth()
@@ -1221,6 +1230,27 @@ private fun CropVideoPreview(
             onCropChange = onCropChange,
             modifier = Modifier.fillMaxSize(),
         )
+        if (activeOverlayCenter != null && !showCropFrame) {
+            Canvas(Modifier.fillMaxSize().pointerInput(true) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    latestOverlayDrag(
+                        dragAmount.x / size.width.coerceAtLeast(1),
+                        dragAmount.y / size.height.coerceAtLeast(1))
+                }
+            }) {
+                val center = Offset(size.width * activeOverlayCenter.first,
+                    size.height * activeOverlayCenter.second)
+                val radius = 17.dp.toPx()
+                drawCircle(
+                    Color(0xFFFFC629), radius = radius,
+                    center = center, style = Stroke(2.dp.toPx()))
+                drawLine(Color.White, center - Offset(radius * .55f, 0f),
+                    center + Offset(radius * .55f, 0f), 1.6.dp.toPx())
+                drawLine(Color.White, center - Offset(0f, radius * .55f),
+                    center + Offset(0f, radius * .55f), 1.6.dp.toPx())
+            }
+        }
     }
 }
 
