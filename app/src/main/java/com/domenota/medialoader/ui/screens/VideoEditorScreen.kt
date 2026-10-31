@@ -327,7 +327,9 @@ fun VideoEditorScreen(
         trimStart = 0L
         trimEnd = fullDuration
         project = uri?.takeIf { fullDuration > 0L }?.let {
-            VideoProjectDraft.single(item.id.toString(), it.toString(), fullDuration)
+            VideoProjectDraft(listOf(VideoClipDraft(item.id.toString(),
+                it.toString(), fullDuration, mediaKind = if (info?.isImage == true)
+                    VideoClipMediaKind.IMAGE else VideoClipMediaKind.VIDEO)))
         }
         selectedClipId = item.id.toString()
         playheadMs = 0L
@@ -752,7 +754,9 @@ fun VideoEditorScreen(
                                         }.onSuccess { applyProject(it, rightId, point) }
                                             .onFailure { clipError = "Раздели клип не ближе 0,1 с к краю" }
                                     }
-                                }, enabled = selected != null && selected.sourceSpanMs >= 200L) {
+                                }, enabled = selected != null &&
+                                    selected.mediaKind == VideoClipMediaKind.VIDEO &&
+                                    selected.sourceSpanMs >= 200L) {
                                     Text("Разделить")
                                 }
                                 TextButton(onClick = {
@@ -792,12 +796,32 @@ fun VideoEditorScreen(
                         }
                         VideoWorkspaceTool.SPEED -> {
                             val selected = currentClip
-                            Text("Скорость выбранного клипа", style = MaterialTheme.typography.titleMedium)
+                            Text(if (selected?.mediaKind == VideoClipMediaKind.IMAGE)
+                                "Длительность фотографии" else "Скорость выбранного клипа",
+                                style = MaterialTheme.typography.titleMedium)
+                            if (selected?.mediaKind == VideoClipMediaKind.IMAGE) {
+                                Text("Фото: " + "%.1f".format(java.util.Locale.US,
+                                    selected.durationMs / 1000f) + " с",
+                                    style = MaterialTheme.typography.bodyMedium)
+                                Slider(value = selected.durationMs.toFloat(),
+                                    onValueChange = { next ->
+                                        val p = project ?: return@Slider
+                                        val duration = (next / 500f).toInt()
+                                            .coerceIn(1, 60) * 500L
+                                        if (duration != selected.durationMs) {
+                                            previewPlayer?.pause()
+                                            applyProject(p.setPhotoDuration(selected.id, duration),
+                                                selected.id, 0L)
+                                        }
+                                    }, valueRange = 500f..30000f, steps = 58)
+                                Text("Фотография не имеет собственного FPS и звука; " +
+                                    "Media3 формирует статичные кадры на время показа.",
+                                    style = MaterialTheme.typography.bodySmall)
+                            } else if (selected != null) {
                             Text("Длительность на шкале пересчитывается автоматически; " +
                                 "звук меняет скорость вместе с видео.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (selected != null) {
                                 Text("×" + "%.2f".format(java.util.Locale.US, selected.speed) +
                                     " · " + "%.1f".format(java.util.Locale.US,
                                         selected.durationMs / 1000f) + " с",
