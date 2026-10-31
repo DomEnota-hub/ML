@@ -12,6 +12,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Crop
+import androidx.media3.effect.Presentation
 import androidx.media3.effect.Brightness
 import androidx.media3.effect.Contrast
 import androidx.media3.effect.HslAdjustment
@@ -19,6 +20,8 @@ import androidx.media3.effect.RgbAdjustment
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
+import androidx.media3.transformer.VideoEncoderSettings
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
@@ -29,6 +32,8 @@ import androidx.media3.transformer.Transformer
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -51,6 +56,7 @@ data class VideoEditSpec(
     val specialFx: VideoSpecialFxDraft = VideoSpecialFxDraft(),
     internal val transitionPhases: List<VideoTransitionPhase> = emptyList(),
     val project: VideoProjectDraft? = null,
+    val exportSettings: VideoExportSettings = VideoExportSettings(),
 ) {
     init {
         require(textLayers.size <= 8)
@@ -78,11 +84,25 @@ class VideoEditor(private val context: Context) {
         val project = spec.project
         if (project != null) return exportProject(project, spec, onProgress)
         val mediaItem = clippedMediaItem(source, spec.startMs, spec.endMs)
+        val sourceDimensions = withContext(Dispatchers.IO) {
+            VideoExportSourceProbe.dimensions(context,
+                VideoClipDraft("single", source.toString(),
+                    (spec.endMs ?: (spec.startMs + 1L)).coerceAtLeast(spec.startMs + 1L)))
+        }
+        val size = spec.exportSettings.dimensions(sourceDimensions.first, sourceDimensions.second,
+            1f - spec.cropLeft - spec.cropRight, 1f - spec.cropTop - spec.cropBottom,
+            spec.rotationDegrees)
+        val effects = previewEffects(spec) +
+            Presentation.createForWidthAndHeight(
+                size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val edited = EditedMediaItem.Builder(mediaItem)
             .setRemoveAudio(spec.removeAudio)
-            .setEffects(Effects(emptyList(), previewEffects(spec)))
+            .setEffects(Effects(emptyList(), effects))
+            .apply { spec.exportSettings.frameRate.maxFps?.let(::setFrameRate) }
             .build()
-        val intermediate = runExport(edited = edited, output = File(context.cacheDir, "video-edit-${UUID.randomUUID()}.mp4"),
+        val intermediate = runExport(edited = edited,
+            output = File(context.cacheDir, "video-edit-${UUID.randomUUID()}.mp4"),
+            exportSettings = spec.exportSettings, outputDimensions = size,
             onProgress = if (spec.reverse) ({ progress -> onProgress(progress * 45 / 100) }) else onProgress)
         if (!spec.reverse) return intermediate
         try {
@@ -101,7 +121,14 @@ class VideoEditor(private val context: Context) {
         spec: VideoEditSpec,
         onProgress: (Int) -> Unit,
     ): File {
-        val composition = compositionForProject(project, spec)
+        val first = project.clips.first()
+        val dimensions = withContext(Dispatchers.IO) {
+            VideoExportSourceProbe.dimensions(context, first)
+        }
+        val canvas = spec.exportSettings.dimensions(
+            dimensions.first, dimensions.second,
+            first.crop.keptWidth, first.crop.keptHeight, first.rotationDegrees)
+        val composition = compositionForProject(project, spec, canvas)
         val destination = File(context.cacheDir, "video-join-${UUID.randomUUID()}.mp4")
         val withOverlay = project.visibleAudioTracks().isNotEmpty()
         val firstPassMax = when {
@@ -111,6 +138,7 @@ class VideoEditor(private val context: Context) {
             else -> 100
         }
         var working = runExport(composition = composition, output = destination,
+            exportSettings = spec.exportSettings, outputDimensions = canvas,
             onProgress = { p -> onProgress(p * firstPassMax / 100) })
         try {
             if (withOverlay) {
@@ -141,6 +169,7 @@ class VideoEditor(private val context: Context) {
     internal fun compositionForProject(
         project: VideoProjectDraft,
         spec: VideoEditSpec,
+        outputDimensions: VideoExportDimensions? = null,
     ): Composition {
         val clips = project.clips
         val edited = clips.mapIndexed { index, clip ->
@@ -159,12 +188,24 @@ class VideoEditor(private val context: Context) {
                 color = clip.color,
                 specialFx = clip.specialFx,
                 transitionPhases = VideoTransitionTiming.forClip(project, index))
-            EditedMediaItem.Builder(clippedMediaItem(Uri.parse(clip.sourceUri),
-                clip.inMs, clip.outMs))
+            val mediaItem = if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
+                MediaItem.Builder().setUri(Uri.parse(clip.sourceUri))
+                    .setImageDurationMs(clip.durationMs).build()
+            } else clippedMediaItem(Uri.parse(clip.sourceUri), clip.inMs, clip.outMs)
+            val effects = previewEffects(localSpec, timeOffsetMs = clip.inMs)
+            val unifiedEffects = if (outputDimensions == null) effects
+                else effects + Presentation.createForWidthAndHeight(
+                    outputDimensions.width, outputDimensions.height,
+                    Presentation.LAYOUT_SCALE_TO_FIT)
+            EditedMediaItem.Builder(mediaItem)
                 .setRemoveAudio(spec.removeAudio)
-                .setEffects(Effects(emptyList(), previewEffects(localSpec,
-                    timeOffsetMs = clip.inMs)))
+                .setEffects(Effects(emptyList(), unifiedEffects))
                 .apply {
+                    if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
+                        setFrameRate(spec.exportSettings.frameRate.maxFps ?: 30)
+                    } else {
+                        spec.exportSettings.frameRate.maxFps?.let(::setFrameRate)
+                    }
                     if (clip.speed != 1f) {
                         setSpeed(object : SpeedProvider {
                             override fun getSpeed(timeUs: Long): Float = clip.speed
@@ -275,6 +316,8 @@ class VideoEditor(private val context: Context) {
         composition: Composition? = null,
         output: File,
         audioMimeType: String? = null,
+        exportSettings: VideoExportSettings? = null,
+        outputDimensions: VideoExportDimensions? = null,
         onProgress: (Int) -> Unit,
     ): File = suspendCancellableCoroutine { continuation ->
         val mainHandler = Handler(Looper.getMainLooper())
@@ -293,6 +336,17 @@ class VideoEditor(private val context: Context) {
 
         val builder = Transformer.Builder(context)
         audioMimeType?.let(builder::setAudioMimeType)
+        if (exportSettings != null && outputDimensions != null) {
+            val bitrate = exportSettings.targetBitrate(outputDimensions,
+                exportSettings.frameRate.maxFps ?: 30)
+            builder.setVideoMimeType(MimeTypes.VIDEO_H264)
+            builder.setEncoderFactory(
+                DefaultEncoderFactory.Builder(context)
+                    .setEnableFallback(true)
+                    .setRequestedVideoEncoderSettings(
+                        VideoEncoderSettings.Builder().setBitrate(bitrate).build())
+                    .build())
+        }
         transformer = builder
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {

@@ -23,6 +23,7 @@ data class VideoClipDraft(
     val color: VideoColorGrade = VideoColorGrade(),
     val transitionOut: VideoTransitionDraft = VideoTransitionDraft(),
     val specialFx: VideoSpecialFxDraft = VideoSpecialFxDraft(),
+    val mediaKind: VideoClipMediaKind = VideoClipMediaKind.VIDEO,
 ) {
     init {
         require(id.isNotBlank())
@@ -30,6 +31,12 @@ data class VideoClipDraft(
         require(sourceDurationMs > 0L)
         require(inMs >= 0L && inMs < outMs && outMs <= sourceDurationMs)
         require(speed.isFinite() && speed in MIN_SPEED..MAX_SPEED)
+        if (mediaKind == VideoClipMediaKind.IMAGE) {
+            require(sourceDurationMs in 500L..30_000L)
+            require(inMs == 0L && outMs == sourceDurationMs && speed == 1f) {
+                "Для фото длительность задаётся отдельно"
+            }
+        }
         require(rotationDegrees % 90 == 0)
         require(listOf(crop.left, crop.right, crop.top, crop.bottom).all { it.isFinite() && it in 0f..0.95f })
         require(crop.left + crop.right <= 0.95f && crop.top + crop.bottom <= 0.95f)
@@ -128,11 +135,29 @@ data class VideoProjectDraft(
 
     fun trimClip(id: String, startMs: Long, endMs: Long): VideoProjectDraft =
         copy(clips = clips.map { clip ->
-            if (clip.id == id) clip.copy(inMs = startMs, outMs = endMs) else clip
+            if (clip.id == id) {
+                require(clip.mediaKind == VideoClipMediaKind.VIDEO) {
+                    "Для фотографии измени длительность, а не точки обрезки"
+                }
+                clip.copy(inMs = startMs, outMs = endMs)
+            } else clip
         })
 
+    fun setPhotoDuration(id: String, durationMs: Long): VideoProjectDraft {
+        require(durationMs in 500L..30_000L)
+        require(clips.any { it.id == id && it.mediaKind == VideoClipMediaKind.IMAGE })
+        return copy(clips = clips.map { clip -> if (clip.id == id)
+            clip.copy(sourceDurationMs = durationMs, inMs = 0L, outMs = durationMs)
+            else clip })
+    }
+
     fun setSpeed(id: String, speed: Float): VideoProjectDraft =
-        copy(clips = clips.map { if (it.id == id) it.copy(speed = speed) else it })
+        copy(clips = clips.map { clip -> if (clip.id == id) {
+            require(clip.mediaKind == VideoClipMediaKind.VIDEO) {
+                "Для фотографии изменяй длительность"
+            }
+            clip.copy(speed = speed)
+        } else clip })
 
     fun setGeometry(
         id: String,
@@ -223,6 +248,9 @@ data class VideoProjectDraft(
         val index = indexOf(id)
         require(index >= 0 && rightId.isNotBlank())
         val target = clips[index]
+        require(target.mediaKind == VideoClipMediaKind.VIDEO) {
+            "Фотографию нельзя разделять как видеозапись"
+        }
         require(sourceMs - target.inMs >= minDurationMs &&
             target.outMs - sourceMs >= minDurationMs)
         return copy(clips = clips.take(index) +
@@ -249,11 +277,13 @@ data class VideoProjectDraft(
         return copy(clips = mutable)
     }
 
-    fun replace(id: String, sourceUri: String, durationMs: Long): VideoProjectDraft {
+    fun replace(id: String, sourceUri: String, durationMs: Long,
+        kind: VideoClipMediaKind = VideoClipMediaKind.VIDEO): VideoProjectDraft {
         val index = indexOf(id)
         require(index >= 0)
         return copy(clips = clips.map { clip ->
-            if (clip.id == id) VideoClipDraft(id, sourceUri, durationMs) else clip
+            if (clip.id == id) VideoClipDraft(id, sourceUri, durationMs,
+                mediaKind = kind) else clip
         })
     }
 

@@ -14,8 +14,10 @@ internal object VideoPreviewQueueSync {
             val media = items[index]
             val clip = project.clips[index]
             media.localConfiguration?.uri?.toString() == clip.sourceUri &&
-                media.clippingConfiguration.startPositionMs == clip.inMs &&
-                media.clippingConfiguration.endPositionMs == clip.outMs
+                (if (clip.mediaKind == VideoClipMediaKind.IMAGE)
+                    media.mediaId == "image:${clip.id}:${clip.durationMs}"
+                else media.clippingConfiguration.startPositionMs == clip.inMs &&
+                    media.clippingConfiguration.endPositionMs == clip.outMs)
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import com.domenota.medialoader.data.editor.VideoClipDraft
+import com.domenota.medialoader.data.editor.VideoClipMediaKind
 import com.domenota.medialoader.data.editor.VideoProjectDraft
 import com.domenota.medialoader.ui.components.formatPreciseMediaTime
 import kotlinx.coroutines.Dispatchers
@@ -163,22 +165,42 @@ private fun VideoClipStrip(
     }
     LaunchedEffect(clip.sourceUri, clip.inMs, clip.outMs) {
         val generated = withContext(Dispatchers.IO) {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(context, Uri.parse(clip.sourceUri))
-                (0..3).mapNotNull { step ->
-                    val ms = clip.inMs + (clip.durationMs - 1).coerceAtLeast(0) * step / 3
-                    retriever.getFrameAtTime(ms * 1000L,
-                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let { bmp ->
-                        val w = (bmp.width * (100f / bmp.height.coerceAtLeast(1)))
-                            .toInt().coerceIn(1, 150)
-                        val small = Bitmap.createScaledBitmap(bmp, w, 100, true)
-                        if (small !== bmp) bmp.recycle()
-                        small
+            if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
+                runCatching {
+                    val uri = Uri.parse(clip.sourceUri)
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null, bounds)
                     }
-                }
-            } catch (_: Exception) { emptyList() }
-            finally { retriever.release() }
+                    var sample = 1
+                    while (bounds.outWidth / sample > 350 ||
+                        bounds.outHeight / sample > 350) sample *= 2
+                    val small = context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null,
+                            BitmapFactory.Options().apply { inSampleSize = sample })
+                    }
+                    if (small == null) emptyList()
+                    else listOf(small)
+                }.getOrDefault(emptyList())
+            } else {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, Uri.parse(clip.sourceUri))
+                    (0..3).mapNotNull { step ->
+                        val ms = clip.inMs + (clip.sourceSpanMs - 1L)
+                            .coerceAtLeast(0L) * step / 3
+                        retriever.getFrameAtTime(ms * 1000L,
+                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let { bmp ->
+                            val w = (bmp.width * (100f / bmp.height.coerceAtLeast(1)))
+                                .toInt().coerceIn(1, 150)
+                            val small = Bitmap.createScaledBitmap(bmp, w, 100, true)
+                            if (small !== bmp) bmp.recycle()
+                            small
+                        }
+                    }
+                } catch (_: Exception) { emptyList() }
+                finally { retriever.release() }
+            }
         }
         thumbnails = generated
     }
@@ -239,7 +261,8 @@ private fun VideoClipStrip(
             Box(Modifier.align(Alignment.CenterStart).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
                 .pointerInput(clip.id, enabled) {
-                    if (!enabled || latestClip.sourceSpanMs < 200L) return@pointerInput
+                    if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE ||
+                        latestClip.sourceSpanMs < 200L) return@pointerInput
                     detectDragGestures { change, delta ->
                         change.consume()
                         val shift = (delta.x / pixelWidth * latestClip.sourceSpanMs).roundToLong()
@@ -250,7 +273,8 @@ private fun VideoClipStrip(
             Box(Modifier.align(Alignment.CenterEnd).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
                 .pointerInput(clip.id, enabled) {
-                    if (!enabled || latestClip.sourceSpanMs < 200L) return@pointerInput
+                    if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE ||
+                        latestClip.sourceSpanMs < 200L) return@pointerInput
                     detectDragGestures { change, delta ->
                         change.consume()
                         val shift = (delta.x / pixelWidth * latestClip.sourceSpanMs).roundToLong()
