@@ -44,14 +44,19 @@ import kotlin.math.roundToInt
 private data class PhotoSourceInfo(val width: Int, val height: Int, val preview: Bitmap)
 
 private enum class PhotoWorkspaceTab(val title: String) {
-    CROP("Обрезка"), LEVELS("Уровни"), EFFECTS("Эффекты"),
+    CROP("Обрезка"), LEVELS("Уровни"), HSL("HSL"), EFFECTS("Эффекты"),
     TEXT("Надпись"), WATERMARK("Водяной знак"), AI("AI")
 }
 private enum class PhotoLevelControl(val title: String) {
     EXPOSURE("Выдержка"), BRIGHTNESS("Яркость"), CONTRAST("Контраст"),
-    SATURATION("Насыщенность"), WARMTH("Теплота")
+    SATURATION("Насыщенность"), WARMTH("Теплота"),
+    SHADOWS("Тени"), HIGHLIGHTS("Светлые участки"),
+    BLACK_POINT("Точка чёрного"), CURVE("Гамма")
 }
 
+private enum class PhotoHslControl(val title: String) {
+    HUE("Оттенок"), SATURATION("Насыщенность"), LIGHTNESS("Светлота")
+}
 private data class PhotoEditSnapshot(
     val crop: CropFractions = CropFractions(),
     val cropPreset: CropAspectPreset = CropAspectPreset.FREE,
@@ -90,6 +95,8 @@ fun PhotoEditorScreen(
     var removeObjects by remember(item.id) { mutableStateOf(false) }
     var currentTab by remember(item.id) { mutableStateOf(PhotoWorkspaceTab.CROP) }
     var activeLevel by remember(item.id) { mutableStateOf(PhotoLevelControl.BRIGHTNESS) }
+    var activeHslRange by remember(item.id) { mutableStateOf(HslRange.RED) }
+    var activeHslControl by remember(item.id) { mutableStateOf(PhotoHslControl.HUE) }
     var cropTool by remember(item.id) { mutableStateOf("ratio") }
     var menuOpen by remember { mutableStateOf(false) }
     var composedPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
@@ -335,6 +342,8 @@ fun PhotoEditorScreen(
                     cropTool = cropTool, onCropTool = { cropTool = it },
                     edit = edit, info = info, locked = locked,
                     activeLevel = activeLevel, onActiveLevel = { activeLevel = it },
+                    activeHslRange = activeHslRange, onHslRange = { activeHslRange = it },
+                    activeHslControl = activeHslControl, onHslControl = { activeHslControl = it },
                     onEdit = ::commit,
                     onLiveEdit = { update ->
                         if (pendingGesture == null) pendingGesture = edit
@@ -394,14 +403,19 @@ private fun PhotoWorkspaceTools(
     cropTool: String, onCropTool: (String) -> Unit,
     edit: PhotoEditSnapshot, info: PhotoSourceInfo?, locked: Boolean,
     activeLevel: PhotoLevelControl, onActiveLevel: (PhotoLevelControl) -> Unit,
+    activeHslRange: HslRange, onHslRange: (HslRange) -> Unit,
+    activeHslControl: PhotoHslControl, onHslControl: (PhotoHslControl) -> Unit,
     onEdit: (PhotoEditSnapshot) -> Unit,
     onLiveEdit: (PhotoEditSnapshot) -> Unit,
     onEditFinished: () -> Unit,
     onText: () -> Unit, onDraw: () -> Unit,
     onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().background(Color.Black).height(188.dp)) {
-        Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
+    Column(Modifier.fillMaxWidth().background(Color.Black)
+        .height(if (tab == PhotoWorkspaceTab.HSL) 242.dp else 188.dp)) {
+        Box(Modifier.fillMaxWidth()
+            .height(if (tab == PhotoWorkspaceTab.HSL) 118.dp else 64.dp),
+            contentAlignment = Alignment.Center) {
             when (tab) {
                 PhotoWorkspaceTab.CROP -> {
                     if (cropTool == "ratio") Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
@@ -430,6 +444,10 @@ private fun PhotoWorkspaceTools(
                         PhotoLevelControl.CONTRAST -> edit.color.contrast
                         PhotoLevelControl.SATURATION -> edit.color.saturation
                         PhotoLevelControl.WARMTH -> edit.color.warmth
+                        PhotoLevelControl.SHADOWS -> edit.color.shadows
+                        PhotoLevelControl.HIGHLIGHTS -> edit.color.highlights
+                        PhotoLevelControl.BLACK_POINT -> edit.color.blackPoint
+                        PhotoLevelControl.CURVE -> edit.color.curve
                     }
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -444,12 +462,55 @@ private fun PhotoWorkspaceTools(
                                     PhotoLevelControl.CONTRAST -> edit.color.copy(contrast = next)
                                     PhotoLevelControl.SATURATION -> edit.color.copy(saturation = next)
                                     PhotoLevelControl.WARMTH -> edit.color.copy(warmth = next)
+                                    PhotoLevelControl.SHADOWS -> edit.color.copy(shadows = next)
+                                    PhotoLevelControl.HIGHLIGHTS -> edit.color.copy(highlights = next)
+                                    PhotoLevelControl.BLACK_POINT -> edit.color.copy(blackPoint = next)
+                                    PhotoLevelControl.CURVE -> edit.color.copy(curve = next)
                                 }
                                 onLiveEdit(edit.copy(color = color))
                             },
                             onValueChangeFinished = onEditFinished,
                             valueRange = -100f..100f, enabled = !locked && info != null,
                         )
+                    }
+                }
+                PhotoWorkspaceTab.HSL -> {
+                    val correction = edit.color.hsl[activeHslRange] ?: HslCorrection()
+                    val value = when (activeHslControl) {
+                        PhotoHslControl.HUE -> correction.hue
+                        PhotoHslControl.SATURATION -> correction.saturation
+                        PhotoHslControl.LIGHTNESS -> correction.lightness
+                    }
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            HslRange.entries.forEach { range ->
+                                FilterChip(selected = activeHslRange == range,
+                                    enabled = !locked && info != null,
+                                    onClick = { onHslRange(range) },
+                                    label = { Text(range.label, fontSize = 11.sp) })
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(value.roundToInt().toString(), fontSize = 11.sp,
+                                color = Color.LightGray, modifier = Modifier.width(32.dp))
+                            Slider(value = value, valueRange = -100f..100f,
+                                onValueChange = { next ->
+                                    val updated = when(activeHslControl) {
+                                        PhotoHslControl.HUE -> correction.copy(hue = next)
+                                        PhotoHslControl.SATURATION -> correction.copy(saturation = next)
+                                        PhotoHslControl.LIGHTNESS -> correction.copy(lightness = next)
+                                    }
+                                    val nextHsl = edit.color.hsl.toMutableMap()
+                                    if (updated.isNeutral()) nextHsl.remove(activeHslRange)
+                                    else nextHsl[activeHslRange] = updated
+                                    onLiveEdit(edit.copy(color = edit.color.copy(hsl = nextHsl)))
+                                }, onValueChangeFinished = onEditFinished,
+                                enabled = !locked && info != null,
+                                modifier = Modifier.weight(1f))
+                        }
                     }
                 }
                 PhotoWorkspaceTab.EFFECTS -> {
@@ -503,6 +564,10 @@ private fun PhotoWorkspaceTools(
                 PhotoWorkspaceTab.LEVELS -> PhotoLevelControl.entries.forEach { control ->
                     PhotoToolCard(control.title, Icons.Rounded.Tune, activeLevel == control,
                         { onActiveLevel(control) }, !locked)
+                }
+                PhotoWorkspaceTab.HSL -> PhotoHslControl.entries.forEach { control ->
+                    PhotoToolCard(control.title, Icons.Rounded.Palette,
+                        activeHslControl == control, { onHslControl(control) }, !locked)
                 }
                 PhotoWorkspaceTab.EFFECTS -> PhotoEffect.entries.forEach { effect ->
                     PhotoEffectCard(effect = effect, info = info, base = edit.color,
