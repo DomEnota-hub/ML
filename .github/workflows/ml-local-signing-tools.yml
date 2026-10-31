@@ -1,0 +1,27 @@
+name: ML local signing tools transfer
+on:
+  push:
+    branches:
+      - tools/ml-signing-tools-20261031
+permissions:
+  contents: read
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify Android signing tools available
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+          mkdir -p transfer
+          cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib/apksigner.jar" transfer/
+          cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign" transfer/
+          chmod +x transfer/zipalign
+          sha256sum transfer/* > transfer/tools.sha256
+      - name: Export tools only (no credentials)
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-signing-tools-35
+          path: transfer/
+          retention-days: 2
