@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.media3.common.Player
 import com.domenota.medialoader.data.editor.VideoClipDraft
+import com.domenota.medialoader.data.editor.VideoPreviewQueueSync
 import java.util.UUID
 import kotlinx.coroutines.delay
 import androidx.annotation.OptIn
@@ -334,13 +335,20 @@ fun VideoEditorScreen(
         val player = previewPlayer ?: return@LaunchedEffect
         val p = project ?: return@LaunchedEffect
         while (true) {
-            val index = player.currentMediaItemIndex
-            if (index in p.clips.indices) {
-                val pos = p.timelinePosition(index, player.currentPosition)
-                if (player.isPlaying || pos != playheadMs) playheadMs = pos
-                if (player.isPlaying) selectedClipId = p.clips[index].id
+            // During trim, split or reorder the player still has the old playlist
+            // until its debounced rebuild. Never let old positions overwrite the
+            // newly selected source frame before the player is synchronized.
+            val queueIsCurrent = VideoPreviewQueueSync.matches(
+                (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }, p)
+            if (queueIsCurrent) {
+                val index = player.currentMediaItemIndex
+                if (index in p.clips.indices) {
+                    val pos = p.timelinePosition(index, player.currentPosition)
+                    if (player.isPlaying || pos != playheadMs) playheadMs = pos
+                    if (player.isPlaying) selectedClipId = p.clips[index].id
+                }
             }
-            timelineIsPlaying = player.isPlaying
+            timelineIsPlaying = queueIsCurrent && player.isPlaying
             delay(75L)
         }
     }
