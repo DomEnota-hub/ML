@@ -18,6 +18,10 @@ jobs:
           cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib/apksigner.jar" transfer/
           cp "$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign" transfer/
           chmod +x transfer/zipalign
+          # Bundle the zipalign runtime dependency for a minimal offline system.
+          libcxx=$(ldd transfer/zipalign | awk '/libc\+\+\.so/ {print $3; exit}')
+          test -f "$libcxx"
+          cp "$libcxx" transfer/libc++.so
           sha256sum transfer/* > transfer/tools.sha256
       - name: Export tools only (no credentials)
         uses: actions/upload-artifact@v4
