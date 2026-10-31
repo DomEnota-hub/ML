@@ -43,8 +43,21 @@ class LibraryHeaderActionsTest {
         } }
         compose.onNodeWithContentDescription("Поиск").performClick()
         compose.onNodeWithContentDescription("Личное").performClick()
-        compose.onNodeWithContentDescription("Дополнительно").performClick()
-        compose.onNodeWithText("Настройки").performClick()
+        // One direct action: no menu for a single settings item.
+        compose.onNodeWithContentDescription("Дополнительно").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Настройки").performClick()
+        compose.onNodeWithText("Доступ к файлам").assertDoesNotExist()
         assertEquals(1, search); assertEquals(1, private); assertEquals(1, settings)
+    }
+
+    @Test fun galleryTrashIsDirectActionWithoutAccessMenu() {
+        var opened = 0
+        compose.setContent { MaterialTheme {
+            LibraryModeHeader(AppMode.GALLERY, LibrarySource.PHONE, {}, {}, { opened++ }, {})
+        } }
+        compose.onNodeWithContentDescription("Корзина").performClick()
+        compose.onNodeWithContentDescription("Дополнительно").assertDoesNotExist()
+        compose.onNodeWithText("Доступ к файлам").assertDoesNotExist()
+        assertEquals(1, opened)
     }
 }
