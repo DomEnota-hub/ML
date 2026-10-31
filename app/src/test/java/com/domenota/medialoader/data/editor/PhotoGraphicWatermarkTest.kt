@@ -22,6 +22,13 @@ class PhotoGraphicWatermarkTest {
         assertTrue(b.bottom <= 700f)
     }
 
+    @Test fun veryTallWatermarkFitsWholePhotoAndRetainsRatio() {
+        val fitted = photoWatermarkBounds(1600, 900, 90, 2000, watermark)
+        assertTrue(fitted.top >= 0f)
+        assertTrue(fitted.bottom <= 900f)
+        assertEquals(2000f / 90f, fitted.height() / fitted.width(), .01f)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun neverTreatsArbitraryFilePathsAsWatermarkSources() {
         PhotoGraphicWatermark(uri = "file:///data/local/tmp/untrusted.png")
