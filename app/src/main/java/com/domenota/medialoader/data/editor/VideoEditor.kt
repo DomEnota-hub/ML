@@ -48,6 +48,8 @@ data class VideoEditSpec(
     val reverse: Boolean = false,
     val textLayers: List<TextLayer> = emptyList(),
     val graphicLayers: List<VideoGraphicLayer> = emptyList(),
+    val specialFx: VideoSpecialFxDraft = VideoSpecialFxDraft(),
+    internal val transitionPhases: List<VideoTransitionPhase> = emptyList(),
     val project: VideoProjectDraft? = null,
 ) {
     init {
@@ -154,7 +156,9 @@ class VideoEditor(private val context: Context) {
                 rotationDegrees = clip.rotationDegrees,
                 mirrorHorizontal = clip.mirrorHorizontal,
                 mirrorVertical = clip.mirrorVertical,
-                color = clip.color)
+                color = clip.color,
+                specialFx = clip.specialFx,
+                transitionPhases = VideoTransitionTiming.forClip(project, index))
             EditedMediaItem.Builder(clippedMediaItem(Uri.parse(clip.sourceUri),
                 clip.inMs, clip.outMs))
                 .setRemoveAudio(spec.removeAudio)
@@ -195,10 +199,18 @@ class VideoEditor(private val context: Context) {
                 .build()
         }
         videoEffects += colorEffects(spec.color)
+        val timedOverlays = mutableListOf<androidx.media3.effect.TextureOverlay>()
+        if (spec.specialFx.enabled) timedOverlays += VideoSpecialFxOverlay(
+            spec.specialFx, timeOffsetMs)
         if (spec.textLayers.isNotEmpty() || spec.graphicLayers.isNotEmpty()) {
-            videoEffects += OverlayEffect(listOf(VideoTextOverlay(context,
-                spec.textLayers, timeOffsetMs, spec.graphicLayers)))
+            timedOverlays += VideoTextOverlay(context,
+                spec.textLayers, timeOffsetMs, spec.graphicLayers)
         }
+        // Apply the final transition over titles too: cut frames fade together.
+        spec.transitionPhases.forEach { phase ->
+            timedOverlays += VideoTransitionOverlay(phase, timeOffsetMs)
+        }
+        if (timedOverlays.isNotEmpty()) videoEffects += OverlayEffect(timedOverlays)
         return videoEffects
     }
 
