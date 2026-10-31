@@ -277,30 +277,27 @@ fun MediaTrimControls(
                     cap = StrokeCap.Round,
                 )
             }
-            drawLine(
-                color = handleColor,
-                start = Offset(startX, centerY - 26.dp.toPx()),
-                end = Offset(startX, centerY + 26.dp.toPx()),
-                strokeWidth = 5.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            drawCircle(
-                color = handleColor,
-                radius = 7.dp.toPx(),
-                center = Offset(startX, centerY),
-            )
-            drawLine(
-                color = handleColor,
-                start = Offset(endX, centerY - 26.dp.toPx()),
-                end = Offset(endX, centerY + 26.dp.toPx()),
-                strokeWidth = 5.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            drawCircle(
-                color = handleColor,
-                radius = 7.dp.toPx(),
-                center = Offset(endX, centerY),
-            )
+            // Selection edges are the draggable controls; avoid tall isolated
+            // sticks and keep the thumbnails / waveform unobstructed.
+            val edgeHeight = 46.dp.toPx()
+            val edgeWidth = 9.dp.toPx()
+            val edgeTop = centerY - edgeHeight / 2f
+            val corner = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+            if (endX > startX) {
+                drawLine(handleColor.copy(alpha = 0.78f),
+                    Offset(startX, edgeTop), Offset(endX, edgeTop),
+                    strokeWidth = 2.dp.toPx())
+                drawLine(handleColor.copy(alpha = 0.78f),
+                    Offset(startX, edgeTop + edgeHeight),
+                    Offset(endX, edgeTop + edgeHeight),
+                    strokeWidth = 2.dp.toPx())
+            }
+            listOf(startX, endX).forEach { x ->
+                drawRoundRect(handleColor,
+                    topLeft = Offset(x - edgeWidth / 2f, edgeTop),
+                    size = androidx.compose.ui.geometry.Size(edgeWidth, edgeHeight),
+                    cornerRadius = corner)
+            }
             drawLine(
                 color = playheadColor,
                 start = Offset(playX, centerY - 19.dp.toPx()),
