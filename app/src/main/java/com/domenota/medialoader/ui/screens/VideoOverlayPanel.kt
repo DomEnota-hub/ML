@@ -31,8 +31,8 @@ internal fun VideoOverlayPanel(
     onRemoveGraphic: (String) -> Unit,
     onSeek: (Long) -> Unit,
 ) {
-    val text = texts.firstOrNull { it.id == selectedId }
-    val graphic = graphics.firstOrNull { it.id == selectedId }
+    val text = if (!graphicsTab) texts.firstOrNull { it.id == selectedId } else null
+    val graphic = if (graphicsTab) graphics.firstOrNull { it.id == selectedId } else null
     val validDuration = durationMs.coerceAtLeast(1L)
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(5.dp)) {
