@@ -206,6 +206,7 @@ internal fun PhotoGeometryDialog(
                         Text(if (mode == GeometryMode.STRAIGHTEN) "Угол" else "Перспектива",
                             color = Color.LightGray, fontSize = 12.sp)
                         Slider(value, onValueChange = { n ->
+                            if (beforeDrag == null) beforeDrag = geometry
                             geometry = when (mode) {
                                 GeometryMode.STRAIGHTEN -> geometry.copy(straighten = n)
                                 GeometryMode.HORIZONTAL -> geometry.copy(horizontalPerspective = n)
