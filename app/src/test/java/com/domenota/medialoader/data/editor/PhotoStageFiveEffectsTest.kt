@@ -23,7 +23,13 @@ class PhotoStageFiveEffectsTest {
             .contains(PhotoEffect.NIGHT_CYAN))
         assertTrue(PhotoEffectCatalog.forCategory(PhotoEffectCategory.TEXTURE)
             .contains(PhotoEffect.TEXTURE_GRAIN))
-        assertTrue(PhotoEffectCategory.entries.all { PhotoEffectCatalog.forCategory(it).isNotEmpty() })
+        assertTrue(PhotoEffectCategory.entries.filter {
+            it != PhotoEffectCategory.FAVORITES
+        }.all { PhotoEffectCatalog.forCategory(it).isNotEmpty() })
+        assertTrue(PhotoEffectCatalog.forCategory(PhotoEffectCategory.FAVORITES).isEmpty())
+        assertEquals(listOf(PhotoEffect.WARM),
+            PhotoEffectCatalog.forCategory(PhotoEffectCategory.FAVORITES,
+                setOf(PhotoEffect.WARM)))
     }
 
     @Test fun legacyPresetNamesRetainMeaningfulSaturationAndWarmth() {
