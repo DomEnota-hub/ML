@@ -76,6 +76,68 @@ data class VideoProjectDraft(
             if (clip.id == id) clip.copy(inMs = startMs, outMs = endMs) else clip
         })
 
+    fun indexOf(id: String): Int = clips.indexOfFirst { it.id == id }
+
+    fun timelineStart(index: Int): Long {
+        require(index in clips.indices)
+        return clips.take(index).sumOf { it.durationMs }
+    }
+
+    fun timelinePosition(index: Int, localMs: Long): Long {
+        require(index in clips.indices)
+        return timelineStart(index) + localMs.coerceIn(0L, clips[index].durationMs)
+    }
+
+    fun addAfter(id: String, newClips: List<VideoClipDraft>): VideoProjectDraft {
+        require(newClips.isNotEmpty())
+        val index = indexOf(id)
+        require(index >= 0)
+        return copy(clips = clips.take(index + 1) + newClips + clips.drop(index + 1))
+    }
+
+    fun splitAt(id: String, sourceMs: Long, rightId: String,
+        minDurationMs: Long = 100L): VideoProjectDraft {
+        val index = indexOf(id)
+        require(index >= 0 && rightId.isNotBlank())
+        val target = clips[index]
+        require(sourceMs - target.inMs >= minDurationMs &&
+            target.outMs - sourceMs >= minDurationMs)
+        return copy(clips = clips.take(index) +
+            listOf(target.copy(outMs = sourceMs),
+                target.copy(id = rightId, inMs = sourceMs)) +
+            clips.drop(index + 1))
+    }
+
+    fun duplicate(id: String, newId: String): VideoProjectDraft {
+        val index = indexOf(id)
+        require(index >= 0 && newId.isNotBlank())
+        return addAfter(id, listOf(clips[index].copy(id = newId)))
+    }
+
+    fun move(id: String, toIndex: Int): VideoProjectDraft {
+        val from = indexOf(id)
+        require(from >= 0 && toIndex in clips.indices)
+        if (from == toIndex) return this
+        val mutable = clips.toMutableList()
+        val moved = mutable.removeAt(from)
+        mutable.add(toIndex, moved)
+        return copy(clips = mutable)
+    }
+
+    fun replace(id: String, sourceUri: String, durationMs: Long): VideoProjectDraft {
+        val index = indexOf(id)
+        require(index >= 0)
+        return copy(clips = clips.map { clip ->
+            if (clip.id == id) VideoClipDraft(id, sourceUri, durationMs) else clip
+        })
+    }
+
+    fun delete(id: String): VideoProjectDraft {
+        require(clips.size > 1) { "Нельзя удалить последний клип" }
+        require(indexOf(id) >= 0)
+        return copy(clips = clips.filterNot { it.id == id })
+    }
+
     companion object {
         const val MAX_CLIPS = 100
         const val MAX_AUDIO_TRACKS = 16
