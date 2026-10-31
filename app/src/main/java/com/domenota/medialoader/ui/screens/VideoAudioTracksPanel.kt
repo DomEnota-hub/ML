@@ -76,7 +76,7 @@ internal fun VideoAudioTracksPanel(
     }
     Slider(value = selected.volume,
         onValueChange = { volume -> onUpdate(id) { it.copy(volume = volume) } },
-        valueRange = 0f..2f, enabled = enabled)
+        valueRange = 0f..1f, enabled = enabled)
     Text("Начало в проекте: ${selected.atMs / 1000f} с",
         style = MaterialTheme.typography.bodySmall)
     val endOfProject = (project?.durationMs ?: 1L).coerceAtLeast(1L)
