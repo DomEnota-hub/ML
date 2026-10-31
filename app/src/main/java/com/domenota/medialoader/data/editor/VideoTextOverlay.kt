@@ -13,7 +13,9 @@ import kotlin.math.roundToInt
 
 @OptIn(UnstableApi::class)
 internal class VideoTextOverlay(private val context: Context, private val layers: List<TextLayer>,
-    private val timeOffsetMs: Long = 0L) : BitmapOverlay() {
+    private val timeOffsetMs: Long = 0L,
+    private val graphics: List<VideoGraphicLayer> = emptyList()) : BitmapOverlay() {
+    private val graphicRenderer = VideoGraphicRenderer(context)
     private var image: Bitmap? = null
     private var settings = StaticOverlaySettings.Builder().build()
     private var activeIds: List<String>? = null
@@ -24,20 +26,31 @@ internal class VideoTextOverlay(private val context: Context, private val layers
         image = Bitmap.createBitmap((videoSize.width * scale).roundToInt().coerceAtLeast(1),
             (videoSize.height * scale).roundToInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         settings = StaticOverlaySettings.Builder().setScale(1f / scale, 1f / scale).build()
+        graphicRenderer.prepare(graphics)
         activeIds = null
     }
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
         val bitmap = requireNotNull(image)
-        val active = layers.filter { it.visibleAt(presentationTimeUs / 1000L - timeOffsetMs) }
-        if (activeIds != active.map { it.id }) {
+        val localMs = presentationTimeUs / 1000L - timeOffsetMs
+        val activeText = layers.filter { it.visibleAt(localMs) }
+        val activeGraphics = graphics.filter { it.visibleAt(localMs) }
+        val keys = activeText.map { "text:${it.id}" } +
+            activeGraphics.map { "graphic:${it.id}" }
+        if (activeIds != keys) {
             bitmap.eraseColor(Color.TRANSPARENT)
-            TextLayerRenderer.draw(context, Canvas(bitmap), bitmap.width, bitmap.height, active, includeAll = true)
-            activeIds = active.map { it.id }
+            val canvas = Canvas(bitmap)
+            graphicRenderer.draw(canvas, bitmap.width, bitmap.height, activeGraphics, localMs)
+            TextLayerRenderer.draw(context, canvas, bitmap.width, bitmap.height,
+                activeText, positionMs = localMs)
+            activeIds = keys
         }
         return bitmap
     }
     override fun getOverlaySettings(presentationTimeUs: Long) = settings
     override fun release() {
-        try { super.release() } finally { image?.recycle(); image = null }
+        try { super.release() } finally {
+            image?.recycle(); image = null
+            graphicRenderer.release()
+        }
     }
 }

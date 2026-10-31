@@ -13,7 +13,9 @@ import com.domenota.medialoader.data.editor.VideoPreviewQueueSync
 import java.util.UUID
 import kotlinx.coroutines.delay
 import androidx.annotation.OptIn
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,8 +62,12 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -89,6 +95,9 @@ import com.domenota.medialoader.ui.components.CropFrameOverlay
 import com.domenota.medialoader.ui.components.EditorTextDialog
 import com.domenota.medialoader.ui.components.TextEditorVideoSource
 import com.domenota.medialoader.data.editor.TextLayer
+import com.domenota.medialoader.data.editor.VideoGraphicLayer
+import com.domenota.medialoader.data.editor.VideoGraphicKind
+import com.domenota.medialoader.data.editor.VideoOverlayTimeline
 import com.domenota.medialoader.data.editor.TextLayerRenderer
 import com.domenota.medialoader.ui.components.MediaTrimControls
 import com.domenota.medialoader.ui.components.VideoScrubFrame
@@ -140,8 +149,10 @@ fun VideoEditorScreen(
     var trimStart by remember { mutableLongStateOf(0L) }
     var trimEnd by remember { mutableLongStateOf(0L) }
     var textLayers by remember(item.id) { mutableStateOf<List<TextLayer>>(emptyList()) }
-    var textEditorOpen by remember(item.id) { mutableStateOf(false) }
-    var showTextResult by remember(item.id) { mutableStateOf(false) }
+    var graphicLayers by remember(item.id) {
+        mutableStateOf<List<VideoGraphicLayer>>(emptyList())
+    }
+    var selectedOverlayId by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedTool by remember(item.id) { mutableStateOf<VideoWorkspaceTool?>(null) }
 
     val fullDuration = info?.durationMs ?: 0L
@@ -272,7 +283,25 @@ fun VideoEditorScreen(
             } else clipError = "Не удалось прочитать выбранное видео"
         }
     }
-    val hasUnsavedChanges = removeAudio || reverseVideo || textLayers.isNotEmpty() ||
+    val pickOverlayImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()) { picked ->
+        val draft = project
+        if (picked != null && draft != null && graphicLayers.size < 12) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    picked, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val from = playheadMs.coerceIn(0L, draft.durationMs - 1L)
+            val layer = VideoGraphicLayer(kind = VideoGraphicKind.IMAGE,
+                sourceUri = picked.toString(), startMs = from,
+                endMs = minOf(draft.durationMs, from + 3000L))
+            graphicLayers = graphicLayers + layer
+            selectedOverlayId = layer.id
+            selectedTool = VideoWorkspaceTool.GRAPHICS
+        }
+    }
+    val hasUnsavedChanges = removeAudio || reverseVideo ||
+        textLayers.isNotEmpty() || graphicLayers.isNotEmpty() ||
         project?.audioTracks?.isNotEmpty() == true ||
         (project != null && project!!.clips !=
             listOf(VideoClipDraft(item.id.toString(), uri.toString(), fullDuration.coerceAtLeast(1L))))
@@ -291,7 +320,8 @@ fun VideoEditorScreen(
         selectedClipId = item.id.toString()
         playheadMs = 0L
         textLayers = emptyList()
-        showTextResult = false
+        graphicLayers = emptyList()
+        selectedOverlayId = null
         selectedAudioTrackId = null
         audioPreviewDeck.pause()
     }
@@ -302,11 +332,14 @@ fun VideoEditorScreen(
         // Each clip supplies its own geometry during Media3 Composition export.
         removeAudio = removeAudio,
         reverse = reverseVideo,
-        textLayers = textLayers.mapNotNull { it.within(project?.durationMs ?: 0L) },
+        textLayers = VideoOverlayTimeline.validatedTexts(
+            textLayers, project?.durationMs ?: 0L),
+        graphicLayers = VideoOverlayTimeline.validatedGraphics(
+            graphicLayers, project?.durationMs ?: 0L),
         project = project,
     )
 
-    LaunchedEffect(reverseVideo, project, removeAudio, textLayers) {
+    LaunchedEffect(reverseVideo, project, removeAudio, textLayers, graphicLayers) {
         reversePreviewJob?.cancel()
         reversePreviewJob = null
         reversePreviewFile?.delete()
@@ -344,20 +377,25 @@ fun VideoEditorScreen(
     DisposableEffect(previewPlayer) {
         onDispose { previewPlayer?.release(); audioPreviewDeck.pause() }
     }
-    val previewCrop = if (selectedTool == VideoWorkspaceTool.CROP && !showTextResult)
+    val previewCrop = if (selectedTool == VideoWorkspaceTool.CROP)
         CropFractions() else crop
-    val textPreviewSpec = VideoEditSpec(startMs = trimStart,
+    val activeOverlays = project?.let { draft ->
+        draft.indexOf(selectedClipId).takeIf { it >= 0 }?.let { index ->
+            VideoOverlayTimeline.forClip(draft, index, textLayers, graphicLayers)
+        }
+    }
+    val textPreviewSpec = VideoEditSpec(startMs = currentClip?.inMs ?: 0L,
         cropLeft = previewCrop.left, cropRight = previewCrop.right,
         cropTop = previewCrop.top, cropBottom = previewCrop.bottom,
         rotationDegrees = rotation,
         mirrorHorizontal = mirrorHorizontal, mirrorVertical = mirrorVertical,
         color = clipColor,
-        textLayers = if (showTextResult)
-            textLayers.mapNotNull { it.within(trimEnd - trimStart) } else emptyList())
+        textLayers = activeOverlays?.texts.orEmpty(),
+        graphicLayers = activeOverlays?.graphics.orEmpty())
     LaunchedEffect(previewPlayer, selectedClipId, textPreviewSpec) {
-        val effects = textPreviewSpec?.let {
-            com.domenota.medialoader.data.editor.VideoEditor(context).previewEffects(it, timeOffsetMs = it.startMs)
-        } ?: emptyList()
+        delay(75L) // Coalesce fast slider and drag gestures before rebuilding GL effects.
+        val effects = VideoEditor(context).previewEffects(
+            textPreviewSpec, timeOffsetMs = textPreviewSpec.startMs)
         previewPlayer?.setVideoEffects(effects)
         previewPlayer?.seekTo(previewPlayer.currentPosition)
     }
@@ -440,18 +478,6 @@ fun VideoEditorScreen(
         }
     }
 
-    if (textEditorOpen && uri != null && trimEnd > trimStart) EditorTextDialog(
-        initial = textLayers.mapNotNull { it.within(trimEnd - trimStart) },
-        durationMs = trimEnd - trimStart,
-        videoSource = TextEditorVideoSource(uri, VideoEditSpec(startMs = trimStart, endMs = trimEnd,
-            cropLeft = crop.left, cropRight = crop.right, cropTop = crop.top, cropBottom = crop.bottom,
-            rotationDegrees = rotation)),
-        initialPositionMs = ((previewPlayer?.currentPosition ?: trimStart) - trimStart).coerceAtLeast(0L),
-        loadPreview = { position -> TextLayerRenderer.videoPreview(context, uri, trimStart + position, crop, rotation) },
-        onApply = { textLayers = it; textEditorOpen = false; showTextResult = it.isNotEmpty() },
-        onDismiss = { textEditorOpen = false },
-    )
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -484,23 +510,12 @@ fun VideoEditorScreen(
 
         Column(Modifier.fillMaxSize().padding(padding)
             .background(MaterialTheme.colorScheme.background)) {
-            if (textLayers.isNotEmpty()) {
-                Row(Modifier.padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(selected = !showTextResult,
-                        onClick = { showTextResult = false },
-                        label = { Text("Кадрирование") })
-                    FilterChip(selected = showTextResult,
-                        onClick = { showTextResult = true },
-                        label = { Text("Итог с текстом") })
-                }
-            }
             // Only the canvas grows with screen size; trim and tools stay
             // reachable even with portrait video and Android navigation bars.
             Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center) {
                 val previewDimensions = selectedPreviewInfo ?: info
-                val showEditedFrame = selectedTool != VideoWorkspaceTool.CROP || showTextResult
+                val showEditedFrame = selectedTool != VideoWorkspaceTool.CROP
                 val w = ((previewDimensions?.width ?: 16) *
                     if (showEditedFrame) crop.keptWidth else 1f).roundToInt().coerceAtLeast(1)
                 val h = ((previewDimensions?.height ?: 9) *
@@ -513,7 +528,29 @@ fun VideoEditorScreen(
                     crop = crop,
                     cropPreset = cropPreset,
                     onCropChange = { updateSelectedGeometry(updatedCrop = it) },
-                    showCropFrame = selectedTool == VideoWorkspaceTool.CROP && !showTextResult,
+                    showCropFrame = selectedTool == VideoWorkspaceTool.CROP,
+                    activeOverlayCenter = (textLayers.firstOrNull {
+                        it.id == selectedOverlayId
+                    }?.let { it.centerX to it.centerY } ?: graphicLayers.firstOrNull {
+                        it.id == selectedOverlayId
+                    }?.let { it.centerX to it.centerY }).takeIf {
+                        selectedTool == VideoWorkspaceTool.TEXT ||
+                            selectedTool == VideoWorkspaceTool.GRAPHICS
+                    },
+                    onOverlayDrag = { dx, dy ->
+                        textLayers = textLayers.map { layer ->
+                            if (layer.id == selectedOverlayId) layer.copy(
+                                centerX = (layer.centerX + dx).coerceIn(0f, 1f),
+                                centerY = (layer.centerY + dy).coerceIn(0f, 1f))
+                            else layer
+                        }
+                        graphicLayers = graphicLayers.map { layer ->
+                            if (layer.id == selectedOverlayId) layer.copy(
+                                centerX = (layer.centerX + dx).coerceIn(0f, 1f),
+                                centerY = (layer.centerY + dy).coerceIn(0f, 1f))
+                            else layer
+                        }
+                    },
                 )
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -566,6 +603,7 @@ fun VideoEditorScreen(
                                 })
                             val located = activeProject.locateAt(precise)
                             playheadMs = precise
+                            selectedClipId = located.clipId
                             if (previewPlayer != null &&
                                 located.clipIndex < previewPlayer.mediaItemCount) {
                                 val clip = activeProject.clips[located.clipIndex]
@@ -937,21 +975,69 @@ fun VideoEditorScreen(
             }
 
                         }
-                        VideoWorkspaceTool.TEXT -> {
-                            Button(onClick = { previewPlayer?.pause(); textEditorOpen = true },
-                                enabled = info != null && !ownExport && !busyWithOther &&
-                                    project?.clips?.size == 1 &&
-                                    currentClip?.sourceUri == uri.toString() &&
-                                    currentClip?.speed == 1f,
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                                Text(if (textLayers.isEmpty()) "Добавить текст"
-                                    else "Изменить текст · " + textLayers.size + " слоёв")
-                            }
-                            if ((project?.clips?.size ?: 0) > 1 || currentClip?.speed != 1f) {
-                                Text("Новые текстовые слои поверх нескольких или ускоренных клипов " +
-                                    "будут добавлены на этапе 6.",
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
+                        VideoWorkspaceTool.TEXT, VideoWorkspaceTool.GRAPHICS -> {
+                            val draft = project
+                            val graphicsTab = selectedTool == VideoWorkspaceTool.GRAPHICS
+                            VideoOverlayPanel(
+                                graphicsTab = graphicsTab,
+                                durationMs = draft?.durationMs ?: 0L,
+                                playheadMs = playheadMs,
+                                texts = textLayers,
+                                graphics = graphicLayers,
+                                selectedId = selectedOverlayId,
+                                enabled = draft != null && !ownExport && !busyWithOther,
+                                onSelect = { selectedOverlayId = it },
+                                onAddText = {
+                                    if (draft != null && textLayers.size < 8) {
+                                        val from = playheadMs.coerceIn(0L, draft.durationMs - 1L)
+                                        val added = TextLayer(startMs = from,
+                                            endMs = minOf(draft.durationMs, from + 3000L))
+                                        textLayers = textLayers + added
+                                        selectedOverlayId = added.id
+                                        previewPlayer?.pause()
+                                    }
+                                },
+                                onAddGraphic = { kind ->
+                                    if (draft != null && graphicLayers.size < 12) {
+                                        val from = playheadMs.coerceIn(0L, draft.durationMs - 1L)
+                                        val added = VideoGraphicLayer(kind = kind, startMs = from,
+                                            endMs = minOf(draft.durationMs, from + 3000L))
+                                        graphicLayers = graphicLayers + added
+                                        selectedOverlayId = added.id
+                                        previewPlayer?.pause()
+                                    }
+                                },
+                                onAddImage = { pickOverlayImage.launch(arrayOf("image/*")) },
+                                onChangeText = { next ->
+                                    textLayers = textLayers.map {
+                                        if (it.id == next.id) next else it
+                                    }
+                                },
+                                onChangeGraphic = { next ->
+                                    graphicLayers = graphicLayers.map {
+                                        if (it.id == next.id) next else it
+                                    }
+                                },
+                                onRemoveText = { id ->
+                                    textLayers = textLayers.filterNot { it.id == id }
+                                    selectedOverlayId = null
+                                },
+                                onRemoveGraphic = { id ->
+                                    graphicLayers = graphicLayers.filterNot { it.id == id }
+                                    selectedOverlayId = null
+                                },
+                                onSeek = { next ->
+                                    if (draft != null) {
+                                        val where = draft.locateAt(next)
+                                        val clip = draft.clips[where.clipIndex]
+                                        playheadMs = next
+                                        previewPlayer?.pause()
+                                        previewPlayer?.seekTo(where.clipIndex,
+                                            (where.absoluteSourceMs - clip.inMs)
+                                                .coerceIn(0L, clip.sourceSpanMs - 1L))
+                                    }
+                                },
+                            )
                         }
                         VideoWorkspaceTool.MORE -> {
             if (ownExport) {
@@ -1110,7 +1196,10 @@ private fun CropVideoPreview(
     cropPreset: CropAspectPreset,
     onCropChange: (CropFractions) -> Unit,
     showCropFrame: Boolean = true,
+    activeOverlayCenter: Pair<Float, Float>? = null,
+    onOverlayDrag: (Float, Float) -> Unit = { _, _ -> },
 ) {
+    val latestOverlayDrag by rememberUpdatedState(onOverlayDrag)
     Box(
         Modifier
             .fillMaxWidth()
@@ -1142,6 +1231,27 @@ private fun CropVideoPreview(
             onCropChange = onCropChange,
             modifier = Modifier.fillMaxSize(),
         )
+        if (activeOverlayCenter != null && !showCropFrame) {
+            Canvas(Modifier.fillMaxSize().pointerInput(true) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    latestOverlayDrag(
+                        dragAmount.x / size.width.coerceAtLeast(1),
+                        dragAmount.y / size.height.coerceAtLeast(1))
+                }
+            }) {
+                val center = Offset(size.width * activeOverlayCenter.first,
+                    size.height * activeOverlayCenter.second)
+                val radius = 17.dp.toPx()
+                drawCircle(
+                    Color(0xFFFFC629), radius = radius,
+                    center = center, style = Stroke(2.dp.toPx()))
+                drawLine(Color.White, center - Offset(radius * .55f, 0f),
+                    center + Offset(radius * .55f, 0f), 1.6.dp.toPx())
+                drawLine(Color.White, center - Offset(0f, radius * .55f),
+                    center + Offset(0f, radius * .55f), 1.6.dp.toPx())
+            }
+        }
     }
 }
 
