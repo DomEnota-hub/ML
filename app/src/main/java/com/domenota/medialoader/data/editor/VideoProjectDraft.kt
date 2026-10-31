@@ -20,6 +20,7 @@ data class VideoClipDraft(
     val rotationDegrees: Int = 0,
     val mirrorHorizontal: Boolean = false,
     val mirrorVertical: Boolean = false,
+    val color: VideoColorGrade = VideoColorGrade(),
 ) {
     init {
         require(id.isNotBlank())
@@ -143,6 +144,11 @@ data class VideoProjectDraft(
             rotationDegrees = rotationDegrees, mirrorHorizontal = mirrorHorizontal,
             mirrorVertical = mirrorVertical) else it
     })
+
+    fun setColor(id: String, color: VideoColorGrade): VideoProjectDraft {
+        require(indexOf(id) >= 0) { "Клип не найден" }
+        return copy(clips = clips.map { if (it.id == id) it.copy(color = color) else it })
+    }
 
     fun addAudioTrack(track: VideoAudioTrackDraft): VideoProjectDraft =
         copy(audioTracks = audioTracks + track)
