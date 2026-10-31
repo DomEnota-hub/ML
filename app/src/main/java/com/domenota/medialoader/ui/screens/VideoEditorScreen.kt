@@ -98,6 +98,9 @@ import com.domenota.medialoader.data.editor.TextLayer
 import com.domenota.medialoader.data.editor.VideoGraphicLayer
 import com.domenota.medialoader.data.editor.VideoGraphicKind
 import com.domenota.medialoader.data.editor.VideoOverlayTimeline
+import com.domenota.medialoader.data.editor.VideoTransitionTiming
+import com.domenota.medialoader.data.editor.VideoTransitionDraft
+import com.domenota.medialoader.data.editor.VideoSpecialFxDraft
 import com.domenota.medialoader.data.editor.TextLayerRenderer
 import com.domenota.medialoader.ui.components.MediaTrimControls
 import com.domenota.medialoader.ui.components.VideoScrubFrame
@@ -175,6 +178,7 @@ fun VideoEditorScreen(
     val mirrorHorizontal = currentClip?.mirrorHorizontal ?: false
     val mirrorVertical = currentClip?.mirrorVertical ?: false
     val clipColor = currentClip?.color ?: VideoColorGrade()
+    val clipSpecialFx = currentClip?.specialFx ?: VideoSpecialFxDraft()
 
     fun updateSelectedColor(next: VideoColorGrade) {
         val draft = project ?: return
@@ -390,6 +394,12 @@ fun VideoEditorScreen(
         rotationDegrees = rotation,
         mirrorHorizontal = mirrorHorizontal, mirrorVertical = mirrorVertical,
         color = clipColor,
+        specialFx = clipSpecialFx,
+        transitionPhases = project?.let { draft ->
+            val index = draft.indexOf(selectedClipId)
+            if (index < 0) emptyList()
+            else VideoTransitionTiming.forClip(draft, index)
+        }.orEmpty(),
         textLayers = activeOverlays?.texts.orEmpty(),
         graphicLayers = activeOverlays?.graphics.orEmpty())
     LaunchedEffect(previewPlayer, selectedClipId, textPreviewSpec) {
@@ -647,6 +657,22 @@ fun VideoEditorScreen(
                             applyProject(prior.move(id, newIndex), id, focusSourceMs)
                         },
                         onAdd = { addClips.launch(arrayOf("video/*")) },
+                        onSelectTransition = { id ->
+                            val draft = project ?: return@VideoMultiClipTimeline
+                            val index = draft.indexOf(id)
+                            if (index in 0 until draft.clips.lastIndex) {
+                                val clip = draft.clips[index]
+                                selectedClipId = id
+                                selectedTool = VideoWorkspaceTool.TRANSITION
+                                previewPlayer?.pause()
+                                val local = (clip.durationMs -
+                                    minOf(clip.durationMs / 4L, 400L)).coerceAtLeast(0L)
+                                playheadMs = draft.timelinePosition(index, local)
+                                previewPlayer?.seekTo(index,
+                                    (clip.sourceAt(local) - clip.inMs)
+                                        .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L)))
+                            }
+                        },
                         onTogglePlayback = {
                             previewPlayer?.let {
                                 if (it.isPlaying) it.pause()
@@ -876,6 +902,36 @@ fun VideoEditorScreen(
                                 color = clipColor,
                                 enabled = currentClip != null && !ownExport && !busyWithOther,
                                 onColorChange = ::updateSelectedColor,
+                            )
+                        }
+                        VideoWorkspaceTool.TRANSITION, VideoWorkspaceTool.EFFECTS -> {
+                            VideoStage7EffectsPanel(
+                                project = project,
+                                selectedClipId = selectedClipId,
+                                transitionTool = selectedTool == VideoWorkspaceTool.TRANSITION,
+                                enabled = !ownExport && !busyWithOther,
+                                onTransition = { transition ->
+                                    val draft = project
+                                    if (draft != null) {
+                                        runCatching {
+                                            draft.setTransitionAfter(selectedClipId, transition)
+                                        }.onSuccess { project = it; clipError = null }
+                                            .onFailure {
+                                                clipError = it.message ?: "Переход не применён"
+                                            }
+                                    }
+                                },
+                                onSpecialFx = { effect ->
+                                    val draft = project
+                                    if (draft != null) {
+                                        runCatching {
+                                            draft.setSpecialFx(selectedClipId, effect)
+                                        }.onSuccess { project = it; clipError = null }
+                                            .onFailure {
+                                                clipError = it.message ?: "Эффект не применён"
+                                            }
+                                    }
+                                },
                             )
                         }
                         VideoWorkspaceTool.AUDIO -> {

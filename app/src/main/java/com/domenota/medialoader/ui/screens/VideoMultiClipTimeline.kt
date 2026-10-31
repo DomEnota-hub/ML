@@ -3,6 +3,7 @@ package com.domenota.medialoader.ui.screens
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -64,6 +66,7 @@ internal fun VideoMultiClipTimeline(
     onTrim: (String, Long, Long) -> Unit,
     onMove: (String, Int) -> Unit,
     onAdd: () -> Unit,
+    onSelectTransition: (String) -> Unit = {},
     onTogglePlayback: () -> Unit,
 ) {
     var zoom by remember { mutableFloatStateOf(1f) }
@@ -109,6 +112,10 @@ internal fun VideoMultiClipTimeline(
                         localPositionMs = (positionMs - project.timelineStart(index))
                             .takeIf { it >= 0L && it <= clip.durationMs },
                         enabled = enabled,
+                        onSelectTransition = if (index < project.clips.lastIndex)
+                            ({ onSelectTransition(clip.id) }) else null,
+                        transitionEnabled = clip.transitionOut.enabled &&
+                            index < project.clips.lastIndex,
                         onSelect = { onSelect(clip.id) },
                         onSeek = { fraction ->
                             onSelect(clip.id)
@@ -141,6 +148,8 @@ private fun VideoClipStrip(
     isSelected: Boolean,
     localPositionMs: Long?,
     enabled: Boolean,
+    onSelectTransition: (() -> Unit)?,
+    transitionEnabled: Boolean,
     onSelect: () -> Unit,
     onSeek: (Float) -> Unit,
     onTrim: (Long, Long) -> Unit,
@@ -250,6 +259,18 @@ private fun VideoClipStrip(
                             .coerceIn(minEnd, latestClip.sourceDurationMs))
                     }
                 })
+        }
+        if (onSelectTransition != null) {
+            Box(Modifier.align(Alignment.TopEnd).size(28.dp)
+                .clip(RoundedCornerShape(bottomStart = 8.dp))
+                .background(if (transitionEnabled) selectedYellow else Color.Black.copy(alpha = .65f))
+                .clickable(enabled = enabled, onClick = onSelectTransition),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.AutoAwesome,
+                    contentDescription = "Переход после клипа",
+                    modifier = Modifier.size(16.dp),
+                    tint = if (transitionEnabled) Color.Black else Color.White)
+            }
         }
         if (localPositionMs != null) {
             Canvas(Modifier.fillMaxSize()) {

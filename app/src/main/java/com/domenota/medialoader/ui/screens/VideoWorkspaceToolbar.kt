@@ -22,6 +22,8 @@ internal enum class VideoWorkspaceTool(val label: String) {
     CROP("Кадр"),
     ROTATE("Поворот"),
     COLOR("Цвет"),
+    TRANSITION("Переход"),
+    EFFECTS("Эффекты"),
     AUDIO("Звук"),
     REVERSE("Реверс"),
     TEXT("Текст"),
@@ -35,6 +37,8 @@ private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.CROP -> Icons.Rounded.Crop
     VideoWorkspaceTool.ROTATE -> Icons.Rounded.RotateRight
     VideoWorkspaceTool.COLOR -> Icons.Rounded.Palette
+    VideoWorkspaceTool.TRANSITION -> Icons.Rounded.AutoAwesomeMotion
+    VideoWorkspaceTool.EFFECTS -> Icons.Rounded.AutoFixHigh
     VideoWorkspaceTool.AUDIO -> Icons.Rounded.VolumeUp
     VideoWorkspaceTool.REVERSE -> Icons.Rounded.FastRewind
     VideoWorkspaceTool.TEXT -> Icons.Rounded.TextFields
