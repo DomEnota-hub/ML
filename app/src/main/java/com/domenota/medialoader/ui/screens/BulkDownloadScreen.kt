@@ -254,24 +254,34 @@ fun BulkDownloadScreen(
             }
             HorizontalDivider()
             Text("Качество видео", style = MaterialTheme.typography.titleMedium)
-            listOf(null to "Лучшее", 480 to "До 480p", 720 to "До 720p",
-                1080 to "До 1080p", 2160 to "До 2160p")
-                .forEach { (height, label) ->
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .selectable(selected = rules.maxHeight == height, role = Role.RadioButton,
-                                onClick = { rules = rules.copy(maxHeight = height) }),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = rules.maxHeight == height, onClick = null)
-                        Spacer(Modifier.width(12.dp))
-                        Text(label)
+            if (rules.instagram) {
+                Text("Instagram — лучшее доступное автоматически. Выбор разрешения " +
+                    "не требуется: видео не исключается из-за неизвестного качества.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (rules.youtube || rules.vk || rules.rutube) {
+                Text("YouTube, VK, RUTUBE — предел качества",
+                    style = MaterialTheme.typography.bodyMedium)
+                listOf(null to "Лучшее", 480 to "До 480p", 720 to "До 720p",
+                    1080 to "До 1080p", 2160 to "До 2160p")
+                    .forEach { (height, label) ->
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .selectable(selected = rules.maxHeight == height, role = Role.RadioButton,
+                                    onClick = { rules = rules.copy(maxHeight = height) }),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = rules.maxHeight == height, onClick = null)
+                            Spacer(Modifier.width(12.dp))
+                            Text(label)
+                        }
                     }
-                }
-            Text("Предел соблюдается строго: если подходящего разрешения нет или его " +
-                "не удалось определить, видео не будет выбрано. Файлы не перекодируются.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Для этих источников предел строгий: если подходящего разрешения " +
+                    "нет или оно неизвестно, видео не будет выбрано. Файлы не перекодируются.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
 
             HorizontalDivider()
             Text("Анализ Instagram", style = MaterialTheme.typography.titleMedium)
