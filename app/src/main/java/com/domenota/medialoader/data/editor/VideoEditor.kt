@@ -88,13 +88,29 @@ class VideoEditor(private val context: Context) {
         spec: VideoEditSpec,
         onProgress: (Int) -> Unit,
     ): File {
+        val composition = compositionForProject(project, spec)
+        val destination = File(context.cacheDir, "video-join-${UUID.randomUUID()}.mp4")
+        val intermediate = runExport(composition = composition, output = destination,
+            onProgress = if (spec.reverse) ({ p -> onProgress(p * 45 / 100) }) else onProgress)
+        if (!spec.reverse) return intermediate
+        try {
+            return VideoReverseEngine(context.cacheDir).reverse(intermediate, onProgress)
+        } finally {
+            intermediate.delete()
+        }
+    }
+
+    internal fun compositionForProject(
+        project: VideoProjectDraft,
+        spec: VideoEditSpec,
+    ): Composition {
         val clips = project.clips
         var globalStart = 0L
         val edited = clips.map { clip ->
             val localLayers = spec.textLayers.mapNotNull { layer ->
                 val from = (layer.startMs - globalStart).coerceAtLeast(0L)
                 val to = layer.endMs?.let { it - globalStart }
-                if (from >= clip.durationMs || (to != null && to <= 0L)) null
+                if (from >= clip.durationMs || (to != null && to <= from)) null
                 else layer.copy(startMs = from, endMs = to?.coerceAtMost(clip.durationMs)
                     ?.takeIf { it > from })
             }
@@ -110,15 +126,7 @@ class VideoEditor(private val context: Context) {
         }
         val sequence = EditedMediaItemSequence.withAudioAndVideoFrom(edited)
         val composition = Composition.Builder(sequence).build()
-        val destination = File(context.cacheDir, "video-join-${UUID.randomUUID()}.mp4")
-        val intermediate = runExport(composition = composition, output = destination,
-            onProgress = if (spec.reverse) ({ p -> onProgress(p * 45 / 100) }) else onProgress)
-        if (!spec.reverse) return intermediate
-        try {
-            return VideoReverseEngine(context.cacheDir).reverse(intermediate, onProgress)
-        } finally {
-            intermediate.delete()
-        }
+        return composition
     }
 
     internal fun previewEffects(spec: VideoEditSpec, timeOffsetMs: Long = 0L): List<Effect> {
