@@ -70,7 +70,7 @@ class PhotoToneMathTest {
         val changedRed = PhotoToneMath.tonePixel(red, settings)
         val changedBlue = PhotoToneMath.tonePixel(blue, settings)
         assertTrue(changedRed != red)
-        assertEquals(Color.blue(blue), Color.blue(changedBlue), 1)
+        assertTrue(kotlin.math.abs(Color.blue(blue) - Color.blue(changedBlue)) <= 1)
     }
 
     @Test(expected = IllegalArgumentException::class)
