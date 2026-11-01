@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.data.editor.PhotoGeometry
 import com.domenota.medialoader.data.editor.PhotoGeometryMath
 import com.domenota.medialoader.data.editor.PhotoGeometryPoint
+import com.domenota.medialoader.ui.components.AppSlider as Slider
 import com.domenota.medialoader.ui.components.EditorWindow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
