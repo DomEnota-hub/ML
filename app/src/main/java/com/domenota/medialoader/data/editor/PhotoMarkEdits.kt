@@ -39,7 +39,8 @@ object PhotoMarkEdits {
     }
 
     fun pick(marks: List<PhotoMark>, at: PhotoPoint, tolerance: Float = .025f): Int =
-        marks.indices.reversed().firstOrNull { hit(marks[it], at, tolerance) } ?: -1
+        marks.indices.reversed().firstOrNull { marks[it].kind != PhotoMarkKind.ERASER &&
+        hit(marks[it], at, tolerance) } ?: -1
 
     /** Move every point by an equal amount; clamp the whole group, not individual points. */
     fun move(mark: PhotoMark, dx: Float, dy: Float): PhotoMark {
