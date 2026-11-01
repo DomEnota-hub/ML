@@ -1032,7 +1032,19 @@ fun MediaLoaderApp(
                     onDetailChange = { galleryDetailOpen = it }, onTrash = { navController.navigate("trash") },
                     deviceAlbums = publicLibraryRefs.mapNotNull { ref -> ref.deviceAlbumId?.let { id ->
                         ref.key to DeviceAlbum(id, ref.deviceAlbumName ?: "Без альбома")
-                    } }.toMap())
+                    } }.toMap(),
+                    // Keep a playing-audio mini-player without letting Scaffold
+                    // reserve a solid background strip beneath the gallery.
+                    miniPlayer = {
+                        AudioMiniPlayer(
+                            onOpenQueue = openDownloadWithQueue,
+                            onOpen = { mediaId ->
+                                if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
+                                    navController.navigate("viewer/$mediaId")
+                                }
+                            },
+                        )
+                    })
                 else MusicModeScreen(
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
                     allAudio = libraryItems.filter { it.mediaType == MediaType.AUDIO }, playlists = playlists,
