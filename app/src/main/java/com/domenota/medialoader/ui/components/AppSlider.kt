@@ -24,6 +24,7 @@ fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier =
     onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0) {
     val color = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f)
     val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+    val zeroColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .95f)
     Slider(value = value, onValueChange = onValueChange, modifier = modifier, enabled = enabled,
         valueRange = valueRange, onValueChangeFinished = onValueChangeFinished, steps = steps,
         thumb = { Box(Modifier.size(20.dp).background(color, CircleShape)) },
@@ -39,7 +40,7 @@ fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier =
                 if (valueRange.start < 0f && valueRange.endInclusive > 0f) {
                     val zeroFraction = -valueRange.start / full
                     val zeroX = zeroFraction * size.width
-                    drawLine(MaterialTheme.colorScheme.onSurface.copy(alpha = .95f),
+                    drawLine(zeroColor,
                         Offset(zeroX, 1.dp.toPx()),
                         Offset(zeroX, size.height - 1.dp.toPx()),
                         strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
