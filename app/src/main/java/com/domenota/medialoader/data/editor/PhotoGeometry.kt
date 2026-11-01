@@ -23,8 +23,8 @@ data class PhotoGeometry(
 ) {
     init {
         require(straighten.isFinite() && straighten in -45f..45f)
-        require(horizontalPerspective.isFinite() && horizontalPerspective in -50f..50f)
-        require(verticalPerspective.isFinite() && verticalPerspective in -50f..50f)
+        require(horizontalPerspective.isFinite() && horizontalPerspective in -100f..100f)
+        require(verticalPerspective.isFinite() && verticalPerspective in -100f..100f)
         require(corners.size == 4 && PhotoGeometryMath.isValidQuad(corners))
     }
     fun isNeutral() = straighten == 0f && horizontalPerspective == 0f &&
@@ -70,8 +70,11 @@ object PhotoGeometryMath {
     /** Pixel-space coordinates of the perspective destination, bounded inside the output. */
     fun destination(settings: PhotoGeometry, width: Int, height: Int): FloatArray {
         require(width > 0 && height > 0)
-        val h = settings.horizontalPerspective / 250f
-        val v = settings.verticalPerspective / 250f
+        // Horizontal controls left/right side convergence (Y displacement),
+        // vertical controls top/bottom convergence (X displacement).
+        // The earlier mapping was reversed relative to the visible labels.
+        val h = settings.verticalPerspective / 250f
+        val v = settings.horizontalPerspective / 250f
         // Positive values pull in the top/left edges; negative values pull in
         // the opposite bottom/right edges. Previously negative values pushed
         // corners *out* of [0,1], and coerceIn silently zeroed the effect.

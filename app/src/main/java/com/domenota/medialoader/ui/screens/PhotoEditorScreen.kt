@@ -218,22 +218,48 @@ fun PhotoEditorScreen(
     val bakedGraphic = if (currentTab == PhotoWorkspaceTab.WATERMARK)
         null else edit.graphicWatermark
 
+    // Reuse one reduced bitmap while scrubbing RGB points. The full source is
+    // retained for all other tools and final export.
+    var rgbFastPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(info?.preview) {
+        val source = info?.preview ?: return@LaunchedEffect
+        rgbFastPreview = withContext(Dispatchers.Default) {
+            val edge = maxOf(source.width, source.height)
+            if (edge <= 720) source
+            else {
+                val scale = 720f / edge
+                Bitmap.createScaledBitmap(source,
+                    (source.width * scale).toInt().coerceAtLeast(1),
+                    (source.height * scale).toInt().coerceAtLeast(1), true)
+            }
+        }
+    }
+    DisposableEffect(rgbFastPreview) {
+        val preview = rgbFastPreview
+        onDispose {
+            if (preview != null && preview !== info?.preview && !preview.isRecycled)
+                preview.recycle()
+        }
+    }
     // All non-crop tabs show the *actual* edited geometry, color and text.
     // Debounced previews are calculated away from the UI thread; full-resolution
     // export applies the same operations in the same order.
     LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
         edit.geometry, edit.color, edit.textLayers, edit.drawing, edit.localEffects,
-        bakedGraphic, currentTab) {
+        bakedGraphic, currentTab, activeLevel, rgbFastPreview) {
         val source = info?.preview
         if (source == null || currentTab == PhotoWorkspaceTab.CROP) {
             composedPreview = null
             previewError = null
             return@LaunchedEffect
         }
-        delay(35L)
+        val rapidCurves = currentTab == PhotoWorkspaceTab.LEVELS &&
+            activeLevel == PhotoLevelControl.RGB_CURVES
+        if (!rapidCurves) delay(35L)
         try {
             val rendered = withContext(Dispatchers.Default) {
-                val transformed = PhotoGeometryMath.preview(source, edit.crop, edit.rotation,
+                val input = if (rapidCurves) rgbFastPreview ?: source else source
+                val transformed = PhotoGeometryMath.preview(input, edit.crop, edit.rotation,
                     edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
                 val colored = try { PhotoColorMath.apply(transformed, edit.color) }
                     catch (error: Throwable) { transformed.recycle(); throw error }

@@ -14,10 +14,10 @@ enum class SettingIconTone {
     ACCOUNTS, DOWNLOAD, BULK, VK_COMMUNITY, EQUALIZER, MUSIC_SETTINGS, APPEARANCE,
     PURPLE, BLUE, AMBER, GREEN, RED, NEUTRAL, FOLDER, NOTIFICATIONS, INSTAGRAM,
     CLOSE_PICKER, MUSIC, RECOGNITION, RENAME, THEME, PLAYER,
-    TRASH, CLEAR_HISTORY, YTDLP, ABOUT, DIAGNOSTICS, LOG;
+    TRASH, CLEAR_HISTORY, YTDLP, ABOUT, DIAGNOSTICS, LOG, INSTAGRAM_MODE;
 
     fun swatch(dark: Boolean): SettingsIconSwatch = when (this) {
-        ACCOUNTS, PURPLE, THEME ->
+        ACCOUNTS, PURPLE ->
             if (dark) SettingsIconSwatch(Color(0xFFB58AFF), Color(0xFF342545))
             else SettingsIconSwatch(Color(0xFF6F36BB), Color(0xFFEEE2FF))
         DOWNLOAD, BLUE ->
@@ -29,13 +29,13 @@ enum class SettingIconTone {
         VK_COMMUNITY ->
             if (dark) SettingsIconSwatch(Color(0xFF44D6D0), Color(0xFF163F40))
             else SettingsIconSwatch(Color(0xFF086F75), Color(0xFFD8F5F1))
-        GREEN, MUSIC, TRASH ->
+        GREEN ->
             if (dark) SettingsIconSwatch(Color(0xFF66D99B), Color(0xFF173E30))
             else SettingsIconSwatch(Color(0xFF177546), Color(0xFFE0F5E8))
         MUSIC_SETTINGS ->
             if (dark) SettingsIconSwatch(Color(0xFFF197D5), Color(0xFF42243B))
             else SettingsIconSwatch(Color(0xFF9D2B76), Color(0xFFFDE6F4))
-        APPEARANCE, AMBER ->
+        APPEARANCE ->
             if (dark) SettingsIconSwatch(Color(0xFFFFD269), Color(0xFF44361A))
             else SettingsIconSwatch(Color(0xFF916115), Color(0xFFFFF0C6))
         INSTAGRAM ->
@@ -47,7 +47,7 @@ enum class SettingIconTone {
         CLOSE_PICKER ->
             if (dark) SettingsIconSwatch(Color(0xFFA9B9FF), Color(0xFF292D4C))
             else SettingsIconSwatch(Color(0xFF4C56A3), Color(0xFFE9ECFF))
-        RED, CLEAR_HISTORY ->
+        RED ->
             if (dark) SettingsIconSwatch(Color(0xFFFF8791), Color(0xFF48252D))
             else SettingsIconSwatch(Color(0xFFB43149), Color(0xFFFFE4E9))
         FOLDER ->
@@ -74,6 +74,24 @@ enum class SettingIconTone {
         LOG ->
             if (dark) SettingsIconSwatch(Color(0xFF8BAEFF), Color(0xFF253357))
             else SettingsIconSwatch(Color(0xFF3E5FAF), Color(0xFFE5EBFF))
+        INSTAGRAM_MODE ->
+            if (dark) SettingsIconSwatch(Color(0xFFFFA58E), Color(0xFF4A2D26))
+            else SettingsIconSwatch(Color(0xFFA94331), Color(0xFFFFE8DD))
+        MUSIC ->
+            if (dark) SettingsIconSwatch(Color(0xFF74D99B), Color(0xFF204C38))
+            else SettingsIconSwatch(Color(0xFF176D51), Color(0xFFDFF6E9))
+        TRASH ->
+            if (dark) SettingsIconSwatch(Color(0xFFFF8D9A), Color(0xFF4A2833))
+            else SettingsIconSwatch(Color(0xFFB13D54), Color(0xFFFFE3E8))
+        CLEAR_HISTORY ->
+            if (dark) SettingsIconSwatch(Color(0xFFFFD477), Color(0xFF493717))
+            else SettingsIconSwatch(Color(0xFF85600A), Color(0xFFFFF3D6))
+        AMBER ->
+            if (dark) SettingsIconSwatch(Color(0xFFFFC46C), Color(0xFF48331A))
+            else SettingsIconSwatch(Color(0xFF946018), Color(0xFFFFF1D4))
+        THEME ->
+            if (dark) SettingsIconSwatch(Color(0xFFCD9BFF), Color(0xFF3D2851))
+            else SettingsIconSwatch(Color(0xFF8746C4), Color(0xFFF1E5FF))
         NEUTRAL, ABOUT ->
             if (dark) SettingsIconSwatch(Color(0xFFB2BBD1), Color(0xFF2A303E))
             else SettingsIconSwatch(Color(0xFF515C73), Color(0xFFE9ECF3))

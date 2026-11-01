@@ -6,8 +6,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -64,57 +64,63 @@ internal fun PhotoCurvesPanel(
         Canvas(Modifier.fillMaxWidth().height(172.dp)
             .pointerInput(channel, enabled) {
                 if (!enabled) return@pointerInput
-                detectTapGestures { p ->
-                    val x = (p.x / size.width).coerceIn(0f, 1f)
-                    val y = (1f - p.y / size.height).coerceIn(0f, 1f)
+                // Single detector handles taps and drags. No competing tap/drag
+                // recognizers can unexpectedly select the upper-right endpoint.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val width = size.width.toFloat().coerceAtLeast(1f)
+                    val height = size.height.toFloat().coerceAtLeast(1f)
+                    val x = (down.position.x / width).coerceIn(0.002f, .998f)
+                    val y = (1f - down.position.y / height).coerceIn(0f, 1f)
                     val points = latestCurve.points
-                    val nearest = points.indices.minByOrNull { i ->
-                        hypot(points[i].x - x, points[i].y - y)
-                    } ?: -1
-                    if (nearest >= 0 && hypot(points[nearest].x - x, points[nearest].y - y) < .055f) {
-                        selection = nearest
-                    } else {
-                        val updated = latestCurve.insert(x, y)
-                        if (updated != latestCurve) {
-                            selection = updated.points.indexOfFirst { abs(it.x - x) < .002f }
-                            commit(latestCurves.update(channel, updated))
-                        }
+                    val hitRadiusPx = 19.dp.toPx()
+                    val hit = points.indices.minByOrNull { index ->
+                        val p = points[index]
+                        hypot(p.x * width - down.position.x,
+                            (1f - p.y) * height - down.position.y)
+                    }?.takeIf { index ->
+                        val p = points[index]
+                        hypot(p.x * width - down.position.x,
+                            (1f - p.y) * height - down.position.y) <= hitRadiusPx
                     }
-                }
-            }
-            .pointerInput(channel, enabled) {
-                if (!enabled) return@pointerInput
-                detectDragGestures(
-                    onDragStart = { p ->
-                        val x = (p.x / size.width).coerceIn(0f, 1f)
-                        val y = (1f - p.y / size.height).coerceIn(0f, 1f)
-                        val pts = latestCurve.points
-                        selection = pts.indices.minByOrNull { i ->
-                            hypot(pts[i].x - x, pts[i].y - y)
-                        }?.takeIf { hypot(pts[it].x - x, pts[it].y - y) <= .09f } ?: -1
-                        if (selection == -1) {
-                            // A single drag should create and move a control point,
-                            // without requiring a separate tap beforehand.
-                            val inserted = latestCurve.insert(x, y)
-                            if (inserted != latestCurve) {
-                                selection = inserted.points.indexOfFirst { abs(it.x - x) < .002f }
-                                live(latestCurves.update(channel, inserted))
+                    var edited = false
+                    if (hit != null) selection = hit
+                    else {
+                        val inserted = latestCurve.insert(x, y)
+                        selection = if (inserted != latestCurve) {
+                            live(latestCurves.update(channel, inserted))
+                            edited = true
+                            inserted.points.indexOfFirst { abs(it.x - x) < .004f }
+                        } else -1
+                    }
+                    down.consume()
+                    var lastPosition = down.position
+                    do {
+                        val event = awaitPointerEvent()
+                        val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (pointer.pressed) {
+                            if (selection >= 0 &&
+                                (pointer.position - lastPosition).getDistance() >= 1.25f) {
+                                lastPosition = pointer.position
+                                val currentPoints = latestCurve.points
+                                if (selection in currentPoints.indices) {
+                                    val next = latestCurve.withPoint(selection,
+                                        pointer.position.x / width,
+                                        1f - pointer.position.y / height)
+                                    if (next != latestCurve) {
+                                        live(latestCurves.update(channel, next))
+                                        edited = true
+                                    }
+                                }
                             }
+                            pointer.consume()
+                        } else {
+                            pointer.consume()
+                            break
                         }
-                    },
-                    onDrag = { change, _ ->
-                        val index = selection
-                        if (index >= 0 && index < latestCurve.points.size) {
-                            change.consume()
-                            val next = latestCurve.withPoint(index,
-                                change.position.x / size.width,
-                                1f - change.position.y / size.height)
-                            live(latestCurves.update(channel, next))
-                        }
-                    },
-                    onDragEnd = { if (selection >= 0) finish() },
-                    onDragCancel = { if (selection >= 0) finish() },
-                )
+                    } while (event.changes.any { it.pressed })
+                    if (edited) finish()
+                }
             }
         ) {
             val w = size.width; val h = size.height
@@ -141,13 +147,13 @@ internal fun PhotoCurvesPanel(
             }
             curve.points.forEachIndexed { index, p ->
                 val center = Offset(p.x * w, (1f - p.y) * h)
-                drawCircle(Color(0xFF252529), radius = if (selection == index) 8.dp.toPx()
-                    else 6.dp.toPx(), center = center)
-                drawCircle(curveChannelColor(channel), radius = if (selection == index) 5.dp.toPx()
-                    else 3.5.dp.toPx(), center = center)
+                drawCircle(Color(0xFF252529), radius = if (selection == index) 11.dp.toPx()
+                    else 9.dp.toPx(), center = center)
+                drawCircle(curveChannelColor(channel), radius = if (selection == index) 8.dp.toPx()
+                    else 6.7.dp.toPx(), center = center)
             }
         }
-        Text("Нажми на кривую, чтобы выбрать точку; потяни в любом месте, чтобы добавить.",
+        Text("Коснись графика для новой точки — веди без отпускания. Существующие точки захватываются рядом с ними.",
             color = Color.LightGray, fontSize = 10.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = {
