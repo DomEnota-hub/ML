@@ -42,6 +42,8 @@ fun CropFrameOverlay(
     showFrame: Boolean = true,
     onCompareOriginalChange: ((Boolean) -> Unit)? = null,
     onCropChangeFinished: () -> Unit = {},
+    /** Leave legacy touch behavior intact for the video editor. */
+    precisePhotoHandles: Boolean = false,
 ) {
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var activeHandle by remember { mutableStateOf<VideoCropHandle?>(null) }
@@ -50,13 +52,13 @@ fun CropFrameOverlay(
     val latestCompareOriginal by rememberUpdatedState(onCompareOriginalChange)
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
-    val edgeHitRadiusPx = with(density) { 32.dp.toPx() }
-    val cornerHitRadiusPx = with(density) { 76.dp.toPx() }
+    val edgeHitRadiusPx = with(density) { if (precisePhotoHandles) 32.dp.toPx() else 36.dp.toPx() }
+    val cornerHitRadiusPx = with(density) { if (precisePhotoHandles) 76.dp.toPx() else 64.dp.toPx() }
 
     Canvas(
         modifier = modifier
             .onSizeChanged { containerSize = it }
-            .pointerInput(containerSize, sourceWidth, sourceHeight, edgeHitRadiusPx, cornerHitRadiusPx) {
+            .pointerInput(containerSize, sourceWidth, sourceHeight, edgeHitRadiusPx, cornerHitRadiusPx, precisePhotoHandles) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val imageRect = fittedImageRect(containerSize, sourceWidth, sourceHeight)
@@ -66,6 +68,7 @@ fun CropFrameOverlay(
                         imageRect = imageRect,
                         edgeHitRadius = edgeHitRadiusPx,
                         cornerHitRadius = cornerHitRadiusPx,
+                        preferNearest = precisePhotoHandles,
                     )
                     activeHandle = handle
                     if (handle != null) {
@@ -211,6 +214,7 @@ internal fun hitTestCropHandle(
     imageRect: Rect,
     edgeHitRadius: Float,
     cornerHitRadius: Float,
+    preferNearest: Boolean = true,
 ): VideoCropHandle? {
     val left = imageRect.left + imageRect.width * crop.left
     val right = imageRect.left + imageRect.width * (1f - crop.right)
@@ -223,6 +227,22 @@ internal fun hitTestCropHandle(
         VideoCropHandle.BOTTOM_LEFT to Offset(left, bottom),
         VideoCropHandle.BOTTOM_RIGHT to Offset(right, bottom),
     )
+    if (!preferNearest) {
+        // Unchanged video-editor hit testing until the video QA phase.
+        corners.firstOrNull { (_, corner) ->
+            hypot(point.x - corner.x, point.y - corner.y) <= cornerHitRadius
+        }?.let { return it.first }
+        if (point.y in (top - edgeHitRadius)..(bottom + edgeHitRadius)) {
+            if (abs(point.x - left) <= edgeHitRadius) return VideoCropHandle.LEFT
+            if (abs(point.x - right) <= edgeHitRadius) return VideoCropHandle.RIGHT
+        }
+        if (point.x in (left - edgeHitRadius)..(right + edgeHitRadius)) {
+            if (abs(point.y - top) <= edgeHitRadius) return VideoCropHandle.TOP
+            if (abs(point.y - bottom) <= edgeHitRadius) return VideoCropHandle.BOTTOM
+        }
+        return null
+    }
+
     // Pick the nearest corner: large invisible touch areas may overlap on small
     // photos, and first-match logic makes bottom-left/right difficult to grab.
     corners.minByOrNull { (_, corner) ->
