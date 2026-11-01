@@ -15,7 +15,7 @@ class PhotoStrokeEraseTest {
         assertTrue(result.all { it.kind != PhotoMarkKind.ERASER })
         assertTrue(result.any { fragment -> fragment.points.any { it.x < .4f } })
         assertTrue(result.any { fragment -> fragment.points.any { it.x > .6f } })
-        assertTrue(result.flatMap { it.points }.none { it.x in .45f..55f && it.y in .45f..55f })
+        assertTrue(result.flatMap { it.points }.none { it.x in .45f..0.55f && it.y in .45f..55f })
     }
 
     @Test fun erasingUntouchedStrokeDoesNotChangeItsGeometry() {
