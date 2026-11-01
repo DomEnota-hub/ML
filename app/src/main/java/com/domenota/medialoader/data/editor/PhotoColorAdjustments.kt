@@ -120,6 +120,61 @@ enum class PhotoEffect(
     TEXTURE_VINTAGE("Старая плёнка", PhotoEffectCategory.TEXTURE,
         saturationMultiplier = .8f, fade = 26f, grain = 27f),
     CLASSIC_FADE("Матовый", PhotoEffectCategory.CLASSIC, contrastOffset = -20f, fade = 22f),
+    CLASSIC_HIGH_CONTRAST("Контрастный", PhotoEffectCategory.CLASSIC,
+        contrastOffset = 43f, saturationMultiplier = .92f),
+    CLASSIC_PASTEL("Пастель", PhotoEffectCategory.CLASSIC,
+        contrastOffset = -24f, saturationMultiplier = .68f, fade = 12f),
+    FILM_DUSTY("Пыльная плёнка", PhotoEffectCategory.FILM,
+        warmthOffset = 7f, contrastOffset = -21f, saturationMultiplier = .73f,
+        fade = 35f, grain = 22f),
+    FILM_NOIR("Нуар", PhotoEffectCategory.FILM,
+        saturationMultiplier = 0f, contrastOffset = 37f, fade = 5f, grain = 24f),
+    PORTRAIT_ROSE("Розовый свет", PhotoEffectCategory.PORTRAIT,
+        warmthOffset = 15f, contrastOffset = -17f, saturationMultiplier = .94f,
+        fade = 15f),
+    PORTRAIT_CLEAN("Чистый портрет", PhotoEffectCategory.PORTRAIT,
+        warmthOffset = -6f, contrastOffset = -7f, saturationMultiplier = 1.07f),
+    CINEMA_TEAL("Холодная сталь", PhotoEffectCategory.CINEMA,
+        warmthOffset = -33f, contrastOffset = 32f, saturationMultiplier = .70f),
+    CINEMA_DESERT("Пустынный кадр", PhotoEffectCategory.CINEMA,
+        warmthOffset = 35f, contrastOffset = 23f, saturationMultiplier = .77f, fade = 7f),
+    TRAVEL_FOREST("Лесной свет", PhotoEffectCategory.TRAVEL,
+        warmthOffset = -12f, contrastOffset = 10f, saturationMultiplier = 1.22f),
+    FOOD_GOLD("Карамель", PhotoEffectCategory.FOOD,
+        warmthOffset = 26f, contrastOffset = 16f, saturationMultiplier = 1.20f),
+    NIGHT_BLUE("Синяя ночь", PhotoEffectCategory.NIGHT,
+        warmthOffset = -38f, contrastOffset = 30f, saturationMultiplier = .60f),
+    TEXTURE_FADE("Засветка", PhotoEffectCategory.TEXTURE,
+        contrastOffset = -31f, saturationMultiplier = .78f, fade = 42f, grain = 9f),
+    FILM_AMBER("Янтарь", PhotoEffectCategory.FILM, saturationMultiplier = 1.05f, warmthOffset = 31f, contrastOffset = -6f, fade = 24f, grain = 18f),
+    FILM_SILVER("Серебро", PhotoEffectCategory.FILM, saturationMultiplier = 0f, warmthOffset = -12f, contrastOffset = 23f, fade = 8f, grain = 14f),
+    FILM_LAVENDER("Лавандовая плёнка", PhotoEffectCategory.FILM, saturationMultiplier = .64f, warmthOffset = -16f, contrastOffset = -16f, fade = 21f, grain = 17f),
+    FILM_GOLDEN_HOUR("Золотой час", PhotoEffectCategory.FILM, saturationMultiplier = 1.21f, warmthOffset = 42f, contrastOffset = -8f, fade = 15f, grain = 11f),
+    FILM_CROSS("Кросс-процесс", PhotoEffectCategory.FILM, saturationMultiplier = 1.48f, warmthOffset = -15f, contrastOffset = 38f, fade = 5f, grain = 19f),
+    FILM_POLAROID("Полароид", PhotoEffectCategory.FILM, saturationMultiplier = .81f, warmthOffset = 13f, contrastOffset = -17f, fade = 30f, grain = 20f),
+    CLASSIC_ICE("Лёд", PhotoEffectCategory.CLASSIC, saturationMultiplier = .75f, warmthOffset = -44f, contrastOffset = 14f, fade = 0f, grain = 0f),
+    CLASSIC_SEPIA("Сепия", PhotoEffectCategory.CLASSIC, saturationMultiplier = .35f, warmthOffset = 41f, contrastOffset = -7f, fade = 14f, grain = 4f),
+    CLASSIC_MIST("Дымка", PhotoEffectCategory.CLASSIC, saturationMultiplier = .61f, warmthOffset = -8f, contrastOffset = -44f, fade = 38f, grain = 0f),
+    CLASSIC_BOLD("Графика", PhotoEffectCategory.CLASSIC, saturationMultiplier = 1.65f, warmthOffset = -4f, contrastOffset = 46f, fade = 0f, grain = 0f),
+    CLASSIC_CREAM("Сливочный", PhotoEffectCategory.CLASSIC, saturationMultiplier = .83f, warmthOffset = 28f, contrastOffset = -23f, fade = 21f, grain = 0f),
+    PORTRAIT_PEARL("Жемчуг", PhotoEffectCategory.PORTRAIT, saturationMultiplier = .68f, warmthOffset = -7f, contrastOffset = -29f, fade = 17f, grain = 0f),
+    PORTRAIT_HONEY("Мёд", PhotoEffectCategory.PORTRAIT, saturationMultiplier = 1.1f, warmthOffset = 32f, contrastOffset = -19f, fade = 10f, grain = 0f),
+    PORTRAIT_MATTE("Мягкая кожа", PhotoEffectCategory.PORTRAIT, saturationMultiplier = .86f, warmthOffset = 6f, contrastOffset = -32f, fade = 26f, grain = 0f),
+    PORTRAIT_BRIGHT("Светлый портрет", PhotoEffectCategory.PORTRAIT, saturationMultiplier = 1.18f, warmthOffset = 11f, contrastOffset = -18f, fade = 21f, grain = 0f),
+    FOOD_CITRUS("Цитрус", PhotoEffectCategory.FOOD, saturationMultiplier = 1.47f, warmthOffset = 2f, contrastOffset = 21f, fade = 0f, grain = 0f),
+    FOOD_COCOA("Какао", PhotoEffectCategory.FOOD, saturationMultiplier = .73f, warmthOffset = 34f, contrastOffset = 30f, fade = 9f, grain = 3f),
+    FOOD_MINT("Мята", PhotoEffectCategory.FOOD, saturationMultiplier = 1.24f, warmthOffset = -31f, contrastOffset = 5f, fade = 4f, grain = 0f),
+    CINEMA_NOIR("Кинонуар", PhotoEffectCategory.CINEMA, saturationMultiplier = 0f, warmthOffset = -18f, contrastOffset = 49f, fade = 0f, grain = 21f),
+    CINEMA_DUSK("Сумерки", PhotoEffectCategory.CINEMA, saturationMultiplier = .67f, warmthOffset = -28f, contrastOffset = 25f, fade = 19f, grain = 9f),
+    CINEMA_FIRE("Пламя", PhotoEffectCategory.CINEMA, saturationMultiplier = 1.57f, warmthOffset = 46f, contrastOffset = 29f, fade = 0f, grain = 8f),
+    CINEMA_FADE("Киноплёнка", PhotoEffectCategory.CINEMA, saturationMultiplier = .76f, warmthOffset = -5f, contrastOffset = -12f, fade = 34f, grain = 12f),
+    TRAVEL_JUNGLE("Джунгли", PhotoEffectCategory.TRAVEL, saturationMultiplier = 1.4f, warmthOffset = -24f, contrastOffset = 17f, fade = 0f, grain = 0f),
+    TRAVEL_SAND("Песок", PhotoEffectCategory.TRAVEL, saturationMultiplier = .91f, warmthOffset = 33f, contrastOffset = -15f, fade = 18f, grain = 0f),
+    TRAVEL_GLACIER("Ледник", PhotoEffectCategory.TRAVEL, saturationMultiplier = 1.17f, warmthOffset = -41f, contrastOffset = 8f, fade = 5f, grain = 0f),
+    NIGHT_VIOLET("Фиолетовая ночь", PhotoEffectCategory.NIGHT, saturationMultiplier = 1.34f, warmthOffset = -44f, contrastOffset = 35f, fade = 14f, grain = 9f),
+    NIGHT_SMOKE("Дымный", PhotoEffectCategory.NIGHT, saturationMultiplier = .34f, warmthOffset = -28f, contrastOffset = 19f, fade = 22f, grain = 12f),
+    TEXTURE_COARSE("Шероховатость", PhotoEffectCategory.TEXTURE, saturationMultiplier = .91f, warmthOffset = -5f, contrastOffset = 18f, fade = 9f, grain = 58f),
+    TEXTURE_WASHED("Выцветший", PhotoEffectCategory.TEXTURE, saturationMultiplier = .52f, warmthOffset = 19f, contrastOffset = -37f, fade = 49f, grain = 25f),
 }
 object PhotoEffectCatalog {
     fun forCategory(category: PhotoEffectCategory,
@@ -165,6 +220,32 @@ object PhotoColorMath {
 
     fun apply(source: Bitmap, values: PhotoColorAdjustments): Bitmap {
         if (values.isNeutral()) return source
+        // RGB-only scrubbing is common and must not pass through the general
+        // ColorMatrix + float/pow/HSL pipeline for every pixel. Four precomputed
+        // LUTs produce the same colour channels with a single streaming pass.
+        if (!values.rgbCurves.isNeutral() &&
+            values.copy(rgbCurves = PhotoCurves()).isNeutral() &&
+            source.config != Bitmap.Config.HARDWARE) {
+            val prepared = PhotoCurveMath.prepare(values.rgbCurves)
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            val rows = 32
+            val pixels = IntArray(source.width * rows)
+            var top = 0
+            while (top < source.height) {
+                val count = min(rows, source.height - top)
+                source.getPixels(pixels, 0, source.width, 0, top, source.width, count)
+                for (i in 0 until count * source.width) {
+                    val px = pixels[i]
+                    val r = prepared.mapRed((px ushr 16) and 255)
+                    val g = prepared.mapGreen((px ushr 8) and 255)
+                    val b = prepared.mapBlue(px and 255)
+                    pixels[i] = (px and -0x1000000) or (r shl 16) or (g shl 8) or b
+                }
+                output.setPixels(pixels, 0, source.width, 0, top, source.width, count)
+                top += count
+            }
+            return output
+        }
         val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
         Canvas(output).drawBitmap(source, 0f, 0f,
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {

@@ -1,8 +1,13 @@
 package com.domenota.medialoader.ui.screens
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -43,57 +48,81 @@ internal fun PhotoCurvesPanel(
     val finish by rememberUpdatedState(onEditFinished)
     val commit by rememberUpdatedState(onCommit)
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 7.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             PhotoCurveChannel.entries.forEach { c ->
-                FilterChip(selected = c == channel, onClick = { channel = c },
-                    enabled = enabled, label = { Text(c.title, fontSize = 10.sp) })
+                val selected = c == channel
+                Box(Modifier.size(36.dp)
+                    .border(if (selected) 3.dp else 1.dp,
+                        if (selected) curveChannelColor(c) else Color.LightGray.copy(alpha = .55f), CircleShape)
+                    .padding(5.dp)
+                    .background(curveChannelColor(c), CircleShape)
+                    .clickable(enabled = enabled) { channel = c },
+                    contentAlignment = Alignment.Center) {}
             }
         }
         Canvas(Modifier.fillMaxWidth().height(172.dp)
             .pointerInput(channel, enabled) {
                 if (!enabled) return@pointerInput
-                detectTapGestures { p ->
-                    val x = (p.x / size.width).coerceIn(0f, 1f)
-                    val y = (1f - p.y / size.height).coerceIn(0f, 1f)
-                    val points = latestCurve.points
-                    val nearest = points.indices.minByOrNull { i ->
-                        hypot(points[i].x - x, points[i].y - y)
-                    } ?: -1
-                    if (nearest >= 0 && hypot(points[nearest].x - x, points[nearest].y - y) < .055f) {
-                        selection = nearest
-                    } else {
-                        val updated = latestCurve.insert(x, y)
-                        if (updated != latestCurve) {
-                            selection = updated.points.indexOfFirst { abs(it.x - x) < .002f }
-                            commit(latestCurves.update(channel, updated))
-                        }
+                // Single detector handles taps and drags. No competing tap/drag
+                // recognizers can unexpectedly select the upper-right endpoint.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val width = size.width.toFloat().coerceAtLeast(1f)
+                    val height = size.height.toFloat().coerceAtLeast(1f)
+                    val x = (down.position.x / width).coerceIn(0.002f, .998f)
+                    val y = (1f - down.position.y / height).coerceIn(0f, 1f)
+                    var gestureCurve = latestCurve
+                    val points = gestureCurve.points
+                    val hitRadiusPx = 19.dp.toPx()
+                    val hit = points.indices.minByOrNull { index ->
+                        val p = points[index]
+                        hypot(p.x * width - down.position.x,
+                            (1f - p.y) * height - down.position.y)
+                    }?.takeIf { index ->
+                        val p = points[index]
+                        hypot(p.x * width - down.position.x,
+                            (1f - p.y) * height - down.position.y) <= hitRadiusPx
                     }
-                }
-            }
-            .pointerInput(channel, enabled) {
-                if (!enabled) return@pointerInput
-                detectDragGestures(
-                    onDragStart = { p ->
-                        val x = (p.x / size.width).coerceIn(0f, 1f)
-                        val y = (1f - p.y / size.height).coerceIn(0f, 1f)
-                        val pts = latestCurve.points
-                        selection = pts.indices.minByOrNull { i ->
-                            hypot(pts[i].x - x, pts[i].y - y)
-                        }?.takeIf { hypot(pts[it].x - x, pts[it].y - y) <= .09f } ?: -1
-                    },
-                    onDrag = { change, _ ->
-                        val index = selection
-                        if (index >= 0 && index < latestCurve.points.size) {
-                            change.consume()
-                            val next = latestCurve.withPoint(index,
-                                change.position.x / size.width,
-                                1f - change.position.y / size.height)
-                            live(latestCurves.update(channel, next))
+                    var edited = false
+                    if (hit != null) selection = hit
+                    else {
+                        val inserted = gestureCurve.insert(x, y)
+                        selection = if (inserted != gestureCurve) {
+                            gestureCurve = inserted
+                            live(latestCurves.update(channel, gestureCurve))
+                            edited = true
+                            inserted.points.indexOfFirst { abs(it.x - x) < .004f }
+                        } else -1
+                    }
+                    down.consume()
+                    var lastPosition = down.position
+                    do {
+                        val event = awaitPointerEvent()
+                        val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (pointer.pressed) {
+                            if (selection >= 0 &&
+                                (pointer.position - lastPosition).getDistance() >= 1.25f) {
+                                lastPosition = pointer.position
+                                if (selection in gestureCurve.points.indices) {
+                                    val next = gestureCurve.withPoint(selection,
+                                        pointer.position.x / width,
+                                        1f - pointer.position.y / height)
+                                    if (next != gestureCurve) {
+                                        gestureCurve = next
+                                        live(latestCurves.update(channel, gestureCurve))
+                                        edited = true
+                                    }
+                                }
+                            }
+                            pointer.consume()
+                        } else {
+                            pointer.consume()
+                            break
                         }
-                    },
-                    onDragEnd = { if (selection >= 0) finish() },
-                    onDragCancel = { if (selection >= 0) finish() },
-                )
+                    } while (event.changes.any { it.pressed })
+                    if (edited) finish()
+                }
             }
         ) {
             val w = size.width; val h = size.height
@@ -106,21 +135,28 @@ internal fun PhotoCurvesPanel(
             }
             drawLine(Color.White.copy(alpha = .38f), Offset(0f, h), Offset(w, 0f),
                 strokeWidth = 1.dp.toPx())
-            val lookup = PhotoCurveMath.lut(curve)
-            val path = Path().apply {
-                moveTo(0f, h - lookup[0] / 255f * h)
-                for (i in 1..255) lineTo(i / 255f * w, h - lookup[i] / 255f * h)
+            // Show all four independent channels simultaneously; active channel draws last.
+            val renderOrder = PhotoCurveChannel.entries.filter { it != channel } + channel
+            renderOrder.forEach { visible ->
+                val lookup = PhotoCurveMath.lut(curves.forChannel(visible))
+                val path = Path().apply {
+                    moveTo(0f, h - lookup[0] / 255f * h)
+                    for (i in 1..255) lineTo(i / 255f * w, h - lookup[i] / 255f * h)
+                }
+                drawPath(path, curveChannelColor(visible).copy(alpha = if (visible == channel) 1f else .48f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = if (visible == channel) 2.8.dp.toPx() else 1.5.dp.toPx(), cap = StrokeCap.Round))
             }
-            drawPath(path, curveChannelColor(channel), style = androidx.compose.ui.graphics.drawscope.Stroke(
-                width = 2.dp.toPx(), cap = StrokeCap.Round))
             curve.points.forEachIndexed { index, p ->
                 val center = Offset(p.x * w, (1f - p.y) * h)
-                drawCircle(Color(0xFF252529), radius = if (selection == index) 8.dp.toPx()
-                    else 6.dp.toPx(), center = center)
-                drawCircle(curveChannelColor(channel), radius = if (selection == index) 5.dp.toPx()
-                    else 3.5.dp.toPx(), center = center)
+                drawCircle(Color(0xFF252529), radius = if (selection == index) 11.dp.toPx()
+                    else 9.dp.toPx(), center = center)
+                drawCircle(curveChannelColor(channel), radius = if (selection == index) 8.dp.toPx()
+                    else 6.7.dp.toPx(), center = center)
             }
         }
+        Text("Коснись графика для новой точки — веди без отпускания. Существующие точки захватываются рядом с ними.",
+            color = Color.LightGray, fontSize = 10.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = {
                 val next = curve.remove(selection)

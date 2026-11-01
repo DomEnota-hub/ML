@@ -53,7 +53,7 @@ fun CropFrameOverlay(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val edgeHitRadiusPx = with(density) { if (precisePhotoHandles) 32.dp.toPx() else 36.dp.toPx() }
-    val cornerHitRadiusPx = with(density) { if (precisePhotoHandles) 76.dp.toPx() else 64.dp.toPx() }
+    val cornerHitRadiusPx = with(density) { if (precisePhotoHandles) 92.dp.toPx() else 64.dp.toPx() }
 
     Canvas(
         modifier = modifier
@@ -62,7 +62,12 @@ fun CropFrameOverlay(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val imageRect = fittedImageRect(containerSize, sourceWidth, sourceHeight)
-                    val handle = hitTestCropHandle(
+                    // For photos, a finger in the inner portion moves the
+                    // entire selection. This must take priority over the
+                    // enlarged, invisible corner targets on smaller crops.
+                    val moveFrame = precisePhotoHandles && isInsideCropMoveZone(
+                        down.position, latestCrop, imageRect, with(density) { 22.dp.toPx() })
+                    val handle = if (moveFrame) null else hitTestCropHandle(
                         point = down.position,
                         crop = latestCrop,
                         imageRect = imageRect,
@@ -74,9 +79,10 @@ fun CropFrameOverlay(
                     if (handle != null) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     }
-                    if (handle == null || imageRect.width <= 0f || imageRect.height <= 0f) {
+                    if ((!moveFrame && handle == null) ||
+                        imageRect.width <= 0f || imageRect.height <= 0f) {
                         val compareOriginal = latestCompareOriginal
-                        if (handle == null && compareOriginal != null) {
+                        if (!moveFrame && handle == null && compareOriginal != null) {
                             val cancelledBeforeLongPress = withTimeoutOrNull(
                                 viewConfiguration.longPressTimeoutMillis,
                             ) {
@@ -120,9 +126,13 @@ fun CropFrameOverlay(
                         val delta = change.position - previous
                         if (delta != Offset.Zero) {
                             onCropChange(
-                                VideoCropMath.changeHandle(
+                                if (moveFrame) {
+                                    VideoCropMath.moveCrop(
+                                        latestCrop, delta.x / imageRect.width,
+                                        delta.y / imageRect.height)
+                                } else VideoCropMath.changeHandle(
                                     current = latestCrop,
-                                    handle = handle,
+                                    handle = requireNotNull(handle),
                                     deltaXFraction = delta.x / imageRect.width,
                                     deltaYFraction = delta.y / imageRect.height,
                                     sourceWidth = sourceWidth,
@@ -206,6 +216,26 @@ private fun fittedImageRect(
     val left = (container.width - width) / 2f
     val top = (container.height - height) / 2f
     return Rect(left, top, left + width, top + height)
+}
+
+/**
+ * Use a small *visible-edge* exclusion zone for moving a selection.
+ * The enlarged invisible handle target must not steal central drags.
+ * Video retains its original gestures (the call site is photo-only).
+ */
+internal fun isInsideCropMoveZone(
+    point: Offset, crop: CropFractions, rect: Rect, edgeExclusion: Float,
+): Boolean {
+    if (rect.width <= 0f || rect.height <= 0f ||
+        crop.left + crop.right + crop.top + crop.bottom <= .0001f) return false
+    val left = rect.left + crop.left * rect.width
+    val right = rect.right - crop.right * rect.width
+    val top = rect.top + crop.top * rect.height
+    val bottom = rect.bottom - crop.bottom * rect.height
+    val insetX = min(edgeExclusion, (right - left) / 4f)
+    val insetY = min(edgeExclusion, (bottom - top) / 4f)
+    return point.x in (left + insetX)..(right - insetX) &&
+        point.y in (top + insetY)..(bottom - insetY)
 }
 
 internal fun hitTestCropHandle(

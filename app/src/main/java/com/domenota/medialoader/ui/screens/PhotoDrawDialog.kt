@@ -6,6 +6,7 @@ import android.graphics.Paint as AndroidPaint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -27,6 +28,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,7 +57,7 @@ private enum class DrawingTool(val label: String, val kind: PhotoMarkKind?) {
     PEN("Карандаш", PhotoMarkKind.PEN),
     MARKER("Маркер", PhotoMarkKind.MARKER),
     NEON("Неон", PhotoMarkKind.NEON),
-    ERASER("Ластик", null),
+    ERASER("Ластик", PhotoMarkKind.ERASER),
     SELECT("Выбрать", null),
     LINE("Линия", PhotoMarkKind.LINE),
     RECTANGLE("Рамка", PhotoMarkKind.RECTANGLE),
@@ -83,9 +85,11 @@ internal fun PhotoDrawDialog(
     onDismiss: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val density = LocalDensity.current
     var tool by remember { mutableStateOf(DrawingTool.PEN) }
     var color by remember { mutableIntStateOf(AndroidColor.WHITE) }
     var thickness by remember { mutableFloatStateOf(.008f) }
+    val sizes = remember { mutableStateMapOf<DrawingTool, Float>() }
     var marks by remember(initial) { mutableStateOf(initial) }
     var selected by remember { mutableIntStateOf(-1) }
     var active by remember { mutableStateOf<List<PhotoPoint>>(emptyList()) }
@@ -157,7 +161,8 @@ internal fun PhotoDrawDialog(
                                 marks.getOrNull(selected)?.let { color = it.color; thickness = it.thickness }
                             } else if (tool == DrawingTool.ERASER) {
                                 selected = -1
-                                change(PhotoMarkEdits.eraseNear(marks, point, thickness * 3f))
+                                change(PhotoStrokeErase.apply(marks, listOf(point), thickness,
+                                    preview.width, preview.height))
                             }
                         }
                     }
@@ -194,7 +199,7 @@ internal fun PhotoDrawDialog(
                                         }
                                         DrawingTool.ERASER -> {
                                             selected = -1
-                                            marks = PhotoMarkEdits.eraseNear(marks, point, thickness * 3f)
+                                            active = listOf(point)
                                         }
                                         else -> { selected = -1; active = listOf(point) }
                                     }
@@ -221,8 +226,18 @@ internal fun PhotoDrawDialog(
                                         }
                                     }
                                     DrawingTool.ERASER -> {
-                                        marks = PhotoMarkEdits.eraseNear(marks, point, thickness * 3f)
-                                        change.consume()
+                                        if (active.isNotEmpty()) {
+                                            val previous = active.last()
+                                            if (previous != point) {
+                                                // Erase the *actual* path as it is painted: there is
+                                                // no second, stronger pass when the finger lifts.
+                                                marks = PhotoStrokeErase.apply(marks,
+                                                    listOf(previous, point), thickness,
+                                                    preview.width, preview.height)
+                                                active = (active + point).take(900)
+                                            }
+                                            change.consume()
+                                        }
                                     }
                                     else -> {
                                         if (active.isNotEmpty()) {
@@ -238,8 +253,10 @@ internal fun PhotoDrawDialog(
                             onDragEnd = {
                                 if (active.isNotEmpty() && tool.kind != null &&
                                     marks.size < PhotoDrawing.MAX_MARKS) {
-                                    marks = marks + PhotoMark(tool.kind!!, active.take(900),
-                                        color, thickness)
+                                    if (tool != DrawingTool.ERASER)
+                                        marks = marks + PhotoMark(tool.kind!!, active.take(900),
+                                            color, thickness.coerceIn(PhotoDrawing.MIN_BRUSH_THICKNESS,
+                                                PhotoDrawing.MAX_BRUSH_THICKNESS))
                                 }
                                 beforeGesture?.let(::push)
                                 beforeGesture = null
@@ -258,7 +275,8 @@ internal fun PhotoDrawDialog(
                         val save = canvas.save()
                         canvas.translate(rect.x, rect.y)
                         canvas.scale(rect.width / preview.width, rect.height / preview.height)
-                        val current = if (active.isNotEmpty() && tool.kind != null)
+                        val current = if (active.isNotEmpty() && tool.kind != null &&
+                            tool != DrawingTool.ERASER)
                             marks + PhotoMark(tool.kind!!, active.take(900), color, thickness)
                             else marks
                         PhotoDrawing.draw(canvas, preview.width, preview.height, current)
@@ -297,9 +315,12 @@ internal fun PhotoDrawDialog(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (tool == DrawingTool.ERASER) "Размер ластика" else "Толщина",
                             color = Color.White, fontSize = 12.sp, modifier = Modifier.width(106.dp))
+                        val maximumThickness = if (tool == DrawingTool.ERASER)
+                            PhotoDrawing.MAX_ERASER_THICKNESS else PhotoDrawing.MAX_BRUSH_THICKNESS
                         AppSlider(thickness.coerceIn(PhotoDrawing.MIN_BRUSH_THICKNESS,
-                            PhotoDrawing.MAX_BRUSH_THICKNESS), { next ->
+                            maximumThickness), { next ->
                             thickness = next
+                            sizes[tool] = next
                             if (selected in marks.indices) {
                                 if (thicknessBefore == null) thicknessBefore = marks
                                 val updated = marks.toMutableList()
@@ -307,13 +328,26 @@ internal fun PhotoDrawDialog(
                                 marks = updated
                             }
                         }, modifier = Modifier.weight(1f),
-                            valueRange = PhotoDrawing.MIN_BRUSH_THICKNESS..PhotoDrawing.MAX_BRUSH_THICKNESS,
+                            valueRange = PhotoDrawing.MIN_BRUSH_THICKNESS..maximumThickness,
                             onValueChangeFinished = {
                                 thicknessBefore?.let(::push)
                                 thicknessBefore = null
                             })
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    // Size indicator is proportional to the actual brush footprint
+                    // at the current fitted preview scale, not an arbitrary percentage.
+                    val previewRect = if (viewport.width > 0 && viewport.height > 0)
+                        photoCanvasRect(viewport.width.toFloat(), viewport.height.toFloat(),
+                            preview.width, preview.height) else null
+                    val diameterPx = if (previewRect != null)
+                        thickness * min(preview.width, preview.height) *
+                            (previewRect.width / preview.width) else 8f
+                    val diameterDp = with(density) { diameterPx.toDp().coerceIn(5.dp, 64.dp) }
+                    Box(Modifier.fillMaxWidth().height(68.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(diameterDp)
+                            .border(2.dp, editorYellow, CircleShape))
+                    }
+                    if (tool != DrawingTool.ERASER) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                         quickColors.forEach { option ->
@@ -370,7 +404,16 @@ internal fun PhotoDrawDialog(
                         Surface(
                             onClick = {
                                 if (tool == option) panelOpen = !panelOpen
-                                else { tool = option; panelOpen = true }
+                                else {
+                                    sizes[tool] = thickness
+                                    tool = option
+                                    val maximum = if (option == DrawingTool.ERASER)
+                                        PhotoDrawing.MAX_ERASER_THICKNESS else PhotoDrawing.MAX_BRUSH_THICKNESS
+                                    thickness = (sizes[option] ?: .008f).coerceIn(
+                                        PhotoDrawing.MIN_BRUSH_THICKNESS, maximum)
+                                    panelOpen = false
+                                }
+                                paletteOpen = false
                                 selected = -1
                             }, shape = RoundedCornerShape(14.dp),
                             color = if (selectedTool) editorYellow else Color(0xFF29292E),
@@ -392,7 +435,7 @@ internal fun PhotoDrawDialog(
             }
         }
     }
-    if (paletteOpen) {
+    if (paletteOpen && tool != DrawingTool.ERASER) {
         AlertDialog(onDismissRequest = { paletteOpen = false },
             title = { Text("Палитра") },
             text = {

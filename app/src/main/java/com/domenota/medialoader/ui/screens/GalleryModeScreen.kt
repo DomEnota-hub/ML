@@ -60,6 +60,7 @@ fun GalleryModeScreen(
     onDetailChange: (Boolean) -> Unit = {}, onTrash: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
     onDeleteFolder: suspend (String) -> Unit = {},
+    miniPlayer: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -92,7 +93,9 @@ fun GalleryModeScreen(
     fun closeAlbum() { selection = "all"; selectionTitle = ""; selectTab(1) }
     BackHandler(detailOpen || tab != 0) { if (detailOpen) closeAlbum() else selectTab(0) }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
-    var selectedIds by rememberSaveable(source.name, selection, search, tab, stateSaver = MediaSelectionState.saver) { mutableStateOf(arrayListOf<String>()) }
+    // Multi-select can include the entire phone library. Keep large IDs in
+    // transient screen state instead of serializing them into Android Bundles.
+    var selectedIds by remember(source.name, selection, search, tab) { mutableStateOf(arrayListOf<String>()) }
     val selecting = selectedIds.isNotEmpty()
     fun toggle(id: String) { selectedIds = ArrayList(if (id in selectedIds) selectedIds - id else selectedIds + id) }
     BackHandler(selecting) { selectedIds = arrayListOf() }
@@ -124,9 +127,11 @@ fun GalleryModeScreen(
     val queue = remember(visibleDisplayed) { visibleDisplayed.map { it.id } }
     LaunchedEffect(queue) { val visible = queue.toHashSet(); selectedIds = ArrayList(selectedIds.filter { it in visible }) }
     val selectedSet = remember(selectedIds) { selectedIds.toHashSet() }
+    val queueSet = remember(queue) { queue.toHashSet() }
     val mediaGridState = rememberLazyGridState()
     val albumGridState = rememberLazyGridState()
     val density = LocalDensity.current
+    var galleryOverlayHeightPx by remember { mutableIntStateOf(0) }
     val edgeHeightPx = with(density) { 84.dp.toPx() }
     var draggingAlbumKey by remember { mutableStateOf<String?>(null) }
     var draggedPointer by remember { mutableStateOf(Offset.Zero) }
@@ -147,7 +152,56 @@ fun GalleryModeScreen(
         visibleDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
             .atZone(ZoneId.systemDefault()).toLocalDate() }
     }
-    LaunchedEffect(tab, scrollToTopRequest) { if (tab == 0) mediaGridState.scrollToItem(0) }
+    // Keep the long-press drag detector on the grid, not a recycled cell:
+    // otherwise automatic scrolling would cancel the gesture.
+    var dragSelectionAnchor by remember { mutableStateOf<String?>(null) }
+    var dragSelectionPointer by remember { mutableStateOf(Offset.Zero) }
+    var dragSelectionBase by remember { mutableStateOf(emptySet<String>()) }
+    var dragSelectionEnd by remember { mutableStateOf<String?>(null) }
+    fun galleryItemAt(point: Offset): String? {
+        val visible = mediaGridState.layoutInfo.visibleItemsInfo.filter { it.key.toString() in queueSet }
+        val hit = visible.firstOrNull { cell ->
+            point.x >= cell.offset.x && point.x < cell.offset.x + cell.size.width &&
+                point.y >= cell.offset.y && point.y < cell.offset.y + cell.size.height
+        }
+        return hit?.key?.toString() ?: when {
+            point.y <= 0f -> visible.firstOrNull()?.key?.toString()
+            point.y >= mediaGridState.layoutInfo.viewportEndOffset ->
+                visible.lastOrNull()?.key?.toString()
+            else -> null
+        }
+    }
+    fun updateGalleryDrag(point: Offset) {
+        val anchor = dragSelectionAnchor ?: return
+        val current = galleryItemAt(point) ?: return
+        if (current == dragSelectionEnd) return
+        dragSelectionEnd = current
+        selectedIds = ArrayList(galleryRangeSelection(dragSelectionBase, queue, anchor, current))
+    }
+    LaunchedEffect(dragSelectionAnchor, tab) {
+        if (tab != 0 || dragSelectionAnchor == null) return@LaunchedEffect
+        while (dragSelectionAnchor != null) {
+            val delta = galleryAlbumEdgeScrollDelta(
+                dragSelectionPointer.y,
+                mediaGridState.layoutInfo.viewportSize.height.toFloat(),
+                edgeHeightPx,
+            )
+            if (delta != 0f) {
+                mediaGridState.scrollBy(delta)
+                updateGalleryDrag(dragSelectionPointer)
+            }
+            delay(16L)
+        }
+    }
+    LaunchedEffect(queue) { dragSelectionAnchor = null }
+    // Only an explicit new "top" request may reset scrolling. Recomposition
+    // after closing a viewer must preserve LazyGridState and its exact offset.
+    val topRequestTracker = remember { GalleryScrollRequestTracker(scrollToTopRequest) }
+    LaunchedEffect(scrollToTopRequest, tab) {
+        if (topRequestTracker.shouldScrollToTop(scrollToTopRequest, tab == 0)) {
+            mediaGridState.scrollToItem(0)
+        }
+    }
     LaunchedEffect(selectedJumpDate, dateSections, tab) {
         if (tab == 0) {
             selectedJumpDate?.let { chosen ->
@@ -173,6 +227,36 @@ fun GalleryModeScreen(
         LazyVerticalGrid(columns = GridCells.Fixed(4), state = if (tab == 1) albumGridState else mediaGridState,
             modifier = Modifier.fillMaxSize().testTag("gallery-library")
                 .onSizeChanged { albumViewport = it }
+                .pointerInput(tab, queue) {
+                    if (tab != 0) return@pointerInput
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { point ->
+                            val first = galleryItemAt(point)
+                            if (first != null) {
+                                dragSelectionAnchor = first
+                                dragSelectionPointer = point
+                                dragSelectionBase = selectedIds.toSet()
+                                dragSelectionEnd = null
+                                updateGalleryDrag(point)
+                            }
+                        },
+                        onDrag = { change, distance ->
+                            if (dragSelectionAnchor != null) {
+                                change.consume()
+                                dragSelectionPointer += distance
+                                updateGalleryDrag(dragSelectionPointer)
+                            }
+                        },
+                        onDragEnd = {
+                            dragSelectionAnchor = null
+                            dragSelectionEnd = null
+                        },
+                        onDragCancel = {
+                            dragSelectionAnchor = null
+                            dragSelectionEnd = null
+                        },
+                    )
+                }
                 .pointerInput(tab, albums, albumSettings.hiddenAlbums, otherAlbumsExpanded) {
                     if (tab != 1) return@pointerInput
                     detectDragGesturesAfterLongPress(
@@ -217,7 +301,13 @@ fun GalleryModeScreen(
                     )
                 },
             horizontalArrangement = Arrangement.spacedBy(if (tab == 1) 0.dp else 2.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            // Media flows beneath the floating switcher, rather than ending in
+            // a fixed, opaque 106dp blank strip.
+            // Leave enough scroll tail to expose the final row above the overlay.
+            // The tail lives *inside* the scrollable grid, not in Scaffold.
+            contentPadding = PaddingValues(bottom =
+                with(density) { galleryOverlayHeightPx.toDp() } + 12.dp)) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
                 if (!selecting) Column {
                     if (!detailOpen) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -339,18 +429,44 @@ fun GalleryModeScreen(
             } else {
                 dateSections.forEach { (date, rows) ->
                         item(key = "date:$date", span = { GridItemSpan(maxLineSpan) }) {
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            val dayIds = remember(rows) { rows.map { it.id } }
+                            val selectedInDay = dayIds.count { it in selectedSet }
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 17.dp, end = 9.dp, top = 4.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 val today = LocalDate.now()
-                                Text(when(date) { today -> "Сегодня"; today.minusDays(1) -> "Вчера"; else -> date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)) },
-                                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                Text("${rows.size} файлов", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Column(Modifier.weight(1f)) {
+                                    Text(when(date) { today -> "Сегодня"; today.minusDays(1) -> "Вчера"; else -> date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)) },
+                                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(if (selectedInDay > 0) "${selectedInDay}/${rows.size} выбрано" else "${rows.size} файлов",
+                                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                TextButton(
+                                    onClick = {
+                                        selectedIds = ArrayList(toggleGalleryDaySelection(selectedSet, queue, dayIds))
+                                    },
+                                    modifier = Modifier.testTag("select-day:$date").semantics {
+                                        contentDescription = "Выбрать все файлы за $date"
+                                    },
+                                ) {
+                                    Icon(when {
+                                        selectedInDay == dayIds.size -> Icons.Rounded.CheckCircle
+                                        selectedInDay > 0 -> Icons.Rounded.RemoveCircleOutline
+                                        else -> Icons.Rounded.RadioButtonUnchecked
+                                    }, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(if (selectedInDay == dayIds.size) "Снять выбор" else "Выбрать все", fontSize = 12.sp)
+                                }
                             }
                         }
                         items(rows, key = { it.id }) { row ->
                             GalleryMediaCell(row, catalog[row.id]?.isFavorite == true, { if (selecting) toggle(row.id) else onOpen(row.id, queue) },
                                 { mutate { onFavorite(row.id, catalog[row.id]?.isFavorite != true) } }, { folderTarget = row.id },
                                 { onShare(row.id) }, { onDelete(row.id) }, { renameTarget = row }, { onMoveToPrivate(row.id) },
-                                selecting = selecting, selected = row.id in selectedSet, onSelect = { toggle(row.id) })
+                                selecting = selecting, selected = row.id in selectedSet,
+                                onSelect = { toggle(row.id) },
+                                onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) })
                         }
                     }
             }
@@ -383,8 +499,12 @@ fun GalleryModeScreen(
                 }
             }
         }
+        Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+            .onSizeChanged { galleryOverlayHeightPx = it.height }.zIndex(6f)) {
+            miniPlayer()
+            if (!detailOpen) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
         }
-        if (tabOverride == null && !detailOpen) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
+        }
     }
     deletingAlbum?.let { album ->
         val appFolder = album.key.startsWith("folder:")
@@ -508,14 +628,21 @@ private fun GallerySectionTitle(text: String) { Text(text, Modifier.padding(hori
 @Composable
 private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: () -> Unit, onFavorite: () -> Unit,
                              onFolder: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit, onRename: () -> Unit, onPrivate: () -> Unit,
-                             selecting: Boolean, selected: Boolean, onSelect: () -> Unit) {
+                             selecting: Boolean, selected: Boolean, onSelect: () -> Unit, onLongSelect: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
         .semantics { contentDescription = item.originalName }
-        .combinedClickable(onClick = onOpen, onLongClick = onSelect, onLongClickLabel = "Выбрать файл")) {
+        .combinedClickable(onClick = onOpen, onLongClick = onLongSelect, onLongClickLabel = "Выбрать файл")) {
         DownloadThumbnail(item.savedUri, item.previewUrl, item.toUi().kind, Modifier.fillMaxSize())
         if (selected) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = .25f)))
-        if (selecting) Checkbox(selected, { onSelect() }, Modifier.align(Alignment.TopEnd))
+        if (selecting) IconButton(onClick = onSelect, modifier = Modifier.align(Alignment.TopEnd).size(40.dp)) {
+            Icon(
+                if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                if (selected) "Снять выделение" else "Выбрать файл",
+                Modifier.size(25.dp),
+                tint = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+            )
+        }
         else IconButton({ menu = true }, Modifier.align(Alignment.TopEnd).size(32.dp)) {
             Icon(Icons.Rounded.MoreVert, "Действия: ${item.originalName}", tint = Color.White,
                 modifier = Modifier.background(Color.Black.copy(alpha = .3f), RoundedCornerShape(8.dp)).size(22.dp))

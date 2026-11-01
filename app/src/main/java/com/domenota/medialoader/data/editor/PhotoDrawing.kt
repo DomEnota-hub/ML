@@ -3,6 +3,8 @@ package com.domenota.medialoader.data.editor
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Path
 import android.graphics.RectF
 import kotlin.math.min
@@ -15,7 +17,7 @@ data class PhotoPoint(val x: Float, val y: Float) {
 enum class PhotoMarkKind(val title: String) {
     PEN("Карандаш"), MARKER("Маркер"), NEON("Неоновая кисть"),
     LINE("Линия"), RECTANGLE("Прямоугольник"),
-    OVAL("Овал"), ARROW("Стрелка")
+    OVAL("Овал"), ARROW("Стрелка"), ERASER("Ластик")
 }
 
 data class PhotoMark(
@@ -38,9 +40,10 @@ object PhotoDrawing {
     const val MAX_MARKS = 150
     // The UI slider must never exceed the thickness accepted by PhotoMark.
     const val MIN_MARK_THICKNESS = .001f
-    const val MAX_MARK_THICKNESS = .08f
+    const val MAX_MARK_THICKNESS = .16f
     const val MIN_BRUSH_THICKNESS = .002f
     const val MAX_BRUSH_THICKNESS = .05f
+    const val MAX_ERASER_THICKNESS = .15f
     fun clamp(x: Float, y: Float): PhotoPoint = PhotoPoint(
         x.coerceIn(0f, 1f), y.coerceIn(0f, 1f)
     )
@@ -49,6 +52,11 @@ object PhotoDrawing {
     fun draw(canvas: Canvas, width: Int, height: Int, marks: List<PhotoMark>) {
         require(marks.size <= MAX_MARKS)
         val strokeScale = min(width, height).toFloat()
+        // Erase only drawing strokes, never the original image below them.
+        // A temporary isolated layer lets CLEAR erase earlier vector marks.
+        val layer = if (marks.any { it.kind == PhotoMarkKind.ERASER })
+            canvas.saveLayer(0f, 0f, width.toFloat(), height.toFloat(), null)
+            else -1
         marks.forEach { mark ->
             val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
                 color = mark.color
@@ -57,6 +65,8 @@ object PhotoDrawing {
                 strokeCap = Paint.Cap.ROUND
                 strokeWidth = (strokeScale * mark.thickness).coerceAtLeast(1f)
                 if (mark.kind == PhotoMarkKind.MARKER) alpha = 140
+                if (mark.kind == PhotoMarkKind.ERASER)
+                    xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
             }
             val first = mark.points.first()
             val last = mark.points.last()
@@ -64,11 +74,13 @@ object PhotoDrawing {
             val y1 = first.y * height
             val x2 = last.x * width
             val y2 = last.y * height
-            val vector = mark.kind !in setOf(PhotoMarkKind.PEN, PhotoMarkKind.MARKER, PhotoMarkKind.NEON)
+            val vector = mark.kind !in setOf(PhotoMarkKind.PEN, PhotoMarkKind.MARKER,
+                PhotoMarkKind.NEON, PhotoMarkKind.ERASER)
             val save = if (vector && mark.rotationDegrees != 0f) canvas.save() else -1
             if (save >= 0) canvas.rotate(mark.rotationDegrees, (x1 + x2) / 2f, (y1 + y2) / 2f)
             when (mark.kind) {
-                PhotoMarkKind.PEN, PhotoMarkKind.MARKER, PhotoMarkKind.NEON -> {
+                PhotoMarkKind.PEN, PhotoMarkKind.MARKER,
+                PhotoMarkKind.NEON, PhotoMarkKind.ERASER -> {
                     if (mark.kind == PhotoMarkKind.NEON) {
                         val glow = Paint(paint).apply {
                             strokeWidth *= 3.2f
@@ -112,6 +124,7 @@ object PhotoDrawing {
             }
             if (save >= 0) canvas.restoreToCount(save)
         }
+        if (layer >= 0) canvas.restoreToCount(layer)
     }
 
     fun overlay(source: Bitmap, marks: List<PhotoMark>): Bitmap {

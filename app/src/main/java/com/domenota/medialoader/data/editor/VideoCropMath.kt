@@ -50,6 +50,16 @@ object VideoCropMath {
     private const val MIN_RETAINED = 0.05f
     private const val MAX_EDGE = 0.95f
 
+    /** Translate the existing crop window without changing its width or ratio. */
+    fun moveCrop(current: CropFractions, dx: Float, dy: Float): CropFractions {
+        require(dx.isFinite() && dy.isFinite())
+        val x = dx.coerceIn(-current.left, current.right)
+        val y = dy.coerceIn(-current.top, current.bottom)
+        return current.copy(
+            left = current.left + x, right = current.right - x,
+            top = current.top + y, bottom = current.bottom - y)
+    }
+
     fun centerCrop(
         sourceWidth: Int,
         sourceHeight: Int,

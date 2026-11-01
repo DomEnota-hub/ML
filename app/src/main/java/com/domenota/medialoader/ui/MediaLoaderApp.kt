@@ -1,6 +1,9 @@
 package com.domenota.medialoader.ui
 
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.ScaffoldDefaults
 
 import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.ui.components.AppModeTitle
@@ -109,6 +112,7 @@ import com.domenota.medialoader.ui.model.BatchFileNames
 import com.domenota.medialoader.ui.model.VkDownloadGroup
 import com.domenota.medialoader.ui.model.toPreviewUi
 import com.domenota.medialoader.ui.model.toUi
+import com.domenota.medialoader.ui.navigation.ViewerQueueCache
 import com.domenota.medialoader.ui.navigation.AppDestination
 import com.domenota.medialoader.ui.navigation.BottomTabPolicy
 import com.domenota.medialoader.ui.navigation.BROWSER_ROUTE
@@ -258,13 +262,16 @@ fun MediaLoaderApp(
         }
     }
     LaunchedEffect(appMode, librarySource, currentRoute) {
-        // Refresh on returning from edits/Personal so new outputs and removed public copies appear immediately.
-        refreshPhoneLibraries(force = currentRoute == AppDestination.Home.route)
+        // MediaStore's ContentObserver tracks real photo/video changes. Do not
+        // force a full 11k-row scan each time we return from a photo viewer.
+        // LibraryViewModel.refresh throttles routine rechecks and still refreshes
+        // immediately when permissions or private-media access change.
+        refreshPhoneLibraries()
     }
     LaunchedEffect(phoneViewingId) { refreshPhoneLibraries() }
     LaunchedEffect(externalCatalog.map { it.ref.key }) { refreshPhoneLibraries() }
     DisposableEffect(lifecycleOwner, appMode, librarySource, phoneViewingId) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refreshPhoneLibraries(force = true) }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refreshPhoneLibraries() }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
@@ -694,7 +701,12 @@ fun MediaLoaderApp(
                     }
                 }
                 navController.navigate("viewer/${item.id}")
-                navController.currentBackStackEntry?.savedStateHandle?.set("grid_viewer_ids", queueIds)
+                // A phone library may have 10k+ items. Never persist those IDs
+                // in Navigation SavedStateHandle: it can crash onStop with
+                // TransactionTooLargeException when Android saves the Activity.
+                val viewerEntry = navController.currentBackStackEntry
+                val token = ViewerQueueCache.store(queueIds)
+                viewerEntry?.savedStateHandle?.set("grid_viewer_token", token)
                 navController.currentBackStackEntry?.savedStateHandle?.set("gallery_presentation",
                     item.mediaType != MediaType.AUDIO && !item.isPrivate &&
                         (appMode == AppMode.GALLERY || queueIds.isNotEmpty()))
@@ -715,7 +727,9 @@ fun MediaLoaderApp(
         publicLibraryRows.firstOrNull { it.id == id && !it.isPrivate }?.let { shareSavedFile(context, it) }
     }
     // Store ID/URI pairs rather than re-looking up provider rows after Android deletes them.
-    var pendingDeleteRecords by rememberSaveable(stateSaver = com.domenota.medialoader.ui.components.MediaSelectionState.saver) { mutableStateOf(arrayListOf<String>()) }
+    // Large multi-select operations are transient; persisting every ID/URI
+    // pair into Android SavedState can exhaust the Activity Bundle.
+    var pendingDeleteRecords by remember { mutableStateOf(arrayListOf<String>()) }
     val deleteLibraryFiles: (List<String>) -> Unit = { ids ->
         val phoneById = phoneRows.associateBy { it.id }
         val appById = accessibleDownloads.associateBy { it.id }
@@ -875,10 +889,14 @@ fun MediaLoaderApp(
     MediaManagementAccessPrompt(enabled = appMode != AppMode.DOWNLOADER &&
         currentRoute == AppDestination.Home.route && !checkingPhoneAccess)
     LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
+    val galleryHomeOverlay = galleryBottomSwitcherIsOverlay(appMode, currentRoute)
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        // The gallery controls must be an overlay, not a reserved Scaffold bar.
+        contentWindowInsets = if (galleryHomeOverlay) WindowInsets.statusBars
+            else ScaffoldDefaults.contentWindowInsets,
         bottomBar = {
-            if (currentRoute != PRIVATE_ROUTE && currentRoute != PREVIEW_ROUTE && currentRoute != BROWSER_ROUTE &&
+            if (!galleryHomeOverlay && currentRoute != PRIVATE_ROUTE && currentRoute != PREVIEW_ROUTE && currentRoute != BROWSER_ROUTE &&
                 currentRoute != BULK_ROUTE && currentRoute != MEDIA_VIEWER_ROUTE &&
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
@@ -1014,7 +1032,19 @@ fun MediaLoaderApp(
                     onDetailChange = { galleryDetailOpen = it }, onTrash = { navController.navigate("trash") },
                     deviceAlbums = publicLibraryRefs.mapNotNull { ref -> ref.deviceAlbumId?.let { id ->
                         ref.key to DeviceAlbum(id, ref.deviceAlbumName ?: "Без альбома")
-                    } }.toMap())
+                    } }.toMap(),
+                    // Keep a playing-audio mini-player without letting Scaffold
+                    // reserve a solid background strip beneath the gallery.
+                    miniPlayer = {
+                        AudioMiniPlayer(
+                            onOpenQueue = openDownloadWithQueue,
+                            onOpen = { mediaId ->
+                                if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
+                                    navController.navigate("viewer/$mediaId")
+                                }
+                            },
+                        )
+                    })
                 else MusicModeScreen(
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
                     allAudio = libraryItems.filter { it.mediaType == MediaType.AUDIO }, playlists = playlists,
@@ -1305,7 +1335,8 @@ fun MediaLoaderApp(
                 val viewerState = rememberSaveableStateHolder()
                 val downloadId = entry.arguments?.getString("downloadId")
                 val galleryPresentation = entry.savedStateHandle.get<Boolean>("gallery_presentation") == true
-                val snapshot = entry.savedStateHandle.get<List<String>>("grid_viewer_ids").orEmpty()
+                val snapshot = ViewerQueueCache.resolve(
+                    entry.savedStateHandle.get<String>("grid_viewer_token"))
                 val currentGalleryId = entry.savedStateHandle.get<String>("gallery_current_id") ?: downloadId
                 val galleryCandidates = if (galleryPresentation) GalleryViewerState.publicCandidates(publicLibraryRefs, libraryPrivateKeys,
                     snapshot.toSet() + listOfNotNull(downloadId)).filter { row ->
@@ -1363,11 +1394,11 @@ fun MediaLoaderApp(
                         onOpenExternal = { selected -> if (!selected.isPrivate) openSavedFile(context, selected) },
                         onShare = { selected -> if (!selected.isPrivate) shareSavedFile(context, selected) },
                         audioQueue = LibraryAudioQueue.resolve(
-                            entry.savedStateHandle.get<List<String>>("grid_viewer_ids").orEmpty(), viewerRows, item.isPrivate,
+                            snapshot, viewerRows, item.isPrivate,
                             fileStatuses),
                         photoQueue = photoQueue,
                         mediaQueue = com.domenota.medialoader.data.playback.GridMediaQueue.resolve(
-                            entry.savedStateHandle.get<List<String>>("grid_viewer_ids").orEmpty(),
+                            snapshot,
                             viewerRows, item.isPrivate, fileStatuses),
                         modernAudioLayout = !item.isPrivate,
                         onEqualizer = { navController.navigate("equalizer") },
@@ -1545,3 +1576,7 @@ fun MediaLoaderApp(
         }
     }
 }
+
+/** Never reserve space for gallery's floating navigation in Scaffold.bottomBar. */
+internal fun galleryBottomSwitcherIsOverlay(mode: AppMode, route: String?): Boolean =
+    mode == AppMode.GALLERY && route == AppDestination.Home.route

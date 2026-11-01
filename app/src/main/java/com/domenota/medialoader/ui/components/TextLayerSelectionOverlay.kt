@@ -32,11 +32,15 @@ import kotlin.math.sin
 /** Preview-only affordances. Export uses the renderer without this overlay. */
 @Composable
 internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer: TextLayer,
-    onChange: (TextLayer) -> Unit, zoom: PreviewZoom = PreviewZoom()) {
+    onChange: (TextLayer) -> Unit, zoom: PreviewZoom = PreviewZoom(),
+    onTap: () -> Unit = {}, onDuplicate: () -> Unit = {}, onDelete: () -> Unit = {}) {
     val displayScale = zoom.scale
     val context = LocalContext.current
     val current by rememberUpdatedState(layer)
     val change by rememberUpdatedState(onChange)
+    val tapped by rememberUpdatedState(onTap)
+    val duplicate by rememberUpdatedState(onDuplicate)
+    val delete by rememberUpdatedState(onDelete)
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
     val padding = with(density) { 8.dp.toPx() } / displayScale
@@ -70,7 +74,9 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
             customActions = listOf(
                 CustomAccessibilityAction("Увеличить текст") { change(current.copy(size = (current.size * 1.1f).coerceAtMost(0.25f))); true },
                 CustomAccessibilityAction("Уменьшить текст") { change(current.copy(size = (current.size / 1.1f).coerceAtLeast(0.02f))); true },
-                CustomAccessibilityAction("Сбросить поворот") { change(current.copy(rotation = 0f)); true })
+                CustomAccessibilityAction("Сбросить поворот") { change(current.copy(rotation = 0f)); true },
+                CustomAccessibilityAction("Копировать надпись") { duplicate(); true },
+                CustomAccessibilityAction("Удалить надпись") { delete(); true })
         }
         .pointerInput(layer.id, viewport, zoom) {
             if (viewport.width == 0 || viewport.height == 0) return@pointerInput
@@ -78,17 +84,31 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
                 val down = awaitFirstDown(requireUnconsumed = true)
                 val start = current
                 val initial = frame(start)
+                val copyTarget = Offset(initial.bounds.left, initial.bounds.top - radius * 1.7f)
+                val deleteTarget = Offset(initial.bounds.right, initial.bounds.top - radius * 1.7f)
+                if ((down.position - copyTarget).getDistance() <= target) {
+                    down.consume(); duplicate(); return@awaitEachGesture
+                }
+                if ((down.position - deleteTarget).getDistance() <= target) {
+                    down.consume(); delete(); return@awaitEachGesture
+                }
                 val resizing = (down.position - initial.handle).getDistance() <= target
                 val local = initial.center + (down.position - initial.center).rotated(-start.rotation)
                 if (!resizing && !initial.bounds.contains(local)) return@awaitEachGesture
                 down.consume()
                 val startVector = down.position - initial.center
+                var dragged = false
                 do {
                     val event = awaitPointerEvent()
                     val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
                     if (pointer.isConsumed) break
-                    if (!pointer.pressed) { pointer.consume(); break }
+                    if (!pointer.pressed) {
+                        if (!dragged) tapped()
+                        pointer.consume()
+                        break
+                    }
                     val offset = pointer.position - down.position
+                    if (offset.getDistance() > viewConfiguration.touchSlop) dragged = true
                     if (resizing) {
                         val vector = pointer.position - initial.center
                         change(TextLayerTransform.fromHandle(start, startVector.x, startVector.y, vector.x, vector.y, current))
@@ -102,6 +122,19 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
         }) {
         if (viewport.width == 0) return@Canvas
         val f = visibleFrame
+        val copyTarget = Offset(f.bounds.left, f.bounds.top - radius * 1.7f)
+        val deleteTarget = Offset(f.bounds.right, f.bounds.top - radius * 1.7f)
+        listOf(copyTarget, deleteTarget).forEach { circle ->
+            drawCircle(Color.White, radius * .86f, circle)
+        }
+        drawLine(Color.DarkGray, copyTarget - Offset(radius * .32f, 0f),
+            copyTarget + Offset(radius * .32f, 0f), strokeWidth = 1.7.dp.toPx())
+        drawLine(Color.DarkGray, copyTarget - Offset(0f, radius * .32f),
+            copyTarget + Offset(0f, radius * .32f), strokeWidth = 1.7.dp.toPx())
+        drawLine(Color.DarkGray, deleteTarget - Offset(radius * .25f, radius * .25f),
+            deleteTarget + Offset(radius * .25f, radius * .25f), strokeWidth = 1.7.dp.toPx())
+        drawLine(Color.DarkGray, deleteTarget - Offset(radius * .25f, -radius * .25f),
+            deleteTarget + Offset(radius * .25f, -radius * .25f), strokeWidth = 1.7.dp.toPx())
         withTransform({ rotate(layer.rotation, f.center) }) {
             drawRect(Color.White, f.bounds.topLeft, f.bounds.size, style = Stroke(1.5.dp.toPx() / displayScale))
         }
