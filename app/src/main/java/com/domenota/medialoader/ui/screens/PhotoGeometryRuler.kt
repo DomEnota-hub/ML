@@ -19,6 +19,18 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
+/** The fractional drag accumulator is separate from the whole-unit UI value. */
+internal fun geometryRulerDragValue(
+    current: Float,
+    dragPixels: Float,
+    pixelsPerUnit: Float,
+    range: ClosedFloatingPointRange<Float>,
+): Float {
+    require(pixelsPerUnit > 0f)
+    return (current - dragPixels / pixelsPerUnit)
+        .coerceIn(range.start, range.endInclusive)
+}
+
 /**
  * Scrubbable ruler: the yellow hairline is the current value, while the labeled
  * zero tick moves under it. All three geometry modes share the same interaction.
@@ -54,8 +66,8 @@ internal fun PhotoGeometryRuler(
             },
             onHorizontalDrag = { change, deltaPx ->
                 change.consume()
-                dragValue = (dragValue - deltaPx / pixelsPerDegree)
-                    .coerceIn(valueRange.start, valueRange.endInclusive)
+                dragValue = geometryRulerDragValue(
+                    dragValue, deltaPx, pixelsPerDegree, valueRange)
                 val snapped = dragValue.roundToInt().toFloat()
                 if (snapped != lastPublished) {
                     lastPublished = snapped
