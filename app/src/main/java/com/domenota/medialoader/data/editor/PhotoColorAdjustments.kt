@@ -220,6 +220,32 @@ object PhotoColorMath {
 
     fun apply(source: Bitmap, values: PhotoColorAdjustments): Bitmap {
         if (values.isNeutral()) return source
+        // RGB-only scrubbing is common and must not pass through the general
+        // ColorMatrix + float/pow/HSL pipeline for every pixel. Four precomputed
+        // LUTs produce the same colour channels with a single streaming pass.
+        if (!values.rgbCurves.isNeutral() &&
+            values.copy(rgbCurves = PhotoCurves()).isNeutral() &&
+            source.config != Bitmap.Config.HARDWARE) {
+            val prepared = PhotoCurveMath.prepare(values.rgbCurves)
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            val rows = 32
+            val pixels = IntArray(source.width * rows)
+            var top = 0
+            while (top < source.height) {
+                val count = min(rows, source.height - top)
+                source.getPixels(pixels, 0, source.width, 0, top, source.width, count)
+                for (i in 0 until count * source.width) {
+                    val px = pixels[i]
+                    val r = prepared.mapRed((px ushr 16) and 255)
+                    val g = prepared.mapGreen((px ushr 8) and 255)
+                    val b = prepared.mapBlue(px and 255)
+                    pixels[i] = (px and -0x1000000) or (r shl 16) or (g shl 8) or b
+                }
+                output.setPixels(pixels, 0, source.width, 0, top, source.width, count)
+                top += count
+            }
+            return output
+        }
         val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
         Canvas(output).drawBitmap(source, 0f, 0f,
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
