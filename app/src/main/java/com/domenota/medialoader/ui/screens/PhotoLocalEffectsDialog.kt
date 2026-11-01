@@ -5,11 +5,13 @@ import android.graphics.Paint as NativePaint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -24,6 +26,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,6 +47,7 @@ internal fun PhotoLocalEffectsDialog(
     onApply: (List<PhotoLocalStroke>) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val density = LocalDensity.current
     var kind by remember { mutableStateOf(PhotoLocalEffectKind.SQUARE) }
     var selection by remember { mutableStateOf(PhotoLocalSelection.BRUSH) }
     var brushFraction by remember { mutableFloatStateOf(.07f) }
@@ -178,6 +182,17 @@ internal fun PhotoLocalEffectsDialog(
                     Text("Размер выделения", color = Color.LightGray, fontSize = 11.sp)
                     AppSlider(brushFraction, { brushFraction = it },
                         valueRange = .01f..0.25f, modifier = Modifier.fillMaxWidth())
+                    if (selection == PhotoLocalSelection.BRUSH) {
+                        val imageRect = if (viewport.width > 0 && viewport.height > 0)
+                            photoCanvasRect(viewport.width.toFloat(), viewport.height.toFloat(),
+                                source.width, source.height) else null
+                        val diameter = if (imageRect != null)
+                            brushFraction * minOf(imageRect.width, imageRect.height) else 8f
+                        val diameterDp = with(density) { diameter.toDp().coerceIn(5.dp, 64.dp) }
+                        Box(Modifier.fillMaxWidth().height(68.dp), contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(diameterDp).border(2.dp, mosaicAccent, CircleShape))
+                        }
+                    }
                     Text("Размер пикселя / сила размытия", color = Color.LightGray, fontSize = 11.sp)
                     AppSlider(intensity, { intensity = it },
                         valueRange = .005f..0.08f, modifier = Modifier.fillMaxWidth())
@@ -207,7 +222,7 @@ internal fun PhotoLocalEffectsDialog(
                 PhotoLocalEffectKind.entries.forEach { option ->
                     Surface(onClick = {
                         if (kind == option) panelOpen = !panelOpen
-                        else { kind = option; panelOpen = true }
+                        else { kind = option; panelOpen = false }
                     }, modifier = Modifier.width(102.dp).height(63.dp),
                         color = if (kind == option) mosaicAccent else Color(0xFF2C2C31),
                         shape = RoundedCornerShape(16.dp)) {
