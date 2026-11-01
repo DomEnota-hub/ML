@@ -666,6 +666,101 @@ private fun PhotoWorkspaceTools(
                                 onEdit(edit.copy(color = edit.color.copy(rgbCurves = curves)))
                             },
                         )
+                    } else if (activeLevel == PhotoLevelControl.HSL) {
+                    val correction = edit.color.hsl[activeHslRange] ?: HslCorrection()
+                    val value = when (activeHslControl) {
+                        PhotoHslControl.HUE -> correction.hue
+                        PhotoHslControl.SATURATION -> correction.saturation
+                        PhotoHslControl.LIGHTNESS -> correction.lightness
+                    }
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            HslRange.entries.forEach { range ->
+                                FilterChip(selected = activeHslRange == range,
+                                    enabled = !locked && info != null,
+                                    onClick = { onHslRange(range) },
+                                    leadingIcon = {
+                                        Box(Modifier.size(14.dp).background(
+                                            photoHslChannelColor(range), CircleShape))
+                                    },
+                                    label = { Text(range.label, fontSize = 11.sp) })
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            PhotoHslControl.entries.forEach { control ->
+                                FilterChip(selected = activeHslControl == control,
+                                    enabled = !locked && info != null,
+                                    onClick = { onHslControl(control) },
+                                    label = { Text(control.title, fontSize = 11.sp) })
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(value.roundToInt().toString(), fontSize = 11.sp,
+                                color = Color.LightGray, modifier = Modifier.width(34.dp))
+                            Slider(value = value, valueRange = -100f..100f,
+                                onValueChange = { next ->
+                                    val updated = when(activeHslControl) {
+                                        PhotoHslControl.HUE -> correction.copy(hue = next)
+                                        PhotoHslControl.SATURATION -> correction.copy(saturation = next)
+                                        PhotoHslControl.LIGHTNESS -> correction.copy(lightness = next)
+                                    }
+                                    val nextHsl = edit.color.hsl.toMutableMap()
+                                    if (updated.isNeutral()) nextHsl.remove(activeHslRange)
+                                    else nextHsl[activeHslRange] = updated
+                                    onLiveEdit(edit.copy(color = edit.color.copy(hsl = nextHsl)))
+                                }, onValueChangeFinished = onEditFinished,
+                                enabled = !locked && info != null,
+                                modifier = Modifier.weight(1f))
+                        }
+                    }
+                    } else if (activeLevel in setOf(
+                        PhotoLevelControl.GLOW, PhotoLevelControl.VIGNETTE,
+                        PhotoLevelControl.DISPERSION)) {
+                        val strength = when (activeLevel) {
+                            PhotoLevelControl.GLOW -> edit.color.glow
+                            PhotoLevelControl.VIGNETTE -> edit.color.vignette
+                            else -> edit.color.dispersion
+                        }
+                        val size = when (activeLevel) {
+                            PhotoLevelControl.GLOW -> edit.color.glowSize
+                            PhotoLevelControl.VIGNETTE -> edit.color.vignetteSize
+                            else -> edit.color.dispersionSize
+                        }
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Сила", fontSize = 12.sp, color = Color.LightGray)
+                                Slider(strength, onValueChange = { next ->
+                                    val color = when (activeLevel) {
+                                        PhotoLevelControl.GLOW -> edit.color.copy(glow = next)
+                                        PhotoLevelControl.VIGNETTE -> edit.color.copy(vignette = next)
+                                        else -> edit.color.copy(dispersion = next)
+                                    }
+                                    onLiveEdit(edit.copy(color = color))
+                                }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
+                                    enabled = !locked && info != null, valueRange = 0f..100f,
+                                    onValueChangeFinished = onEditFinished)
+                                Text(strength.roundToInt().toString(), color = Color.White, fontSize = 12.sp)
+                            }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Размер", fontSize = 11.sp, color = Color.LightGray)
+                                Slider(size, onValueChange = { next ->
+                                    val color = when (activeLevel) {
+                                        PhotoLevelControl.GLOW -> edit.color.copy(glowSize = next)
+                                        PhotoLevelControl.VIGNETTE -> edit.color.copy(vignetteSize = next)
+                                        else -> edit.color.copy(dispersionSize = next)
+                                    }
+                                    onLiveEdit(edit.copy(color = color))
+                                }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
+                                    enabled = !locked && info != null, valueRange = 0f..100f,
+                                    onValueChangeFinished = onEditFinished)
+                                Text(size.roundToInt().toString(), color = Color.White, fontSize = 11.sp)
+                            }
+                        }
                     } else {
                     val value = when(activeLevel) {
                         PhotoLevelControl.EXPOSURE -> edit.color.exposure
@@ -681,7 +776,7 @@ private fun PhotoWorkspaceTools(
                         PhotoLevelControl.CURVE -> edit.color.curve
                         PhotoLevelControl.SHARPNESS -> edit.color.sharpness
                         PhotoLevelControl.CLARITY -> edit.color.clarity
-                        PhotoLevelControl.RGB_CURVES -> 0f // handled by graph above
+                        else -> 0f // Curves, HSL and fine-tuning have their own panels
                     }
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -704,7 +799,7 @@ private fun PhotoWorkspaceTools(
                                     PhotoLevelControl.CURVE -> edit.color.copy(curve = next)
                                     PhotoLevelControl.SHARPNESS -> edit.color.copy(sharpness = next)
                                     PhotoLevelControl.CLARITY -> edit.color.copy(clarity = next)
-                                    PhotoLevelControl.RGB_CURVES -> edit.color
+                                    else -> edit.color
                                 }
                                 onLiveEdit(edit.copy(color = color))
                             },
@@ -714,91 +809,17 @@ private fun PhotoWorkspaceTools(
                     }
                     }
                 }
-                PhotoWorkspaceTab.HSL -> {
-                    val correction = edit.color.hsl[activeHslRange] ?: HslCorrection()
-                    val value = when (activeHslControl) {
-                        PhotoHslControl.HUE -> correction.hue
-                        PhotoHslControl.SATURATION -> correction.saturation
-                        PhotoHslControl.LIGHTNESS -> correction.lightness
-                    }
-                    Column(Modifier.fillMaxWidth()) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            HslRange.entries.forEach { range ->
-                                FilterChip(selected = activeHslRange == range,
-                                    enabled = !locked && info != null,
-                                    onClick = { onHslRange(range) },
-                                    label = { Text(range.label, fontSize = 11.sp) })
-                            }
-                        }
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Text(value.roundToInt().toString(), fontSize = 11.sp,
-                                color = Color.LightGray, modifier = Modifier.width(32.dp))
-                            Slider(value = value, valueRange = -100f..100f,
-                                onValueChange = { next ->
-                                    val updated = when(activeHslControl) {
-                                        PhotoHslControl.HUE -> correction.copy(hue = next)
-                                        PhotoHslControl.SATURATION -> correction.copy(saturation = next)
-                                        PhotoHslControl.LIGHTNESS -> correction.copy(lightness = next)
-                                    }
-                                    val nextHsl = edit.color.hsl.toMutableMap()
-                                    if (updated.isNeutral()) nextHsl.remove(activeHslRange)
-                                    else nextHsl[activeHslRange] = updated
-                                    onLiveEdit(edit.copy(color = edit.color.copy(hsl = nextHsl)))
-                                }, onValueChangeFinished = onEditFinished,
-                                enabled = !locked && info != null,
-                                modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
                 PhotoWorkspaceTab.EFFECTS -> {
-                    val strength = when (effectParameter) {
-                        "vignette" -> edit.color.vignette
-                        "glow" -> edit.color.glow
-                        "dispersion" -> edit.color.dispersion
-                        else -> edit.color.effectStrength
-                    }
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Сила", fontSize = 12.sp, color = Color.LightGray)
-                            Slider(strength, onValueChange = { next ->
-                                val color = when (effectParameter) {
-                                    "vignette" -> edit.color.copy(vignette = next)
-                                    "glow" -> edit.color.copy(glow = next)
-                                    "dispersion" -> edit.color.copy(dispersion = next)
-                                    else -> edit.color.copy(effectStrength = next)
-                                }
-                                onLiveEdit(edit.copy(color = color))
-                            }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
-                                enabled = !locked && info != null, valueRange = 0f..100f,
-                                onValueChangeFinished = onEditFinished)
-                            Text(strength.roundToInt().toString(), color = Color.White,
-                                fontSize = 12.sp)
-                        }
-                        if (effectParameter != "preset") {
-                            val size = when (effectParameter) {
-                                "glow" -> edit.color.glowSize
-                                "vignette" -> edit.color.vignetteSize
-                                else -> edit.color.dispersionSize
-                            }
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Размер", fontSize = 11.sp, color = Color.LightGray)
-                                Slider(size, onValueChange = { next ->
-                                    val color = when (effectParameter) {
-                                        "glow" -> edit.color.copy(glowSize = next)
-                                        "vignette" -> edit.color.copy(vignetteSize = next)
-                                        else -> edit.color.copy(dispersionSize = next)
-                                    }
-                                    onLiveEdit(edit.copy(color = color))
-                                }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
-                                    enabled = !locked && info != null, valueRange = 0f..100f,
-                                    onValueChangeFinished = onEditFinished)
-                                Text(size.roundToInt().toString(), color = Color.White,
-                                    fontSize = 11.sp)
-                            }
-                        }
+                    val strength = edit.color.effectStrength
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("Сила", fontSize = 12.sp, color = Color.LightGray)
+                        Slider(strength, onValueChange = { next ->
+                            onLiveEdit(edit.copy(color = edit.color.copy(effectStrength = next)))
+                        }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
+                            enabled = !locked && info != null, valueRange = 0f..100f,
+                            onValueChangeFinished = onEditFinished)
+                        Text(strength.roundToInt().toString(), color = Color.White, fontSize = 12.sp)
                     }
                 }
                 PhotoWorkspaceTab.TEXT ->
