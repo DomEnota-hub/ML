@@ -299,7 +299,7 @@ fun GalleryModeScreen(
                     )
                 },
             horizontalArrangement = Arrangement.spacedBy(if (tab == 1) 0.dp else 2.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
+            verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 106.dp)) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
                 if (!selecting) Column {
                     if (!detailOpen) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -491,8 +491,12 @@ fun GalleryModeScreen(
                 }
             }
         }
+        if (tabOverride == null && !detailOpen) {
+            Box(Modifier.align(Alignment.BottomCenter).zIndex(6f)) {
+                LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
+            }
         }
-        if (tabOverride == null && !detailOpen) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
+        }
     }
     deletingAlbum?.let { album ->
         val appFolder = album.key.startsWith("folder:")
