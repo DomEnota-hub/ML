@@ -359,16 +359,23 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     PhoneMediaSnapshot(it.items, it.identities, it.fingerprints)
                 }
                 val startedAt = android.os.SystemClock.elapsedRealtime()
+                val cacheCheckpoint = PhoneScanCheckpointPolicy()
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan started · mode=$mode · retained=${previous?.items?.size ?: 0}")
                 val snapshot = phone.scanSnapshot(mode, previous, keys.filterTo(mutableSetOf()) { it.startsWith("file-stat:") }) { partialSnapshot ->
                     if (blocking && !partial && stillAllowed()) {
                         state.value = PhoneLibraryState(items = partialSnapshot.items, identities = partialSnapshot.identities,
                             fingerprints = partialSnapshot.fingerprints, loaded = true, loading = true,
                             revision = ++revision, requiresValidation = true)
-                        // Save useful progress too: process death must not lose the whole first scan.
-                        try { phoneCache.write(mode, accessKey, privacy, PhoneStoreStamp(stamp.versions, null), partialSnapshot) }
-                        catch (e: CancellationException) { throw e }
-                        catch (_: Exception) { /* The completed snapshot will retry persistence. */ }
+                        // A large library can publish progress every second; serializing
+                        // 11k+ entries to JSON on *every* update stalls the cursor.
+                        // Keep first-page recovery, then bounded checkpoints; the final
+                        // validated snapshot is persisted after the scan.
+                        if (cacheCheckpoint.shouldSave(partialSnapshot.items.size)) {
+                            try { phoneCache.write(mode, accessKey, privacy,
+                                PhoneStoreStamp(stamp.versions, null), partialSnapshot) }
+                            catch (e: CancellationException) { throw e }
+                            catch (_: Exception) { /* The completed snapshot retries persistence. */ }
+                        }
                     }
                 }
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan finished · mode=$mode · count=${snapshot.items.size} · ms=${android.os.SystemClock.elapsedRealtime() - startedAt}")
