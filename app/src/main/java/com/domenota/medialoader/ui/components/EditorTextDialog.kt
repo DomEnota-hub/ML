@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -61,7 +62,7 @@ internal fun EditorTextDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var layers by remember { mutableStateOf(initial) }
-    var selectedId by remember { mutableStateOf(initial.firstOrNull()?.id) }
+    var selectedId by remember { mutableStateOf<String?>(null) }
     var position by remember { mutableStateOf(initialPositionMs.coerceIn(0L, (durationMs ?: 0L).coerceAtLeast(0L))) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var previewPosition by remember { mutableStateOf<Long?>(null) }
@@ -207,7 +208,28 @@ internal fun EditorTextDialog(
                         if (image != null) {
                             if (videoPlayer == null || videoPlayer.playerError != null || selectSample || pickColor || previewZoom.scale > 1f) Image(image.asImageBitmap(), contentDescription = "Предпросмотр текста",
                                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                            Canvas(Modifier.fillMaxSize().pointerInput(image, selectedId, selectSample, position, playing, loading) {
+                            Canvas(Modifier.fillMaxSize()
+                                .pointerInput(image, selectedId, layers, selectSample, pickColor, position, playing) {
+                                    if (selectedId != null || selectSample || pickColor || playing) return@pointerInput
+                                    detectTapGestures { offset ->
+                                        val scale = minOf(size.width.toFloat() / image.width,
+                                            size.height.toFloat() / image.height)
+                                        if (scale <= 0f) return@detectTapGestures
+                                        val left = (size.width - image.width * scale) / 2f
+                                        val top = (size.height - image.height * scale) / 2f
+                                        val x = (offset.x - left) / (image.width * scale)
+                                        val y = (offset.y - top) / (image.height * scale)
+                                        val nearest = layers.filter { durationMs == null || it.visibleAt(position) }
+                                            .minByOrNull { (it.centerX - x) * (it.centerX - x) +
+                                                (it.centerY - y) * (it.centerY - y) }
+                                        if (nearest != null &&
+                                            kotlin.math.hypot(nearest.centerX - x, nearest.centerY - y) < .22f) {
+                                            selectedId = nearest.id
+                                            expandedControls = false
+                                        }
+                                    }
+                                }
+                                .pointerInput(image, selectedId, selectSample, position, playing, loading) {
                                 if (!selectSample || playing || loading || previewPosition != position) return@pointerInput
                                 val scale = minOf(size.width.toFloat() / image.width, size.height.toFloat() / image.height)
                                 val width = image.width * scale; val height = image.height * scale
