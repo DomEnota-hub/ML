@@ -21,7 +21,7 @@ import org.robolectric.annotation.LooperMode
 class EditorTextDialogLayoutTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
-    @Test fun deleteIsVisibleBeforeAndAfterScrollingToLastFont() {
+    private fun launch() {
         val image = Bitmap.createBitmap(384, 400, Bitmap.Config.ARGB_8888)
         compose.setContent {
             MaterialTheme {
@@ -29,60 +29,56 @@ class EditorTextDialogLayoutTest {
                     onApply = {}, onDismiss = {})
             }
         }
-        // The default UX keeps the preview large and advanced controls collapsed.
-        compose.onNodeWithText("Удалить надпись").assertDoesNotExist()
-        compose.onNodeWithText("Все настройки текста").performClick()
-        compose.waitUntil(timeoutMillis = 15_000) {
-            compose.onAllNodesWithText("DejaVu Sans · очень тонкий").fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.onAllNodes(isRoot()).printToLog("EDITOR_LAYOUT")
-        compose.onNodeWithText("Удалить надпись").assertIsDisplayed()
-        compose.onNodeWithText("DejaVu Sans · очень тонкий").performScrollTo()
-        compose.onNodeWithText("Удалить надпись").assertIsDisplayed()
-        compose.onAllNodes(isRoot()).printToLog("EDITOR_LAYOUT")
     }
 
-    @Test fun deleteStaysInsidePhysicalDisplayWhenConfigurationHeightIsLarger() {
+    @Test fun selectedTextOpensIntegratedSheetWithKeyboardStyleAndFonts() {
+        launch()
+        compose.onNodeWithText("Все настройки текста").assertDoesNotExist()
+        compose.onNodeWithText("Удалить надпись").assertDoesNotExist()
+        // A tap on the selected object opens the very same bottom component.
+        compose.onNodeWithContentDescription("Рамка надписи: перемещение, размер и поворот")
+            .performTouchInput { click(center) }
+        compose.onNodeWithText("Клавиатура").assertIsDisplayed()
+        compose.onNodeWithText("Стиль").performClick()
+        compose.onNodeWithText("Цвет текста").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Пипетка").assertExists()
+        compose.onNodeWithText("Шрифт").performClick()
+        compose.waitUntil(timeoutMillis = 15_000) {
+            compose.onAllNodesWithText("Библиотека шрифтов").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Библиотека шрифтов").assertExists()
+    }
+
+    @Test fun fullSheetDeleteRemainsInsidePhysicalScreen() {
         val resources = compose.activity.resources
         val screenHeight = resources.displayMetrics.heightPixels
-        // Older Compose DialogLayout uses this value instead of the actual window measure spec.
         resources.configuration.screenHeightDp += 100
-        val image = Bitmap.createBitmap(384, 400, Bitmap.Config.ARGB_8888)
-        compose.setContent {
-            MaterialTheme {
-                EditorTextDialog(initial = listOf(TextLayer()), loadPreview = { image },
-                    onApply = {}, onDismiss = {})
-            }
-        }
-        compose.onNodeWithText("Все настройки текста").performClick()
+        launch()
+        compose.onNodeWithText("Изменить").performClick()
+        compose.onNodeWithText("Удалить надпись").performScrollTo().assertIsDisplayed()
         val bounds = compose.onNodeWithText("Удалить надпись").fetchSemanticsNode().boundsInWindow
-        println("DELETE: $bounds, physical height: $screenHeight")
-        assertTrue("Delete extends beyond physical display: $bounds / $screenHeight", bounds.bottom <= screenHeight)
+        assertTrue("Delete clipped below screen: " + bounds + " / " + screenHeight,
+            bounds.bottom <= screenHeight)
     }
 
-    @Test fun draftAndSelectedFontRemainOpenAcrossOrientationConfigurationChange() {
-        val image = Bitmap.createBitmap(384, 400, Bitmap.Config.ARGB_8888)
-        compose.setContent {
-            MaterialTheme {
-                EditorTextDialog(initial = listOf(TextLayer()), loadPreview = { image },
-                    onApply = {}, onDismiss = {})
-            }
-        }
-        compose.onNodeWithText("Все настройки текста").performClick()
-        compose.waitUntil(timeoutMillis = 15_000) {
-            compose.onAllNodesWithText("Noto Sans").fetchSemanticsNodes().isNotEmpty()
-        }
+    @Test fun draftAndFontTabSurviveOrientationChange() {
+        launch()
+        compose.onNodeWithText("Изменить").performClick()
         compose.onNodeWithText("Ваш текст").performTextReplacement("Черновик после поворота")
-        compose.onNodeWithText("Noto Sans").performScrollTo().performClick()
+        compose.onNodeWithText("Шрифт").performClick()
+        compose.waitUntil(timeoutMillis = 15_000) {
+            compose.onAllNodesWithText("Библиотека шрифтов").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.runOnUiThread {
             RuntimeEnvironment.setQualifiers("w800dp-h384dp-land-xhdpi")
             val configuration = compose.activity.resources.configuration
             compose.activity.onConfigurationChanged(configuration)
             compose.activity.window.decorView.dispatchConfigurationChanged(configuration)
         }
-        compose.onNodeWithText("✓ Noto Sans").assertExists()
-        compose.onNodeWithText("Черновик после поворота").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Удалить надпись").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Библиотека шрифтов").assertExists()
+        compose.onNodeWithText("Клавиатура").performClick()
+        compose.onNodeWithText("Черновик после поворота").assertExists()
+        compose.onNodeWithText("Удалить надпись").performScrollTo().performClick()
         compose.onNodeWithText("Черновик после поворота").assertDoesNotExist()
     }
 }
