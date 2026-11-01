@@ -21,12 +21,12 @@ jobs:
     timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN: "41302900638"
+      SOURCE_RUN: "41311296604"
       SOURCE_NAME: "ML-1.7.110-Round2-Refined-ARM64-QA"
-      SOURCE_SHA: "e3691843d158c4f9906e5919ed61bacaff7d0d4f"
-      EXPECTED_SHA256: "c086de9ba9ceeab650be5c39972235fbc4b1a834b814916d84d9c3c1196560aa"
-      RELEASE_TAG: "qa-round2-refined-1.7.110-20261101"
-      RELEASE_ASSET: "MediaLoader-1.7.110-Round2-Refined-ARM64-QA.apk"
+      SOURCE_SHA: "3bb00f96bd5acd9e660780f385cbe8bfb60f96af"
+      EXPECTED_SHA256: "0bf7781b2dca3f3cc4d8590214bff5b99964856061c2f75f6faff469ca9f2a7f"
+      RELEASE_TAG: "qa-round2-1.7.111-20261101"
+      RELEASE_ASSET: "MediaLoader-1.7.111-ARM64-QA.apk"
     steps:
       - name: Download verified QA APK from successful integration workflow
         shell: bash
@@ -45,14 +45,15 @@ jobs:
           mv "$RUNNER_TEMP/photo-qa/app-debug.apk" "$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
           asset="$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
-          **MediaLoader 1.7.110 — уточнённый QA второго раунда, 7 этапов + массовое выделение.**
+          **MediaLoader 1.7.111 — QA после восьми этапов исправлений.**
           
-          - Галерея: сохранение позиции, защита от TransactionTooLargeException, ускорение сканирования, выделение долгим нажатием и протягиванием, выбор всех файлов за отдельный день, круглые маркеры.
-          - Фоторедактор: ускоренная обработка и корректное сообщение об ошибках.
-          - Геометрия: отрицательная перспектива, линейка с нулём, перемещение рамки.
-          - Рисование: локальное стирание, жёлтый индикатор размера, раскрытие инструментов.
-          - Уровни: нулевые отметки, RGB-кривые, 12 дополнительных эффектов.
-          - Видео: корректировка отступов и компактная верхняя панель, монтажный движок не менялся.
+          - Фото: оптимизация создания превью и списка фильтров; 61 эффект, по умолчанию «Все».
+          - RGB-кривые: параллельное отображение и цветные переключатели каналов.
+          - Рисование: больше размер ластика и разделение затронутых штрихов.
+          - Геометрия: широкая линейка перспективы и более крупные зоны касания углов.
+          - Надписи: общие вкладки «Клавиатура / Стиль / Шрифт» для фото, видео и водяных знаков.
+          - Галерея: плавающая нижняя панель; настройки: более различимые цвета иконок.
+          - Это тестовая версия: скорость и корректность инструментов требуют проверки на телефоне.
           - Android unit-тесты, Lint, ARM64 сборка, подпись debug и проверка ABI: SUCCESS.
           
           **Это тестовый APK, не подписанный релиз DomEnota.** Пакет com.domenota.medialoader.hitmoz устанавливается отдельно.
@@ -65,7 +66,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" "$asset" \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$SOURCE_SHA" --title "MediaLoader 1.7.110 · Round 2 Refined QA · ARM64" \
+              --target "$SOURCE_SHA" --title "MediaLoader 1.7.111 · Eight stages QA · ARM64" \
               --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
