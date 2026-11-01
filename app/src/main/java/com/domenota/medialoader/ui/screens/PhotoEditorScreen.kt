@@ -563,6 +563,7 @@ private fun PhotoWorkspacePreview(
                 preset = edit.cropPreset, onCropChange = onCropChange,
                 modifier = Modifier.fillMaxSize(),
                 showFrame = !showOriginal,
+                precisePhotoHandles = true,
                 onCompareOriginalChange = { showOriginal = it },
                 onCropChangeFinished = onCropFinished,
             )
