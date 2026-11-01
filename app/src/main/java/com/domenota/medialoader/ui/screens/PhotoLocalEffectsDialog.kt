@@ -207,7 +207,7 @@ internal fun PhotoLocalEffectsDialog(
                 PhotoLocalEffectKind.entries.forEach { option ->
                     Surface(onClick = {
                         if (kind == option) panelOpen = !panelOpen
-                        else { kind = option; panelOpen = true }
+                        else { kind = option; panelOpen = false }
                     }, modifier = Modifier.width(102.dp).height(63.dp),
                         color = if (kind == option) mosaicAccent else Color(0xFF2C2C31),
                         shape = RoundedCornerShape(16.dp)) {
