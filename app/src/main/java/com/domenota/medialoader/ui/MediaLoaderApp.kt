@@ -259,13 +259,16 @@ fun MediaLoaderApp(
         }
     }
     LaunchedEffect(appMode, librarySource, currentRoute) {
-        // Refresh on returning from edits/Personal so new outputs and removed public copies appear immediately.
-        refreshPhoneLibraries(force = currentRoute == AppDestination.Home.route)
+        // MediaStore's ContentObserver tracks real photo/video changes. Do not
+        // force a full 11k-row scan each time we return from a photo viewer.
+        // LibraryViewModel.refresh throttles routine rechecks and still refreshes
+        // immediately when permissions or private-media access change.
+        refreshPhoneLibraries()
     }
     LaunchedEffect(phoneViewingId) { refreshPhoneLibraries() }
     LaunchedEffect(externalCatalog.map { it.ref.key }) { refreshPhoneLibraries() }
     DisposableEffect(lifecycleOwner, appMode, librarySource, phoneViewingId) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refreshPhoneLibraries(force = true) }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refreshPhoneLibraries() }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
