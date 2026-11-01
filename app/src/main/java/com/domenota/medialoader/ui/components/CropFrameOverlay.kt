@@ -53,7 +53,7 @@ fun CropFrameOverlay(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val edgeHitRadiusPx = with(density) { if (precisePhotoHandles) 32.dp.toPx() else 36.dp.toPx() }
-    val cornerHitRadiusPx = with(density) { if (precisePhotoHandles) 76.dp.toPx() else 64.dp.toPx() }
+    val cornerHitRadiusPx = with(density) { if (precisePhotoHandles) 92.dp.toPx() else 64.dp.toPx() }
 
     Canvas(
         modifier = modifier

@@ -1,6 +1,11 @@
 package com.domenota.medialoader.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -43,10 +48,17 @@ internal fun PhotoCurvesPanel(
     val finish by rememberUpdatedState(onEditFinished)
     val commit by rememberUpdatedState(onCommit)
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 7.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             PhotoCurveChannel.entries.forEach { c ->
-                FilterChip(selected = c == channel, onClick = { channel = c },
-                    enabled = enabled, label = { Text(c.title, fontSize = 10.sp) })
+                val selected = c == channel
+                Box(Modifier.size(36.dp)
+                    .border(if (selected) 3.dp else 1.dp,
+                        if (selected) curveChannelColor(c) else Color.LightGray.copy(alpha = .55f), CircleShape)
+                    .padding(5.dp)
+                    .background(curveChannelColor(c), CircleShape)
+                    .clickable(enabled = enabled) { channel = c },
+                    contentAlignment = Alignment.Center) {}
             }
         }
         Canvas(Modifier.fillMaxWidth().height(172.dp)
@@ -115,13 +127,18 @@ internal fun PhotoCurvesPanel(
             }
             drawLine(Color.White.copy(alpha = .38f), Offset(0f, h), Offset(w, 0f),
                 strokeWidth = 1.dp.toPx())
-            val lookup = PhotoCurveMath.lut(curve)
-            val path = Path().apply {
-                moveTo(0f, h - lookup[0] / 255f * h)
-                for (i in 1..255) lineTo(i / 255f * w, h - lookup[i] / 255f * h)
+            // Show all four independent channels simultaneously; active channel draws last.
+            val renderOrder = PhotoCurveChannel.entries.filter { it != channel } + channel
+            renderOrder.forEach { visible ->
+                val lookup = PhotoCurveMath.lut(curves.forChannel(visible))
+                val path = Path().apply {
+                    moveTo(0f, h - lookup[0] / 255f * h)
+                    for (i in 1..255) lineTo(i / 255f * w, h - lookup[i] / 255f * h)
+                }
+                drawPath(path, curveChannelColor(visible).copy(alpha = if (visible == channel) 1f else .48f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = if (visible == channel) 2.8.dp.toPx() else 1.5.dp.toPx(), cap = StrokeCap.Round))
             }
-            drawPath(path, curveChannelColor(channel), style = androidx.compose.ui.graphics.drawscope.Stroke(
-                width = 2.dp.toPx(), cap = StrokeCap.Round))
             curve.points.forEachIndexed { index, p ->
                 val center = Offset(p.x * w, (1f - p.y) * h)
                 drawCircle(Color(0xFF252529), radius = if (selection == index) 8.dp.toPx()

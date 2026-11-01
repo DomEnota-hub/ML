@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -61,7 +62,7 @@ internal fun EditorTextDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var layers by remember { mutableStateOf(initial) }
-    var selectedId by remember { mutableStateOf(initial.firstOrNull()?.id) }
+    var selectedId by remember { mutableStateOf<String?>(null) }
     var position by remember { mutableStateOf(initialPositionMs.coerceIn(0L, (durationMs ?: 0L).coerceAtLeast(0L))) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var previewPosition by remember { mutableStateOf<Long?>(null) }
@@ -82,6 +83,7 @@ internal fun EditorTextDialog(
     var intervalEnd by remember { mutableStateOf<Long?>(null) }
     var timingTab by remember { mutableStateOf(false) }
     var expandedControls by remember { mutableStateOf(false) }
+    var textToolTab by remember { mutableStateOf("keyboard") }
     var previewZoom by remember { mutableStateOf(PreviewZoom()) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     fun seek(time: Long) {
@@ -206,7 +208,28 @@ internal fun EditorTextDialog(
                         if (image != null) {
                             if (videoPlayer == null || videoPlayer.playerError != null || selectSample || pickColor || previewZoom.scale > 1f) Image(image.asImageBitmap(), contentDescription = "Предпросмотр текста",
                                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                            Canvas(Modifier.fillMaxSize().pointerInput(image, selectedId, selectSample, position, playing, loading) {
+                            Canvas(Modifier.fillMaxSize()
+                                .pointerInput(image, selectedId, layers, selectSample, pickColor, position, playing) {
+                                    if (selectedId != null || selectSample || pickColor || playing) return@pointerInput
+                                    detectTapGestures { offset ->
+                                        val scale = minOf(size.width.toFloat() / image.width,
+                                            size.height.toFloat() / image.height)
+                                        if (scale <= 0f) return@detectTapGestures
+                                        val left = (size.width - image.width * scale) / 2f
+                                        val top = (size.height - image.height * scale) / 2f
+                                        val x = (offset.x - left) / (image.width * scale)
+                                        val y = (offset.y - top) / (image.height * scale)
+                                        val nearest = layers.filter { durationMs == null || it.visibleAt(position) }
+                                            .minByOrNull { (it.centerX - x) * (it.centerX - x) +
+                                                (it.centerY - y) * (it.centerY - y) }
+                                        if (nearest != null &&
+                                            kotlin.math.hypot(nearest.centerX - x, nearest.centerY - y) < .22f) {
+                                            selectedId = nearest.id
+                                            expandedControls = false
+                                        }
+                                    }
+                                }
+                                .pointerInput(image, selectedId, selectSample, position, playing, loading) {
                                 if (!selectSample || playing || loading || previewPosition != position) return@pointerInput
                                 val scale = minOf(size.width.toFloat() / image.width, size.height.toFloat() / image.height)
                                 val width = image.width * scale; val height = image.height * scale
@@ -257,7 +280,8 @@ internal fun EditorTextDialog(
                             }
                             selected?.takeIf { !selectSample && !pickColor && !playing && it.text.isNotBlank() &&
                                 (durationMs == null || it.visibleAt(position)) }?.let { layer ->
-                                TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom)
+                                TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom,
+                                    onTap = { expandedControls = true; textToolTab = "keyboard" })
                                 Text("${layer.rotation.roundToInt()}° · ${(layer.size * 100).roundToInt()}%",
                                     color = Color.White, style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.align(Alignment.TopStart)
@@ -335,9 +359,16 @@ internal fun EditorTextDialog(
                             }, label = { Text("Время появления") })
                         }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        listOf("keyboard" to "Клавиатура", "style" to "Стиль", "font" to "Шрифт").forEach { (key, label) ->
+                            FilterChip(selected = expandedControls && textToolTab == key,
+                                onClick = { textToolTab = key; expandedControls = true },
+                                label = { Text(label) })
+                        }
                         TextButton(onClick = { expandedControls = !expandedControls }) {
-                            Text(if (expandedControls) "Свернуть инструменты" else "Все настройки текста")
+                            Text(if (expandedControls) "Свернуть" else "Параметры")
                         }
                     }
                     if (!expandedControls) {
@@ -365,7 +396,7 @@ internal fun EditorTextDialog(
                     } else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
                         .padding(top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        sample?.let { source ->
+                        if (textToolTab == "font") sample?.let { source ->
                             OutlinedTextField(sampleText, { sampleText = it.take(120); suggestions = emptyList() },
                                 label = { Text("Текст на образце — проверь распознавание") }, modifier = Modifier.fillMaxWidth())
                             OutlinedButton(onClick = {
@@ -381,8 +412,8 @@ internal fun EditorTextDialog(
                                 Text(if (matching) "Распознаём и сравниваем…" else "Подобрать похожие")
                             }
                         }
-                        if (suggestions.isNotEmpty()) Text("Похожие по образцу", style = MaterialTheme.typography.titleSmall)
-                        suggestions.forEach { font ->
+                        if (textToolTab == "font" && suggestions.isNotEmpty()) Text("Похожие по образцу", style = MaterialTheme.typography.titleSmall)
+                        if (textToolTab == "font") suggestions.forEach { font ->
                             OutlinedButton(onClick = { currentSelected?.let { update(it.copy(fontId = font.id)) } }) {
                                 Text(font.label, fontFamily = FontFamily(EditorFonts.face(context, font.id)))
                             }
@@ -402,8 +433,9 @@ internal fun EditorTextDialog(
                                 OutlinedButton(onClick = { seek(layer.startMs) }) { Text("Показать кадр с этой надписью") }
                             }
                             if (!timingTab || durationMs == null) {
-                                OutlinedTextField(layer.text, { update(layer.copy(text = it.take(500))) },
+                                if (textToolTab == "keyboard") OutlinedTextField(layer.text, { update(layer.copy(text = it.take(500))) },
                                     label = { Text("Надпись") }, modifier = Modifier.fillMaxWidth(), maxLines = 5)
+                                if (textToolTab == "style") {
                                 Text("Обводка")
                                 Slider(layer.outline, { update(layer.copy(outline = it)) }, valueRange = 0f..0.15f)
                                 val colors = listOf(-1, -16777216, 0xFFFF4444.toInt(), 0xFFFFDD33.toInt(),
@@ -444,6 +476,8 @@ internal fun EditorTextDialog(
                                     OutlinedButton(onClick = { update(layer.copy(outlineColor = android.graphics.Color.BLACK)) }) { Text("Чёрная обводка") }
                                     OutlinedButton(onClick = { update(layer.copy(outlineColor = android.graphics.Color.WHITE)) }) { Text("Белая") }
                                 }
+                                }
+                                if (textToolTab == "font") {
                                 OutlinedButton(onClick = { videoPlayer?.pause(); playing = false; pickColor = false;
                                     inspectedColor = null; selectSample = !selectSample; sampleBounds = null },
                                     enabled = selectSample || (image != null && !loading && !playing && previewPosition == position)) {
@@ -452,6 +486,7 @@ internal fun EditorTextDialog(
                                 Text("Библиотека шрифтов", style = MaterialTheme.typography.titleMedium)
                                 if (!fontsReady) Text("Подготавливаем библиотеку шрифтов…")
                                 if (fontsReady) EditorFontPicker(layer.fontId) { update(layer.copy(fontId = it)) }
+                                }
                             } else if (durationMs > 1) {
                                 TextTimingControls(layer, position, durationMs,
                                     videoPlayer != null && videoPlayer.playerError == null && !minimal,

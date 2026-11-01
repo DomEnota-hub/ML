@@ -11,6 +11,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -199,6 +201,7 @@ fun PhotoEditorScreen(
             cropColorPreview = null
             return@LaunchedEffect
         }
+        if (currentTab != PhotoWorkspaceTab.CROP) return@LaunchedEffect
         val source = info?.preview ?: return@LaunchedEffect
         delay(35L)
         cropColorPreview = withContext(Dispatchers.Default) {
@@ -606,7 +609,7 @@ private fun PhotoWorkspaceTools(
     onGeometry: () -> Unit,
     onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
-    var effectCategory by remember { mutableStateOf(PhotoEffectCategory.POPULAR) }
+    var effectCategory by remember { mutableStateOf(PhotoEffectCategory.ALL) }
     var levelGroup by remember { mutableStateOf(PhotoLevelGroup.TONE) }
     val favoritesContext = LocalContext.current
     val favoriteStorage = remember(favoritesContext) {
@@ -943,7 +946,32 @@ private fun PhotoWorkspaceTools(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().height(68.dp).horizontalScroll(rememberScrollState())
+        if (tab == PhotoWorkspaceTab.EFFECTS) {
+            // Only compose thumbnails currently on screen: dozens of eager bitmap
+            // filters on the UI thread previously stalled the entire editor.
+            val available = PhotoEffectCatalog.forCategory(effectCategory, favoriteEffects)
+            LazyRow(Modifier.fillMaxWidth().height(68.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                items(available, key = { it.name }) { effect ->
+                    PhotoEffectCard(effect = effect, info = info,
+                        selected = edit.color.effect == effect,
+                        favorite = effect in favoriteEffects,
+                        enabled = !locked && info != null,
+                        onFavorite = {
+                            favoriteEffects = if (effect in favoriteEffects)
+                                favoriteEffects - effect else favoriteEffects + effect
+                            favoriteStorage.edit().putStringSet("selected",
+                                favoriteEffects.map { it.name }.toSet()).apply()
+                        },
+                        onClick = {
+                            onEdit(edit.copy(color = edit.color.copy(effect = effect)))
+                            onPanelOpen(true)
+                        })
+                }
+            }
+        } else Row(Modifier.fillMaxWidth().height(68.dp).horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.CenterVertically) {
             when(tab) {
@@ -965,27 +993,7 @@ private fun PhotoWorkspaceTools(
                         activeLevel == control && panelOpen,
                         { onActiveLevel(control) }, !locked && info != null)
                 }
-                PhotoWorkspaceTab.EFFECTS -> {
-                    val available = PhotoEffectCatalog.forCategory(effectCategory, favoriteEffects)
-                    if (available.isEmpty()) Text("Здесь пока нет избранных фильтров",
-                        fontSize = 12.sp, color = Color.LightGray)
-                    available.forEach { effect ->
-                        PhotoEffectCard(effect = effect, info = info,
-                            selected = edit.color.effect == effect,
-                            favorite = effect in favoriteEffects,
-                            enabled = !locked && info != null,
-                            onFavorite = {
-                                favoriteEffects = if (effect in favoriteEffects)
-                                    favoriteEffects - effect else favoriteEffects + effect
-                                favoriteStorage.edit().putStringSet("selected",
-                                    favoriteEffects.map { it.name }.toSet()).apply()
-                            },
-                            onClick = {
-                                onEdit(edit.copy(color = edit.color.copy(effect = effect)))
-                                onPanelOpen(true)
-                            })
-                    }
-                }
+                PhotoWorkspaceTab.EFFECTS -> Unit
                 PhotoWorkspaceTab.TEXT -> {
                     PhotoToolCard("Надпись", Icons.Rounded.TextFields,
                         false, onText, !locked && info != null)
@@ -1158,7 +1166,7 @@ private fun readPhotoSource(context: android.content.Context, uri: Uri): PhotoSo
         }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
         var sample = 1
-        while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) sample *= 2
+        while (bounds.outWidth / sample > 1280 || bounds.outHeight / sample > 1280) sample *= 2
         val preview = context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(
                 it,

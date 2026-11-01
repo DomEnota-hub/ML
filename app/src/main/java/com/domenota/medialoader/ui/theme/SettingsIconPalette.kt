@@ -14,13 +14,13 @@ enum class SettingIconTone {
     ACCOUNTS, DOWNLOAD, BULK, VK_COMMUNITY, EQUALIZER, MUSIC_SETTINGS, APPEARANCE,
     PURPLE, BLUE, AMBER, GREEN, RED, NEUTRAL, FOLDER, NOTIFICATIONS, INSTAGRAM,
     CLOSE_PICKER, MUSIC, RECOGNITION, RENAME, THEME, PLAYER,
-    TRASH, CLEAR_HISTORY, YTDLP, ABOUT;
+    TRASH, CLEAR_HISTORY, YTDLP, ABOUT, DIAGNOSTICS, LOG;
 
     fun swatch(dark: Boolean): SettingsIconSwatch = when (this) {
         ACCOUNTS, PURPLE, THEME ->
             if (dark) SettingsIconSwatch(Color(0xFFB58AFF), Color(0xFF342545))
             else SettingsIconSwatch(Color(0xFF6F36BB), Color(0xFFEEE2FF))
-        DOWNLOAD, BLUE, FOLDER, PLAYER, YTDLP ->
+        DOWNLOAD, BLUE ->
             if (dark) SettingsIconSwatch(Color(0xFF59B6FF), Color(0xFF173650))
             else SettingsIconSwatch(Color(0xFF145FB5), Color(0xFFDFEFFD))
         BULK ->
@@ -29,13 +29,13 @@ enum class SettingIconTone {
         VK_COMMUNITY ->
             if (dark) SettingsIconSwatch(Color(0xFF44D6D0), Color(0xFF163F40))
             else SettingsIconSwatch(Color(0xFF086F75), Color(0xFFD8F5F1))
-        EQUALIZER, GREEN, MUSIC, TRASH, RENAME ->
+        GREEN, MUSIC, TRASH ->
             if (dark) SettingsIconSwatch(Color(0xFF66D99B), Color(0xFF173E30))
             else SettingsIconSwatch(Color(0xFF177546), Color(0xFFE0F5E8))
         MUSIC_SETTINGS ->
             if (dark) SettingsIconSwatch(Color(0xFFF197D5), Color(0xFF42243B))
             else SettingsIconSwatch(Color(0xFF9D2B76), Color(0xFFFDE6F4))
-        APPEARANCE, AMBER, NOTIFICATIONS ->
+        APPEARANCE, AMBER ->
             if (dark) SettingsIconSwatch(Color(0xFFFFD269), Color(0xFF44361A))
             else SettingsIconSwatch(Color(0xFF916115), Color(0xFFFFF0C6))
         INSTAGRAM ->
@@ -50,6 +50,30 @@ enum class SettingIconTone {
         RED, CLEAR_HISTORY ->
             if (dark) SettingsIconSwatch(Color(0xFFFF8791), Color(0xFF48252D))
             else SettingsIconSwatch(Color(0xFFB43149), Color(0xFFFFE4E9))
+        FOLDER ->
+            if (dark) SettingsIconSwatch(Color(0xFF43DDD3), Color(0xFF174440))
+            else SettingsIconSwatch(Color(0xFF087B77), Color(0xFFDCF7F2))
+        PLAYER ->
+            if (dark) SettingsIconSwatch(Color(0xFFB19BFF), Color(0xFF342A52))
+            else SettingsIconSwatch(Color(0xFF6C48B6), Color(0xFFEEE8FF))
+        YTDLP ->
+            if (dark) SettingsIconSwatch(Color(0xFF7ADEEB), Color(0xFF183D48))
+            else SettingsIconSwatch(Color(0xFF167C96), Color(0xFFDDF3F8))
+        EQUALIZER ->
+            if (dark) SettingsIconSwatch(Color(0xFF74E1BB), Color(0xFF194438))
+            else SettingsIconSwatch(Color(0xFF17846A), Color(0xFFDCF7EB))
+        RENAME ->
+            if (dark) SettingsIconSwatch(Color(0xFFB7DB6A), Color(0xFF354324))
+            else SettingsIconSwatch(Color(0xFF577F1B), Color(0xFFEDF7D9))
+        NOTIFICATIONS ->
+            if (dark) SettingsIconSwatch(Color(0xFFF5E285), Color(0xFF454023))
+            else SettingsIconSwatch(Color(0xFF9E7D1A), Color(0xFFFFF7D5))
+        DIAGNOSTICS ->
+            if (dark) SettingsIconSwatch(Color(0xFFFF8BB2), Color(0xFF482438))
+            else SettingsIconSwatch(Color(0xFFB32962), Color(0xFFFFE4F0))
+        LOG ->
+            if (dark) SettingsIconSwatch(Color(0xFF8BAEFF), Color(0xFF253357))
+            else SettingsIconSwatch(Color(0xFF3E5FAF), Color(0xFFE5EBFF))
         NEUTRAL, ABOUT ->
             if (dark) SettingsIconSwatch(Color(0xFFB2BBD1), Color(0xFF2A303E))
             else SettingsIconSwatch(Color(0xFF515C73), Color(0xFFE9ECF3))

@@ -32,11 +32,13 @@ import kotlin.math.sin
 /** Preview-only affordances. Export uses the renderer without this overlay. */
 @Composable
 internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer: TextLayer,
-    onChange: (TextLayer) -> Unit, zoom: PreviewZoom = PreviewZoom()) {
+    onChange: (TextLayer) -> Unit, zoom: PreviewZoom = PreviewZoom(),
+    onTap: () -> Unit = {}) {
     val displayScale = zoom.scale
     val context = LocalContext.current
     val current by rememberUpdatedState(layer)
     val change by rememberUpdatedState(onChange)
+    val tapped by rememberUpdatedState(onTap)
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
     val padding = with(density) { 8.dp.toPx() } / displayScale
@@ -83,12 +85,18 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
                 if (!resizing && !initial.bounds.contains(local)) return@awaitEachGesture
                 down.consume()
                 val startVector = down.position - initial.center
+                var dragged = false
                 do {
                     val event = awaitPointerEvent()
                     val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
                     if (pointer.isConsumed) break
-                    if (!pointer.pressed) { pointer.consume(); break }
+                    if (!pointer.pressed) {
+                        if (!dragged) tapped()
+                        pointer.consume()
+                        break
+                    }
                     val offset = pointer.position - down.position
+                    if (offset.getDistance() > viewConfiguration.touchSlop) dragged = true
                     if (resizing) {
                         val vector = pointer.position - initial.center
                         change(TextLayerTransform.fromHandle(start, startVector.x, startVector.y, vector.x, vector.y, current))
