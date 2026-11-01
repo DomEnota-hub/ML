@@ -34,7 +34,7 @@ internal fun PhotoGeometryRuler(
     val latestChange by rememberUpdatedState(onValueChange)
     val latestFinished by rememberUpdatedState(onValueChangeFinished)
     val density = LocalDensity.current
-    val pixelsPerDegree = with(density) { 8.dp.toPx() }
+    val pixelsPerDegree = with(density) { 11.dp.toPx() }
     val shortTick = with(density) { 8.dp.toPx() }
     val longTick = with(density) { 18.dp.toPx() }
     val white = Color.White.copy(alpha = .70f)
