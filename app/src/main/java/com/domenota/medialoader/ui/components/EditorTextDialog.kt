@@ -292,7 +292,22 @@ internal fun EditorTextDialog(
                             selected?.takeIf { !selectSample && !pickColor && !playing && it.text.isNotBlank() &&
                                 (durationMs == null || it.visibleAt(position)) }?.let { layer ->
                                 TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom,
-                                    onTap = { sheetOpen = true; textToolTab = UnifiedTextTab.KEYBOARD })
+                                    onTap = { sheetOpen = true; textToolTab = UnifiedTextTab.KEYBOARD },
+                                    onDuplicate = {
+                                        if (layers.size < 8) {
+                                            val copy = layer.copy(id = java.util.UUID.randomUUID().toString(),
+                                                centerX = (layer.centerX + .035f).coerceAtMost(1f),
+                                                centerY = (layer.centerY + .035f).coerceAtMost(1f))
+                                            layers = layers + copy
+                                            selectedId = copy.id
+                                            sheetOpen = false
+                                        }
+                                    },
+                                    onDelete = {
+                                        layers = layers.filterNot { it.id == layer.id }
+                                        selectedId = layers.lastOrNull()?.id
+                                        if (selectedId == null) sheetOpen = false
+                                    })
                                 Text("${layer.rotation.roundToInt()}° · ${(layer.size * 100).roundToInt()}%",
                                     color = Color.White, style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.align(Alignment.TopStart)
