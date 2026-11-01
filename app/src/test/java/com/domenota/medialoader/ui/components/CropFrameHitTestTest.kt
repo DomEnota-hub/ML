@@ -30,4 +30,16 @@ class CropFrameHitTestTest {
         assertEquals(VideoCropHandle.BOTTOM, hit(220f, 300f))
         assertEquals(null, hit(800f, 900f))
     }
+
+    @Test fun videoEditorRetainsLegacyCornerPreference() {
+        val rect = Rect(20f, 10f, 120f, 100f)
+        val crop = CropFractions()
+        val touch = Offset(23f, 67f) // falls in both old corner hit areas
+        assertEquals(VideoCropHandle.TOP_LEFT, hitTestCropHandle(
+            touch, crop, rect, edgeHitRadius = 36f, cornerHitRadius = 64f,
+            preferNearest = false))
+        assertEquals(VideoCropHandle.BOTTOM_LEFT, hitTestCropHandle(
+            touch, crop, rect, edgeHitRadius = 32f, cornerHitRadius = 76f,
+            preferNearest = true))
+    }
 }
