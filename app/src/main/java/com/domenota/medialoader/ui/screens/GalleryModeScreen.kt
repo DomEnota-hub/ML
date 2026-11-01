@@ -299,7 +299,10 @@ fun GalleryModeScreen(
                     )
                 },
             horizontalArrangement = Arrangement.spacedBy(if (tab == 1) 0.dp else 2.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 106.dp)) {
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            // Media flows beneath the floating switcher, rather than ending in
+            // a fixed, opaque 106dp blank strip.
+            contentPadding = PaddingValues(bottom = 0.dp)) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
                 if (!selecting) Column {
                     if (!detailOpen) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
