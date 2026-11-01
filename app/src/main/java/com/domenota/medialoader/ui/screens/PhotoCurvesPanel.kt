@@ -72,7 +72,8 @@ internal fun PhotoCurvesPanel(
                     val height = size.height.toFloat().coerceAtLeast(1f)
                     val x = (down.position.x / width).coerceIn(0.002f, .998f)
                     val y = (1f - down.position.y / height).coerceIn(0f, 1f)
-                    val points = latestCurve.points
+                    var gestureCurve = latestCurve
+                    val points = gestureCurve.points
                     val hitRadiusPx = 19.dp.toPx()
                     val hit = points.indices.minByOrNull { index ->
                         val p = points[index]
@@ -86,9 +87,10 @@ internal fun PhotoCurvesPanel(
                     var edited = false
                     if (hit != null) selection = hit
                     else {
-                        val inserted = latestCurve.insert(x, y)
-                        selection = if (inserted != latestCurve) {
-                            live(latestCurves.update(channel, inserted))
+                        val inserted = gestureCurve.insert(x, y)
+                        selection = if (inserted != gestureCurve) {
+                            gestureCurve = inserted
+                            live(latestCurves.update(channel, gestureCurve))
                             edited = true
                             inserted.points.indexOfFirst { abs(it.x - x) < .004f }
                         } else -1
@@ -102,13 +104,13 @@ internal fun PhotoCurvesPanel(
                             if (selection >= 0 &&
                                 (pointer.position - lastPosition).getDistance() >= 1.25f) {
                                 lastPosition = pointer.position
-                                val currentPoints = latestCurve.points
-                                if (selection in currentPoints.indices) {
-                                    val next = latestCurve.withPoint(selection,
+                                if (selection in gestureCurve.points.indices) {
+                                    val next = gestureCurve.withPoint(selection,
                                         pointer.position.x / width,
                                         1f - pointer.position.y / height)
-                                    if (next != latestCurve) {
-                                        live(latestCurves.update(channel, next))
+                                    if (next != gestureCurve) {
+                                        gestureCurve = next
+                                        live(latestCurves.update(channel, gestureCurve))
                                         edited = true
                                     }
                                 }
