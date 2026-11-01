@@ -4,6 +4,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -77,14 +85,14 @@ internal fun UnifiedTextStyle(
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Размер", style = MaterialTheme.typography.labelMedium)
-        Slider(value = layer.size.coerceIn(.02f, .25f),
+        CompactTextSlider(value = layer.size.coerceIn(.02f, .25f),
             onValueChange = { onChange(layer.copy(size = it)) },
             valueRange = .02f.. .25f, enabled = enabled,
             modifier = Modifier.weight(1f))
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Обводка", style = MaterialTheme.typography.labelMedium)
-        Slider(value = layer.outline.coerceIn(0f, .15f),
+        CompactTextSlider(value = layer.outline.coerceIn(0f, .15f),
             onValueChange = { onChange(layer.copy(outline = it)) },
             valueRange = 0f.. .15f, enabled = enabled,
             modifier = Modifier.weight(1f))
@@ -100,5 +108,54 @@ internal fun UnifiedTextStyle(
                 selectedLabelColor = Color.Black),
             onClick = { onChange(layer.copy(outlineColor = android.graphics.Color.WHITE)) },
             enabled = enabled, label = { Text("Светлая") })
+    }
+}
+
+/** 30dp touch region with a thin horizontal visual track and round yellow thumb.
+ * Does not inherit Material 3's tall purple vertical thumb or track spacing. */
+@Composable
+internal fun CompactTextSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val latestChange by rememberUpdatedState(onValueChange)
+    Canvas(modifier.height(30.dp).pointerInput(valueRange.start, valueRange.endInclusive, enabled) {
+        if (!enabled) return@pointerInput
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            fun update(x: Float) {
+                val fraction = (x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                val next = valueRange.start +
+                    fraction * (valueRange.endInclusive - valueRange.start)
+                latestChange(next)
+            }
+            update(down.position.x)
+            down.consume()
+            do {
+                val event = awaitPointerEvent()
+                val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (pointer.pressed) {
+                    update(pointer.position.x)
+                    pointer.consume()
+                } else { pointer.consume(); break }
+            } while (event.changes.any { it.pressed })
+        }
+    }) {
+        val inset = 8.dp.toPx()
+        val left = inset
+        val right = (size.width - inset).coerceAtLeast(left)
+        val y = size.height / 2
+        val fraction = ((value - valueRange.start) /
+            (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
+        val x = left + (right - left) * fraction
+        drawLine(Color(0xFF52515A), Offset(left, y), Offset(right, y),
+            strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+        drawLine(if (enabled) textEditorAccent else Color.Gray, Offset(left, y),
+            Offset(x, y), strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+        drawCircle(if (enabled) textEditorAccent else Color.Gray,
+            radius = 7.dp.toPx(), center = Offset(x, y))
     }
 }
