@@ -21,12 +21,12 @@ jobs:
     timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN: "41285630652"
-      SOURCE_NAME: "ML-1.7.110-photo-stage5-ARM64-QA-3"
-      SOURCE_SHA: "4e94a8502e78cfe30e556630e72cf29955964dd1"
-      EXPECTED_SHA256: "5627951f83b0b00975fc964cc14f0981e48f89c75287be53b71e0586621063c3"
-      RELEASE_TAG: "qa-photo-1.7.110-stage5-20261101"
-      RELEASE_ASSET: "MediaLoader-1.7.110-Photo-Stage5-ARM64-QA.apk"
+      SOURCE_RUN: "41294520798"
+      SOURCE_NAME: "ML-1.7.110-Round2-ARM64-QA"
+      SOURCE_SHA: "a49cd12c5469aba5b8bc51110fcbc421a98df245"
+      EXPECTED_SHA256: "6d8475f90d57202978587a957930233e1ccb7c793a6f0cd32a92fbb00a7dbcc9"
+      RELEASE_TAG: "qa-round2-1.7.110-20261101"
+      RELEASE_ASSET: "MediaLoader-1.7.110-Round2-ARM64-QA.apk"
     steps:
       - name: Download verified QA APK from successful integration workflow
         shell: bash
@@ -45,16 +45,18 @@ jobs:
           mv "$RUNNER_TEMP/photo-qa/app-debug.apk" "$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
           asset="$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
-          **Тестовая ARM64-сборка MediaLoader 1.7.110 — фоторедактор, этапы 1–5.**
-
-          - Рисование: исправлен вылет при изменении толщины кисти.
-          - Геометрия: улучшены предпросмотр, масштабирование и захват углов.
-          - Уровни: новые группы, HSL, расположение эффектов и инструменты.
-          - Постеризация, зернистость, цифровой шум и шумоподавление.
-          - Полный CI: unit-тесты, Android Lint, ARM64-сборка и проверка ABI — SUCCESS.
-
-          **Это QA APK, не финальный релиз.** Отдельный пакет `com.domenota.medialoader.hitmoz` устанавливается рядом с обычным приложением; подпись — Android Debug, а не DomEnota. Не предназначен для обновления производственной версии.
-
+          **MediaLoader 1.7.110 — QA второго раунда исправлений, 7 этапов.**
+          
+          - Галерея: сохранение позиции, защита от TransactionTooLargeException, реже повторные сканирования.
+          - Фоторедактор: ускоренная обработка и корректное сообщение об ошибках.
+          - Геометрия: отрицательная перспектива, линейка с нулём, перемещение рамки.
+          - Рисование: локальное стирание, жёлтый индикатор размера, раскрытие инструментов.
+          - Уровни: нулевые отметки, RGB-кривые, 12 дополнительных эффектов.
+          - Видео: корректировка отступов и компактная верхняя панель, монтажный движок не менялся.
+          - Android unit-тесты, Lint, ARM64 сборка, подпись debug и проверка ABI: SUCCESS.
+          
+          **Это тестовый APK, не подписанный релиз DomEnota.** Пакет com.domenota.medialoader.hitmoz устанавливается отдельно.
+          
           Источник проверки: https://github.com/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN
           SHA-256: $EXPECTED_SHA256
           EOF
@@ -63,12 +65,22 @@ jobs:
           else
             gh release create "$RELEASE_TAG" "$asset" \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$SOURCE_SHA" --title "MediaLoader 1.7.110 · Photo QA · ARM64" \
+              --target "$SOURCE_SHA" --title "MediaLoader 1.7.110 · Round 2 QA · ARM64" \
               --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq ".assets[] | select(.name == \"$RELEASE_ASSET\") | .name" \
             | grep -Fx "$RELEASE_ASSET"
+      - name: Verify downloaded GitHub Release asset before deleting older QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/download-verify"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$RELEASE_ASSET" --dir "$RUNNER_TEMP/download-verify"
+          echo "$EXPECTED_SHA256  $RUNNER_TEMP/download-verify/$RELEASE_ASSET" |
+            sha256sum --check --status
+          echo "Published QA asset SHA-256 verified; old QA releases may be rotated"
       - name: Remove duplicate APK asset from earlier failed publication
         shell: bash
         run: |
@@ -78,13 +90,13 @@ jobs:
             gh release delete-asset "$RELEASE_TAG" "app-debug.apk" \
               --repo "$GITHUB_REPOSITORY" --yes
           fi
-      - name: Remove only older photo QA prereleases after successful new upload
+      - name: Remove only older QA prereleases after verified new upload
         shell: bash
         run: |
           set -euo pipefail
           gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
             --json tagName,isPrerelease \
-            --jq '.[] | select(.isPrerelease and (.tagName | startswith("qa-photo-"))) | .tagName' \
+            --jq '.[] | select(.isPrerelease and ((.tagName | startswith("qa-photo-")) or (.tagName | startswith("qa-round2-")))) | .tagName' \
             > "$RUNNER_TEMP/old-qa-tags.txt"
           while IFS= read -r old; do
             if [[ -n "$old" && "$old" != "$RELEASE_TAG" ]]; then
