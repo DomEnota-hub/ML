@@ -18,15 +18,24 @@ class PhotoEraserStrokeTest {
         PhotoMarkKind.ERASER, listOf(PhotoPoint(.5f, .35f), PhotoPoint(.5f, .65f)),
         thickness = .07f)
 
+    /** Native/Robolectric rasterizers may differ by a few antialiased channel values.
+     * Verify an actual opaque red stroke rather than demanding exact 0xFFFF0000.
+     */
+    private fun assertStrokeRed(location: String, pixel: Int) {
+        assertTrue("$location: expected red stroke, got 0x${Integer.toHexString(pixel)}",
+            Color.alpha(pixel) >= 245 && Color.red(pixel) >= 220 &&
+                Color.green(pixel) <= 35 && Color.blue(pixel) <= 35)
+    }
+
     @Test fun eraserCutsOnlyTouchedPartOfStrokeAndNeverThePhoto() {
         val source = Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888)
         source.eraseColor(Color.WHITE)
         val withoutErase = PhotoDrawing.overlay(source, listOf(line))
         val erased = PhotoDrawing.overlay(source, listOf(line, erase))
         try {
-            assertEquals(Color.RED, withoutErase.getPixel(100, 100))
+            assertStrokeRed("center before erase", withoutErase.getPixel(100, 100))
             assertEquals(Color.WHITE, erased.getPixel(100, 100))
-            assertEquals(Color.RED, erased.getPixel(40, 100))
+            assertStrokeRed("untouched left segment", erased.getPixel(40, 100))
             assertEquals(Color.WHITE, source.getPixel(100, 100))
             assertEquals(Color.WHITE, erased.getPixel(100, 30))
         } finally {
@@ -47,7 +56,7 @@ class PhotoEraserStrokeTest {
         val restored = PhotoDrawing.overlay(source, without)
         try {
             assertEquals(Color.WHITE, altered.getPixel(100, 100))
-            assertEquals(Color.RED, restored.getPixel(100, 100))
+            assertStrokeRed("center after undo", restored.getPixel(100, 100))
         } finally {
             altered.recycle()
             restored.recycle()
