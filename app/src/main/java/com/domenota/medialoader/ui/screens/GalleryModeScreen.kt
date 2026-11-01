@@ -151,12 +151,11 @@ fun GalleryModeScreen(
     }
     // Only an explicit new "top" request may reset scrolling. Recomposition
     // after closing a viewer must preserve LazyGridState and its exact offset.
-    var lastHandledTopRequest by remember { mutableIntStateOf(scrollToTopRequest) }
+    val topRequestTracker = remember { GalleryScrollRequestTracker(scrollToTopRequest) }
     LaunchedEffect(scrollToTopRequest, tab) {
-        if (scrollToTopRequest != lastHandledTopRequest && tab == 0) {
+        if (topRequestTracker.shouldScrollToTop(scrollToTopRequest, tab == 0)) {
             mediaGridState.scrollToItem(0)
         }
-        lastHandledTopRequest = scrollToTopRequest
     }
     LaunchedEffect(selectedJumpDate, dateSections, tab) {
         if (tab == 0) {
