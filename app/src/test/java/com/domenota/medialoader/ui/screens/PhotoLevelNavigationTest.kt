@@ -61,4 +61,26 @@ class PhotoLevelNavigationTest {
         assertEquals(19f, original.dispersion, 0f)
         assertEquals(57f, original.dispersionSize, 0f)
     }
+
+    @Test fun creativeControlsCanBeResetIndependently() {
+        val original = PhotoColorAdjustments(brightness = 25f,
+            posterization = 70f, grain = 30f, denoise = 50f,
+            noiseDegree = 65f, noiseHighlights = 60f,
+            noiseSize = 80f, noiseRoughness = 35f)
+        val resetPoster = resetPhotoCreativeControl(original,
+            PhotoLevelControl.POSTERIZATION)
+        assertEquals(0f, resetPoster.posterization, 0f)
+        assertEquals(30f, resetPoster.grain, 0f)
+        assertEquals(25f, resetPoster.brightness, 0f)
+        val resetNoise = resetPhotoCreativeControl(original, PhotoLevelControl.NOISE)
+        assertEquals(0f, resetNoise.noiseDegree, 0f)
+        assertEquals(25f, resetNoise.noiseHighlights, 0f)
+        assertEquals(25f, resetNoise.noiseSize, 0f)
+        assertEquals(50f, resetNoise.noiseRoughness, 0f)
+        assertEquals(70f, resetNoise.posterization, 0f)
+        assertEquals(0f, resetPhotoCreativeControl(original,
+            PhotoLevelControl.GRAIN).grain, 0f)
+        assertEquals(0f, resetPhotoCreativeControl(original,
+            PhotoLevelControl.DENOISE).denoise, 0f)
+    }
 }
