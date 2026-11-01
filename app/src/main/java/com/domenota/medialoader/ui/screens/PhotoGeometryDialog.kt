@@ -38,7 +38,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 private enum class GeometryMode(val title: String) {
@@ -63,6 +62,15 @@ internal fun geometryCornerHitIndex(
         hypot(rect.x + rect.width * point.x - touch.x,
             rect.y + rect.height * point.y - touch.y) <= radiusPx
     } ?: -1
+}
+
+internal fun geometryPreviewSize(width: Int, height: Int, maxEdge: Int = 960): Pair<Int, Int> {
+    require(width > 0 && height > 0 && maxEdge > 0)
+    val longest = max(width, height)
+    if (longest <= maxEdge) return width to height
+    val scale = maxEdge.toFloat() / longest
+    return (width * scale).roundToInt().coerceAtLeast(1) to
+        (height * scale).roundToInt().coerceAtLeast(1)
 }
 
 @Composable
@@ -105,13 +113,9 @@ internal fun PhotoGeometryDialog(
     // transformed once during final export, not on each finger movement.
     LaunchedEffect(source) {
         val preview = withContext(Dispatchers.Default) {
-            val longest = max(source.width, source.height)
-            if (longest <= 960) source else {
-                val scale = 960f / longest
-                Bitmap.createScaledBitmap(source,
-                    (source.width * scale).roundToInt().coerceAtLeast(1),
-                    (source.height * scale).roundToInt().coerceAtLeast(1), true)
-            }
+            val (width, height) = geometryPreviewSize(source.width, source.height)
+            if (width == source.width && height == source.height) source
+            else Bitmap.createScaledBitmap(source, width, height, true)
         }
         reducedSource = preview
     }
