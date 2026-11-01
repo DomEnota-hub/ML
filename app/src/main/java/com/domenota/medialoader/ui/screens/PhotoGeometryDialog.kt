@@ -91,7 +91,7 @@ internal fun PhotoGeometryDialog(
     var reducedSource by remember(source) { mutableStateOf<Bitmap?>(null) }
     val zoom = remember(source) { PhotoViewportState() }
     val density = LocalDensity.current
-    val cornerHitRadius = with(density) { 76.dp.toPx() }
+    val cornerHitRadius = with(density) { 92.dp.toPx() }
     val transforms = rememberTransformableState { zoomChange, panChange, _ ->
         val nextScale = (zoom.scale * zoomChange).coerceIn(1f, 5f)
         val limits = photoPanLimits(viewport.width.toFloat(), viewport.height.toFloat(),
@@ -126,14 +126,22 @@ internal fun PhotoGeometryDialog(
             if (owned != null && owned !== source && !owned.isRecycled) owned.recycle()
         }
     }
-    LaunchedEffect(reducedSource, geometry) {
+    // This producer is keyed only to source, not every value change. Unlike a
+    // debounce it keeps publishing frames during a continuous drag instead of
+    // waiting until the finger is lifted. Each pass uses the latest geometry.
+    LaunchedEffect(reducedSource) {
         val input = reducedSource ?: return@LaunchedEffect
-        delay(32L)
-        val next = withContext(Dispatchers.Default) {
-            PhotoGeometryMath.apply(input, geometry)
+        while (true) {
+            val requested = current
+            if (rendered == null || requested != renderedGeometry) {
+                val next = withContext(Dispatchers.Default) {
+                    PhotoGeometryMath.apply(input, requested)
+                }
+                rendered = next
+                renderedGeometry = requested
+            }
+            delay(16L)
         }
-        rendered = next
-        renderedGeometry = geometry
     }
     DisposableEffect(rendered) {
         val owned = rendered
@@ -281,24 +289,25 @@ internal fun PhotoGeometryDialog(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (mode == GeometryMode.STRAIGHTEN) "Угол" else "Перспектива",
                             color = Color.LightGray, fontSize = 12.sp)
-                        Slider(value, onValueChange = { n ->
-                            if (beforeDrag == null) beforeDrag = geometry
-                            geometry = when (mode) {
-                                GeometryMode.STRAIGHTEN -> geometry.copy(straighten = n)
-                                GeometryMode.HORIZONTAL -> geometry.copy(horizontalPerspective = n)
-                                GeometryMode.VERTICAL -> geometry.copy(verticalPerspective = n)
-                                GeometryMode.FREE -> geometry
-                            }
-                        }, onValueChangeFinished = {
-                            beforeDrag?.let { prior ->
-                                if (prior != geometry) {
-                                    undo = (undo + prior).takeLast(40)
-                                    redo = emptyList()
+                        PhotoGeometryRuler(value = value, valueRange = range,
+                            onValueChange = { n ->
+                                if (beforeDrag == null) beforeDrag = geometry
+                                geometry = when (mode) {
+                                    GeometryMode.STRAIGHTEN -> geometry.copy(straighten = n)
+                                    GeometryMode.HORIZONTAL -> geometry.copy(horizontalPerspective = n)
+                                    GeometryMode.VERTICAL -> geometry.copy(verticalPerspective = n)
+                                    GeometryMode.FREE -> geometry
                                 }
-                            }
-                            beforeDrag = null
-                        }, valueRange = range, modifier = Modifier.weight(1f)
-                            .padding(horizontal = 10.dp))
+                            }, onValueChangeFinished = {
+                                beforeDrag?.let { prior ->
+                                    if (prior != geometry) {
+                                        undo = (undo + prior).takeLast(40)
+                                        redo = emptyList()
+                                    }
+                                }
+                                beforeDrag = null
+                            }, modifier = Modifier.weight(1f)
+                                .padding(horizontal = 8.dp))
                         Text("%.1f°".format(value),
                             fontSize = 12.sp, color = Color.White)
                     }
@@ -310,6 +319,13 @@ internal fun PhotoGeometryDialog(
                 GeometryMode.entries.forEach { option ->
                     FilterChip(selected = mode == option, onClick = {
                         mode = option
+                    }, leadingIcon = {
+                        Icon(when (option) {
+                            GeometryMode.STRAIGHTEN -> Icons.Rounded.RotateRight
+                            GeometryMode.HORIZONTAL -> Icons.Rounded.SwapHoriz
+                            GeometryMode.VERTICAL -> Icons.Rounded.SwapVert
+                            GeometryMode.FREE -> Icons.Rounded.CropFree
+                        }, contentDescription = null, modifier = Modifier.size(18.dp))
                     }, label = { Text(option.title) })
                 }
                 IconButton(onClick = { zoom.reset() }) {
