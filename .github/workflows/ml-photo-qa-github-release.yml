@@ -21,12 +21,12 @@ jobs:
     timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN: "41294520798"
-      SOURCE_NAME: "ML-1.7.110-Round2-ARM64-QA"
-      SOURCE_SHA: "a49cd12c5469aba5b8bc51110fcbc421a98df245"
-      EXPECTED_SHA256: "6d8475f90d57202978587a957930233e1ccb7c793a6f0cd32a92fbb00a7dbcc9"
-      RELEASE_TAG: "qa-round2-1.7.110-20261101"
-      RELEASE_ASSET: "MediaLoader-1.7.110-Round2-ARM64-QA.apk"
+      SOURCE_RUN: "41302900638"
+      SOURCE_NAME: "ML-1.7.110-Round2-Refined-ARM64-QA"
+      SOURCE_SHA: "e3691843d158c4f9906e5919ed61bacaff7d0d4f"
+      EXPECTED_SHA256: "c086de9ba9ceeab650be5c39972235fbc4b1a834b814916d84d9c3c1196560aa"
+      RELEASE_TAG: "qa-round2-refined-1.7.110-20261101"
+      RELEASE_ASSET: "MediaLoader-1.7.110-Round2-Refined-ARM64-QA.apk"
     steps:
       - name: Download verified QA APK from successful integration workflow
         shell: bash
@@ -45,9 +45,9 @@ jobs:
           mv "$RUNNER_TEMP/photo-qa/app-debug.apk" "$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
           asset="$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
-          **MediaLoader 1.7.110 — QA второго раунда исправлений, 7 этапов.**
+          **MediaLoader 1.7.110 — уточнённый QA второго раунда, 7 этапов + массовое выделение.**
           
-          - Галерея: сохранение позиции, защита от TransactionTooLargeException, реже повторные сканирования.
+          - Галерея: сохранение позиции, защита от TransactionTooLargeException, ускорение сканирования, выделение долгим нажатием и протягиванием, выбор всех файлов за отдельный день, круглые маркеры.
           - Фоторедактор: ускоренная обработка и корректное сообщение об ошибках.
           - Геометрия: отрицательная перспектива, линейка с нулём, перемещение рамки.
           - Рисование: локальное стирание, жёлтый индикатор размера, раскрытие инструментов.
@@ -65,7 +65,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" "$asset" \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$SOURCE_SHA" --title "MediaLoader 1.7.110 · Round 2 QA · ARM64" \
+              --target "$SOURCE_SHA" --title "MediaLoader 1.7.110 · Round 2 Refined QA · ARM64" \
               --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
