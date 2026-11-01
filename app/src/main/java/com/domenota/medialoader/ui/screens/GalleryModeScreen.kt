@@ -352,7 +352,28 @@ fun GalleryModeScreen(
                                 val today = LocalDate.now()
                                 Text(when(date) { today -> "Сегодня"; today.minusDays(1) -> "Вчера"; else -> date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)) },
                                     fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                Text("${rows.size} файлов", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val dayIds = remember(rows) { rows.map { it.id } }
+                                    val count = GalleryDaySelection.selectedCount(selectedSet, dayIds)
+                                    Text("${rows.size} файлов", fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    TextButton(
+                                        onClick = {
+                                            selectedIds = GalleryDaySelection.toggleDay(selectedIds, dayIds)
+                                        },
+                                        modifier = Modifier.heightIn(min = 32.dp),
+                                    ) {
+                                        Icon(
+                                            if (count == dayIds.size && count > 0) Icons.Rounded.CheckCircle
+                                            else Icons.Rounded.RadioButtonUnchecked,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(17.dp),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(if (count == dayIds.size && count > 0) "Снять выбор"
+                                            else "Выбрать все", fontSize = 11.sp)
+                                    }
+                                }
                             }
                         }
                         items(rows, key = { it.id }) { row ->
@@ -524,7 +545,17 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
         .combinedClickable(onClick = onOpen, onLongClick = onSelect, onLongClickLabel = "Выбрать файл")) {
         DownloadThumbnail(item.savedUri, item.previewUrl, item.toUi().kind, Modifier.fillMaxSize())
         if (selected) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = .25f)))
-        if (selecting) Checkbox(selected, { onSelect() }, Modifier.align(Alignment.TopEnd))
+        if (selecting) IconButton(onClick = onSelect,
+            modifier = Modifier.align(Alignment.TopEnd).size(36.dp)) {
+            Icon(
+                if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                contentDescription = if (selected) "Снять выбор: ${item.originalName}"
+                    else "Выбрать: ${item.originalName}",
+                tint = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+                modifier = Modifier.size(25.dp)
+                    .background(Color.Black.copy(alpha = .22f), RoundedCornerShape(50)),
+            )
+        }
         else IconButton({ menu = true }, Modifier.align(Alignment.TopEnd).size(32.dp)) {
             Icon(Icons.Rounded.MoreVert, "Действия: ${item.originalName}", tint = Color.White,
                 modifier = Modifier.background(Color.Black.copy(alpha = .3f), RoundedCornerShape(8.dp)).size(22.dp))
