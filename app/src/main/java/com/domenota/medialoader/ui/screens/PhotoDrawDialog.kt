@@ -160,9 +160,8 @@ internal fun PhotoDrawDialog(
                                 marks.getOrNull(selected)?.let { color = it.color; thickness = it.thickness }
                             } else if (tool == DrawingTool.ERASER) {
                                 selected = -1
-                                if (marks.size < PhotoDrawing.MAX_MARKS)
-                                    change(marks + PhotoMark(PhotoMarkKind.ERASER,
-                                        listOf(point), thickness = thickness))
+                                change(PhotoStrokeErase.apply(marks, listOf(point), thickness,
+                                    preview.width, preview.height))
                             }
                         }
                     }
@@ -245,7 +244,10 @@ internal fun PhotoDrawDialog(
                             onDragEnd = {
                                 if (active.isNotEmpty() && tool.kind != null &&
                                     marks.size < PhotoDrawing.MAX_MARKS) {
-                                    marks = marks + PhotoMark(tool.kind!!, active.take(900),
+                                    marks = if (tool == DrawingTool.ERASER)
+                                        PhotoStrokeErase.apply(marks, active.take(900), thickness,
+                                            preview.width, preview.height)
+                                    else marks + PhotoMark(tool.kind!!, active.take(900),
                                         color, thickness)
                                 }
                                 beforeGesture?.let(::push)
@@ -304,8 +306,10 @@ internal fun PhotoDrawDialog(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (tool == DrawingTool.ERASER) "Размер ластика" else "Толщина",
                             color = Color.White, fontSize = 12.sp, modifier = Modifier.width(106.dp))
+                        val maximumThickness = if (tool == DrawingTool.ERASER)
+                            PhotoDrawing.MAX_ERASER_THICKNESS else PhotoDrawing.MAX_BRUSH_THICKNESS
                         AppSlider(thickness.coerceIn(PhotoDrawing.MIN_BRUSH_THICKNESS,
-                            PhotoDrawing.MAX_BRUSH_THICKNESS), { next ->
+                            maximumThickness), { next ->
                             thickness = next
                             if (selected in marks.indices) {
                                 if (thicknessBefore == null) thicknessBefore = marks
@@ -314,7 +318,7 @@ internal fun PhotoDrawDialog(
                                 marks = updated
                             }
                         }, modifier = Modifier.weight(1f),
-                            valueRange = PhotoDrawing.MIN_BRUSH_THICKNESS..PhotoDrawing.MAX_BRUSH_THICKNESS,
+                            valueRange = PhotoDrawing.MIN_BRUSH_THICKNESS..maximumThickness,
                             onValueChangeFinished = {
                                 thicknessBefore?.let(::push)
                                 thicknessBefore = null
