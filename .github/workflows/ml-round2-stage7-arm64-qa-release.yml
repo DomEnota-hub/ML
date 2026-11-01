@@ -1,4 +1,4 @@
-name: MediaLoader Round 2 Stage 7 ARM64 QA Release
+name: MediaLoader Round 2 Stage 7 ARM64 Integration QA
 on:
   push:
     branches:
@@ -6,20 +6,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: ml-round2-stage7-qa
+  group: ml-round2-stage7-integration-qa
   cancel-in-progress: false
 
 jobs:
   integrated-qa:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: qa-round2-1.7.110-20261101
-      RELEASE_ASSET: MediaLoader-1.7.110-Round2-ARM64-QA.apk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -62,50 +58,3 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
-      - name: Publish verified GitHub QA prerelease
-        shell: bash
-        run: |
-          set -euo pipefail
-          apk=app/build/outputs/apk/debug/app-debug.apk
-          cp "$apk" "$RUNNER_TEMP/$RELEASE_ASSET"
-          checksum=$(sha256sum "$RUNNER_TEMP/$RELEASE_ASSET" | cut -d' ' -f1)
-          cat > "$RUNNER_TEMP/qa-notes.md" <<EOF
-          **MediaLoader 1.7.110 / тестовый раунд исправлений №2, этапы 1–7.**
-
-          - Состояние галереи: возврат к месту просмотра, ограничение Android SavedState, снижение частоты повторных сканирований
-          - Фото: предпросмотр, отмена вычислений, геометрия ±, линейка с нулём, перемещение рамки
-          - Рисование: локальное стирание, визуальный размер кисти, раскрытие настроек
-          - Уровни: нулевая отметка, RGB-кривые, новые пресеты; расположение панелей
-          - Видео: только адаптивная компоновка, без изменений алгоритмов монтажа
-
-          **Это отдельная ARM64 debug QA-сборка, не производственный релиз.** Пакет com.domenota.medialoader.hitmoz и отладочная подпись. Приложение DomEnota остаётся установленным отдельно.
-
-          SHA-256: $checksum
-          Исходники: https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA
-          CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
-          EOF
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/$RELEASE_ASSET" --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$RELEASE_TAG" "$RUNNER_TEMP/$RELEASE_ASSET" \
-              --target "$GITHUB_SHA" --title "MediaLoader 1.7.110 · Round 2 QA · ARM64" \
-              --notes-file "$RUNNER_TEMP/qa-notes.md" --prerelease --repo "$GITHUB_REPOSITORY"
-          fi
-          mkdir -p "$RUNNER_TEMP/verify"
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$RELEASE_ASSET" --dir "$RUNNER_TEMP/verify"
-          echo "$checksum  $RUNNER_TEMP/verify/$RELEASE_ASSET" | sha256sum --check --status
-      - name: Rotate only older QA prereleases after verified publication
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
-            --json tagName,isPrerelease \
-            --jq '.[] | select(.isPrerelease and ((.tagName | startswith("qa-photo-")) or (.tagName | startswith("qa-round2-")))) | .tagName' \
-            > "$RUNNER_TEMP/qa-tags.txt"
-          while IFS= read -r old; do
-            if [[ -n "$old" && "$old" != "$RELEASE_TAG" ]]; then
-              gh release delete "$old" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
-            fi
-          done < "$RUNNER_TEMP/qa-tags.txt"
-          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
