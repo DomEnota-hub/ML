@@ -926,9 +926,9 @@ fun SettingsScreen(
                         }
                     }) })
             GroupDivider()
-            SettingRow(Icons.Rounded.Bolt, "Режим загрузки Instagram",
+            SettingRow(Icons.Rounded.SwapHoriz, "Режим загрузки Instagram",
                 if (automaticInstagram) "Автоматический" else "Ручной",
-                grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM,
+                grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
                 onClick = { instagramModeDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.CloseFullscreen, "Закрывать окно после выбора файла",
@@ -1067,7 +1067,7 @@ fun SettingsScreen(
             GroupDivider()
             SettingRow(Icons.Rounded.DeleteSweep, "Очистить историю",
                 "Удалить список загрузок", grouped = true,
-                iconTone = SettingIconTone.AMBER, onClick = { confirmClear = true })
+                iconTone = SettingIconTone.CLEAR_HISTORY, onClick = { confirmClear = true })
             GroupDivider()
             SettingRow(Icons.Rounded.SystemUpdate,
                 if (ytDlpUpdating) "Обновляем yt-dlp…" else "Обновить yt-dlp",
