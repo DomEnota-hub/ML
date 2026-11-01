@@ -38,13 +38,23 @@ data class PhotoColorAdjustments(
     val glowSize: Float = 35f,
     val dispersion: Float = 0f,
     val dispersionSize: Float = 35f,
+    /** Separate creative tools; preset film grain remains independent. */
+    val posterization: Float = 0f,
+    val grain: Float = 0f,
+    val denoise: Float = 0f,
+    val noiseDegree: Float = 0f,
+    val noiseHighlights: Float = 25f,
+    val noiseSize: Float = 25f,
+    val noiseRoughness: Float = 50f,
 ) {
     init {
         require(listOf(brightness, contrast, saturation, warmth, exposure, shadows, highlights,
             blackPoint, curve, vibrance, tint, sharpness, clarity)
             .all { it.isFinite() && it in -100f..100f })
         require(listOf(effectStrength, vignette, vignetteSize, glow, glowSize,
-            dispersion, dispersionSize).all { it.isFinite() && it in 0f..100f })
+            dispersion, dispersionSize, posterization, grain, denoise,
+            noiseDegree, noiseHighlights, noiseSize, noiseRoughness)
+            .all { it.isFinite() && it in 0f..100f })
         require(hsl.size <= HslRange.entries.size)
     }
     fun isNeutral() = this == PhotoColorAdjustments()
@@ -181,6 +191,13 @@ object PhotoColorMath {
         }
         var working: Bitmap = output
         try {
+            if (values.denoise > 0f) {
+                val denoised = PhotoCreativeMath.denoise(working, values.denoise)
+                if (denoised !== working) {
+                    working.recycle()
+                    working = denoised
+                }
+            }
             if (values.sharpness != 0f || values.clarity != 0f) {
                 val detailed = PhotoDetailMath.apply(working, values.sharpness, values.clarity)
                 if (detailed !== working) {
@@ -192,6 +209,11 @@ object PhotoColorMath {
             if (styled !== working) {
                 working.recycle()
                 working = styled
+            }
+            val creative = PhotoCreativeMath.apply(working, values)
+            if (creative !== working) {
+                working.recycle()
+                working = creative
             }
             return working
         } catch (error: Throwable) {

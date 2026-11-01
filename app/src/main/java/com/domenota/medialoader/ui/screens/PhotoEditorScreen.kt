@@ -58,7 +58,9 @@ internal enum class PhotoLevelControl(val title: String) {
     SHADOWS("Тени"), HIGHLIGHTS("Светлые участки"),
     BLACK_POINT("Точка чёрного"), CURVE("Гамма"),
     SHARPNESS("Резкость"), CLARITY("Чёткость"), RGB_CURVES("Кривые RGB"),
-    HSL("HSL"), GLOW("Свечение"), VIGNETTE("Виньетка"), DISPERSION("Дисперсия")
+    HSL("HSL"), GLOW("Свечение"), VIGNETTE("Виньетка"), DISPERSION("Дисперсия"),
+    POSTERIZATION("Постеризация"), GRAIN("Зернистость"),
+    DENOISE("Устранение шума"), NOISE("Шум")
 }
 
 private enum class PhotoHslControl(val title: String) {
@@ -615,6 +617,18 @@ private fun PhotoWorkspaceTools(
                         PhotoWorkspaceTab.WATERMARK -> "Параметры водяного знака"
                         else -> ""
                     }, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    if (tab == PhotoWorkspaceTab.LEVELS &&
+                        activeLevel in setOf(PhotoLevelControl.POSTERIZATION,
+                            PhotoLevelControl.GRAIN, PhotoLevelControl.DENOISE,
+                            PhotoLevelControl.NOISE)) {
+                        IconButton(onClick = {
+                            onEdit(edit.copy(color = resetPhotoCreativeControl(edit.color, activeLevel)))
+                        }, modifier = Modifier.size(32.dp),
+                            enabled = !locked && info != null) {
+                            Icon(Icons.Rounded.RestartAlt, "Сбросить параметр",
+                                tint = Color.LightGray, modifier = Modifier.size(20.dp))
+                        }
+                    }
                     IconButton(onClick = { onPanelOpen(false) }, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Rounded.KeyboardArrowDown, "Свернуть параметры",
                             tint = Color.LightGray, modifier = Modifier.size(22.dp))
@@ -624,6 +638,7 @@ private fun PhotoWorkspaceTools(
                     PhotoWorkspaceTab.LEVELS -> when (activeLevel) {
                         PhotoLevelControl.RGB_CURVES -> 282.dp
                         PhotoLevelControl.HSL -> 168.dp
+                        PhotoLevelControl.NOISE -> 232.dp
                         PhotoLevelControl.GLOW, PhotoLevelControl.VIGNETTE,
                         PhotoLevelControl.DISPERSION -> 112.dp
                         else -> 64.dp
@@ -718,6 +733,26 @@ private fun PhotoWorkspaceTools(
                                 modifier = Modifier.weight(1f))
                         }
                     }
+                    } else if (activeLevel == PhotoLevelControl.NOISE) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            PhotoNoiseParameterRow("Степень", edit.color.noiseDegree,
+                                enabled = !locked && info != null,
+                                onChange = { onLiveEdit(edit.copy(color =
+                                    edit.color.copy(noiseDegree = it))) }, onEditFinished)
+                            PhotoNoiseParameterRow("Светлые участки", edit.color.noiseHighlights,
+                                enabled = !locked && info != null,
+                                onChange = { onLiveEdit(edit.copy(color =
+                                    edit.color.copy(noiseHighlights = it))) }, onEditFinished)
+                            PhotoNoiseParameterRow("Размер", edit.color.noiseSize,
+                                enabled = !locked && info != null,
+                                onChange = { onLiveEdit(edit.copy(color =
+                                    edit.color.copy(noiseSize = it))) }, onEditFinished)
+                            PhotoNoiseParameterRow("Грубость", edit.color.noiseRoughness,
+                                enabled = !locked && info != null,
+                                onChange = { onLiveEdit(edit.copy(color =
+                                    edit.color.copy(noiseRoughness = it))) }, onEditFinished)
+                        }
                     } else if (activeLevel in setOf(
                         PhotoLevelControl.GLOW, PhotoLevelControl.VIGNETTE,
                         PhotoLevelControl.DISPERSION)) {
@@ -776,6 +811,9 @@ private fun PhotoWorkspaceTools(
                         PhotoLevelControl.CURVE -> edit.color.curve
                         PhotoLevelControl.SHARPNESS -> edit.color.sharpness
                         PhotoLevelControl.CLARITY -> edit.color.clarity
+                        PhotoLevelControl.POSTERIZATION -> edit.color.posterization
+                        PhotoLevelControl.GRAIN -> edit.color.grain
+                        PhotoLevelControl.DENOISE -> edit.color.denoise
                         else -> 0f // Curves, HSL and fine-tuning have their own panels
                     }
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
@@ -799,12 +837,18 @@ private fun PhotoWorkspaceTools(
                                     PhotoLevelControl.CURVE -> edit.color.copy(curve = next)
                                     PhotoLevelControl.SHARPNESS -> edit.color.copy(sharpness = next)
                                     PhotoLevelControl.CLARITY -> edit.color.copy(clarity = next)
+                                    PhotoLevelControl.POSTERIZATION -> edit.color.copy(posterization = next)
+                                    PhotoLevelControl.GRAIN -> edit.color.copy(grain = next)
+                                    PhotoLevelControl.DENOISE -> edit.color.copy(denoise = next)
                                     else -> edit.color
                                 }
                                 onLiveEdit(edit.copy(color = color))
                             },
                             onValueChangeFinished = onEditFinished,
-                            valueRange = -100f..100f, enabled = !locked && info != null,
+                            valueRange = if (activeLevel in setOf(
+                                PhotoLevelControl.POSTERIZATION, PhotoLevelControl.GRAIN,
+                                PhotoLevelControl.DENOISE)) 0f..100f else -100f..100f,
+                            enabled = !locked && info != null,
                         )
                     }
                     }
@@ -974,6 +1018,22 @@ private fun PhotoWorkspaceTools(
                     selected = tab == category, onClick = { onTab(category) })
             }
         }
+    }
+}
+
+@Composable
+private fun PhotoNoiseParameterRow(
+    title: String, value: Float, enabled: Boolean,
+    onChange: (Float) -> Unit, onEditFinished: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().height(51.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Color.LightGray, fontSize = 11.sp,
+            modifier = Modifier.width(105.dp), maxLines = 1)
+        Slider(value = value, onValueChange = onChange, valueRange = 0f..100f,
+            enabled = enabled, onValueChangeFinished = onEditFinished,
+            modifier = Modifier.weight(1f))
+        Text(value.roundToInt().toString(), color = Color.White,
+            fontSize = 11.sp, modifier = Modifier.width(30.dp))
     }
 }
 
