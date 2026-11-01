@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
@@ -22,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -128,7 +130,8 @@ internal fun PhotoGeometryDialog(
     }
     LaunchedEffect(reducedSource, geometry) {
         val input = reducedSource ?: return@LaunchedEffect
-        delay(32L)
+        // No debounce on perspective: render the latest interactive value
+        // off the main thread as soon as the thumb moves.
         val next = withContext(Dispatchers.Default) {
             PhotoGeometryMath.apply(input, geometry)
         }
@@ -281,15 +284,15 @@ internal fun PhotoGeometryDialog(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (mode == GeometryMode.STRAIGHTEN) "Угол" else "Перспектива",
                             color = Color.LightGray, fontSize = 12.sp)
-                        Slider(value, onValueChange = { n ->
+                        GeometryRuler(value, range, onValueChange = { next ->
                             if (beforeDrag == null) beforeDrag = geometry
                             geometry = when (mode) {
-                                GeometryMode.STRAIGHTEN -> geometry.copy(straighten = n)
-                                GeometryMode.HORIZONTAL -> geometry.copy(horizontalPerspective = n)
-                                GeometryMode.VERTICAL -> geometry.copy(verticalPerspective = n)
+                                GeometryMode.STRAIGHTEN -> geometry.copy(straighten = next)
+                                GeometryMode.HORIZONTAL -> geometry.copy(horizontalPerspective = next)
+                                GeometryMode.VERTICAL -> geometry.copy(verticalPerspective = next)
                                 GeometryMode.FREE -> geometry
                             }
-                        }, onValueChangeFinished = {
+                        }, onFinished = {
                             beforeDrag?.let { prior ->
                                 if (prior != geometry) {
                                     undo = (undo + prior).takeLast(40)
@@ -297,10 +300,8 @@ internal fun PhotoGeometryDialog(
                                 }
                             }
                             beforeDrag = null
-                        }, valueRange = range, modifier = Modifier.weight(1f)
-                            .padding(horizontal = 10.dp))
-                        Text("%.1f°".format(value),
-                            fontSize = 12.sp, color = Color.White)
+                        }, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+                        Text("%.1f°".format(value), fontSize = 12.sp, color = Color.White)
                     }
                 }
             }
@@ -310,6 +311,13 @@ internal fun PhotoGeometryDialog(
                 GeometryMode.entries.forEach { option ->
                     FilterChip(selected = mode == option, onClick = {
                         mode = option
+                    }, leadingIcon = {
+                        Icon(when (option) {
+                            GeometryMode.STRAIGHTEN -> Icons.Rounded.RotateRight
+                            GeometryMode.HORIZONTAL -> Icons.Rounded.SwapHoriz
+                            GeometryMode.VERTICAL -> Icons.Rounded.SwapVert
+                            GeometryMode.FREE -> Icons.Rounded.OpenWith
+                        }, contentDescription = null, modifier = Modifier.size(16.dp))
                     }, label = { Text(option.title) })
                 }
                 IconButton(onClick = { zoom.reset() }) {
@@ -323,5 +331,51 @@ internal fun PhotoGeometryDialog(
                 }
             }
         }
+    }
+}
+
+/** Centered ruler with distinct zero tick, signed graduations and live drag. */
+@Composable
+private fun GeometryRuler(
+    value: Float, range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit, onFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val latestChange by rememberUpdatedState(onValueChange)
+    val latestFinish by rememberUpdatedState(onFinished)
+    val minimum = range.start
+    val maximum = range.endInclusive
+    val scale = maximum - minimum
+    Canvas(modifier.height(54.dp)
+        .pointerInput(minimum, maximum) {
+            detectDragGestures(onDragStart = { at ->
+                latestChange((minimum + at.x / size.width.coerceAtLeast(1) * scale)
+                    .coerceIn(minimum, maximum))
+            }, onDragEnd = { latestFinish() },
+                onDragCancel = { latestFinish() },
+                onDrag = { change, _ ->
+                    latestChange((minimum + change.position.x / size.width.coerceAtLeast(1) * scale)
+                        .coerceIn(minimum, maximum))
+                    change.consume()
+                })
+        }) {
+        val centerY = size.height * .52f
+        val unit = size.width / scale
+        // 5-degree minors; 10-degree majors and a visible zero marker.
+        val from = kotlin.math.ceil(minimum / 5.0).toInt() * 5
+        val to = kotlin.math.floor(maximum / 5.0).toInt() * 5
+        for (tick in from..to step 5) {
+            val x = (tick - minimum) * unit
+            val zero = tick == 0
+            val major = tick % 10 == 0
+            drawLine(
+                color = if (zero) geoAccent else Color.White.copy(alpha = if (major) .85f else .40f),
+                start = Offset(x, centerY - if (zero) 18.dp.toPx() else if (major) 11.dp.toPx() else 6.dp.toPx()),
+                end = Offset(x, centerY + if (zero) 18.dp.toPx() else if (major) 11.dp.toPx() else 6.dp.toPx()),
+                strokeWidth = if (zero) 3.dp.toPx() else 1.dp.toPx(),
+            )
+        }
+        val activeX = (value - minimum) * unit
+        drawCircle(geoAccent, 6.dp.toPx(), Offset(activeX, centerY))
     }
 }
