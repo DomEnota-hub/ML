@@ -1,11 +1,17 @@
 package com.domenota.medialoader.ui.screens
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import com.domenota.medialoader.ui.components.AppSlider as Slider
+import com.domenota.medialoader.ui.components.UnifiedTextTab
+import com.domenota.medialoader.ui.components.UnifiedTextTabs
+import com.domenota.medialoader.ui.components.UnifiedTextStyle
+import com.domenota.medialoader.ui.components.EditorFontPicker
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,10 +38,13 @@ internal fun VideoOverlayPanel(
     onRemoveGraphic: (String) -> Unit,
     onSeek: (Long) -> Unit,
 ) {
+    var selectedTextTab by remember { mutableStateOf(UnifiedTextTab.KEYBOARD) }
     val text = if (!graphicsTab) texts.firstOrNull { it.id == selectedId } else null
     val graphic = if (graphicsTab) graphics.firstOrNull { it.id == selectedId } else null
     val validDuration = durationMs.coerceAtLeast(1L)
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer,
+        RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+        .verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(if (graphicsTab) "Графика и стикеры" else "Надписи",
@@ -87,25 +96,19 @@ internal fun VideoOverlayPanel(
             }, enabled = enabled) { Text("Удалить") }
         }
         if (text != null) {
-            OutlinedTextField(value = text.text,
-                onValueChange = { onChangeText(text.copy(text = it.take(500))) },
-                label = { Text("Надпись") }, modifier = Modifier.fillMaxWidth(),
-                maxLines = 3, enabled = enabled)
-            Text("Шрифт", style = MaterialTheme.typography.labelSmall)
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                EditorFonts.all.forEach { font ->
-                    FilterChip(selected = font.id == text.fontId,
-                        onClick = { onChangeText(text.copy(fontId = font.id)) },
-                        enabled = enabled, label = { Text(font.label) })
+            // Photo and video use the same language and palette for their text controls.
+            UnifiedTextTabs(selected = selectedTextTab,
+                onSelect = { selectedTextTab = it })
+            when (selectedTextTab) {
+                UnifiedTextTab.KEYBOARD -> OutlinedTextField(value = text.text,
+                    onValueChange = { onChangeText(text.copy(text = it.take(500))) },
+                    label = { Text("Надпись") }, modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3, enabled = enabled)
+                UnifiedTextTab.STYLE -> UnifiedTextStyle(text, onChangeText, enabled)
+                UnifiedTextTab.FONT -> {
+                    Text("Библиотека шрифтов", style = MaterialTheme.typography.labelMedium)
+                    EditorFontPicker(text.fontId) { onChangeText(text.copy(fontId = it)) }
                 }
-            }
-            OverlayPalette(text.color, enabled) { onChangeText(text.copy(color = it)) }
-            OverlaySlider("Размер", text.size, .02f.. .25f, enabled) {
-                onChangeText(text.copy(size = it))
-            }
-            OverlaySlider("Обводка", text.outline, 0f.. .15f, enabled) {
-                onChangeText(text.copy(outline = it))
             }
         }
         if (graphic != null) {
