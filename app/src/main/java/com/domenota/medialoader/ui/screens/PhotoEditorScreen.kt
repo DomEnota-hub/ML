@@ -866,6 +866,19 @@ private fun PhotoWorkspaceTools(
                 }
             }
         }
+        if (tab == PhotoWorkspaceTab.LEVELS) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                PhotoLevelGroup.entries.forEach { group ->
+                    FilterChip(selected = levelGroup == group,
+                        onClick = { levelGroup = group; onPanelOpen(false) },
+                        label = { Text(group.title, fontSize = 12.sp) },
+                        enabled = !locked)
+                }
+            }
+        }
         Row(Modifier.fillMaxWidth().height(68.dp).horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -882,26 +895,13 @@ private fun PhotoWorkspaceTools(
                     PhotoToolCard("Вертикально", Icons.Rounded.FlipToFront, false,
                         { onCropTool("vertical"); onEdit(edit.copy(mirrorVertical = !edit.mirrorVertical)) }, !locked)
                 }
-                PhotoWorkspaceTab.LEVELS -> PhotoLevelControl.entries.forEach { control ->
-                    PhotoToolCard(control.title, Icons.Rounded.Tune, activeLevel == control,
-                        { onActiveLevel(control) }, !locked)
-                }
-                PhotoWorkspaceTab.HSL -> PhotoHslControl.entries.forEach { control ->
-                    PhotoToolCard(control.title, Icons.Rounded.Palette,
-                        activeHslControl == control, { onHslControl(control) }, !locked)
+                PhotoWorkspaceTab.LEVELS -> PhotoLevelControl.entries
+                    .filter { photoLevelGroup(it) == levelGroup }.forEach { control ->
+                    PhotoToolCard(control.title, photoLevelIcon(control),
+                        activeLevel == control && panelOpen,
+                        { onActiveLevel(control) }, !locked && info != null)
                 }
                 PhotoWorkspaceTab.EFFECTS -> {
-                    PhotoToolCard("Мозаика", Icons.Rounded.GridOn, false,
-                        onMosaic, !locked && info != null)
-                    PhotoToolCard("Свечение", Icons.Rounded.Flare,
-                        effectParameter == "glow" && panelOpen,
-                        { effectParameter = "glow"; onPanelOpen(true) }, !locked && info != null)
-                    PhotoToolCard("Виньетка", Icons.Rounded.FilterCenterFocus,
-                        effectParameter == "vignette" && panelOpen,
-                        { effectParameter = "vignette"; onPanelOpen(true) }, !locked && info != null)
-                    PhotoToolCard("Дисперсия", Icons.Rounded.BlurOn,
-                        effectParameter == "dispersion" && panelOpen,
-                        { effectParameter = "dispersion"; onPanelOpen(true) }, !locked && info != null)
                     val available = PhotoEffectCatalog.forCategory(effectCategory, favoriteEffects)
                     if (available.isEmpty()) Text("Здесь пока нет избранных фильтров",
                         fontSize = 12.sp, color = Color.LightGray)
@@ -917,7 +917,6 @@ private fun PhotoWorkspaceTools(
                                     favoriteEffects.map { it.name }.toSet()).apply()
                             },
                             onClick = {
-                                effectParameter = "preset"
                                 onEdit(edit.copy(color = edit.color.copy(effect = effect)))
                                 onPanelOpen(true)
                             })
@@ -928,6 +927,8 @@ private fun PhotoWorkspaceTools(
                         false, onText, !locked && info != null)
                     PhotoToolCard("Кисть и фигуры", Icons.Rounded.Brush,
                         false, onDraw, !locked && info != null)
+                    PhotoToolCard("Мозаика", Icons.Rounded.GridOn,
+                        false, onMosaic, !locked && info != null)
                 }
                 PhotoWorkspaceTab.WATERMARK -> {
                     PhotoToolCard("Графический знак", Icons.Rounded.AddPhotoAlternate,
@@ -964,7 +965,7 @@ private fun PhotoWorkspaceTools(
                     icon = when (category) {
                         PhotoWorkspaceTab.CROP -> Icons.Rounded.Crop
                         PhotoWorkspaceTab.LEVELS -> Icons.Rounded.Tune
-                        PhotoWorkspaceTab.HSL -> Icons.Rounded.Palette
+
                         PhotoWorkspaceTab.EFFECTS -> Icons.Rounded.AutoAwesome
                         PhotoWorkspaceTab.TEXT -> Icons.Rounded.TextFields
                         PhotoWorkspaceTab.WATERMARK -> Icons.Rounded.BrandingWatermark
