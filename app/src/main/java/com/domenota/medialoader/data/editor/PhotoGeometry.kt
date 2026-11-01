@@ -72,12 +72,18 @@ object PhotoGeometryMath {
         require(width > 0 && height > 0)
         val h = settings.horizontalPerspective / 250f
         val v = settings.verticalPerspective / 250f
-        // Horizontal perspective narrows/expands the top edge. Vertical
-        // perspective narrows/expands the left edge. Adjacent points are
-        // kept in the bounds to prevent invalid projective matrices.
+        // Positive values pull in the top/left edges; negative values pull in
+        // the opposite bottom/right edges. Previously negative values pushed
+        // corners *out* of [0,1], and coerceIn silently zeroed the effect.
+        val topInset = h.coerceAtLeast(0f)
+        val bottomInset = (-h).coerceAtLeast(0f)
+        val leftInset = v.coerceAtLeast(0f)
+        val rightInset = (-v).coerceAtLeast(0f)
         val delta = arrayOf(
-            floatArrayOf(h, v), floatArrayOf(-h, 0f),
-            floatArrayOf(0f, 0f), floatArrayOf(0f, -v),
+            floatArrayOf(topInset, leftInset),
+            floatArrayOf(-topInset, rightInset),
+            floatArrayOf(-bottomInset, -rightInset),
+            floatArrayOf(bottomInset, -leftInset),
         )
         val adjusted = List(4) { i ->
             PhotoGeometryPoint(
