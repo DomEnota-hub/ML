@@ -38,6 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 private enum class GeometryMode(val title: String) {
