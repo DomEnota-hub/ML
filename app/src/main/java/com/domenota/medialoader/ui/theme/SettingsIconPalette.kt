@@ -58,16 +58,16 @@ enum class SettingIconTone {
             else SettingsIconSwatch(Color(0xFF6C48B6), Color(0xFFEEE8FF))
         YTDLP ->
             if (dark) SettingsIconSwatch(Color(0xFF7ADEEB), Color(0xFF183D48))
-            else SettingsIconSwatch(Color(0xFF167C96), Color(0xFFDDF3F8))
+            else SettingsIconSwatch(Color(0xFF096A85), Color(0xFFDDF3F8))
         EQUALIZER ->
             if (dark) SettingsIconSwatch(Color(0xFF74E1BB), Color(0xFF194438))
-            else SettingsIconSwatch(Color(0xFF17846A), Color(0xFFDCF7EB))
+            else SettingsIconSwatch(Color(0xFF087257), Color(0xFFDCF7EB))
         RENAME ->
             if (dark) SettingsIconSwatch(Color(0xFFB7DB6A), Color(0xFF354324))
-            else SettingsIconSwatch(Color(0xFF577F1B), Color(0xFFEDF7D9))
+            else SettingsIconSwatch(Color(0xFF43660D), Color(0xFFEDF7D9))
         NOTIFICATIONS ->
             if (dark) SettingsIconSwatch(Color(0xFFF5E285), Color(0xFF454023))
-            else SettingsIconSwatch(Color(0xFF9E7D1A), Color(0xFFFFF7D5))
+            else SettingsIconSwatch(Color(0xFF82610B), Color(0xFFFFF7D5))
         DIAGNOSTICS ->
             if (dark) SettingsIconSwatch(Color(0xFFFF8BB2), Color(0xFF482438))
             else SettingsIconSwatch(Color(0xFFB32962), Color(0xFFFFE4F0))
