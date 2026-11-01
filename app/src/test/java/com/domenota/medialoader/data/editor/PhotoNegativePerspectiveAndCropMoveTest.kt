@@ -12,11 +12,11 @@ class PhotoNegativePerspectiveAndCropMoveTest {
             PhotoGeometry(horizontalPerspective = 50f), 1000, 600)
         assertFalse(neutral.contentEquals(negative))
         assertFalse(negative.contentEquals(positive))
-        assertEquals(0f, negative[0], 0f)
-        assertTrue(negative[4] < 1000f) // bottom-right inset
-        assertTrue(negative[6] > 0f) // bottom-left inset
-        assertTrue(positive[0] > 0f) // positive top-left inset
-        assertTrue(positive[2] < 1000f) // positive top-right inset
+        assertEquals(0f, negative[1], 0f) // top-left Y unchanged
+        assertTrue(negative[3] > 0f) // horizontal: right upper Y inset
+        assertTrue(negative[5] < 600f) // right lower Y inset
+        assertTrue(positive[1] > 0f) // left upper Y inset
+        assertTrue(positive[7] < 600f) // left lower Y inset
     }
 
     @Test fun negativeVerticalPerspectiveMustNotCollapseToIdentity() {
@@ -27,10 +27,10 @@ class PhotoNegativePerspectiveAndCropMoveTest {
             PhotoGeometry(verticalPerspective = 50f), 1000, 600)
         assertFalse(neutral.contentEquals(negative))
         assertFalse(negative.contentEquals(positive))
-        assertTrue(negative[3] > 0f) // right upper corner
-        assertTrue(negative[5] < 600f) // right lower corner
-        assertTrue(positive[1] > 0f)
-        assertTrue(positive[7] < 600f)
+        assertTrue(negative[4] < 1000f) // vertical: bottom-right X inset
+        assertTrue(negative[6] > 0f) // bottom-left X inset
+        assertTrue(positive[0] > 0f) // top-left X inset
+        assertTrue(positive[2] < 1000f) // top-right X inset
     }
 
     @Test fun draggingCropInteriorPreservesWidthHeightAndAspect() {
