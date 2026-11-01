@@ -40,6 +40,7 @@ import com.domenota.medialoader.data.editor.*
 import com.domenota.medialoader.ui.components.CropFrameOverlay
 import com.domenota.medialoader.ui.components.EditorTextDialog
 import com.domenota.medialoader.ui.components.rememberEditorExitRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -191,10 +192,16 @@ fun PhotoEditorScreen(
             if (previous != null && previous !== original && !previous.isRecycled) previous.recycle()
         }
     }
-    LaunchedEffect(info, edit.color) {
+    LaunchedEffect(info, edit.color, currentTab) {
+        // Crop and composed editing have separate preview consumers; never
+        // render both full color pipelines on every slider movement.
+        if (currentTab != PhotoWorkspaceTab.CROP) {
+            cropColorPreview = null
+            return@LaunchedEffect
+        }
         val source = info?.preview ?: return@LaunchedEffect
-        delay(100L)
-        cropColorPreview = withContext(Dispatchers.IO) {
+        delay(35L)
+        cropColorPreview = withContext(Dispatchers.Default) {
             PhotoColorMath.apply(source, edit.color)
         }
     }
@@ -215,10 +222,14 @@ fun PhotoEditorScreen(
         edit.geometry, edit.color, edit.textLayers, edit.drawing, edit.localEffects,
         bakedGraphic, currentTab) {
         val source = info?.preview
-        if (source == null) { composedPreview = null; return@LaunchedEffect }
-        delay(100L)
+        if (source == null || currentTab == PhotoWorkspaceTab.CROP) {
+            composedPreview = null
+            previewError = null
+            return@LaunchedEffect
+        }
+        delay(35L)
         try {
-            val rendered = withContext(Dispatchers.IO) {
+            val rendered = withContext(Dispatchers.Default) {
                 val transformed = PhotoGeometryMath.preview(source, edit.crop, edit.rotation,
                     edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
                 val colored = try { PhotoColorMath.apply(transformed, edit.color) }
@@ -260,8 +271,13 @@ fun PhotoEditorScreen(
             }
             composedPreview = rendered
             previewError = null
+        } catch (error: CancellationException) {
+            // Expected when a newer adjustment supersedes this preview.
+            throw error
         } catch (error: Exception) {
-            previewError = "Не удалось открыть водяной знак: ${error.message.orEmpty()}"
+            com.domenota.medialoader.core.logging.AppLog.w(
+                "PhotoEditor", "Preview render failed: ${error.javaClass.simpleName}")
+            previewError = photoPreviewFailureMessage(error)
         }
     }
 
