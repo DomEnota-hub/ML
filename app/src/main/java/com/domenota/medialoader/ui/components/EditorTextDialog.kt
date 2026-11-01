@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -13,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Colorize
@@ -82,8 +84,8 @@ internal fun EditorTextDialog(
     var playing by remember { mutableStateOf(false) }
     var intervalEnd by remember { mutableStateOf<Long?>(null) }
     var timingTab by remember { mutableStateOf(false) }
-    var expandedControls by remember { mutableStateOf(false) }
-    var textToolTab by remember { mutableStateOf("all") }
+    var sheetOpen by remember { mutableStateOf(false) }
+    var textToolTab by remember { mutableStateOf("keyboard") }
     var previewZoom by remember { mutableStateOf(PreviewZoom()) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     fun seek(time: Long) {
@@ -173,31 +175,37 @@ internal fun EditorTextDialog(
     }
 
     EditorWindow(onDismissRequest = ::close) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(Modifier.fillMaxSize(), color = Color(0xFF08090D)) {
             BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
                 val compact = maxHeight < 560.dp
                 val minimal = maxHeight < 280.dp
-                // Keep the image large by default; expand advanced options only on demand.
-                val previewHeight = when {
-                    minimal -> (maxHeight * 0.27f).coerceAtLeast(48.dp)
-                    expandedControls -> (maxHeight * 0.37f).coerceIn(120.dp, 330.dp)
-                    else -> (maxHeight * 0.58f).coerceIn(170.dp, 460.dp)
+                val panelHeight = when {
+                    minimal -> 120.dp
+                    compact -> 220.dp
+                    else -> (maxHeight * .43f).coerceIn(256.dp, 370.dp)
                 }
-                LaunchedEffect(minimal) { if (minimal) {
-                    videoPlayer?.pause(); playing = false; pickColor = false; inspectedColor = null
-                } }
-                Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Текст", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                        OutlinedButton(onClick = ::close) { Text("Отмена") }
-                        OutlinedButton(onClick = {
+                val panelBg = Color(0xFF202127)
+                val accent = MaterialTheme.colorScheme.primary
+                Column(Modifier.fillMaxSize()) {
+                    // Editing is an image-first workspace, not a second settings screen.
+                    Row(Modifier.fillMaxWidth().height(62.dp).padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = ::close) {
+                            Icon(Icons.Rounded.Close, "Отменить редактирование", tint = Color.White)
+                        }
+                        Text("Текст", style = MaterialTheme.typography.titleLarge,
+                            color = Color.White, modifier = Modifier.weight(1f))
+                        TextButton(onClick = {
                             onApply(layers.filter { it.text.isNotBlank() }.mapNotNull {
                                 if (durationMs == null) it else it.within(durationMs)
                             })
-                        }, enabled = !matching) { Text("Применить") }
+                        }, enabled = !matching) {
+                            Text("Готово", color = if (matching) Color.Gray else accent,
+                                style = MaterialTheme.typography.titleMedium)
+                        }
                     }
                     val image = preview
-                    Box(Modifier.fillMaxWidth().height(previewHeight).background(Color.Black).clipToBounds()
+                    Box(Modifier.fillMaxWidth().weight(1f).background(Color.Black).clipToBounds()
                         .onSizeChanged { if (previewSize != it) { previewSize = it; previewZoom = PreviewZoom() } }
                         .previewZoomGestures({ previewZoom }, { preview?.let { it.width to it.height } }, ::zoomPreview)) {
                         Box(Modifier.fillMaxSize().graphicsLayer {
@@ -210,7 +218,7 @@ internal fun EditorTextDialog(
                                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                             Canvas(Modifier.fillMaxSize()
                                 .pointerInput(image, selectedId, layers, selectSample, pickColor, position, playing) {
-                                    if (selectedId != null || selectSample || pickColor || playing) return@pointerInput
+                                    if (selectSample || pickColor || playing) return@pointerInput
                                     detectTapGestures { offset ->
                                         val scale = minOf(size.width.toFloat() / image.width,
                                             size.height.toFloat() / image.height)
@@ -225,7 +233,7 @@ internal fun EditorTextDialog(
                                         if (nearest != null &&
                                             kotlin.math.hypot(nearest.centerX - x, nearest.centerY - y) < .22f) {
                                             selectedId = nearest.id
-                                            expandedControls = false
+                                            sheetOpen = false
                                         }
                                     }
                                 }
@@ -281,7 +289,7 @@ internal fun EditorTextDialog(
                             selected?.takeIf { !selectSample && !pickColor && !playing && it.text.isNotBlank() &&
                                 (durationMs == null || it.visibleAt(position)) }?.let { layer ->
                                 TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom,
-                                    onTap = { expandedControls = true; textToolTab = "keyboard" })
+                                    onTap = { sheetOpen = true; textToolTab = "keyboard" })
                                 Text("${layer.rotation.roundToInt()}° · ${(layer.size * 100).roundToInt()}%",
                                     color = Color.White, style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.align(Alignment.TopStart)
@@ -297,217 +305,257 @@ internal fun EditorTextDialog(
                         }
                         if (loading) CircularProgressIndicator(Modifier.align(Alignment.Center))
                     }
-                    if (!compact) Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedIconButton(onClick = { zoomPreview(previewZoom.transform(1f / 1.5f, 0f, 0f,
-                            previewSize.width / 2f, previewSize.height / 2f,
-                            previewSize.width.toFloat(), previewSize.height.toFloat(), image?.width ?: 0, image?.height ?: 0)) }, enabled = previewZoom.scale > 1f) {
-                            Icon(Icons.Rounded.ZoomOut, contentDescription = "Уменьшить изображение")
-                        }
-                        OutlinedButton(onClick = { previewZoom = PreviewZoom() }) { Text("${(previewZoom.scale * 100).roundToInt()}%") }
-                        OutlinedIconButton(onClick = { zoomPreview(previewZoom.transform(1.5f, 0f, 0f,
-                            previewSize.width / 2f, previewSize.height / 2f,
-                            previewSize.width.toFloat(), previewSize.height.toFloat(), image?.width ?: 0, image?.height ?: 0)) }, enabled = previewZoom.scale < 6f) {
-                            Icon(Icons.Rounded.ZoomIn, contentDescription = "Увеличить изображение")
-                        }
-                        Text("2 пальца — масштаб и перемещение", style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.weight(1f))
-                    }
-                    if (!compact || selectSample || pickColor) Text(when {
-                        pickColor && (loading || previewPosition != position) -> "Готовим кадр для пипетки…"
-                        pickColor -> inspectedColor?.let { "Цвет ${ImageColorSample.hex(it)} · отпусти, чтобы применить" }
-                            ?: "Коснись исходной надписи. Веди палец для точного выбора цвета."
-                        selectSample -> "Обведи одну исходную строку текста"
-                        else -> "Тяни надпись для перемещения, угловой маркер — для размера и поворота"
-                    },
-                        style = MaterialTheme.typography.bodySmall)
-                    if (durationMs != null && durationMs > 0) {
-                        if (!minimal) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (videoPlayer != null) OutlinedIconButton(onClick = {
-                                if (videoPlayer.playWhenReady && videoPlayer.playbackState != Player.STATE_ENDED) {
+
+                    // A minimal playback strip is part of the same editor on video.
+                    if (durationMs != null && durationMs > 0L && !minimal) {
+                        Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (videoPlayer != null) IconButton(onClick = {
+                                if (videoPlayer.playWhenReady) {
                                     videoPlayer.pause(); playing = false
                                     position = videoPlayer.currentPosition.coerceIn(0L, durationMs)
-                                }
-                                else {
-                                    if (videoPlayer.playbackState == Player.STATE_ENDED || position >= durationMs - 1) seek(0)
-                                    intervalEnd = null
-                                    selectSample = false; sampleBounds = null
-                                    pickColor = false; inspectedColor = null
-                                    previewZoom = PreviewZoom()
+                                } else {
+                                    if (videoPlayer.playbackState == Player.STATE_ENDED) seek(0)
                                     videoPlayer.play(); playing = true
                                 }
-                            }, enabled = videoPlayer.playerError == null) {
+                            }) {
                                 Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                    contentDescription = if (playing) "Пауза" else "Смотреть со звуком")
+                                    if (playing) "Пауза" else "Воспроизвести", tint = Color.White)
                             }
                             Text(textTime(position) + " / " + textTime(durationMs),
-                                style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                            if (!compact) {
-                                OutlinedButton(onClick = { seek(position - 100) }) { Text("−0,1 с") }
-                                OutlinedButton(onClick = { seek(position + 100) }) { Text("+0,1 с") }
-                            }
-                        }
-                        if (!compact) Slider(value = position.coerceAtMost(durationMs).toFloat(), onValueChange = { seek(it.toLong()) },
-                            valueRange = 0f..durationMs.toFloat())
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(selected = !timingTab, onClick = { timingTab = false }, label = { Text("Надпись") })
-                            FilterChip(selected = timingTab, onClick = {
-                                timingTab = true; selectSample = false; sampleBounds = null
-                                pickColor = false; inspectedColor = null
-                            }, label = { Text("Время появления") })
+                                color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
+                            Slider(value = position.coerceIn(0L, durationMs).toFloat(),
+                                onValueChange = { seek(it.toLong()) },
+                                valueRange = 0f..durationMs.toFloat(),
+                                modifier = Modifier.weight(1f))
                         }
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        listOf("keyboard" to "Клавиатура", "style" to "Стиль", "font" to "Шрифт").forEach { (key, label) ->
-                            FilterChip(selected = expandedControls && textToolTab == key,
-                                onClick = { textToolTab = key; expandedControls = true },
-                                label = { Text(label) })
+                    Column(Modifier.fillMaxWidth().height(if (sheetOpen) panelHeight else 84.dp)
+                        .background(panelBg, androidx.compose.foundation.shape.RoundedCornerShape(
+                            topStart = 24.dp, topEnd = 24.dp))) {
+                        Box(Modifier.fillMaxWidth().height(17.dp), contentAlignment = Alignment.Center) {
+                            Box(Modifier.width(38.dp).height(4.dp)
+                                .background(Color.White.copy(alpha = .28f),
+                                    androidx.compose.foundation.shape.CircleShape))
                         }
-                        TextButton(onClick = { expandedControls = !expandedControls; textToolTab = "all" }) {
-                            Text(if (expandedControls) "Свернуть инструменты" else "Все настройки текста")
-                        }
-                    }
-                    if (!expandedControls) {
-                        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
-                            .padding(bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                layers.forEachIndexed { index, layer ->
-                                    FilterChip(selected = layer.id == selectedId,
-                                        onClick = { selectedId = layer.id },
-                                        label = { Text("Текст ${index + 1}") })
+                        if (!sheetOpen) {
+                            Row(Modifier.fillMaxSize().padding(horizontal = 18.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                TextButton(onClick = {
+                                    val layer = TextLayer(startMs = 0L, endMs = durationMs)
+                                    layers = layers + layer
+                                    selectedId = layer.id
+                                    sheetOpen = true
+                                    textToolTab = "keyboard"
+                                }, enabled = layers.size < 8) {
+                                    Icon(Icons.Rounded.Add, null)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Надпись")
                                 }
-                                OutlinedButton(onClick = {
-                                    val added = TextLayer(startMs = 0L, endMs = durationMs)
-                                    layers = layers + added; selectedId = added.id
-                                }, enabled = layers.size < 8) { Text("+ Добавить") }
-                            }
-                            selected?.let { layer ->
-                                OutlinedTextField(layer.text,
-                                    { update(layer.copy(text = it.take(500))) },
-                                    label = { Text("Надпись") },
-                                    modifier = Modifier.fillMaxWidth(), maxLines = 3)
-                            }
-                        }
-                    } else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
-                        .padding(top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        if (textToolTab == "font" || textToolTab == "all") sample?.let { source ->
-                            OutlinedTextField(sampleText, { sampleText = it.take(120); suggestions = emptyList() },
-                                label = { Text("Текст на образце — проверь распознавание") }, modifier = Modifier.fillMaxWidth())
-                            OutlinedButton(onClick = {
-                                matching = true
-                                val target = selectedId
-                                scope.launch {
-                                    try { matchSample(source, sampleText, target) }
-                                    catch (cancelled: CancellationException) { throw cancelled }
-                                    catch (_: Exception) { message = "Не удалось сравнить шрифты. Выбери вручную." }
-                                    finally { matching = false }
+                                Spacer(Modifier.weight(1f))
+                                if (selected != null) TextButton(onClick = {
+                                    sheetOpen = true; textToolTab = "keyboard"
+                                }) {
+                                    Text("Изменить")
+                                    Icon(Icons.Rounded.KeyboardArrowUp, null)
                                 }
-                            }, enabled = !matching && sampleText.isNotBlank()) {
-                                Text(if (matching) "Распознаём и сравниваем…" else "Подобрать похожие")
                             }
-                        }
-                        if ((textToolTab == "font" || textToolTab == "all") && suggestions.isNotEmpty()) Text("Похожие по образцу", style = MaterialTheme.typography.titleSmall)
-                        if (textToolTab == "font" || textToolTab == "all") suggestions.forEach { font ->
-                            OutlinedButton(onClick = { currentSelected?.let { update(it.copy(fontId = font.id)) } }) {
-                                Text(font.label, fontFamily = FontFamily(EditorFonts.face(context, font.id)))
-                            }
-                        }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            layers.forEachIndexed { index, layer ->
-                                FilterChip(selected = layer.id == selectedId, onClick = { selectedId = layer.id },
-                                    label = { Text("Текст ${index + 1}") })
-                            }
-                            OutlinedButton(onClick = {
-                                val added = TextLayer(startMs = 0L, endMs = durationMs)
-                                layers = layers + added; selectedId = added.id
-                            }, enabled = layers.size < 8) { Text("+ Добавить") }
-                        }
-                        selected?.let { layer ->
-                            if (durationMs != null && !layer.visibleAt(position)) {
-                                OutlinedButton(onClick = { seek(layer.startMs) }) { Text("Показать кадр с этой надписью") }
-                            }
-                            if (!timingTab || durationMs == null) {
-                                if (textToolTab == "keyboard" || textToolTab == "all") OutlinedTextField(layer.text, { update(layer.copy(text = it.take(500))) },
-                                    label = { Text("Надпись") }, modifier = Modifier.fillMaxWidth(), maxLines = 5)
-                                if (textToolTab == "style" || textToolTab == "all") {
-                                Text("Обводка")
-                                Slider(layer.outline, { update(layer.copy(outline = it)) }, valueRange = 0f..0.15f)
-                                val colors = listOf(-1, -16777216, 0xFFFF4444.toInt(), 0xFFFFDD33.toInt(),
-                                    0xFF44AAFF.toInt(), 0xFF55DD88.toInt(), 0xFF909090.toInt())
-                                Row(Modifier.horizontalScroll(rememberScrollState())) {
-                                    colors.forEach { color ->
-                                        IconButton(onClick = {
-                                            pickColor = false; inspectedColor = null
-                                            update(layer.copy(color = color))
-                                        }) {
-                                            Box(Modifier.size(32.dp).border(if (layer.color == color) 3.dp else 1.dp,
-                                                if (layer.color == color) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                                MaterialTheme.shapes.small).padding(4.dp)
-                                                .background(Color(color), MaterialTheme.shapes.extraSmall))
-                                        }
+                        } else {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                listOf(
+                                    "keyboard" to "Клавиатура",
+                                    "style" to "Стиль",
+                                    "font" to "Шрифт"
+                                ).forEach { (key, label) ->
+                                    val chosen = textToolTab == key
+                                    TextButton(onClick = {
+                                        textToolTab = key
+                                        selectSample = false; pickColor = false
+                                    }, modifier = Modifier.weight(1f)) {
+                                        Text(label,
+                                            color = if (chosen) accent else Color.LightGray,
+                                            style = if (chosen) MaterialTheme.typography.titleSmall
+                                                else MaterialTheme.typography.bodyMedium,
+                                            maxLines = 1)
                                     }
                                 }
-                                Row(verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                IconButton(onClick = { sheetOpen = false }) {
+                                    Icon(Icons.Rounded.KeyboardArrowDown, "Свернуть панель",
+                                        tint = Color.LightGray)
+                                }
+                            }
+                            HorizontalDivider(color = Color.White.copy(alpha = .10f))
+                            Column(Modifier.fillMaxWidth().weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 18.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                message?.let {
+                                    Text(it, style = MaterialTheme.typography.bodySmall,
+                                        color = Color.LightGray)
+                                }
+                                // Layer selection is shared by all tabs, not a secondary drawer.
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    layers.forEachIndexed { index, item ->
+                                        FilterChip(selected = selectedId == item.id,
+                                            onClick = { selectedId = item.id },
+                                            label = { Text("Текст " + (index + 1)) })
+                                    }
                                     OutlinedButton(onClick = {
-                                        if (pickColor) { pickColor = false; inspectedColor = null }
-                                        else {
-                                            videoPlayer?.let { seek(it.currentPosition) }
-                                            selectSample = false; sampleBounds = null
-                                            pickColor = true; inspectedColor = null
-                                        }
-                                    }, enabled = image != null && !minimal, modifier = Modifier.weight(1f)) {
-                                        Icon(Icons.Rounded.Colorize, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(if (pickColor) "Отменить пипетку" else "Пипетка")
+                                        val layer = TextLayer(startMs = 0L, endMs = durationMs)
+                                        layers = layers + layer
+                                        selectedId = layer.id
+                                        textToolTab = "keyboard"
+                                    }, enabled = layers.size < 8) {
+                                        Icon(Icons.Rounded.Add, null, Modifier.size(16.dp))
+                                        Text("Добавить")
                                     }
-                                    Box(Modifier.size(24.dp).border(1.dp, MaterialTheme.colorScheme.outline,
-                                        MaterialTheme.shapes.extraSmall).padding(2.dp)
-                                        .background(Color(layer.color), MaterialTheme.shapes.extraSmall))
-                                    Text(ImageColorSample.hex(layer.color), style = MaterialTheme.typography.labelMedium)
                                 }
-                                Row {
-                                    OutlinedButton(onClick = { update(layer.copy(outlineColor = android.graphics.Color.BLACK)) }) { Text("Чёрная обводка") }
-                                    OutlinedButton(onClick = { update(layer.copy(outlineColor = android.graphics.Color.WHITE)) }) { Text("Белая") }
+                                selected?.let { layer ->
+                                    if (durationMs != null && !layer.visibleAt(position)) {
+                                        TextButton(onClick = { seek(layer.startMs) }) {
+                                            Text("Перейти к кадру с надписью")
+                                        }
+                                    }
+                                    when (textToolTab) {
+                                        "keyboard" -> {
+                                            OutlinedTextField(layer.text,
+                                                { update(layer.copy(text = it.take(500))) },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                label = { Text("Надпись") },
+                                                maxLines = 4)
+                                            Text("Нажми на надпись на изображении, чтобы выделить её. " +
+                                                "Потяни рамку для перемещения, угловой маркер — для размера и поворота.",
+                                                color = Color.LightGray,
+                                                style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        "style" -> {
+                                            Text("Цвет текста", color = Color.White,
+                                                style = MaterialTheme.typography.labelLarge)
+                                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                verticalAlignment = Alignment.CenterVertically) {
+                                                val colors = listOf(0xFFFFFFFF.toInt(), 0xFF121212.toInt(),
+                                                    0xFFAAAAAA.toInt(), 0xFFFF4E63.toInt(),
+                                                    0xFFFF7D54.toInt(), 0xFFFFD648.toInt(),
+                                                    0xFF66DD99.toInt(), 0xFF74C6FF.toInt())
+                                                colors.forEach { color ->
+                                                    val chosen = layer.color == color
+                                                    Box(Modifier.size(39.dp)
+                                                        .border(if (chosen) 3.dp else 1.dp,
+                                                            if (chosen) accent else Color.White.copy(alpha = .32f),
+                                                            androidx.compose.foundation.shape.CircleShape)
+                                                        .padding(5.dp)
+                                                        .background(Color(color),
+                                                            androidx.compose.foundation.shape.CircleShape)
+                                                        .clickable { update(layer.copy(color = color)) })
+                                                }
+                                                IconButton(onClick = {
+                                                    videoPlayer?.let { seek(it.currentPosition) }
+                                                    selectSample = false; sampleBounds = null
+                                                    pickColor = true; inspectedColor = null
+                                                }, enabled = image != null && !minimal) {
+                                                    Icon(Icons.Rounded.Colorize, "Пипетка",
+                                                        tint = accent)
+                                                }
+                                            }
+                                            Row(Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically) {
+                                                Text("Обводка", color = Color.White)
+                                                Spacer(Modifier.width(8.dp))
+                                                Slider(layer.outline,
+                                                    { update(layer.copy(outline = it)) },
+                                                    valueRange = 0f..0.15f,
+                                                    modifier = Modifier.weight(1f))
+                                            }
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                FilterChip(selected = layer.outlineColor == android.graphics.Color.BLACK,
+                                                    onClick = {
+                                                        update(layer.copy(outlineColor = android.graphics.Color.BLACK))
+                                                    }, label = { Text("Тёмная") })
+                                                FilterChip(selected = layer.outlineColor == android.graphics.Color.WHITE,
+                                                    onClick = {
+                                                        update(layer.copy(outlineColor = android.graphics.Color.WHITE))
+                                                    }, label = { Text("Светлая") })
+                                            }
+                                        }
+                                        "font" -> {
+                                            Text("Шрифт", style = MaterialTheme.typography.titleSmall,
+                                                color = Color.White)
+                                            OutlinedButton(onClick = {
+                                                videoPlayer?.pause(); playing = false
+                                                pickColor = false; inspectedColor = null
+                                                selectSample = !selectSample; sampleBounds = null
+                                            }, enabled = selectSample ||
+                                                (image != null && !loading && previewPosition == position)) {
+                                                Icon(Icons.Rounded.DocumentScanner, null,
+                                                    Modifier.size(18.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text(if (selectSample) "Отменить выделение"
+                                                    else "Распознать шрифт на фото")
+                                            }
+                                            sample?.let { source ->
+                                                OutlinedTextField(sampleText,
+                                                    { sampleText = it.take(120); suggestions = emptyList() },
+                                                    label = { Text("Распознанный текст") },
+                                                    modifier = Modifier.fillMaxWidth())
+                                                OutlinedButton(onClick = {
+                                                    matching = true
+                                                    val target = selectedId
+                                                    scope.launch {
+                                                        try { matchSample(source, sampleText, target) }
+                                                        catch (cancelled: CancellationException) { throw cancelled }
+                                                        catch (_: Exception) { message = "Не удалось сравнить шрифты." }
+                                                        finally { matching = false }
+                                                    }
+                                                }, enabled = !matching && sampleText.isNotBlank()) {
+                                                    Text(if (matching) "Сравниваем…" else "Найти похожие")
+                                                }
+                                            }
+                                            if (suggestions.isNotEmpty()) {
+                                                Text("Похожие шрифты", color = Color.White)
+                                                suggestions.forEach { font ->
+                                                    OutlinedButton(onClick = {
+                                                        update(layer.copy(fontId = font.id))
+                                                    }) {
+                                                        Text(font.label,
+                                                            fontFamily = FontFamily(EditorFonts.face(context, font.id)))
+                                                    }
+                                                }
+                                            }
+                                            if (!fontsReady) Text("Подготавливаем библиотеку шрифтов…")
+                                            else EditorFontPicker(layer.fontId) { update(layer.copy(fontId = it)) }
+                                        }
+                                    }
+                                    if (durationMs != null && durationMs > 1L && textToolTab == "keyboard") {
+                                        FilterChip(selected = timingTab,
+                                            onClick = { timingTab = !timingTab },
+                                            label = { Text("Время появления") })
+                                        if (timingTab) TextTimingControls(layer, position,
+                                            durationMs, videoPlayer != null &&
+                                                videoPlayer.playerError == null && !minimal,
+                                            onChange = ::update, onSeek = ::seek,
+                                            onPlayInterval = {
+                                                seek(layer.startMs)
+                                                intervalEnd = layer.endMs ?: durationMs
+                                                previewZoom = PreviewZoom()
+                                                videoPlayer?.play(); playing = true
+                                            })
+                                    }
+                                    TextButton(onClick = {
+                                        layers = layers.filterNot { it.id == layer.id }
+                                        selectedId = layers.lastOrNull()?.id
+                                        if (selectedId == null) sheetOpen = false
+                                    }, modifier = Modifier.fillMaxWidth()) {
+                                        Text("Удалить надпись", color = MaterialTheme.colorScheme.error)
+                                    }
                                 }
-                                }
-                                if (textToolTab == "font" || textToolTab == "all") {
-                                OutlinedButton(onClick = { videoPlayer?.pause(); playing = false; pickColor = false;
-                                    inspectedColor = null; selectSample = !selectSample; sampleBounds = null },
-                                    enabled = selectSample || (image != null && !loading && !playing && previewPosition == position)) {
-                                    Text(if (selectSample) "Отменить выделение" else "Подобрать шрифт по образцу")
-                                }
-                                Text("Библиотека шрифтов", style = MaterialTheme.typography.titleMedium)
-                                if (!fontsReady) Text("Подготавливаем библиотеку шрифтов…")
-                                if (fontsReady) EditorFontPicker(layer.fontId) { update(layer.copy(fontId = it)) }
-                                }
-                            } else if (durationMs > 1) {
-                                TextTimingControls(layer, position, durationMs,
-                                    videoPlayer != null && videoPlayer.playerError == null && !minimal,
-                                    onChange = ::update, onSeek = ::seek, onPlayInterval = {
-                                        seek(layer.startMs)
-                                        intervalEnd = layer.endMs ?: durationMs
-                                        selectSample = false; sampleBounds = null
-                                        pickColor = false; inspectedColor = null
-                                        previewZoom = PreviewZoom()
-                                        videoPlayer?.play(); playing = true
-                                    })
                             }
-                        }
-                    }
-                    if (expandedControls) selected?.let { layer ->
-                        HorizontalDivider()
-                        OutlinedButton(onClick = {
-                            pickColor = false; inspectedColor = null; selectSample = false; sampleBounds = null
-                            layers = layers.filterNot { it.id == layer.id }; selectedId = layers.lastOrNull()?.id
-                        }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                            Text("Удалить надпись", color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
