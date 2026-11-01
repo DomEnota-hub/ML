@@ -85,7 +85,7 @@ internal fun EditorTextDialog(
     var intervalEnd by remember { mutableStateOf<Long?>(null) }
     var timingTab by remember { mutableStateOf(false) }
     var sheetOpen by remember { mutableStateOf(false) }
-    var textToolTab by remember { mutableStateOf("keyboard") }
+    var textToolTab by remember { mutableStateOf(UnifiedTextTab.KEYBOARD) }
     var previewZoom by remember { mutableStateOf(PreviewZoom()) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     fun seek(time: Long) {
@@ -289,7 +289,7 @@ internal fun EditorTextDialog(
                             selected?.takeIf { !selectSample && !pickColor && !playing && it.text.isNotBlank() &&
                                 (durationMs == null || it.visibleAt(position)) }?.let { layer ->
                                 TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom,
-                                    onTap = { sheetOpen = true; textToolTab = "keyboard" })
+                                    onTap = { sheetOpen = true; textToolTab = UnifiedTextTab.KEYBOARD })
                                 Text("${layer.rotation.roundToInt()}° · ${(layer.size * 100).roundToInt()}%",
                                     color = Color.White, style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.align(Alignment.TopStart)
@@ -348,7 +348,7 @@ internal fun EditorTextDialog(
                                     layers = layers + layer
                                     selectedId = layer.id
                                     sheetOpen = true
-                                    textToolTab = "keyboard"
+                                    textToolTab = UnifiedTextTab.KEYBOARD
                                 }, enabled = layers.size < 8) {
                                     Icon(Icons.Rounded.Add, null)
                                     Spacer(Modifier.width(4.dp))
@@ -356,33 +356,19 @@ internal fun EditorTextDialog(
                                 }
                                 Spacer(Modifier.weight(1f))
                                 if (selected != null) TextButton(onClick = {
-                                    sheetOpen = true; textToolTab = "keyboard"
+                                    sheetOpen = true; textToolTab = UnifiedTextTab.KEYBOARD
                                 }) {
                                     Text("Изменить")
                                     Icon(Icons.Rounded.KeyboardArrowUp, null)
                                 }
                             }
                         } else {
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                listOf(
-                                    "keyboard" to "Клавиатура",
-                                    "style" to "Стиль",
-                                    "font" to "Шрифт"
-                                ).forEach { (key, label) ->
-                                    val chosen = textToolTab == key
-                                    TextButton(onClick = {
-                                        textToolTab = key
-                                        selectSample = false; pickColor = false
-                                    }, modifier = Modifier.weight(1f)) {
-                                        Text(label,
-                                            color = if (chosen) accent else Color.LightGray,
-                                            style = if (chosen) MaterialTheme.typography.titleSmall
-                                                else MaterialTheme.typography.bodyMedium,
-                                            maxLines = 1)
-                                    }
-                                }
+                                UnifiedTextTabs(selected = textToolTab,
+                                    onSelect = { textToolTab = it
+                                        selectSample = false; pickColor = false },
+                                    modifier = Modifier.weight(1f))
                                 IconButton(onClick = { sheetOpen = false }) {
                                     Icon(Icons.Rounded.KeyboardArrowDown, "Свернуть панель",
                                         tint = Color.LightGray)
@@ -410,7 +396,7 @@ internal fun EditorTextDialog(
                                         val layer = TextLayer(startMs = 0L, endMs = durationMs)
                                         layers = layers + layer
                                         selectedId = layer.id
-                                        textToolTab = "keyboard"
+                                        textToolTab = UnifiedTextTab.KEYBOARD
                                     }, enabled = layers.size < 8) {
                                         Icon(Icons.Rounded.Add, null, Modifier.size(16.dp))
                                         Text("Добавить")
@@ -423,7 +409,7 @@ internal fun EditorTextDialog(
                                         }
                                     }
                                     when (textToolTab) {
-                                        "keyboard" -> {
+                                        UnifiedTextTab.KEYBOARD -> {
                                             OutlinedTextField(layer.text,
                                                 { update(layer.copy(text = it.take(500))) },
                                                 modifier = Modifier.fillMaxWidth(),
@@ -434,57 +420,17 @@ internal fun EditorTextDialog(
                                                 color = Color.LightGray,
                                                 style = MaterialTheme.typography.bodySmall)
                                         }
-                                        "style" -> {
-                                            Text("Цвет текста", color = Color.White,
-                                                style = MaterialTheme.typography.labelLarge)
-                                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                verticalAlignment = Alignment.CenterVertically) {
-                                                val colors = listOf(0xFFFFFFFF.toInt(), 0xFF121212.toInt(),
-                                                    0xFFAAAAAA.toInt(), 0xFFFF4E63.toInt(),
-                                                    0xFFFF7D54.toInt(), 0xFFFFD648.toInt(),
-                                                    0xFF66DD99.toInt(), 0xFF74C6FF.toInt())
-                                                colors.forEach { color ->
-                                                    val chosen = layer.color == color
-                                                    Box(Modifier.size(39.dp)
-                                                        .border(if (chosen) 3.dp else 1.dp,
-                                                            if (chosen) accent else Color.White.copy(alpha = .32f),
-                                                            androidx.compose.foundation.shape.CircleShape)
-                                                        .padding(5.dp)
-                                                        .background(Color(color),
-                                                            androidx.compose.foundation.shape.CircleShape)
-                                                        .clickable { update(layer.copy(color = color)) })
-                                                }
-                                                IconButton(onClick = {
+                                        UnifiedTextTab.STYLE -> {
+                                            UnifiedTextStyle(layer = layer,
+                                                onChange = ::update,
+                                                enabled = !matching,
+                                                onPickColor = if (image != null && !minimal) ({
                                                     videoPlayer?.let { seek(it.currentPosition) }
                                                     selectSample = false; sampleBounds = null
                                                     pickColor = true; inspectedColor = null
-                                                }, enabled = image != null && !minimal) {
-                                                    Icon(Icons.Rounded.Colorize, "Пипетка",
-                                                        tint = accent)
-                                                }
-                                            }
-                                            Row(Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically) {
-                                                Text("Обводка", color = Color.White)
-                                                Spacer(Modifier.width(8.dp))
-                                                Slider(layer.outline,
-                                                    { update(layer.copy(outline = it)) },
-                                                    valueRange = 0f..0.15f,
-                                                    modifier = Modifier.weight(1f))
-                                            }
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                FilterChip(selected = layer.outlineColor == android.graphics.Color.BLACK,
-                                                    onClick = {
-                                                        update(layer.copy(outlineColor = android.graphics.Color.BLACK))
-                                                    }, label = { Text("Тёмная") })
-                                                FilterChip(selected = layer.outlineColor == android.graphics.Color.WHITE,
-                                                    onClick = {
-                                                        update(layer.copy(outlineColor = android.graphics.Color.WHITE))
-                                                    }, label = { Text("Светлая") })
-                                            }
+                                                }) else null)
                                         }
-                                        "font" -> {
+                                        UnifiedTextTab.FONT -> {
                                             Text("Шрифт", style = MaterialTheme.typography.titleSmall,
                                                 color = Color.White)
                                             OutlinedButton(onClick = {
@@ -532,7 +478,7 @@ internal fun EditorTextDialog(
                                             else EditorFontPicker(layer.fontId) { update(layer.copy(fontId = it)) }
                                         }
                                     }
-                                    if (durationMs != null && durationMs > 1L && textToolTab == "keyboard") {
+                                    if (durationMs != null && durationMs > 1L && textToolTab == UnifiedTextTab.KEYBOARD) {
                                         FilterChip(selected = timingTab,
                                             onClick = { timingTab = !timingTab },
                                             label = { Text("Время появления") })
