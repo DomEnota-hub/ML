@@ -67,33 +67,67 @@ object PhotoGeometryMath {
         return if (isValidQuad(candidate)) settings.copy(corners = candidate) else settings
     }
 
-    /** Pixel-space coordinates of the perspective destination, bounded inside the output. */
+    /**
+     * A camera-like rotation of the photo plane, projected onto the image rectangle.
+     * HORIZONTAL rotates around the upright Y axis (the left and right sides recede);
+     * VERTICAL rotates around the horizontal X axis (top and bottom recede).
+     *
+     * This is shared by scrubbing previews and final exports. Values are expressed
+     * in UI units (-100..100), not literal degrees.
+     */
     fun destination(settings: PhotoGeometry, width: Int, height: Int): FloatArray {
         require(width > 0 && height > 0)
-        // Horizontal controls left/right side convergence (Y displacement),
-        // vertical controls top/bottom convergence (X displacement).
-        // The earlier mapping was reversed relative to the visible labels.
-        val h = settings.verticalPerspective / 250f
-        val v = settings.horizontalPerspective / 250f
-        // Positive values pull in the top/left edges; negative values pull in
-        // the opposite bottom/right edges. Previously negative values pushed
-        // corners *out* of [0,1], and coerceIn silently zeroed the effect.
-        val topInset = h.coerceAtLeast(0f)
-        val bottomInset = (-h).coerceAtLeast(0f)
-        val leftInset = v.coerceAtLeast(0f)
-        val rightInset = (-v).coerceAtLeast(0f)
-        val delta = arrayOf(
-            floatArrayOf(topInset, leftInset),
-            floatArrayOf(-topInset, rightInset),
-            floatArrayOf(-bottomInset, -rightInset),
-            floatArrayOf(bottomInset, -leftInset),
-        )
-        val adjusted = List(4) { i ->
-            PhotoGeometryPoint(
-                (settings.corners[i].x + delta[i][0]).coerceIn(0f, 1f),
-                (settings.corners[i].y + delta[i][1]).coerceIn(0f, 1f))
+        val horizontal = settings.horizontalPerspective
+        val vertical = settings.verticalPerspective
+        if (horizontal == 0f && vertical == 0f) {
+            return FloatArray(8) { i ->
+                val p = settings.corners[i / 2]
+                if (i % 2 == 0) p.x * width else p.y * height
+            }
         }
-        val quad = if (isValidQuad(adjusted)) adjusted else settings.corners
+
+        // Capped below 90 degrees so the four projected corners never fold
+        // over each other or reveal the back of the photo.
+        val yaw = Math.toRadians((horizontal * .64f).toDouble())
+        val pitch = Math.toRadians((vertical * .64f).toDouble())
+        val yawCos = cos(yaw).toFloat()
+        val yawSin = sin(yaw).toFloat()
+        val pitchCos = cos(pitch).toFloat()
+        val pitchSin = sin(pitch).toFloat()
+        val focalLength = 1.6f
+        val projected = settings.corners.map { corner ->
+            val x = corner.x - .5f
+            val y = corner.y - .5f
+            // Rotate first around Y, then around X.
+            val rx = x * yawCos
+            val zYaw = -x * yawSin
+            val ry = y * pitchCos - zYaw * pitchSin
+            val z = y * pitchSin + zYaw * pitchCos
+            val projection = focalLength / (focalLength + z)
+            Pair(rx * projection, ry * projection)
+        }
+        val minX = projected.minOf { it.first }
+        val maxX = projected.maxOf { it.first }
+        val minY = projected.minOf { it.second }
+        val maxY = projected.maxOf { it.second }
+        val spanX = (maxX - minX).coerceAtLeast(.001f)
+        val spanY = (maxY - minY).coerceAtLeast(.001f)
+        val hasFreeCorners = settings.corners != PhotoGeometry.identityCorners()
+        val scaleX = if (hasFreeCorners) minOf(1f, .98f / spanX)
+            else (1f - .03f * (kotlin.math.abs(horizontal) / 100f)) / spanX
+        val scaleY = if (hasFreeCorners) minOf(1f, .98f / spanY)
+            else (1f - .03f * (kotlin.math.abs(vertical) / 100f)) / spanY
+        val centerX = (minX + maxX) / 2f
+        val centerY = (minY + maxY) / 2f
+        val normalized = projected.map { p ->
+            PhotoGeometryPoint(
+                (.5f + (p.first - centerX) * scaleX).coerceIn(0f, 1f),
+                (.5f + (p.second - centerY) * scaleY).coerceIn(0f, 1f),
+            )
+        }
+        // Preserve even extreme custom corner edits rather than generating an
+        // invalid perspective homography.
+        val quad = if (isValidQuad(normalized)) normalized else settings.corners
         return FloatArray(8) { i ->
             val p = quad[i / 2]
             if (i % 2 == 0) p.x * width else p.y * height

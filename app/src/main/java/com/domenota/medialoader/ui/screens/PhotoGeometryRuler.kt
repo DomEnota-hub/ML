@@ -17,6 +17,19 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.roundToInt
+
+/** The fractional drag accumulator is separate from the whole-unit UI value. */
+internal fun geometryRulerDragValue(
+    current: Float,
+    dragPixels: Float,
+    pixelsPerUnit: Float,
+    range: ClosedFloatingPointRange<Float>,
+): Float {
+    require(pixelsPerUnit > 0f)
+    return (current - dragPixels / pixelsPerUnit)
+        .coerceIn(range.start, range.endInclusive)
+}
 
 /**
  * Scrubbable ruler: the yellow hairline is the current value, while the labeled
@@ -34,18 +47,32 @@ internal fun PhotoGeometryRuler(
     val latestChange by rememberUpdatedState(onValueChange)
     val latestFinished by rememberUpdatedState(onValueChangeFinished)
     val density = LocalDensity.current
-    val pixelsPerDegree = with(density) { 11.dp.toPx() }
+    val pixelsPerDegree = with(density) { 4.dp.toPx() }
     val shortTick = with(density) { 8.dp.toPx() }
     val longTick = with(density) { 18.dp.toPx() }
     val white = Color.White.copy(alpha = .70f)
     val highlight = Color(0xFFFFBD19)
 
     Canvas(modifier.height(58.dp).pointerInput(valueRange.start, valueRange.endInclusive, pixelsPerDegree) {
+        // Keep fractional pointer motion inside this gesture even though the
+        // published geometry value is rounded to whole units. Otherwise many
+        // small pointer events get lost when each one rounds back to zero.
+        var dragValue = latestValue
+        var lastPublished = latestValue.roundToInt().toFloat()
         detectHorizontalDragGestures(
+            onDragStart = {
+                dragValue = latestValue
+                lastPublished = latestValue.roundToInt().toFloat()
+            },
             onHorizontalDrag = { change, deltaPx ->
                 change.consume()
-                latestChange((latestValue - deltaPx / pixelsPerDegree)
-                    .coerceIn(valueRange.start, valueRange.endInclusive))
+                dragValue = geometryRulerDragValue(
+                    dragValue, deltaPx, pixelsPerDegree, valueRange)
+                val snapped = dragValue.roundToInt().toFloat()
+                if (snapped != lastPublished) {
+                    lastPublished = snapped
+                    latestChange(snapped)
+                }
             },
             onDragEnd = { latestFinished() },
             onDragCancel = { latestFinished() },
@@ -61,7 +88,7 @@ internal fun PhotoGeometryRuler(
         val start = ceil(valueRange.start.toDouble()).toInt()
         val end = floor(valueRange.endInclusive.toDouble()).toInt()
         for (tick in start..end) {
-            val x = center + (tick - value) * pixelsPerDegree
+            val x = center + (tick - value.roundToInt()) * pixelsPerDegree
             if (x < 0f || x > size.width) continue
             val zero = tick == 0
             val tall = zero || tick % 5 == 0

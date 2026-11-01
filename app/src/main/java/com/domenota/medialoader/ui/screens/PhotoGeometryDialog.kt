@@ -290,7 +290,11 @@ internal fun PhotoGeometryDialog(
                         verticalAlignment = Alignment.CenterVertically) {
                         Text(if (mode == GeometryMode.STRAIGHTEN) "Угол" else "Перспектива",
                             color = Color.LightGray, fontSize = 12.sp)
-                        Text("%.1f°".format(value), fontSize = 12.sp, color = Color.White)
+                        Text(
+                            if (mode == GeometryMode.STRAIGHTEN) "${value.roundToInt()}°"
+                            else value.roundToInt().toString(),
+                            fontSize = 12.sp, color = Color.White
+                        )
                     }
                     PhotoGeometryRuler(value = value, valueRange = range,
                             onValueChange = { n ->

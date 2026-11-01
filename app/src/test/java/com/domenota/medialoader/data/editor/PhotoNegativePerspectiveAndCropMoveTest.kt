@@ -4,33 +4,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhotoNegativePerspectiveAndCropMoveTest {
-    @Test fun negativeHorizontalPerspectiveMustNotCollapseToIdentity() {
-        val neutral = PhotoGeometryMath.destination(PhotoGeometry(), 1000, 600)
+    @Test fun negativeYawReversesNearAndFarSidesWithoutBecomingIdentity() {
         val negative = PhotoGeometryMath.destination(
             PhotoGeometry(horizontalPerspective = -50f), 1000, 600)
         val positive = PhotoGeometryMath.destination(
             PhotoGeometry(horizontalPerspective = 50f), 1000, 600)
-        assertFalse(neutral.contentEquals(negative))
         assertFalse(negative.contentEquals(positive))
-        assertEquals(0f, negative[1], 0f) // top-left Y unchanged
-        assertTrue(negative[3] > 0f) // horizontal: right upper Y inset
-        assertTrue(negative[5] < 600f) // right lower Y inset
-        assertTrue(positive[1] > 0f) // left upper Y inset
-        assertTrue(positive[7] < 600f) // left lower Y inset
+        val leftHeight = negative[7] - negative[1]
+        val rightHeight = negative[5] - negative[3]
+        assertTrue("Negative yaw brings the left edge closer", leftHeight > rightHeight)
+        assertTrue("Positive yaw brings the right edge closer",
+            positive[5] - positive[3] > positive[7] - positive[1])
     }
 
-    @Test fun negativeVerticalPerspectiveMustNotCollapseToIdentity() {
-        val neutral = PhotoGeometryMath.destination(PhotoGeometry(), 1000, 600)
+    @Test fun negativePitchReversesNearAndFarHorizontalEdges() {
         val negative = PhotoGeometryMath.destination(
             PhotoGeometry(verticalPerspective = -50f), 1000, 600)
         val positive = PhotoGeometryMath.destination(
             PhotoGeometry(verticalPerspective = 50f), 1000, 600)
-        assertFalse(neutral.contentEquals(negative))
         assertFalse(negative.contentEquals(positive))
-        assertTrue(negative[4] < 1000f) // vertical: bottom-right X inset
-        assertTrue(negative[6] > 0f) // bottom-left X inset
-        assertTrue(positive[0] > 0f) // top-left X inset
-        assertTrue(positive[2] < 1000f) // top-right X inset
+        assertTrue("Negative pitch enlarges bottom",
+            negative[4] - negative[6] > negative[2] - negative[0])
+        assertTrue("Positive pitch enlarges top",
+            positive[2] - positive[0] > positive[4] - positive[6])
     }
 
     @Test fun draggingCropInteriorPreservesWidthHeightAndAspect() {
