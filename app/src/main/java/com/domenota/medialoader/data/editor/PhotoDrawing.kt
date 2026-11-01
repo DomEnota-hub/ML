@@ -29,13 +29,18 @@ data class PhotoMark(
 ) {
     init {
         require(points.isNotEmpty() && points.size <= 900)
-        require(thickness.isFinite() && thickness in .001f..0.08f)
+        require(thickness.isFinite() && thickness in PhotoDrawing.MIN_MARK_THICKNESS..PhotoDrawing.MAX_MARK_THICKNESS)
         require(rotationDegrees.isFinite() && rotationDegrees in -360f..360f)
     }
 }
 
 object PhotoDrawing {
     const val MAX_MARKS = 150
+    // The UI slider must never exceed the thickness accepted by PhotoMark.
+    const val MIN_MARK_THICKNESS = .001f
+    const val MAX_MARK_THICKNESS = .08f
+    const val MIN_BRUSH_THICKNESS = .002f
+    const val MAX_BRUSH_THICKNESS = .05f
     fun clamp(x: Float, y: Float): PhotoPoint = PhotoPoint(
         x.coerceIn(0f, 1f), y.coerceIn(0f, 1f)
     )

@@ -297,7 +297,8 @@ internal fun PhotoDrawDialog(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (tool == DrawingTool.ERASER) "Размер ластика" else "Толщина",
                             color = Color.White, fontSize = 12.sp, modifier = Modifier.width(106.dp))
-                        AppSlider(thickness, { next ->
+                        AppSlider(thickness.coerceIn(PhotoDrawing.MIN_BRUSH_THICKNESS,
+                            PhotoDrawing.MAX_BRUSH_THICKNESS), { next ->
                             thickness = next
                             if (selected in marks.indices) {
                                 if (thicknessBefore == null) thicknessBefore = marks
@@ -305,7 +306,8 @@ internal fun PhotoDrawDialog(
                                 updated[selected] = updated[selected].copy(thickness = next)
                                 marks = updated
                             }
-                        }, modifier = Modifier.weight(1f), valueRange = .002f..05f,
+                        }, modifier = Modifier.weight(1f),
+                            valueRange = PhotoDrawing.MIN_BRUSH_THICKNESS..PhotoDrawing.MAX_BRUSH_THICKNESS,
                             onValueChangeFinished = {
                                 thicknessBefore?.let(::push)
                                 thicknessBefore = null
