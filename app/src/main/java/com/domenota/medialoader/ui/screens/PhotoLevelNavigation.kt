@@ -5,6 +5,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.domenota.medialoader.data.editor.HslRange
+import com.domenota.medialoader.data.editor.PhotoColorAdjustments
 
 /** Presentation-only grouping. The PhotoColorAdjustments model is unchanged. */
 internal enum class PhotoLevelGroup(val title: String) {
@@ -15,7 +16,8 @@ internal fun photoLevelGroup(control: PhotoLevelControl): PhotoLevelGroup = when
     PhotoLevelControl.EXPOSURE, PhotoLevelControl.BRIGHTNESS,
     PhotoLevelControl.CONTRAST, PhotoLevelControl.SHADOWS,
     PhotoLevelControl.HIGHLIGHTS, PhotoLevelControl.BLACK_POINT,
-    PhotoLevelControl.CURVE, PhotoLevelControl.RGB_CURVES -> PhotoLevelGroup.TONE
+    PhotoLevelControl.CURVE, PhotoLevelControl.RGB_CURVES,
+    PhotoLevelControl.POSTERIZATION -> PhotoLevelGroup.TONE
 
     PhotoLevelControl.SATURATION, PhotoLevelControl.VIBRANCE,
     PhotoLevelControl.WARMTH, PhotoLevelControl.TINT,
@@ -23,7 +25,8 @@ internal fun photoLevelGroup(control: PhotoLevelControl): PhotoLevelGroup = when
 
     PhotoLevelControl.SHARPNESS, PhotoLevelControl.CLARITY,
     PhotoLevelControl.GLOW, PhotoLevelControl.VIGNETTE,
-    PhotoLevelControl.DISPERSION -> PhotoLevelGroup.DETAILS
+    PhotoLevelControl.DISPERSION, PhotoLevelControl.GRAIN,
+    PhotoLevelControl.DENOISE, PhotoLevelControl.NOISE -> PhotoLevelGroup.DETAILS
 }
 
 /** Every level control gets a distinctive pictogram instead of one Tune icon. */
@@ -46,6 +49,10 @@ internal fun photoLevelIcon(control: PhotoLevelControl): ImageVector = when (con
     PhotoLevelControl.GLOW -> Icons.Rounded.Flare
     PhotoLevelControl.VIGNETTE -> Icons.Rounded.FilterCenterFocus
     PhotoLevelControl.DISPERSION -> Icons.Rounded.BlurOn
+    PhotoLevelControl.POSTERIZATION -> Icons.Rounded.FilterBAndW
+    PhotoLevelControl.GRAIN -> Icons.Rounded.Grain
+    PhotoLevelControl.DENOISE -> Icons.Rounded.AutoFixHigh
+    PhotoLevelControl.NOISE -> Icons.Rounded.GraphicEq
 }
 
 /** HSL keeps the eight existing ranges and independently saved corrections. */
@@ -58,4 +65,16 @@ internal fun photoHslChannelColor(range: HslRange): Color = when (range) {
     HslRange.BLUE -> Color(0xFF4888D8)
     HslRange.PURPLE -> Color(0xFF9870D6)
     HslRange.MAGENTA -> Color(0xFFD86EAE)
+}
+
+/** Reset only the chosen creative effect; other tone and HSL edits are retained. */
+internal fun resetPhotoCreativeControl(
+    color: PhotoColorAdjustments, control: PhotoLevelControl,
+): PhotoColorAdjustments = when (control) {
+    PhotoLevelControl.POSTERIZATION -> color.copy(posterization = 0f)
+    PhotoLevelControl.GRAIN -> color.copy(grain = 0f)
+    PhotoLevelControl.DENOISE -> color.copy(denoise = 0f)
+    PhotoLevelControl.NOISE -> color.copy(noiseDegree = 0f,
+        noiseHighlights = 25f, noiseSize = 25f, noiseRoughness = 50f)
+    else -> color
 }
