@@ -185,7 +185,7 @@ internal fun EditorTextDialog(
                     else -> (maxHeight * .43f).coerceIn(256.dp, 370.dp)
                 }
                 val panelBg = Color(0xFF202127)
-                val accent = MaterialTheme.colorScheme.primary
+                val accent = textEditorAccent
                 Column(Modifier.fillMaxSize()) {
                     // Editing is an image-first workspace, not a second settings screen.
                     Row(Modifier.fillMaxWidth().height(62.dp).padding(horizontal = 12.dp),
