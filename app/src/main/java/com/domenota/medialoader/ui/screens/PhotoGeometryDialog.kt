@@ -5,6 +5,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -18,27 +20,50 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.data.editor.PhotoGeometry
 import com.domenota.medialoader.data.editor.PhotoGeometryMath
 import com.domenota.medialoader.data.editor.PhotoGeometryPoint
+import com.domenota.medialoader.ui.components.AppSlider as Slider
 import com.domenota.medialoader.ui.components.EditorWindow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 private enum class GeometryMode(val title: String) {
     STRAIGHTEN("Горизонт"), HORIZONTAL("Горизонтальная"),
     VERTICAL("Вертикальная"), FREE("Свободно")
 }
 private val geoAccent = Color(0xFFFFBD19)
+
+/** Geometry guides stay fixed; hit testing uses the original image rectangle. */
+internal fun geometryCornerHitIndex(
+    corners: List<PhotoGeometryPoint>, rect: PhotoCanvasRect,
+    touch: Offset, radiusPx: Float,
+): Int {
+    if (corners.size != 4 || rect.width <= 0f || rect.height <= 0f) return -1
+    val nearest = corners.indices.minByOrNull { index ->
+        val point = corners[index]
+        hypot(rect.x + rect.width * point.x - touch.x,
+            rect.y + rect.height * point.y - touch.y)
+    } ?: return -1
+    val point = corners[nearest]
+    return nearest.takeIf {
+        hypot(rect.x + rect.width * point.x - touch.x,
+            rect.y + rect.height * point.y - touch.y) <= radiusPx
+    } ?: -1
+}
 
 @Composable
 internal fun PhotoGeometryDialog(
@@ -53,6 +78,18 @@ internal fun PhotoGeometryDialog(
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var activeCorner by remember { mutableIntStateOf(-1) }
     var rendered by remember(source) { mutableStateOf<Bitmap?>(null) }
+    var renderedGeometry by remember(source) { mutableStateOf(initial) }
+    var reducedSource by remember(source) { mutableStateOf<Bitmap?>(null) }
+    val zoom = remember(source) { PhotoViewportState() }
+    val density = LocalDensity.current
+    val cornerHitRadius = with(density) { 76.dp.toPx() }
+    val transforms = rememberTransformableState { zoomChange, panChange, _ ->
+        val nextScale = (zoom.scale * zoomChange).coerceIn(1f, 5f)
+        val limits = photoPanLimits(viewport.width.toFloat(), viewport.height.toFloat(),
+            source.width, source.height, nextScale)
+        zoom.scale = nextScale
+        zoom.translation = clampPhotoPan(zoom.translation + panChange, limits)
+    }
     var undo by remember { mutableStateOf<List<PhotoGeometry>>(emptyList()) }
     var redo by remember { mutableStateOf<List<PhotoGeometry>>(emptyList()) }
     var beforeDrag by remember { mutableStateOf<PhotoGeometry?>(null) }
@@ -64,17 +101,40 @@ internal fun PhotoGeometryDialog(
         redo = emptyList()
         geometry = next
     }
-    LaunchedEffect(source, geometry) {
-        delay(75L)
+    // Render only a bounded preview while scrubbing: full source resolution is
+    // transformed once during final export, not on each finger movement.
+    LaunchedEffect(source) {
+        val preview = withContext(Dispatchers.Default) {
+            val longest = max(source.width, source.height)
+            if (longest <= 960) source else {
+                val scale = 960f / longest
+                Bitmap.createScaledBitmap(source,
+                    (source.width * scale).roundToInt().coerceAtLeast(1),
+                    (source.height * scale).roundToInt().coerceAtLeast(1), true)
+            }
+        }
+        reducedSource = preview
+    }
+    DisposableEffect(reducedSource) {
+        val owned = reducedSource
+        onDispose {
+            if (owned != null && owned !== source && !owned.isRecycled) owned.recycle()
+        }
+    }
+    LaunchedEffect(reducedSource, geometry) {
+        val input = reducedSource ?: return@LaunchedEffect
+        delay(32L)
         val next = withContext(Dispatchers.Default) {
-            PhotoGeometryMath.apply(source, geometry)
+            PhotoGeometryMath.apply(input, geometry)
         }
         rendered = next
+        renderedGeometry = geometry
     }
     DisposableEffect(rendered) {
         val owned = rendered
         onDispose {
-            if (owned !== source && owned != null && !owned.isRecycled) owned.recycle()
+            if (owned !== source && owned !== reducedSource &&
+                owned != null && !owned.isRecycled) owned.recycle()
         }
     }
 
@@ -104,10 +164,28 @@ internal fun PhotoGeometryDialog(
                     Text("Готово", color = if (geometry != initial) geoAccent else Color.Gray)
                 }
             }
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Image((rendered ?: source).asImageBitmap(), contentDescription = "Геометрия фотографии",
-                    contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                Canvas(Modifier.fillMaxSize().onSizeChanged { viewport = it }
+            Box(Modifier.fillMaxWidth().weight(1f)
+                .onSizeChanged {
+                    viewport = it
+                    zoom.translation = clampPhotoPan(zoom.translation,
+                        photoPanLimits(it.width.toFloat(), it.height.toFloat(),
+                            source.width, source.height, zoom.scale))
+                }
+                .transformable(transforms), contentAlignment = Alignment.Center) {
+                // Keep guides fixed and show immediate affine feedback while the
+                // reduced perspective bitmap is being calculated off the UI thread.
+                Image((rendered ?: reducedSource ?: source).asImageBitmap(),
+                    contentDescription = "Геометрия фотографии",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        scaleX = zoom.scale
+                        scaleY = zoom.scale
+                        translationX = zoom.translation.x
+                        translationY = zoom.translation.y
+                        rotationZ = geometry.straighten -
+                            (if (rendered != null) renderedGeometry.straighten else 0f)
+                    })
+                Canvas(Modifier.fillMaxSize()
                     .pointerInput(mode, viewport, source) {
                         if (mode != GeometryMode.FREE || viewport.width <= 0 ||
                             viewport.height <= 0) return@pointerInput
@@ -115,23 +193,16 @@ internal fun PhotoGeometryDialog(
                             viewport.height.toFloat(), source.width, source.height)
                         detectDragGestures(
                             onDragStart = { pos ->
-                                val corners = current.corners
-                                activeCorner = corners.indices.minByOrNull { index ->
-                                    val corner = corners[index]
-                                    hypot(rect.x + rect.width * corner.x - pos.x,
-                                        rect.y + rect.height * corner.y - pos.y)
-                                }?.takeIf { index ->
-                                    val corner = corners[index]
-                                    hypot(rect.x + rect.width * corner.x - pos.x,
-                                        rect.y + rect.height * corner.y - pos.y) < 65.dp.toPx()
-                                } ?: -1
+                                activeCorner = geometryCornerHitIndex(
+                                    current.corners, rect, pos, cornerHitRadius)
                                 beforeDrag = if (activeCorner >= 0) current else null
                             },
                             onDrag = { pointer, _ ->
-                                if (activeCorner >= 0 && rect.inside(
+                                if (activeCorner >= 0) {
+                                    // Drag outside the visible image clamps at its borders.
+                                    val at = rect.normalize(
                                         pointer.position.x.coerceIn(rect.x, rect.x + rect.width),
-                                        pointer.position.y.coerceIn(rect.y, rect.y + rect.height))) {
-                                    val at = rect.normalize(pointer.position.x, pointer.position.y)
+                                        pointer.position.y.coerceIn(rect.y, rect.y + rect.height))
                                     geometry = PhotoGeometryMath.moveCorner(current, activeCorner,
                                         PhotoGeometryPoint(at.x, at.y))
                                     pointer.consume()
@@ -192,7 +263,7 @@ internal fun PhotoGeometryDialog(
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)) {
                 if (mode == GeometryMode.FREE) {
-                    Text("Потяни углы рамки для коррекции перспективы",
+                    Text("Потяни углы рамки; двумя пальцами — масштаб и сдвиг",
                         color = Color.LightGray, fontSize = 12.sp)
                 } else {
                     val value = when (mode) {
@@ -235,6 +306,9 @@ internal fun PhotoGeometryDialog(
                     FilterChip(selected = mode == option, onClick = {
                         mode = option
                     }, label = { Text(option.title) })
+                }
+                IconButton(onClick = { zoom.reset() }) {
+                    Icon(Icons.Rounded.CenterFocusStrong, "Сбросить масштаб", tint = Color.White)
                 }
                 IconButton(onClick = { showGuides = !showGuides }) {
                     Icon(Icons.Rounded.GridOn, "Сетка", tint = Color.White)
