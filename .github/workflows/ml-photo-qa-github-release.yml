@@ -42,8 +42,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          apk="$RUNNER_TEMP/photo-qa/app-debug.apk"
-          asset="$apk#$RELEASE_ASSET"
+          mv "$RUNNER_TEMP/photo-qa/app-debug.apk" "$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
+          asset="$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
           **Тестовая ARM64-сборка MediaLoader 1.7.110 — фоторедактор, этапы 1–5.**
 
@@ -56,7 +56,7 @@ jobs:
           **Это QA APK, не финальный релиз.** Отдельный пакет `com.domenota.medialoader.hitmoz` устанавливается рядом с обычным приложением; подпись — Android Debug, а не DomEnota. Не предназначен для обновления производственной версии.
 
           Источник проверки: https://github.com/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN
-          SHA-256: `$EXPECTED_SHA256`
+          SHA-256: $EXPECTED_SHA256
           EOF
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
