@@ -89,6 +89,7 @@ internal fun PhotoDrawDialog(
     var tool by remember { mutableStateOf(DrawingTool.PEN) }
     var color by remember { mutableIntStateOf(AndroidColor.WHITE) }
     var thickness by remember { mutableFloatStateOf(.008f) }
+    val sizes = remember { mutableStateMapOf<DrawingTool, Float>() }
     var marks by remember(initial) { mutableStateOf(initial) }
     var selected by remember { mutableIntStateOf(-1) }
     var active by remember { mutableStateOf<List<PhotoPoint>>(emptyList()) }
@@ -226,7 +227,15 @@ internal fun PhotoDrawDialog(
                                     }
                                     DrawingTool.ERASER -> {
                                         if (active.isNotEmpty()) {
-                                            active = (active + point).take(900)
+                                            val previous = active.last()
+                                            if (previous != point) {
+                                                // Erase the *actual* path as it is painted: there is
+                                                // no second, stronger pass when the finger lifts.
+                                                marks = PhotoStrokeErase.apply(marks,
+                                                    listOf(previous, point), thickness,
+                                                    preview.width, preview.height)
+                                                active = (active + point).take(900)
+                                            }
                                             change.consume()
                                         }
                                     }
@@ -244,11 +253,10 @@ internal fun PhotoDrawDialog(
                             onDragEnd = {
                                 if (active.isNotEmpty() && tool.kind != null &&
                                     marks.size < PhotoDrawing.MAX_MARKS) {
-                                    marks = if (tool == DrawingTool.ERASER)
-                                        PhotoStrokeErase.apply(marks, active.take(900), thickness,
-                                            preview.width, preview.height)
-                                    else marks + PhotoMark(tool.kind!!, active.take(900),
-                                        color, thickness)
+                                    if (tool != DrawingTool.ERASER)
+                                        marks = marks + PhotoMark(tool.kind!!, active.take(900),
+                                            color, thickness.coerceIn(PhotoDrawing.MIN_BRUSH_THICKNESS,
+                                                PhotoDrawing.MAX_BRUSH_THICKNESS))
                                 }
                                 beforeGesture?.let(::push)
                                 beforeGesture = null
@@ -267,7 +275,8 @@ internal fun PhotoDrawDialog(
                         val save = canvas.save()
                         canvas.translate(rect.x, rect.y)
                         canvas.scale(rect.width / preview.width, rect.height / preview.height)
-                        val current = if (active.isNotEmpty() && tool.kind != null)
+                        val current = if (active.isNotEmpty() && tool.kind != null &&
+                            tool != DrawingTool.ERASER)
                             marks + PhotoMark(tool.kind!!, active.take(900), color, thickness)
                             else marks
                         PhotoDrawing.draw(canvas, preview.width, preview.height, current)
@@ -311,6 +320,7 @@ internal fun PhotoDrawDialog(
                         AppSlider(thickness.coerceIn(PhotoDrawing.MIN_BRUSH_THICKNESS,
                             maximumThickness), { next ->
                             thickness = next
+                            sizes[tool] = next
                             if (selected in marks.indices) {
                                 if (thicknessBefore == null) thicknessBefore = marks
                                 val updated = marks.toMutableList()
@@ -394,7 +404,15 @@ internal fun PhotoDrawDialog(
                         Surface(
                             onClick = {
                                 if (tool == option) panelOpen = !panelOpen
-                                else { tool = option; panelOpen = false }
+                                else {
+                                    sizes[tool] = thickness
+                                    tool = option
+                                    val maximum = if (option == DrawingTool.ERASER)
+                                        PhotoDrawing.MAX_ERASER_THICKNESS else PhotoDrawing.MAX_BRUSH_THICKNESS
+                                    thickness = (sizes[option] ?: .008f).coerceIn(
+                                        PhotoDrawing.MIN_BRUSH_THICKNESS, maximum)
+                                    panelOpen = false
+                                }
                                 paletteOpen = false
                                 selected = -1
                             }, shape = RoundedCornerShape(14.dp),
