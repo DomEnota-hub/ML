@@ -13,6 +13,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -47,16 +48,17 @@ import kotlin.math.roundToInt
 private data class PhotoSourceInfo(val width: Int, val height: Int, val preview: Bitmap)
 
 private enum class PhotoWorkspaceTab(val title: String) {
-    CROP("Обрезка"), LEVELS("Уровни"), HSL("HSL"), EFFECTS("Эффекты"),
+    CROP("Обрезка"), LEVELS("Уровни"), EFFECTS("Эффекты"),
     TEXT("Надпись"), WATERMARK("Водяной знак"), AI("AI")
 }
-private enum class PhotoLevelControl(val title: String) {
+internal enum class PhotoLevelControl(val title: String) {
     EXPOSURE("Выдержка"), BRIGHTNESS("Яркость"), CONTRAST("Контраст"),
     SATURATION("Насыщенность"), VIBRANCE("Красочность"),
     WARMTH("Теплота"), TINT("Оттенок"),
     SHADOWS("Тени"), HIGHLIGHTS("Светлые участки"),
     BLACK_POINT("Точка чёрного"), CURVE("Гамма"),
-    SHARPNESS("Резкость"), CLARITY("Чёткость"), RGB_CURVES("Кривые RGB")
+    SHARPNESS("Резкость"), CLARITY("Чёткость"), RGB_CURVES("Кривые RGB"),
+    HSL("HSL"), GLOW("Свечение"), VIGNETTE("Виньетка"), DISPERSION("Дисперсия")
 }
 
 private enum class PhotoHslControl(val title: String) {
@@ -583,7 +585,7 @@ private fun PhotoWorkspaceTools(
     onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
     var effectCategory by remember { mutableStateOf(PhotoEffectCategory.POPULAR) }
-    var effectParameter by remember { mutableStateOf("preset") }
+    var levelGroup by remember { mutableStateOf(PhotoLevelGroup.TONE) }
     val favoritesContext = LocalContext.current
     val favoriteStorage = remember(favoritesContext) {
         favoritesContext.getSharedPreferences("ml_filter_favorites", Context.MODE_PRIVATE)
@@ -596,8 +598,8 @@ private fun PhotoWorkspaceTools(
     // appears only when the user selects a parameter. No empty 188/242dp tray.
     val hasParameters = when (tab) {
         PhotoWorkspaceTab.CROP -> cropTool == "ratio"
-        PhotoWorkspaceTab.LEVELS, PhotoWorkspaceTab.HSL,
-        PhotoWorkspaceTab.EFFECTS, PhotoWorkspaceTab.WATERMARK -> true
+        PhotoWorkspaceTab.LEVELS, PhotoWorkspaceTab.EFFECTS,
+        PhotoWorkspaceTab.WATERMARK -> true
         else -> false
     }
     Column(Modifier.fillMaxWidth().background(Color(0xFF101012)).animateContentSize()) {
@@ -609,13 +611,7 @@ private fun PhotoWorkspaceTools(
                     Text(when (tab) {
                         PhotoWorkspaceTab.CROP -> "Соотношение сторон"
                         PhotoWorkspaceTab.LEVELS -> activeLevel.title
-                        PhotoWorkspaceTab.HSL -> activeHslRange.label + " · " + activeHslControl.title
-                        PhotoWorkspaceTab.EFFECTS -> when (effectParameter) {
-                            "glow" -> "Свечение"
-                            "vignette" -> "Виньетка"
-                            "dispersion" -> "Дисперсия"
-                            else -> "Интенсивность · " + edit.color.effect.label
-                        }
+                        PhotoWorkspaceTab.EFFECTS -> "Интенсивность · " + edit.color.effect.label
                         PhotoWorkspaceTab.WATERMARK -> "Параметры водяного знака"
                         else -> ""
                     }, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -625,12 +621,15 @@ private fun PhotoWorkspaceTools(
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(when (tab) {
-                    PhotoWorkspaceTab.HSL -> 108.dp
-                    PhotoWorkspaceTab.LEVELS ->
-                        if (activeLevel == PhotoLevelControl.RGB_CURVES) 282.dp else 64.dp
+                    PhotoWorkspaceTab.LEVELS -> when (activeLevel) {
+                        PhotoLevelControl.RGB_CURVES -> 282.dp
+                        PhotoLevelControl.HSL -> 168.dp
+                        PhotoLevelControl.GLOW, PhotoLevelControl.VIGNETTE,
+                        PhotoLevelControl.DISPERSION -> 112.dp
+                        else -> 64.dp
+                    }
                     PhotoWorkspaceTab.WATERMARK -> 82.dp
-                    PhotoWorkspaceTab.EFFECTS ->
-                        if (effectParameter == "preset") 56.dp else 104.dp
+                    PhotoWorkspaceTab.EFFECTS -> 56.dp
                     else -> 64.dp
                 }), contentAlignment = Alignment.Center) {
                     when (tab) {
