@@ -127,7 +127,9 @@ internal fun CompactTextSlider(
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             fun update(x: Float) {
-                val fraction = (x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                val inset = 8.dp.toPx()
+                val usable = (size.width - inset * 2f).coerceAtLeast(1f)
+                val fraction = ((x - inset) / usable).coerceIn(0f, 1f)
                 val next = valueRange.start +
                     fraction * (valueRange.endInclusive - valueRange.start)
                 latestChange(next)
