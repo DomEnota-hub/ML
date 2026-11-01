@@ -286,10 +286,13 @@ internal fun PhotoGeometryDialog(
                         GeometryMode.FREE -> 0f
                     }
                     val range = if (mode == GeometryMode.STRAIGHTEN) -45f..45f else -50f..50f
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically) {
                         Text(if (mode == GeometryMode.STRAIGHTEN) "Угол" else "Перспектива",
                             color = Color.LightGray, fontSize = 12.sp)
-                        PhotoGeometryRuler(value = value, valueRange = range,
+                        Text("%.1f°".format(value), fontSize = 12.sp, color = Color.White)
+                    }
+                    PhotoGeometryRuler(value = value, valueRange = range,
                             onValueChange = { n ->
                                 if (beforeDrag == null) beforeDrag = geometry
                                 geometry = when (mode) {
@@ -306,11 +309,7 @@ internal fun PhotoGeometryDialog(
                                     }
                                 }
                                 beforeDrag = null
-                            }, modifier = Modifier.weight(1f)
-                                .padding(horizontal = 8.dp))
-                        Text("%.1f°".format(value),
-                            fontSize = 12.sp, color = Color.White)
-                    }
+                            }, modifier = Modifier.fillMaxWidth())
                 }
             }
             Row(Modifier.fillMaxWidth().height(70.dp).horizontalScroll(rememberScrollState())
