@@ -21,11 +21,11 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
-    onValueChangeFinished: (() -> Unit)? = null) {
+    onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0) {
     val color = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f)
     val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
     Slider(value = value, onValueChange = onValueChange, modifier = modifier, enabled = enabled,
-        valueRange = valueRange, onValueChangeFinished = onValueChangeFinished,
+        valueRange = valueRange, onValueChangeFinished = onValueChangeFinished, steps = steps,
         thumb = { Box(Modifier.size(20.dp).background(color, CircleShape)) },
         track = { state ->
             Canvas(Modifier.fillMaxWidth().height(4.dp)) {

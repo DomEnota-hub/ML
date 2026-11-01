@@ -1,0 +1,108 @@
+name: Publish MediaLoader Photo QA APK as GitHub prerelease
+on:
+  push:
+    branches:
+      - integration/ml-photo-5-stages-arm64-20261101
+    paths:
+      - .github/workflows/ml-photo-qa-github-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ml-photo-qa-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: "41339368137"
+      SOURCE_NAME: "ML-1.7.110-Round2-Refined-ARM64-QA"
+      SOURCE_SHA: "6a19508747b375bc5d047395b272b0bb85259344"
+      EXPECTED_SHA256: "f9ca016845cecd1fbbfdd1917813507517469660cb1e527e5e5e454c2e60c2b0"
+      RELEASE_TAG: "qa-round2-1.7.111-gallery-palette-20261101"
+      RELEASE_ASSET: "MediaLoader-1.7.111-GalleryPalette-ARM64-QA.apk"
+    steps:
+      - name: Download verified QA APK from successful integration workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/photo-qa"
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "$SOURCE_NAME" --dir "$RUNNER_TEMP/photo-qa"
+          test -s "$RUNNER_TEMP/photo-qa/app-debug.apk"
+          echo "$EXPECTED_SHA256  $RUNNER_TEMP/photo-qa/app-debug.apk" | sha256sum --check --status
+          echo "QA artifact SHA-256 verified"
+      - name: Publish downloadable GitHub prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "$RUNNER_TEMP/photo-qa/app-debug.apk" "$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
+          asset="$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          **MediaLoader 1.7.111 — QA нижней панели галереи и цветов настроек.**
+
+          - Исправлена корневая причина непрозрачной нижней полосы: общий Scaffold больше не резервирует bottomBar на главной странице галереи.
+          - «Медиа / Альбомы» располагается поверх сетки, а изображения продолжаются под системной навигационной панелью Android.
+          - Нижний запас прокрутки определяется фактической высотой переключателя и аудио мини-проигрывателя, последний ряд можно поднять выше кнопок.
+          - Проверены в коде сценарии главной галереи, альбомов, выбора файлов, активного мини-проигрывателя и отдельная навигация музыки/загрузчика.
+          - Все 28 пунктов настроек получили неповторяющиеся пары цветов значка/подложки в обеих темах, с контрастом не ниже 4.5:1.
+          - «Режим загрузки Instagram»: стрелки переключения SwapHoriz, коралловый оттенок; фирменные значки сервисов сохранены.
+          - Глобальную замену фиолетовой темы на жёлтую **не выполняли** — это отдельная будущая задача.
+          - Визуальный результат требует ручной проверки на реальном телефоне; CI подтверждает код, но не сравнивает скриншоты.
+          - Android unit-тесты, Lint, ARM64 сборка, подпись debug и проверка ABI: SUCCESS.
+          
+          **Это тестовый APK, не подписанный релиз DomEnota.** Пакет com.domenota.medialoader.hitmoz устанавливается отдельно.
+          
+          Источник проверки: https://github.com/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN
+          SHA-256: $EXPECTED_SHA256
+          EOF
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$asset" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" --title "MediaLoader 1.7.111 · Gallery & Settings QA · ARM64" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq ".assets[] | select(.name == \"$RELEASE_ASSET\") | .name" \
+            | grep -Fx "$RELEASE_ASSET"
+      - name: Verify downloaded GitHub Release asset before deleting older QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/download-verify"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$RELEASE_ASSET" --dir "$RUNNER_TEMP/download-verify"
+          echo "$EXPECTED_SHA256  $RUNNER_TEMP/download-verify/$RELEASE_ASSET" |
+            sha256sum --check --status
+          echo "Published QA asset SHA-256 verified; old QA releases may be rotated"
+      - name: Remove duplicate APK asset from earlier failed publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | grep -Fx "app-debug.apk"; then
+            gh release delete-asset "$RELEASE_TAG" "app-debug.apk" \
+              --repo "$GITHUB_REPOSITORY" --yes
+          fi
+      - name: Remove only older QA prereleases after verified new upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease and ((.tagName | startswith("qa-photo-")) or (.tagName | startswith("qa-round2-")))) | .tagName' \
+            > "$RUNNER_TEMP/old-qa-tags.txt"
+          while IFS= read -r old; do
+            if [[ -n "$old" && "$old" != "$RELEASE_TAG" ]]; then
+              gh release delete "$old" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            fi
+          done < "$RUNNER_TEMP/old-qa-tags.txt"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url

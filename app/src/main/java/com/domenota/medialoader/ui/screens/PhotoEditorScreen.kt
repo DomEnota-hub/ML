@@ -13,6 +13,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -47,16 +48,19 @@ import kotlin.math.roundToInt
 private data class PhotoSourceInfo(val width: Int, val height: Int, val preview: Bitmap)
 
 private enum class PhotoWorkspaceTab(val title: String) {
-    CROP("Обрезка"), LEVELS("Уровни"), HSL("HSL"), EFFECTS("Эффекты"),
+    CROP("Обрезка"), LEVELS("Уровни"), EFFECTS("Эффекты"),
     TEXT("Надпись"), WATERMARK("Водяной знак"), AI("AI")
 }
-private enum class PhotoLevelControl(val title: String) {
+internal enum class PhotoLevelControl(val title: String) {
     EXPOSURE("Выдержка"), BRIGHTNESS("Яркость"), CONTRAST("Контраст"),
     SATURATION("Насыщенность"), VIBRANCE("Красочность"),
     WARMTH("Теплота"), TINT("Оттенок"),
     SHADOWS("Тени"), HIGHLIGHTS("Светлые участки"),
     BLACK_POINT("Точка чёрного"), CURVE("Гамма"),
-    SHARPNESS("Резкость"), CLARITY("Чёткость"), RGB_CURVES("Кривые RGB")
+    SHARPNESS("Резкость"), CLARITY("Чёткость"), RGB_CURVES("Кривые RGB"),
+    HSL("HSL"), GLOW("Свечение"), VIGNETTE("Виньетка"), DISPERSION("Дисперсия"),
+    POSTERIZATION("Постеризация"), GRAIN("Зернистость"),
+    DENOISE("Устранение шума"), NOISE("Шум")
 }
 
 private enum class PhotoHslControl(val title: String) {
@@ -559,6 +563,7 @@ private fun PhotoWorkspacePreview(
                 preset = edit.cropPreset, onCropChange = onCropChange,
                 modifier = Modifier.fillMaxSize(),
                 showFrame = !showOriginal,
+                precisePhotoHandles = true,
                 onCompareOriginalChange = { showOriginal = it },
                 onCropChangeFinished = onCropFinished,
             )
@@ -583,7 +588,7 @@ private fun PhotoWorkspaceTools(
     onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
     var effectCategory by remember { mutableStateOf(PhotoEffectCategory.POPULAR) }
-    var effectParameter by remember { mutableStateOf("preset") }
+    var levelGroup by remember { mutableStateOf(PhotoLevelGroup.TONE) }
     val favoritesContext = LocalContext.current
     val favoriteStorage = remember(favoritesContext) {
         favoritesContext.getSharedPreferences("ml_filter_favorites", Context.MODE_PRIVATE)
@@ -596,8 +601,8 @@ private fun PhotoWorkspaceTools(
     // appears only when the user selects a parameter. No empty 188/242dp tray.
     val hasParameters = when (tab) {
         PhotoWorkspaceTab.CROP -> cropTool == "ratio"
-        PhotoWorkspaceTab.LEVELS, PhotoWorkspaceTab.HSL,
-        PhotoWorkspaceTab.EFFECTS, PhotoWorkspaceTab.WATERMARK -> true
+        PhotoWorkspaceTab.LEVELS, PhotoWorkspaceTab.EFFECTS,
+        PhotoWorkspaceTab.WATERMARK -> true
         else -> false
     }
     Column(Modifier.fillMaxWidth().background(Color(0xFF101012)).animateContentSize()) {
@@ -609,28 +614,38 @@ private fun PhotoWorkspaceTools(
                     Text(when (tab) {
                         PhotoWorkspaceTab.CROP -> "Соотношение сторон"
                         PhotoWorkspaceTab.LEVELS -> activeLevel.title
-                        PhotoWorkspaceTab.HSL -> activeHslRange.label + " · " + activeHslControl.title
-                        PhotoWorkspaceTab.EFFECTS -> when (effectParameter) {
-                            "glow" -> "Свечение"
-                            "vignette" -> "Виньетка"
-                            "dispersion" -> "Дисперсия"
-                            else -> "Интенсивность · " + edit.color.effect.label
-                        }
+                        PhotoWorkspaceTab.EFFECTS -> "Интенсивность · " + edit.color.effect.label
                         PhotoWorkspaceTab.WATERMARK -> "Параметры водяного знака"
                         else -> ""
                     }, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    if (tab == PhotoWorkspaceTab.LEVELS &&
+                        activeLevel in setOf(PhotoLevelControl.POSTERIZATION,
+                            PhotoLevelControl.GRAIN, PhotoLevelControl.DENOISE,
+                            PhotoLevelControl.NOISE)) {
+                        IconButton(onClick = {
+                            onEdit(edit.copy(color = resetPhotoCreativeControl(edit.color, activeLevel)))
+                        }, modifier = Modifier.size(32.dp),
+                            enabled = !locked && info != null) {
+                            Icon(Icons.Rounded.RestartAlt, "Сбросить параметр",
+                                tint = Color.LightGray, modifier = Modifier.size(20.dp))
+                        }
+                    }
                     IconButton(onClick = { onPanelOpen(false) }, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Rounded.KeyboardArrowDown, "Свернуть параметры",
                             tint = Color.LightGray, modifier = Modifier.size(22.dp))
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(when (tab) {
-                    PhotoWorkspaceTab.HSL -> 108.dp
-                    PhotoWorkspaceTab.LEVELS ->
-                        if (activeLevel == PhotoLevelControl.RGB_CURVES) 282.dp else 64.dp
+                    PhotoWorkspaceTab.LEVELS -> when (activeLevel) {
+                        PhotoLevelControl.RGB_CURVES -> 282.dp
+                        PhotoLevelControl.HSL -> 168.dp
+                        PhotoLevelControl.NOISE -> 232.dp
+                        PhotoLevelControl.GLOW, PhotoLevelControl.VIGNETTE,
+                        PhotoLevelControl.DISPERSION -> 112.dp
+                        else -> 64.dp
+                    }
                     PhotoWorkspaceTab.WATERMARK -> 82.dp
-                    PhotoWorkspaceTab.EFFECTS ->
-                        if (effectParameter == "preset") 56.dp else 104.dp
+                    PhotoWorkspaceTab.EFFECTS -> 56.dp
                     else -> 64.dp
                 }), contentAlignment = Alignment.Center) {
                     when (tab) {
@@ -667,6 +682,121 @@ private fun PhotoWorkspaceTools(
                                 onEdit(edit.copy(color = edit.color.copy(rgbCurves = curves)))
                             },
                         )
+                    } else if (activeLevel == PhotoLevelControl.HSL) {
+                    val correction = edit.color.hsl[activeHslRange] ?: HslCorrection()
+                    val value = when (activeHslControl) {
+                        PhotoHslControl.HUE -> correction.hue
+                        PhotoHslControl.SATURATION -> correction.saturation
+                        PhotoHslControl.LIGHTNESS -> correction.lightness
+                    }
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            HslRange.entries.forEach { range ->
+                                FilterChip(selected = activeHslRange == range,
+                                    enabled = !locked && info != null,
+                                    onClick = { onHslRange(range) },
+                                    leadingIcon = {
+                                        Box(Modifier.size(14.dp).background(
+                                            photoHslChannelColor(range), CircleShape))
+                                    },
+                                    label = { Text(range.label, fontSize = 11.sp) })
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            PhotoHslControl.entries.forEach { control ->
+                                FilterChip(selected = activeHslControl == control,
+                                    enabled = !locked && info != null,
+                                    onClick = { onHslControl(control) },
+                                    label = { Text(control.title, fontSize = 11.sp) })
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(value.roundToInt().toString(), fontSize = 11.sp,
+                                color = Color.LightGray, modifier = Modifier.width(34.dp))
+                            Slider(value = value, valueRange = -100f..100f,
+                                onValueChange = { next ->
+                                    val updated = when(activeHslControl) {
+                                        PhotoHslControl.HUE -> correction.copy(hue = next)
+                                        PhotoHslControl.SATURATION -> correction.copy(saturation = next)
+                                        PhotoHslControl.LIGHTNESS -> correction.copy(lightness = next)
+                                    }
+                                    val nextHsl = edit.color.hsl.toMutableMap()
+                                    if (updated.isNeutral()) nextHsl.remove(activeHslRange)
+                                    else nextHsl[activeHslRange] = updated
+                                    onLiveEdit(edit.copy(color = edit.color.copy(hsl = nextHsl)))
+                                }, onValueChangeFinished = onEditFinished,
+                                enabled = !locked && info != null,
+                                modifier = Modifier.weight(1f))
+                        }
+                    }
+                    } else if (activeLevel == PhotoLevelControl.NOISE) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            PhotoNoiseParameterRow("Степень", edit.color.noiseDegree,
+                                enabled = !locked && info != null,
+                                onChange = { onLiveEdit(edit.copy(color =
+                                    edit.color.copy(noiseDegree = it))) }, onEditFinished)
+                            PhotoNoiseParameterRow("Светлые участки", edit.color.noiseHighlights,
+                                enabled = !locked && info != null,
+                                onChange = { onLiveEdit(edit.copy(color =
+                                    edit.color.copy(noiseHighlights = it))) }, onEditFinished)
+                            PhotoNoiseParameterRow("Размер", edit.color.noiseSize,
+                                enabled = !locked && info != null,
+                                onChange = { onLiveEdit(edit.copy(color =
+                                    edit.color.copy(noiseSize = it))) }, onEditFinished)
+                            PhotoNoiseParameterRow("Грубость", edit.color.noiseRoughness,
+                                enabled = !locked && info != null,
+                                onChange = { onLiveEdit(edit.copy(color =
+                                    edit.color.copy(noiseRoughness = it))) }, onEditFinished)
+                        }
+                    } else if (activeLevel in setOf(
+                        PhotoLevelControl.GLOW, PhotoLevelControl.VIGNETTE,
+                        PhotoLevelControl.DISPERSION)) {
+                        val strength = when (activeLevel) {
+                            PhotoLevelControl.GLOW -> edit.color.glow
+                            PhotoLevelControl.VIGNETTE -> edit.color.vignette
+                            else -> edit.color.dispersion
+                        }
+                        val size = when (activeLevel) {
+                            PhotoLevelControl.GLOW -> edit.color.glowSize
+                            PhotoLevelControl.VIGNETTE -> edit.color.vignetteSize
+                            else -> edit.color.dispersionSize
+                        }
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Сила", fontSize = 12.sp, color = Color.LightGray)
+                                Slider(strength, onValueChange = { next ->
+                                    val color = when (activeLevel) {
+                                        PhotoLevelControl.GLOW -> edit.color.copy(glow = next)
+                                        PhotoLevelControl.VIGNETTE -> edit.color.copy(vignette = next)
+                                        else -> edit.color.copy(dispersion = next)
+                                    }
+                                    onLiveEdit(edit.copy(color = color))
+                                }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
+                                    enabled = !locked && info != null, valueRange = 0f..100f,
+                                    onValueChangeFinished = onEditFinished)
+                                Text(strength.roundToInt().toString(), color = Color.White, fontSize = 12.sp)
+                            }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Размер", fontSize = 11.sp, color = Color.LightGray)
+                                Slider(size, onValueChange = { next ->
+                                    val color = when (activeLevel) {
+                                        PhotoLevelControl.GLOW -> edit.color.copy(glowSize = next)
+                                        PhotoLevelControl.VIGNETTE -> edit.color.copy(vignetteSize = next)
+                                        else -> edit.color.copy(dispersionSize = next)
+                                    }
+                                    onLiveEdit(edit.copy(color = color))
+                                }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
+                                    enabled = !locked && info != null, valueRange = 0f..100f,
+                                    onValueChangeFinished = onEditFinished)
+                                Text(size.roundToInt().toString(), color = Color.White, fontSize = 11.sp)
+                            }
+                        }
                     } else {
                     val value = when(activeLevel) {
                         PhotoLevelControl.EXPOSURE -> edit.color.exposure
@@ -682,7 +812,10 @@ private fun PhotoWorkspaceTools(
                         PhotoLevelControl.CURVE -> edit.color.curve
                         PhotoLevelControl.SHARPNESS -> edit.color.sharpness
                         PhotoLevelControl.CLARITY -> edit.color.clarity
-                        PhotoLevelControl.RGB_CURVES -> 0f // handled by graph above
+                        PhotoLevelControl.POSTERIZATION -> edit.color.posterization
+                        PhotoLevelControl.GRAIN -> edit.color.grain
+                        PhotoLevelControl.DENOISE -> edit.color.denoise
+                        else -> 0f // Curves, HSL and fine-tuning have their own panels
                     }
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -705,101 +838,33 @@ private fun PhotoWorkspaceTools(
                                     PhotoLevelControl.CURVE -> edit.color.copy(curve = next)
                                     PhotoLevelControl.SHARPNESS -> edit.color.copy(sharpness = next)
                                     PhotoLevelControl.CLARITY -> edit.color.copy(clarity = next)
-                                    PhotoLevelControl.RGB_CURVES -> edit.color
+                                    PhotoLevelControl.POSTERIZATION -> edit.color.copy(posterization = next)
+                                    PhotoLevelControl.GRAIN -> edit.color.copy(grain = next)
+                                    PhotoLevelControl.DENOISE -> edit.color.copy(denoise = next)
+                                    else -> edit.color
                                 }
                                 onLiveEdit(edit.copy(color = color))
                             },
                             onValueChangeFinished = onEditFinished,
-                            valueRange = -100f..100f, enabled = !locked && info != null,
+                            valueRange = if (activeLevel in setOf(
+                                PhotoLevelControl.POSTERIZATION, PhotoLevelControl.GRAIN,
+                                PhotoLevelControl.DENOISE)) 0f..100f else -100f..100f,
+                            enabled = !locked && info != null,
                         )
                     }
                     }
                 }
-                PhotoWorkspaceTab.HSL -> {
-                    val correction = edit.color.hsl[activeHslRange] ?: HslCorrection()
-                    val value = when (activeHslControl) {
-                        PhotoHslControl.HUE -> correction.hue
-                        PhotoHslControl.SATURATION -> correction.saturation
-                        PhotoHslControl.LIGHTNESS -> correction.lightness
-                    }
-                    Column(Modifier.fillMaxWidth()) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            HslRange.entries.forEach { range ->
-                                FilterChip(selected = activeHslRange == range,
-                                    enabled = !locked && info != null,
-                                    onClick = { onHslRange(range) },
-                                    label = { Text(range.label, fontSize = 11.sp) })
-                            }
-                        }
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Text(value.roundToInt().toString(), fontSize = 11.sp,
-                                color = Color.LightGray, modifier = Modifier.width(32.dp))
-                            Slider(value = value, valueRange = -100f..100f,
-                                onValueChange = { next ->
-                                    val updated = when(activeHslControl) {
-                                        PhotoHslControl.HUE -> correction.copy(hue = next)
-                                        PhotoHslControl.SATURATION -> correction.copy(saturation = next)
-                                        PhotoHslControl.LIGHTNESS -> correction.copy(lightness = next)
-                                    }
-                                    val nextHsl = edit.color.hsl.toMutableMap()
-                                    if (updated.isNeutral()) nextHsl.remove(activeHslRange)
-                                    else nextHsl[activeHslRange] = updated
-                                    onLiveEdit(edit.copy(color = edit.color.copy(hsl = nextHsl)))
-                                }, onValueChangeFinished = onEditFinished,
-                                enabled = !locked && info != null,
-                                modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
                 PhotoWorkspaceTab.EFFECTS -> {
-                    val strength = when (effectParameter) {
-                        "vignette" -> edit.color.vignette
-                        "glow" -> edit.color.glow
-                        "dispersion" -> edit.color.dispersion
-                        else -> edit.color.effectStrength
-                    }
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Сила", fontSize = 12.sp, color = Color.LightGray)
-                            Slider(strength, onValueChange = { next ->
-                                val color = when (effectParameter) {
-                                    "vignette" -> edit.color.copy(vignette = next)
-                                    "glow" -> edit.color.copy(glow = next)
-                                    "dispersion" -> edit.color.copy(dispersion = next)
-                                    else -> edit.color.copy(effectStrength = next)
-                                }
-                                onLiveEdit(edit.copy(color = color))
-                            }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
-                                enabled = !locked && info != null, valueRange = 0f..100f,
-                                onValueChangeFinished = onEditFinished)
-                            Text(strength.roundToInt().toString(), color = Color.White,
-                                fontSize = 12.sp)
-                        }
-                        if (effectParameter != "preset") {
-                            val size = when (effectParameter) {
-                                "glow" -> edit.color.glowSize
-                                "vignette" -> edit.color.vignetteSize
-                                else -> edit.color.dispersionSize
-                            }
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Размер", fontSize = 11.sp, color = Color.LightGray)
-                                Slider(size, onValueChange = { next ->
-                                    val color = when (effectParameter) {
-                                        "glow" -> edit.color.copy(glowSize = next)
-                                        "vignette" -> edit.color.copy(vignetteSize = next)
-                                        else -> edit.color.copy(dispersionSize = next)
-                                    }
-                                    onLiveEdit(edit.copy(color = color))
-                                }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
-                                    enabled = !locked && info != null, valueRange = 0f..100f,
-                                    onValueChangeFinished = onEditFinished)
-                                Text(size.roundToInt().toString(), color = Color.White,
-                                    fontSize = 11.sp)
-                            }
-                        }
+                    val strength = edit.color.effectStrength
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("Сила", fontSize = 12.sp, color = Color.LightGray)
+                        Slider(strength, onValueChange = { next ->
+                            onLiveEdit(edit.copy(color = edit.color.copy(effectStrength = next)))
+                        }, modifier = Modifier.weight(1f).padding(horizontal = 7.dp),
+                            enabled = !locked && info != null, valueRange = 0f..100f,
+                            onValueChangeFinished = onEditFinished)
+                        Text(strength.roundToInt().toString(), color = Color.White, fontSize = 12.sp)
                     }
                 }
                 PhotoWorkspaceTab.TEXT ->
@@ -846,6 +911,19 @@ private fun PhotoWorkspaceTools(
                 }
             }
         }
+        if (tab == PhotoWorkspaceTab.LEVELS) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                PhotoLevelGroup.entries.forEach { group ->
+                    FilterChip(selected = levelGroup == group,
+                        onClick = { levelGroup = group; onPanelOpen(false) },
+                        label = { Text(group.title, fontSize = 12.sp) },
+                        enabled = !locked)
+                }
+            }
+        }
         Row(Modifier.fillMaxWidth().height(68.dp).horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -862,26 +940,13 @@ private fun PhotoWorkspaceTools(
                     PhotoToolCard("Вертикально", Icons.Rounded.FlipToFront, false,
                         { onCropTool("vertical"); onEdit(edit.copy(mirrorVertical = !edit.mirrorVertical)) }, !locked)
                 }
-                PhotoWorkspaceTab.LEVELS -> PhotoLevelControl.entries.forEach { control ->
-                    PhotoToolCard(control.title, Icons.Rounded.Tune, activeLevel == control,
-                        { onActiveLevel(control) }, !locked)
-                }
-                PhotoWorkspaceTab.HSL -> PhotoHslControl.entries.forEach { control ->
-                    PhotoToolCard(control.title, Icons.Rounded.Palette,
-                        activeHslControl == control, { onHslControl(control) }, !locked)
+                PhotoWorkspaceTab.LEVELS -> PhotoLevelControl.entries
+                    .filter { photoLevelGroup(it) == levelGroup }.forEach { control ->
+                    PhotoToolCard(control.title, photoLevelIcon(control),
+                        activeLevel == control && panelOpen,
+                        { onActiveLevel(control) }, !locked && info != null)
                 }
                 PhotoWorkspaceTab.EFFECTS -> {
-                    PhotoToolCard("Мозаика", Icons.Rounded.GridOn, false,
-                        onMosaic, !locked && info != null)
-                    PhotoToolCard("Свечение", Icons.Rounded.Flare,
-                        effectParameter == "glow" && panelOpen,
-                        { effectParameter = "glow"; onPanelOpen(true) }, !locked && info != null)
-                    PhotoToolCard("Виньетка", Icons.Rounded.FilterCenterFocus,
-                        effectParameter == "vignette" && panelOpen,
-                        { effectParameter = "vignette"; onPanelOpen(true) }, !locked && info != null)
-                    PhotoToolCard("Дисперсия", Icons.Rounded.BlurOn,
-                        effectParameter == "dispersion" && panelOpen,
-                        { effectParameter = "dispersion"; onPanelOpen(true) }, !locked && info != null)
                     val available = PhotoEffectCatalog.forCategory(effectCategory, favoriteEffects)
                     if (available.isEmpty()) Text("Здесь пока нет избранных фильтров",
                         fontSize = 12.sp, color = Color.LightGray)
@@ -897,7 +962,6 @@ private fun PhotoWorkspaceTools(
                                     favoriteEffects.map { it.name }.toSet()).apply()
                             },
                             onClick = {
-                                effectParameter = "preset"
                                 onEdit(edit.copy(color = edit.color.copy(effect = effect)))
                                 onPanelOpen(true)
                             })
@@ -908,6 +972,8 @@ private fun PhotoWorkspaceTools(
                         false, onText, !locked && info != null)
                     PhotoToolCard("Кисть и фигуры", Icons.Rounded.Brush,
                         false, onDraw, !locked && info != null)
+                    PhotoToolCard("Мозаика", Icons.Rounded.GridOn,
+                        false, onMosaic, !locked && info != null)
                 }
                 PhotoWorkspaceTab.WATERMARK -> {
                     PhotoToolCard("Графический знак", Icons.Rounded.AddPhotoAlternate,
@@ -944,7 +1010,7 @@ private fun PhotoWorkspaceTools(
                     icon = when (category) {
                         PhotoWorkspaceTab.CROP -> Icons.Rounded.Crop
                         PhotoWorkspaceTab.LEVELS -> Icons.Rounded.Tune
-                        PhotoWorkspaceTab.HSL -> Icons.Rounded.Palette
+
                         PhotoWorkspaceTab.EFFECTS -> Icons.Rounded.AutoAwesome
                         PhotoWorkspaceTab.TEXT -> Icons.Rounded.TextFields
                         PhotoWorkspaceTab.WATERMARK -> Icons.Rounded.BrandingWatermark
@@ -953,6 +1019,22 @@ private fun PhotoWorkspaceTools(
                     selected = tab == category, onClick = { onTab(category) })
             }
         }
+    }
+}
+
+@Composable
+private fun PhotoNoiseParameterRow(
+    title: String, value: Float, enabled: Boolean,
+    onChange: (Float) -> Unit, onEditFinished: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().height(51.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Color.LightGray, fontSize = 11.sp,
+            modifier = Modifier.width(105.dp), maxLines = 1)
+        Slider(value = value, onValueChange = onChange, valueRange = 0f..100f,
+            enabled = enabled, onValueChangeFinished = onEditFinished,
+            modifier = Modifier.weight(1f))
+        Text(value.roundToInt().toString(), color = Color.White,
+            fontSize = 11.sp, modifier = Modifier.width(30.dp))
     }
 }
 
