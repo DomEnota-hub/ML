@@ -258,7 +258,8 @@ internal fun EditorTextDialog(
                             }
                             selected?.takeIf { !selectSample && !pickColor && !playing && it.text.isNotBlank() &&
                                 (durationMs == null || it.visibleAt(position)) }?.let { layer ->
-                                TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom)
+                                TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom,
+                                    onTap = { expandedControls = true; textToolTab = "keyboard" })
                                 Text("${layer.rotation.roundToInt()}° · ${(layer.size * 100).roundToInt()}%",
                                     color = Color.White, style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.align(Alignment.TopStart)
