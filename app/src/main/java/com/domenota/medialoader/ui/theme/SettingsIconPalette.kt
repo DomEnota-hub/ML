@@ -14,7 +14,9 @@ enum class SettingIconTone {
     ACCOUNTS, DOWNLOAD, BULK, VK_COMMUNITY, EQUALIZER, MUSIC_SETTINGS, APPEARANCE,
     PURPLE, BLUE, AMBER, GREEN, RED, NEUTRAL, FOLDER, NOTIFICATIONS, INSTAGRAM,
     CLOSE_PICKER, MUSIC, RECOGNITION, RENAME, THEME, PLAYER,
-    TRASH, CLEAR_HISTORY, YTDLP, ABOUT, DIAGNOSTICS, LOG, INSTAGRAM_MODE;
+    TRASH, CLEAR_HISTORY, YTDLP, ABOUT, DIAGNOSTICS, LOG, INSTAGRAM_MODE,
+    BACKUP_AUTH, DOWNLOAD_FOLDER, QUALITY, VIDEO_THUMBNAIL, BUILTIN_PLAYER,
+    FILE_ACCESS, MEDIA_MANAGEMENT, ADVANCED_LOG;
 
     fun swatch(dark: Boolean): SettingsIconSwatch = when (this) {
         ACCOUNTS, PURPLE ->
@@ -92,6 +94,30 @@ enum class SettingIconTone {
         THEME ->
             if (dark) SettingsIconSwatch(Color(0xFFCD9BFF), Color(0xFF3D2851))
             else SettingsIconSwatch(Color(0xFF8746C4), Color(0xFFF1E5FF))
+        BACKUP_AUTH ->
+            if (dark) SettingsIconSwatch(Color(0xFFFFD58C), Color(0xFF493321))
+            else SettingsIconSwatch(Color(0xFF86550D), Color(0xFFFFF0CE))
+        DOWNLOAD_FOLDER ->
+            if (dark) SettingsIconSwatch(Color(0xFF54D6C2), Color(0xFF173F3A))
+            else SettingsIconSwatch(Color(0xFF006F61), Color(0xFFDBF7EE))
+        QUALITY ->
+            if (dark) SettingsIconSwatch(Color(0xFFE4A6FF), Color(0xFF402750))
+            else SettingsIconSwatch(Color(0xFF853D9B), Color(0xFFF6E4FF))
+        VIDEO_THUMBNAIL ->
+            if (dark) SettingsIconSwatch(Color(0xFFFF9CBB), Color(0xFF462633))
+            else SettingsIconSwatch(Color(0xFFA42B5B), Color(0xFFFFE1ED))
+        BUILTIN_PLAYER ->
+            if (dark) SettingsIconSwatch(Color(0xFF94C2FF), Color(0xFF263B4F))
+            else SettingsIconSwatch(Color(0xFF275F9B), Color(0xFFE1EEFF))
+        FILE_ACCESS ->
+            if (dark) SettingsIconSwatch(Color(0xFF50E0AD), Color(0xFF19473B))
+            else SettingsIconSwatch(Color(0xFF117451), Color(0xFFE2F7EC))
+        MEDIA_MANAGEMENT ->
+            if (dark) SettingsIconSwatch(Color(0xFFC4D6FF), Color(0xFF263955))
+            else SettingsIconSwatch(Color(0xFF3F5F95), Color(0xFFE8EEFE))
+        ADVANCED_LOG ->
+            if (dark) SettingsIconSwatch(Color(0xFFFFAB5D), Color(0xFF48311C))
+            else SettingsIconSwatch(Color(0xFF955617), Color(0xFFFFF0DA))
         NEUTRAL, ABOUT ->
             if (dark) SettingsIconSwatch(Color(0xFFB2BBD1), Color(0xFF2A303E))
             else SettingsIconSwatch(Color(0xFF515C73), Color(0xFFE9ECF3))
