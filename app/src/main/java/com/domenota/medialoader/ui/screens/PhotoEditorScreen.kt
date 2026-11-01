@@ -392,6 +392,9 @@ fun PhotoEditorScreen(
     }
 
     Scaffold(
+        // Parent app Scaffold already reserves system bars; the nested editor
+        // must not reserve a second bottom navigation inset.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = Color.Black,
         contentColor = Color.White,
         topBar = {
