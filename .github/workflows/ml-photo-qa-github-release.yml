@@ -1,0 +1,85 @@
+name: Publish MediaLoader Photo QA APK as GitHub prerelease
+on:
+  push:
+    branches:
+      - integration/ml-photo-5-stages-arm64-20261101
+    paths:
+      - .github/workflows/ml-photo-qa-github-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ml-photo-qa-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: "41285630652"
+      SOURCE_NAME: "ML-1.7.110-photo-stage5-ARM64-QA-3"
+      SOURCE_SHA: "4e94a8502e78cfe30e556630e72cf29955964dd1"
+      EXPECTED_SHA256: "5627951f83b0b00975fc964cc14f0981e48f89c75287be53b71e0586621063c3"
+      RELEASE_TAG: "qa-photo-1.7.110-stage5-20261101"
+      RELEASE_ASSET: "MediaLoader-1.7.110-Photo-Stage5-ARM64-QA.apk"
+    steps:
+      - name: Download verified QA APK from successful integration workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/photo-qa"
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "$SOURCE_NAME" --dir "$RUNNER_TEMP/photo-qa"
+          test -s "$RUNNER_TEMP/photo-qa/app-debug.apk"
+          echo "$EXPECTED_SHA256  $RUNNER_TEMP/photo-qa/app-debug.apk" | sha256sum --check --status
+          echo "QA artifact SHA-256 verified"
+      - name: Publish downloadable GitHub prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$RUNNER_TEMP/photo-qa/app-debug.apk"
+          asset="$apk#$RELEASE_ASSET"
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          **Тестовая ARM64-сборка MediaLoader 1.7.110 — фоторедактор, этапы 1–5.**
+
+          - Рисование: исправлен вылет при изменении толщины кисти.
+          - Геометрия: улучшены предпросмотр, масштабирование и захват углов.
+          - Уровни: новые группы, HSL, расположение эффектов и инструменты.
+          - Постеризация, зернистость, цифровой шум и шумоподавление.
+          - Полный CI: unit-тесты, Android Lint, ARM64-сборка и проверка ABI — SUCCESS.
+
+          **Это QA APK, не финальный релиз.** Отдельный пакет `com.domenota.medialoader.hitmoz` устанавливается рядом с обычным приложением; подпись — Android Debug, а не DomEnota. Не предназначен для обновления производственной версии.
+
+          Источник проверки: https://github.com/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN
+          SHA-256: `$EXPECTED_SHA256`
+          EOF
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$asset" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" --title "MediaLoader 1.7.110 · Photo QA · ARM64" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq ".assets[] | select(.name == \"$RELEASE_ASSET\") | .name" \
+            | grep -Fx "$RELEASE_ASSET"
+      - name: Remove only older photo QA prereleases after successful new upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease and (.tagName | startswith("qa-photo-"))) | .tagName' \
+            > "$RUNNER_TEMP/old-qa-tags.txt"
+          while IFS= read -r old; do
+            if [[ -n "$old" && "$old" != "$RELEASE_TAG" ]]; then
+              gh release delete "$old" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            fi
+          done < "$RUNNER_TEMP/old-qa-tags.txt"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
