@@ -60,6 +60,7 @@ fun GalleryModeScreen(
     onDetailChange: (Boolean) -> Unit = {}, onTrash: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
     onDeleteFolder: suspend (String) -> Unit = {},
+    miniPlayer: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -130,6 +131,7 @@ fun GalleryModeScreen(
     val mediaGridState = rememberLazyGridState()
     val albumGridState = rememberLazyGridState()
     val density = LocalDensity.current
+    var galleryOverlayHeightPx by remember { mutableIntStateOf(0) }
     val edgeHeightPx = with(density) { 84.dp.toPx() }
     var draggingAlbumKey by remember { mutableStateOf<String?>(null) }
     var draggedPointer by remember { mutableStateOf(Offset.Zero) }
@@ -302,7 +304,10 @@ fun GalleryModeScreen(
             verticalArrangement = Arrangement.spacedBy(2.dp),
             // Media flows beneath the floating switcher, rather than ending in
             // a fixed, opaque 106dp blank strip.
-            contentPadding = PaddingValues(bottom = 82.dp)) {
+            // Leave enough scroll tail to expose the final row above the overlay.
+            // The tail lives *inside* the scrollable grid, not in Scaffold.
+            contentPadding = PaddingValues(bottom =
+                with(density) { galleryOverlayHeightPx.toDp() } + 12.dp)) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
                 if (!selecting) Column {
                     if (!detailOpen) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -494,10 +499,10 @@ fun GalleryModeScreen(
                 }
             }
         }
-        if (tabOverride == null && !detailOpen) {
-            Box(Modifier.align(Alignment.BottomCenter).zIndex(6f)) {
-                LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
-            }
+        Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+            .onSizeChanged { galleryOverlayHeightPx = it.height }.zIndex(6f)) {
+            miniPlayer()
+            if (!detailOpen) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
         }
         }
     }

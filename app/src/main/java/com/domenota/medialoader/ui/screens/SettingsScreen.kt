@@ -868,7 +868,7 @@ fun SettingsScreen(
             GroupDivider()
             SettingRow(Icons.Rounded.Key, "Запасная авторизация",
                 "sessionid Instagram · Cookies YouTube", grouped = true, nested = true,
-                iconTone = SettingIconTone.PURPLE,
+                iconTone = SettingIconTone.BACKUP_AUTH,
                 onClick = { spareAuthorizationDialog = true })
             }
             GroupDivider()
@@ -879,14 +879,14 @@ fun SettingsScreen(
             ExpandableSettingsBody(downloadExpanded) {
                 GroupDivider()
                 SettingRow(Icons.Rounded.Folder, "Папка загрузок", downloadFolder,
-                grouped = true, nested = true, iconTone = SettingIconTone.FOLDER,
+                grouped = true, nested = true, iconTone = SettingIconTone.DOWNLOAD_FOLDER,
                 onClick = {
                     folderName = downloadFolder.substringAfter("Download/", "MediaLoader")
                     folderDialog = true
                 })
             GroupDivider()
             SettingRow(Icons.Rounded.HighQuality, "Приоритетное качество", VideoPreferences.qualityLabel(preferredHeight),
-                grouped = true, nested = true, iconTone = SettingIconTone.BLUE,
+                grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
                 onClick = { qualityExpanded = !qualityExpanded },
                 trailing = { Icon(if (qualityExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = if (qualityExpanded) "Свернуть качество" else "Выбрать качество") })
@@ -990,8 +990,7 @@ fun SettingsScreen(
             GroupDivider()
             SettingRow(Icons.Rounded.DriveFileRenameOutline, "Переименовывать найденные треки",
                 "Исполнитель — Название.mp3", grouped = true, nested = true,
-                iconTone = if (musicRecognitionMode == MusicRecognitionMode.OFF)
-                    SettingIconTone.NEUTRAL else SettingIconTone.RENAME,
+                iconTone = SettingIconTone.RENAME,
                 onClick = if (musicRecognitionMode == MusicRecognitionMode.OFF) null else ({
                     onRenameRecognizedTracksChange(!renameRecognizedTracks)
                 }),
@@ -1020,14 +1019,14 @@ fun SettingsScreen(
                 grouped = true, nested = true, iconTone = SettingIconTone.THEME, onClick = { themeDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.InsertPhoto, "Миниатюра видео", thumbnailMode.label,
-                grouped = true, nested = true, iconTone = SettingIconTone.PLAYER, onClick = { videoThumbnailDialog = true })
+                grouped = true, nested = true, iconTone = SettingIconTone.VIDEO_THUMBNAIL, onClick = { videoThumbnailDialog = true })
             GroupDivider()
             SettingRow(
                 Icons.Rounded.SmartDisplay,
                 "Встроенный проигрыватель",
                 "Открывать видео, музыку и фото внутри приложения",
                 grouped = true, nested = true,
-                iconTone = SettingIconTone.PLAYER,
+                iconTone = SettingIconTone.BUILTIN_PLAYER,
                 onClick = { onInternalViewerEnabledChange(!internalViewerEnabled) },
                 trailing = {
                     Switch(
@@ -1047,14 +1046,14 @@ fun SettingsScreen(
             if (needsGalleryAccess || needsMusicAccess) {
                 SettingRow(Icons.Rounded.Folder, "Доступ к файлам",
                     "Разрешения для галереи и музыки", grouped = true,
-                    iconTone = SettingIconTone.FOLDER,
+                    iconTone = SettingIconTone.FILE_ACCESS,
                     onClick = { onRequestLibraryAccess(if (needsGalleryAccess) AppMode.GALLERY else AppMode.MUSIC) })
                 GroupDivider()
             }
             if (Build.VERSION.SDK_INT >= 31 && !mediaManagementGranted) {
                 SettingRow(Icons.Rounded.DeleteSweep, "Управление медиафайлами",
                     "Разрешить удаление без повторного запроса Android", grouped = true,
-                    iconTone = SettingIconTone.GREEN, onClick = {
+                    iconTone = SettingIconTone.MEDIA_MANAGEMENT, onClick = {
                         try { context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,
                             Uri.parse("package:${context.packageName}"))) }
                         catch (_: Exception) { Toast.makeText(context, "Настройка недоступна на этом устройстве", Toast.LENGTH_SHORT).show() }
@@ -1063,7 +1062,7 @@ fun SettingsScreen(
             }
             SettingRow(Icons.Rounded.RestoreFromTrash, "Корзина",
                 "Удалённые файлы · $hiddenCount", grouped = true,
-                iconTone = SettingIconTone.RED,
+                iconTone = SettingIconTone.TRASH,
                 onClick = onOpenTrash)
             GroupDivider()
             SettingRow(Icons.Rounded.DeleteSweep, "Очистить историю",
@@ -1120,7 +1119,7 @@ fun SettingsScreen(
                     if (extendedLog) "Подробные события всех подсистем · включён"
                     else "Подробная диагностика · выключена",
                     grouped = true,
-                    iconTone = SettingIconTone.AMBER,
+                    iconTone = SettingIconTone.ADVANCED_LOG,
                     showChevron = false,
                     trailing = {
                         Switch(

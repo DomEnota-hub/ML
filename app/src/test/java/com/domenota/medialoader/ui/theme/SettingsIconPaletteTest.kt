@@ -58,4 +58,53 @@ class SettingsIconPaletteTest {
             assertTrue(tone.swatch(false).container != Color.Transparent)
         }
     }
+    /**
+     * All 28 visible settings items have their own accent. This catches the
+     * shared PLAYER/FOLDER colours that survived the previous QA releases.
+     */
+    @Test fun everyVisibleSettingsRowHasItsOwnColourInBothThemes() {
+        val rows = listOf(
+            SettingIconTone.ACCOUNTS,
+            SettingIconTone.BACKUP_AUTH,
+            SettingIconTone.DOWNLOAD,
+            SettingIconTone.DOWNLOAD_FOLDER,
+            SettingIconTone.QUALITY,
+            SettingIconTone.NOTIFICATIONS,
+            SettingIconTone.INSTAGRAM_MODE,
+            SettingIconTone.CLOSE_PICKER,
+            SettingIconTone.BULK,
+            SettingIconTone.VK_COMMUNITY,
+            SettingIconTone.EQUALIZER,
+            SettingIconTone.MUSIC_SETTINGS,
+            SettingIconTone.MUSIC,
+            SettingIconTone.RECOGNITION,
+            SettingIconTone.RENAME,
+            SettingIconTone.APPEARANCE,
+            SettingIconTone.THEME,
+            SettingIconTone.VIDEO_THUMBNAIL,
+            SettingIconTone.BUILTIN_PLAYER,
+            SettingIconTone.FILE_ACCESS,
+            SettingIconTone.MEDIA_MANAGEMENT,
+            SettingIconTone.TRASH,
+            SettingIconTone.CLEAR_HISTORY,
+            SettingIconTone.YTDLP,
+            SettingIconTone.ABOUT,
+            SettingIconTone.DIAGNOSTICS,
+            SettingIconTone.LOG,
+            SettingIconTone.ADVANCED_LOG,
+        )
+        assertEquals(28, rows.size)
+        for (dark in listOf(false, true)) {
+            val samples = rows.map { it.swatch(dark) }
+            assertEquals("Duplicate icon foreground in " + dark, rows.size,
+                samples.map { it.foreground }.toSet().size)
+            assertEquals("Duplicate icon background in " + dark, rows.size,
+                samples.map { it.container }.toSet().size)
+        }
+        assertNotEquals(SettingIconTone.VIDEO_THUMBNAIL.swatch(true),
+            SettingIconTone.BUILTIN_PLAYER.swatch(true))
+        assertNotEquals(SettingIconTone.FILE_ACCESS.swatch(true),
+            SettingIconTone.DOWNLOAD_FOLDER.swatch(true))
+    }
+
 }

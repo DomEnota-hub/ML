@@ -1,6 +1,9 @@
 package com.domenota.medialoader.ui
 
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.ScaffoldDefaults
 
 import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.ui.components.AppModeTitle
@@ -886,10 +889,14 @@ fun MediaLoaderApp(
     MediaManagementAccessPrompt(enabled = appMode != AppMode.DOWNLOADER &&
         currentRoute == AppDestination.Home.route && !checkingPhoneAccess)
     LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
+    val galleryHomeOverlay = galleryBottomSwitcherIsOverlay(appMode, currentRoute)
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        // The gallery controls must be an overlay, not a reserved Scaffold bar.
+        contentWindowInsets = if (galleryHomeOverlay) WindowInsets.statusBars
+            else ScaffoldDefaults.contentWindowInsets,
         bottomBar = {
-            if (currentRoute != PRIVATE_ROUTE && currentRoute != PREVIEW_ROUTE && currentRoute != BROWSER_ROUTE &&
+            if (!galleryHomeOverlay && currentRoute != PRIVATE_ROUTE && currentRoute != PREVIEW_ROUTE && currentRoute != BROWSER_ROUTE &&
                 currentRoute != BULK_ROUTE && currentRoute != MEDIA_VIEWER_ROUTE &&
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
@@ -1025,7 +1032,19 @@ fun MediaLoaderApp(
                     onDetailChange = { galleryDetailOpen = it }, onTrash = { navController.navigate("trash") },
                     deviceAlbums = publicLibraryRefs.mapNotNull { ref -> ref.deviceAlbumId?.let { id ->
                         ref.key to DeviceAlbum(id, ref.deviceAlbumName ?: "Без альбома")
-                    } }.toMap())
+                    } }.toMap(),
+                    // Keep a playing-audio mini-player without letting Scaffold
+                    // reserve a solid background strip beneath the gallery.
+                    miniPlayer = {
+                        AudioMiniPlayer(
+                            onOpenQueue = openDownloadWithQueue,
+                            onOpen = { mediaId ->
+                                if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
+                                    navController.navigate("viewer/$mediaId")
+                                }
+                            },
+                        )
+                    })
                 else MusicModeScreen(
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
                     allAudio = libraryItems.filter { it.mediaType == MediaType.AUDIO }, playlists = playlists,
@@ -1557,3 +1576,7 @@ fun MediaLoaderApp(
         }
     }
 }
+
+/** Never reserve space for gallery's floating navigation in Scaffold.bottomBar. */
+internal fun galleryBottomSwitcherIsOverlay(mode: AppMode, route: String?): Boolean =
+    mode == AppMode.GALLERY && route == AppDestination.Home.route
