@@ -54,4 +54,45 @@ class PhotoDrawingTest {
             source.recycle()
         }
     }
+
+    @Test fun brushSliderRangeCannotProduceInvalidPhotoMark() {
+        assertTrue(PhotoDrawing.MIN_BRUSH_THICKNESS >= PhotoDrawing.MIN_MARK_THICKNESS)
+        assertTrue(PhotoDrawing.MAX_BRUSH_THICKNESS <= PhotoDrawing.MAX_MARK_THICKNESS)
+        val points = listOf(PhotoPoint(.15f, .2f), PhotoPoint(.85f, .8f))
+        for (kind in PhotoMarkKind.entries) {
+            for (thickness in listOf(
+                PhotoDrawing.MIN_BRUSH_THICKNESS, .008f, .025f,
+                PhotoDrawing.MAX_BRUSH_THICKNESS,
+            )) {
+                val original = PhotoMark(kind, points, thickness = thickness)
+                val edited = original.copy(thickness = PhotoDrawing.MAX_BRUSH_THICKNESS)
+                assertEquals(thickness, original.thickness, 0f)
+                assertEquals(PhotoDrawing.MAX_BRUSH_THICKNESS, edited.thickness, 0f)
+            }
+        }
+        // The previous UI mistakenly used .002f..05f (upper bound 5.0).
+        val badThickness = runCatching {
+            PhotoMark(PhotoMarkKind.NEON, points, thickness = 5f)
+        }.exceptionOrNull()
+        assertTrue(badThickness is IllegalArgumentException)
+    }
+
+    @Test fun everyDrawingKindRendersAtBothSliderLimits() {
+        val source = Bitmap.createBitmap(160, 120, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.WHITE)
+        val points = listOf(PhotoPoint(.15f, .2f), PhotoPoint(.85f, .8f))
+        val marks = PhotoMarkKind.entries.flatMap { kind ->
+            listOf(PhotoDrawing.MIN_BRUSH_THICKNESS, PhotoDrawing.MAX_BRUSH_THICKNESS)
+                .map { width -> PhotoMark(kind, points, Color.BLUE, width) }
+        }
+        val output = PhotoDrawing.overlay(source, marks)
+        try {
+            assertEquals(160, output.width)
+            assertEquals(120, output.height)
+            assertEquals(Color.WHITE, source.getPixel(0, 0))
+        } finally {
+            output.recycle()
+            source.recycle()
+        }
+    }
 }
