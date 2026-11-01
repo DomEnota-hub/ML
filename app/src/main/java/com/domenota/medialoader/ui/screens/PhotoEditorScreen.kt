@@ -606,7 +606,7 @@ private fun PhotoWorkspaceTools(
     onGeometry: () -> Unit,
     onPickGraphic: () -> Unit, onLaMa: () -> Unit,
 ) {
-    var effectCategory by remember { mutableStateOf(PhotoEffectCategory.POPULAR) }
+    var effectCategory by remember { mutableStateOf(PhotoEffectCategory.ALL) }
     var levelGroup by remember { mutableStateOf(PhotoLevelGroup.TONE) }
     val favoritesContext = LocalContext.current
     val favoriteStorage = remember(favoritesContext) {
