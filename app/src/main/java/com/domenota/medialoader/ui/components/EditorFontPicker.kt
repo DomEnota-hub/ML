@@ -23,7 +23,7 @@ internal fun EditorFontPicker(selectedId: String, onSelect: (String) -> Unit) {
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val families = remember { EditorFonts.all.groupBy { it.id.substringBefore('-') }.toList() }
-    val accent = MaterialTheme.colorScheme.primary
+    val accent = textEditorAccent
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         families.chunked(2).forEach { pair ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {

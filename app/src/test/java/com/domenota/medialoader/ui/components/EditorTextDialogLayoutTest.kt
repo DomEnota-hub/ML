@@ -35,7 +35,11 @@ class EditorTextDialogLayoutTest {
         launch()
         compose.onNodeWithText("Все настройки текста").assertDoesNotExist()
         compose.onNodeWithText("Удалить надпись").assertDoesNotExist()
-        // A tap on the selected object opens the very same bottom component.
+        // The bitmap is loaded asynchronously; test the real rendered frame.
+        compose.waitUntil(timeoutMillis = 15_000) {
+            compose.onAllNodesWithContentDescription("Рамка надписи: перемещение, размер и поворот")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithContentDescription("Рамка надписи: перемещение, размер и поворот")
             .performTouchInput { click(center) }
         compose.onNodeWithText("Клавиатура").assertIsDisplayed()

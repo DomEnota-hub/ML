@@ -36,6 +36,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntSize
@@ -62,6 +63,7 @@ internal fun EditorTextDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val softKeyboard = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
     var layers by remember { mutableStateOf(initial) }
     var selectedId by remember { mutableStateOf(initial.firstOrNull()?.id) }
@@ -185,7 +187,7 @@ internal fun EditorTextDialog(
                     else -> (maxHeight * .43f).coerceIn(256.dp, 370.dp)
                 }
                 val panelBg = Color(0xFF202127)
-                val accent = MaterialTheme.colorScheme.primary
+                val accent = textEditorAccent
                 Column(Modifier.fillMaxSize()) {
                     // Editing is an image-first workspace, not a second settings screen.
                     Row(Modifier.fillMaxWidth().height(62.dp).padding(horizontal = 12.dp),
@@ -366,8 +368,11 @@ internal fun EditorTextDialog(
                             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 UnifiedTextTabs(selected = textToolTab,
-                                    onSelect = { textToolTab = it
-                                        selectSample = false; pickColor = false },
+                                    onSelect = {
+                                        textToolTab = it
+                                        if (it != UnifiedTextTab.KEYBOARD) softKeyboard?.hide()
+                                        selectSample = false; pickColor = false
+                                    },
                                     modifier = Modifier.weight(1f))
                                 IconButton(onClick = { sheetOpen = false }) {
                                     Icon(Icons.Rounded.KeyboardArrowDown, "Свернуть панель",

@@ -18,6 +18,8 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.editor.TextLayer
 
 /** The same text component on the photo editor and video overlay editor. */
+internal val textEditorAccent = Color(0xFFFFBD19)
+
 internal enum class UnifiedTextTab(val title: String) {
     KEYBOARD("Клавиатура"), STYLE("Стиль"), FONT("Шрифт")
 }
@@ -28,7 +30,7 @@ internal fun UnifiedTextTabs(
     onSelect: (UnifiedTextTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val accent = MaterialTheme.colorScheme.primary
+    val accent = textEditorAccent
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         UnifiedTextTab.entries.forEach { tab ->
@@ -62,7 +64,7 @@ internal fun UnifiedTextStyle(
             val active = layer.color == color
             Box(Modifier.size(40.dp)
                 .border(if (active) 3.dp else 1.dp,
-                    if (active) MaterialTheme.colorScheme.primary else
+                    if (active) textEditorAccent else
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f),
                     CircleShape)
                 .padding(5.dp).background(Color(color), CircleShape)
@@ -89,9 +91,13 @@ internal fun UnifiedTextStyle(
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(selected = layer.outlineColor == android.graphics.Color.BLACK,
+            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = textEditorAccent,
+                selectedLabelColor = Color.Black),
             onClick = { onChange(layer.copy(outlineColor = android.graphics.Color.BLACK)) },
             enabled = enabled, label = { Text("Тёмная обводка") })
         FilterChip(selected = layer.outlineColor == android.graphics.Color.WHITE,
+            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = textEditorAccent,
+                selectedLabelColor = Color.Black),
             onClick = { onChange(layer.copy(outlineColor = android.graphics.Color.WHITE)) },
             enabled = enabled, label = { Text("Светлая") })
     }
