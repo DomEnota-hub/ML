@@ -40,6 +40,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Article
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CloseFullscreen
