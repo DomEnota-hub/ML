@@ -65,29 +65,58 @@ object PhotoMarkEdits {
     }
 
     /**
-     * Erase only the touched section of a freehand path, preserving unaffected
-     * fragments. Vector shapes are erased as a single editable object.
+     * Split freehand strokes along the *actual eraser footprint*, sampling
+     * sparse path segments first so long strokes are not deleted as a unit.
+     * Shapes remain individually editable objects and can be removed by touch.
      */
     fun eraseNear(marks: List<PhotoMark>, at: PhotoPoint, radius: Float = .024f): List<PhotoMark> {
-        val index = pick(marks, at, radius)
-        if (index < 0) return marks
+        if (radius <= 0f || !radius.isFinite()) return marks
+        val index = marks.indices.reversed().firstOrNull { i ->
+            val mark = marks[i]
+            if (isFreehand(mark.kind)) hit(mark, at, radius + mark.thickness * .5f)
+            else hit(mark, at, radius)
+        } ?: return marks
         val target = marks[index]
         if (!isFreehand(target.kind)) return marks.filterIndexed { i, _ -> i != index }
+
+        val threshold = radius + target.thickness * .5f
+        val sampled = mutableListOf<PhotoPoint>()
+        val original = target.points
+        sampled.add(original.first())
+        for (i in 1 until original.size) {
+            val a = original[i - 1]; val b = original[i]
+            val length = hypot(b.x - a.x, b.y - a.y)
+            val pieces = kotlin.math.ceil(length / (threshold * .33f).coerceAtLeast(.002f))
+                .toInt().coerceIn(1, 32)
+            for (part in 1..pieces) {
+                val t = part.toFloat() / pieces
+                sampled.add(PhotoDrawing.clamp(
+                    a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t))
+            }
+        }
         val fragments = mutableListOf<PhotoMark>()
         var segment = mutableListOf<PhotoPoint>()
-        target.points.forEachIndexed { i, point ->
-            val touched = hypot(point.x - at.x, point.y - at.y) <= radius ||
-                (i > 0 && distanceToSegment(at, target.points[i - 1], point) <= radius)
-            if (touched) {
+        var touched = false
+        for (point in sampled) {
+            if (hypot(point.x - at.x, point.y - at.y) <= threshold) {
+                touched = true
                 if (segment.isNotEmpty()) {
-                    fragments.add(target.copy(points = segment.toList()))
+                    fragments.add(target.copy(points = segment.take(900)))
                     segment = mutableListOf()
                 }
             } else {
-                segment.add(point)
+                if (segment.size < 900) segment.add(point)
+                else {
+                    fragments.add(target.copy(points = segment))
+                    segment = mutableListOf(point)
+                }
             }
         }
         if (segment.isNotEmpty()) fragments.add(target.copy(points = segment))
-        return (marks.take(index) + fragments + marks.drop(index + 1)).take(PhotoDrawing.MAX_MARKS)
+        if (!touched) return marks
+        // Never discard unrelated marks just because the split would exceed
+        // the vector document limit.
+        if (marks.size - 1 + fragments.size > PhotoDrawing.MAX_MARKS) return marks
+        return marks.take(index) + fragments + marks.drop(index + 1)
     }
 }
