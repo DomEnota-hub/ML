@@ -62,7 +62,7 @@ internal fun EditorTextDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var layers by remember { mutableStateOf(initial) }
-    var selectedId by remember { mutableStateOf<String?>(null) }
+    var selectedId by remember { mutableStateOf(initial.firstOrNull()?.id) }
     var position by remember { mutableStateOf(initialPositionMs.coerceIn(0L, (durationMs ?: 0L).coerceAtLeast(0L))) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var previewPosition by remember { mutableStateOf<Long?>(null) }
@@ -83,7 +83,7 @@ internal fun EditorTextDialog(
     var intervalEnd by remember { mutableStateOf<Long?>(null) }
     var timingTab by remember { mutableStateOf(false) }
     var expandedControls by remember { mutableStateOf(false) }
-    var textToolTab by remember { mutableStateOf("keyboard") }
+    var textToolTab by remember { mutableStateOf("all") }
     var previewZoom by remember { mutableStateOf(PreviewZoom()) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     fun seek(time: Long) {
@@ -367,8 +367,8 @@ internal fun EditorTextDialog(
                                 onClick = { textToolTab = key; expandedControls = true },
                                 label = { Text(label) })
                         }
-                        TextButton(onClick = { expandedControls = !expandedControls }) {
-                            Text(if (expandedControls) "Свернуть" else "Параметры")
+                        TextButton(onClick = { expandedControls = !expandedControls; textToolTab = "all" }) {
+                            Text(if (expandedControls) "Свернуть инструменты" else "Все настройки текста")
                         }
                     }
                     if (!expandedControls) {
@@ -396,7 +396,7 @@ internal fun EditorTextDialog(
                     } else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
                         .padding(top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        if (textToolTab == "font") sample?.let { source ->
+                        if (textToolTab == "font" || textToolTab == "all") sample?.let { source ->
                             OutlinedTextField(sampleText, { sampleText = it.take(120); suggestions = emptyList() },
                                 label = { Text("Текст на образце — проверь распознавание") }, modifier = Modifier.fillMaxWidth())
                             OutlinedButton(onClick = {
@@ -412,8 +412,8 @@ internal fun EditorTextDialog(
                                 Text(if (matching) "Распознаём и сравниваем…" else "Подобрать похожие")
                             }
                         }
-                        if (textToolTab == "font" && suggestions.isNotEmpty()) Text("Похожие по образцу", style = MaterialTheme.typography.titleSmall)
-                        if (textToolTab == "font") suggestions.forEach { font ->
+                        if ((textToolTab == "font" || textToolTab == "all") && suggestions.isNotEmpty()) Text("Похожие по образцу", style = MaterialTheme.typography.titleSmall)
+                        if (textToolTab == "font" || textToolTab == "all") suggestions.forEach { font ->
                             OutlinedButton(onClick = { currentSelected?.let { update(it.copy(fontId = font.id)) } }) {
                                 Text(font.label, fontFamily = FontFamily(EditorFonts.face(context, font.id)))
                             }
@@ -433,9 +433,9 @@ internal fun EditorTextDialog(
                                 OutlinedButton(onClick = { seek(layer.startMs) }) { Text("Показать кадр с этой надписью") }
                             }
                             if (!timingTab || durationMs == null) {
-                                if (textToolTab == "keyboard") OutlinedTextField(layer.text, { update(layer.copy(text = it.take(500))) },
+                                if (textToolTab == "keyboard" || textToolTab == "all") OutlinedTextField(layer.text, { update(layer.copy(text = it.take(500))) },
                                     label = { Text("Надпись") }, modifier = Modifier.fillMaxWidth(), maxLines = 5)
-                                if (textToolTab == "style") {
+                                if (textToolTab == "style" || textToolTab == "all") {
                                 Text("Обводка")
                                 Slider(layer.outline, { update(layer.copy(outline = it)) }, valueRange = 0f..0.15f)
                                 val colors = listOf(-1, -16777216, 0xFFFF4444.toInt(), 0xFFFFDD33.toInt(),
@@ -477,7 +477,7 @@ internal fun EditorTextDialog(
                                     OutlinedButton(onClick = { update(layer.copy(outlineColor = android.graphics.Color.WHITE)) }) { Text("Белая") }
                                 }
                                 }
-                                if (textToolTab == "font") {
+                                if (textToolTab == "font" || textToolTab == "all") {
                                 OutlinedButton(onClick = { videoPlayer?.pause(); playing = false; pickColor = false;
                                     inspectedColor = null; selectSample = !selectSample; sampleBounds = null },
                                     enabled = selectSample || (image != null && !loading && !playing && previewPosition == position)) {
