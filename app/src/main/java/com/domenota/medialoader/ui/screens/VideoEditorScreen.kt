@@ -50,7 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import com.domenota.medialoader.ui.components.NeutralOutlinedButton as OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Slider
+import com.domenota.medialoader.ui.components.AppSlider as Slider
 import androidx.compose.material3.Text
 import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.material3.TopAppBar
