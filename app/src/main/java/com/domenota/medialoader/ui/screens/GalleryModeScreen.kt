@@ -302,7 +302,10 @@ fun GalleryModeScreen(
             verticalArrangement = Arrangement.spacedBy(2.dp),
             // Media flows beneath the floating switcher, rather than ending in
             // a fixed, opaque 106dp blank strip.
-            contentPadding = PaddingValues(bottom = 82.dp)) {
+            // Leave enough scroll tail to expose the final row above the overlay.
+            // The tail lives *inside* the scrollable grid, not in Scaffold.
+            contentPadding = PaddingValues(bottom = 90.dp +
+                WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
                 if (!selecting) Column {
                     if (!detailOpen) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -494,8 +497,8 @@ fun GalleryModeScreen(
                 }
             }
         }
-        if (tabOverride == null && !detailOpen) {
-            Box(Modifier.align(Alignment.BottomCenter).zIndex(6f)) {
+        if (!detailOpen) {
+            Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().zIndex(6f)) {
                 LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
             }
         }
