@@ -95,6 +95,17 @@ object VideoCropMath {
         }
     }
 
+    /** Translate the whole crop window without changing its aspect or size. */
+    fun moveFrame(current: CropFractions, dx: Float, dy: Float): CropFractions {
+        val width = current.keptWidth
+        val height = current.keptHeight
+        if (width <= 0f || height <= 0f) return current
+        val left = (current.left + dx).coerceIn(0f, (1f - width).coerceAtLeast(0f))
+        val top = (current.top + dy).coerceIn(0f, (1f - height).coerceAtLeast(0f))
+        return CropFractions(left, (1f - width - left).coerceAtLeast(0f),
+            top, (1f - height - top).coerceAtLeast(0f))
+    }
+
     fun changeHandle(
         current: CropFractions,
         handle: VideoCropHandle,

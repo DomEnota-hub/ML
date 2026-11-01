@@ -71,10 +71,14 @@ fun CropFrameOverlay(
                         preferNearest = precisePhotoHandles,
                     )
                     activeHandle = handle
+                    val movingFrame = precisePhotoHandles && handle == null &&
+                        cropFrameContains(down.position, latestCrop, imageRect) &&
+                        (latestCrop.keptWidth < .999f || latestCrop.keptHeight < .999f)
                     if (handle != null) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     }
-                    if (handle == null || imageRect.width <= 0f || imageRect.height <= 0f) {
+                    if ((!movingFrame && handle == null) ||
+                        imageRect.width <= 0f || imageRect.height <= 0f) {
                         val compareOriginal = latestCompareOriginal
                         if (handle == null && compareOriginal != null) {
                             val cancelledBeforeLongPress = withTimeoutOrNull(
@@ -120,9 +124,12 @@ fun CropFrameOverlay(
                         val delta = change.position - previous
                         if (delta != Offset.Zero) {
                             onCropChange(
-                                VideoCropMath.changeHandle(
+                                if (movingFrame) VideoCropMath.moveFrame(
+                                    latestCrop, delta.x / imageRect.width,
+                                    delta.y / imageRect.height)
+                                else VideoCropMath.changeHandle(
                                     current = latestCrop,
-                                    handle = handle,
+                                    handle = requireNotNull(handle),
                                     deltaXFraction = delta.x / imageRect.width,
                                     deltaYFraction = delta.y / imageRect.height,
                                     sourceWidth = sourceWidth,
@@ -206,6 +213,16 @@ private fun fittedImageRect(
     val left = (container.width - width) / 2f
     val top = (container.height - height) / 2f
     return Rect(left, top, left + width, top + height)
+}
+
+/** Only inner area is draggable; corners and edges retain their handle priority. */
+internal fun cropFrameContains(point: Offset, crop: CropFractions, imageRect: Rect): Boolean {
+    if (imageRect.width <= 0f || imageRect.height <= 0f) return false
+    val left = imageRect.left + imageRect.width * crop.left
+    val right = imageRect.right - imageRect.width * crop.right
+    val top = imageRect.top + imageRect.height * crop.top
+    val bottom = imageRect.bottom - imageRect.height * crop.bottom
+    return point.x in left..right && point.y in top..bottom
 }
 
 internal fun hitTestCropHandle(
