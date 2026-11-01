@@ -80,8 +80,8 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFFFFA58E), Color(0xFF4A2D26))
             else SettingsIconSwatch(Color(0xFFA94331), Color(0xFFFFE8DD))
         MUSIC ->
-            if (dark) SettingsIconSwatch(Color(0xFF74D99B), Color(0xFF204C38))
-            else SettingsIconSwatch(Color(0xFF176D51), Color(0xFFDFF6E9))
+            if (dark) SettingsIconSwatch(Color(0xFFFFC08A), Color(0xFF432C1C))
+            else SettingsIconSwatch(Color(0xFF925118), Color(0xFFFFF0D9))
         TRASH ->
             if (dark) SettingsIconSwatch(Color(0xFFFF8D9A), Color(0xFF4A2833))
             else SettingsIconSwatch(Color(0xFFB13D54), Color(0xFFFFE3E8))
