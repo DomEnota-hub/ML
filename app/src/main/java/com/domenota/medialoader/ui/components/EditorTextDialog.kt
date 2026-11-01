@@ -479,6 +479,8 @@ internal fun EditorTextDialog(
                                                     }
                                                 }
                                             }
+                                            Text("Библиотека шрифтов", style = MaterialTheme.typography.titleMedium,
+                                                color = Color.White)
                                             if (!fontsReady) Text("Подготавливаем библиотеку шрифтов…")
                                             else EditorFontPicker(layer.fontId) { update(layer.copy(fontId = it)) }
                                         }
