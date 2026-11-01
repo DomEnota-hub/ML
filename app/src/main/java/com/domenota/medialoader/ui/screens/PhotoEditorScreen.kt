@@ -399,6 +399,9 @@ fun PhotoEditorScreen(
     }
 
     Scaffold(
+        // Parent Scaffold already accounts for Android system bars.
+        // Avoid reserving a second system-navigation inset in the editor.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = Color.Black,
         contentColor = Color.White,
         topBar = {
