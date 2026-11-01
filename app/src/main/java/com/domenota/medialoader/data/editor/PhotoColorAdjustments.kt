@@ -73,7 +73,7 @@ data class HslCorrection(
 }
 
 enum class PhotoEffectCategory(val label: String) {
-    ALL("Все"), FAVORITES("Избранное"),
+    ALL("Все"), FAVORITES("Избранное"), POPULAR("Популярное"),
     FILM("Плёнка"), CLASSIC("Классика"),
     PORTRAIT("Портрет"), FOOD("Еда"), CINEMA("Кино"), TRAVEL("Путешествия"),
     NIGHT("Ночь"), TEXTURE("Текстуры")
@@ -89,9 +89,9 @@ enum class PhotoEffect(
     val fade: Float = 0f,
     val grain: Float = 0f,
 ) {
-    NONE("Оригинал", PhotoEffectCategory.CLASSIC),
+    NONE("Оригинал", PhotoEffectCategory.POPULAR),
     MONO("Ч/Б", PhotoEffectCategory.CLASSIC, saturationMultiplier = 0f),
-    VIVID("Яркий", PhotoEffectCategory.CLASSIC, saturationMultiplier = 1.3f),
+    VIVID("Яркий", PhotoEffectCategory.POPULAR, saturationMultiplier = 1.3f),
     WARM("Тёплый", PhotoEffectCategory.CLASSIC, warmthOffset = 20f),
     COOL("Холодный", PhotoEffectCategory.CLASSIC, warmthOffset = -20f),
     PORTRAIT_SOFT("Мягкий", PhotoEffectCategory.PORTRAIT, contrastOffset = -12f, fade = 8f),
@@ -182,7 +182,10 @@ object PhotoEffectCatalog {
         if (category == PhotoEffectCategory.ALL) PhotoEffect.entries
         else if (category == PhotoEffectCategory.FAVORITES)
             PhotoEffect.entries.filter { it in favorites }
-        else PhotoEffect.entries.filter { it.category == category }
+        else PhotoEffect.entries.filter { it.category == category ||
+            (category == PhotoEffectCategory.POPULAR &&
+                it in listOf(PhotoEffect.MONO, PhotoEffect.WARM, PhotoEffect.FILM_FADED,
+                    PhotoEffect.FOOD_POP, PhotoEffect.TRAVEL_SUN)) }
 }
 
 object PhotoColorMath {
