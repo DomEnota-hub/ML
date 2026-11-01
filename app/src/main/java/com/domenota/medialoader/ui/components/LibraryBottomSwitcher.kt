@@ -22,7 +22,10 @@ import com.domenota.medialoader.data.library.AppMode
 internal fun LibraryBottomSwitcher(mode: AppMode, selected: Int, onSelect: (Int) -> Unit) {
     val labels = if (mode == AppMode.GALLERY) listOf("Медиа", "Альбомы") else listOf("Треки", "Плейлисты")
     Box(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 10.dp), contentAlignment = Alignment.Center) {
-        Surface(shape = RoundedCornerShape(40.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+        Surface(shape = RoundedCornerShape(40.dp),
+            color = if (mode == AppMode.GALLERY)
+                MaterialTheme.colorScheme.surfaceContainer.copy(alpha = .79f)
+            else MaterialTheme.colorScheme.surfaceContainer) {
             Row(Modifier.padding(5.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 labels.forEachIndexed { index, label ->
                     val active = selected == index
