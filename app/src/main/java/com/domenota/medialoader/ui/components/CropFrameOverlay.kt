@@ -50,8 +50,8 @@ fun CropFrameOverlay(
     val latestCompareOriginal by rememberUpdatedState(onCompareOriginalChange)
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
-    val edgeHitRadiusPx = with(density) { 36.dp.toPx() }
-    val cornerHitRadiusPx = with(density) { 64.dp.toPx() }
+    val edgeHitRadiusPx = with(density) { 32.dp.toPx() }
+    val cornerHitRadiusPx = with(density) { 76.dp.toPx() }
 
     Canvas(
         modifier = modifier
@@ -205,7 +205,7 @@ private fun fittedImageRect(
     return Rect(left, top, left + width, top + height)
 }
 
-private fun hitTestCropHandle(
+internal fun hitTestCropHandle(
     point: Offset,
     crop: CropFractions,
     imageRect: Rect,
@@ -223,17 +223,27 @@ private fun hitTestCropHandle(
         VideoCropHandle.BOTTOM_LEFT to Offset(left, bottom),
         VideoCropHandle.BOTTOM_RIGHT to Offset(right, bottom),
     )
-    corners.firstOrNull { (_, corner) ->
-        hypot(point.x - corner.x, point.y - corner.y) <= cornerHitRadius
-    }?.let { return it.first }
+    // Pick the nearest corner: large invisible touch areas may overlap on small
+    // photos, and first-match logic makes bottom-left/right difficult to grab.
+    corners.minByOrNull { (_, corner) ->
+        hypot(point.x - corner.x, point.y - corner.y)
+    }?.let { (handle, corner) ->
+        if (hypot(point.x - corner.x, point.y - corner.y) <= cornerHitRadius)
+            return handle
+    }
 
+    val edges = mutableListOf<Pair<VideoCropHandle, Float>>()
     if (point.y in (top - edgeHitRadius)..(bottom + edgeHitRadius)) {
-        if (abs(point.x - left) <= edgeHitRadius) return VideoCropHandle.LEFT
-        if (abs(point.x - right) <= edgeHitRadius) return VideoCropHandle.RIGHT
+        if (abs(point.x - left) <= edgeHitRadius)
+            edges += VideoCropHandle.LEFT to abs(point.x - left)
+        if (abs(point.x - right) <= edgeHitRadius)
+            edges += VideoCropHandle.RIGHT to abs(point.x - right)
     }
     if (point.x in (left - edgeHitRadius)..(right + edgeHitRadius)) {
-        if (abs(point.y - top) <= edgeHitRadius) return VideoCropHandle.TOP
-        if (abs(point.y - bottom) <= edgeHitRadius) return VideoCropHandle.BOTTOM
+        if (abs(point.y - top) <= edgeHitRadius)
+            edges += VideoCropHandle.TOP to abs(point.y - top)
+        if (abs(point.y - bottom) <= edgeHitRadius)
+            edges += VideoCropHandle.BOTTOM to abs(point.y - bottom)
     }
-    return null
+    return edges.minByOrNull { it.second }?.first
 }
