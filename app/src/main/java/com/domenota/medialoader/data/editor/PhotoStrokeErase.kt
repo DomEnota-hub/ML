@@ -108,7 +108,7 @@ object PhotoStrokeErase {
             val to = vertices[i]
             if (i == 0) { out += to; continue }
             val from = vertices[i - 1]
-            val steps = min(12, max(1, ceil(hypot(to.x - from.x, to.y - from.y) / .006f).toInt()))
+            val steps = min(320, max(1, ceil(hypot(to.x - from.x, to.y - from.y) / .003f).toInt()))
             for (j in 1..steps) {
                 val t = j.toFloat() / steps
                 out += PhotoDrawing.clamp(from.x + (to.x - from.x) * t,
