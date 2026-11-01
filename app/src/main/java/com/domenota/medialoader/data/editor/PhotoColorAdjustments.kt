@@ -73,7 +73,7 @@ data class HslCorrection(
 }
 
 enum class PhotoEffectCategory(val label: String) {
-    ALL("Все"), FAVORITES("Избранное"), POPULAR("Популярное"),
+    ALL("Все"), FAVORITES("Избранное"),
     FILM("Плёнка"), CLASSIC("Классика"),
     PORTRAIT("Портрет"), FOOD("Еда"), CINEMA("Кино"), TRAVEL("Путешествия"),
     NIGHT("Ночь"), TEXTURE("Текстуры")
@@ -89,9 +89,9 @@ enum class PhotoEffect(
     val fade: Float = 0f,
     val grain: Float = 0f,
 ) {
-    NONE("Оригинал", PhotoEffectCategory.POPULAR),
+    NONE("Оригинал", PhotoEffectCategory.CLASSIC),
     MONO("Ч/Б", PhotoEffectCategory.CLASSIC, saturationMultiplier = 0f),
-    VIVID("Яркий", PhotoEffectCategory.POPULAR, saturationMultiplier = 1.3f),
+    VIVID("Яркий", PhotoEffectCategory.CLASSIC, saturationMultiplier = 1.3f),
     WARM("Тёплый", PhotoEffectCategory.CLASSIC, warmthOffset = 20f),
     COOL("Холодный", PhotoEffectCategory.CLASSIC, warmthOffset = -20f),
     PORTRAIT_SOFT("Мягкий", PhotoEffectCategory.PORTRAIT, contrastOffset = -12f, fade = 8f),
@@ -146,6 +146,35 @@ enum class PhotoEffect(
         warmthOffset = -38f, contrastOffset = 30f, saturationMultiplier = .60f),
     TEXTURE_FADE("Засветка", PhotoEffectCategory.TEXTURE,
         contrastOffset = -31f, saturationMultiplier = .78f, fade = 42f, grain = 9f),
+    FILM_AMBER("Янтарь", PhotoEffectCategory.FILM, saturationMultiplier = 1.05f, warmthOffset = 31f, contrastOffset = -6f, fade = 24f, grain = 18f),
+    FILM_SILVER("Серебро", PhotoEffectCategory.FILM, saturationMultiplier = 0f, warmthOffset = -12f, contrastOffset = 23f, fade = 8f, grain = 14f),
+    FILM_LAVENDER("Лавандовая плёнка", PhotoEffectCategory.FILM, saturationMultiplier = .64f, warmthOffset = -16f, contrastOffset = -16f, fade = 21f, grain = 17f),
+    FILM_GOLDEN_HOUR("Золотой час", PhotoEffectCategory.FILM, saturationMultiplier = 1.21f, warmthOffset = 42f, contrastOffset = -8f, fade = 15f, grain = 11f),
+    FILM_CROSS("Кросс-процесс", PhotoEffectCategory.FILM, saturationMultiplier = 1.48f, warmthOffset = -15f, contrastOffset = 38f, fade = 5f, grain = 19f),
+    FILM_POLAROID("Полароид", PhotoEffectCategory.FILM, saturationMultiplier = .81f, warmthOffset = 13f, contrastOffset = -17f, fade = 30f, grain = 20f),
+    CLASSIC_ICE("Лёд", PhotoEffectCategory.CLASSIC, saturationMultiplier = .75f, warmthOffset = -44f, contrastOffset = 14f, fade = 0f, grain = 0f),
+    CLASSIC_SEPIA("Сепия", PhotoEffectCategory.CLASSIC, saturationMultiplier = .35f, warmthOffset = 41f, contrastOffset = -7f, fade = 14f, grain = 4f),
+    CLASSIC_MIST("Дымка", PhotoEffectCategory.CLASSIC, saturationMultiplier = .61f, warmthOffset = -8f, contrastOffset = -44f, fade = 38f, grain = 0f),
+    CLASSIC_BOLD("Графика", PhotoEffectCategory.CLASSIC, saturationMultiplier = 1.65f, warmthOffset = -4f, contrastOffset = 46f, fade = 0f, grain = 0f),
+    CLASSIC_CREAM("Сливочный", PhotoEffectCategory.CLASSIC, saturationMultiplier = .83f, warmthOffset = 28f, contrastOffset = -23f, fade = 21f, grain = 0f),
+    PORTRAIT_PEARL("Жемчуг", PhotoEffectCategory.PORTRAIT, saturationMultiplier = .68f, warmthOffset = -7f, contrastOffset = -29f, fade = 17f, grain = 0f),
+    PORTRAIT_HONEY("Мёд", PhotoEffectCategory.PORTRAIT, saturationMultiplier = 1.1f, warmthOffset = 32f, contrastOffset = -19f, fade = 10f, grain = 0f),
+    PORTRAIT_MATTE("Мягкая кожа", PhotoEffectCategory.PORTRAIT, saturationMultiplier = .86f, warmthOffset = 6f, contrastOffset = -32f, fade = 26f, grain = 0f),
+    PORTRAIT_BRIGHT("Светлый портрет", PhotoEffectCategory.PORTRAIT, saturationMultiplier = 1.18f, warmthOffset = 11f, contrastOffset = -18f, fade = 21f, grain = 0f),
+    FOOD_CITRUS("Цитрус", PhotoEffectCategory.FOOD, saturationMultiplier = 1.47f, warmthOffset = 2f, contrastOffset = 21f, fade = 0f, grain = 0f),
+    FOOD_COCOA("Какао", PhotoEffectCategory.FOOD, saturationMultiplier = .73f, warmthOffset = 34f, contrastOffset = 30f, fade = 9f, grain = 3f),
+    FOOD_MINT("Мята", PhotoEffectCategory.FOOD, saturationMultiplier = 1.24f, warmthOffset = -31f, contrastOffset = 5f, fade = 4f, grain = 0f),
+    CINEMA_NOIR("Кинонуар", PhotoEffectCategory.CINEMA, saturationMultiplier = 0f, warmthOffset = -18f, contrastOffset = 49f, fade = 0f, grain = 21f),
+    CINEMA_DUSK("Сумерки", PhotoEffectCategory.CINEMA, saturationMultiplier = .67f, warmthOffset = -28f, contrastOffset = 25f, fade = 19f, grain = 9f),
+    CINEMA_FIRE("Пламя", PhotoEffectCategory.CINEMA, saturationMultiplier = 1.57f, warmthOffset = 46f, contrastOffset = 29f, fade = 0f, grain = 8f),
+    CINEMA_FADE("Киноплёнка", PhotoEffectCategory.CINEMA, saturationMultiplier = .76f, warmthOffset = -5f, contrastOffset = -12f, fade = 34f, grain = 12f),
+    TRAVEL_JUNGLE("Джунгли", PhotoEffectCategory.TRAVEL, saturationMultiplier = 1.4f, warmthOffset = -24f, contrastOffset = 17f, fade = 0f, grain = 0f),
+    TRAVEL_SAND("Песок", PhotoEffectCategory.TRAVEL, saturationMultiplier = .91f, warmthOffset = 33f, contrastOffset = -15f, fade = 18f, grain = 0f),
+    TRAVEL_GLACIER("Ледник", PhotoEffectCategory.TRAVEL, saturationMultiplier = 1.17f, warmthOffset = -41f, contrastOffset = 8f, fade = 5f, grain = 0f),
+    NIGHT_VIOLET("Фиолетовая ночь", PhotoEffectCategory.NIGHT, saturationMultiplier = 1.34f, warmthOffset = -44f, contrastOffset = 35f, fade = 14f, grain = 9f),
+    NIGHT_SMOKE("Дымный", PhotoEffectCategory.NIGHT, saturationMultiplier = .34f, warmthOffset = -28f, contrastOffset = 19f, fade = 22f, grain = 12f),
+    TEXTURE_COARSE("Шероховатость", PhotoEffectCategory.TEXTURE, saturationMultiplier = .91f, warmthOffset = -5f, contrastOffset = 18f, fade = 9f, grain = 58f),
+    TEXTURE_WASHED("Выцветший", PhotoEffectCategory.TEXTURE, saturationMultiplier = .52f, warmthOffset = 19f, contrastOffset = -37f, fade = 49f, grain = 25f),
 }
 object PhotoEffectCatalog {
     fun forCategory(category: PhotoEffectCategory,
@@ -153,10 +182,7 @@ object PhotoEffectCatalog {
         if (category == PhotoEffectCategory.ALL) PhotoEffect.entries
         else if (category == PhotoEffectCategory.FAVORITES)
             PhotoEffect.entries.filter { it in favorites }
-        else PhotoEffect.entries.filter { it.category == category ||
-            (category == PhotoEffectCategory.POPULAR &&
-                it in listOf(PhotoEffect.MONO, PhotoEffect.WARM, PhotoEffect.FILM_FADED,
-                    PhotoEffect.FOOD_POP, PhotoEffect.TRAVEL_SUN)) }
+        else PhotoEffect.entries.filter { it.category == category }
 }
 
 object PhotoColorMath {
