@@ -69,6 +69,15 @@ jobs:
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq ".assets[] | select(.name == \"$RELEASE_ASSET\") | .name" \
             | grep -Fx "$RELEASE_ASSET"
+      - name: Remove duplicate APK asset from earlier failed publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | grep -Fx "app-debug.apk"; then
+            gh release delete-asset "$RELEASE_TAG" "app-debug.apk" \
+              --repo "$GITHUB_REPOSITORY" --yes
+          fi
       - name: Remove only older photo QA prereleases after successful new upload
         shell: bash
         run: |
