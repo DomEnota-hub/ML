@@ -1,7 +1,8 @@
 name: ML photo editor stage 5 integrated ARM64 QA
 on:
   push:
-    branches: [integration/ml-photo-5-stages-arm64-20261101]
+    branches:
+      - integration/ml-photo-5-stages-arm64-20261101
   workflow_dispatch:
 
 permissions:
@@ -45,22 +46,7 @@ jobs:
           "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.domenota.medialoader.hitmoz'"
           "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --print-certs "$APK"
           unzip -Z1 "$APK" > /tmp/ml-photo-stage5-apk-entries.txt
-          grep -E '^lib/arm64-v8a/.*\.so
-            echo "Unexpected non-arm64 native libraries in QA package" >&2
-            exit 1
-          fi
-          sha256sum "$APK"
-          du -h "$APK"
-      - name: Upload one short-lived ARM64 QA APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ML-1.7.110-photo-stage5-ARM64-QA-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
- /tmp/ml-photo-stage5-apk-entries.txt > /dev/null
+          grep -E '^lib/arm64-v8a/.*\.so$' /tmp/ml-photo-stage5-apk-entries.txt > /dev/null
           if grep -E '^lib/(armeabi-v7a|x86|x86_64)/' /tmp/ml-photo-stage5-apk-entries.txt; then
             echo "Unexpected non-arm64 native libraries in QA package" >&2
             exit 1
