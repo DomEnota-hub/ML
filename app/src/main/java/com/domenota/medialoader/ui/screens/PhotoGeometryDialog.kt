@@ -285,7 +285,7 @@ internal fun PhotoGeometryDialog(
                         GeometryMode.VERTICAL -> geometry.verticalPerspective
                         GeometryMode.FREE -> 0f
                     }
-                    val range = if (mode == GeometryMode.STRAIGHTEN) -45f..45f else -50f..50f
+                    val range = if (mode == GeometryMode.STRAIGHTEN) -45f..45f else -100f..100f
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
                         Text(if (mode == GeometryMode.STRAIGHTEN) "Угол" else "Перспектива",
