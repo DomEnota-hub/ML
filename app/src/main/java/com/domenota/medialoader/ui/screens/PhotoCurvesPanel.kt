@@ -80,6 +80,15 @@ internal fun PhotoCurvesPanel(
                         selection = pts.indices.minByOrNull { i ->
                             hypot(pts[i].x - x, pts[i].y - y)
                         }?.takeIf { hypot(pts[it].x - x, pts[it].y - y) <= .09f } ?: -1
+                        if (selection == -1) {
+                            // A single drag should create and move a control point,
+                            // without requiring a separate tap beforehand.
+                            val inserted = latestCurve.insert(x, y)
+                            if (inserted != latestCurve) {
+                                selection = inserted.points.indexOfFirst { abs(it.x - x) < .002f }
+                                live(latestCurves.update(channel, inserted))
+                            }
+                        }
                     },
                     onDrag = { change, _ ->
                         val index = selection
@@ -121,6 +130,8 @@ internal fun PhotoCurvesPanel(
                     else 3.5.dp.toPx(), center = center)
             }
         }
+        Text("Нажми на кривую, чтобы выбрать точку; потяни в любом месте, чтобы добавить.",
+            color = Color.LightGray, fontSize = 10.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = {
                 val next = curve.remove(selection)
