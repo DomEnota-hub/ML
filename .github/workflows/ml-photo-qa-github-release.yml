@@ -21,12 +21,12 @@ jobs:
     timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN: "41327645792"
+      SOURCE_RUN: "41329461287"
       SOURCE_NAME: "ML-1.7.110-Round2-Refined-ARM64-QA"
-      SOURCE_SHA: "541951531d128ad3f4afb7c73b2c6bd8e3690184"
-      EXPECTED_SHA256: "12d99d69b9b0631353f921dc019e1893c68770d8cb23b881aca59c234d2bcf19"
-      RELEASE_TAG: "qa-round2-1.7.111-cycle2-20261101"
-      RELEASE_ASSET: "MediaLoader-1.7.111-Cycle2-ARM64-QA.apk"
+      SOURCE_SHA: "f144adb64100bc250e1a45e5deca28b4a059193a"
+      EXPECTED_SHA256: "2306a04f5fccc53eb7f3372c47c59eae754e0fad39a9a18916acba04530b3959"
+      RELEASE_TAG: "qa-round2-1.7.111-cycle2-refined-20261101"
+      RELEASE_ASSET: "MediaLoader-1.7.111-Cycle2-Refined-ARM64-QA.apk"
     steps:
       - name: Download verified QA APK from successful integration workflow
         shell: bash
@@ -45,13 +45,13 @@ jobs:
           mv "$RUNNER_TEMP/photo-qa/app-debug.apk" "$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
           asset="$RUNNER_TEMP/photo-qa/$RELEASE_ASSET"
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
-          **MediaLoader 1.7.111 — QA второго цикла замечаний.**
+          **MediaLoader 1.7.111 — уточнённая QA второго цикла замечаний.**
 
-          - RGB-кривые: большие точки, ограниченный захват, создание узла касанием без дополнительного жеста; быстрый предпросмотр 720px.
+          - RGB-кривые: большие точки, создание узла касанием, предпросмотр 720px и ускоренный LUT-путь без повторного вычисления HSL/гаммы при изменении только кривых.
           - Рисование: ластик стирает штрихи по мере движения, не выполняет второй проход при отпускании; размеры кистей независимы.
           - Геометрия: исправлены перепутанные направления перспективы, диапазон расширен до ±100 с длинной точной шкалой.
           - Текст: компактные жёлтые ползунки вместо фиолетовых вертикальных маркеров, более низкая панель «Стиль», быстрые кнопки дублирования и удаления.
-          - Галерея: убран 106dp пустой участок под медиасеткой, переключатель остаётся наложенным поверх.
+          - Галерея: полупрозрачный плавающий переключатель; последний ряд доступен благодаря нижнему отступу прокрутки.
           - Настройки: распределены цвета значков, молния режима загрузки Instagram заменена стрелками переключения.
           - Глобальная переделка фиолетового цвета отложена, это отдельная будущая задача.
           - Потребуется ручная проверка скорости и жестов на реальном устройстве.
@@ -67,7 +67,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" "$asset" \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$SOURCE_SHA" --title "MediaLoader 1.7.111 · Cycle 2 QA · ARM64" \
+              --target "$SOURCE_SHA" --title "MediaLoader 1.7.111 · Cycle 2 Refined QA · ARM64" \
               --notes-file "$RUNNER_TEMP/release-notes.md" --prerelease
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
