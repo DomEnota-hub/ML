@@ -1100,7 +1100,7 @@ fun SettingsScreen(
                     "Диагностика",
                     "Состояние приложения и источников",
                     grouped = true,
-                    iconTone = SettingIconTone.RED,
+                    iconTone = SettingIconTone.DIAGNOSTICS,
                     onClick = onOpenDiagnostics,
                 )
                 GroupDivider()
@@ -1109,7 +1109,7 @@ fun SettingsScreen(
                     "Журнал приложения",
                     "Ошибки, предупреждения и события",
                     grouped = true,
-                    iconTone = SettingIconTone.BLUE,
+                    iconTone = SettingIconTone.LOG,
                     onClick = { logsDialog = true; refreshAppLog() },
                 )
                 GroupDivider()
