@@ -325,7 +325,15 @@ internal fun PhotoGeometryDialog(
                             GeometryMode.VERTICAL -> Icons.Rounded.SwapVert
                             GeometryMode.FREE -> Icons.Rounded.CropFree
                         }, contentDescription = null, modifier = Modifier.size(18.dp))
-                    }, label = { Text(option.title) })
+                    }, label = { Text(option.title) },
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(17.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = Color(0xFF26262B),
+                            labelColor = Color.White,
+                            selectedContainerColor = geoAccent,
+                            selectedLabelColor = Color.Black,
+                            selectedLeadingIconColor = Color.Black),
+                        modifier = Modifier.height(52.dp))
                 }
                 IconButton(onClick = { zoom.reset() }) {
                     Icon(Icons.Rounded.CenterFocusStrong, "Сбросить масштаб", tint = Color.White)
