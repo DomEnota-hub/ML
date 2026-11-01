@@ -24,17 +24,27 @@ fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier =
     onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0) {
     val color = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f)
     val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+    val zeroColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .95f)
     Slider(value = value, onValueChange = onValueChange, modifier = modifier, enabled = enabled,
         valueRange = valueRange, onValueChangeFinished = onValueChangeFinished, steps = steps,
         thumb = { Box(Modifier.size(20.dp).background(color, CircleShape)) },
         track = { state ->
-            Canvas(Modifier.fillMaxWidth().height(4.dp)) {
-                val fraction = ((state.value - valueRange.start) /
-                    (valueRange.endInclusive - valueRange.start).coerceAtLeast(0.0001f)).coerceIn(0f, 1f)
+            Canvas(Modifier.fillMaxWidth().height(16.dp)) {
+                val full = (valueRange.endInclusive - valueRange.start).coerceAtLeast(.0001f)
+                val fraction = ((state.value - valueRange.start) / full).coerceIn(0f, 1f)
                 drawLine(track, Offset(0f, size.height / 2), Offset(size.width, size.height / 2),
-                    strokeWidth = size.height, cap = StrokeCap.Round)
-                drawLine(color, Offset(0f, size.height / 2), Offset(size.width * fraction, size.height / 2),
-                    strokeWidth = size.height, cap = StrokeCap.Round)
+                    strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(color, Offset(0f, size.height / 2),
+                    Offset(size.width * fraction, size.height / 2),
+                    strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+                if (valueRange.start < 0f && valueRange.endInclusive > 0f) {
+                    val zeroFraction = -valueRange.start / full
+                    val zeroX = zeroFraction * size.width
+                    drawLine(zeroColor,
+                        Offset(zeroX, 1.dp.toPx()),
+                        Offset(zeroX, size.height - 1.dp.toPx()),
+                        strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                }
             }
         })
 }
