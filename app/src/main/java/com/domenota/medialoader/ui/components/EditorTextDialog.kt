@@ -183,8 +183,9 @@ internal fun EditorTextDialog(
                 val minimal = maxHeight < 280.dp
                 val panelHeight = when {
                     minimal -> 120.dp
-                    compact -> 220.dp
-                    else -> (maxHeight * .43f).coerceIn(256.dp, 370.dp)
+                    compact -> 200.dp
+                    textToolTab == UnifiedTextTab.STYLE -> (maxHeight * .31f).coerceIn(210.dp, 280.dp)
+                    else -> (maxHeight * .39f).coerceIn(244.dp, 338.dp)
                 }
                 val panelBg = Color(0xFF202127)
                 val accent = textEditorAccent
