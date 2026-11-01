@@ -28,13 +28,22 @@ fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier =
         valueRange = valueRange, onValueChangeFinished = onValueChangeFinished, steps = steps,
         thumb = { Box(Modifier.size(20.dp).background(color, CircleShape)) },
         track = { state ->
-            Canvas(Modifier.fillMaxWidth().height(4.dp)) {
-                val fraction = ((state.value - valueRange.start) /
-                    (valueRange.endInclusive - valueRange.start).coerceAtLeast(0.0001f)).coerceIn(0f, 1f)
+            Canvas(Modifier.fillMaxWidth().height(16.dp)) {
+                val full = (valueRange.endInclusive - valueRange.start).coerceAtLeast(.0001f)
+                val fraction = ((state.value - valueRange.start) / full).coerceIn(0f, 1f)
                 drawLine(track, Offset(0f, size.height / 2), Offset(size.width, size.height / 2),
-                    strokeWidth = size.height, cap = StrokeCap.Round)
-                drawLine(color, Offset(0f, size.height / 2), Offset(size.width * fraction, size.height / 2),
-                    strokeWidth = size.height, cap = StrokeCap.Round)
+                    strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(color, Offset(0f, size.height / 2),
+                    Offset(size.width * fraction, size.height / 2),
+                    strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+                if (valueRange.start < 0f && valueRange.endInclusive > 0f) {
+                    val zeroFraction = -valueRange.start / full
+                    val zeroX = zeroFraction * size.width
+                    drawLine(MaterialTheme.colorScheme.onSurface.copy(alpha = .95f),
+                        Offset(zeroX, 1.dp.toPx()),
+                        Offset(zeroX, size.height - 1.dp.toPx()),
+                        strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                }
             }
         })
 }
