@@ -925,7 +925,7 @@ private fun PhotoWorkspaceTools(
             Row(Modifier.fillMaxWidth().height(43.dp).horizontalScroll(rememberScrollState())
                 .padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                PhotoEffectCategory.entries.forEach { category ->
+                PhotoEffectCategory.entries.filter { it != PhotoEffectCategory.POPULAR }.forEach { category ->
                     FilterChip(selected = effectCategory == category,
                         onClick = { effectCategory = category },
                         enabled = !locked,
