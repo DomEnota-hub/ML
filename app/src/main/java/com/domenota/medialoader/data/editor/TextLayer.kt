@@ -14,6 +14,8 @@ data class TextLayer(
     val color: Int = -1,
     val outlineColor: Int = -16777216,
     val outline: Float = 0.06f,
+    /** Shared photo/video layer opacity (0–1), independent per text layer. */
+    val opacity: Float = 1f,
     val startMs: Long = 0L,
     val endMs: Long? = null,
 ) {
@@ -23,6 +25,7 @@ data class TextLayer(
         require(size.isFinite() && size in 0.02f..0.25f)
         require(rotation.isFinite() && rotation in -180f..180f)
         require(outline.isFinite() && outline in 0f..0.15f)
+        require(opacity.isFinite() && opacity in 0f..1f)
         require(startMs >= 0L && (endMs == null || endMs > startMs))
     }
     fun visibleAt(positionMs: Long): Boolean = text.isNotBlank() && positionMs >= startMs &&
