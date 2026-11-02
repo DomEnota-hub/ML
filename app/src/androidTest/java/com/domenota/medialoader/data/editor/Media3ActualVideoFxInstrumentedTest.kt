@@ -12,6 +12,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.VideoFrameProcessor
 import com.domenota.medialoader.testing.VideoEffectsProbeActivity
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -439,6 +440,42 @@ class Media3ActualVideoFxInstrumentedTest {
             } finally { image.recycle() }
             jpeg.copyTo(File(evidence, "current_second_clip.jpg"), true)
         } finally { preserveEvidence(evidence); jpeg?.delete(); source.delete() }
+    }
+
+    @Test fun cancellingActualTransformerRemovesPartialOutputAndAllowsNextExport() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val source = File(context.cacheDir, "fx-cancel-source.mp4")
+        source.writeBytes(Base64.decode(instrumentation.context.assets
+            .open("fx_trim_portrait_h264_90x160_20s.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
+        val existing = context.cacheDir.listFiles().orEmpty().map { it.name }.toSet()
+        fun partials() = context.cacheDir.listFiles().orEmpty().filter {
+            it.name.startsWith("video-edit-") && it.name.endsWith(".mp4") && it.name !in existing }
+        val progress = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        val job = kotlinx.coroutines.CoroutineScope(coroutineContext).launch(Dispatchers.Main.immediate) {
+            VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(endMs = 20_000,
+                specialFx = VideoSpecialFxDraft(VideoSpecialFxType.FILM_GRAIN, 1f),
+                exportSettings = VideoExportSettings(resolution = VideoExportResolution.FULL_HD_1080))) {
+                progress += it
+            }.delete()
+        }
+        try {
+            withTimeout(20_000) {
+                while (partials().none { it.length() > 0 }) {
+                    assertTrue("Export ended before cancellation could be exercised", job.isActive)
+                    delay(25)
+                }
+            }
+            job.cancel()
+            job.join()
+            withTimeout(10_000) { while (partials().isNotEmpty()) delay(50) }
+            assertTrue("Cancelled job must not report completion", 100 !in progress)
+            val next = withTimeout(180_000) { withContext(Dispatchers.Main.immediate) {
+                VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(endMs = 500,
+                    specialFx = VideoSpecialFxDraft(VideoSpecialFxType.CINEMA_BARS, 1f)))
+            } }
+            try { readFrame(next, 0).recycle() } finally { next.delete() }
+        } finally { job.cancel(); job.join(); source.delete() }
     }
 
     @Test fun sharedPhotoCatalogMatchesPhotoRendererInMp4() = runBlocking {

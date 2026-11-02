@@ -57,9 +57,22 @@ internal class VideoAudioMixEngine(private val context: Context) {
             val args = VideoAudioMixCommand.build(video, audioInputs, tracks,
                 output, hasOriginalAudio, project.durationMs)
             val ok = suspendCancellableCoroutine<Boolean> { continuation ->
-                val session = FFmpegKit.executeWithArgumentsAsync(args.toTypedArray()) { completed ->
+                val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                var reported = 10
+                val session = FFmpegKit.executeWithArgumentsAsync(args.toTypedArray(), { completed ->
                     if (continuation.isActive) continuation.resume(ReturnCode.isSuccess(completed.returnCode))
-                }
+                }, null, { statistics ->
+                    // FFmpeg time is encoded output milliseconds, after trim/atempo/fade.
+                    if (statistics.time.isFinite() && statistics.time >= 0) {
+                        val percent = (10 + statistics.time * 89 / project.durationMs).toInt().coerceIn(10, 99)
+                        mainHandler.post {
+                            if (continuation.isActive && percent > reported) {
+                                reported = percent
+                                onProgress(percent)
+                            }
+                        }
+                    }
+                })
                 continuation.invokeOnCancellation { FFmpegKit.cancel(session.sessionId) }
             }
             check(ok && output.isFile && output.length() > 0L) {
