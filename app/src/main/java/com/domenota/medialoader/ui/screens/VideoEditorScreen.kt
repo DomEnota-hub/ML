@@ -20,6 +20,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -553,7 +554,9 @@ fun VideoEditorScreen(
             .background(MaterialTheme.colorScheme.background)) {
             // Only the canvas grows with screen size; trim and tools stay
             // reachable even with portrait video and Android navigation bars.
-            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+            // Preview is bounded by the remaining screen height. Portrait videos must
+            // never push trim, tool panels or the Android navigation area off-screen.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center) {
                 val previewDimensions = selectedPreviewInfo ?: info
                 val showEditedFrame = selectedTool != VideoWorkspaceTool.CROP
@@ -562,7 +565,13 @@ fun VideoEditorScreen(
                 val h = ((previewDimensions?.height ?: 9) *
                     if (showEditedFrame) crop.keptHeight else 1f).roundToInt().coerceAtLeast(1)
                 val isRotated = rotation % 180 != 0
+                val naturalWidth = if (isRotated) h else w
+                val naturalHeight = if (isRotated) w else h
+                val videoRatio = naturalWidth.toFloat() / naturalHeight.coerceAtLeast(1)
+                val fittedWidth = minOf(maxWidth, maxHeight * videoRatio)
+                val fittedHeight = fittedWidth / videoRatio
                 CropVideoPreview(
+                    modifier = Modifier.width(fittedWidth).height(fittedHeight),
                     player = requireNotNull(previewPlayer),
                     sourceWidth = if (isRotated) h else w,
                     sourceHeight = if (isRotated) w else h,
@@ -655,6 +664,19 @@ fun VideoEditorScreen(
                         },
                         onTrim = { id, from, to ->
                             val prior = project ?: return@VideoMultiClipTimeline
+                            val previousClip = prior.clips.firstOrNull { it.id == id }
+                                ?: return@VideoMultiClipTimeline
+                            val previousIndex = prior.indexOf(id)
+                            val fromChanged = previousClip.inMs != from
+                            // Track the boundary currently being dragged. Do not silently
+                            // keep previewing the old playhead while trim handles move.
+                            val boundarySourceMs = if (fromChanged) from else to - 1L
+                            val oldSourceOffset = (boundarySourceMs - previousClip.inMs)
+                                .coerceIn(0L, (previousClip.sourceSpanMs - 1L).coerceAtLeast(0L))
+                            previewPlayer?.pause()
+                            if (previousIndex in 0 until (previewPlayer?.mediaItemCount ?: 0)) {
+                                previewPlayer?.seekTo(previousIndex, oldSourceOffset)
+                            }
                             val oldLocation = prior.locateAt(
                                 playheadMs.coerceIn(0L, prior.durationMs - 1L))
                             runCatching { prior.trimClip(id, from, to) }
@@ -668,6 +690,14 @@ fun VideoEditorScreen(
                                             currentIndex, currentSegment.outputAt(sourceTime))
                                     }
                                     project = revised
+                                    val editedIndex = revised.indexOf(id)
+                                    if (editedIndex >= 0) {
+                                        val clip = revised.clips[editedIndex]
+                                        val boundedSource = boundarySourceMs.coerceIn(
+                                            clip.inMs, (clip.outMs - 1L).coerceAtLeast(clip.inMs))
+                                        playheadMs = revised.timelinePosition(
+                                            editedIndex, clip.outputAt(boundedSource))
+                                    }
                                     if (id == selectedClipId) {
                                         trimStart = from
                                         trimEnd = to
@@ -1322,6 +1352,7 @@ private fun ReverseVideoPreviewDialog(file: File, onDismiss: () -> Unit) {
 @OptIn(UnstableApi::class)
 @Composable
 private fun CropVideoPreview(
+    modifier: Modifier = Modifier,
     player: ExoPlayer,
     sourceWidth: Int,
     sourceHeight: Int,
@@ -1333,15 +1364,7 @@ private fun CropVideoPreview(
     onOverlayDrag: (Float, Float) -> Unit = { _, _ -> },
 ) {
     val latestOverlayDrag by rememberUpdatedState(onOverlayDrag)
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .aspectRatio(
-                (sourceWidth.toFloat() / sourceHeight.coerceAtLeast(1))
-                    .coerceIn(0.35f, 2.4f),
-            )
-            .background(Color.Black),
-    ) {
+    Box(modifier.background(Color.Black)) {
         AndroidView(
             factory = { viewContext ->
                 PlayerView(viewContext).apply {
