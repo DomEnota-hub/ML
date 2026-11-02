@@ -110,7 +110,12 @@ internal fun VideoStage7EffectsPanel(
             VideoSpecialFxType.entries.forEach { type ->
                 VideoEffectChoiceCard(type.label, selected.type == type, enabled,
                     transition = false, preview = previews[type],
-                    onClick = { onSpecialFx(selected.copy(type = type)) })
+                    onClick = {
+                        // First selection must be clearly visible on a paused frame.
+                        val strength = if (selected.type == VideoSpecialFxType.NONE &&
+                            type != VideoSpecialFxType.NONE) .8f else selected.intensity
+                        onSpecialFx(selected.copy(type = type, intensity = strength))
+                    })
             }
         }
         if (selected.type != VideoSpecialFxType.NONE) {
@@ -137,7 +142,7 @@ private fun VideoEffectChoiceCard(
     Surface(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.width(108.dp).height(68.dp),
+        modifier = Modifier.width(122.dp).height(86.dp),
         shape = RoundedCornerShape(12.dp),
         color = if (selected) videoToolYellow else
             MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -151,7 +156,7 @@ private fun VideoEffectChoiceCard(
                 Box(Modifier.fillMaxWidth().align(Alignment.BottomCenter)
                     .background(Color.Black.copy(alpha = .68f))
                     .padding(horizontal = 5.dp, vertical = 5.dp)) {
-                    Text(title, maxLines = 1,
+                    Text(title, maxLines = 2,
                         style = MaterialTheme.typography.labelSmall, color = Color.White)
                 }
             }
@@ -163,7 +168,7 @@ private fun VideoEffectChoiceCard(
                     contentDescription = null, modifier = Modifier.size(21.dp),
                     tint = if (selected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(3.dp))
-                Text(title, maxLines = 1,
+                Text(title, maxLines = 2,
                     style = MaterialTheme.typography.labelSmall,
                     color = if (selected) Color.Black else MaterialTheme.colorScheme.onSurface)
             }
