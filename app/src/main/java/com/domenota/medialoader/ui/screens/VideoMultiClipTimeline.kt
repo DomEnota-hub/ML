@@ -71,6 +71,7 @@ internal fun VideoMultiClipTimeline(
     onSelect: (String) -> Unit,
     onSeek: (Long) -> Unit,
     onTrim: (String, Long, Long) -> Unit,
+    trimMode: Boolean = false,
     onTrimGestureStart: () -> Unit = {},
     onTrimGestureEnd: () -> Unit = {},
     onMove: (String, Int) -> Unit,
@@ -125,10 +126,18 @@ internal fun VideoMultiClipTimeline(
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically) {
             itemsIndexed(project.clips, key = { _, clip -> clip.id }) { index, clip ->
-                    val width = VideoClipReorderMath.widthDp(clip.durationMs, zoom, referenceDurationMs).dp
+                    val sourceTrimMode = trimMode && clip.id == selectedClipId &&
+                        clip.mediaKind == VideoClipMediaKind.VIDEO
+                    val displayDuration = if (sourceTrimMode)
+                        (clip.sourceDurationMs / clip.speed).roundToLong()
+                    else clip.durationMs
+                    val width = VideoClipReorderMath.widthDp(
+                        displayDuration, zoom, referenceDurationMs)
                     VideoClipStrip(
                         clip = clip,
-                        widthModifier = Modifier.width(width),
+                        widthModifier = Modifier.width(width.dp),
+                        showSourceTrim = sourceTrimMode,
+                        fullWidthDp = width,
                         pixelsPerSecondDp = pixelsPerSecondDp,
                         displayDensity = density,
                         isSelected = clip.id == selectedClipId,
@@ -171,6 +180,8 @@ internal fun VideoMultiClipTimeline(
 private fun VideoClipStrip(
     clip: VideoClipDraft,
     widthModifier: Modifier,
+    showSourceTrim: Boolean,
+    fullWidthDp: Float,
     pixelsPerSecondDp: Float,
     displayDensity: Float,
     isSelected: Boolean,
@@ -192,12 +203,14 @@ private fun VideoClipStrip(
     val latestOnTrimGestureEnd by rememberUpdatedState(onTrimGestureEnd)
     // Do not re-decode 4 full-resolution frames on EVERY millisecond of trim drag.
     // The player independently seeks to the exact active boundary every drag event.
-    val thumbnailStartSecond = clip.inMs / 1000L
-    val thumbnailEndSecond = clip.outMs / 1000L
+    val thumbnailStartSecond = if (showSourceTrim) 0L else clip.inMs / 1000L
+    val thumbnailEndSecond = if (showSourceTrim)
+        clip.sourceDurationMs / 1000L else clip.outMs / 1000L
     var thumbnails by remember(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond) {
         mutableStateOf<List<Bitmap>>(emptyList())
     }
-    LaunchedEffect(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond) {
+    LaunchedEffect(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond,
+        showSourceTrim) {
         val generated = withContext(Dispatchers.IO) {
             if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
                 runCatching {
@@ -221,7 +234,10 @@ private fun VideoClipStrip(
                 try {
                     retriever.setDataSource(context, Uri.parse(clip.sourceUri))
                     (0..3).mapNotNull { step ->
-                        val ms = clip.inMs + (clip.sourceSpanMs - 1L)
+                        val firstMs = if (showSourceTrim) 0L else clip.inMs
+                        val spanMs = if (showSourceTrim)
+                            clip.sourceDurationMs else clip.sourceSpanMs
+                        val ms = firstMs + (spanMs - 1L)
                             .coerceAtLeast(0L) * step / 3
                         // Prefer decoder-side scaled frames; only fall back to
                         // full-frame extraction on Android API 26.
@@ -265,10 +281,17 @@ private fun VideoClipStrip(
                 if (!enabled) return@pointerInput
                 detectTapGestures(onTap = { point ->
                     onSelect()
-                    onSeek((point.x / pixelWidth).coerceIn(0f, 1f))
+                    val tappedFraction = (point.x / pixelWidth).coerceIn(0f, 1f)
+                    val clipFraction = if (showSourceTrim) {
+                        val sourceAtTap = (tappedFraction * latestClip.sourceDurationMs)
+                            .toLong().coerceIn(latestClip.inMs, latestClip.outMs)
+                        (sourceAtTap - latestClip.inMs).toFloat() /
+                            latestClip.sourceSpanMs.coerceAtLeast(1L)
+                    } else tappedFraction
+                    onSeek(clipFraction.coerceIn(0f, 1f))
                 })
             }
-            .pointerInput(clip.id, clip.inMs, clip.outMs, enabled) {
+            .pointerInput(clip.id, enabled) {
                 if (!enabled) return@pointerInput
                 detectDragGesturesAfterLongPress(
                     onDragStart = { longPressDelta = 0f; dragging = true },
@@ -301,8 +324,28 @@ private fun VideoClipStrip(
             // TIME on a fixed scale (not to the ever-changing current width).
             // Each gesture captures its original bounds and cumulative movement.
             // One finger drag therefore shortens/extends the clip proportionally.
-            Box(Modifier.align(Alignment.CenterStart).width(17.dp).fillMaxHeight()
-                .background(selectedYellow.copy(alpha = .85f))
+            // In trim mode the complete SOURCE is the ruler. The yellow kept
+            // interval contracts/expands between two moving handles, while the
+            // discarded source is visibly dimmed. Project duration updates live.
+            val leftDp = if (showSourceTrim)
+                fullWidthDp * clip.inMs.toFloat() / clip.sourceDurationMs else 0f
+            val rightDp = if (showSourceTrim)
+                fullWidthDp * clip.outMs.toFloat() / clip.sourceDurationMs else fullWidthDp
+            val keptDp = (rightDp - leftDp).coerceAtLeast(0f)
+            if (showSourceTrim) {
+                Box(Modifier.align(Alignment.CenterStart).width(leftDp.dp)
+                    .fillMaxHeight().background(Color.Black.copy(alpha = .72f)))
+                Box(Modifier.align(Alignment.CenterEnd)
+                    .width((fullWidthDp - rightDp).coerceAtLeast(0f).dp)
+                    .fillMaxHeight().background(Color.Black.copy(alpha = .72f)))
+                Box(Modifier.align(Alignment.CenterStart)
+                    .offset(x = leftDp.dp).width(keptDp.dp).fillMaxHeight()
+                    .border(2.dp, selectedYellow))
+            }
+            Box(Modifier.align(Alignment.CenterStart)
+                .offset(x = (if (showSourceTrim) leftDp else 0f).dp)
+                .width(17.dp).fillMaxHeight()
+                .background(selectedYellow.copy(alpha = .93f))
                 .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
                     if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE)
                         return@pointerInput
@@ -330,8 +373,11 @@ private fun VideoClipStrip(
                         },
                     )
                 })
-            Box(Modifier.align(Alignment.CenterEnd).width(17.dp).fillMaxHeight()
-                .background(selectedYellow.copy(alpha = .85f))
+            Box(Modifier.align(Alignment.CenterStart)
+                .offset(x = (if (showSourceTrim) rightDp - 17f
+                    else fullWidthDp - 17f).coerceAtLeast(0f).dp)
+                .width(17.dp).fillMaxHeight()
+                .background(selectedYellow.copy(alpha = .93f))
                 .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
                     if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE)
                         return@pointerInput
@@ -376,13 +422,30 @@ private fun VideoClipStrip(
         }
         if (localPositionMs != null) {
             Canvas(Modifier.fillMaxSize()) {
-                val x = localPositionMs.toFloat() / clip.durationMs * size.width
+                val x = if (showSourceTrim)
+                    clip.sourceAt(localPositionMs).toFloat() /
+                        clip.sourceDurationMs * size.width
+                else localPositionMs.toFloat() / clip.durationMs * size.width
                 drawLine(Color.White, Offset(x, 0f), Offset(x, size.height), 2.dp.toPx())
             }
         }
-        Text(formatPreciseMediaTime(clip.durationMs),
-            color = Color.White, fontSize = 10.sp,
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = .65f)).padding(horizontal = 4.dp))
+        // Always show remaining duration and removed time, even at narrow widths.
+        if (showSourceTrim) {
+            val removedOutput = ((clip.sourceDurationMs - clip.sourceSpanMs) /
+                clip.speed).roundToLong().coerceAtLeast(0L)
+            Text("Осталось ${formatPreciseMediaTime(clip.durationMs)}" +
+                    if (removedOutput > 0L)
+                        "  −${formatPreciseMediaTime(removedOutput)}" else "",
+                color = Color.White, fontSize = 11.sp, maxLines = 1,
+                modifier = Modifier.align(Alignment.TopCenter)
+                    .background(Color.Black.copy(alpha = .86f))
+                    .padding(horizontal = 5.dp, vertical = 3.dp))
+        } else {
+            Text(formatPreciseMediaTime(clip.durationMs),
+                color = Color.White, fontSize = 10.sp,
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .background(Color.Black.copy(alpha = .65f))
+                    .padding(horizontal = 4.dp))
+        }
     }
 }
