@@ -134,7 +134,7 @@ import com.domenota.medialoader.ui.screens.MediaViewerScreen
 import com.domenota.medialoader.ui.screens.VideoEditorScreen
 import com.domenota.medialoader.ui.screens.AudioEditorScreen
 import com.domenota.medialoader.ui.screens.PhotoEditorScreen
-import com.domenota.medialoader.ui.screens.TrashScreen
+import com.domenota.medialoader.ui.screens.PhoneTrashController
 import com.domenota.medialoader.ui.screens.VkCommunityScreen
 import com.domenota.medialoader.ui.components.AudioMiniPlayer
 import androidx.compose.material.icons.Icons
@@ -1278,16 +1278,16 @@ fun MediaLoaderApp(
                 val trashRows = hiddenItems.map { entry ->
                     entry.toUi().copy(savedUri = viewModel.trashedUri(entry.id))
                 }
-                TrashScreen(
-                    items = trashRows,
+                PhoneTrashController(
+                    appItems = trashRows,
                     onBack = { navController.popBackStack() },
-                    onOpen = { id ->
+                    onOpenApp = { id ->
                         if (viewModel.trashedUri(id) == null) {
                             Toast.makeText(context, "Файл в корзине недоступен", Toast.LENGTH_SHORT).show()
                         } else navController.navigate("trash-viewer/$id")
                     },
-                    onRestore = viewModel::restoreHidden,
-                    onDelete = viewModel::deleteHidden,
+                    onRestoreApp = viewModel::restoreHidden,
+                    onDeleteApp = viewModel::deleteHidden,
                 )
             }
             composable("trash-viewer/{downloadId}") { entry ->

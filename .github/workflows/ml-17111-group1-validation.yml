@@ -1,0 +1,36 @@
+name: ML 1.7.111 group 1 safety validation
+on:
+  push:
+    branches:
+      - fix/ml-17111-group1-safety-video-trash-calendar-20261102
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml-17111-group1-validation
+  cancel-in-progress: false
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Full Android unit and UI tests
+        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Check isolated ARM64 compilation (no APK published)
+        run: gradle :app:assembleDebug -Parm64Release=true -PhitmozArm64=true --stacktrace

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -26,6 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,27 +52,44 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.model.DownloadUiItem
+import com.domenota.medialoader.data.library.PhoneMediaTrash
 
 /**
- * The trash list always uses the app-private file URI, never the old public URI.
+ * App downloads use private trashed URI, while phone media use system MediaStore trash.
  * Selecting via a circular checkbox is independent of opening a file.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrashScreen(
     items: List<DownloadUiItem>,
+    phoneItems: List<DownloadUiItem> = emptyList(),
+    onRestorePhone: (Set<String>) -> Unit = {},
+    onDeletePhone: (Set<String>) -> Unit = {},
     onBack: () -> Unit,
     onOpen: (String) -> Unit,
     onRestore: (Set<String>) -> Unit,
     onDelete: (Set<String>) -> Unit,
 ) {
+    var phoneTab by remember { mutableStateOf(false) }
+    val allItems = if (phoneTab) phoneItems else items
+    fun phoneIds(ids: Set<String>) = ids.filterTo(mutableSetOf(), PhoneMediaTrash::isPhoneTrashId)
+    fun appIds(ids: Set<String>) = ids - phoneIds(ids)
+    fun restore(ids: Set<String>) {
+        appIds(ids).takeIf { it.isNotEmpty() }?.let(onRestore)
+        phoneIds(ids).takeIf { it.isNotEmpty() }?.let(onRestorePhone)
+    }
+    fun permanentDelete(ids: Set<String>) {
+        appIds(ids).takeIf { it.isNotEmpty() }?.let(onDelete)
+        phoneIds(ids).takeIf { it.isNotEmpty() }?.let(onDeletePhone)
+    }
     var selected by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(phoneTab) { selected = emptySet() }
     var expanded by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var deleteAll by remember { mutableStateOf(false) }
 
-    LaunchedEffect(items.map { it.id }) {
-        selected = selected.intersect(items.mapTo(mutableSetOf()) { it.id })
+    LaunchedEffect(allItems.map { it.id }) {
+        selected = selected.intersect(allItems.mapTo(mutableSetOf()) { it.id })
     }
 
     if (confirmDelete) AlertDialog(
@@ -81,10 +100,10 @@ fun TrashScreen(
         },
         confirmButton = {
             TextButton(onClick = {
-                val ids = if (deleteAll) items.mapTo(mutableSetOf()) { it.id } else selected
+                val ids = if (deleteAll) allItems.mapTo(mutableSetOf()) { it.id } else selected
                 confirmDelete = false
                 deleteAll = false
-                if (ids.isNotEmpty()) onDelete(ids)
+                if (ids.isNotEmpty()) permanentDelete(ids)
                 selected = emptySet()
             }) { Text("Удалить навсегда", color = MaterialTheme.colorScheme.error) }
         },
@@ -98,7 +117,7 @@ fun TrashScreen(
             TopAppBar(
                 title = { Column {
                     Text("Корзина")
-                    Text(com.domenota.medialoader.ui.model.russianFileCount(items.size), style = MaterialTheme.typography.labelMedium,
+                    Text(com.domenota.medialoader.ui.model.russianFileCount(items.size + phoneItems.size), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } },
                 navigationIcon = {
@@ -112,7 +131,7 @@ fun TrashScreen(
                         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Очистить корзину") },
-                                enabled = items.isNotEmpty(),
+                                enabled = allItems.isNotEmpty(),
                                 onClick = {
                                     expanded = false
                                     deleteAll = true
@@ -125,19 +144,19 @@ fun TrashScreen(
             )
         },
         bottomBar = {
-            if (items.isNotEmpty()) Surface(tonalElevation = 3.dp) {
+            if (allItems.isNotEmpty()) Surface(tonalElevation = 3.dp) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = {
-                            selected = if (selected.size == items.size) emptySet()
-                            else items.mapTo(mutableSetOf()) { it.id }
-                        }) { Text(if (selected.size == items.size) "Снять выделение" else "Выбрать всё") }
+                            selected = if (selected.size == allItems.size) emptySet()
+                            else allItems.mapTo(mutableSetOf()) { it.id }
+                        }) { Text(if (selected.size == allItems.size) "Снять выделение" else "Выбрать всё") }
                         Spacer(Modifier.weight(1f))
                         Text("Выбрано: ${selected.size}", style = MaterialTheme.typography.bodySmall)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
-                            onClick = { val ids = selected; selected = emptySet(); onRestore(ids) },
+                            onClick = { val ids = selected; selected = emptySet(); restore(ids) },
                             modifier = Modifier.weight(1f),
                             enabled = selected.isNotEmpty(),
                             colors = ButtonDefaults.buttonColors(
@@ -156,13 +175,21 @@ fun TrashScreen(
             }
         },
     ) { padding ->
-        if (items.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxWidth().heightIn(min = 260.dp),
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !phoneTab, onClick = { phoneTab = false },
+                    label = { Text("Загрузчик · ${items.size}") })
+                FilterChip(selected = phoneTab, onClick = { phoneTab = true },
+                    label = { Text("Телефон · ${phoneItems.size}") })
+            }
+        if (allItems.isEmpty()) {
+            Box(Modifier.fillMaxWidth().heightIn(min = 260.dp),
                 contentAlignment = Alignment.Center) { Text("Корзина пуста") }
         } else {
-            LazyColumn(Modifier.padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(items, key = { it.id }) { item ->
+                items(allItems, key = { it.id }) { item ->
                     val checked = item.id in selected
                     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(10.dp)) {
@@ -179,7 +206,7 @@ fun TrashScreen(
                                         tint = MaterialTheme.colorScheme.onPrimary)
                                 }
                             }
-                            Row(Modifier.weight(1f).clickable { onOpen(item.id) },
+                            Row(Modifier.weight(1f).clickable { if (!PhoneMediaTrash.isPhoneTrashId(item.id)) onOpen(item.id) },
                                 verticalAlignment = Alignment.CenterVertically) {
                                 DownloadThumbnail(item.savedUri, null, item.kind, Modifier.size(56.dp))
                                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -192,6 +219,7 @@ fun TrashScreen(
                     }
                 }
             }
+        }
         }
     }
 }
