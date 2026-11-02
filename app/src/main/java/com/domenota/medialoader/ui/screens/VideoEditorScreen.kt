@@ -1347,6 +1347,13 @@ fun VideoEditorScreen(
             )
         }
     }
+    if (ownExport) {
+        VideoV8SaveProgress(
+            operation = exportState.operation,
+            progress = exportState.progress,
+            onCancel = onCancelExport,
+        )
+    }
     reversePreviewFile?.let { file ->
         ReverseVideoPreviewDialog(file) {
             reversePreviewFile = null
