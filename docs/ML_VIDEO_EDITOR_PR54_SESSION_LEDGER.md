@@ -174,3 +174,31 @@ androidTest compile прошли локально11s. Добавлен реал�
 M4A → декодированный PCM. Проверяются отсутствие тишины/удвоения, fade-in и
 сохранение440Hz при ускорении. Выполнение на Android пока pending.
 Доказательство MP3/AACaudio-tier не подменяется генерацией аргументов команды.
+
+## Дополнительные фактические результаты и исправления после 1ef59dd
+
+CI41490792592 / 1ef59dd: cinema golden и MP4 matrix10×0/50/100 PASS;
+реальное отделение2×, MP3 libmp3lame, микширование, AAC/M4A/PCM PASS
+(samples6144, RMS0.02055, pitch450Hz при частоте источника440Hz).
+Preview всё ещё timeout; replay cache сам по себе не решает смену списка effects.
+В1.9 configure нового input stream вызывает frameCache.onNewInputStream и очищает
+кеш. updateEffects теперь при паузе принудительно инициирует seek в соседнюю1ms
+позицию и возвращается в исходную. Логическая позиция сохраняется, звук не
+запускается. Device proof нового пути pending; timeout сохраняет stage/PNG.
+
+Полный unit CI выявил2 layout-регрессии новых text styles: палитра перестала быть
+видна сразу. ecc2906 вернул палитру перед расширенными плитками; обаSDK34/35
+EditorTextDialogLayoutTest прошли локально. Видеоредактор также зависел от темы
+приложения (светлый фон при светлых иконках). 6b16e95 изолировал тёмную палитру v8.
+Добавлен debug-only host реального VideoEditorScreen и снимки root/editor/trim/
+aspect для визуальной сверки человеком. Скриншоты не объявляются golden PASS.
+
+Фото-MP4 тест обнаружил MONO50 meanRGBerror21.02. Фактический конструктор
+DefaultVideoFrameProcessor.Factory.Builder1.9 задаёт WORKING_COLOR_SPACE_DEFAULT,
+то есть encoded SMPTE170M SDR; GlEffect javadoc ошибочно говорит linear. Удалён
+двойной encode/decode из shader. Единая PhotoColorMath matrix/fade/grain сохранена.
+Доказательство соответствия всему каталогу ожидает повторного actual-MP4 теста.
+
+Дополнительные instrumented проверки:8 временных текстовых слоёв + стикер,
+настоящие MP4 trim15с справа/слева/восстановление20с с проверкой первого/последнего
+исходного кадра и SHA256 оригинала. Компиляция пройдена, device execution pending.

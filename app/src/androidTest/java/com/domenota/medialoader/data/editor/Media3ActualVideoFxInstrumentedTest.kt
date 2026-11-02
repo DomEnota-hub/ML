@@ -430,6 +430,7 @@ class Media3ActualVideoFxInstrumentedTest {
                             VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(endMs = 800L,
                                 color = VideoColorGrade(photoEffect = preset, intensity = strength)))
                         } }
+                        output.copyTo(File(evidence, "photo_${preset.name}_${(strength * 100).toInt()}.mp4"), true)
                         val actual = readFrame(output)
                         try {
                             val a = IntArray(actual.width * actual.height)
@@ -444,7 +445,6 @@ class Media3ActualVideoFxInstrumentedTest {
                             metrics.append("${preset.name},$strength,$meanError\n")
                             assertTrue("$preset: MP4 differs from photo pipeline, mean error=$meanError",
                                 meanError < 10.0)
-                            output.copyTo(File(evidence, "photo_${preset.name}_${(strength * 100).toInt()}.mp4"), true)
                         } finally { actual.recycle() }
                     } finally {
                         output?.delete()
