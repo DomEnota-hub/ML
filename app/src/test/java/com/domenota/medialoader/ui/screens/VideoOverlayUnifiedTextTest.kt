@@ -1,6 +1,14 @@
 package com.domenota.medialoader.ui.screens
 
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.domenota.medialoader.data.editor.VideoGraphicLayer
+import com.domenota.medialoader.data.editor.VideoGraphicKind
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
@@ -43,4 +51,30 @@ class VideoOverlayUnifiedTextTest {
         compose.onNodeWithText("Клавиатура").performClick()
         compose.onNodeWithText("Видеонадпись").assertExists()
     }
+    @Test fun textAndStickersCanOpenInsideProductionScrollSheet() {
+        var graphics by mutableStateOf(false)
+        val textLayer = TextLayer(text = "Слой", endMs = 9000L)
+        val sticker = VideoGraphicLayer(kind = VideoGraphicKind.STAR, endMs = 9000L)
+        compose.setContent {
+            MaterialTheme {
+                // Mirror the parent VideoEditorScreen tool-sheet constraint.
+                Column(Modifier.height(218.dp).verticalScroll(rememberScrollState())) {
+                    VideoOverlayPanel(
+                        graphicsTab = graphics, durationMs = 10_000L, playheadMs = 0L,
+                        texts = listOf(textLayer), graphics = listOf(sticker),
+                        selectedId = if (graphics) sticker.id else textLayer.id,
+                        enabled = true, onSelect = {}, onAddText = {}, onAddGraphic = {},
+                        onAddImage = {}, onChangeText = {}, onChangeGraphic = {},
+                        onRemoveText = {}, onRemoveGraphic = {}, onSeek = {},
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText("Надписи").assertExists()
+        compose.runOnUiThread { graphics = true }
+        compose.waitForIdle()
+        compose.onNodeWithText("Графика и стикеры").assertExists()
+        compose.onNodeWithText("Размер").assertExists()
+    }
+
 }
