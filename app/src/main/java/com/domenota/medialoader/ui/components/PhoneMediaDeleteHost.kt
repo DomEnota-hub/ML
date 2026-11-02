@@ -51,11 +51,19 @@ internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismis
     LaunchedEffect(confirmed, revision) {
         if (!confirmed || waiting) return@LaunchedEffect
         try {
+            if (Build.VERSION.SDK_INT < 30 && phoneBatches.isNotEmpty()) {
+                // Android 10 and earlier have no supported reversible MediaStore trash request.
+                // Never fall back to ContentResolver.delete() and destroy the only copy.
+                waiting = false
+                confirmed = false
+                error = "На этой версии Android корзина файлов телефона недоступна. Файлы не удалены."
+                return@LaunchedEffect
+            }
             if (Build.VERSION.SDK_INT >= 30 && batchIndex < phoneBatches.size) {
                 val uris = phoneBatches[batchIndex].map(Uri::parse)
                 require(uris.all { it.scheme == "content" && it.authority == "media" })
                 waiting = true
-                consent.launch(IntentSenderRequest.Builder(MediaStore.createDeleteRequest(context.contentResolver, uris).intentSender).build())
+                consent.launch(IntentSenderRequest.Builder(MediaStore.createTrashRequest(context.contentResolver, uris, true).intentSender).build())
                 return@LaunchedEffect
             }
             if (Build.VERSION.SDK_INT < 30) {
@@ -90,8 +98,8 @@ internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismis
         title = { Text(deleteSelectionTitle(targets.size)) },
         text = error?.let { message -> { Text(message) } },
         confirmButton = { TextButton({ error = null; confirmed = true; revision++ }) {
-            Text("Удалить", color = MaterialTheme.colorScheme.error)
+            Text("В корзину", color = MaterialTheme.colorScheme.error)
         } }, dismissButton = { TextButton(onDismiss) { Text("Отмена") } })
     else if (!waiting) AlertDialog(onDismissRequest = {}, confirmButton = {},
-        text = { Text("Удаляем выбранные объекты…") })
+        text = { Text("Перемещаем выбранные объекты в корзину…") })
 }
