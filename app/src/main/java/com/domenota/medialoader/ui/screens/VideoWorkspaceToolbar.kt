@@ -28,7 +28,9 @@ internal enum class VideoWorkspaceTool(val label: String) {
     TRIM("Обрезка"), SPEED("Скорость"), CROP("Кадр"), ROTATE("Поворот"),
     COLOR("Цвет"), TRANSITION("Переход"), EFFECTS("Эффекты"), AUDIO("Звук"),
     REVERSE("Реверс"), TEXT("Текст"), GRAPHICS("Стикеры"),
-    EXPORT("Экспорт"), MORE("Ещё")
+    EXPORT("Экспорт"), MORE("Ещё"),
+    DELETE("Удалить"), SEPARATE_AUDIO("Разделить звук"),
+    REPLACE("Заменить"), DUPLICATE("Копировать")
 }
 internal val videoToolYellow = Color(0xFFFFC000)
 
@@ -48,6 +50,10 @@ private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.GRAPHICS -> Icons.Rounded.EmojiEmotions
     VideoWorkspaceTool.EXPORT -> Icons.Rounded.HighQuality
     VideoWorkspaceTool.MORE -> VideoV8Icons.more
+    VideoWorkspaceTool.DELETE -> VideoV8Icons.trash
+    VideoWorkspaceTool.SEPARATE_AUDIO -> VideoV8Icons.separate
+    VideoWorkspaceTool.REPLACE -> VideoV8Icons.replace
+    VideoWorkspaceTool.DUPLICATE -> VideoV8Icons.copy
 }
 
 private data class ReferenceRootAction(
@@ -71,8 +77,11 @@ private val rootActions = listOf(
 internal fun referenceRootLabels(): List<String> = rootActions.map { it.label }
 
 private val editorActions = listOf(
-    VideoWorkspaceTool.TRIM, VideoWorkspaceTool.SPEED, VideoWorkspaceTool.CROP,
-    VideoWorkspaceTool.ROTATE, VideoWorkspaceTool.REVERSE, VideoWorkspaceTool.TRANSITION,
+    VideoWorkspaceTool.TRIM, VideoWorkspaceTool.SPEED, VideoWorkspaceTool.AUDIO,
+    VideoWorkspaceTool.REVERSE, VideoWorkspaceTool.DELETE,
+    VideoWorkspaceTool.SEPARATE_AUDIO, VideoWorkspaceTool.REPLACE,
+    VideoWorkspaceTool.CROP, VideoWorkspaceTool.DUPLICATE,
+    VideoWorkspaceTool.ROTATE, VideoWorkspaceTool.TRANSITION,
     VideoWorkspaceTool.EFFECTS,
 )
 private val musicActions = listOf(VideoWorkspaceTool.AUDIO)
@@ -91,6 +100,12 @@ internal fun VideoWorkspaceToolbar(
     enabled: Boolean,
     onColorManualMode: (Boolean) -> Unit = {},
     colorManualMode: Boolean = false,
+    onDeleteClip: () -> Unit = {},
+    onSeparateAudio: () -> Unit = {},
+    onReplaceClip: () -> Unit = {},
+    onDuplicateClip: () -> Unit = {},
+    canDeleteClip: Boolean = false,
+    canSeparateAudio: Boolean = false,
 ) {
     var section by remember { mutableStateOf(VideoReferenceSection.MAIN) }
 
@@ -135,13 +150,27 @@ internal fun VideoWorkspaceToolbar(
                     VideoReferenceSection.MAIN -> emptyList()
                 }
                 actions.forEach { tool ->
+                    val itemLabel = if (tool == VideoWorkspaceTool.AUDIO)
+                        "Громкость" else tool.label
                     ReferenceDockItem(
-                        label = tool.label,
+                        label = itemLabel,
                         icon = tool.icon(),
                         active = selected == tool,
-                        enabled = enabled,
-                        width = 72,
-                        onClick = { onSelect(if (selected == tool) null else tool) },
+                        enabled = enabled && when (tool) {
+                            VideoWorkspaceTool.DELETE -> canDeleteClip
+                            VideoWorkspaceTool.SEPARATE_AUDIO -> canSeparateAudio
+                            else -> true
+                        },
+                        width = if (tool == VideoWorkspaceTool.SEPARATE_AUDIO) 84 else 72,
+                        onClick = {
+                            when (tool) {
+                                VideoWorkspaceTool.DELETE -> onDeleteClip()
+                                VideoWorkspaceTool.SEPARATE_AUDIO -> onSeparateAudio()
+                                VideoWorkspaceTool.REPLACE -> onReplaceClip()
+                                VideoWorkspaceTool.DUPLICATE -> onDuplicateClip()
+                                else -> onSelect(if (selected == tool) null else tool)
+                            }
+                        },
                     )
                 }
             }
@@ -176,6 +205,7 @@ private fun ReferenceDockItem(
             val lines = when (label) {
                 "Соотношение сторон" -> "Соотношение\nсторон"
                 "Откорректировать" -> "Откорректи\nровать"
+                "Разделить звук" -> "Разделить\nзвук"
                 else -> label
             }
             Text(
