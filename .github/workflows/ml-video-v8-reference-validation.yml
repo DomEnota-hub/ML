@@ -28,6 +28,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Validate synthetic H264 fixture before codec tests
+        run: python3 scripts/verify-video-fx-fixture.py
       - name: Run all Android unit and Compose tests
         run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint
@@ -63,6 +65,17 @@ jobs:
           bytes=$(stat -c %s "$file")
           echo "Unsigned release size: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
           test "$bytes" -lt 130000000
+      - name: Preserve unit and lint reports even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-v8-unit-lint-${{ github.sha }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results*
+          if-no-files-found: warn
+          retention-days: 7
       - name: Keep short-lived CI APK (not published as QA prerelease)
         uses: actions/upload-artifact@v4
         with:
@@ -102,4 +115,15 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.domenota.medialoader.data.editor.Media3ActualVideoFxInstrumentedTest --stacktrace
+          script: bash scripts/run-video-fx-device-tests.sh
+      - name: Preserve real-codec evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-v8-device-${{ github.sha }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/video-fx-logcat.txt
+          if-no-files-found: warn
+          retention-days: 7

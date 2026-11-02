@@ -1,0 +1,56 @@
+# PR54 — проверка продолжения (2026-11-02)
+
+## Точная исходная точка
+
+- Ветка: `feature/ml-video-editor-v8-reference-rebuild-20261102`.
+- PR54 OPEN/DRAFT, base `feature/ml-17111-group3-video-8-15-20261102`.
+- Исходный SHA: `8e7331ae00b95055e2d4ee9a19fdcf1d9fadc4bf`.
+- `main` и последовательность PR51–54 сохраняются, merge/release не выполняются.
+- CI run41478136719 действительно относится к этому SHA: qa FAILURE (1027tests,
+  3failed/1skipped); device FAILURE (Asset loader error). Старый зелёный run не принят.
+
+## Источники
+
+Контракт и аудит в docs прочитаны. Drive HTML v8 доступен:307518bytes,
+ID1mysfXrzXaD5B-Nqxk76aWyEpIPaeXztQ; локальный одобренный исходник сохранён
+в /workspace/medialoader-video-editor-v8.14скриншотов и записи ранее скачаны
+в /workspace/video-editor-reference; иерархия подтверждена в предыдущей сессии.
+Три журнала `/Загрузчик/1.7.111/…` из ChatGPT Library недоступны через текущие
+инструменты; локальная `/workspace/library-files` пуста. Содержимое не выдумывается.
+Официальный signing key также не читается/не используется до приёмки.
+
+## Матрица исходного состояния — код отдельно от доказательств
+
+| Область | Статус | Фактическое основание / следующий шаг |
+|---|---|---|
+| Корневой док v8 | PARTIAL / NOT_DEVICE_TESTED | Порядок/вложенные инструменты есть; визуальный Android parity не доказан |
+| Undo/Redo | IMPLEMENTED / NOT_DEVICE_TESTED | VideoEditHistory,60состояний; реальные серии жестов ещё проверить |
+| Спецэффекты10 | PARTIAL / NOT_DEVICE_TESTED | Painter→thumbnail/OverlayEffect, реальные pixel-тесты ранее падали |
+| Общий PhotoEffectCatalog | PARTIAL | Подключён к VideoColorGrade; точность алгоритма/MP4 не доказана |
+| Pre-prepare effects + REDRAW | IMPLEMENTED / NOT_DEVICE_TESTED | Проверено по upstream Media3 tag1.9.0: REDRAW специальный маркер, не сброс списка; устройство ещё нужно |
+| Инструментальный MP4-тест | BROKEN | Входной base64 декодируется в повреждённый H264: FFmpeg Invalid NAL unit size на всех12кадрах |
+| Pixel unit tests | BROKEN | Robolectric использует legacy Canvas; требуется native graphics для доказательства реального рисования |
+| Trim source timeline | PARTIAL / NOT_DEVICE_TESTED | Внесённые ранее source-relative/short-clip исправления сохраняются; проверить20→15→20, скорости/undo/экспорт |
+| Текст/стикеры/фото54.1 | PARTIAL / NOT_DEVICE_TESTED | Модели и общие компоненты есть; регрессии/полнота настроек не проверены |
+| Отделённый/внешний звук | PARTIAL / NOT_DEVICE_TESTED | Данные и FFmpeg mix подключены; реальный AAC/громкость/fade/speed ещё не доказаны |
+| Галерея без миниплеера53.1 | MISSING | В MediaLoaderApp всё ещё передаётся AudioMiniPlayer в GalleryModeScreen; исправить отдельным коммитом |
+| JPEG/M4A/MP4, прогресс/фон/отмена | PARTIAL / NOT_DEVICE_TESTED | Код/обработчики есть; пока нет полного end-to-end доказательства |
+| Декодирование/кэш8MiB | PARTIAL | Scaled retriever и ограничения есть; память/длинный ролик не измерены |
+| Официальный релиз | BLOCKED | До реальных проверок и ручной приёмки, ключ/сертификат не подменять |
+
+## Первый блок: восстановление доказательного тестирования P0
+
+- Заменён повреждённый синтетический белый H264 на валидный160×90,15fps,0.8s,
+  baseline/yuv420p. Полное декодирование через FFmpeg `-xerror` прошло.
+- В instrumented test добавлена проверка декодируемости до Transformer.
+  Исправление main Looper из8e7331a сохранено, не переделано.
+- Два класса тестов Canvas/миниатюр переведены на Robolectric NATIVE graphics.
+  Это не обходит проверки пикселей: assertions сохранены.
+- CI сохраняет unit/lint/device reports и logcat даже при падении. Диагностические
+  артефакты synthetic emulator остаются вне репозитория; секретов/ключей нет.
+- Targeted local Gradle test пока выполняется; PASS не заявлен.
+- Реальная проверка эффектов0/50/100, проигрывания/паузы/MP4 и фотофильтров следует
+  после восстановления базового instrumented-прохода. Наличие названий не приёмка.
+
+Локально Android SDK/Java17/Gradle8.9 доступны; нет emulator и /dev/kvm.
+Реальные инструментальные тесты запускаются в CI Android35 x86_64 (не ARM64-телефон).

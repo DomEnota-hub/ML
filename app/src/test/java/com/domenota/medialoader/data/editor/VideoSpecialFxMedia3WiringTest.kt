@@ -11,6 +11,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.Config
 
 /**
@@ -20,6 +21,7 @@ import org.robolectric.annotation.Config
 @OptIn(UnstableApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class VideoSpecialFxMedia3WiringTest {
 
     @Test fun allRealFxTypesGenerateNonemptyMedia3VideoPipeline() {

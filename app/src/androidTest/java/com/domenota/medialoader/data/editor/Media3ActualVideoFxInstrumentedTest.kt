@@ -37,6 +37,9 @@ class Media3ActualVideoFxInstrumentedTest {
             fixture.writeBytes(Base64.decode(encoded, Base64.DEFAULT))
             assertTrue("Fixture MP4 must exist", fixture.length() > 1000L)
 
+            // Decode the fixture BEFORE invoking Transformer so a corrupt source is
+            // reported separately from an effects/codec failure.
+            readFrame(fixture).recycle()
             output = withTimeout(180_000L) {
                 // Media3 Transformer owns the application main Looper.
                 withContext(Dispatchers.Main.immediate) {
