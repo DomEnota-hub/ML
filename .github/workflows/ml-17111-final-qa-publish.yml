@@ -1,0 +1,127 @@
+name: Publish 1.7.111 all stages signed ARM64 QA
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/ml-17111-group3-video-8-15-20261102
+    paths:
+      - .github/workflows/ml-17111-final-qa-publish.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ml-17111-all-stages-signed-qa
+  cancel-in-progress: false
+
+jobs:
+  publish-after-full-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      QA_TAG: qa-ml-1.7.111-all-15-stages-20261102
+      QA_ASSET: MediaLoader-1.7.111-All-15-ARM64-DomEnota-QA.apk
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Full unit UI Robolectric lint script QA (fatal gate)
+        run: |
+          set -euo pipefail
+          node scripts/test-youtube-thumbnail.cjs
+          node scripts/test-hitmoz-native-script.cjs
+          node scripts/test-muzmo-native-script.cjs
+          gradle :app:testDebugUnitTest :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Compile ARM64 standalone QA release variant, not production
+        run: gradle :app:assembleRelease -Parm64Release=true -PhitmozArm64=true --stacktrace
+      - name: Sign QA with existing protected ML signing key and verify it
+        shell: bash
+        env:
+          ML_RELEASE_KEYSTORE_BASE64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
+          ML_RELEASE_STORE_PASSWORD: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
+          ML_RELEASE_KEY_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
+          ML_RELEASE_KEY_PASSWORD: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
+          ML_RELEASE_SIGNER_SHA256: ${{ secrets.ML_RELEASE_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          for name in ML_RELEASE_KEYSTORE_BASE64 ML_RELEASE_STORE_PASSWORD ML_RELEASE_KEY_ALIAS ML_RELEASE_KEY_PASSWORD ML_RELEASE_SIGNER_SHA256; do
+            test -n "${!name:-}" || { echo "::error::Missing protected input $name"; exit 1; }
+          done
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -s "$unsigned"
+          "$bt/aapt" dump badging "$unsigned" |
+            grep -F "package: name='com.domenota.medialoader.hitmoz'"
+          test "$(unzip -Z1 "$unsigned" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          key="$RUNNER_TEMP/ml-signing-key.jks"
+          aligned="$RUNNER_TEMP/ml-aligned.apk"
+          mkdir -p qa
+          signed="qa/$QA_ASSET"
+          trap 'rm -f "$key" "$aligned"' EXIT
+          printf '%s' "$ML_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          "$bt/zipalign" -p -f 4 "$unsigned" "$aligned"
+          "$bt/apksigner" sign --min-sdk-version 26 --ks "$key" \
+            --ks-key-alias "$ML_RELEASE_KEY_ALIAS" \
+            --ks-pass env:ML_RELEASE_STORE_PASSWORD \
+            --key-pass env:ML_RELEASE_KEY_PASSWORD --out "$signed" "$aligned"
+          "$bt/apksigner" verify --verbose "$signed"
+          cert=$("$bt/apksigner" verify --print-certs "$signed" |
+            sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+).*$/\1/p' |
+            head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')
+          expected=$(printf '%s' "$ML_RELEASE_SIGNER_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ': ')
+          test -n "$cert" && test "$cert" = "$expected" || {
+            echo "::error::Signing certificate mismatch - refusing QA publication"; exit 1;
+          }
+          "$bt/aapt" dump badging "$signed" |
+            grep -F "package: name='com.domenota.medialoader.hitmoz'"
+          test "$(unzip -Z1 "$signed" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          sha256sum "$signed" | tee qa/sha256.txt
+      - name: Publish one GitHub prerelease and verify exact bytes by downloading again
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/qa-notes.md" <<EOF
+          **MediaLoader 1.7.111 · 15 этапов · ARM64 QA**
+          - Исправления корзины Android, календаря, аудиоволн и музыкального плеера.
+          - Видеоредактор: навигация инструментов, точный таймлайн, live trim,
+            crop в пределах кадра, жесты слоёв и карточки эффектов.
+          - Проверки: Android unit/Compose/Robolectric, lint, WebView scripts и ARM64 build.
+          - Независимый пакет com.domenota.medialoader.hitmoz. Production не меняется.
+          - Подпись: сертификат DomEnota (сверен с ML_RELEASE_SIGNER_SHA256).
+          - **Ручная проверка на физическом Android ещё необходима.**
+          - Проверенный commit: $GITHUB_SHA
+          EOF
+          asset="qa/$QA_ASSET"
+          test -s "$asset"
+          local_sha=$(sha256sum "$asset" | awk '{print $1}')
+          if gh release view "$QA_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::QA tag already exists: refusing to overwrite signed artifact"
+            exit 1
+          fi
+          gh release create "$QA_TAG" "$asset" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "MediaLoader 1.7.111 · All 15 Stages · ARM64 QA" \
+            --notes-file "$RUNNER_TEMP/qa-notes.md" --prerelease
+          mkdir -p "$RUNNER_TEMP/qa-download"
+          gh release download "$QA_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$QA_ASSET" --dir "$RUNNER_TEMP/qa-download"
+          remote_sha=$(sha256sum "$RUNNER_TEMP/qa-download/$QA_ASSET" | awk '{print $1}')
+          test "$local_sha" = "$remote_sha" || {
+            echo "::error::Downloaded release hash mismatch"; exit 1;
+          }
+          echo "### Verified QA prerelease" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: $QA_TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA-256: $remote_sha" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Android-device manual QA: pending" >> "$GITHUB_STEP_SUMMARY"
+          gh release view "$QA_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url

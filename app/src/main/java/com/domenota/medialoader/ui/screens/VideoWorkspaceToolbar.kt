@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -50,46 +52,92 @@ private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
 
 internal val videoToolYellow = Color(0xFFFFBE23)
 
+private enum class VideoToolGroup(val title: String, val tools: List<VideoWorkspaceTool>) {
+    MONTAGE("Монтаж", listOf(VideoWorkspaceTool.TRIM, VideoWorkspaceTool.SPEED,
+        VideoWorkspaceTool.CROP, VideoWorkspaceTool.ROTATE, VideoWorkspaceTool.TRANSITION)),
+    DESIGN("Оформление", listOf(VideoWorkspaceTool.TEXT, VideoWorkspaceTool.GRAPHICS,
+        VideoWorkspaceTool.COLOR, VideoWorkspaceTool.EFFECTS)),
+    AUDIO("Звук", listOf(VideoWorkspaceTool.AUDIO, VideoWorkspaceTool.REVERSE)),
+    FINISH("Файл", listOf(VideoWorkspaceTool.EXPORT, VideoWorkspaceTool.MORE)),
+}
+
+private fun groupFor(tool: VideoWorkspaceTool?) =
+    VideoToolGroup.entries.firstOrNull { tool in it.tools } ?: VideoToolGroup.MONTAGE
+
+/**
+ * Two-level tool dock mirrors the reference editor's tool hierarchy.
+ * Sections remain visible and stable; the existing actions/panels are unchanged.
+ */
 @Composable
 internal fun VideoWorkspaceToolbar(
     selected: VideoWorkspaceTool?,
     onSelect: (VideoWorkspaceTool?) -> Unit,
     enabled: Boolean,
 ) {
-    Row(
-        Modifier.fillMaxWidth().height(82.dp).horizontalScroll(rememberScrollState())
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    var group by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(groupFor(selected))
+    }
+    androidx.compose.runtime.LaunchedEffect(selected) {
+        if (selected != null) group = groupFor(selected)
+    }
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        VideoWorkspaceTool.entries.forEach { tool ->
-            val active = tool == selected
-            Column(
-                modifier = Modifier.width(66.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Surface(
-                    onClick = { onSelect(if (active) null else tool) },
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .padding(horizontal = 10.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            VideoToolGroup.entries.forEach { entry ->
+                FilterChip(
+                    selected = entry == group,
+                    onClick = { group = entry },
+                    label = { Text(entry.title) },
                     enabled = enabled,
-                    shape = RoundedCornerShape(15.dp),
-                    color = if (active) videoToolYellow
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.size(47.dp),
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            tool.icon(), contentDescription = tool.label,
-                            modifier = Modifier.size(23.dp),
-                            tint = if (active) Color.Black
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Text(
-                    tool.label, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.sp, maxLines = 1,
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = videoToolYellow,
+                        selectedLabelColor = Color.Black,
+                    ),
                 )
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().height(76.dp).horizontalScroll(rememberScrollState())
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            group.tools.forEach { tool ->
+                val active = tool == selected
+                Column(
+                    modifier = Modifier.width(66.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Surface(
+                        onClick = { onSelect(if (active) null else tool) },
+                        enabled = enabled,
+                        shape = RoundedCornerShape(15.dp),
+                        color = if (active) videoToolYellow
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.size(45.dp),
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                tool.icon(), contentDescription = tool.label,
+                                modifier = Modifier.size(22.dp),
+                                tint = if (active) Color.Black
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Text(
+                        tool.label, color = if (active) videoToolYellow else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.sp, maxLines = 1,
+                    )
+                }
             }
         }
     }

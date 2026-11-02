@@ -25,7 +25,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.*
-import com.domenota.medialoader.ui.components.AppSlider as Slider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,7 +71,8 @@ internal fun VideoMultiClipTimeline(
     onSelectTransition: (String) -> Unit = {},
     onTogglePlayback: () -> Unit,
 ) {
-    var zoom by remember { mutableFloatStateOf(1f) }
+    // Full timeline detail by default; the scale is not user-adjustable.
+    val zoom = 2.5f
     val density = LocalDensity.current.density
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
@@ -94,14 +94,6 @@ internal fun VideoMultiClipTimeline(
                     Icon(Icons.Rounded.SkipNext, contentDescription = "Следующий кадр")
                 }
             }
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Масштаб", fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Slider(value = zoom, onValueChange = { zoom = it },
-                valueRange = .6f..2.5f,
-                modifier = Modifier.weight(1f).height(34.dp), enabled = enabled)
         }
         LazyRow(Modifier.fillMaxWidth().height(77.dp),
             horizontalArrangement = Arrangement.spacedBy(3.dp),

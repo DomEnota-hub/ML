@@ -17,9 +17,11 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -553,7 +556,9 @@ fun VideoEditorScreen(
             .background(MaterialTheme.colorScheme.background)) {
             // Only the canvas grows with screen size; trim and tools stay
             // reachable even with portrait video and Android navigation bars.
-            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+            // Preview is bounded by the remaining screen height. Portrait videos must
+            // never push trim, tool panels or the Android navigation area off-screen.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center) {
                 val previewDimensions = selectedPreviewInfo ?: info
                 val showEditedFrame = selectedTool != VideoWorkspaceTool.CROP
@@ -562,7 +567,12 @@ fun VideoEditorScreen(
                 val h = ((previewDimensions?.height ?: 9) *
                     if (showEditedFrame) crop.keptHeight else 1f).roundToInt().coerceAtLeast(1)
                 val isRotated = rotation % 180 != 0
+                val naturalWidth = if (isRotated) h else w
+                val naturalHeight = if (isRotated) w else h
+                val videoFit = fitVideoPreview(
+                    maxWidth.value, maxHeight.value, naturalWidth, naturalHeight)
                 CropVideoPreview(
+                    modifier = Modifier.width(videoFit.width.dp).height(videoFit.height.dp),
                     player = requireNotNull(previewPlayer),
                     sourceWidth = if (isRotated) h else w,
                     sourceHeight = if (isRotated) w else h,
@@ -578,17 +588,21 @@ fun VideoEditorScreen(
                         selectedTool == VideoWorkspaceTool.TEXT ||
                             selectedTool == VideoWorkspaceTool.GRAPHICS
                     },
-                    onOverlayDrag = { dx, dy ->
+                    onOverlayTransform = { dx, dy, zoom, angle ->
                         textLayers = textLayers.map { layer ->
                             if (layer.id == selectedOverlayId) layer.copy(
                                 centerX = (layer.centerX + dx).coerceIn(0f, 1f),
-                                centerY = (layer.centerY + dy).coerceIn(0f, 1f))
+                                centerY = (layer.centerY + dy).coerceIn(0f, 1f),
+                                size = (layer.size * zoom).coerceIn(.02f, .25f),
+                                rotation = normalizeVideoRotation(layer.rotation + angle))
                             else layer
                         }
                         graphicLayers = graphicLayers.map { layer ->
                             if (layer.id == selectedOverlayId) layer.copy(
                                 centerX = (layer.centerX + dx).coerceIn(0f, 1f),
-                                centerY = (layer.centerY + dy).coerceIn(0f, 1f))
+                                centerY = (layer.centerY + dy).coerceIn(0f, 1f),
+                                size = (layer.size * zoom).coerceIn(.03f, .85f),
+                                rotation = normalizeVideoRotation(layer.rotation + angle))
                             else layer
                         }
                     },
@@ -655,6 +669,19 @@ fun VideoEditorScreen(
                         },
                         onTrim = { id, from, to ->
                             val prior = project ?: return@VideoMultiClipTimeline
+                            val previousClip = prior.clips.firstOrNull { it.id == id }
+                                ?: return@VideoMultiClipTimeline
+                            val previousIndex = prior.indexOf(id)
+                            val fromChanged = previousClip.inMs != from
+                            // Track the boundary currently being dragged. Do not silently
+                            // keep previewing the old playhead while trim handles move.
+                            val boundarySourceMs = if (fromChanged) from else to - 1L
+                            val oldSourceOffset = (boundarySourceMs - previousClip.inMs)
+                                .coerceIn(0L, (previousClip.sourceSpanMs - 1L).coerceAtLeast(0L))
+                            previewPlayer?.pause()
+                            if (previousIndex in 0 until (previewPlayer?.mediaItemCount ?: 0)) {
+                                previewPlayer?.seekTo(previousIndex, oldSourceOffset)
+                            }
                             val oldLocation = prior.locateAt(
                                 playheadMs.coerceIn(0L, prior.durationMs - 1L))
                             runCatching { prior.trimClip(id, from, to) }
@@ -668,6 +695,14 @@ fun VideoEditorScreen(
                                             currentIndex, currentSegment.outputAt(sourceTime))
                                     }
                                     project = revised
+                                    val editedIndex = revised.indexOf(id)
+                                    if (editedIndex >= 0) {
+                                        val clip = revised.clips[editedIndex]
+                                        val boundedSource = boundarySourceMs.coerceIn(
+                                            clip.inMs, (clip.outMs - 1L).coerceAtLeast(clip.inMs))
+                                        playheadMs = revised.timelinePosition(
+                                            editedIndex, clip.outputAt(boundedSource))
+                                    }
                                     if (id == selectedClipId) {
                                         trimStart = from
                                         trimEnd = to
@@ -1322,6 +1357,7 @@ private fun ReverseVideoPreviewDialog(file: File, onDismiss: () -> Unit) {
 @OptIn(UnstableApi::class)
 @Composable
 private fun CropVideoPreview(
+    modifier: Modifier = Modifier,
     player: ExoPlayer,
     sourceWidth: Int,
     sourceHeight: Int,
@@ -1330,18 +1366,10 @@ private fun CropVideoPreview(
     onCropChange: (CropFractions) -> Unit,
     showCropFrame: Boolean = true,
     activeOverlayCenter: Pair<Float, Float>? = null,
-    onOverlayDrag: (Float, Float) -> Unit = { _, _ -> },
+    onOverlayTransform: (Float, Float, Float, Float) -> Unit = { _, _, _, _ -> },
 ) {
-    val latestOverlayDrag by rememberUpdatedState(onOverlayDrag)
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .aspectRatio(
-                (sourceWidth.toFloat() / sourceHeight.coerceAtLeast(1))
-                    .coerceIn(0.35f, 2.4f),
-            )
-            .background(Color.Black),
-    ) {
+    val latestOverlayTransform by rememberUpdatedState(onOverlayTransform)
+    Box(modifier.background(Color.Black)) {
         AndroidView(
             factory = { viewContext ->
                 PlayerView(viewContext).apply {
@@ -1365,12 +1393,13 @@ private fun CropVideoPreview(
             modifier = Modifier.fillMaxSize(),
         )
         if (activeOverlayCenter != null && !showCropFrame) {
-            Canvas(Modifier.fillMaxSize().pointerInput(true) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    latestOverlayDrag(
-                        dragAmount.x / size.width.coerceAtLeast(1),
-                        dragAmount.y / size.height.coerceAtLeast(1))
+            Canvas(Modifier.fillMaxSize().pointerInput(activeOverlayCenter) {
+                detectTransformGestures { _, pan, zoom, rotation ->
+                    latestOverlayTransform(
+                        pan.x / size.width.coerceAtLeast(1),
+                        pan.y / size.height.coerceAtLeast(1),
+                        zoom,
+                        rotation)
                 }
             }) {
                 val center = Offset(size.width * activeOverlayCenter.first,
@@ -1448,4 +1477,10 @@ private fun readVisualInfo(context: android.content.Context, uri: Uri): VideoInf
         if (options.outWidth <= 0 || options.outHeight <= 0) null
         else VideoInfo(options.outWidth, options.outHeight, 3000L, null, isImage = true)
     }.getOrNull()
+}
+
+/** Match text/sticker renderer rotation limits after continuous two-finger gestures. */
+internal fun normalizeVideoRotation(degrees: Float): Float {
+    if (!degrees.isFinite()) return 0f
+    return ((degrees + 180f) % 360f + 360f) % 360f - 180f
 }
