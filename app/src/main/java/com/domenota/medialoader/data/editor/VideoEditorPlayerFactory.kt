@@ -10,19 +10,19 @@ import androidx.media3.exoplayer.ExoPlayer
 internal object VideoEditorPlayerFactory {
     fun builder(context: Context): ExoPlayer.Builder = ExoPlayer.Builder(context)
 
-    /** A new effect list registers a NEW input stream and invalidates Media3's replay cache.
-     * REDRAW alone cannot supply the first decoded frame to that new stream on pause.
-     * Force a decoder seek then restore the exact logical position, without playing audio.
+    /** Changing effects registers a new GL stream. Paused frames need fresh decoder output.
+     * Two back-to-back seeks can be coalesced by Media3 into no seek at all. Replacing
+     * the same public MediaItem playlist creates fresh periods at the exact saved position;
+     * decoding stays on Media3's worker threads. Playback uses its next incoming frame.
      */
     fun updateEffects(player: ExoPlayer, effects: List<androidx.media3.common.Effect>) {
         player.setVideoEffects(effects)
         if (!player.playWhenReady && player.mediaItemCount > 0) {
             val index = player.currentMediaItemIndex
             val position = player.currentPosition
-            val nearby = if (position > 0L) position - 1L else 1L
-            player.seekTo(index, nearby)
-            player.seekTo(index, position)
+            val items = List(player.mediaItemCount, player::getMediaItemAt)
+            player.setMediaItems(items, index, position)
+            player.prepare()
         }
     }
-
 }
