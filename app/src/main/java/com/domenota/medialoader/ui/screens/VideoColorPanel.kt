@@ -20,8 +20,10 @@ internal fun VideoColorPanel(
     color: VideoColorGrade,
     enabled: Boolean,
     onColorChange: (VideoColorGrade) -> Unit,
+    manualByDefault: Boolean = false,
 ) {
-    var showManual by remember { mutableStateOf(false) }
+    var showManual by remember { mutableStateOf(manualByDefault) }
+    LaunchedEffect(manualByDefault) { showManual = manualByDefault }
     var group by remember { mutableStateOf(VideoFilterGroup.BASIC) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Цвет выбранного клипа", style = MaterialTheme.typography.titleSmall)
