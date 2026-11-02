@@ -31,22 +31,24 @@ internal object VideoV8Icons {
         }.build()
 
     val editor = fromSvg("scissors",
-        "m7 7 13 13M7 17 20 4M8 5a3 3 0 1 1-6 0 3 3 0 0 1 6 0M8 19a3 3 0 1 1-6 0 3 3 0 0 1 6 0")
+        "M8.5 19a3.5 3.5 0 1 1-7 0a3.5 3.5 0 1 1 7 0 M22.5 19a3.5 3.5 0 1 1-7 0a3.5 3.5 0 1 1 7 0 M7 16 18 2M17 16 6 2")
     val music = fromSvg("music",
-        "M9 18V4l11-2v14M9 8l11-2M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0M20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0")
-    val text = fromSvg("text", "M4 4h16v16H4zM8 8h8m-4 0v9")
-    val aspect = fromSvg("aspect", "M3 3h18v18H3zM3 14h8v7")
+        "M10 18V5a2 2 0 0 1 2-2h8v2a3 3 0 0 1-3 3h-7 M10 18a4 4.5 0 1 1-8 0a4 4.5 0 1 1 8 0")
+    val text = fromSvg("text",
+        "M6 2H18A4 4 0 0 1 22 6V18A4 4 0 0 1 18 22H6A4 4 0 0 1 2 18V6A4 4 0 0 1 6 2Z M7 8h10m-5 0v9")
+    val aspect = fromSvg("aspect",
+        "M6 2H18A4 4 0 0 1 22 6V18A4 4 0 0 1 18 22H6A4 4 0 0 1 2 18V6A4 4 0 0 1 6 2Z M2 12h7a3 3 0 0 1 3 3v7")
     val adjustment = fromSvg("adjust",
-        "M3 5h18M3 12h18M3 19h18M8 2v6M16 9v6M10 16v6")
+        "M2 6h11m6 0h3M2 18h3m6 0h11M19 6a3 3 0 1 1-6 0a3 3 0 1 1 6 0M11 18a3 3 0 1 1-6 0a3 3 0 1 1 6 0")
     val filters = fromSvg("filters",
-        "M10 8a4 4 0 1 1 8 0 4 4 0 0 1-8 0M4 17a4 4 0 1 1 8 0 4 4 0 0 1-8 0M13 17a4 4 0 1 1 8 0 4 4 0 0 1-8 0")
+        "M19 6.5a5 5 0 1 1-10 0a5 5 0 1 1 10 0M6.4 8.9a5 5 0 1 0 6.2 7.6M16.9 12.1a5 5 0 1 1-2.4 7.7")
     val more = fromSvg("more", "M12 3.9v.2M12 11.9v.2M12 19.9v.2")
-    val trim = fromSvg("trim", "M7 3h3v18H7M17 3h-3v18h3")
-    val speed = fromSvg("speed", "M20 6a10 10 0 1 1-5-4M12 13l7-10")
-    val volume = fromSvg("volume", "M3 8h5l6-5v18l-6-5H3zm15-3v14")
+    val trim = fromSvg("trim", "M3 3h3v18H3M21 3h-3v18h3M12 2v20")
+    val speed = fromSvg("speed", "M15 2.5a10 10 0 1 0 5 3.5M12 12l7-7")
+    val volume = fromSvg("volume", "M3 8h6l7-6v20l-7-6H3a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1ZM20 6a9 9 0 0 1 0 12")
     val reverse = fromSvg("reverse",
-        "M5 5h13a3 3 0 0 1 3 3v11H7a4 4 0 0 1-4-4v-2M3 8h11m-4-4 4 4-4 4")
-    val crop = fromSvg("crop", "M6 2v16h16M2 6h16v16")
+        "M2 11V7a5 5 0 0 1 5-5h10a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5H7a5 5 0 0 1-5-5M10 8l6 4-6 4Z")
+    val crop = fromSvg("crop", "M4 2v15a3 3 0 0 0 3 3h15M2 5h15a3 3 0 0 1 3 3v14")
     val copy = fromSvg("copy", "M8 3h13v14H8zM3 8v13h13")
     val addText = fromSvg("add_text", "M3 5h14v14H3zM6 9h8m-4 0v7M20 12v9m-4-5h8")
 }
