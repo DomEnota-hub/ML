@@ -26,6 +26,7 @@ android {
         applicationId 'com.domenota.medialoader'
         minSdk 26
         targetSdk 35
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         versionCode 173
         versionName '1.7.112'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
@@ -126,4 +127,9 @@ dependencies {
     testImplementation 'androidx.compose.ui:ui-test-junit4'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
     testImplementation 'org.json:json:20240303'
+
+    // Actual Android codec/Transformer regression verification of effects in MP4.
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:core:1.6.1'
 }
