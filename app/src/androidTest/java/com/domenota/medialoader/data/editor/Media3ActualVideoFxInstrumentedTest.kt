@@ -407,6 +407,40 @@ class Media3ActualVideoFxInstrumentedTest {
         } finally { File(evidence, "trim-metrics.csv").writeText(rows.toString()); preserveEvidence(evidence); source.delete() }
     }
 
+    @Test fun jpegFrameIncludesSecondClipEffectsAndTimedText() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val source = File(context.cacheDir, "fx-jpeg-source.mp4")
+        source.writeBytes(Base64.decode(instrumentation.context.assets
+            .open("fx_gray_h264_160x90_800ms.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
+        val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
+        val sourceUri = Uri.fromFile(source)
+        val project = VideoProjectDraft(listOf(VideoClipDraft("first", sourceUri.toString(), 800),
+            VideoClipDraft("second", sourceUri.toString(), 800,
+                specialFx = VideoSpecialFxDraft(VideoSpecialFxType.CINEMA_BARS, 1f))))
+        val text = TextLayer(text = "A", color = android.graphics.Color.RED, bold = true,
+            size = .25f, outline = 0f, startMs = 800, endMs = 1600)
+        var jpeg: File? = null
+        try {
+            jpeg = VideoFrameExporter(context).export(sourceUri, 1100, VideoEditSpec(project = project,
+                textLayers = listOf(text)))
+            val image = requireNotNull(android.graphics.BitmapFactory.decodeFile(jpeg.absolutePath))
+            try {
+                val top = image.getPixel(image.width / 2, image.height / 20)
+                assertTrue("JPEG lost selected second clip's cinema bars", android.graphics.Color.red(top) < 70)
+                var red = 0
+                for (y in image.height / 3 until image.height * 2 / 3)
+                    for (x in image.width / 3 until image.width * 2 / 3) {
+                        val c = image.getPixel(x, y)
+                        if (android.graphics.Color.red(c) > android.graphics.Color.green(c) + 70) red++
+                    }
+                assertTrue("JPEG lost project-timed text from the second clip", red > 5)
+                assertTrue("JPEG must preserve source dimensions", image.width == 160 && image.height == 90)
+            } finally { image.recycle() }
+            jpeg.copyTo(File(evidence, "current_second_clip.jpg"), true)
+        } finally { preserveEvidence(evidence); jpeg?.delete(); source.delete() }
+    }
+
     @Test fun sharedPhotoCatalogMatchesPhotoRendererInMp4() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

@@ -1320,22 +1320,10 @@ private fun VideoEditorContent(
                 OutlinedButton(
                     onClick = {
                         previewPlayer?.pause()
-                        val positionMs = VideoFramePosition.clamp(
-                            trimStart + (previewPlayer?.currentPosition ?: 0L),
-                            trimStart, trimEnd, fullDuration,
-                        )
-                        onSaveFrame(positionMs, VideoEditSpec(
-                            startMs = trimStart,
-                            cropLeft = crop.left,
-                            cropRight = crop.right,
-                            cropTop = crop.top,
-                            cropBottom = crop.bottom,
-                            rotationDegrees = rotation,
-                            textLayers = textLayers.mapNotNull { it.within(trimEnd - trimStart) },
-                        ))
+                        onSaveFrame(playheadMs, exportSpec())
                     },
                     enabled = info != null && !busyWithOther &&
-                        currentClip?.sourceUri == uri.toString(),
+                        currentClip?.mediaKind == com.domenota.medialoader.data.editor.VideoClipMediaKind.VIDEO,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 ) {
                     Icon(Icons.Rounded.PhotoCamera, contentDescription = null)

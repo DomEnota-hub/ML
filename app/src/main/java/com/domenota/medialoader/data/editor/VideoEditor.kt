@@ -55,6 +55,8 @@ data class VideoEditSpec(
     val graphicLayers: List<VideoGraphicLayer> = emptyList(),
     val specialFx: VideoSpecialFxDraft = VideoSpecialFxDraft(),
     internal val transitionPhases: List<VideoTransitionPhase> = emptyList(),
+    /** Preserve original clip overlay/FX clock when rendering a short frame-sampling segment. */
+    internal val sourceTimeOffsetMs: Long? = null,
     val project: VideoProjectDraft? = null,
     val exportSettings: VideoExportSettings = VideoExportSettings(),
 ) {
@@ -92,7 +94,7 @@ class VideoEditor(private val context: Context) {
         val size = spec.exportSettings.dimensions(sourceDimensions.first, sourceDimensions.second,
             1f - spec.cropLeft - spec.cropRight, 1f - spec.cropTop - spec.cropBottom,
             spec.rotationDegrees)
-        val effects = previewEffects(spec) +
+        val effects = previewEffects(spec, timeOffsetMs = spec.sourceTimeOffsetMs ?: 0L) +
             Presentation.createForWidthAndHeight(
                 size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
         val edited = EditedMediaItem.Builder(mediaItem)

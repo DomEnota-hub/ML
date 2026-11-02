@@ -202,3 +202,15 @@ DefaultVideoFrameProcessor.Factory.Builder1.9 задаёт WORKING_COLOR_SPACE_D
 Дополнительные instrumented проверки:8 временных текстовых слоёв + стикер,
 настоящие MP4 trim15с справа/слева/восстановление20с с проверкой первого/последнего
 исходного кадра и SHA256 оригинала. Компиляция пройдена, device execution pending.
+
+## JPEG кадр — выявленное расхождение с текущим изображением
+
+Старый VideoFrameExporter применял только crop/rotation/text; игнорировал mirror,
+photo/video effects и graphics. Кнопка была отключена для всех клипов, кроме
+исходного первого. Теперь выбирается клип по project playhead, его source position
+и локальные интервалы слоёв. Media3 обрабатывает не более300ms исходника тем же
+previewEffects pipeline; затем из результата сохраняется JPEG95. Overlay/FX clock
+сохраняет исходный clip.inMs. Исходник не меняется, весь проект не кодируется.
+Для картинки-клипа эта кнопка пока отключена (явное ограничение).
+Целевые FramePosition/Overlay unit и AndroidTest compile PASS; новая реальная
+проверка JPEG из второго клипа с cinema bars и timed text ожидает Android CI.
