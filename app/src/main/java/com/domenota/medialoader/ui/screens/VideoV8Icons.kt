@@ -43,6 +43,11 @@ internal object VideoV8Icons {
     val filters = fromSvg("filters",
         "M19 6.5a5 5 0 1 1-10 0a5 5 0 1 1 10 0M6.4 8.9a5 5 0 1 0 6.2 7.6M16.9 12.1a5 5 0 1 1-2.4 7.7")
     val more = fromSvg("more", "M12 3.9v.2M12 11.9v.2M12 19.9v.2")
+    val undo = fromSvg("undo", "M9 5 3 10l6 5M3 10h10c6 0 8 3 8 9")
+    val redo = fromSvg("redo", "m15 5 6 5-6 5m6-5H11c-6 0-8 3-8 9")
+    val trash = fromSvg("trash", "M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7")
+    val separate = fromSvg("separate", "M4 3h15v12H4zm6 5 4 3-4 2zM13 20v-5l7-2v5m-7 2a2 2 0 1 1-4 0 2 2 0 0 1 4 0")
+    val replace = fromSvg("replace", "M4 7V3h16v14M20 17v4H4V7M1 7l3-3 3 3m10 10 3 3 3-3")
     val trim = fromSvg("trim", "M3 3h3v18H3M21 3h-3v18h3M12 2v20")
     val speed = fromSvg("speed", "M15 2.5a10 10 0 1 0 5 3.5M12 12l7-7")
     val volume = fromSvg("volume", "M3 8h6l7-6v20l-7-6H3a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1ZM20 6a9 9 0 0 1 0 12")
