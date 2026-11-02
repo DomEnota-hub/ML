@@ -241,6 +241,10 @@ class VideoEditor(private val context: Context) {
         }
         videoEffects += colorEffects(spec.color)
         val timedOverlays = mutableListOf<androidx.media3.effect.TextureOverlay>()
+        val photoPreset = spec.color.photoEffect
+        if (photoPreset != null && photoPreset.grain > 0f && spec.color.intensity > 0f) {
+            timedOverlays += VideoPhotoGrainOverlay(photoPreset.grain, spec.color.intensity)
+        }
         if (spec.specialFx.enabled) timedOverlays += VideoSpecialFxOverlay(
             spec.specialFx, timeOffsetMs)
         if (spec.textLayers.isNotEmpty() || spec.graphicLayers.isNotEmpty()) {
