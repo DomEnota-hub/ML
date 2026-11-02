@@ -280,7 +280,7 @@ private fun VideoClipStrip(
             RoundedCornerShape(9.dp))) {
         Row(Modifier.fillMaxSize()
             .onSizeChanged { pixelWidth = it.width.toFloat().coerceAtLeast(1f) }
-            .pointerInput(clip.id, enabled) {
+            .pointerInput(clip.id, enabled, showSourceTrim) {
                 if (!enabled) return@pointerInput
                 detectTapGestures(onTap = { point ->
                     onSelect()
@@ -413,7 +413,9 @@ private fun VideoClipStrip(
                     )
                 })
         }
-        if (onSelectTransition != null) {
+        // Do not let the transition corner button intercept the right trim
+        // grip. The transition remains available in the common editor dock.
+        if (onSelectTransition != null && !showSourceTrim) {
             Box(Modifier.align(Alignment.TopEnd).size(28.dp)
                 .clip(RoundedCornerShape(bottomStart = 8.dp))
                 .background(if (transitionEnabled) selectedYellow else Color.Black.copy(alpha = .65f))
