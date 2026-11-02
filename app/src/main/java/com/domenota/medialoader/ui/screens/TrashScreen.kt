@@ -26,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,7 +54,7 @@ import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.data.library.PhoneMediaTrash
 
 /**
- * The trash list always uses the app-private file URI, never the old public URI.
+ * App downloads use private trashed URI, while phone media use system MediaStore trash.
  * Selecting via a circular checkbox is independent of opening a file.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,7 +69,9 @@ fun TrashScreen(
     onRestore: (Set<String>) -> Unit,
     onDelete: (Set<String>) -> Unit,
 ) {
-    val allItems = items + phoneItems
+    var phoneTab by remember { mutableStateOf(false) }
+    val allItems = if (phoneTab) phoneItems else items
+    LaunchedEffect(phoneTab) { selected = emptySet() }
     fun phoneIds(ids: Set<String>) = ids.filterTo(mutableSetOf(), PhoneMediaTrash::isPhoneTrashId)
     fun appIds(ids: Set<String>) = ids - phoneIds(ids)
     fun restore(ids: Set<String>) {
@@ -113,7 +116,7 @@ fun TrashScreen(
             TopAppBar(
                 title = { Column {
                     Text("Корзина")
-                    Text(com.domenota.medialoader.ui.model.russianFileCount(allItems.size), style = MaterialTheme.typography.labelMedium,
+                    Text(com.domenota.medialoader.ui.model.russianFileCount(items.size + phoneItems.size), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } },
                 navigationIcon = {
@@ -171,11 +174,19 @@ fun TrashScreen(
             }
         },
     ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !phoneTab, onClick = { phoneTab = false },
+                    label = { Text("Загрузчик · ${items.size}") })
+                FilterChip(selected = phoneTab, onClick = { phoneTab = true },
+                    label = { Text("Телефон · ${phoneItems.size}") })
+            }
         if (allItems.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxWidth().heightIn(min = 260.dp),
+            Box(Modifier.fillMaxWidth().heightIn(min = 260.dp),
                 contentAlignment = Alignment.Center) { Text("Корзина пуста") }
         } else {
-            LazyColumn(Modifier.padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(allItems, key = { it.id }) { item ->
                     val checked = item.id in selected
@@ -207,6 +218,7 @@ fun TrashScreen(
                     }
                 }
             }
+        }
         }
     }
 }
