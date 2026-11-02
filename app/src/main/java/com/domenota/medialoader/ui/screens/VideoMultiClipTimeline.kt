@@ -330,11 +330,13 @@ private fun VideoClipStrip(
             // In trim mode the complete SOURCE is the ruler. The yellow kept
             // interval contracts/expands between two moving handles, while the
             // discarded source is visibly dimmed. Project duration updates live.
-            val leftDp = if (showSourceTrim)
-                fullWidthDp * clip.inMs.toFloat() / clip.sourceDurationMs else 0f
-            val rightDp = if (showSourceTrim)
-                fullWidthDp * clip.outMs.toFloat() / clip.sourceDurationMs else fullWidthDp
-            val keptDp = (rightDp - leftDp).coerceAtLeast(0f)
+            val visualSelection = if (showSourceTrim)
+                VideoClipReorderMath.trimSelection(
+                    clip.sourceDurationMs, clip.inMs, clip.outMs, fullWidthDp)
+            else VideoClipReorderMath.TrimSelection(0f, fullWidthDp)
+            val leftDp = visualSelection.leftDp
+            val rightDp = visualSelection.rightDp
+            val keptDp = visualSelection.keptDp
             if (showSourceTrim) {
                 Box(Modifier.align(Alignment.CenterStart).width(leftDp.dp)
                     .fillMaxHeight().background(Color.Black.copy(alpha = .72f)))
