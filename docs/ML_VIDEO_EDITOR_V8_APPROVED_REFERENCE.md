@@ -61,3 +61,32 @@
 7. **Final parity gate**: снимки на Android одинакового размера с reference, визуальный diff/проверка размещения плюс ручной сценарный QA. Тесты, lint, ARM64. Только отдельный prerelease после успеха, без изменения production.
 
 Перед каждым PR проверяется матрица: **HTML v8 → скриншот папки → видеоповедение → фактический Android UI → API/экспорт → тест**. При провале одного измерения соответствующий пункт не считается завершённым.
+
+## Release decision — 2026-11-02
+
+The user changed final delivery from a disposable QA prerelease to the **production
+MediaLoader 1.7.112 ARM64 APK signed by the existing DomEnota key**.
+
+- Package ID MUST be `com.domenota.medialoader` (never `.hitmoz`).
+- Version name `1.7.112`, version code `173`: must increase from 1.7.111.
+- The release signer certificate must match the previously signed 1.7.110 APK:
+  `4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2`.
+- Existing signing material is in the private ChatGPT Library, not in GitHub source.
+  Never place JKS, base64, passwords or secrets in Git, APK assets or logs.
+- Sign, zipalign and verify the final release artifact. Reopen/download the published
+  GitHub Release asset and compare SHA-256 with the locally signed APK.
+- Production must not be replaced by a debug-signed artifact. Keep prior releases
+  until the newly signed release has been independently verified.
+- **Visual gate:** no release merely because CI is green. Compare the final native
+  screens and behaviors against HTML v8, Drive image folders and the recordings.
+- **Functional gate:** verify actual video effects and MP4 exports, JPG capture,
+  AAC/M4A extraction, eight text layers and their opacity, full task cancel,
+  foreground/background processing, and both trim-boundary previews.
+- **Optimization gate:** no frame decoding on Compose main thread; bounded filter/
+  effect thumbnail cache <=8 MiB; scaled frame extraction; trim-thumb processing
+  throttled; check APK size versus the previous 1.7.110 signed build.
+  FFmpegKit audio tier can replace full tier only after MP3/audio conversion
+  regression tests pass; `-PmlFfmpegFull` remains a fallback until then.
+- Build the **unsigned ARM64 release variant** on CI as a preflight, but do not
+  publish it as a downloadable release. The final published APK must be
+  DomEnota-signed and match the verified package, version and ABI.
