@@ -90,6 +90,7 @@ internal fun VideoWorkspaceToolbar(
     onSelect: (VideoWorkspaceTool?) -> Unit,
     enabled: Boolean,
     onColorManualMode: (Boolean) -> Unit = {},
+    colorManualMode: Boolean = false,
 ) {
     var section by remember { mutableStateOf(VideoReferenceSection.MAIN) }
 
@@ -114,7 +115,8 @@ internal fun VideoWorkspaceToolbar(
                     ReferenceDockItem(
                         label = item.label,
                         icon = item.icon,
-                        active = item.action != null && item.action == selected,
+                        active = item.action != null && item.action == selected &&
+                            (item.colorManual == null || item.colorManual == colorManualMode),
                         enabled = enabled,
                         width = if (item.label == "Соотношение сторон") 72 else 62,
                         onClick = {
