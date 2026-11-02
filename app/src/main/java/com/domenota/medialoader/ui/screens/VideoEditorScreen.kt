@@ -99,6 +99,7 @@ import com.domenota.medialoader.data.editor.VideoEditSpec
 import com.domenota.medialoader.data.editor.VideoEditor
 import com.domenota.medialoader.data.editor.VideoProjectDraft
 import com.domenota.medialoader.data.editor.VideoEditHistory
+import com.domenota.medialoader.data.editor.VideoOriginalAudioDetach
 import com.domenota.medialoader.data.editor.VideoColorGrade
 import com.domenota.medialoader.data.editor.VideoExportSettings
 import com.domenota.medialoader.data.editor.VideoClipMediaKind
@@ -846,73 +847,16 @@ fun VideoEditorScreen(
                         style = MaterialTheme.typography.bodySmall)
                 }
             }
-            if (selectedTool != null) {
+            if (selectedTool != null && selectedTool != VideoWorkspaceTool.TRIM) {
                 Column(Modifier.fillMaxWidth().heightIn(max = 218.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .35f))
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp)) {
                     when (selectedTool) {
-                        VideoWorkspaceTool.TRIM -> {
-                            val current = project
-                            val index = current?.indexOf(selectedClipId) ?: -1
-                            val selected = current?.clips?.getOrNull(index)
-                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { addClips.launch(arrayOf("video/*", "image/*")) }) {
-                                    Text("+ Добавить")
-                                }
-                                TextButton(onClick = {
-                                    if (current != null && selected != null) {
-                                        val local = (playheadMs - current.timelineStart(index))
-                                            .coerceIn(0L, selected.durationMs)
-                                        val point = selected.sourceAt(local)
-                                        val rightId = UUID.randomUUID().toString()
-                                        runCatching {
-                                            current.splitAt(selected.id, point, rightId)
-                                        }.onSuccess { applyProject(it, rightId, point) }
-                                            .onFailure { clipError = "Раздели клип не ближе 0,1 с к краю" }
-                                    }
-                                }, enabled = selected != null &&
-                                    selected.mediaKind == VideoClipMediaKind.VIDEO &&
-                                    selected.sourceSpanMs >= 200L) {
-                                    Text("Разделить")
-                                }
-                                TextButton(onClick = {
-                                    if (current != null && selected != null) {
-                                        val copyId = UUID.randomUUID().toString()
-                                        runCatching {
-                                            current.duplicate(selected.id, copyId)
-                                        }.onSuccess { applyProject(it, copyId, selected.inMs) }
-                                            .onFailure { clipError = it.message }
-                                    }
-                                }, enabled = selected != null) { Text("Копировать") }
-                                TextButton(onClick = { replaceClip.launch(arrayOf("video/*", "image/*")) },
-                                    enabled = selected != null) { Text("Заменить") }
-                                TextButton(onClick = {
-                                    if (current != null && selected != null && current.clips.size > 1) {
-                                        val next = current.delete(selected.id)
-                                        applyProject(next, next.clips[index.coerceAtMost(
-                                            next.clips.lastIndex)].id)
-                                    }
-                                }, enabled = selected != null && (current?.clips?.size ?: 0) > 1) {
-                                    Text("Удалить")
-                                }
-                                TextButton(onClick = {
-                                    if (current != null && index > 0)
-                                        applyProject(current.move(selectedClipId, index - 1))
-                                }, enabled = index > 0) { Text("←") }
-                                TextButton(onClick = {
-                                    if (current != null && index in 0 until current.clips.lastIndex)
-                                        applyProject(current.move(selectedClipId, index + 1))
-                                }, enabled = current != null && index >= 0 &&
-                                    index < current.clips.lastIndex) { Text("→") }
-                            }
-                            Text("Жёлтые края — обрезка. Удержание и сдвиг клипа — изменение порядка. " +
-                                "Свайп по таймлайну — прокрутка.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        // The trim handles already live in the timeline.
+                        // Do not show a second row of tiny text buttons and
+                        // obsolete instructional copy under the preview.
+                        VideoWorkspaceTool.TRIM -> Unit
                         VideoWorkspaceTool.SPEED -> {
                             val selected = currentClip
                             Text(if (selected?.mediaKind == VideoClipMediaKind.IMAGE)
@@ -1342,6 +1286,10 @@ fun VideoEditorScreen(
                 }
 
                         }
+                        VideoWorkspaceTool.DELETE,
+                        VideoWorkspaceTool.SEPARATE_AUDIO,
+                        VideoWorkspaceTool.REPLACE,
+                        VideoWorkspaceTool.DUPLICATE -> Unit
                         null -> Unit
                     }
                 }
@@ -1363,6 +1311,65 @@ fun VideoEditorScreen(
                 enabled = info != null && !ownExport && !busyWithOther,
                 onColorManualMode = { referenceColorManual = it },
                 colorManualMode = referenceColorManual,
+                canDeleteClip = (project?.clips?.size ?: 0) > 1,
+                canSeparateAudio = !removeAudio &&
+                    project?.clips?.any {
+                        it.mediaKind == VideoClipMediaKind.VIDEO && it.speed == 1f
+                    } == true,
+                onDeleteClip = {
+                    val draft = project
+                    if (draft != null && draft.clips.size > 1) {
+                        val index = draft.indexOf(selectedClipId)
+                        if (index >= 0) {
+                            val next = draft.delete(selectedClipId)
+                            applyProject(next,
+                                next.clips[index.coerceAtMost(next.clips.lastIndex)].id)
+                        }
+                    }
+                },
+                onDuplicateClip = {
+                    val draft = project
+                    val chosen = draft?.clips?.firstOrNull { it.id == selectedClipId }
+                    if (draft != null && chosen != null) {
+                        val id = UUID.randomUUID().toString()
+                        runCatching { draft.duplicate(selectedClipId, id) }
+                            .onSuccess { applyProject(it, id, chosen.inMs) }
+                            .onFailure { clipError = it.message }
+                    }
+                },
+                onReplaceClip = {
+                    replaceClip.launch(arrayOf("video/*", "image/*"))
+                },
+                onSeparateAudio = {
+                    val draft = project
+                    if (draft == null || removeAudio) {
+                        clipError = "Исходный звук уже отделён или отключён"
+                    } else {
+                        projectScope.launch {
+                            val audioIds = withContext(Dispatchers.IO) {
+                                draft.clips.filter {
+                                    it.mediaKind == VideoClipMediaKind.VIDEO &&
+                                        VideoOriginalAudioDetach.hasAudio(context, it.sourceUri)
+                                }.map { it.id }.toSet()
+                            }
+                            if (project != draft) {
+                                clipError = "Проект изменился. Повтори разделение звука."
+                            } else runCatching {
+                                VideoOriginalAudioDetach.detach(draft, audioIds)
+                            }.onSuccess { detached ->
+                                project = detached.project
+                                // Mute embedded sound; use separate, editable tracks
+                                // for both preview and MP4 mixing instead.
+                                removeAudio = true
+                                selectedAudioTrackId = detached.newTrackIds.first()
+                                selectedTool = VideoWorkspaceTool.AUDIO
+                                clipError = null
+                            }.onFailure {
+                                clipError = it.message ?: "Не удалось отделить звук"
+                            }
+                        }
+                    }
+                },
             )
         }
     }
