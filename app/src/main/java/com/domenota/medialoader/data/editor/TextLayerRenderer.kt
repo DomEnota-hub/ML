@@ -33,6 +33,11 @@ internal object EditorFonts {
 }
 
 internal object TextLayerRenderer {
+    /** Opacity is applied to BOTH stroke and fill and therefore exported identically. */
+    internal fun opacityAlpha(argb: Int, opacity: Float): Int =
+        (Color.alpha(argb) * opacity.coerceIn(0f, 1f))
+            .roundToInt().coerceIn(0, 255)
+
     /** Same layout for export, preview and selection bounds. */
     fun layout(context: Context, width: Int, height: Int, layer: TextLayer): StaticLayout {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -75,10 +80,12 @@ internal object TextLayerRenderer {
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = paint.textSize * layer.outline * 2f
                 paint.color = layer.outlineColor
+                paint.alpha = opacityAlpha(paint.color, layer.opacity)
                 layout.draw(canvas)
             }
             paint.style = Paint.Style.FILL
             paint.color = layer.color
+            paint.alpha = opacityAlpha(paint.color, layer.opacity)
             layout.draw(canvas)
             canvas.restoreToCount(saved)
         }
