@@ -24,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -97,6 +98,7 @@ internal fun PhotoDrawDialog(
     var beforeGesture by remember { mutableStateOf<List<PhotoMark>?>(null) }
     var gestureRole by remember { mutableStateOf("move") }
     var thicknessBefore by remember { mutableStateOf<List<PhotoMark>?>(null) }
+    var sizeMarker by remember { mutableStateOf<Offset?>(null) }
 
     fun push(before: List<PhotoMark>) {
         if (before != marks) {
@@ -170,9 +172,11 @@ internal fun PhotoDrawDialog(
                                 if (!rect.inside(at.x, at.y)) {
                                     active = emptyList()
                                     beforeGesture = null
+                                    sizeMarker = null
                                 } else {
                                     val point = rect.normalize(at.x, at.y)
                                     beforeGesture = marks
+                                    sizeMarker = at.takeIf { tool != DrawingTool.SELECT }
                                     when (tool) {
                                         DrawingTool.SELECT -> {
                                             selected = PhotoMarkEdits.pick(marks, point)
@@ -204,6 +208,7 @@ internal fun PhotoDrawDialog(
                                 if (!rect.inside(change.position.x, change.position.y) &&
                                     tool != DrawingTool.SELECT) return@detectDragGestures
                                 val point = rect.normalize(change.position.x, change.position.y)
+                                sizeMarker = change.position.takeIf { tool != DrawingTool.SELECT }
                                 when (tool) {
                                     DrawingTool.SELECT -> {
                                         if (selected in marks.indices) {
@@ -244,11 +249,12 @@ internal fun PhotoDrawDialog(
                                 beforeGesture?.let(::push)
                                 beforeGesture = null
                                 active = emptyList()
+                                sizeMarker = null
                             },
                             onDragCancel = {
                                 // An interrupted gesture must not create half a shape.
                                 beforeGesture?.let { marks = it }
-                                beforeGesture = null; active = emptyList()
+                                beforeGesture = null; active = emptyList(); sizeMarker = null
                             },
                         )
                     }) {
@@ -286,6 +292,12 @@ internal fun PhotoDrawDialog(
                                 bounds.top * preview.height, radius, handle)
                         }
                         canvas.restoreToCount(save)
+                        sizeMarker?.let { point ->
+                            val radius = thickness * min(rect.width, rect.height) *
+                                if (tool == DrawingTool.ERASER) 3f else .5f
+                            drawCircle(editorYellow, radius = radius.coerceAtLeast(2.dp.toPx()),
+                                center = point, style = Stroke(width = 2.dp.toPx()))
+                        }
                     }
                 }
             }
@@ -313,7 +325,7 @@ internal fun PhotoDrawDialog(
                                 thicknessBefore = null
                             })
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    if (tool != DrawingTool.ERASER) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                         quickColors.forEach { option ->
@@ -330,6 +342,18 @@ internal fun PhotoDrawDialog(
                             Icon(Icons.Rounded.Palette, "Расширенная палитра",
                                 tint = Color.White)
                         }
+                    }
+                    val markerSize = thickness * min(preview.width, preview.height) *
+                        min(viewport.width.toFloat() / preview.width,
+                            viewport.height.toFloat() / preview.height) *
+                        if (tool == DrawingTool.ERASER) 3f else .5f
+                    Canvas(Modifier.fillMaxWidth().height(48.dp)) {
+                        drawCircle(editorYellow.copy(alpha = .20f),
+                            radius = markerSize.coerceIn(2.dp.toPx(), size.height * .46f),
+                            center = center)
+                        drawCircle(editorYellow,
+                            radius = markerSize.coerceIn(2.dp.toPx(), size.height * .46f),
+                            center = center, style = Stroke(width = 2.dp.toPx()))
                     }
                     if (tool == DrawingTool.SELECT && selectedMark != null) {
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -370,7 +394,7 @@ internal fun PhotoDrawDialog(
                         Surface(
                             onClick = {
                                 if (tool == option) panelOpen = !panelOpen
-                                else { tool = option; panelOpen = true }
+                                else { tool = option; panelOpen = false; paletteOpen = false }
                                 selected = -1
                             }, shape = RoundedCornerShape(14.dp),
                             color = if (selectedTool) editorYellow else Color(0xFF29292E),
@@ -392,7 +416,7 @@ internal fun PhotoDrawDialog(
             }
         }
     }
-    if (paletteOpen) {
+    if (paletteOpen && tool != DrawingTool.ERASER) {
         AlertDialog(onDismissRequest = { paletteOpen = false },
             title = { Text("Палитра") },
             text = {

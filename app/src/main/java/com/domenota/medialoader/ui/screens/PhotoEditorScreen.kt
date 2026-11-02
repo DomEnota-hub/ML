@@ -40,9 +40,11 @@ import com.domenota.medialoader.data.editor.*
 import com.domenota.medialoader.ui.components.CropFrameOverlay
 import com.domenota.medialoader.ui.components.EditorTextDialog
 import com.domenota.medialoader.ui.components.rememberEditorExitRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.domenota.medialoader.core.logging.AppLog
 import kotlin.math.roundToInt
 
 private data class PhotoSourceInfo(val width: Int, val height: Int, val preview: Bitmap)
@@ -191,10 +193,12 @@ fun PhotoEditorScreen(
             if (previous != null && previous !== original && !previous.isRecycled) previous.recycle()
         }
     }
-    LaunchedEffect(info, edit.color) {
+    LaunchedEffect(info, edit.color, currentTab) {
+        // The crop-only color preview is not needed in the other workspaces.
+        if (currentTab != PhotoWorkspaceTab.CROP) return@LaunchedEffect
         val source = info?.preview ?: return@LaunchedEffect
-        delay(100L)
-        cropColorPreview = withContext(Dispatchers.IO) {
+        delay(60L)
+        cropColorPreview = withContext(Dispatchers.Default) {
             PhotoColorMath.apply(source, edit.color)
         }
     }
@@ -216,9 +220,9 @@ fun PhotoEditorScreen(
         bakedGraphic, currentTab) {
         val source = info?.preview
         if (source == null) { composedPreview = null; return@LaunchedEffect }
-        delay(100L)
+        delay(60L)
         try {
-            val rendered = withContext(Dispatchers.IO) {
+            val rendered = withContext(Dispatchers.Default) {
                 val transformed = PhotoGeometryMath.preview(source, edit.crop, edit.rotation,
                     edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
                 val colored = try { PhotoColorMath.apply(transformed, edit.color) }
@@ -260,8 +264,13 @@ fun PhotoEditorScreen(
             }
             composedPreview = rendered
             previewError = null
+        } catch (cancel: CancellationException) {
+            // Rapid slider changes cancel outdated compositions by design.
+            // They must never surface as an error, nor mask the next preview.
+            throw cancel
         } catch (error: Exception) {
-            previewError = "Не удалось открыть водяной знак: ${error.message.orEmpty()}"
+            AppLog.e("PhotoPreview", "Preview render failed", error)
+            previewError = "Не удалось обработать изображение"
         }
     }
 
@@ -383,6 +392,9 @@ fun PhotoEditorScreen(
     }
 
     Scaffold(
+        // Parent app Scaffold already reserves system bars; the nested editor
+        // must not reserve a second bottom navigation inset.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = Color.Black,
         contentColor = Color.White,
         topBar = {

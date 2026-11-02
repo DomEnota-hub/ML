@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.RotateRight
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material3.Button
@@ -517,18 +519,19 @@ fun VideoEditorScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                title = { Text("Редактор видео") },
+                title = { Text("Видеоредактор", maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = requestExit) {
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
                     }
                 },
                 actions = {
-                    TextButton(onClick = ::resetEdits,
+                    IconButton(onClick = ::resetEdits,
                         enabled = hasUnsavedChanges && !ownExport && !busyWithOther) {
-                        Text("Сбросить")
+                        Icon(Icons.Rounded.RestartAlt, contentDescription = "Сбросить")
                     }
                     TextButton(onClick = { onExport(exportSpec()) },
                         enabled = info != null && !ownExport && !busyWithOther &&
