@@ -29,3 +29,20 @@ Async question remains pending asking for the screen after pressing Save, which
 this supplement never opens. DO NOT claim full reference parity/completion or
 invent export settings. v2 remaining unresolved states persist. Continue withv3
 when new source arrives. Preserve dirty main-mode settings files from earlier work.
+
+## v4: icons and functionality audit
+
+User requested sharper icons, internet research on Xiaomi Gallery's editor, and
+an audit of our actual Android implementation. v4 uses consistent SVG sizes/strokes
+and vector text-style glyphs. Minimal node/browser checks passed; screenshots viewed.
+Uploaded/read back new Drive file12O7kYdZ_CHj5Ig5pI7F4A0xEEVTUiOrP (170955bytes).
+Source/evidence: references/2026-11-02-video-editor/v4.
+
+Official HyperOS manual and POCO support page compared to current native code;
+findings in references/2026-11-02-video-editor/xiaomi-native-comparison.md.
+Actual native trim/crop/90degree rotation/text/JPEG/AAC-M4A/MP4 export confirmed
+in connected code paths. Multi-clip/speed/reverse/filters/correction/audio mix are
+not implemented in native VideoEditSpec/export. Existing native fonts/eyedropper/
+matching/timed layers must survive future UI work. HTML is not proof of native
+feature implementation. Save exact dialog still absent; do not claim full parity.
+No Android changes/build/version bump; unrelated main-mode pending edits preserved.
