@@ -56,4 +56,54 @@ class VideoClipReorderMathTest {
         assertEquals(960f, VideoClipReorderMath.widthDp(longest, 2.5f, longest), .01f)
         assertEquals(480f, VideoClipReorderMath.widthDp(longest / 2, 2.5f, longest), .01f)
     }
+    @Test fun yellowRangeShrinksAtDraggedEndButOriginalSourceRulerStaysStable() {
+        val full = VideoClipReorderMath.trimSelection(20_000L, 0L, 20_000L, 750f)
+        assertEquals(0f, full.leftDp, .01f)
+        assertEquals(750f, full.rightDp, .01f)
+        assertEquals(750f, full.keptDp, .01f)
+
+        val leftTrim = VideoClipReorderMath.trimSelection(20_000L, 5_000L, 20_000L, 750f)
+        assertEquals(187.5f, leftTrim.leftDp, .01f)
+        assertEquals(750f, leftTrim.rightDp, .01f)
+        assertEquals(562.5f, leftTrim.keptDp, .01f)
+
+        val rightTrim = VideoClipReorderMath.trimSelection(20_000L, 0L, 15_000L, 750f)
+        assertEquals(0f, rightTrim.leftDp, .01f)
+        assertEquals(562.5f, rightTrim.rightDp, .01f)
+        assertEquals(562.5f, rightTrim.keptDp, .01f)
+
+        val both = VideoClipReorderMath.trimSelection(20_000L, 5_000L, 15_000L, 750f)
+        assertEquals(187.5f, both.leftDp, .01f)
+        assertEquals(562.5f, both.rightDp, .01f)
+        assertEquals(375f, both.keptDp, .01f)
+    }
+
+    @Test fun leftAndRightTrimImmediatelyReduceTotalProjectDuration() {
+        val original = com.domenota.medialoader.data.editor.VideoProjectDraft(
+            listOf(com.domenota.medialoader.data.editor.VideoClipDraft(
+                id = "a", sourceUri = "content://sample/a", sourceDurationMs = 20_000L),
+                com.domenota.medialoader.data.editor.VideoClipDraft(
+                    id = "b", sourceUri = "content://sample/b", sourceDurationMs = 5_000L)))
+        assertEquals(25_000L, original.durationMs)
+        val left = original.trimClip("a", 5_000L, 20_000L)
+        assertEquals(20_000L, left.durationMs)
+        assertEquals(15_000L, left.clips.first().durationMs)
+        val right = left.trimClip("a", 5_000L, 15_000L)
+        assertEquals(15_000L, right.durationMs)
+        assertEquals(10_000L, right.clips.first().durationMs)
+        assertEquals(10_000L, right.timelineStart(1))
+    }
+
+    @Test fun gestureCoordinatesMatchVisualSelectionWithAndroidDensity() {
+        val clipWidthDp = VideoClipReorderMath.widthDp(20_000L, 2.5f, 20_000L)
+        val shownPixelsPerSecondDp = clipWidthDp / 20f
+        assertEquals(750f, clipWidthDp, .01f)
+        assertEquals(5_000L, VideoClipReorderMath.sourceDeltaMs(
+            cumulativeDragPx = 375f, pixelsPerSecondDp = shownPixelsPerSecondDp,
+            density = 2f, speed = 1f))
+        assertEquals(-5_000L, VideoClipReorderMath.sourceDeltaMs(
+            cumulativeDragPx = -375f, pixelsPerSecondDp = shownPixelsPerSecondDp,
+            density = 2f, speed = 1f))
+    }
+
 }
