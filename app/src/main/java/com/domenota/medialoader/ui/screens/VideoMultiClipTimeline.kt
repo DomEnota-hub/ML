@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
@@ -345,11 +346,11 @@ private fun VideoClipStrip(
                     .width((fullWidthDp - rightDp).coerceAtLeast(0f).dp)
                     .fillMaxHeight().background(Color.Black.copy(alpha = .72f)))
                 Box(Modifier.align(Alignment.CenterStart)
-                    .offset(x = leftDp.dp).width(keptDp.dp).fillMaxHeight()
+                    .offset(x = leftDp.dp).testTag("trim-kept-${clip.id}").width(keptDp.dp).fillMaxHeight()
                     .border(2.dp, selectedYellow))
             }
             Box(Modifier.align(Alignment.CenterStart)
-                .offset(x = grips.leftDp.dp)
+                .offset(x = grips.leftDp.dp).testTag("trim-start-${clip.id}")
                 .width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .93f))
                 .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
@@ -380,7 +381,7 @@ private fun VideoClipStrip(
                     )
                 })
             Box(Modifier.align(Alignment.CenterStart)
-                .offset(x = grips.rightDp.dp)
+                .offset(x = grips.rightDp.dp).testTag("trim-end-${clip.id}")
                 .width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .93f))
                 .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
