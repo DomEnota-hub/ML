@@ -1231,22 +1231,7 @@ fun VideoEditorScreen(
                             )
                         }
                         VideoWorkspaceTool.MORE -> {
-            if (ownExport) {
-                Text("${exportState.operation} · ${exportState.progress}%")
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { exportState.progress / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "Можно выйти из редактора — обработка продолжится в фоне.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                Spacer(Modifier.height(4.dp))
-                TextButton(onClick = onCancelExport) { Text("Отменить") }
-            } else {
+            if (!ownExport) {
                 if (busyWithOther) {
                     Text(
                         "Сейчас обрабатывается другой файл. Дождись завершения или отмени обработку из уведомления.",
@@ -1255,16 +1240,6 @@ fun VideoEditorScreen(
                         modifier = Modifier.padding(bottom = 10.dp),
                     )
                 }
-                Button(
-                    onClick = {
-                        onExport(exportSpec())
-                    },
-                    enabled = info != null && !busyWithOther && !reversePreviewBusy,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                ) {
-                    Text("Сохранить копию")
-                }
-                Spacer(Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = {
                         previewPlayer?.pause()
@@ -1317,14 +1292,6 @@ fun VideoEditorScreen(
                         }
                         null -> Unit
                     }
-                }
-            }
-            if (ownExport) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)) {
-                    Text("${exportState.operation} · ${exportState.progress}%")
-                    LinearProgressIndicator(progress = { exportState.progress / 100f },
-                        modifier = Modifier.fillMaxWidth())
-                    TextButton(onClick = onCancelExport) { Text("Отменить обработку") }
                 }
             }
             exportState.outputDetails
