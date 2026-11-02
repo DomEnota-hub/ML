@@ -33,7 +33,7 @@ class VideoWorkspaceToolbarTest {
             MaterialTheme { VideoWorkspaceToolbar(null, {}, true) }
         }
         compose.onNodeWithText("Соотношение\nсторон").assertExists()
-        compose.onNodeWithText("Откорректи\nровать").assertExists()
+        compose.onNodeWithText("Откорректировать").assertExists()
         compose.onNodeWithContentDescription("Ещё").assertExists()
     }
 
