@@ -33,16 +33,6 @@ internal fun peekAudioWaveform(context: Context, uri: Uri): FloatArray? =
 internal fun loadAudioWaveform(context: Context, uri: Uri): FloatArray =
     waveformCache(context).get(uri.toString()) { decodeAudioPeaks(context, uri) }
 
-/** Duration-aware entry point for the persistent background queue. */
-internal fun loadAudioWaveform(context: Context, uri: Uri, durationMs: Long): FloatArray {
-    require(durationMs > 0L)
-    return loadAudioWaveform(context, uri)
-}
-
-/** A persisted waveform is available even when the in-memory cache was lost on restart. */
-internal fun hasCachedAudioWaveform(context: Context, uri: Uri, durationMs: Long): Boolean =
-    durationMs > 0L && waveformCache(context).has(uri.toString())
-
 /** Decodes the file in the background and groups PCM loudness by playback time. */
 internal fun decodeAudioPeaks(context: Context, uri: Uri, count: Int = 256): FloatArray {
     val peaks = FloatArray(count)
