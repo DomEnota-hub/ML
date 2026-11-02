@@ -8,7 +8,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.common.Format
+import java.nio.ByteBuffer
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper
 import androidx.media3.exoplayer.video.VideoFrameReleaseControl
@@ -17,25 +20,10 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 /** Replay is enabled ONLY for the editor, never for ordinary/music playback. */
 @OptIn(UnstableApi::class)
 internal object VideoEditorPlayerFactory {
-    fun builder(context: Context): ExoPlayer.Builder = ExoPlayer.Builder(context)
-        .setRenderersFactory(EditingRenderersFactory(context))
+    fun builder(context: Context, onFrame: (Long, Long) -> Unit = { _, _ -> }): ExoPlayer.Builder = ExoPlayer.Builder(context)
+        .setRenderersFactory(EditingRenderersFactory(context, onFrame))
 
-    /** A new effect list registers a NEW input stream and invalidates Media3's replay cache.
-     * The bounded replay cache also lets paused GL outputs complete during reconfiguration.
-     * Supply fresh decoded input at the saved position; no audible playback is started.
-     */
-    fun updateEffects(player: ExoPlayer, effects: List<androidx.media3.common.Effect>) {
-        player.setVideoEffects(effects)
-        if (!player.playWhenReady && player.mediaItemCount > 0) {
-            val index = player.currentMediaItemIndex
-            val position = player.currentPosition
-            val nearby = if (position > 0L) position - 1L else 1L
-            player.seekTo(index, nearby)
-            player.seekTo(index, position)
-        }
-    }
-
-    private class EditingRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
+    private class EditingRenderersFactory(context: Context, private val onFrame: (Long, Long) -> Unit) : DefaultRenderersFactory(context) {
         override fun buildVideoRenderers(context: Context, extensionRendererMode: Int,
             mediaCodecSelector: MediaCodecSelector, enableDecoderFallback: Boolean,
             eventHandler: Handler, eventListener: VideoRendererEventListener,
@@ -48,12 +36,24 @@ internal object VideoEditorPlayerFactory {
                 .setEnableDecoderFallback(enableDecoderFallback)
                 .setEventHandler(eventHandler)
                 .setEventListener(eventListener)
-                .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)))
+                .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY), onFrame))
         }
     }
 
-    private class EditingVideoRenderer(builder: MediaCodecVideoRenderer.Builder) :
-        MediaCodecVideoRenderer(builder) {
+    private class EditingVideoRenderer(builder: MediaCodecVideoRenderer.Builder,
+        private val onFrame: (Long, Long) -> Unit) : MediaCodecVideoRenderer(builder) {
+        override fun processOutputBuffer(positionUs: Long, elapsedRealtimeUs: Long,
+            codec: MediaCodecAdapter?, buffer: ByteBuffer?, bufferIndex: Int, bufferFlags: Int,
+            sampleCount: Int, bufferPresentationTimeUs: Long, isDecodeOnlyBuffer: Boolean,
+            isLastBuffer: Boolean, format: Format): Boolean {
+            // Must precede surface submission: GL may consume it immediately.
+            onFrame(bufferPresentationTimeUs + getBufferTimestampAdjustmentUs(),
+                bufferPresentationTimeUs - getOutputStreamOffsetUs())
+            return super.processOutputBuffer(positionUs, elapsedRealtimeUs, codec, buffer,
+                bufferIndex, bufferFlags, sampleCount, bufferPresentationTimeUs,
+                isDecodeOnlyBuffer, isLastBuffer, format)
+        }
+
         // Media3 1.9 exposes replay-cache configuration only through this library-group
         // hook. Version is pinned; real paused/playing codec tests guard the integration.
         // Restriction is local to this override, not a lint baseline or runtime SDK bypass.

@@ -88,7 +88,8 @@ internal class VideoTransitionOverlay(
 
 /** Clip-local filter treatments rendered above existing Media3 color grading. */
 @OptIn(UnstableApi::class)
-internal class VideoSpecialFxOverlay(effect: VideoSpecialFxDraft, timeOffsetMs: Long) : BitmapOverlay() {
+internal class VideoSpecialFxOverlay(effect: VideoSpecialFxDraft, timeOffsetMs: Long,
+    private val frameTimeUs: (Long) -> Long = { it }) : BitmapOverlay() {
     private data class State(val effect: VideoSpecialFxDraft, val offset: Long)
     private val state = java.util.concurrent.atomic.AtomicReference(State(effect, timeOffsetMs))
     private var applied: State? = null
@@ -126,7 +127,7 @@ internal class VideoSpecialFxOverlay(effect: VideoSpecialFxDraft, timeOffsetMs: 
     override fun getOverlaySettings(presentationTimeUs: Long): StaticOverlaySettings {
         val current = applied ?: state.get()
         val alpha = if (current.effect.type == VideoSpecialFxType.PULSE) {
-            val seconds = (presentationTimeUs / 1000L - current.offset).coerceAtLeast(0L) / 1000.0
+            val seconds = (frameTimeUs(presentationTimeUs) / 1000L - current.offset).coerceAtLeast(0L) / 1000.0
             ((1.0 - cos(seconds * 2.0 * PI * 2.0)) * .22f * current.effect.intensity).toFloat().coerceIn(0f, 1f)
         } else 1f
         return StaticOverlaySettings.Builder().setScale(1f / scale, 1f / scale).setAlphaScale(alpha).build()

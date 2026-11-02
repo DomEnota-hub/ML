@@ -184,8 +184,13 @@ class Media3ActualVideoFxInstrumentedTest {
             while (found == null) {
                 delay(100)
                 var playerError: androidx.media3.common.PlaybackException? = null
-                scenario.onActivity { playerError = it.player.playerError }
+                var ready = false
+                scenario.onActivity {
+                    playerError = it.player.playerError
+                    ready = it.player.playbackState == androidx.media3.common.Player.STATE_READY
+                }
                 if (playerError != null) throw AssertionError("$previewStage: player failed", playerError)
+                if (!ready) continue
                 val image = capture() ?: continue
                 if (condition(image)) found = image else image.recycle()
             }
@@ -220,7 +225,7 @@ class Media3ActualVideoFxInstrumentedTest {
             for ((index, type) in VideoSpecialFxType.entries.filterNot { it == VideoSpecialFxType.NONE }.withIndex()) {
                 previewStage = "$type zero"
                 apply(type, 0f, index % 2)
-                awaitFrame { difference(white, it) < 8.0 }.recycle()
+                awaitFrame { difference(white, it) < .5 }.recycle()
                 previewStage = "$type half paused"
                 apply(type, .5f, index % 2)
                 val half = awaitFrame { difference(white, it) > .04 }
@@ -264,6 +269,64 @@ class Media3ActualVideoFxInstrumentedTest {
                     } finally { output.delete() }
                 } finally { full.recycle() }
             }
+            // The stable preview stage must execute real photo/LUT/RGB programs too,
+            // including multiple stages with intermediate framebuffers, at unchanged PTS.
+            val grades = listOf(
+                "photo" to VideoColorGrade(photoEffect = PhotoEffect.WARM),
+                "reference" to VideoColorGrade(reference = VideoReferenceAdjustments(exposure = -70f)),
+                "combined" to VideoColorGrade(photoEffect = PhotoEffect.WARM,
+                    manual = VideoColorAdjustments(brightness = -.08f, red = .8f),
+                    reference = VideoReferenceAdjustments(warmth = -50f)))
+            for ((label, grade) in grades) {
+                previewStage = "$label neutral"
+                scenario.onActivity {
+                    it.player.pause(); it.player.seekTo(0, 250L)
+                    it.session.update(VideoEditSpec())
+                }
+                awaitFrame { difference(white, it) < 3.0 }.recycle()
+                previewStage = "$label colour paused"
+                scenario.onActivity { it.session.update(VideoEditSpec(color = grade)) }
+                val shown = awaitFrame { difference(white, it) > .5 }
+                try {
+                    val output = withTimeout(180_000L) { withContext(Dispatchers.Main.immediate) {
+                        VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(endMs = 800L, color = grade))
+                    } }
+                    try {
+                        val encoded = readFrame(output, 250_000L)
+                        try { assertTrue("$label stable preview differs from real export",
+                            difference(shown, encoded) < 12.0) } finally { encoded.recycle() }
+                    } finally { output.delete() }
+                    File(evidence, "preview_colour_$label.png").outputStream().use {
+                        shown.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                } finally { shown.recycle() }
+            }
+            // A source trim shifts window time, but its renderer still supplies source-period
+            // timestamps. Captions must use the same local interval as the exported clip.
+            previewStage = "clipped timed title"
+            val title = TextLayer(text = "A", size = .25f, color = android.graphics.Color.RED,
+                outline = 0f, startMs = 200, endMs = 300)
+            scenario.onActivity {
+                it.player.pause()
+                it.player.setMediaItem(MediaItem.Builder().setUri(Uri.fromFile(source))
+                    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(200).setEndPositionMs(800).build()).build())
+                it.player.seekTo(250L)
+                it.session.update(VideoEditSpec(startMs = 200, textLayers = listOf(title)))
+                it.player.prepare()
+            }
+            fun redTitle(image: Bitmap): Boolean {
+                var count = 0
+                for (y in 0 until image.height) for (x in 0 until image.width) {
+                    val c = image.getPixel(x, y)
+                    if (android.graphics.Color.red(c) > 150 && android.graphics.Color.green(c) < 80) count++
+                }
+                return count > 3
+            }
+            awaitFrame(::redTitle).recycle()
+            previewStage = "clipped title before interval"
+            scenario.onActivity { it.player.seekTo(0L) }
+            awaitFrame { !redTitle(it) && difference(white, it) < .5 }.recycle()
         } finally { preserveEvidence(evidence); baseline?.recycle(); scenario.close(); source.delete() }
     }
 

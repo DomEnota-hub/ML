@@ -14,7 +14,8 @@ import kotlin.math.roundToInt
 @OptIn(UnstableApi::class)
 internal class VideoTextOverlay(private val context: Context, layers: List<TextLayer>,
     timeOffsetMs: Long = 0L,
-    graphics: List<VideoGraphicLayer> = emptyList()) : BitmapOverlay() {
+    graphics: List<VideoGraphicLayer> = emptyList(),
+    private val frameTimeUs: (Long) -> Long = { it }) : BitmapOverlay() {
     private data class State(val layers: List<TextLayer>, val graphics: List<VideoGraphicLayer>, val offset: Long)
     private val state = java.util.concurrent.atomic.AtomicReference(State(layers, graphics, timeOffsetMs))
     private var applied: State? = null
@@ -50,7 +51,7 @@ internal class VideoTextOverlay(private val context: Context, layers: List<TextL
             applied = current; activeIds = null
         }
         val bitmap = requireNotNull(image)
-        val localMs = presentationTimeUs / 1000L - current.offset
+        val localMs = frameTimeUs(presentationTimeUs) / 1000L - current.offset
         val activeText = current.layers.filter { it.visibleAt(localMs) }
         val activeGraphics = current.graphics.filter { it.visibleAt(localMs) }
         val keys = activeText.map { "text:${it.id}" } +

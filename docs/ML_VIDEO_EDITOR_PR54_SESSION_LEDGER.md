@@ -323,3 +323,20 @@ ruler is source-relative. Real labels retained for imports/detached tracks.
 Audio-lane geometry tests plus existing trim/history/detach tests and compile
 PASS. Physical gestures and imported-audio audition remain NOT_DEVICE_TESTED.
 No full suite, release assembly or lint rerun in this iteration.
+
+##7edbb92 focused native41544326681
+
+Stable graph fixed the former vignette50→100 failure: saved half/full PNGs differ
+(near-cornerRGB81/80/81→49/48/49). Scanlines/cinema bars passed too. PULSE at a
+paused seek still failed. Media3's GL clock is relative to renderer start, not
+the source-period clock (MediaCodecVideoRenderer.getBufferTimestampAdjustmentUs).
+Now record each submitted frame's graphPTS→sourcePTS before surface submission;
+a bounded256-entry map keeps cached frames correct even when metadata/decoder
+prefetch another clip. Text/transition offsets retain source trim origins.
+
+Source review confirms ClippingMediaPeriod preserves source timestamps. Added
+focused tests for per-frame clock/prefetch, real photo/reference/combined preview
+vs MP4 and clipped timed text. Old paired-seek helper removed. Local three
+clock/overlay tests and androidTest compile PASS; additional native assertions
+compile in CI. Duplicate push CI omitted for this followup; explicit native P0
+run remains mandatory. Full release checks only after P0 is actually green.

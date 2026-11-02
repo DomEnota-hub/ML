@@ -21,6 +21,7 @@ internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
     private val onPlayerCreated: (ExoPlayer) -> Unit = {}) {
     private val context = context.applicationContext
     private val spec = AtomicReference(VideoEditSpec())
+    private val clock = VideoPreviewFrameClock()
     private data class Geometry(val crop: List<Float>, val rotation: Int, val mirrors: Pair<Boolean, Boolean>, val ratio: Float?)
     private fun geometry(s: VideoEditSpec, ratio: Float?) = Geometry(
         listOf(s.cropLeft, s.cropRight, s.cropTop, s.cropBottom), s.rotationDegrees,
@@ -32,10 +33,10 @@ internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
     val player: ExoPlayer get() = _players.value
 
     private inner class Graph(initial: VideoEditSpec, ratio: Float?) {
-        val fx = VideoSpecialFxOverlay(initial.specialFx, initial.startMs)
-        val grain = VideoSpecialFxOverlay(VideoSpecialFxDraft(VideoSpecialFxType.FILM_GRAIN, initial.color.reference.grain / 100), initial.startMs)
-        val vignette = VideoSpecialFxOverlay(VideoSpecialFxDraft(VideoSpecialFxType.VIGNETTE, initial.color.reference.vignette / 100), initial.startMs)
-        val text = VideoTextOverlay(context, initial.textLayers, initial.startMs, initial.graphicLayers)
+        val fx = VideoSpecialFxOverlay(initial.specialFx, initial.startMs, clock::sourceTimeUs)
+        val grain = VideoSpecialFxOverlay(VideoSpecialFxDraft(VideoSpecialFxType.FILM_GRAIN, initial.color.reference.grain / 100), initial.startMs, clock::sourceTimeUs)
+        val vignette = VideoSpecialFxOverlay(VideoSpecialFxDraft(VideoSpecialFxType.VIGNETTE, initial.color.reference.vignette / 100), initial.startMs, clock::sourceTimeUs)
+        val text = VideoTextOverlay(context, initial.textLayers, initial.startMs, initial.graphicLayers, clock::sourceTimeUs)
         val effects: List<Effect> = buildList {
             add(PreviewDownscale())
             if (initial.hasCrop) add(Crop(-1f + 2 * initial.cropLeft, 1f - 2 * initial.cropRight,
@@ -46,7 +47,7 @@ internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
             add(VideoPreviewColorEffect(context, spec))
             if (ratio != null) add(Presentation.createForAspectRatio(ratio, Presentation.LAYOUT_SCALE_TO_FIT))
             add(OverlayEffect(listOf(fx, grain, vignette, text,
-                PreviewTransition(spec, 0), PreviewTransition(spec, 1))))
+                PreviewTransition(spec, 0, clock), PreviewTransition(spec, 1, clock))))
         }
         fun update(s: VideoEditSpec) {
             fx.update(s.specialFx, s.startMs)
@@ -56,7 +57,7 @@ internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
         }
     }
     private fun build(graph: Graph, items: List<MediaItem>, index: Int, position: Long): ExoPlayer {
-        val player = VideoEditorPlayerFactory.builder(context)
+        val player = VideoEditorPlayerFactory.builder(context, clock::record)
             .setAudioAttributes(AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                 .setUsage(C.USAGE_MEDIA).build(), true).setHandleAudioBecomingNoisy(true).build()
         player.setVideoEffects(graph.effects) // Before the FIRST prepare, including neutral overlays.
@@ -103,7 +104,7 @@ private class PreviewDownscale : GlMatrixTransformation {
 
 /** Reuse the export transition implementation, without re-registering its Media3 stream. */
 @OptIn(UnstableApi::class)
-private class PreviewTransition(private val spec: AtomicReference<VideoEditSpec>, private val index: Int) : BitmapOverlay() {
+private class PreviewTransition(private val spec: AtomicReference<VideoEditSpec>, private val index: Int, private val clock: VideoPreviewFrameClock) : BitmapOverlay() {
     private var size = Size(1, 1)
     private var key: Pair<VideoTransitionPhase, Long>? = null
     private var delegate: VideoTransitionOverlay? = null
@@ -121,10 +122,10 @@ private class PreviewTransition(private val spec: AtomicReference<VideoEditSpec>
             delegate = next?.let { (phase, offset) -> VideoTransitionOverlay(phase, offset).apply { configure(size) } }
             key = next
         }
-        return delegate?.getBitmap(presentationTimeUs) ?: requireNotNull(empty)
+        return delegate?.getBitmap(clock.sourceTimeUs(presentationTimeUs)) ?: requireNotNull(empty)
     }
     override fun getOverlaySettings(presentationTimeUs: Long): StaticOverlaySettings =
-        delegate?.getOverlaySettings(presentationTimeUs) ?: StaticOverlaySettings.Builder().setAlphaScale(0f).build()
+        delegate?.getOverlaySettings(clock.sourceTimeUs(presentationTimeUs)) ?: StaticOverlaySettings.Builder().setAlphaScale(0f).build()
     override fun release() {
         try { super.release() } finally { delegate?.release(); delegate = null; empty?.recycle(); empty = null; key = null }
     }
