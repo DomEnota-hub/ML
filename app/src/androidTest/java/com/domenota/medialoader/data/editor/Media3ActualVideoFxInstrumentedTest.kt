@@ -28,7 +28,9 @@ class Media3ActualVideoFxInstrumentedTest {
         val fixture = File(context.cacheDir, "medialoader-fx-instrumented-source.mp4")
         var output: File? = null
         try {
-            val encoded = context.assets.open("fx_white_h264_160x90_800ms.base64")
+            // The fixture belongs to the androidTest APK, not the target app.
+            val encoded = InstrumentationRegistry.getInstrumentation().context.assets
+                .open("fx_white_h264_160x90_800ms.base64")
                 .bufferedReader().use { it.readText().trim() }
             fixture.writeBytes(Base64.decode(encoded, Base64.DEFAULT))
             assertTrue("Fixture MP4 must exist", fixture.length() > 1000L)
