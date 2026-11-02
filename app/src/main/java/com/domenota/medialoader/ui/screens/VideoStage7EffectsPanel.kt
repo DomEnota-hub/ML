@@ -54,15 +54,9 @@ internal fun VideoStage7EffectsPanel(
     LaunchedEffect(clip.sourceUri, clip.inMs, transitionTool) {
         if (!transitionTool) {
             previews = withContext(Dispatchers.IO) {
-                VideoFxThumbnail.readFrame(context, clip)?.let { frame ->
-                    try {
-                        VideoSpecialFxType.entries.associateWith { type ->
-                            VideoFxThumbnail.render(frame, type)
-                        }
-                    } finally {
-                        frame.recycle()
-                    }
-                } ?: emptyMap()
+                VideoSpecialFxType.entries.mapNotNull { type ->
+                    VideoThumbnailMemoryCache.special(context, clip, type)?.let { type to it }
+                }.toMap()
             }
         }
     }
