@@ -66,43 +66,11 @@ internal object VideoFxThumbnail {
             sample.width, sample.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
         canvas.drawBitmap(sample, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
-        val width = output.width.toFloat()
-        val height = output.height.toFloat()
-        when (type) {
-            VideoSpecialFxType.NONE -> Unit
-            VideoSpecialFxType.VIGNETTE -> {
-                val radius = hypot(width, height) * .58f
-                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    shader = RadialGradient(width / 2, height / 2, radius,
-                        intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT,
-                            Color.argb((220 * intensity).toInt().coerceIn(0, 255), 0, 0, 0)),
-                        floatArrayOf(0f, .40f, 1f), Shader.TileMode.CLAMP)
-                }
-                canvas.drawRect(0f, 0f, width, height, paint)
-            }
-            VideoSpecialFxType.SCANLINES -> {
-                val paint = Paint().apply {
-                    color = Color.argb((170 * intensity).toInt().coerceIn(0,255), 0, 0, 0)
-                }
-                var y = 1f
-                val step = (height / 125f).coerceAtLeast(4f)
-                while (y < height) {
-                    canvas.drawRect(0f, y, width, y + (step / 4f).coerceAtLeast(1f), paint)
-                    y += step
-                }
-            }
-            VideoSpecialFxType.CINEMA_BARS -> {
-                val band = height * .13f * intensity
-                val paint = Paint().apply { color = Color.BLACK }
-                canvas.drawRect(0f, 0f, width, band, paint)
-                canvas.drawRect(0f, height - band, width, height, paint)
-            }
-            VideoSpecialFxType.PULSE -> {
-                val paint = Paint().apply { color = Color.argb(
-                    (100 * intensity).toInt().coerceIn(0, 255), 255, 255, 255) }
-                canvas.drawRect(0f, 0f, width, height, paint)
-            }
-        }
+        com.domenota.medialoader.data.editor.VideoSpecialFxPainter.draw(
+            canvas, output.width, output.height,
+            com.domenota.medialoader.data.editor.VideoSpecialFxDraft(type, intensity),
+            stillPreview = true,
+        )
         return output
     }
 }
