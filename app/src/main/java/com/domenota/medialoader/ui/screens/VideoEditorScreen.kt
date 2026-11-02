@@ -166,6 +166,7 @@ fun VideoEditorScreen(
     }
     var selectedOverlayId by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedTool by remember(item.id) { mutableStateOf<VideoWorkspaceTool?>(null) }
+    var referenceColorManual by remember(item.id) { mutableStateOf(false) }
     var exportSettings by remember(item.id) { mutableStateOf(VideoExportSettings()) }
     var firstClipInfo by remember(item.id) { mutableStateOf<VideoInfo?>(null) }
 
@@ -987,6 +988,7 @@ fun VideoEditorScreen(
                         }
                         VideoWorkspaceTool.COLOR -> {
                             VideoColorPanel(
+                                manualByDefault = referenceColorManual,
                                 color = clipColor,
                                 enabled = currentClip != null && !ownExport && !busyWithOther,
                                 onColorChange = ::updateSelectedColor,
@@ -1311,6 +1313,7 @@ fun VideoEditorScreen(
                     if (next == VideoWorkspaceTool.TEXT) previewPlayer?.pause()
                 },
                 enabled = info != null && !ownExport && !busyWithOther,
+                onColorManualMode = { referenceColorManual = it },
             )
         }
     }
