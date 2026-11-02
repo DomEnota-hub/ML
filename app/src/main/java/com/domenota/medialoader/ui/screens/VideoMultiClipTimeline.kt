@@ -138,7 +138,9 @@ internal fun VideoMultiClipTimeline(
                         widthModifier = Modifier.width(width.dp),
                         showSourceTrim = sourceTrimMode,
                         fullWidthDp = width,
-                        pixelsPerSecondDp = pixelsPerSecondDp,
+                        pixelsPerSecondDp = if (sourceTrimMode)
+                            width / (clip.sourceDurationMs / clip.speed / 1000f)
+                        else pixelsPerSecondDp,
                         displayDensity = density,
                         isSelected = clip.id == selectedClipId,
                         localPositionMs = (positionMs - project.timelineStart(index))
@@ -272,8 +274,9 @@ private fun VideoClipStrip(
         .zIndex(if (dragging) 2f else 0f)
         .clip(RoundedCornerShape(9.dp))
         .background(MaterialTheme.colorScheme.surfaceVariant)
-        .border(if (isSelected) 3.dp else 1.dp,
-            if (isSelected) selectedYellow else MaterialTheme.colorScheme.outlineVariant,
+        .border(if (isSelected && !showSourceTrim) 3.dp else 1.dp,
+            if (isSelected && !showSourceTrim) selectedYellow
+                else MaterialTheme.colorScheme.outlineVariant,
             RoundedCornerShape(9.dp))) {
         Row(Modifier.fillMaxSize()
             .onSizeChanged { pixelWidth = it.width.toFloat().coerceAtLeast(1f) }
