@@ -337,6 +337,7 @@ private fun VideoClipStrip(
             val leftDp = visualSelection.leftDp
             val rightDp = visualSelection.rightDp
             val keptDp = visualSelection.keptDp
+            val grips = VideoClipReorderMath.trimGrips(visualSelection, fullWidthDp)
             if (showSourceTrim) {
                 Box(Modifier.align(Alignment.CenterStart).width(leftDp.dp)
                     .fillMaxHeight().background(Color.Black.copy(alpha = .72f)))
@@ -348,7 +349,7 @@ private fun VideoClipStrip(
                     .border(2.dp, selectedYellow))
             }
             Box(Modifier.align(Alignment.CenterStart)
-                .offset(x = (if (showSourceTrim) leftDp else 0f).dp)
+                .offset(x = grips.leftDp.dp)
                 .width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .93f))
                 .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
@@ -379,8 +380,7 @@ private fun VideoClipStrip(
                     )
                 })
             Box(Modifier.align(Alignment.CenterStart)
-                .offset(x = (if (showSourceTrim) rightDp - 17f
-                    else fullWidthDp - 17f).coerceAtLeast(0f).dp)
+                .offset(x = grips.rightDp.dp)
                 .width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .93f))
                 .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
