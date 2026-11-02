@@ -30,7 +30,8 @@ internal enum class VideoWorkspaceTool(val label: String) {
     REVERSE("Реверс"), TEXT("Текст"), GRAPHICS("Стикеры"),
     EXPORT("Экспорт"), MORE("Ещё"),
     DELETE("Удалить"), SEPARATE_AUDIO("Разделить звук"),
-    REPLACE("Заменить"), DUPLICATE("Копировать")
+    REPLACE("Заменить"), DUPLICATE("Копировать"),
+    SPLIT("Разделить")
 }
 internal val videoToolYellow = Color(0xFFFFC000)
 
@@ -54,6 +55,7 @@ private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.SEPARATE_AUDIO -> VideoV8Icons.separate
     VideoWorkspaceTool.REPLACE -> VideoV8Icons.replace
     VideoWorkspaceTool.DUPLICATE -> VideoV8Icons.copy
+    VideoWorkspaceTool.SPLIT -> VideoV8Icons.editor
 }
 
 private data class ReferenceRootAction(
@@ -77,7 +79,8 @@ private val rootActions = listOf(
 internal fun referenceRootLabels(): List<String> = rootActions.map { it.label }
 
 private val editorActions = listOf(
-    VideoWorkspaceTool.TRIM, VideoWorkspaceTool.SPEED, VideoWorkspaceTool.AUDIO,
+    VideoWorkspaceTool.TRIM, VideoWorkspaceTool.SPLIT,
+    VideoWorkspaceTool.SPEED, VideoWorkspaceTool.AUDIO,
     VideoWorkspaceTool.REVERSE, VideoWorkspaceTool.DELETE,
     VideoWorkspaceTool.SEPARATE_AUDIO, VideoWorkspaceTool.REPLACE,
     VideoWorkspaceTool.CROP, VideoWorkspaceTool.DUPLICATE,
@@ -104,6 +107,8 @@ internal fun VideoWorkspaceToolbar(
     onSeparateAudio: () -> Unit = {},
     onReplaceClip: () -> Unit = {},
     onDuplicateClip: () -> Unit = {},
+    onSplitClip: () -> Unit = {},
+    canSplitClip: Boolean = false,
     canDeleteClip: Boolean = false,
     canSeparateAudio: Boolean = false,
 ) {
@@ -158,6 +163,7 @@ internal fun VideoWorkspaceToolbar(
                         active = selected == tool,
                         enabled = enabled && when (tool) {
                             VideoWorkspaceTool.DELETE -> canDeleteClip
+                            VideoWorkspaceTool.SPLIT -> canSplitClip
                             VideoWorkspaceTool.SEPARATE_AUDIO -> canSeparateAudio
                             else -> true
                         },
@@ -165,6 +171,7 @@ internal fun VideoWorkspaceToolbar(
                         onClick = {
                             when (tool) {
                                 VideoWorkspaceTool.DELETE -> onDeleteClip()
+                                VideoWorkspaceTool.SPLIT -> onSplitClip()
                                 VideoWorkspaceTool.SEPARATE_AUDIO -> onSeparateAudio()
                                 VideoWorkspaceTool.REPLACE -> onReplaceClip()
                                 VideoWorkspaceTool.DUPLICATE -> onDuplicateClip()
