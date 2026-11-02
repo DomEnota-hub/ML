@@ -7,7 +7,9 @@ import android.util.Base64
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -36,14 +38,17 @@ class Media3ActualVideoFxInstrumentedTest {
             assertTrue("Fixture MP4 must exist", fixture.length() > 1000L)
 
             output = withTimeout(180_000L) {
-                VideoEditor(context).export(Uri.fromFile(fixture),
-                    VideoEditSpec(
-                        startMs = 0L,
-                        endMs = 800L,
-                        specialFx = VideoSpecialFxDraft(
-                            VideoSpecialFxType.CINEMA_BARS, intensity = 1f),
-                    ),
-                )
+                // Media3 Transformer owns the application main Looper.
+                withContext(Dispatchers.Main.immediate) {
+                    VideoEditor(context).export(Uri.fromFile(fixture),
+                        VideoEditSpec(
+                            startMs = 0L,
+                            endMs = 800L,
+                            specialFx = VideoSpecialFxDraft(
+                                VideoSpecialFxType.CINEMA_BARS, intensity = 1f),
+                        ),
+                    )
+                }
             }
 
             val original = readFrame(fixture)
