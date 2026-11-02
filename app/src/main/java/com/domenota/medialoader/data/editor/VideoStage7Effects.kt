@@ -30,6 +30,12 @@ enum class VideoSpecialFxType(val label: String) {
     SCANLINES("Сканирование"),
     CINEMA_BARS("Кинополосы"),
     PULSE("Мерцание"),
+    FILM_GRAIN("Зернистость"),
+    OLD_FILM("Старая плёнка"),
+    VHS("VHS"),
+    GLITCH("Глитч"),
+    NEON_FRAME("Неоновая рамка"),
+    SPOTLIGHT("Прожектор"),
 }
 
 data class VideoSpecialFxDraft(
