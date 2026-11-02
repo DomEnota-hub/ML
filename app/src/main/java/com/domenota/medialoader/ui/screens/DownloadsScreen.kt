@@ -175,8 +175,9 @@ fun DownloadsScreen(
     var musicEnabled by rememberSaveable { mutableStateOf(prefs.getBoolean(DownloadTypeFilter.MUSIC.preferenceKey, true)) }
     var videoEnabled by rememberSaveable { mutableStateOf(prefs.getBoolean(DownloadTypeFilter.VIDEO.preferenceKey, true)) }
     var photoEnabled by rememberSaveable { mutableStateOf(prefs.getBoolean(DownloadTypeFilter.PHOTO.preferenceKey, true)) }
-    var filterMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedHistoryIds by rememberSaveable { mutableStateOf(setOf<String>()) }
     var searchText by rememberSaveable { mutableStateOf("") }
     var selectedCatalog by rememberSaveable { mutableStateOf(CATALOG_ALL) }
     var folderSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -203,12 +204,20 @@ fun DownloadsScreen(
             CircularProgressIndicator(Modifier.size(28.dp)); Text("Обрабатываем группу…")
         } })
     if (deleteGroupTargets.isNotEmpty()) AlertDialog(onDismissRequest = { deleteGroupTargets = emptyList() },
-        title = { Text(com.domenota.medialoader.ui.components.deleteSelectionTitle(deleteGroupTargets.size)) },
-        confirmButton = { TextButton(onClick = { val ids = deleteGroupTargets; deleteGroupTargets = emptyList(); groupAction(ids) { id ->
+        title = { Text(if (selectionMode)
+            com.domenota.medialoader.ui.components.deleteSelectionTitle(deleteGroupTargets.size)
+            else "Удалить группу?") },
+        text = { Text("Файлы будут перемещены в корзину. Их можно будет восстановить.") },
+        confirmButton = { TextButton(onClick = {
+            val ids = deleteGroupTargets
+            deleteGroupTargets = emptyList()
+            selectedHistoryIds = emptySet()
+            selectionMode = false
+            groupAction(ids) { id ->
                 require(items.firstOrNull { it.id == id }?.state == DownloadUiState.COMPLETED) { "Дождитесь завершения загрузки" }
                 onDeleteGroupFile(id)
             } }) {
-            Text("Удалить", color = MaterialTheme.colorScheme.error)
+            Text("В корзину", color = MaterialTheme.colorScheme.error)
         } },
         dismissButton = { TextButton(onClick = { deleteGroupTargets = emptyList() }) { Text("Отмена") } })
 
@@ -250,20 +259,6 @@ fun DownloadsScreen(
         DownloadSourceFilter.OTHER -> otherEnabled
     }
 
-    fun setEnabled(source: DownloadSourceFilter, enabled: Boolean) {
-        val enabledCount = visibleSources.count(::isEnabled)
-        if (!enabled && isEnabled(source) && enabledCount <= 1) return
-
-        when (source) {
-            DownloadSourceFilter.INSTAGRAM -> instagramEnabled = enabled
-            DownloadSourceFilter.YOUTUBE -> youtubeEnabled = enabled
-            DownloadSourceFilter.VK -> vkEnabled = enabled
-            DownloadSourceFilter.RUTUBE -> rutubeEnabled = enabled
-            DownloadSourceFilter.OTHER -> otherEnabled = enabled
-        }
-        prefs.edit().putBoolean(source.preferenceKey, enabled).apply()
-    }
-
     fun enableAll() {
         instagramEnabled = true
         youtubeEnabled = true
@@ -279,20 +274,29 @@ fun DownloadsScreen(
             .apply()
     }
 
+    fun selectSource(source: DownloadSourceFilter) {
+        val all = visibleSources.toSet()
+        val next = com.domenota.medialoader.ui.model.exclusiveFilterClick(
+            all, visibleSources.filter(::isEnabled).toSet(), source,
+        )
+        instagramEnabled = DownloadSourceFilter.INSTAGRAM in next
+        youtubeEnabled = DownloadSourceFilter.YOUTUBE in next
+        vkEnabled = DownloadSourceFilter.VK in next
+        rutubeEnabled = DownloadSourceFilter.RUTUBE in next
+        otherEnabled = if (hasOther) DownloadSourceFilter.OTHER in next else true
+        prefs.edit()
+            .putBoolean(DownloadSourceFilter.INSTAGRAM.preferenceKey, instagramEnabled)
+            .putBoolean(DownloadSourceFilter.YOUTUBE.preferenceKey, youtubeEnabled)
+            .putBoolean(DownloadSourceFilter.VK.preferenceKey, vkEnabled)
+            .putBoolean(DownloadSourceFilter.RUTUBE.preferenceKey, rutubeEnabled)
+            .putBoolean(DownloadSourceFilter.OTHER.preferenceKey, otherEnabled)
+            .apply()
+    }
+
     fun isTypeEnabled(type: DownloadTypeFilter): Boolean = when (type) {
         DownloadTypeFilter.MUSIC -> musicEnabled
         DownloadTypeFilter.VIDEO -> videoEnabled
         DownloadTypeFilter.PHOTO -> photoEnabled
-    }
-
-    fun setTypeEnabled(type: DownloadTypeFilter, enabled: Boolean) {
-        if (!enabled && isTypeEnabled(type) && DownloadTypeFilter.entries.count(::isTypeEnabled) <= 1) return
-        when (type) {
-            DownloadTypeFilter.MUSIC -> musicEnabled = enabled
-            DownloadTypeFilter.VIDEO -> videoEnabled = enabled
-            DownloadTypeFilter.PHOTO -> photoEnabled = enabled
-        }
-        prefs.edit().putBoolean(type.preferenceKey, enabled).apply()
     }
 
     fun enableAllTypes() {
@@ -303,6 +307,22 @@ fun DownloadsScreen(
             .putBoolean(DownloadTypeFilter.MUSIC.preferenceKey, true)
             .putBoolean(DownloadTypeFilter.VIDEO.preferenceKey, true)
             .putBoolean(DownloadTypeFilter.PHOTO.preferenceKey, true)
+            .apply()
+    }
+
+    fun selectOnlyType(type: DownloadTypeFilter) {
+        val next = com.domenota.medialoader.ui.model.exclusiveFilterClick(
+            DownloadTypeFilter.entries.toSet(),
+            DownloadTypeFilter.entries.filter(::isTypeEnabled).toSet(),
+            type,
+        )
+        musicEnabled = DownloadTypeFilter.MUSIC in next
+        videoEnabled = DownloadTypeFilter.VIDEO in next
+        photoEnabled = DownloadTypeFilter.PHOTO in next
+        prefs.edit()
+            .putBoolean(DownloadTypeFilter.MUSIC.preferenceKey, musicEnabled)
+            .putBoolean(DownloadTypeFilter.VIDEO.preferenceKey, videoEnabled)
+            .putBoolean(DownloadTypeFilter.PHOTO.preferenceKey, photoEnabled)
             .apply()
     }
 
@@ -322,6 +342,14 @@ fun DownloadsScreen(
         }
     }.filter { it.isNotEmpty() } }
     val searchedHistory = remember(history, searchText) { HistorySearch.filterGroups(history, searchText) }
+    val selectableHistoryItems = remember(searchedHistory) {
+        searchedHistory.flatten().filter { it.state == DownloadUiState.COMPLETED }
+            .distinctBy { it.id }
+    }
+    val selectableIds = selectableHistoryItems.map { it.id }.toSet()
+    LaunchedEffect(selectableIds) {
+        selectedHistoryIds = selectedHistoryIds.intersect(selectableIds)
+    }
 
     val thumbnailRows = remember(active, searchedHistory, expandedGroups, groupLimits, gridMode) {
         (active + if (gridMode) emptyList() else searchedHistory).flatMap { group ->
@@ -388,57 +416,6 @@ fun DownloadsScreen(
                     contentDescription = if (searchVisible) "Закрыть поиск" else "Поиск по загрузкам",
                 )
             }
-            Box {
-                Row(Modifier.background(MaterialTheme.colorScheme.primaryContainer,
-                    RoundedCornerShape(22.dp)).clickable { filterMenuExpanded = true }
-                    .padding(horizontal = 8.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Tune, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                    Text("Тип", color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 6.dp))
-                    Icon(Icons.Rounded.ExpandMore, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                }
-                DropdownMenu(
-                    expanded = filterMenuExpanded,
-                    onDismissRequest = { filterMenuExpanded = false },
-                ) {
-                    Text(
-                        "Тип файлов",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Все файлы") },
-                        onClick = { enableAllTypes() },
-                        leadingIcon = {
-                            Icon(Icons.Rounded.Download, contentDescription = null)
-                        },
-                        trailingIcon = {
-                            Checkbox(
-                                checked = allTypesEnabled,
-                                onCheckedChange = { checked -> if (checked) enableAllTypes() },
-                            )
-                        },
-                    )
-                    HorizontalDivider()
-                    DownloadTypeFilter.entries.forEach { type ->
-                        val checked = isTypeEnabled(type)
-                        DropdownMenuItem(
-                            text = { Text(type.label) },
-                            onClick = { setTypeEnabled(type, !checked) },
-                            leadingIcon = { Icon(type.icon, contentDescription = null) },
-                            trailingIcon = {
-                                Checkbox(
-                                    checked = checked,
-                                    onCheckedChange = { setTypeEnabled(type, it) },
-                                )
-                            },
-                        )
-                    }
-                }
-            }
         }
         if (searchVisible) {
             Spacer(Modifier.height(12.dp))
@@ -465,10 +442,19 @@ fun DownloadsScreen(
             visibleSources.forEach { source ->
                 SourceChip(source.label,
                     source.name.lowercase().takeIf { source != DownloadSourceFilter.OTHER },
-                    isEnabled(source), onClick = { setEnabled(source, !isEnabled(source)) })
+                    !allEnabled && isEnabled(source), onClick = { selectSource(source) })
             }
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SourceChip("Все файлы", null, allTypesEnabled, onClick = ::enableAllTypes)
+            DownloadTypeFilter.entries.forEach { type ->
+                val selected = !allTypesEnabled && isTypeEnabled(type)
+                SourceChip(type.label, null, selected, onClick = { selectOnlyType(type) })
+            }
+        }
+        Spacer(Modifier.height(20.dp))
         SectionTitle(title = "Активные")
         Spacer(Modifier.height(12.dp))
        }
@@ -510,19 +496,60 @@ fun DownloadsScreen(
             else -> folderNames[selectedCatalog.removePrefix("folder:")] ?: "История"
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(catalogLabel, style = MaterialTheme.typography.titleMedium,
+            Text(if (selectionMode) "Выбрано: ${selectedHistoryIds.size}" else catalogLabel,
+                style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f), maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
-            IconButton(onClick = {
-                gridMode = !gridMode
-                prefs.edit().putBoolean("downloads_grid", gridMode).apply()
-            }) {
-                Icon(if (gridMode) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                    contentDescription = if (gridMode) "Показать списком" else "Показать сеткой")
+            if (selectionMode) {
+                TextButton(onClick = {
+                    selectionMode = false
+                    selectedHistoryIds = emptySet()
+                }) { Text("Отмена") }
+            } else {
+                TextButton(
+                    enabled = selectableHistoryItems.isNotEmpty(),
+                    onClick = { selectionMode = true; selectedHistoryIds = emptySet() }
+                ) { Text("Выбрать") }
+                IconButton(onClick = {
+                    gridMode = !gridMode
+                    prefs.edit().putBoolean("downloads_grid", gridMode).apply()
+                }) {
+                    Icon(if (gridMode) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                        contentDescription = if (gridMode) "Показать списком" else "Показать сеткой")
+                }
+                if (selectedCatalog != CATALOG_ALL) TextButton(onClick = {
+                    selectedCatalog = CATALOG_ALL
+                }) { Text("Все файлы") }
             }
-            if (selectedCatalog != CATALOG_ALL) TextButton(onClick = {
-                selectedCatalog = CATALOG_ALL
-            }) { Text("Все файлы") }
+        }
+        if (selectionMode) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                TextButton(onClick = {
+                    selectedHistoryIds = if (selectedHistoryIds.size == selectableIds.size) {
+                        emptySet()
+                    } else selectableIds
+                }) { Text(if (selectedHistoryIds.size == selectableIds.size) "Снять всё" else "Выбрать всё") }
+                TextButton(enabled = selectedHistoryIds.isNotEmpty(), onClick = {
+                    val ids = selectedHistoryIds.toList()
+                    groupAction(ids) { id -> onSetFavorite(id, true) }
+                    selectionMode = false
+                    selectedHistoryIds = emptySet()
+                }) { Text("Избранное") }
+                TextButton(enabled = selectedHistoryIds.isNotEmpty(), onClick = {
+                    folderGroupTargets = selectedHistoryIds.toList()
+                    folderTargetId = folderGroupTargets.firstOrNull()
+                    folderSheetOpen = true
+                }) { Text("В папку") }
+                TextButton(enabled = selectedHistoryIds.isNotEmpty(), onClick = {
+                    onMoveGroupToPrivate(selectedHistoryIds.toList())
+                    selectionMode = false
+                    selectedHistoryIds = emptySet()
+                }) { Text("В личное") }
+                TextButton(enabled = selectedHistoryIds.isNotEmpty(), onClick = {
+                    deleteGroupTargets = selectedHistoryIds.toList()
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            }
         }
         Spacer(Modifier.height(12.dp))
        }
@@ -546,7 +573,39 @@ fun DownloadsScreen(
             )
           }
         } else {
-            DownloadRows(searchedHistory, { id ->
+            if (selectionMode) {
+                items(selectableHistoryItems, key = { "select:${it.id}" }, contentType = { "selected-file" }) { file ->
+                    val checked = file.id in selectedHistoryIds
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(15.dp))
+                            .clickable {
+                                selectedHistoryIds = if (checked) selectedHistoryIds - file.id
+                                    else selectedHistoryIds + file.id
+                            }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = { value ->
+                                selectedHistoryIds = if (value) selectedHistoryIds + file.id
+                                    else selectedHistoryIds - file.id
+                            },
+                        )
+                        DownloadThumbnail(file.savedUri, file.previewUrl, file.kind, Modifier.size(52.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(file.title, maxLines = 2, style = MaterialTheme.typography.bodyMedium,
+                                overflow = TextOverflow.Ellipsis)
+                            Text(file.subtitle, maxLines = 1,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            } else DownloadRows(searchedHistory, { id ->
                 if (gridMode && onOpenGrid != null) onOpenGrid(id, searchedHistory.flatten().map { it.id })
                 else onOpenDownload(id)
             }, onCancelDownload, onShareDownload, onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload, recognitionEnabled, onRecognizeDownload,

@@ -32,6 +32,7 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.domenota.medialoader.MainActivity
@@ -43,6 +44,7 @@ import com.domenota.medialoader.data.privatevault.PrivateFileStore
 import kotlinx.coroutines.*
 
 /** App-owned floating window. System PiP reserves double taps and its controls for Android. */
+@androidx.annotation.OptIn(UnstableApi::class)
 class FloatingVideoService : Service() {
     companion object {
         private const val CHANNEL = "floating_video"

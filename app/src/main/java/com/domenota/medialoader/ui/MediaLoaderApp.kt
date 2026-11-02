@@ -867,7 +867,9 @@ fun MediaLoaderApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val checkingPhoneAccess = phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
+    val checkingPhoneAccess = if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)
+        visibleLibraryValidationPending(appMode, libraryIndex, phoneGallery, phoneMusic)
+    else phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
     MediaManagementAccessPrompt(enabled = appMode != AppMode.DOWNLOADER &&
         currentRoute == AppDestination.Home.route && !checkingPhoneAccess)
     LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
@@ -1039,7 +1041,6 @@ fun MediaLoaderApp(
             composable(PLAYLIST_ADD_ROUTE) { entry ->
                 val playlistId = entry.arguments?.getString("playlistId")
                 val playlist = playlists.firstOrNull { it.id == playlistId }
-                    ?: libraryModel.playlistRepository.playlists.value.firstOrNull { it.id == playlistId }
                 if (playlist == null) {
                     if (!playlistsReady) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                     else LaunchedEffect(playlistId) { navController.popBackStack() }
@@ -1153,6 +1154,18 @@ fun MediaLoaderApp(
                     hiddenItems = hiddenItems.map { entry ->
                         entry.toUi().copy(savedUri = viewModel.trashedUri(entry.id))
                     },
+                    editorItems = accessibleDownloads.filter {
+                        it.state == DownloadState.COMPLETED && it.savedUri != null
+                    }.map { it.toUi() },
+                    onEditFile = { id ->
+                        when (accessibleDownloads.firstOrNull { it.id == id }?.mediaType) {
+                            MediaType.PHOTO -> navController.navigate("photo-editor/$id")
+                            MediaType.VIDEO -> navController.navigate("video-editor/$id")
+                            MediaType.AUDIO -> navController.navigate("audio-editor/$id")
+                            null -> Unit
+                        }
+                    },
+                    onOpenEqualizer = { navController.navigate("equalizer") },
                     onChangeFolder = viewModel::changeFolder,
                     onSelectFolder = { folderLauncher.launch(null) },
                     onRestore = viewModel::restoreHidden,
