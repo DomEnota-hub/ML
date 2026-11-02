@@ -106,4 +106,20 @@ class VideoClipReorderMathTest {
             density = 2f, speed = 1f))
     }
 
+    @Test fun veryShortTrimSelectionKeepsBothTouchTargetsIndependent() {
+        val short = VideoClipReorderMath.trimSelection(20_000L, 0L, 100L, 750f)
+        val grips = VideoClipReorderMath.trimGrips(short, 750f)
+        assertTrue("Handles must not overlap", grips.rightDp - grips.leftDp >= 17f)
+        assertEquals(0f, grips.leftDp, .01f)
+        val nearEnd = VideoClipReorderMath.trimSelection(
+            20_000L, 19_800L, 20_000L, 750f)
+        val endGrips = VideoClipReorderMath.trimGrips(nearEnd, 750f)
+        assertTrue(endGrips.rightDp - endGrips.leftDp >= 17f)
+        assertTrue(endGrips.rightDp + 17f <= 750.001f)
+        val full = VideoClipReorderMath.trimSelection(20_000L, 0L, 20_000L, 750f)
+        val fullGrips = VideoClipReorderMath.trimGrips(full, 750f)
+        assertEquals(0f, fullGrips.leftDp, .01f)
+        assertEquals(733f, fullGrips.rightDp, .01f)
+    }
+
 }
