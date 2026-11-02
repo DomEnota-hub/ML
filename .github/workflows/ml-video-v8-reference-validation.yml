@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   qa:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +28,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Install fixture decoder
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Validate synthetic H264 fixture before codec tests
         run: python3 scripts/verify-video-fx-fixture.py
       - name: Run all Android unit and Compose tests
@@ -89,7 +91,7 @@ jobs:
   # snapshot tests. It decodes the completed MP4 and checks its pixels.
   mp4-codec-device:
     name: Real MP4 effect on Android emulator
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
