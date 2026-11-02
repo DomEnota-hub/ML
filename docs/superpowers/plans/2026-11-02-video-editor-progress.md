@@ -84,3 +84,16 @@ Drive1QHJSCZzzTvdjJ3pAHmoP-y8pwK0pCWTP,298156bytes, readback verified.
 No claim of full Xiaomi parity: online music, native ⋮ contents, Titles and exact
 filter catalogue/LUTs remain unshown; music import wave visual is approximate;
 MP4 still an explicit demo. Preserve native capabilities described in audit.
+
+## v7: user corrections, including asynchronous source clarification
+
+User clarified filter source is OUR photo-editor MOCKUP, not Xiaomi/native code.
+Saved shared/evolving catalogue criteria in visible HTML details + JSON; actual
+filter sync not implemented (source catalogue file not located). Reworked main/
+clip/selected correction glyph contours and sizing to screenshot references.
+Fixed live trim preview both edges, adjacent clip boundary and reverse/speed;
+root cause and before/after browser proof in v7/README.md. User also requested
+shorter playhead and full main/adjustment labels; done and narrow layout checked.
+Final standalone306944bytes uploaded/read back1iz4GRDBgdxBoqpVaYzDqlB5c6lzoxdI1.
+Intermediate1aNE8OjSfhggeNOMNVtNHZ29SamQjdYXE is superseded. Native code unchanged.
+Source and targeted test/synthetic fixture/screenshots in references/.../v7.

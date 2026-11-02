@@ -1,0 +1,12 @@
+from pathlib import Path
+import re,json
+root=Path(__file__).resolve().parent
+icons=json.loads((root/'reference-icons.json').read_text())
+js='const referenceIconShapes='+json.dumps(icons)+';\n'+(root/'editor.js').read_text()+'\n'+(root/'text-panels.js').read_text()+'\n'+(root/'save-panel.js').read_text()+'\n'+(root/'reference-panels.js').read_text();css=(root/'editor.css').read_text();assets=json.loads((root/'assets.json').read_text())
+paths=dict(re.findall(r"(\w+):'([^']*)'",js[js.index('const paths='):js.index('const modifiers=')]))
+html=(root/'index.template.html').read_text().replace('@@CSS@@',css).replace('@@JS@@',js).replace('@@ASSETS@@','const ASSETS='+json.dumps(assets)+';')
+for key in ['close','more','play','undo','redo','check','sound']:
+ html=html.replace('@@'+key.upper()+'@@',f'<svg viewBox="0 0 24 24" aria-hidden="true">'+icons.get(key,f'<path d="{paths[key]}"/>')+'</svg>')
+assert not re.search(r'@@\w+@@',html)
+(root/'MediaLoader_video_editor_reference_v7.html').write_text(html)
+print('Built standalone HTML:',len(html.encode()),'bytes')
