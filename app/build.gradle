@@ -107,7 +107,12 @@ dependencies {
     // Offline Russian and English OCR with genuine per-character boxes.
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     // Audio-only LGPL build with libmp3lame; actual transcoding, not an extension change.
-    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7'
+    // AudioExtractor and AudioEditor use FFmpegKit only for audio transcoding
+    // (including MP3/lame); video MP4 export uses Android Media3 Transformer.
+    // Audio-tier removes unused video/TLS native codecs from ARM64 production APK.
+    // Keep a compatibility escape hatch while validating legacy media sources.
+    def ffmpegTier = project.hasProperty('mlFfmpegFull') ? 'full' : 'audio'
+    implementation "dev.ffmpegkit-maintained:ffmpeg-kit-${ffmpegTier}:8.1.7"
     // The audio AAR references this class at runtime; this variant does not bring it into the APK.
     implementation 'com.arthenica:smart-exception-java:0.2.1'
     implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
