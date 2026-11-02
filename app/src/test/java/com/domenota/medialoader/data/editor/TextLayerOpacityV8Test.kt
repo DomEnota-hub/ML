@@ -3,7 +3,12 @@ package com.domenota.medialoader.data.editor
 import android.graphics.Color
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class TextLayerOpacityV8Test {
     @Test fun independentOpacityForEightTextLayersAndExportPaint() {
         val layers = (0 until 8).map { index ->
