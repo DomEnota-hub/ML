@@ -10,5 +10,7 @@ internal class VideoPreviewFrameClock {
         frames[graphUs] = sourceUs
         while (frames.size > 256) frames.remove(frames.keys.first())
     }
+    @Synchronized fun snapshot() = frames.entries.toList().takeLast(8).map { it.key to it.value }
+    @Synchronized fun clear() { frames.clear() }
     @Synchronized fun sourceTimeUs(graphUs: Long): Long = frames[graphUs] ?: graphUs
 }

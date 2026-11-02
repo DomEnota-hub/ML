@@ -202,7 +202,9 @@ class Media3ActualVideoFxInstrumentedTest {
                 }
                 image.recycle()
             }
-            throw AssertionError("No matching SurfaceView frame: $previewStage", timeout)
+            var clocks = ""
+            scenario.onActivity { clocks = "position=${it.player.currentPosition}, graph/source=${it.session.frameClockSnapshot()}" }
+            throw AssertionError("No matching SurfaceView frame: $previewStage; $clocks", timeout)
         }
         fun apply(type: VideoSpecialFxType, intensity: Float, clipIndex: Int = 0) {
             scenario.onActivity { activity ->
@@ -308,12 +310,10 @@ class Media3ActualVideoFxInstrumentedTest {
                 outline = 0f, startMs = 200, endMs = 300)
             scenario.onActivity {
                 it.player.pause()
-                it.player.setMediaItem(MediaItem.Builder().setUri(Uri.fromFile(source))
-                    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
-                        .setStartPositionMs(200).setEndPositionMs(800).build()).build())
-                it.player.seekTo(250L)
                 it.session.update(VideoEditSpec(startMs = 200, textLayers = listOf(title)))
-                it.player.prepare()
+                it.session.replacePlaylist(listOf(MediaItem.Builder().setUri(Uri.fromFile(source))
+                    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(200).setEndPositionMs(800).build()).build()), 0, 250L)
             }
             fun redTitle(image: Bitmap): Boolean {
                 var count = 0

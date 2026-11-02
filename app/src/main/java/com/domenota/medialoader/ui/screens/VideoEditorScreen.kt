@@ -610,8 +610,7 @@ private fun VideoEditorContent(
         val clip = p.clips[location.clipIndex]
         val sourceOffset = (clip.sourceAt(location.positionWithinClipMs) - clip.inMs)
             .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L))
-        player.setMediaItems(items, location.clipIndex, sourceOffset)
-        player.prepare()
+        previewSession?.replacePlaylist(items, location.clipIndex, sourceOffset)
     }
     LaunchedEffect(previewPlayer, project, removeAudio) {
         val player = previewPlayer ?: return@LaunchedEffect

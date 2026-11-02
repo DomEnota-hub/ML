@@ -70,23 +70,31 @@ internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
         spec.set(next)
         val current = player
         if (key != geometry || current.playerError != null) {
-            val items = List(current.mediaItemCount, current::getMediaItemAt)
-            val index = current.currentMediaItemIndex
-            val position = current.currentPosition
-            val playing = current.playWhenReady
-            val speed = current.playbackParameters
-            val volume = current.volume
-            val repeat = current.repeatMode
-            current.release()
-            geometry = key; graph = Graph(next, canvasRatio)
-            _players.value = build(graph, items, index, position).apply {
-                playbackParameters = speed; this.volume = volume; repeatMode = repeat; playWhenReady = playing
-            }
+            geometry = key
+            replacePlaylist(List(current.mediaItemCount, current::getMediaItemAt),
+                current.currentMediaItemIndex, current.currentPosition)
         } else {
             graph.update(next)
             if (!current.playWhenReady) current.setVideoEffects(VideoFrameProcessor.REDRAW)
         }
     }
+    /** Media3 can retain an old paused GL output across a clipped-input replacement.
+     * Queue changes get a fresh graph; ordinary seeks and slider updates keep the same graph.
+     */
+    fun replacePlaylist(items: List<MediaItem>, index: Int, positionMs: Long) {
+        val current = player
+        val playing = current.playWhenReady
+        val speed = current.playbackParameters
+        val volume = current.volume
+        val repeat = current.repeatMode
+        current.release()
+        clock.clear()
+        graph = Graph(spec.get(), geometry.ratio)
+        _players.value = build(graph, items, index, positionMs).apply {
+            playbackParameters = speed; this.volume = volume; repeatMode = repeat; playWhenReady = playing
+        }
+    }
+    internal fun frameClockSnapshot() = clock.snapshot()
     fun release() { player.release() }
 }
 

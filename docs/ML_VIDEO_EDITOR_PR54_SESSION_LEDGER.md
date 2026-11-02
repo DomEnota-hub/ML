@@ -340,3 +340,15 @@ vs MP4 and clipped timed text. Old paired-seek helper removed. Local three
 clock/overlay tests and androidTest compile PASS; additional native assertions
 compile in CI. Duplicate push CI omitted for this followup; explicit native P0
 run remains mandatory. Full release checks only after P0 is actually green.
+
+##db1ad26 focused native41546384256
+
+All10effects0/50/100 paused, playing and real MP4 parity passed. Photo/reference/
+combined colour preview vs actual MP4 passed. Final newly added clipped-title
+case failed: timeout image retained EXACT old combined-filter pixels68/91/100,
+so this was an input replacement stall, not evidence that caption timing alone
+was wrong. Added session.replacePlaylist: clipped queue edits get a fresh graph
+and player with settings retained; ordinary seeks and slider changes keep the
+persistent graph. Source-clock map is reset only after the old player releases.
+UI debounced playlist updates now use this path. Local androidTest compile PASS.
+Next focused native repeats the actual flow; full validation remains deferred.
