@@ -43,7 +43,7 @@ internal object TextLayerRenderer {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             val face = EditorFonts.face(context, layer.fontId)
             typeface = if (layer.bold) android.graphics.Typeface.create(face,
-                face.style or android.graphics.Typeface.BOLD) else face
+                if (face.isItalic) android.graphics.Typeface.BOLD_ITALIC else android.graphics.Typeface.BOLD) else face
             textSize = min(width, height) * layer.size
             color = layer.color
             strokeJoin = Paint.Join.ROUND

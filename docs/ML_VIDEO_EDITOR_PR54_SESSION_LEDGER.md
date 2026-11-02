@@ -214,3 +214,17 @@ previewEffects pipeline; затем из результата сохраняет
 Для картинки-клипа эта кнопка пока отключена (явное ограничение).
 Целевые FramePosition/Overlay unit и AndroidTest compile PASS; новая реальная
 проверка JPEG из второго клипа с cinema bars и timed text ожидает Android CI.
+
+## P0 preview подтверждён + устранение lint API-зависимости
+
+CI41491860276 / b59dde6: actual SurfaceView pause0/50/100, playing,
+чередование двух клипов и meanRGB preview/MP4 tolerance12 для ВСЕХ10эффектов
+PASS (в instrumented suite остался только известный photo-gamma fail).
+Audio runtime и31MP4 matrix вновь PASS. Это эмуляторAPI35x86_64, не ARM64телефон.
+
+Lint выявил WrongConstant для Typeface bitwise style и RestrictedApi в
+PlaybackVideoGraphWrapper. Typeface теперь использует явные BOLD/BOLD_ITALIC.
+Внутренний Media3 wrapper полностью удалён, не подавлен: публичный seek-путь
+updateEffects не использует REDRAW, поэтому replay-cache/subclass ему не нужны.
+Ресурсы дополнительного GPU-кеша больше не выделяются. Compile и целевой native
+text-render test PASS; повторный device test публичного пути обязателен.
