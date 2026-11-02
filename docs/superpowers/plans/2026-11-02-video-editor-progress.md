@@ -69,3 +69,18 @@ Project aspect panel and local music selector/audio-clip toolbar are now visuall
 documented and should replace pending/simplified UI next. Titles editor/full
 filter catalogue/online music states are still absent. No new HTML/native build
 in this clarification step; v5 remains the last delivered prototype.
+
+## v6: user requested new mockup and More section
+
+Implemented project-aspect panel (8ratios, preview/apply/cancel/undo), music picker
+(import/audition/add,2local synth demos), selected purple music-clip toolbar with
+split/copy/delete/volume and real preview playback. Main dock ends with «Ещё»;
+our frame/audio export tools live there, styled like native section toolbar.
+Sharper source poster cropped from new screenshot; colour correction icons and
+some sizing/labels/timeline visuals refined. No native Android changes.
+Minimal node and targeted browser scenario passed, actual screenshots inspected.
+Source/limits/evidence in references/2026-11-02-video-editor/v6/README.md.
+Drive1QHJSCZzzTvdjJ3pAHmoP-y8pwK0pCWTP,298156bytes, readback verified.
+No claim of full Xiaomi parity: online music, native ⋮ contents, Titles and exact
+filter catalogue/LUTs remain unshown; music import wave visual is approximate;
+MP4 still an explicit demo. Preserve native capabilities described in audit.
