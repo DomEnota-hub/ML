@@ -153,10 +153,34 @@ private data class VideoInfo(
     val isImage: Boolean = false,
 )
 
+/** The approved v8 editor has its own dark canvas, independent of the app's light theme. */
+@Composable
+fun VideoEditorScreen(
+    item: DownloadEntity,
+    exportState: EditorExportState,
+    onBack: () -> Unit,
+    onExport: (VideoEditSpec) -> Unit,
+    onSaveFrame: (Long, VideoEditSpec) -> Unit,
+    onExtractAudio: (Long, Long?) -> Unit,
+    onCancelExport: () -> Unit,
+) {
+    MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme(
+        primary = Color(0xFFFFC000), onPrimary = Color.Black,
+        background = Color(0xFF101010), onBackground = Color(0xFFECECEC),
+        surface = Color(0xFF242424), onSurface = Color(0xFFECECEC),
+        surfaceVariant = Color(0xFF303030), onSurfaceVariant = Color(0xFFBDBDBD),
+        outline = Color(0xFF606060), secondary = Color(0xFFFFC000),
+        primaryContainer = Color(0xFF4D4100), onPrimaryContainer = Color(0xFFFFE58A),
+    )) {
+        VideoEditorContent(item, exportState, onBack, onExport, onSaveFrame,
+            onExtractAudio, onCancelExport)
+    }
+}
+
 @OptIn(UnstableApi::class)
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VideoEditorScreen(
+private fun VideoEditorContent(
     item: DownloadEntity,
     exportState: EditorExportState,
     onBack: () -> Unit,
