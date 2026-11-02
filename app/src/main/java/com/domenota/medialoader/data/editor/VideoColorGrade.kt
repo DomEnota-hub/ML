@@ -62,6 +62,7 @@ data class VideoColorGrade(
     val manual: VideoColorAdjustments = VideoColorAdjustments(),
     /** Nullable for compatibility with existing legacy video projects/presets. */
     val photoEffect: PhotoEffect? = null,
+    val reference: VideoReferenceAdjustments = VideoReferenceAdjustments(),
 ) {
     init {
         require(intensity.isFinite() && intensity in 0f..1f)
@@ -70,7 +71,7 @@ data class VideoColorGrade(
     val isNeutral: Boolean get() =
         (intensity == 0f ||
             if (photoEffect != null) photoEffect == PhotoEffect.NONE
-            else preset == VideoFilterPreset.ORIGINAL) && manual.isNeutral
+            else preset == VideoFilterPreset.ORIGINAL) && manual.isNeutral && reference.isNeutral
 
     fun resolved(): VideoColorAdjustments {
         val basis = photoEffect?.let(SharedVideoFilterCatalog::adjustments)

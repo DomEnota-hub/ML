@@ -245,6 +245,11 @@ class VideoEditor(private val context: Context) {
         val timedOverlays = mutableListOf<androidx.media3.effect.TextureOverlay>()
         if (spec.specialFx.enabled) timedOverlays += VideoSpecialFxOverlay(
             spec.specialFx, timeOffsetMs)
+        val reference = spec.color.reference
+        if (reference.grain > 0f) timedOverlays += VideoSpecialFxOverlay(
+            VideoSpecialFxDraft(VideoSpecialFxType.FILM_GRAIN, reference.grain / 100f), timeOffsetMs)
+        if (reference.vignette > 0f) timedOverlays += VideoSpecialFxOverlay(
+            VideoSpecialFxDraft(VideoSpecialFxType.VIGNETTE, reference.vignette / 100f), timeOffsetMs)
         if (spec.textLayers.isNotEmpty() || spec.graphicLayers.isNotEmpty()) {
             timedOverlays += VideoTextOverlay(context,
                 spec.textLayers, timeOffsetMs, spec.graphicLayers)
@@ -286,6 +291,7 @@ class VideoEditor(private val context: Context) {
                 .adjustLightness(adjusted.lightness)
                 .build()
         }
+        if (color.reference.needsColorPass) effects += VideoReferenceAdjustmentEffect(color.reference)
         return effects
     }
 
