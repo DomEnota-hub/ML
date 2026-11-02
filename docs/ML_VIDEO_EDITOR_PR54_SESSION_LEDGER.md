@@ -139,3 +139,22 @@ Upstream tag1.9.0 ReplayableFrameCacheGlShaderProgram CAPACITY=2: кеш GPU-к�
 ограничен, но добавляет память/вычисления только редактору. Физическая4K-память
 всё ещё NOT_DEVICE_TESTED. Локальный AndroidTest compile10s PASS; реальное
 устранение ошибки подтверждается следующим CI, не одной компиляцией.
+
+## Общие фотофильтры — корректирующий GPU-проход (ещё требуется device proof)
+
+Адаптер SharedVideoFilterCatalog.adjustments был приблизительным: другая формула
+контраста/теплоты и имитация fade, зерно накладывалось иной полупрозрачной текстурой.
+Новый VideoPhotoPresetEffect берёт точную PhotoColorMath.matrix и повторяет fade/
+зерно PhotoStylizeMath. Это общий GlEffect для preview и MP4, manual video sliders
+накладываются отдельно и пресет не применяется повторно. Legacy video presets
+сохраняются. Шум — deterministic hash тех же координат; GPU luminance texture
+1byte/pixel (UHD8.3MB), без ARGB-копии каждого видеокадра на CPU. Матрица/интенсивность
+готовятся один раз; GPU-проход SDR учитывает SMPTE170M границу Media3 linear space.
+HDR явно отклоняется как неподдерживаемый для этого прохода, а не окрашивается
+неверными коэффициентами; поддержка/тонмаппинг HDR остаётся релизным ограничением.
+
+Добавлен actual-MP4 тест каждого PhotoEffect против PhotoColorMath.apply исходного
+кадра с допуском meanRGB10 для H264/YUV, включая fade/grain и50% для4представителей.
+Источник — синтетический цветной BT709 H264 с AAC440Hz, не белый фон. Новый shader
+ещё НЕ считается подтверждённым до выполнения на Android. Компиляция и целевые
+SharedVideoFilterCatalog/VideoColorEffects tests прошли локально16s.

@@ -244,6 +244,58 @@ class Media3ActualVideoFxInstrumentedTest {
         } finally { preserveEvidence(evidence); baseline?.recycle(); scenario.close(); source.delete() }
     }
 
+    @Test fun sharedPhotoCatalogMatchesPhotoRendererInMp4() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val source = File(context.cacheDir, "fx-photo-catalog-source.mp4")
+        source.writeBytes(Base64.decode(instrumentation.context.assets
+            .open("fx_colors_aac_h264_160x90_800ms.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
+        val input = readFrame(source)
+        val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
+        val metrics = StringBuilder("photo_filter,strength,mean_rgb_error\n")
+        try {
+            for (preset in PhotoEffect.entries.filterNot { it == PhotoEffect.NONE }) {
+                val levels = if (preset in listOf(PhotoEffect.MONO, PhotoEffect.WARM,
+                    PhotoEffect.FILM_FADED, PhotoEffect.TEXTURE_GRAIN)) listOf(.5f, 1f) else listOf(1f)
+                for (strength in levels) {
+                    val settings = PhotoColorAdjustments(effect = preset, effectStrength = strength * 100f)
+                    val matrix = PhotoColorMath.apply(input, settings)
+                    val expected = matrix // PhotoColorMath.apply already includes fade/grain post-processing.
+                    var output: File? = null
+                    try {
+                        output = withTimeout(180_000L) { withContext(Dispatchers.Main.immediate) {
+                            VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(endMs = 800L,
+                                color = VideoColorGrade(photoEffect = preset, intensity = strength)))
+                        } }
+                        val actual = readFrame(output)
+                        try {
+                            val a = IntArray(actual.width * actual.height)
+                            val e = IntArray(expected.width * expected.height)
+                            assertTrue("Photo filter changed output geometry", a.size == e.size)
+                            actual.getPixels(a, 0, actual.width, 0, 0, actual.width, actual.height)
+                            expected.getPixels(e, 0, expected.width, 0, 0, expected.width, expected.height)
+                            var error = 0L
+                            for (i in a.indices) for (shift in listOf(0, 8, 16))
+                                error += kotlin.math.abs(((a[i] ushr shift) and 255) - ((e[i] ushr shift) and 255))
+                            val meanError = error.toDouble() / (a.size * 3)
+                            metrics.append("${preset.name},$strength,$meanError\n")
+                            assertTrue("$preset: MP4 differs from photo pipeline, mean error=$meanError",
+                                meanError < 10.0)
+                            output.copyTo(File(evidence, "photo_${preset.name}_${(strength * 100).toInt()}.mp4"), true)
+                        } finally { actual.recycle() }
+                    } finally {
+                        output?.delete()
+                        if (expected !== matrix && expected !== input) expected.recycle()
+                        if (matrix !== input) matrix.recycle()
+                    }
+                }
+            }
+        } finally {
+            File(evidence, "photo-filter-metrics.csv").writeText(metrics.toString())
+            preserveEvidence(evidence); input.recycle(); source.delete()
+        }
+    }
+
     private fun preserveEvidence(directory: File) {
         // Gradle uninstalls test APKs after connected tests; copy before uninstall.
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation

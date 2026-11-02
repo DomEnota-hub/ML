@@ -241,10 +241,6 @@ class VideoEditor(private val context: Context) {
         }
         videoEffects += colorEffects(spec.color)
         val timedOverlays = mutableListOf<androidx.media3.effect.TextureOverlay>()
-        val photoPreset = spec.color.photoEffect
-        if (photoPreset != null && photoPreset.grain > 0f && spec.color.intensity > 0f) {
-            timedOverlays += VideoPhotoGrainOverlay(photoPreset.grain, spec.color.intensity)
-        }
         if (spec.specialFx.enabled) timedOverlays += VideoSpecialFxOverlay(
             spec.specialFx, timeOffsetMs)
         if (spec.textLayers.isNotEmpty() || spec.graphicLayers.isNotEmpty()) {
@@ -262,8 +258,15 @@ class VideoEditor(private val context: Context) {
     /** A shared Media3 effect pipeline is used for player preview and export. */
     internal fun colorEffects(color: VideoColorGrade): List<Effect> {
         if (color.isNeutral) return emptyList()
-        val adjusted = color.resolved()
         val effects = mutableListOf<Effect>()
+        val photoPreset = color.photoEffect
+        if (photoPreset != null && photoPreset != PhotoEffect.NONE && color.intensity > 0f) {
+            effects += VideoPhotoPresetEffect(photoPreset, color.intensity)
+        }
+        // Apply manual video controls independently; do not approximate or double-apply
+        // the selected photo preset through the legacy video RGB/HSL adapter.
+        val adjusted = if (photoPreset != null)
+            color.copy(photoEffect = PhotoEffect.NONE).resolved() else color.resolved()
         if (adjusted.brightness != 0f) effects += Brightness(adjusted.brightness)
         if (adjusted.contrast != 0f) effects += Contrast(adjusted.contrast)
         if (adjusted.red != 1f || adjusted.green != 1f || adjusted.blue != 1f) {
