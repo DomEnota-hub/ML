@@ -97,7 +97,9 @@ internal class VideoSpecialFxOverlay(
 
     override fun configure(videoSize: Size) {
         super.configure(videoSize)
-        scale = (1920f / maxOf(videoSize.width, videoSize.height)).coerceAtMost(1f)
+        // Effect decorations do not need full-4K CPU bitmaps. The GPU
+        // scales this 1280px overlay to the original video output size.
+        scale = (1280f / maxOf(videoSize.width, videoSize.height)).coerceAtMost(1f)
         image?.recycle()
         val bmp = Bitmap.createBitmap(
             (videoSize.width * scale).roundToInt().coerceAtLeast(1),
