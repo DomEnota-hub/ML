@@ -178,7 +178,7 @@ class Media3ActualVideoFxInstrumentedTest {
             return total.toDouble() / (p.size * 3)
         }
         var previewStage = "initial frame"
-        suspend fun awaitFrame(condition: (Bitmap) -> Boolean): Bitmap = withTimeout(20_000L) {
+        suspend fun awaitFrame(condition: (Bitmap) -> Boolean): Bitmap = try { withTimeout(20_000L) {
             var found: Bitmap? = null
             while (found == null) {
                 delay(100)
@@ -189,14 +189,21 @@ class Media3ActualVideoFxInstrumentedTest {
                 if (condition(image)) found = image else image.recycle()
             }
             requireNotNull(found)
+        } } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+            capture()?.let { image ->
+                File(evidence, "timeout_${previewStage.replace(' ', '_')}.png").outputStream().use {
+                    image.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+                image.recycle()
+            }
+            throw AssertionError("No matching SurfaceView frame: $previewStage", timeout)
         }
         fun apply(type: VideoSpecialFxType, intensity: Float, clipIndex: Int = 0) {
             scenario.onActivity { activity ->
                 activity.player.pause()
                 activity.player.seekTo(clipIndex, 300L)
-                activity.player.setVideoEffects(VideoEditor(activity).previewEffects(
+                VideoEditorPlayerFactory.updateEffects(activity.player, VideoEditor(activity).previewEffects(
                     VideoEditSpec(specialFx = VideoSpecialFxDraft(type, intensity))))
-                activity.player.setVideoEffects(VideoFrameProcessor.REDRAW)
             }
         }
         var baseline: Bitmap? = null

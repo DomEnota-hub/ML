@@ -8,7 +8,6 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.media3.common.Player
-import androidx.media3.common.VideoFrameProcessor
 import com.domenota.medialoader.data.editor.VideoClipDraft
 import com.domenota.medialoader.data.editor.VideoAudioTrackDraft
 import com.domenota.medialoader.data.editor.VideoAudioPreviewDeck
@@ -507,11 +506,7 @@ fun VideoEditorScreen(
         delay(75L) // Coalesce fast slider and drag gestures before rebuilding GL effects.
         val effects = VideoEditor(context).previewEffects(
             textPreviewSpec, timeOffsetMs = textPreviewSpec.startMs)
-        previewPlayer?.setVideoEffects(effects)
-        // Media3 1.9 REDRAW asks the GPU video sink to repaint the paused
-        // frame with the just-updated shader/overlay. Seeking to the exact
-        // same timestamp does not reliably emit a new rendered video frame.
-        previewPlayer?.setVideoEffects(VideoFrameProcessor.REDRAW)
+        previewPlayer?.let { com.domenota.medialoader.data.editor.VideoEditorPlayerFactory.updateEffects(it, effects) }
     }
 
     LaunchedEffect(uri) {
