@@ -18,6 +18,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.domenota.medialoader.ui.components.AppSlider as SeekSlider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +57,7 @@ fun MediaTrimControls(
     timelineVisual: @Composable (Modifier) -> Unit = {},
     scrubPreview: (@Composable (Long) -> Unit)? = null,
     showSolidTrimBar: Boolean = true,
+    independentSeek: Boolean = false,
 ) {
     var positionMs by remember(player) { mutableLongStateOf(0L) }
     var isPlaying by remember(player) { mutableStateOf(player.isPlaying) }
@@ -67,7 +69,8 @@ fun MediaTrimControls(
     val latestOnTrimChange by rememberUpdatedState(onTrimChange)
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
-    val handleHitPx = with(density) { 44.dp.toPx() }
+    // Wide trim hit zones used to block seeking near both ends.
+    val handleHitPx = with(density) { 18.dp.toPx() }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -223,6 +226,13 @@ fun MediaTrimControls(
                                 if ((change.position - origin).getDistance() > viewConfiguration.touchSlop) {
                                     moved = true
                                 }
+                                if (moved) {
+                                    val target = timeFor(change.position.x)
+                                        .coerceIn(latestStart, latestEnd)
+                                    player.seekTo(target)
+                                    positionMs = target
+                                    change.consume()
+                                }
                             }
                         }
                     }
@@ -306,6 +316,22 @@ fun MediaTrimControls(
                 cap = StrokeCap.Round,
             )
             }
+        }
+
+        if (independentSeek) {
+            // A distinct playhead region: trim handles cannot intercept its endpoints.
+            SeekSlider(
+                value = positionMs.coerceIn(0L, durationMs.coerceAtLeast(1L)).toFloat(),
+                onValueChange = { fraction ->
+                    val target = fraction.toLong().coerceIn(0L, durationMs)
+                    player.pause()
+                    player.seekTo(target)
+                    positionMs = target
+                },
+                valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+                enabled = durationMs > 0L,
+                modifier = Modifier.fillMaxWidth().height(34.dp),
+            )
         }
 
         Row(
