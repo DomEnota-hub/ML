@@ -752,6 +752,7 @@ fun VideoEditorScreen(
                                         .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L)))
                             }
                         },
+                        trimMode = selectedTool == VideoWorkspaceTool.TRIM,
                         onTrimGestureStart = { trimGestureActive = true },
                         onTrimGestureEnd = { trimGestureActive = false },
                         onTrim = { id, from, to ->
