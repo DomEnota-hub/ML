@@ -1314,6 +1314,7 @@ fun VideoEditorScreen(
                 },
                 enabled = info != null && !ownExport && !busyWithOther,
                 onColorManualMode = { referenceColorManual = it },
+                colorManualMode = referenceColorManual,
             )
         }
     }
