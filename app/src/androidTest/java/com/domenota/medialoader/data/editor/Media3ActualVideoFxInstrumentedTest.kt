@@ -35,7 +35,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class Media3ActualVideoFxInstrumentedTest {
-    @Test fun cinemaBarsAreActuallyBakedIntoMp4() = runBlocking {
+    @Test fun cinemaBarsAreActuallyBakedIntoMp4() = runBlocking<Unit> {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fixture = File(context.cacheDir, "medialoader-fx-instrumented-source.mp4")
         var output: File? = null
@@ -92,7 +92,7 @@ class Media3ActualVideoFxInstrumentedTest {
     }
 
     /** All catalog entries must change actual encoded pixels, not just thumbnails. */
-    @Test fun allTenEffectsRespondToZeroHalfAndFullStrengthInMp4() = runBlocking {
+    @Test fun allTenEffectsRespondToZeroHalfAndFullStrengthInMp4() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-matrix-source.mp4")
@@ -152,7 +152,7 @@ class Media3ActualVideoFxInstrumentedTest {
 
     /** Reads the real SurfaceView on Android: paused redraw and playing frames. */
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    @Test fun effectsRedrawPausedFramesPlayAndMatchMp4() = runBlocking {
+    @Test fun effectsRedrawPausedFramesPlayAndMatchMp4() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-player-source.mp4")
@@ -261,7 +261,7 @@ class Media3ActualVideoFxInstrumentedTest {
     }
 
     /** These are native editor screenshots for HUMAN parity review, not a visual-golden pass. */
-    @Test fun actualEditorOpensReferenceSectionsWithoutCrash() = runBlocking {
+    @Test fun actualEditorOpensReferenceSectionsWithoutCrash() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-ui-source.mp4")
@@ -304,7 +304,7 @@ class Media3ActualVideoFxInstrumentedTest {
         } finally { preserveEvidence(evidence); scenario.close(); source.delete() }
     }
 
-    @Test fun eightTextLayersAndTimedStickerAreBakedIntoMp4() = runBlocking {
+    @Test fun eightTextLayersAndTimedStickerAreBakedIntoMp4() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-text-source.mp4")
@@ -352,7 +352,7 @@ class Media3ActualVideoFxInstrumentedTest {
         } finally { preserveEvidence(evidence); source.delete() }
     }
 
-    @Test fun trimExportsTwentyFifteenAndRestoredTwentySecondsWithoutChangingSource() = runBlocking {
+    @Test fun trimExportsTwentyFifteenAndRestoredTwentySecondsWithoutChangingSource() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-trim-source.mp4")
@@ -408,7 +408,7 @@ class Media3ActualVideoFxInstrumentedTest {
         } finally { File(evidence, "trim-metrics.csv").writeText(rows.toString()); preserveEvidence(evidence); source.delete() }
     }
 
-    @Test fun jpegFrameIncludesSecondClipEffectsAndTimedText() = runBlocking {
+    @Test fun jpegFrameIncludesSecondClipEffectsAndTimedText() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-jpeg-source.mp4")
@@ -442,7 +442,7 @@ class Media3ActualVideoFxInstrumentedTest {
         } finally { preserveEvidence(evidence); jpeg?.delete(); source.delete() }
     }
 
-    @Test fun cancellingActualTransformerRemovesPartialOutputAndAllowsNextExport() = runBlocking {
+    @Test fun cancellingActualTransformerRemovesPartialOutputAndAllowsNextExport() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-cancel-source.mp4")
@@ -478,7 +478,7 @@ class Media3ActualVideoFxInstrumentedTest {
         } finally { job.cancel(); job.join(); source.delete() }
     }
 
-    @Test fun sharedPhotoCatalogMatchesPhotoRendererInMp4() = runBlocking {
+    @Test fun sharedPhotoCatalogMatchesPhotoRendererInMp4() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-photo-catalog-source.mp4")
@@ -530,7 +530,7 @@ class Media3ActualVideoFxInstrumentedTest {
         }
     }
 
-    @Test fun detachedSpeedAndExternalMp3ReallyMixToAacWithoutDoubleSound() = runBlocking {
+    @Test fun detachedSpeedAndExternalMp3ReallyMixToAacWithoutDoubleSound() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val work = File(context.cacheDir, "fx-audio-evidence").apply { mkdirs() }
