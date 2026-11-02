@@ -9,7 +9,7 @@
 | Область | Текущий статус | Доказательства / следующий шаг |
 |---|---|---|
 | 10 спецэффектов, реальный MP4 0/50/100 | IMPLEMENTED | Native матрица проходила; после изменения общих overlay требуется итоговый проход |
-| Обновление эффекта на паузе | IMPLEMENTED / PARTIAL | db1ad26: все10эффектов, playing и MP4 parity PASS. Отдельная замена обрезанного input оставляла старый кадр; исправление очереди требует focused native подтверждения |
+| Обновление эффекта на паузе | IMPLEMENTED / NOT_DEVICE_TESTED | e7fb2ad: все10эффектов0/50/100, playing, MP4 parity, photo/reference/combined и замена clipped input с timed text PASS. Физический телефон ещё не проверен |
 | Общий каталог фотофильтров | IMPLEMENTED / PARTIAL | Полный каталог сравнен с реальным MP4; db1ad26: photo/reference/combined preview vs MP4 PASS |
 | 13 регулировок v8 | IMPLEMENTED | f847802: реальные half/full MP4 для всех13 PASS; preview после смены графа не подтверждён |
 | Trim | IMPLEMENTED / NOT_DEVICE_TESTED | Compose жесты20→15→20 при двух плотностях PASS; реальные MP415/15/20с и граничные пиксели PASS. Проверка пальцем на физическом телефоне остаётся |

@@ -38,6 +38,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+          # This trusted long-lived feature branch otherwise stays cache-read-only.
+          cache-read-only: false
       - name: Install fixture decoder
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Validate synthetic H264 fixture before codec tests
@@ -121,6 +123,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+          # This trusted long-lived feature branch otherwise stays cache-read-only.
+          cache-read-only: false
       - name: Enable emulator hardware acceleration
         run: |
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi

@@ -352,3 +352,20 @@ and player with settings retained; ordinary seeks and slider changes keep the
 persistent graph. Source-clock map is reset only after the old player releases.
 UI debounced playlist updates now use this path. Local androidTest compile PASS.
 Next focused native repeats the actual flow; full validation remains deferred.
+
+##e7fb2ad focused native41547700739 — PASS
+
+Exact SHA:e7fb2adf724d62f519f49628f0b0cfd5d45f90b8.
+Job125627235076 passed the whole augmented P0 flow: all10special effects at
+0/50/100 on paused SurfaceView, playing, alternating input clips and real MP4
+pixel parity; photo/reference/combined colour preview vs MP4; replacing a clipped
+input, showing its timed title and hiding it before the interval. This is actual
+Android35 emulator evidence, not physical ARM64 acceptance.
+
+Final candidate changes only audit records and enables Gradle cache writes on
+this trusted feature branch (setup-gradle otherwise defaults to read-only away
+from main). This avoids rebuilding cold dependency caches in future work.
+One full_validation=true run now covers all tests/lint/JS/ARM64/debug identity/
+unsigned1.7.112 production preflight and the two native codec classes. Results
+must be read from that exact candidate SHA; this entry does not pre-claim PASS.
+Official signing/release remains blocked on manual acceptance and key access.
