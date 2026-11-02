@@ -1,0 +1,126 @@
+name: Publish ML 1.7.111 all-stages ARM64 Debug QA (ephemeral key)
+
+on:
+  push:
+    branches:
+      - feature/ml-17111-group3-video-8-15-20261102
+    paths:
+      - .github/workflows/ml-17111-publish-random-debug-qa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ml-17111-all15-random-debug-qa
+  cancel-in-progress: false
+
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      GH_TOKEN: ${{ github.token }}
+      QA_TAG: qa-ml-1.7.111-all-15-debug-arm64-20261102
+      QA_ASSET: MediaLoader-1.7.111-All15-ARM64-Debug-QA.apk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Full Android tests, lint and WebView scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/test-youtube-thumbnail.cjs
+          node scripts/test-hitmoz-native-script.cjs
+          node scripts/test-muzmo-native-script.cjs
+          gradle :app:testDebugUnitTest :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Build independent ARM64 Debug QA with Android runner-generated signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No DomEnota key or project signing secrets: Gradle's default debug key.
+          gradle :app:assembleDebug -Parm64Release=true -PhitmozArm64=true --stacktrace
+      - name: Verify app identity, architecture, signer and calculate SHA-256
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          src=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$src"
+          "$bt/aapt" dump badging "$src" | grep -F "package: name='com.domenota.medialoader.hitmoz'"
+          test "$(unzip -Z1 "$src" | awk -F/ '$1 == "lib" {print $2}' | sort -u)" = arm64-v8a
+          "$bt/apksigner" verify --verbose "$src"
+          cert=$("$bt/apksigner" verify --print-certs "$src" |
+            sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+).*$/\1/p' |
+            head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')
+          test -n "$cert"
+          mkdir -p qa
+          cp "$src" "qa/$QA_ASSET"
+          sha=$(sha256sum "qa/$QA_ASSET" | awk '{print $1}')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "cert=$cert" >> "$GITHUB_OUTPUT"
+          echo "SHA-256: $sha"
+      - name: Publish one prerelease, download APK again and verify exact bytes
+        shell: bash
+        env:
+          APK_SHA: ${{ steps.verify.outputs.sha }}
+          CERT_SHA: ${{ steps.verify.outputs.cert }}
+        run: |
+          set -euo pipefail
+          if gh release view "$QA_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::QA tag already exists; refusing to overwrite release"
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/qa-notes.md" <<EOF
+          MediaLoader 1.7.111 — all 15 agreed QA stages.
+          
+          ARM64-only Debug QA APK, independent package com.domenota.medialoader.hitmoz.
+          
+          Generated Android debug signing certificate (NOT the DomEnota release key):
+          SHA-256 certificate: $CERT_SHA
+          
+          SHA-256 APK: $APK_SHA
+          Verified commit: $GITHUB_SHA
+          
+          IMPORTANT: This runner-generated test key may differ from any earlier QA.
+          Android blocks upgrading the same package signed with a different key.
+          Uninstall an older com.domenota.medialoader.hitmoz QA first if necessary
+          (uninstalling deletes that QA application's local data); production package
+          com.domenota.medialoader remains untouched.
+          
+          Full unit/Compose/Robolectric tests, Android lint and WebView JS scripts passed.
+          ARM64 ABI, APK signature and package identity verified. Manual QA on a
+          physical Android device is still required before production release.
+          EOF
+          gh release create "$QA_TAG" "qa/$QA_ASSET" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "MediaLoader 1.7.111 · All 15 stages · ARM64 Debug QA" \
+            --notes-file "$RUNNER_TEMP/qa-notes.md" --prerelease
+          mkdir -p "$RUNNER_TEMP/download-check"
+          gh release download "$QA_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$QA_ASSET" --dir "$RUNNER_TEMP/download-check"
+          downloaded=$(sha256sum "$RUNNER_TEMP/download-check/$QA_ASSET" | awk '{print $1}')
+          test "$downloaded" = "$APK_SHA" || {
+            echo "::error::GitHub prerelease APK SHA-256 differs from built file"
+            exit 1
+          }
+          {
+            echo "### ARM64 Debug QA verified"
+            echo "- Release tag: $QA_TAG"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- APK SHA-256: $downloaded"
+            echo "- APK signer certificate SHA-256: $CERT_SHA"
+            echo "- Separate debug package: com.domenota.medialoader.hitmoz"
+            echo "- Manual phone QA: pending"
+          } >> "$GITHUB_STEP_SUMMARY"
+          gh release view "$QA_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
