@@ -259,6 +259,154 @@ class Media3ActualVideoFxInstrumentedTest {
         } finally { preserveEvidence(evidence); baseline?.recycle(); scenario.close(); source.delete() }
     }
 
+    /** These are native editor screenshots for HUMAN parity review, not a visual-golden pass. */
+    @Test fun actualEditorOpensReferenceSectionsWithoutCrash() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val source = File(context.cacheDir, "fx-ui-source.mp4")
+        source.writeBytes(Base64.decode(instrumentation.context.assets
+            .open("fx_trim_portrait_h264_90x160_20s.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
+        val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
+        val intent = android.content.Intent(context,
+            com.domenota.medialoader.testing.VideoEditorUiProbeActivity::class.java)
+            .setData(Uri.fromFile(source)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        val scenario = ActivityScenario.launch<com.domenota.medialoader.testing.VideoEditorUiProbeActivity>(intent)
+        fun node(label: String): android.view.accessibility.AccessibilityNodeInfo? {
+            fun search(n: android.view.accessibility.AccessibilityNodeInfo): android.view.accessibility.AccessibilityNodeInfo? {
+                if (n.text?.toString()?.replace('\n', ' ') == label || n.contentDescription?.toString() == label) return n
+                for (i in 0 until n.childCount) n.getChild(i)?.let { child -> search(child)?.let { return it } }
+                return null
+            }
+            return instrumentation.uiAutomation.rootInActiveWindow?.let(::search)
+        }
+        suspend fun click(label: String) {
+            withTimeout(10_000) { while (node(label) == null) delay(100) }
+            var target = node(label)
+            while (target != null && !target.isClickable) target = target.parent
+            assertTrue("No clickable native editor control: $label", target?.performAction(
+                android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true)
+            delay(700)
+        }
+        fun screenshot(name: String) {
+            val image = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+            File(evidence, "ui_$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            image.recycle()
+        }
+        try {
+            withTimeout(20_000) { while (node("Редактор") == null) delay(100) }
+            delay(1500)
+            screenshot("01_root_portrait")
+            click("Редактор"); screenshot("02_editor")
+            click("Обрезка"); screenshot("03_trim_source")
+            click("К главному меню")
+            click("Соотношение сторон"); screenshot("04_aspect")
+        } finally { preserveEvidence(evidence); scenario.close(); source.delete() }
+    }
+
+    @Test fun eightTextLayersAndTimedStickerAreBakedIntoMp4() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val source = File(context.cacheDir, "fx-text-source.mp4")
+        source.writeBytes(Base64.decode(instrumentation.context.assets
+            .open("fx_gray_h264_160x90_800ms.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
+        val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
+        val layers = (0..7).map { i -> TextLayer(text = "A", centerX = .125f + (i % 4) * .25f,
+            centerY = if (i < 4) .25f else .75f, size = .2f, bold = true, shadow = true,
+            outline = .04f, startMs = if (i < 4) 0 else 400, endMs = if (i < 4) 400 else 800) }
+        val sticker = VideoGraphicLayer(kind = VideoGraphicKind.STAR, size = .3f,
+            color = android.graphics.Color.RED, startMs = 400, endMs = 800)
+        try {
+            val output = withTimeout(180_000) { withContext(Dispatchers.Main.immediate) {
+                VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(endMs = 800,
+                    textLayers = layers, graphicLayers = listOf(sticker)))
+            } }
+            try {
+                output.copyTo(File(evidence, "text_8_layers_timed_sticker.mp4"), overwrite = true)
+                for ((time, activeTop) in listOf(200_000L to true, 600_000L to false)) {
+                    val frame = readFrame(output, time)
+                    try {
+                        fun whitePixels(top: Boolean, column: Int): Int {
+                            val x0 = column * frame.width / 4
+                            val y0 = if (top) 0 else frame.height * 2 / 3
+                            val y1 = if (top) frame.height / 3 else frame.height
+                            var count = 0
+                            for (y in y0 until y1) for (x in x0 until (column + 1) * frame.width / 4) {
+                                val c = frame.getPixel(x, y)
+                                if (android.graphics.Color.red(c) > 190 && android.graphics.Color.green(c) > 190 &&
+                                    android.graphics.Color.blue(c) > 190) count++
+                            }
+                            return count
+                        }
+                        for (column in 0..3) {
+                            assertTrue("Text layer absent at $time, column=$column", whitePixels(activeTop, column) > 3)
+                            assertTrue("Text interval leaked at $time, column=$column", whitePixels(!activeTop, column) == 0)
+                        }
+                        val c = frame.getPixel(frame.width / 2, frame.height / 2)
+                        assertTrue("Timed sticker visibility at $time", if (activeTop)
+                            kotlin.math.abs(android.graphics.Color.red(c) - android.graphics.Color.green(c)) < 20
+                            else android.graphics.Color.red(c) > android.graphics.Color.green(c) + 60)
+                    } finally { frame.recycle() }
+                }
+            } finally { output.delete() }
+        } finally { preserveEvidence(evidence); source.delete() }
+    }
+
+    @Test fun trimExportsTwentyFifteenAndRestoredTwentySecondsWithoutChangingSource() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val source = File(context.cacheDir, "fx-trim-source.mp4")
+        source.writeBytes(Base64.decode(instrumentation.context.assets
+            .open("fx_trim_portrait_h264_90x160_20s.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
+        val originalHash = java.security.MessageDigest.getInstance("SHA-256").digest(source.readBytes())
+        val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
+        val original = VideoProjectDraft(listOf(VideoClipDraft("trim", Uri.fromFile(source).toString(), 20_000)))
+        val history = VideoEditHistory<VideoProjectDraft>()
+        history.record(original)
+        val right = original.trimClip("trim", 0, 15_000)
+        history.record(right)
+        assertTrue(history.undo() == original && history.redo() == right)
+        val left = original.trimClip("trim", 5_000, 20_000)
+        val restored = left.trimClip("trim", 0, 20_000)
+        assertTrue(restored == original)
+        val rows = StringBuilder("case,duration_ms,expected_ms,first_frame_mean_error,last_frame_mean_error\n")
+        fun difference(a: Bitmap, b: Bitmap): Double {
+            require(a.width == b.width && a.height == b.height)
+            var sum = 0L
+            for (y in 0 until a.height) for (x in 0 until a.width) {
+                val p = a.getPixel(x, y); val q = b.getPixel(x, y)
+                for (shift in listOf(0, 8, 16)) sum += kotlin.math.abs(((p ushr shift) and 255) - ((q ushr shift) and 255))
+            }
+            return sum.toDouble() / (a.width * a.height * 3)
+        }
+        try {
+            for ((label, project) in listOf("right_15" to right, "left_15" to left, "restored_20" to restored)) {
+                val output = withTimeout(180_000) { withContext(Dispatchers.Main.immediate) {
+                    VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(project = project))
+                } }
+                try {
+                    val retriever = MediaMetadataRetriever()
+                    val duration = try { retriever.setDataSource(output.absolutePath)
+                        requireNotNull(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)).toLong()
+                    } finally { retriever.release() }
+                    assertTrue("$label: wrong encoded duration $duration", kotlin.math.abs(duration - project.durationMs) <= 110)
+                    val clip = project.clips.single()
+                    val first = readFrame(output, 0); val firstSource = readFrame(source, clip.inMs * 1000)
+                    val last = readFrame(output, (project.durationMs - 100) * 1000)
+                    val lastSource = readFrame(source, (clip.outMs - 100) * 1000)
+                    try {
+                        val firstError = difference(first, firstSource); val lastError = difference(last, lastSource)
+                        rows.append("$label,$duration,${project.durationMs},$firstError,$lastError\n")
+                        assertTrue("$label: wrong first source frame, error=$firstError", firstError < 12)
+                        assertTrue("$label: wrong last source frame, error=$lastError", lastError < 12)
+                    } finally { first.recycle(); firstSource.recycle(); last.recycle(); lastSource.recycle() }
+                    output.copyTo(File(evidence, "trim_$label.mp4"), overwrite = true)
+                } finally { output.delete() }
+            }
+            assertTrue("Non-destructive trim altered the source", originalHash.contentEquals(
+                java.security.MessageDigest.getInstance("SHA-256").digest(source.readBytes())))
+        } finally { File(evidence, "trim-metrics.csv").writeText(rows.toString()); preserveEvidence(evidence); source.delete() }
+    }
+
     @Test fun sharedPhotoCatalogMatchesPhotoRendererInMp4() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

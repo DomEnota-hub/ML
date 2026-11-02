@@ -2,7 +2,7 @@
 from pathlib import Path
 import base64, subprocess, tempfile
 assets = Path(__file__).resolve().parents[1] / "app/src/androidTest/assets"
-for source in sorted(assets.glob("fx_*_h264_160x90_800ms.base64")):
+for source in sorted(assets.glob("fx_*.base64")):
     with tempfile.TemporaryDirectory() as directory:
         fixture = Path(directory) / "fixture.mp4"
         fixture.write_bytes(base64.b64decode(source.read_text().strip(), validate=True))
