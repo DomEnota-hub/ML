@@ -35,19 +35,19 @@ internal val videoToolYellow = Color(0xFFFFC000)
 internal enum class VideoReferenceSection { MAIN, EDITOR, MUSIC, TEXT }
 
 private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
-    VideoWorkspaceTool.TRIM -> Icons.Rounded.ContentCut
-    VideoWorkspaceTool.SPEED -> Icons.Rounded.Speed
-    VideoWorkspaceTool.CROP -> Icons.Rounded.Crop
+    VideoWorkspaceTool.TRIM -> VideoV8Icons.trim
+    VideoWorkspaceTool.SPEED -> VideoV8Icons.speed
+    VideoWorkspaceTool.CROP -> VideoV8Icons.crop
     VideoWorkspaceTool.ROTATE -> Icons.Rounded.RotateRight
     VideoWorkspaceTool.COLOR -> Icons.Rounded.Tune
     VideoWorkspaceTool.TRANSITION -> Icons.Rounded.AutoAwesomeMotion
     VideoWorkspaceTool.EFFECTS -> Icons.Rounded.AutoFixHigh
-    VideoWorkspaceTool.AUDIO -> Icons.Rounded.MusicNote
-    VideoWorkspaceTool.REVERSE -> Icons.Rounded.FastRewind
-    VideoWorkspaceTool.TEXT -> Icons.Rounded.TextFields
+    VideoWorkspaceTool.AUDIO -> VideoV8Icons.music
+    VideoWorkspaceTool.REVERSE -> VideoV8Icons.reverse
+    VideoWorkspaceTool.TEXT -> VideoV8Icons.text
     VideoWorkspaceTool.GRAPHICS -> Icons.Rounded.EmojiEmotions
     VideoWorkspaceTool.EXPORT -> Icons.Rounded.HighQuality
-    VideoWorkspaceTool.MORE -> Icons.Rounded.MoreHoriz
+    VideoWorkspaceTool.MORE -> VideoV8Icons.more
 }
 
 private data class ReferenceRootAction(
@@ -59,13 +59,13 @@ private data class ReferenceRootAction(
 )
 
 private val rootActions = listOf(
-    ReferenceRootAction("Редактор", Icons.Rounded.ContentCut, null, VideoReferenceSection.EDITOR),
-    ReferenceRootAction("Музыка", Icons.Rounded.MusicNote, VideoWorkspaceTool.AUDIO, VideoReferenceSection.MUSIC),
-    ReferenceRootAction("Надписи", Icons.Rounded.TextFields, VideoWorkspaceTool.TEXT, VideoReferenceSection.TEXT),
-    ReferenceRootAction("Соотношение сторон", Icons.Rounded.AspectRatio, VideoWorkspaceTool.CROP),
-    ReferenceRootAction("Откорректировать", Icons.Rounded.Tune, VideoWorkspaceTool.COLOR, colorManual = true),
-    ReferenceRootAction("Фильтры", Icons.Rounded.Filter, VideoWorkspaceTool.COLOR, colorManual = false),
-    ReferenceRootAction("Ещё", Icons.Rounded.MoreHoriz, VideoWorkspaceTool.MORE),
+    ReferenceRootAction("Редактор", VideoV8Icons.editor, null, VideoReferenceSection.EDITOR),
+    ReferenceRootAction("Музыка", VideoV8Icons.music, VideoWorkspaceTool.AUDIO, VideoReferenceSection.MUSIC),
+    ReferenceRootAction("Надписи", VideoV8Icons.text, VideoWorkspaceTool.TEXT, VideoReferenceSection.TEXT),
+    ReferenceRootAction("Соотношение сторон", VideoV8Icons.aspect, VideoWorkspaceTool.CROP),
+    ReferenceRootAction("Откорректировать", VideoV8Icons.adjustment, VideoWorkspaceTool.COLOR, colorManual = true),
+    ReferenceRootAction("Фильтры", VideoV8Icons.filters, VideoWorkspaceTool.COLOR, colorManual = false),
+    ReferenceRootAction("Ещё", VideoV8Icons.more, VideoWorkspaceTool.MORE),
 )
 
 internal fun referenceRootLabels(): List<String> = rootActions.map { it.label }
