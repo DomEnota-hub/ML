@@ -62,6 +62,10 @@ internal fun VideoMultiClipTimeline(
     positionMs: Long,
     isPlaying: Boolean,
     enabled: Boolean,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
     frameIntervalMs: Long?,
     onFrameStep: (Int) -> Unit,
     onSelect: (String) -> Unit,
@@ -85,6 +89,18 @@ internal fun VideoMultiClipTimeline(
             Text(formatPreciseMediaTime(positionMs) + " / " +
                 formatPreciseMediaTime(project.durationMs),
                 style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                IconButton(onClick = onUndo, enabled = enabled && canUndo,
+                    modifier = Modifier.size(30.dp)) {
+                    Icon(VideoV8Icons.undo, contentDescription = "Отменить действие",
+                        modifier = Modifier.size(21.dp))
+                }
+                IconButton(onClick = onRedo, enabled = enabled && canRedo,
+                    modifier = Modifier.size(30.dp)) {
+                    Icon(VideoV8Icons.redo, contentDescription = "Повторить действие",
+                        modifier = Modifier.size(21.dp))
+                }
+            }
             if (frameIntervalMs != null && frameIntervalMs > 0L) {
                 IconButton(onClick = { onFrameStep(-1) }, enabled = enabled,
                     modifier = Modifier.size(29.dp)) {
