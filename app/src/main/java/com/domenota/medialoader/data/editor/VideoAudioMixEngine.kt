@@ -111,6 +111,13 @@ internal object VideoAudioMixCommand {
                 "aformat=channel_layouts=stereo",
                 "volume=${"%.3f".format(Locale.US, track.volume)}",
             )
+            // atempo preserves pitch and must precede fades, whose times are OUTPUT time.
+            var tempo = track.speed
+            val tempoFilters = mutableListOf<String>()
+            while (tempo < .5f) { tempoFilters += "atempo=0.5"; tempo /= .5f }
+            while (tempo > 2f) { tempoFilters += "atempo=2.0"; tempo /= 2f }
+            if (tempo != 1f) tempoFilters += "atempo=${"%.6f".format(Locale.US, tempo)}"
+            commands.addAll(2, tempoFilters)
             if (track.fadeInMs > 0L)
                 commands += "afade=t=in:st=0:d=${seconds(track.fadeInMs)}"
             if (track.fadeOutMs > 0L) {

@@ -71,12 +71,14 @@ data class VideoAudioTrackDraft(
     val volume: Float = 1f,
     val fadeInMs: Long = 0L,
     val fadeOutMs: Long = 0L,
+    val speed: Float = 1f,
 ) {
     init {
         require(id.isNotBlank() && sourceUri.isNotBlank())
         require(atMs >= 0L)
         require(sourceDurationMs > 0L && inMs >= 0L &&
             outMs > inMs && outMs <= sourceDurationMs)
+        require(speed.isFinite() && speed in .25f..4f)
         require(volume.isFinite() && volume in 0f..1f)
         require(fadeInMs >= 0L && fadeOutMs >= 0L)
         require(fadeInMs + fadeOutMs <= durationMs) {
@@ -84,8 +86,19 @@ data class VideoAudioTrackDraft(
         }
     }
 
-    val durationMs: Long get() = outMs - inMs
+    val durationMs: Long get() = ((outMs - inMs).toDouble() / speed).roundToLong().coerceAtLeast(1L)
     val endAtMs: Long get() = atMs + durationMs
+    fun sourceAt(localTimeMs: Long): Long =
+        (inMs + localTimeMs.toDouble() * speed).roundToLong().coerceIn(inMs, outMs - 1L)
+
+    fun withRange(inMs: Long = this.inMs, outMs: Long = this.outMs,
+        speed: Float = this.speed): VideoAudioTrackDraft {
+        val resized = copy(inMs = inMs, outMs = outMs, speed = speed, fadeInMs = 0, fadeOutMs = 0)
+        val startFade = minOf(fadeInMs, resized.durationMs)
+        return resized.copy(fadeInMs = startFade,
+            fadeOutMs = minOf(fadeOutMs, resized.durationMs - startFade))
+    }
+
     fun gainAt(projectPositionMs: Long): Float {
         val local = projectPositionMs - atMs
         if (local < 0L || local >= durationMs) return 0f
@@ -206,12 +219,10 @@ data class VideoProjectDraft(
 
     /** Clip overlay to actual project bounds; a track past the project end is omitted. */
     fun visibleAudioTracks(): List<VideoAudioTrackDraft> = audioTracks.mapNotNull { track ->
-        if (track.atMs >= durationMs) null
-        else track.copy(outMs = minOf(track.outMs, track.inMs + durationMs - track.atMs),
-            fadeInMs = minOf(track.fadeInMs, minOf(track.durationMs, durationMs - track.atMs)),
-            fadeOutMs = minOf(track.fadeOutMs,
-                (minOf(track.durationMs, durationMs - track.atMs) -
-                    minOf(track.fadeInMs, minOf(track.durationMs, durationMs - track.atMs))).coerceAtLeast(0L)))
+        val remaining = durationMs - track.atMs
+        val sourceSpan = (remaining.coerceAtLeast(0L).toDouble() * track.speed).toLong()
+        if (remaining <= 0L || sourceSpan <= 0L) null
+        else track.withRange(outMs = minOf(track.outMs, track.inMs + sourceSpan))
     }
 
     fun indexOf(id: String): Int = clips.indexOfFirst { it.id == id }

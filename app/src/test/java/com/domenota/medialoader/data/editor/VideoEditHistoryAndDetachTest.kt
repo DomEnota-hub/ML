@@ -43,12 +43,12 @@ class VideoEditHistoryAndDetachTest {
         assertEquals(project.clips, result.project.clips) // video untouched
     }
 
-    @Test fun cannotDetachWithoutAudioOrWithUnsupportedSpeed() {
+    @Test fun detachingFastClipPreservesSpeedAndRejectsEmptySelection() {
         val project = VideoProjectDraft(listOf(video("fast", 0L, 5000L, speed = 2f)))
-        try {
-            VideoOriginalAudioDetach.detach(project, setOf("fast"))
-            fail("Speed mismatch would desynchronize video and audio")
-        } catch (_: IllegalArgumentException) { }
+        val audio = VideoOriginalAudioDetach.detach(project, setOf("fast")).project.audioTracks.single()
+        assertEquals(2f, audio.speed, 0f)
+        assertEquals(2500L, audio.durationMs)
+        assertEquals(5000L, audio.outMs)
         try {
             VideoOriginalAudioDetach.detach(project, emptySet())
             fail("No audio must not silently mute video")

@@ -177,10 +177,14 @@ class Media3ActualVideoFxInstrumentedTest {
                 total += kotlin.math.abs(((p[i] ushr shift) and 255) - ((q[i] ushr shift) and 255))
             return total.toDouble() / (p.size * 3)
         }
+        var previewStage = "initial frame"
         suspend fun awaitFrame(condition: (Bitmap) -> Boolean): Bitmap = withTimeout(20_000L) {
             var found: Bitmap? = null
             while (found == null) {
                 delay(100)
+                var playerError: androidx.media3.common.PlaybackException? = null
+                scenario.onActivity { playerError = it.player.playerError }
+                if (playerError != null) throw AssertionError("$previewStage: player failed", playerError)
                 val image = capture() ?: continue
                 if (condition(image)) found = image else image.recycle()
             }
@@ -206,10 +210,13 @@ class Media3ActualVideoFxInstrumentedTest {
             val white = awaitFrame { image -> android.graphics.Color.red(image.getPixel(80, 45)) in 80..145 }
             baseline = white
             for ((index, type) in VideoSpecialFxType.entries.filterNot { it == VideoSpecialFxType.NONE }.withIndex()) {
+                previewStage = "$type zero"
                 apply(type, 0f, index % 2)
                 awaitFrame { difference(white, it) < 8.0 }.recycle()
+                previewStage = "$type half paused"
                 apply(type, .5f, index % 2)
                 val half = awaitFrame { difference(white, it) > .04 }
+                previewStage = "$type full paused"
                 apply(type, 1f, index % 2)
                 val full = try { awaitFrame { difference(white, it) > .04 && difference(half, it) > .04 } }
                     finally { half.recycle() }
@@ -219,6 +226,7 @@ class Media3ActualVideoFxInstrumentedTest {
                     File(evidence, "${type.name}_paused.png").outputStream().use {
                         full.compress(Bitmap.CompressFormat.PNG, 100, it)
                     }
+                    previewStage = "$type playing"
                     scenario.onActivity { it.player.play() }
                     delay(200)
                     var playing = false
@@ -293,6 +301,74 @@ class Media3ActualVideoFxInstrumentedTest {
         } finally {
             File(evidence, "photo-filter-metrics.csv").writeText(metrics.toString())
             preserveEvidence(evidence); input.recycle(); source.delete()
+        }
+    }
+
+    @Test fun detachedSpeedAndExternalMp3ReallyMixToAacWithoutDoubleSound() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val work = File(context.cacheDir, "fx-audio-evidence").apply { mkdirs() }
+        val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
+        val source = File(work, "source.mp4")
+        source.writeBytes(Base64.decode(instrumentation.context.assets
+            .open("fx_colors_aac_h264_160x90_800ms.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
+        suspend fun ffmpeg(args: List<String>) = withContext(Dispatchers.IO) {
+            val session = com.arthenica.ffmpegkit.FFmpegKit.executeWithArguments(args.toTypedArray())
+            assertTrue("FFmpeg audio-tier failed: ${session.allLogsAsString.takeLast(1500)}",
+                com.arthenica.ffmpegkit.ReturnCode.isSuccess(session.returnCode))
+        }
+        var detachedOutput: File? = null
+        var mp3Output: File? = null
+        var extracted: File? = null
+        try {
+            assertTrue(VideoOriginalAudioDetach.hasAudio(context, Uri.fromFile(source).toString()))
+            val clip = VideoClipDraft("audio-speed", Uri.fromFile(source).toString(), 800, speed = 2f)
+            val draft = VideoOriginalAudioDetach.detach(VideoProjectDraft(listOf(clip)), setOf(clip.id)).project
+            assertTrue(draft.audioTracks.single().speed == 2f && draft.durationMs == 400L)
+            detachedOutput = withTimeout(180_000) { withContext(Dispatchers.Main.immediate) {
+                VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(project = draft, removeAudio = true))
+            } }
+            val mp3 = File(work, "external.mp3")
+            ffmpeg(listOf("-y", "-i", source.absolutePath, "-vn", "-c:a", "libmp3lame", "-b:a", "64k", mp3.absolutePath))
+            assertTrue("MP3 encoder must produce a real file", mp3.length() > 1000)
+            val track = draft.audioTracks.single().copy(sourceUri = Uri.fromFile(mp3).toString(),
+                volume = .35f, fadeInMs = 80, fadeOutMs = 80)
+            mp3Output = withTimeout(180_000) { withContext(Dispatchers.Main.immediate) {
+                VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(
+                    project = draft.copy(audioTracks = listOf(track)), removeAudio = true))
+            } }
+            extracted = withTimeout(180_000) { withContext(Dispatchers.Main.immediate) {
+                VideoEditor(context).extractAudio(Uri.fromFile(mp3Output), 0, 400)
+            } }
+            val extractor = android.media.MediaExtractor()
+            try {
+                extractor.setDataSource(extracted.absolutePath)
+                assertTrue("M4A contains only AAC", extractor.trackCount == 1 &&
+                    extractor.getTrackFormat(0).getString(android.media.MediaFormat.KEY_MIME) == "audio/mp4a-latm")
+            } finally { extractor.release() }
+            val pcm = File(work, "decoded.pcm")
+            ffmpeg(listOf("-y", "-i", extracted.absolutePath, "-f", "s16le", "-ac", "1", "-ar", "16000", pcm.absolutePath))
+            val bytes = pcm.readBytes()
+            val samples = ShortArray(bytes.size / 2) { i ->
+                ((bytes[i * 2].toInt() and 255) or (bytes[i * 2 + 1].toInt() shl 8)).toShort()
+            }
+            fun rms(from: Int, to: Int): Double = kotlin.math.sqrt(
+                (from until to.coerceAtMost(samples.size)).map { val s = samples[it] / 32768.0; s * s }.average())
+            assertTrue("AAC duration must follow the sped 400ms project", samples.size in 5600..8000)
+            val middle = rms(3200, 4480)
+            assertTrue("Sound missing or doubled, RMS=$middle", middle in .015.. .045)
+            assertTrue("Fade-in must reach the real waveform", rms(0, 640) < middle * .8)
+            var rising = 0
+            for (i in 3201 until 4480) if (samples[i - 1] <= 0 && samples[i] > 0) rising++
+            val hz = rising * 16000.0 / (4480 - 3200)
+            assertTrue("atempo must preserve the 440Hz pitch, got $hz", hz in 400.0..480.0)
+            detachedOutput.copyTo(File(evidence, "detached_2x.mp4"), true)
+            mp3Output.copyTo(File(evidence, "mp3_mix_2x_fade.mp4"), true)
+            extracted.copyTo(File(evidence, "extracted_audio.m4a"), true)
+            File(evidence, "audio-metrics.txt").writeText("samples=${samples.size} rms=$middle hz=$hz")
+        } finally {
+            preserveEvidence(evidence); detachedOutput?.delete(); mp3Output?.delete(); extracted?.delete()
+            work.deleteRecursively()
         }
     }
 

@@ -37,7 +37,8 @@ internal class VideoAudioPreviewDeck(private val context: Context) {
             val localTime = positionMs - track.atMs
             val audible = localTime >= 0L && localTime < track.durationMs
             if (audible) {
-                val sourcePosition = track.inMs + localTime
+                val sourcePosition = track.sourceAt(localTime)
+                if (player.playbackParameters.speed != track.speed) player.setPlaybackSpeed(track.speed)
                 if (abs(player.currentPosition - sourcePosition) > 250L)
                     player.seekTo(sourcePosition)
                 player.volume = track.gainAt(positionMs).coerceIn(0f, 1f)

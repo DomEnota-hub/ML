@@ -32,9 +32,6 @@ internal object VideoOriginalAudioDetach {
         require(selected.all { it.mediaKind == VideoClipMediaKind.VIDEO }) {
             "Нельзя отделить звук от фотографии"
         }
-        require(selected.all { it.speed == 1f }) {
-            "Для отделения звука сначала установи скорость клипа 1×"
-        }
         require(project.audioTracks.size + selected.size <= VideoProjectDraft.MAX_AUDIO_TRACKS) {
             "Достигнут предел количества аудиодорожек"
         }
@@ -46,6 +43,7 @@ internal object VideoOriginalAudioDetach {
                 sourceDurationMs = clip.sourceDurationMs,
                 inMs = clip.inMs,
                 outMs = clip.outMs,
+                speed = clip.speed,
             )
         }
         return Result(project.copy(audioTracks = project.audioTracks + added),
