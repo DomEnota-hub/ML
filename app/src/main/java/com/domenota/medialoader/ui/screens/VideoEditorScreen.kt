@@ -1286,6 +1286,7 @@ fun VideoEditorScreen(
                 }
 
                         }
+                        VideoWorkspaceTool.SPLIT,
                         VideoWorkspaceTool.DELETE,
                         VideoWorkspaceTool.SEPARATE_AUDIO,
                         VideoWorkspaceTool.REPLACE,
