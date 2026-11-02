@@ -122,7 +122,8 @@ internal fun VideoWorkspaceToolbar(
                         onClick = {
                             item.colorManual?.let(onColorManualMode)
                             section = item.section ?: VideoReferenceSection.MAIN
-                            onSelect(item.action)
+                            // Opening a section is navigation, not an edit reset.
+                            if (item.action != null) onSelect(item.action)
                         },
                     )
                 }
