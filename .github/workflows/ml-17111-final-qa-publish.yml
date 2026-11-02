@@ -1,5 +1,6 @@
 name: Publish 1.7.111 all stages signed ARM64 QA
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/ml-17111-group3-video-8-15-20261102
