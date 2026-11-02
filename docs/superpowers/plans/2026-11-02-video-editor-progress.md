@@ -97,3 +97,10 @@ shorter playhead and full main/adjustment labels; done and narrow layout checked
 Final standalone306944bytes uploaded/read back1iz4GRDBgdxBoqpVaYzDqlB5c6lzoxdI1.
 Intermediate1aNE8OjSfhggeNOMNVtNHZ29SamQjdYXE is superseded. Native code unchanged.
 Source and targeted test/synthetic fixture/screenshots in references/.../v7.
+
+## v8: Android screenshot showed aspect label split across3lines
+
+Changed label to2explicit unbreakable block spans and72px button; narrow label
+verification360/390/576px passed. No other feature changes. v8 source/screenshot
+under references/2026-11-02-video-editor/v8. Drive1mysfXrzXaD5B-Nqxk76aWyEpIPaeXztQ,
+307518bytes; readback verified. v7/earlier remain available.
