@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -153,10 +154,14 @@ private fun VideoClipStrip(
     val context = LocalContext.current
     val latestClip by rememberUpdatedState(clip)
     val latestOnTrim by rememberUpdatedState(onTrim)
-    var thumbnails by remember(clip.sourceUri, clip.inMs, clip.outMs) {
+    // Do not re-decode 4 full-resolution frames on EVERY millisecond of trim drag.
+    // The player independently seeks to the exact active boundary every drag event.
+    val thumbnailStartSecond = clip.inMs / 1000L
+    val thumbnailEndSecond = clip.outMs / 1000L
+    var thumbnails by remember(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond) {
         mutableStateOf<List<Bitmap>>(emptyList())
     }
-    LaunchedEffect(clip.sourceUri, clip.inMs, clip.outMs) {
+    LaunchedEffect(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond) {
         val generated = withContext(Dispatchers.IO) {
             if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
                 runCatching {
@@ -182,12 +187,18 @@ private fun VideoClipStrip(
                     (0..3).mapNotNull { step ->
                         val ms = clip.inMs + (clip.sourceSpanMs - 1L)
                             .coerceAtLeast(0L) * step / 3
-                        retriever.getFrameAtTime(ms * 1000L,
-                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let { bmp ->
-                            val w = (bmp.width * (100f / bmp.height.coerceAtLeast(1)))
+                        // Prefer decoder-side scaled frames; only fall back to
+                        // full-frame extraction on Android API 26.
+                        val bmp = if (Build.VERSION.SDK_INT >= 27)
+                            retriever.getScaledFrameAtTime(ms * 1000L,
+                                MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 150, 100)
+                        else retriever.getFrameAtTime(ms * 1000L,
+                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        bmp?.let {
+                            val w = (it.width * (100f / it.height.coerceAtLeast(1)))
                                 .toInt().coerceIn(1, 150)
-                            val small = Bitmap.createScaledBitmap(bmp, w, 100, true)
-                            if (small !== bmp) bmp.recycle()
+                            val small = Bitmap.createScaledBitmap(it, w, 100, true)
+                            if (small !== it) it.recycle()
                             small
                         }
                     }
