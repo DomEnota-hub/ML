@@ -63,27 +63,6 @@ internal fun UnifiedTextStyle(
     enabled: Boolean = true,
     onPickColor: (() -> Unit)? = null,
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextStyleToggle("Жирный", "B", layer.bold, enabled, Modifier.weight(1f)) {
-            onChange(layer.copy(bold = !layer.bold))
-        }
-        TextStyleToggle("Контур", "A", layer.outline > 0f, enabled, Modifier.weight(1f)) {
-            onChange(layer.copy(outline = if (layer.outline > 0f) 0f else .06f))
-        }
-        TextStyleToggle("Тень", "A", layer.shadow, enabled, Modifier.weight(1f)) {
-            onChange(layer.copy(shadow = !layer.shadow))
-        }
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(TextLayerAlignment.LEFT to "Слева", TextLayerAlignment.CENTER to "По центру",
-            TextLayerAlignment.RIGHT to "Справа").forEach { (alignment, title) ->
-            TextStyleToggle(title, when (alignment) {
-                TextLayerAlignment.LEFT -> "≡"; TextLayerAlignment.CENTER -> "≡"; TextLayerAlignment.RIGHT -> "≡"
-            }, layer.alignment == alignment, enabled, Modifier.weight(1f)) {
-                onChange(layer.copy(alignment = alignment))
-            }
-        }
-    }
     Text("Цвет текста", style = MaterialTheme.typography.labelLarge)
     val colors = listOf(
         0xFFFFFFFF.toInt(), 0xFF121212.toInt(), 0xFFAAAAAA.toInt(),
@@ -106,6 +85,27 @@ internal fun UnifiedTextStyle(
         if (onPickColor != null) OutlinedIconButton(onClick = onPickColor,
             enabled = enabled) {
             Icon(Icons.Rounded.Colorize, contentDescription = "Пипетка")
+        }
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextStyleToggle("Жирный", "B", layer.bold, enabled, Modifier.weight(1f)) {
+            onChange(layer.copy(bold = !layer.bold))
+        }
+        TextStyleToggle("Контур", "A", layer.outline > 0f, enabled, Modifier.weight(1f)) {
+            onChange(layer.copy(outline = if (layer.outline > 0f) 0f else .06f))
+        }
+        TextStyleToggle("Тень", "A", layer.shadow, enabled, Modifier.weight(1f)) {
+            onChange(layer.copy(shadow = !layer.shadow))
+        }
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(TextLayerAlignment.LEFT to "Слева", TextLayerAlignment.CENTER to "По центру",
+            TextLayerAlignment.RIGHT to "Справа").forEach { (alignment, title) ->
+            TextStyleToggle(title, when (alignment) {
+                TextLayerAlignment.LEFT -> "≡"; TextLayerAlignment.CENTER -> "≡"; TextLayerAlignment.RIGHT -> "≡"
+            }, layer.alignment == alignment, enabled, Modifier.weight(1f)) {
+                onChange(layer.copy(alignment = alignment))
+            }
         }
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
