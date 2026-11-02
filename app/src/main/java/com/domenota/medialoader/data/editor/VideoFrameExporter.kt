@@ -47,12 +47,14 @@ internal class VideoFrameExporter(private val context: Context) {
                 cropTop = clip.crop.top, cropBottom = clip.crop.bottom,
                 rotationDegrees = clip.rotationDegrees, mirrorHorizontal = clip.mirrorHorizontal,
                 mirrorVertical = clip.mirrorVertical, color = clip.color, specialFx = clip.specialFx,
-                textLayers = requireNotNull(overlays).texts, graphicLayers = overlays.graphics)
+                textLayers = requireNotNull(overlays).texts, graphicLayers = overlays.graphics,
+                transitionPhases = VideoTransitionTiming.forClip(requireNotNull(project), requireNotNull(location).clipIndex))
             // Include neighbouring source frames for VFR/end-of-file sampling, bounded to 300ms.
             val segmentStart = (sourceMs - 150L).coerceAtLeast(inMs)
             val segmentEnd = (sourceMs + 150L).coerceAtMost(outMs).coerceAtLeast(segmentStart + 1)
             val sampleSpec = local.copy(startMs = segmentStart, endMs = segmentEnd, project = null,
                 reverse = false, removeAudio = true, sourceTimeOffsetMs = inMs,
+                canvasAspect = project?.aspect ?: spec.canvasAspect,
                 exportSettings = VideoExportSettings(quality = VideoExportQuality.HIGH))
             currentCoroutineContext().ensureActive()
             intermediate = withContext(Dispatchers.Main.immediate) { VideoEditor(context).export(uri, sampleSpec) }

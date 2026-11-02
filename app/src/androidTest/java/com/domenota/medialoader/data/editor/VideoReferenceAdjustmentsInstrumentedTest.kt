@@ -18,6 +18,57 @@ import java.io.File
 /** One focused real-codec matrix for the thirteen newly implemented controls. */
 @RunWith(AndroidJUnit4::class)
 class VideoReferenceAdjustmentsInstrumentedTest {
+    @Test fun projectAspectIsRealInMp4AndJpegAndKeepsTitlesOnCanvas() = runBlocking<Unit> {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val source = File(context.cacheDir, "project-aspect-source.mp4")
+        source.writeBytes(Base64.decode(instrumentation.context.assets.open("fx_trim_portrait_h264_90x160_20s.base64")
+            .bufferedReader().use { it.readText() }, Base64.DEFAULT))
+        val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
+        try {
+            for (aspect in listOf(VideoProjectAspect.SQUARE, VideoProjectAspect.LANDSCAPE_16_9)) {
+                val project = VideoProjectDraft(listOf(VideoClipDraft("clip", Uri.fromFile(source).toString(),
+                    20_000, outMs = 800)), aspect = aspect)
+                val spec = VideoEditSpec(project = project, textLayers = listOf(TextLayer(text = "A",
+                    centerX = .08f, centerY = .5f, size = .2f, bold = true, color = android.graphics.Color.RED)))
+                val output = withTimeout(180_000) { withContext(Dispatchers.Main.immediate) {
+                    VideoEditor(context).export(Uri.fromFile(source), spec)
+                } }
+                val jpeg = VideoFrameExporter(context).export(Uri.fromFile(source), 300, spec)
+                try {
+                    val retriever = MediaMetadataRetriever()
+                    val frame = try { retriever.setDataSource(output.absolutePath)
+                        requireNotNull(retriever.getFrameAtTime(300_000, MediaMetadataRetriever.OPTION_CLOSEST))
+                    } finally { retriever.release() }
+                    val still = requireNotNull(android.graphics.BitmapFactory.decodeFile(jpeg.absolutePath))
+                    try {
+                        val expected = aspect.dimensions(VideoExportDimensions(90, 160))
+                        for (image in listOf(frame, still)) {
+                            assertTrue("$aspect: canvas size is wrong", image.width == expected.width && image.height == expected.height)
+                            val corner = image.getPixel(0, 0)
+                            assertTrue("$aspect: portrait source must fit with black side bars", android.graphics.Color.red(corner) < 25)
+                            var redOnCanvas = 0
+                            for (y in image.height / 4 until image.height * 3 / 4)
+                                for (x in 0 until image.width / 5) {
+                                    val pixel = image.getPixel(x, y)
+                                    if (android.graphics.Color.red(pixel) > android.graphics.Color.green(pixel) + 70) redOnCanvas++
+                                }
+                            assertTrue("$aspect: title was incorrectly limited to the source image rectangle", redOnCanvas > 3)
+                        }
+                    } finally { frame.recycle(); still.recycle() }
+                    output.copyTo(File(evidence, "aspect_${aspect.name}.mp4"), true)
+                    jpeg.copyTo(File(evidence, "aspect_${aspect.name}.jpg"), true)
+                } finally { output.delete(); jpeg.delete() }
+            }
+        } finally {
+            for (command in listOf("mkdir -p /sdcard/Download/ml-video-fx-evidence",
+                "cp -r ${evidence.absolutePath}/. /sdcard/Download/ml-video-fx-evidence/")) {
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).use { it.readBytes() }
+            }
+            source.delete()
+        }
+    }
+
     @Test fun allThirteenControlsChangeEncodedPixelsAndRespondToStrength() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -73,8 +124,10 @@ class VideoReferenceAdjustmentsInstrumentedTest {
         } finally {
             File(evidence, "adjustment-metrics.csv").writeText(metrics.toString())
             val automation = instrumentation.uiAutomation
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(
-                "mkdir -p /sdcard/Download/ml-video-fx-evidence; cp -r ${evidence.absolutePath}/. /sdcard/Download/ml-video-fx-evidence/")).use { it.readBytes() }
+            for (command in listOf("mkdir -p /sdcard/Download/ml-video-fx-evidence",
+                "cp -r ${evidence.absolutePath}/. /sdcard/Download/ml-video-fx-evidence/")) {
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes() }
+            }
             input.recycle(); source.delete()
         }
     }

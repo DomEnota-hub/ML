@@ -57,6 +57,7 @@ data class VideoEditSpec(
     internal val transitionPhases: List<VideoTransitionPhase> = emptyList(),
     /** Preserve original clip overlay/FX clock when rendering a short frame-sampling segment. */
     internal val sourceTimeOffsetMs: Long? = null,
+    internal val canvasAspect: VideoProjectAspect = VideoProjectAspect.ORIGINAL,
     val project: VideoProjectDraft? = null,
     val exportSettings: VideoExportSettings = VideoExportSettings(),
 ) {
@@ -93,10 +94,10 @@ class VideoEditor(private val context: Context) {
         }
         val size = spec.exportSettings.dimensions(sourceDimensions.first, sourceDimensions.second,
             1f - spec.cropLeft - spec.cropRight, 1f - spec.cropTop - spec.cropBottom,
-            spec.rotationDegrees)
-        val effects = previewEffects(spec, timeOffsetMs = spec.sourceTimeOffsetMs ?: 0L) +
-            Presentation.createForWidthAndHeight(
-                size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT)
+            spec.rotationDegrees).let { spec.canvasAspect.dimensions(it, spec.exportSettings.resolution.shortSidePx) }
+        val effects = previewEffects(spec, timeOffsetMs = spec.sourceTimeOffsetMs ?: 0L,
+            presentation = Presentation.createForWidthAndHeight(
+                size.width, size.height, Presentation.LAYOUT_SCALE_TO_FIT))
         val edited = EditedMediaItem.Builder(mediaItem)
             .setRemoveAudio(spec.removeAudio)
             .setEffects(Effects(emptyList(), effects))
@@ -129,7 +130,8 @@ class VideoEditor(private val context: Context) {
         }
         val canvas = spec.exportSettings.dimensions(
             dimensions.first, dimensions.second,
-            first.crop.keptWidth, first.crop.keptHeight, first.rotationDegrees)
+            first.crop.keptWidth, first.crop.keptHeight, first.rotationDegrees).let {
+                project.aspect.dimensions(it, spec.exportSettings.resolution.shortSidePx) }
         val composition = compositionForProject(project, spec, canvas)
         val destination = File(context.cacheDir, "video-join-${UUID.randomUUID()}.mp4")
         val withOverlay = project.visibleAudioTracks().isNotEmpty()
@@ -194,11 +196,9 @@ class VideoEditor(private val context: Context) {
                 MediaItem.Builder().setUri(Uri.parse(clip.sourceUri))
                     .setImageDurationMs(clip.durationMs).build()
             } else clippedMediaItem(Uri.parse(clip.sourceUri), clip.inMs, clip.outMs)
-            val effects = previewEffects(localSpec, timeOffsetMs = clip.inMs)
-            val unifiedEffects = if (outputDimensions == null) effects
-                else effects + Presentation.createForWidthAndHeight(
-                    outputDimensions.width, outputDimensions.height,
-                    Presentation.LAYOUT_SCALE_TO_FIT)
+            val unifiedEffects = previewEffects(localSpec, timeOffsetMs = clip.inMs,
+                presentation = outputDimensions?.let { Presentation.createForWidthAndHeight(
+                    it.width, it.height, Presentation.LAYOUT_SCALE_TO_FIT) })
             EditedMediaItem.Builder(mediaItem)
                 .setRemoveAudio(spec.removeAudio)
                 .setEffects(Effects(emptyList(), unifiedEffects))
@@ -222,7 +222,8 @@ class VideoEditor(private val context: Context) {
         return composition
     }
 
-    internal fun previewEffects(spec: VideoEditSpec, timeOffsetMs: Long = 0L): List<Effect> {
+    internal fun previewEffects(spec: VideoEditSpec, timeOffsetMs: Long = 0L,
+        presentation: Effect? = null): List<Effect> {
         val videoEffects = mutableListOf<Effect>()
         if (spec.hasCrop) {
             videoEffects += Crop(
@@ -242,6 +243,7 @@ class VideoEditor(private val context: Context) {
                 .build()
         }
         videoEffects += colorEffects(spec.color)
+        presentation?.let { videoEffects += it }
         val timedOverlays = mutableListOf<androidx.media3.effect.TextureOverlay>()
         if (spec.specialFx.enabled) timedOverlays += VideoSpecialFxOverlay(
             spec.specialFx, timeOffsetMs)

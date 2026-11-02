@@ -120,6 +120,7 @@ data class VideoTimelineLocation(
 data class VideoProjectDraft(
     val clips: List<VideoClipDraft>,
     val audioTracks: List<VideoAudioTrackDraft> = emptyList(),
+    val aspect: VideoProjectAspect = VideoProjectAspect.ORIGINAL,
 ) {
     init {
         require(clips.isNotEmpty() && clips.size <= MAX_CLIPS)
