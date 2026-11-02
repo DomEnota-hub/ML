@@ -989,6 +989,7 @@ fun VideoEditorScreen(
                         VideoWorkspaceTool.COLOR -> {
                             VideoColorPanel(
                                 manualByDefault = referenceColorManual,
+                                clip = currentClip,
                                 color = clipColor,
                                 enabled = currentClip != null && !ownExport && !busyWithOther,
                                 onColorChange = ::updateSelectedColor,
