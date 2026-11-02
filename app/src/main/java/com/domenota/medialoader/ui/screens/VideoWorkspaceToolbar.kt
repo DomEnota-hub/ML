@@ -31,7 +31,7 @@ internal enum class VideoWorkspaceTool(val label: String) {
     EXPORT("Экспорт"), MORE("Ещё"),
     DELETE("Удалить"), SEPARATE_AUDIO("Разделить звук"),
     REPLACE("Заменить"), DUPLICATE("Копировать"),
-    SPLIT("Разделить")
+    SPLIT("Разделить"), COLOR_CHANNELS("Дополнительная коррекция")
 }
 internal val videoToolYellow = Color(0xFFFFC000)
 
@@ -42,7 +42,7 @@ private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.SPEED -> VideoV8Icons.speed
     VideoWorkspaceTool.CROP -> VideoV8Icons.crop
     VideoWorkspaceTool.ROTATE -> Icons.Rounded.RotateRight
-    VideoWorkspaceTool.COLOR -> Icons.Rounded.Tune
+    VideoWorkspaceTool.COLOR, VideoWorkspaceTool.COLOR_CHANNELS -> Icons.Rounded.Tune
     VideoWorkspaceTool.TRANSITION -> Icons.Rounded.AutoAwesomeMotion
     VideoWorkspaceTool.EFFECTS -> Icons.Rounded.AutoFixHigh
     VideoWorkspaceTool.AUDIO -> VideoV8Icons.music

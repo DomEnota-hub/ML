@@ -56,4 +56,19 @@ internal object VideoV8Icons {
     val crop = fromSvg("crop", "M4 2v15a3 3 0 0 0 3 3h15M2 5h15a3 3 0 0 1 3 3v14")
     val copy = fromSvg("copy", "M8 3h13v14H8zM3 8v13h13")
     val addText = fromSvg("add_text", "M3 5h14v14H3zM6 9h8m-4 0v7M20 12v9m-4-5h8")
+    val adjustments = mapOf(
+        "exposure" to fromSvg("exposure", "M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20M8 9h8m-4-4v8m-4 4h8"),
+        "brightness" to fromSvg("brightness", "M12 1v3m0 16v3M1 12h3m16 0h3M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0"),
+        "contrast" to fromSvg("contrast", "M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20M12 2v20M12 4c9 0 9 16 0 16"),
+        "highlights" to fromSvg("highlights", "M17 4a9 9 0 1 0 3 3M12 6a6 6 0 0 1 6 6"),
+        "shadows" to fromSvg("shadows", "M6 3a10 10 0 1 1-3 3M6 3a9 9 0 0 1-3 16M6 3c11 0 16 16-3 16"),
+        "saturation" to fromSvg("saturation", "M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20M12 2v20M7 4v16M17 4v16"),
+        "vibrance" to fromSvg("vibrance", "M3 5v14M8 2v20M13 4v16M18 6v12M22 9v6"),
+        "warmth" to fromSvg("warmth", "M9 14V5a3 3 0 0 1 6 0v9a5 5 0 1 1-6 0m3-8v11"),
+        "tint" to fromSvg("tint", "M12 2S3 12 3 16a9 9 0 0 0 18 0c0-4-9-14-9-14M4 16c4-6 12 6 16 0"),
+        "black" to fromSvg("black", "M3 10h18M3 14h18M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20"),
+        "sharp" to fromSvg("sharp", "m12 2 10 19H2z"),
+        "grain" to fromSvg("grain", "M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20M7 8h.01m5-2h.01m5 2h.01M6 13h.01m5-2h.01m6 2h.01M8 17h.01m5-2h.01m3 3h.01"),
+        "vignette" to fromSvg("vignette", "M4 3h16v18H4zM12 4c9 1 9 16 0 16-9-1-9-15 0-16")
+    )
 }

@@ -38,8 +38,12 @@ internal fun VideoColorPanel(
     manualByDefault: Boolean = false,
     clip: VideoClipDraft? = null,
 ) {
-    var showManual by remember { mutableStateOf(manualByDefault) }
-    LaunchedEffect(manualByDefault) { showManual = manualByDefault }
+    if (manualByDefault) {
+        VideoReferenceAdjustmentsPanel(color.reference, enabled) {
+            onColorChange(color.copy(reference = it))
+        }
+        return
+    }
     var group by remember { mutableStateOf(PhotoEffectCategory.POPULAR) }
     val context = LocalContext.current
     val favoriteEffects = remember(context) {
@@ -62,19 +66,6 @@ internal fun VideoColorPanel(
             }.toMap()
         }
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("Цвет выбранного клипа", style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { onColorChange(VideoColorGrade()) },
-            enabled = enabled && !color.isNeutral) { Text("Сбросить") }
-    }
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        FilterChip(selected = !showManual, onClick = { showManual = false },
-            label = { Text("Фильтры") })
-        FilterChip(selected = showManual, onClick = { showManual = true },
-            label = { Text("Коррекция") })
-    }
-    if (!showManual) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             PhotoEffectCategory.entries.forEach { category ->
@@ -123,10 +114,12 @@ internal fun VideoColorPanel(
             color.photoEffect != PhotoEffect.NONE ||
             color.photoEffect == null && color.preset != VideoFilterPreset.ORIGINAL),
             valueRange = 0f..1f)
-        Text("Ручные настройки сохраняются при смене фильтра.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else {
+
+}
+
+@Composable
+internal fun VideoLegacyColorControls(color: VideoColorGrade, enabled: Boolean,
+    onColorChange: (VideoColorGrade) -> Unit) {
         val manual = color.manual
         ColorAdjustmentSlider("Яркость", manual.brightness, -.5f.. .5f, enabled) {
             onColorChange(color.copy(manual = manual.copy(brightness = it)))
@@ -156,7 +149,6 @@ internal fun VideoColorPanel(
         TextButton(onClick = {
             onColorChange(color.copy(manual = VideoColorAdjustments()))
         }, enabled = enabled && !manual.isNeutral) { Text("Сбросить ручную коррекцию") }
-    }
 }
 
 @Composable

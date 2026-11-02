@@ -186,9 +186,6 @@ class Media3ActualVideoFxInstrumentedTest {
                 var playerError: androidx.media3.common.PlaybackException? = null
                 scenario.onActivity { playerError = it.player.playerError }
                 if (playerError != null) throw AssertionError("$previewStage: player failed", playerError)
-                var ready = false
-                scenario.onActivity { ready = it.player.playbackState == androidx.media3.common.Player.STATE_READY && !it.player.isLoading }
-                if (!ready) continue
                 val image = capture() ?: continue
                 if (condition(image)) found = image else image.recycle()
             }
@@ -308,8 +305,11 @@ class Media3ActualVideoFxInstrumentedTest {
             screenshot("01_root_portrait")
             click("Редактор"); screenshot("02_editor")
             click("Обрезка"); screenshot("03_trim_source")
-            click("К главному меню")
+            click("Применить изменения")
             click("Соотношение сторон"); screenshot("04_aspect")
+            click("Применить изменения")
+            click("Откорректировать"); screenshot("05_adjustments_tone")
+            click("Детализация"); screenshot("06_adjustments_detail")
         } finally { preserveEvidence(evidence); scenario.close(); source.delete() }
     }
 

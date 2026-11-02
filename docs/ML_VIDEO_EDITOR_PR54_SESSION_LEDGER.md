@@ -228,3 +228,42 @@ PlaybackVideoGraphWrapper. Typeface теперь использует явные
 updateEffects не использует REDRAW, поэтому replay-cache/subclass ему не нужны.
 Ресурсы дополнительного GPU-кеша больше не выделяются. Compile и целевой native
 text-render test PASS; повторный device test публичного пути обязателен.
+
+## 6f5d668 — реальные результаты Android (получены после возобновления)
+
+CI41495545928: QA job125450258932 SUCCESS: все1033unit/Compose (1optional skip),
+lint, WebViewJS, ARM64 QA и unsigned production preflight package/version/ABI/size.
+Native job125450258059:9/10PASS. Отдельно подтверждены весь PhotoEffect catalogue
+(meanRGB обычно1.2–3.9), MP4 matrix10×0/50/100,8timed text layers+sticker, MP3/AAC,
+JPEG из второго клипа и отменаTransformer с очисткой/повторным экспортом.
+Trim: right15000ms / left15000ms / restored20000ms ТОЧНО, first/last source-frame
+meanRGB1.2–2.3, SHA256 исходника не изменился. Native UI root/editor/trim/aspect
+открываются без краша, снимки получены; полного visual parity это не доказывает.
+
+Остался preview-test: raw decoder metadata833333us относился к prefetch, а не
+видимому item-relative paused clock300ms. Для сравнения используется logical
+paused position; это не ослабляет проверки реальных пикселей.
+Повторный84e6fd9 выявил также нестабильность double-seek: на full vignette мог
+остаться half кадр. Новый public API путь создаёт свежие MediaItem periods в
+точной сохранённой позиции, не полагается на coalesced seeks/REDRAW/internal API.
+По просьбе пользователя повторяется только этот P0 тест; успешные9native тестов
+и QA не повторяются на каждом промежуточном коммите.
+
+## UI / недостающая коррекция по HTML
+
+Найдены13 reference controls против8 legacy RGB/HSL. Добавлена независимая
+VideoReferenceAdjustments в per-clip grade: матрица/тон PhotoColorMath/PhotoToneMath
+→33³ LUT наGL worker (~144KB), реальная3×3резкость; grain/vignette используют
+общий настоящий overlay painter. Прежние настройки/фотофильтры не подменяются.
+UI: точные13SVG изHTML, один выбранный slider, Тон/Цвет/Детализация, полные подписи;
+legacy RGB/HSL доступны в «Ещё → Дополнительная коррекция». Добавлена реальная
+Android-проверка half/full для13контролов (ещё pending), без повторения1033тестов.
+
+Панели получили X/галочку какv8: cancel восстанавливает model+history checkpoint,
+apply возвращает root. Исправлены растягивание canvas, двойной status-bar inset,
+перенесены frame-step кнопки в trim/More, убраны технические счётчики клипов.
+Целевые3новыхmodel/LUT/history tests и compile прошли; новый UI capture pending.
+
+CI теперь: push→короткие затронутыеvideo tests+compile; workflow_dispatch→указанный
+native class#method; full_validation=true→один полный release-gate проход.
+Публикация/подпись по-прежнему не выполняются до закрытия блокеров и приёмки.

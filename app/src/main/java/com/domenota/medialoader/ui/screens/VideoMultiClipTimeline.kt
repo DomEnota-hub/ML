@@ -79,6 +79,7 @@ internal fun VideoMultiClipTimeline(
     onAdd: () -> Unit,
     onSelectTransition: (String) -> Unit = {},
     onTogglePlayback: () -> Unit,
+    showFrameSteps: Boolean = true,
 ) {
     // Full timeline detail by default; the scale is not user-adjustable.
     val zoom = 2.5f
@@ -112,7 +113,7 @@ internal fun VideoMultiClipTimeline(
                         modifier = Modifier.size(21.dp))
                 }
             }
-            if (frameIntervalMs != null && frameIntervalMs > 0L) {
+            if (showFrameSteps && frameIntervalMs != null && frameIntervalMs > 0L) {
                 IconButton(onClick = { onFrameStep(-1) }, enabled = enabled,
                     modifier = Modifier.size(29.dp)) {
                     Icon(Icons.Rounded.SkipPrevious, contentDescription = "Предыдущий кадр")

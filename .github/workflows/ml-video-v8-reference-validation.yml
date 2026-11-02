@@ -23,6 +23,7 @@ concurrency:
 
 jobs:
   qa:
+    if: ${{ github.event_name == 'push' || inputs.full_validation }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -43,7 +44,7 @@ jobs:
         run: python3 scripts/verify-video-fx-fixture.py
       - name: Focused video checks and instrumented compile
         if: ${{ !inputs.full_validation }}
-        run: gradle :app:testDebugUnitTest --tests '*VideoWorkspaceToolbarTest*' --tests '*VideoColorEffectsTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
+        run: gradle :app:testDebugUnitTest --tests '*VideoWorkspaceToolbarTest*' --tests '*VideoColorEffectsTest*' --tests '*VideoReferenceAdjustmentsTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
       - name: Run all Android unit and Compose tests
         if: ${{ inputs.full_validation }}
         run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
@@ -134,7 +135,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: bash scripts/run-video-fx-device-tests.sh
         env:
-          ML_DEVICE_TEST: ${{ inputs.full_validation && 'com.domenota.medialoader.data.editor.Media3ActualVideoFxInstrumentedTest' || inputs.device_test }}
+          ML_DEVICE_TEST: ${{ inputs.full_validation && 'com.domenota.medialoader.data.editor.Media3ActualVideoFxInstrumentedTest,com.domenota.medialoader.data.editor.VideoReferenceAdjustmentsInstrumentedTest' || inputs.device_test }}
       - name: Preserve real-codec evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4

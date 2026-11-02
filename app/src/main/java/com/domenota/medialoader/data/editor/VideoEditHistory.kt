@@ -24,6 +24,15 @@ internal class VideoEditHistory<T : Any>(private val limit: Int = 60) {
         return true
     }
 
+    data class Checkpoint<T>(val past: List<T>, val future: List<T>, val latest: T?)
+    fun checkpoint(): Checkpoint<T> = Checkpoint(past.toList(), future.toList(), latest)
+    /** Cancelling a live-preview panel also removes its provisional undo/redo entries. */
+    fun restore(checkpoint: Checkpoint<T>) {
+        past.clear(); past.addAll(checkpoint.past.takeLast(limit))
+        future.clear(); future.addAll(checkpoint.future.takeLast(limit))
+        latest = checkpoint.latest
+    }
+
     fun undo(): T? {
         if (past.isEmpty()) return null
         val old = requireNotNull(latest)

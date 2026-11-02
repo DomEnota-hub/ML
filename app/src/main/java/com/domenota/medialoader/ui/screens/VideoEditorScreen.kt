@@ -249,6 +249,8 @@ private fun VideoEditorContent(
     var clipError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedAudioTrackId by remember(item.id) { mutableStateOf<String?>(null) }
     val editHistory = remember(item.id) { VideoEditHistory<VideoEditorUndoSnapshot>() }
+    var panelSnapshot by remember(item.id) { mutableStateOf<VideoEditorUndoSnapshot?>(null) }
+    var panelHistory by remember(item.id) { mutableStateOf<VideoEditHistory.Checkpoint<VideoEditorUndoSnapshot>?>(null) }
     var historyRevision by remember(item.id) { mutableIntStateOf(0) }
     var trimGestureActive by remember(item.id) { mutableStateOf(false) }
     var requestedTrimBoundary by remember(item.id) {
@@ -484,6 +486,29 @@ private fun VideoEditorContent(
         clipError = null
     }
 
+    fun currentSnapshot(): VideoEditorUndoSnapshot? = project?.let {
+        VideoEditorUndoSnapshot(it, textLayers, graphicLayers, removeAudio, reverseVideo,
+            exportSettings, selectedClipId)
+    }
+    LaunchedEffect(selectedTool) {
+        if (selectedTool == null) { panelSnapshot = null; panelHistory = null }
+        else if (panelSnapshot == null) currentSnapshot()?.let {
+            editHistory.record(it)
+            panelSnapshot = it; panelHistory = editHistory.checkpoint()
+        }
+    }
+    fun closePanel(apply: Boolean) {
+        if (apply) currentSnapshot()?.let { editHistory.record(it) }
+        else {
+            panelSnapshot?.let(::restoreSnapshot)
+            panelHistory?.let(editHistory::restore)
+        }
+        trimGestureActive = false; requestedTrimBoundary = null; trimBoundaryFrame = null
+        panelSnapshot = null; panelHistory = null
+        selectedTool = null; historyRevision++
+    }
+    androidx.activity.compose.BackHandler(enabled = selectedTool != null && !ownExport) { closePanel(false) }
+
     LaunchedEffect(reverseVideo, project, removeAudio, textLayers, graphicLayers) {
         reversePreviewJob?.cancel()
         reversePreviewJob = null
@@ -654,6 +679,7 @@ private fun VideoEditorContent(
         containerColor = Color(0xFF101010),
         topBar = {
             TopAppBar(
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = requestExit) {
@@ -708,8 +734,15 @@ private fun VideoEditorContent(
             // reachable even with portrait video and Android navigation bars.
             // Preview is bounded by the remaining screen height. Portrait videos must
             // never push trim, tool panels or the Android navigation area off-screen.
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-                contentAlignment = Alignment.Center) {
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                // HTML v8 puts the canvas at ~40% of screen height; reserve the rest
+                // for transport/timeline rather than stretching portrait video into it.
+                val availableCanvas = (maxHeight - 146.dp).coerceAtLeast(48.dp)
+                val referenceCanvas = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .4023f
+                val canvasHeight = minOf(availableCanvas, referenceCanvas)
+                Column(Modifier.fillMaxSize()) {
+            BoxWithConstraints(Modifier.height(canvasHeight).fillMaxWidth().padding(horizontal = 12.dp),
+                contentAlignment = Alignment.TopCenter) {
                 val previewDimensions = selectedPreviewInfo ?: info
                 val showEditedFrame = selectedTool != VideoWorkspaceTool.CROP
                 val w = ((previewDimensions?.width ?: 16) *
@@ -790,6 +823,7 @@ private fun VideoEditorContent(
                             historyRevision++
                         },
                         frameIntervalMs = selectedFrameDurationMs,
+                        showFrameSteps = selectedTool == VideoWorkspaceTool.TRIM || selectedTool == VideoWorkspaceTool.MORE,
                         onFrameStep = { direction ->
                             val interval = selectedFrameDurationMs
                             val draft = project
@@ -937,17 +971,13 @@ private fun VideoEditorContent(
                             }
                         },
                     )
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Клипов: ${activeProject.clips.size}",
-                            style = MaterialTheme.typography.labelSmall)
-                        Text("Выбран: ${activeProject.indexOf(selectedClipId) + 1}",
-                            style = MaterialTheme.typography.labelSmall)
-                    }
                 } else Text("Читаем видео…",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 clipError?.let { error ->
                     Text(error, color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
+                }
+            }
                 }
             }
             if (selectedTool != null && selectedTool != VideoWorkspaceTool.TRIM) {
@@ -1112,6 +1142,10 @@ private fun VideoEditorContent(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
 
+                        }
+                        VideoWorkspaceTool.COLOR_CHANNELS -> {
+                            VideoLegacyColorControls(clipColor,
+                                !ownExport && !busyWithOther, ::updateSelectedColor)
                         }
                         VideoWorkspaceTool.COLOR -> {
                             VideoColorPanel(
@@ -1331,6 +1365,11 @@ private fun VideoEditorContent(
                         }
                         VideoWorkspaceTool.MORE -> {
             if (!ownExport) {
+                OutlinedButton(onClick = { selectedTool = VideoWorkspaceTool.COLOR_CHANNELS },
+                    enabled = !busyWithOther, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text("Дополнительная коррекция")
+                }
+
                 if (busyWithOther) {
                     Text(
                         "Сейчас обрабатывается другой файл. Дождись завершения или отмени обработку из уведомления.",
@@ -1394,7 +1433,18 @@ private fun VideoEditorContent(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            VideoWorkspaceToolbar(
+            val panelTool = selectedTool
+            if (panelTool != null) {
+                val panelTitle = when (panelTool) {
+                    VideoWorkspaceTool.COLOR -> if (referenceColorManual) "Откорректировать" else "Фильтры"
+                    VideoWorkspaceTool.TEXT -> "Надписи"
+                    VideoWorkspaceTool.CROP -> "Соотношение сторон"
+                    VideoWorkspaceTool.AUDIO -> "Музыка"
+                    else -> panelTool.label
+                }
+                VideoReferencePanelFooter(panelTitle, !ownExport && !busyWithOther,
+                    onCancel = { closePanel(false) }, onApply = { closePanel(true) })
+            } else VideoWorkspaceToolbar(
                 selected = selectedTool,
                 onSelect = { next ->
                     selectedTool = next
