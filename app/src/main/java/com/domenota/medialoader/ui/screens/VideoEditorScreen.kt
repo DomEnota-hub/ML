@@ -200,6 +200,7 @@ fun VideoEditorScreen(
     var selectedAudioTrackId by remember(item.id) { mutableStateOf<String?>(null) }
     val editHistory = remember(item.id) { VideoEditHistory<VideoEditorUndoSnapshot>() }
     var historyRevision by remember(item.id) { mutableIntStateOf(0) }
+    var trimGestureActive by remember(item.id) { mutableStateOf(false) }
     val audioPreviewDeck = remember(item.id) { VideoAudioPreviewDeck(context) }
     DisposableEffect(audioPreviewDeck) { onDispose { audioPreviewDeck.release() } }
     val projectScope = rememberCoroutineScope()
@@ -383,7 +384,9 @@ fun VideoEditorScreen(
 
     // Observe edits, not playback/seeking. Undo/redo restores the same snapshot
     // without creating a second history entry. Bounded at 60 snapshots.
-    LaunchedEffect(project, textLayers, graphicLayers, removeAudio, reverseVideo, exportSettings) {
+    LaunchedEffect(project, textLayers, graphicLayers, removeAudio, reverseVideo,
+        exportSettings, trimGestureActive) {
+        if (trimGestureActive) return@LaunchedEffect
         val current = project ?: return@LaunchedEffect
         if (editHistory.record(VideoEditorUndoSnapshot(
                 current, textLayers, graphicLayers, removeAudio, reverseVideo,
@@ -749,6 +752,8 @@ fun VideoEditorScreen(
                                         .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L)))
                             }
                         },
+                        onTrimGestureStart = { trimGestureActive = true },
+                        onTrimGestureEnd = { trimGestureActive = false },
                         onTrim = { id, from, to ->
                             val prior = project ?: return@VideoMultiClipTimeline
                             val previousClip = prior.clips.firstOrNull { it.id == id }
