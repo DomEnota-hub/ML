@@ -10,6 +10,7 @@ import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import com.domenota.medialoader.data.editor.VideoClipDraft
 import com.domenota.medialoader.data.editor.VideoClipMediaKind
 import com.domenota.medialoader.data.editor.VideoSpecialFxType
@@ -20,17 +21,33 @@ internal object VideoFxThumbnail {
     fun readFrame(context: Context, clip: VideoClipDraft): Bitmap? = runCatching {
         val source = Uri.parse(clip.sourceUri)
         val frame = if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
+            // Avoid decoding full-resolution phone photos just for a 144x94 tile.
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             context.contentResolver.openInputStream(source)?.use {
-                BitmapFactory.decodeStream(it)
+                BitmapFactory.decodeStream(it, null, bounds)
+            }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+            var sampleSize = 1
+            while (bounds.outWidth / sampleSize > 288 ||
+                bounds.outHeight / sampleSize > 188) {
+                sampleSize *= 2
+            }
+            context.contentResolver.openInputStream(source)?.use {
+                BitmapFactory.decodeStream(it, null,
+                    BitmapFactory.Options().apply { inSampleSize = sampleSize })
             }
         } else {
             val retriever = MediaMetadataRetriever()
             try {
                 retriever.setDataSource(context, source)
-                retriever.getFrameAtTime(
-                    clip.inMs.coerceAtLeast(0L) * 1000L,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                )
+                val timeUs = clip.inMs.coerceAtLeast(0L) * 1000L
+                if (Build.VERSION.SDK_INT >= 27) {
+                    retriever.getScaledFrameAtTime(timeUs,
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 144, 94)
+                } else {
+                    retriever.getFrameAtTime(timeUs,
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                }
             } finally {
                 retriever.release()
             }
