@@ -71,7 +71,6 @@ fun TrashScreen(
 ) {
     var phoneTab by remember { mutableStateOf(false) }
     val allItems = if (phoneTab) phoneItems else items
-    LaunchedEffect(phoneTab) { selected = emptySet() }
     fun phoneIds(ids: Set<String>) = ids.filterTo(mutableSetOf(), PhoneMediaTrash::isPhoneTrashId)
     fun appIds(ids: Set<String>) = ids - phoneIds(ids)
     fun restore(ids: Set<String>) {
@@ -83,6 +82,7 @@ fun TrashScreen(
         phoneIds(ids).takeIf { it.isNotEmpty() }?.let(onDeletePhone)
     }
     var selected by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(phoneTab) { selected = emptySet() }
     var expanded by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var deleteAll by remember { mutableStateOf(false) }
