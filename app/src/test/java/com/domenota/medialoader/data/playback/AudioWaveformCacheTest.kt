@@ -1,6 +1,8 @@
 package com.domenota.medialoader.data.playback
 
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -39,4 +41,32 @@ class AudioWaveformCacheTest {
             executor.shutdownNow()
         }
     }
+
+    @Test fun diskCacheIsReadableAfterProcessRestartWithoutAudioDecode() {
+        val folder = temporary.newFolder()
+        val source = "content://media/external/audio/media/901"
+        val expected = floatArrayOf(.15f, .42f, .9f, .05f)
+        val first = AudioWaveformCache(folder)
+        assertFalse(first.has(source))
+        first.get(source) { expected }
+        val restarted = AudioWaveformCache(folder)
+        assertTrue(restarted.has(source))
+        assertArrayEquals(expected, restarted.peek(source), 0f)
+        assertArrayEquals(expected,
+            restarted.get(source) { error("Disk cache must prevent decoder restart") }, 0f)
+        assertFalse(restarted.has("content://media/external/audio/media/902"))
+    }
+
+    @Test fun truncatedDiskWaveformTriggersFreshDecode() {
+        val folder = temporary.newFolder()
+        val source = "saved-track"
+        AudioWaveformCache(folder).get(source) { floatArrayOf(.2f, .4f) }
+        val saved = folder.listFiles()!!.single()
+        saved.writeBytes(byteArrayOf(0, 0, 0, 99))
+        val fresh = AudioWaveformCache(folder)
+        assertFalse(fresh.has(source))
+        assertArrayEquals(floatArrayOf(.8f),
+            fresh.get(source) { floatArrayOf(.8f) }, 0f)
+    }
+
 }

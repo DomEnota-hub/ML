@@ -54,6 +54,7 @@ fun AudioMiniPlayer(
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
     onOpenQueue: ((String, List<String>) -> Unit)? = null,
+    compact: Boolean = false,
 ) {
     val context = LocalContext.current
     val token = remember {
@@ -160,12 +161,14 @@ fun AudioMiniPlayer(
         else onOpen(currentId)
     }
     LibraryTheme {
-        Surface(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), shape = RoundedCornerShape(14.dp),
+        Surface(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if (compact) 3.dp else 8.dp),
+            shape = RoundedCornerShape(if (compact) 18.dp else 14.dp),
+            shadowElevation = if (compact) 5.dp else 0.dp,
             color = MaterialTheme.colorScheme.surfaceContainer) {
             Column {
-                Row(Modifier.fillMaxWidth().clickable(onClick = ::openCurrent).padding(horizontal = 8.dp, vertical = 8.dp),
+                Row(Modifier.fillMaxWidth().clickable(onClick = ::openCurrent).padding(horizontal = 8.dp, vertical = if (compact) 4.dp else 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Box(Modifier.size(34.dp).clip(RoundedCornerShape(6.dp))) {
+                    Box(Modifier.size(if (compact) 32.dp else 34.dp).clip(RoundedCornerShape(6.dp))) {
                         DownloadThumbnail(savedUri, artworkUri, MediaKind.AUDIO, Modifier.fillMaxSize())
                     }
                     Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
@@ -173,13 +176,13 @@ fun AudioMiniPlayer(
                         if (!artist.isNullOrBlank()) Text(artist.orEmpty(), Modifier.padding(top = 3.dp), fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    IconButton({ controller?.seekToPreviousMediaItem() }, Modifier.size(40.dp), enabled = mediaCount > 1) {
+                    if (!compact) IconButton({ controller?.seekToPreviousMediaItem() }, Modifier.size(40.dp), enabled = mediaCount > 1) {
                         Icon(Icons.Rounded.SkipPrevious, "Предыдущий трек", Modifier.size(22.dp))
                     }
                     IconButton({ controller?.let { com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it) } }, Modifier.size(40.dp)) {
                         Icon(if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (isPlaying) "Пауза" else "Воспроизвести", Modifier.size(24.dp))
                     }
-                    IconButton({ controller?.seekToNextMediaItem() }, Modifier.size(40.dp), enabled = mediaCount > 1) {
+                    if (!compact) IconButton({ controller?.seekToNextMediaItem() }, Modifier.size(40.dp), enabled = mediaCount > 1) {
                         Icon(Icons.Rounded.SkipNext, "Следующий трек", Modifier.size(22.dp))
                     }
                     IconButton({ controller?.let { it.pause(); it.stop(); it.clearMediaItems() } }, Modifier.size(40.dp)) {

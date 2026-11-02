@@ -104,7 +104,12 @@ class AudioWaveformPrecomputeWorker(
             }
         }
         prefs.edit().putInt("inventory", inventory).putInt("cursor", if (stop < entries.size) stop else 0).apply()
-        if (stop < entries.size) Result.retry() else Result.success()
+        if (stop < entries.size) {
+            // APPEND a dependent batch rather than retrying with exponential back-off.
+            // Every completed batch persists its cursor; WorkManager survives process death.
+            AudioWaveformPrecompute.continueRemaining(app)
+        }
+        Result.success()
     }
 
     private fun readDurationMs(context: Context, uri: Uri): Long = runCatching {
@@ -133,6 +138,16 @@ object AudioWaveformPrecompute {
                 .setConstraints(constraints).build()
         )
         request(context)
+    }
+
+    /** Queue the next 20 tracks after a successful checkpoint, with no retry back-off. */
+    internal fun continueRemaining(context: Context) {
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            ONCE, ExistingWorkPolicy.APPEND,
+            OneTimeWorkRequestBuilder<AudioWaveformPrecomputeWorker>()
+                .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+                .build()
+        )
     }
 
     /** Priority cache miss from the editor is queued separately from the library sweep. */

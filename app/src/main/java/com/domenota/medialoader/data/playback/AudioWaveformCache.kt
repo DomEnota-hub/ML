@@ -11,23 +11,33 @@ internal class AudioWaveformCache(private val directory: File) {
     private val memory = ConcurrentHashMap<String, FloatArray>()
     private val locks = ConcurrentHashMap<String, Any>()
 
-    fun peek(source: String): FloatArray? = memory[source]
-
-    fun get(source: String, decode: () -> FloatArray): FloatArray {
-        peek(source)?.let { return it }
-        val key = MessageDigest.getInstance("SHA-256").digest(source.toByteArray())
+    private fun savedFile(source: String): File {
+        val digest = MessageDigest.getInstance("SHA-256").digest(source.toByteArray())
             .joinToString("") { "%02x".format(it) }
-        val file = File(directory, "waveform_v3_$key")
-        fun read(): FloatArray? = runCatching {
+        return File(directory, "waveform_v3_$digest")
+    }
+
+    /** Works after process death without starting a decoder for an already indexed track. */
+    fun peek(source: String): FloatArray? {
+        memory[source]?.let { return it }
+        val file = savedFile(source)
+        val decoded = runCatching {
             DataInputStream(file.inputStream().buffered()).use { input ->
                 val count = input.readInt()
                 require(count in 1..2048)
-                FloatArray(count) { input.readFloat().also { require(it.isFinite()) } }
+                FloatArray(count) { input.readFloat().also { require(it.isFinite() && it in 0f..1f) } }
             }
-        }.getOrNull()?.also { memory[source] = it }
-        read()?.let { return it }
+        }.getOrNull() ?: return null
+        return memory.putIfAbsent(source, decoded) ?: decoded
+    }
+
+    fun has(source: String): Boolean = peek(source) != null
+
+    fun get(source: String, decode: () -> FloatArray): FloatArray {
+        peek(source)?.let { return it }
+        val file = savedFile(source)
         return synchronized(locks.computeIfAbsent(source) { Any() }) {
-            peek(source) ?: read() ?: decode().also { result ->
+            peek(source) ?: decode().also { result ->
                 memory[source] = result
                 if (result.any { it > 0f }) runCatching {
                     directory.mkdirs()

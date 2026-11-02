@@ -1037,6 +1037,7 @@ fun MediaLoaderApp(
                     // reserve a solid background strip beneath the gallery.
                     miniPlayer = {
                         AudioMiniPlayer(
+                            compact = true,
                             onOpenQueue = openDownloadWithQueue,
                             onOpen = { mediaId ->
                                 if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {

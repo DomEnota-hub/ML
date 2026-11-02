@@ -300,6 +300,7 @@ fun AudioEditorScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     showSolidTrimBar = false,
+                    independentSeek = true,
                     timelineVisual = { visualModifier ->
                         AudioWaveformTimeline(
                             uri = uri,
