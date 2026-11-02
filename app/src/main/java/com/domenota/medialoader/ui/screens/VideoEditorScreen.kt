@@ -164,6 +164,28 @@ fun VideoEditorScreen(
     onExtractAudio: (Long, Long?) -> Unit,
     onCancelExport: () -> Unit,
 ) {
+    val editorWindow = LocalContext.current.findActivity()?.window
+    DisposableEffect(editorWindow) {
+        val controller = editorWindow?.let {
+            androidx.core.view.WindowInsetsControllerCompat(it, it.decorView)
+        }
+        val previousStatus = controller?.isAppearanceLightStatusBars
+        val previousNavigation = controller?.isAppearanceLightNavigationBars
+        controller?.isAppearanceLightStatusBars = false
+        controller?.isAppearanceLightNavigationBars = false
+        onDispose {
+            previousStatus?.let { controller?.isAppearanceLightStatusBars = it }
+            previousNavigation?.let { controller?.isAppearanceLightNavigationBars = it }
+        }
+    }
+    androidx.compose.runtime.SideEffect {
+        editorWindow?.let { window ->
+            androidx.core.view.WindowInsetsControllerCompat(window, window.decorView).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+            }
+        }
+    }
     MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme(
         primary = Color(0xFFFFC000), onPrimary = Color.Black,
         background = Color(0xFF101010), onBackground = Color(0xFFECECEC),

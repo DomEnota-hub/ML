@@ -891,7 +891,8 @@ fun MediaLoaderApp(
     LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
     val galleryHomeOverlay = galleryBottomSwitcherIsOverlay(appMode, currentRoute)
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
+            else MaterialTheme.colorScheme.background,
         // The gallery controls must be an overlay, not a reserved Scaffold bar.
         contentWindowInsets = if (galleryHomeOverlay) WindowInsets.statusBars
             else ScaffoldDefaults.contentWindowInsets,

@@ -1,5 +1,10 @@
 package com.domenota.medialoader.testing
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Scaffold
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,9 +27,13 @@ class VideoEditorUiProbeActivity : ComponentActivity() {
             sizeBytes = null, createdAtEpochMillis = 0L)
         setContent {
             MediaLoaderTheme {
+                Scaffold(containerColor = Color(0xFF101010)) { padding ->
+                    Box(Modifier.padding(padding)) {
                 VideoEditorScreen(item, EditorExportState(), onBack = { finish() },
                     onExport = {}, onSaveFrame = { _, _ -> }, onExtractAudio = { _, _ -> },
                     onCancelExport = {})
+                    }
+                }
             }
         }
     }
