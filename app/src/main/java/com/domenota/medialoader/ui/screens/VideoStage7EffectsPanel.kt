@@ -1,5 +1,14 @@
 package com.domenota.medialoader.ui.screens
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -37,6 +46,25 @@ internal fun VideoStage7EffectsPanel(
     if (clip == null) {
         Text("Выбери клип для настройки", style = MaterialTheme.typography.bodySmall)
         return
+    }
+    val context = LocalContext.current
+    var previews by remember(clip.sourceUri, clip.inMs) {
+        mutableStateOf<Map<VideoSpecialFxType, Bitmap>>(emptyMap())
+    }
+    LaunchedEffect(clip.sourceUri, clip.inMs, transitionTool) {
+        if (!transitionTool) {
+            previews = withContext(Dispatchers.IO) {
+                VideoFxThumbnail.readFrame(context, clip)?.let { frame ->
+                    try {
+                        VideoSpecialFxType.entries.associateWith { type ->
+                            VideoFxThumbnail.render(frame, type)
+                        }
+                    } finally {
+                        frame.recycle()
+                    }
+                } ?: emptyMap()
+            }
+        }
     }
     if (transitionTool) {
         Text("Переход после клипа ${index + 1}",
@@ -87,7 +115,8 @@ internal fun VideoStage7EffectsPanel(
             horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             VideoSpecialFxType.entries.forEach { type ->
                 VideoEffectChoiceCard(type.label, selected.type == type, enabled,
-                    transition = false, onClick = { onSpecialFx(selected.copy(type = type)) })
+                    transition = false, preview = previews[type],
+                    onClick = { onSpecialFx(selected.copy(type = type)) })
             }
         }
         if (selected.type != VideoSpecialFxType.NONE) {
@@ -109,7 +138,7 @@ internal fun VideoStage7EffectsPanel(
 @Composable
 private fun VideoEffectChoiceCard(
     title: String, selected: Boolean, enabled: Boolean,
-    transition: Boolean, onClick: () -> Unit,
+    transition: Boolean, preview: Bitmap? = null, onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
@@ -121,16 +150,29 @@ private fun VideoEffectChoiceCard(
         border = if (selected) androidx.compose.foundation.BorderStroke(2.dp,
             videoToolYellow) else null,
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 5.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center) {
-            Icon(if (transition) Icons.Rounded.SwapHoriz else Icons.Rounded.AutoAwesome,
-                contentDescription = null, modifier = Modifier.size(21.dp),
-                tint = if (selected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(3.dp))
-            Text(title, maxLines = 1,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (selected) Color.Black else MaterialTheme.colorScheme.onSurface)
+        if (preview != null) {
+            Box(Modifier.fillMaxSize()) {
+                Image(preview.asImageBitmap(), contentDescription = title,
+                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Box(Modifier.fillMaxWidth().align(Alignment.BottomCenter)
+                    .background(Color.Black.copy(alpha = .68f))
+                    .padding(horizontal = 5.dp, vertical = 5.dp)) {
+                    Text(title, maxLines = 1,
+                        style = MaterialTheme.typography.labelSmall, color = Color.White)
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center) {
+                Icon(if (transition) Icons.Rounded.SwapHoriz else Icons.Rounded.AutoAwesome,
+                    contentDescription = null, modifier = Modifier.size(21.dp),
+                    tint = if (selected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(3.dp))
+                Text(title, maxLines = 1,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (selected) Color.Black else MaterialTheme.colorScheme.onSurface)
+            }
         }
     }
 }
