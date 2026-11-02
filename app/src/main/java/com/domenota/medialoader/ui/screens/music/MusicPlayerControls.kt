@@ -34,17 +34,14 @@ internal fun MusicPlayerControls(
     favorite: Boolean = false, onEdit: (() -> Unit)? = null,
 ) {
     var scrub by remember(item.id) { mutableStateOf<Float?>(null) }
-    var more by remember { mutableStateOf(false) }
-    var speedMenu by remember { mutableStateOf(false) }
+    var speedScrub by remember(item.id) { mutableStateOf<Float?>(null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
             Text("Сейчас играет", Modifier.weight(1f), fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-            Box {
-                IconButton({ more = true }) { Icon(Icons.Rounded.MoreVert, "Дополнительно") }
-                DropdownMenu(more, { more = false }) {
-                    DropdownMenuItem({ Text("Скорость · ${speed}×") }, { more = false; speedMenu = true }, leadingIcon = { Icon(Icons.Rounded.Speed, null) })
-                    if (onEdit != null) DropdownMenuItem({ Text("Редактировать") }, { more = false; onEdit() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+            if (onEdit != null) {
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Rounded.Edit, contentDescription = "Редактировать")
                 }
             }
         }
@@ -83,6 +80,28 @@ internal fun MusicPlayerControls(
                     tint = if (repeatMode == Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
             }
         }
+        // Playback speed belongs to the main controls, not a hidden overflow menu.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Скорость", style = MaterialTheme.typography.labelMedium)
+            AppSlider(
+                value = speedScrub ?: speed.coerceIn(.75f, 2f),
+                onValueChange = { next ->
+                    val allowed = listOf(.75f, 1f, 1.25f, 1.5f, 2f)
+                    val rounded = allowed.minByOrNull { kotlin.math.abs(it - next) } ?: 1f
+                    speedScrub = rounded
+                    player?.setPlaybackSpeed(rounded)
+                },
+                onValueChangeFinished = { speedScrub = null },
+                valueRange = .75f..2f,
+                modifier = Modifier.weight(1f).height(32.dp),
+                enabled = player != null,
+            )
+            Text("${speedScrub ?: speed}×", style = MaterialTheme.typography.labelMedium)
+        }
         Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
             IconButton(onClick = { onFavorite?.invoke() }, enabled = onFavorite != null) {
                 Icon(if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Избранное",
@@ -92,10 +111,6 @@ internal fun MusicPlayerControls(
             IconButton(onQueue, enabled = player != null) { Icon(Icons.Rounded.QueueMusic, "Очередь") }
         }
     }
-    if (speedMenu) AlertDialog(onDismissRequest = { speedMenu = false }, title = { Text("Скорость воспроизведения") },
-        text = { Column { listOf(.75f, 1f, 1.25f, 1.5f, 2f).forEach { value ->
-            TextButton({ player?.setPlaybackSpeed(value); speedMenu = false }, Modifier.fillMaxWidth()) { Text("${value}×") }
-        } } }, confirmButton = { TextButton({ speedMenu = false }) { Text("Закрыть") } })
 }
 
 private fun time(value: Long): String {
