@@ -84,6 +84,15 @@ internal fun UnifiedTextStyle(
         }
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("Прозрачность", style = MaterialTheme.typography.labelMedium)
+        CompactTextSlider(
+            value = layer.opacity, onValueChange = { onChange(layer.copy(opacity = it)) },
+            valueRange = 0f..1f, enabled = enabled,
+            modifier = Modifier.weight(1f))
+        Text("${(layer.opacity * 100f).toInt()} %",
+            style = MaterialTheme.typography.labelSmall)
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Размер", style = MaterialTheme.typography.labelMedium)
         CompactTextSlider(value = layer.size.coerceIn(.02f, .25f),
             onValueChange = { onChange(layer.copy(size = it)) },
