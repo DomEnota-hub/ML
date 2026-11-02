@@ -108,37 +108,7 @@ internal class VideoSpecialFxOverlay(
         val canvas = Canvas(bmp)
         val width = bmp.width.toFloat()
         val height = bmp.height.toFloat()
-        when (effect.type) {
-            VideoSpecialFxType.VIGNETTE -> {
-                val radius = kotlin.math.hypot(width, height) * .58f
-                val shadow = (220f * effect.intensity).roundToInt().coerceIn(0, 255)
-                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    shader = RadialGradient(width / 2f, height / 2f, radius,
-                        intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT,
-                            Color.argb(shadow, 0, 0, 0)),
-                        floatArrayOf(0f, .40f, 1f), Shader.TileMode.CLAMP)
-                }
-                canvas.drawRect(0f, 0f, width, height, paint)
-            }
-            VideoSpecialFxType.SCANLINES -> {
-                val alpha = (170f * effect.intensity).roundToInt().coerceIn(0, 255)
-                val paint = Paint().apply { color = Color.argb(alpha, 0, 0, 0) }
-                var y = 1f
-                val step = (height / 125f).coerceAtLeast(4f)
-                while (y < height) {
-                    canvas.drawRect(0f, y, width, y + (step / 4f).coerceAtLeast(1f), paint)
-                    y += step
-                }
-            }
-            VideoSpecialFxType.CINEMA_BARS -> {
-                val band = height * .13f * effect.intensity
-                val paint = Paint().apply { color = Color.BLACK }
-                canvas.drawRect(0f, 0f, width, band, paint)
-                canvas.drawRect(0f, height - band, width, height, paint)
-            }
-            VideoSpecialFxType.PULSE -> bmp.eraseColor(Color.WHITE)
-            VideoSpecialFxType.NONE -> Unit
-        }
+        VideoSpecialFxPainter.draw(canvas, bmp.width, bmp.height, effect)
     }
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap = requireNotNull(image)
