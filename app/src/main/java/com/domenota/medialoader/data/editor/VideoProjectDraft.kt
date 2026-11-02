@@ -72,6 +72,7 @@ data class VideoAudioTrackDraft(
     val fadeInMs: Long = 0L,
     val fadeOutMs: Long = 0L,
     val speed: Float = 1f,
+    val title: String? = null,
 ) {
     init {
         require(id.isNotBlank() && sourceUri.isNotBlank())

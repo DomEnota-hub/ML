@@ -13,7 +13,8 @@ import java.util.concurrent.atomic.AtomicLong
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class VideoEffectsProbeActivity : Activity() {
     lateinit var videoSurface: SurfaceView
-    lateinit var player: ExoPlayer
+    internal lateinit var session: com.domenota.medialoader.data.editor.VideoEditorPreviewSession
+    val player: ExoPlayer get() = session.player
     val frameTimeUs = AtomicLong(0)
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -23,11 +24,11 @@ class VideoEffectsProbeActivity : Activity() {
             setBackgroundColor(android.graphics.Color.BLACK)
             addView(videoSurface, FrameLayout.LayoutParams(320, 180, Gravity.CENTER))
         })
-        player = com.domenota.medialoader.data.editor.VideoEditorPlayerFactory.builder(this).build().apply {
-            setVideoSurfaceView(videoSurface)
-            setVideoEffects(emptyList()) // Required before the FIRST prepare, as in the editor.
-            setVideoFrameMetadataListener { pts, _, _, _ -> frameTimeUs.set(pts) }
+        session = com.domenota.medialoader.data.editor.VideoEditorPreviewSession(this) { player ->
+            player.setVideoSurfaceView(videoSurface)
+            player.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ALL
+            player.setVideoFrameMetadataListener { pts, _, _, _ -> frameTimeUs.set(pts) }
         }
     }
-    override fun onDestroy() { player.release(); super.onDestroy() }
+    override fun onDestroy() { session.release(); super.onDestroy() }
 }

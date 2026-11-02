@@ -67,7 +67,7 @@ internal fun VideoAudioTracksPanel(
     }
     val selected = tracks.firstOrNull { it.id == selectedTrackId } ?: tracks.first()
     val id = selected.id
-    Text(Uri.parse(selected.sourceUri).lastPathSegment?.takeLast(48) ?: "Аудиофайл",
+    Text(selected.title ?: Uri.parse(selected.sourceUri).lastPathSegment?.takeLast(48) ?: "Аудиофайл",
         maxLines = 1, style = MaterialTheme.typography.labelSmall)
     VideoAudioWaveform(selected.sourceUri)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

@@ -202,9 +202,8 @@ class Media3ActualVideoFxInstrumentedTest {
         fun apply(type: VideoSpecialFxType, intensity: Float, clipIndex: Int = 0) {
             scenario.onActivity { activity ->
                 activity.player.pause()
-                activity.player.seekTo(clipIndex, 300L)
-                VideoEditorPlayerFactory.updateEffects(activity.player, VideoEditor(activity).previewEffects(
-                    VideoEditSpec(specialFx = VideoSpecialFxDraft(type, intensity))))
+                activity.player.seekTo(clipIndex, 250L)
+                activity.session.update(VideoEditSpec(specialFx = VideoSpecialFxDraft(type, intensity)))
             }
         }
         var baseline: Bitmap? = null
@@ -212,7 +211,7 @@ class Media3ActualVideoFxInstrumentedTest {
             scenario.onActivity { activity ->
                 activity.player.setMediaItems(listOf(MediaItem.fromUri(Uri.fromFile(source)),
                     MediaItem.fromUri(Uri.fromFile(source))))
-                activity.player.seekTo(0, 300L)
+                activity.player.seekTo(0, 250L)
                 activity.player.prepare()
             }
             val white = awaitFrame { image -> android.graphics.Color.red(image.getPixel(80, 45)) in 80..145 }
@@ -230,12 +229,12 @@ class Media3ActualVideoFxInstrumentedTest {
                 apply(type, 1f, index % 2)
                 val full = try { awaitFrame { difference(white, it) > .04 && difference(half, it) > .04 } }
                     finally { half.recycle() }
-                var pausedFrameUs = 300_000L
+                var pausedFrameUs = 250_000L
                 scenario.onActivity { activity ->
                     // Decoder metadata can already describe a prefetched next-clip buffer.
                     // The paused player's item-relative presentation position is the visible clock.
                     assertTrue("Paused preview must retain the selected clip", activity.player.currentMediaItemIndex == index % 2)
-                    assertTrue("Paused preview moved away from the requested frame", kotlin.math.abs(activity.player.currentPosition - 300L) <= 1L)
+                    assertTrue("Paused preview moved away from the requested frame", kotlin.math.abs(activity.player.currentPosition - 250L) <= 1L)
                     pausedFrameUs = activity.player.currentPosition * 1000L
                 }
                 try {

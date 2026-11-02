@@ -80,6 +80,9 @@ internal fun VideoMultiClipTimeline(
     onSelectTransition: (String) -> Unit = {},
     onTogglePlayback: () -> Unit,
     showFrameSteps: Boolean = true,
+    selectedAudioTrackId: String? = null,
+    onSelectAudio: (String) -> Unit = {},
+    onChangeAudio: (com.domenota.medialoader.data.editor.VideoAudioTrackDraft) -> Unit = {},
 ) {
     // Full timeline detail by default; the scale is not user-adjustable.
     val zoom = 2.5f
@@ -90,6 +93,7 @@ internal fun VideoMultiClipTimeline(
     }
     val pixelsPerSecondDp = VideoClipReorderMath.pixelsPerSecondDp(
         zoom, referenceDurationMs)
+    val videoScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     val density = LocalDensity.current.density
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
@@ -124,7 +128,7 @@ internal fun VideoMultiClipTimeline(
                 }
             }
         }
-        LazyRow(Modifier.fillMaxWidth().height(77.dp),
+        LazyRow(Modifier.fillMaxWidth().height(77.dp), state = videoScroll,
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically) {
             itemsIndexed(project.clips, key = { _, clip -> clip.id }) { index, clip ->
@@ -177,7 +181,12 @@ internal fun VideoMultiClipTimeline(
                 }
             }
         }
+            if (!trimMode && project.audioTracks.isNotEmpty()) VideoAudioLanes(project,
+            selectedAudioTrackId, positionMs, videoScroll, project.clips.map {
+                VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
+            enabled, onSelectAudio, onChangeAudio, onTrimGestureStart, onTrimGestureEnd)
     }
+
 }
 
 @Composable

@@ -44,6 +44,7 @@ internal object VideoOriginalAudioDetach {
                 inMs = clip.inMs,
                 outMs = clip.outMs,
                 speed = clip.speed,
+                title = "Звук клипа ${project.indexOf(clip.id) + 1}",
             )
         }
         return Result(project.copy(audioTracks = project.audioTracks + added),

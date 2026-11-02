@@ -66,6 +66,7 @@ import com.domenota.medialoader.ui.components.AppSlider as Slider
 import androidx.compose.material3.Text
 import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -521,32 +522,12 @@ private fun VideoEditorContent(
         }
     }
 
-    val previewPlayer = remember(uri) {
-        uri?.let { sourceUri ->
-            com.domenota.medialoader.data.editor.VideoEditorPlayerFactory.builder(context)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .setUsage(C.USAGE_MEDIA)
-                        .build(),
-                    true,
-                )
-                .setHandleAudioBecomingNoisy(true)
-                .build()
-                .apply {
-                    setMediaItem(MediaItem.fromUri(sourceUri))
-                    // Media3 1.9 creates the effect video sink only when
-                    // setVideoEffects is first called BEFORE prepare().
-                    // An empty list is intentional: it enables GPU processing
-                    // without altering the original image initially.
-                    setVideoEffects(emptyList())
-                    prepare()
-                    playWhenReady = false
-                }
-        }
-    }
-    DisposableEffect(previewPlayer) {
-        onDispose { previewPlayer?.release(); audioPreviewDeck.pause() }
+    val previewSession = remember(uri) { uri?.let {
+        com.domenota.medialoader.data.editor.VideoEditorPreviewSession(context, it)
+    } }
+    val previewPlayer = previewSession?.players?.collectAsState()?.value
+    DisposableEffect(previewSession) {
+        onDispose { previewSession?.release(); audioPreviewDeck.pause() }
     }
     val previewCrop = if (selectedTool == VideoWorkspaceTool.CROP)
         CropFractions() else crop
@@ -578,13 +559,8 @@ private fun VideoEditorContent(
         textLayers = activeOverlays?.texts.orEmpty(),
         graphicLayers = activeOverlays?.graphics.orEmpty())
     LaunchedEffect(previewPlayer, selectedClipId, textPreviewSpec, previewCanvasRatio) {
-        delay(75L) // Coalesce fast slider and drag gestures before rebuilding GL effects.
-        val effects = VideoEditor(context).previewEffects(
-            textPreviewSpec, timeOffsetMs = textPreviewSpec.startMs,
-            presentation = previewCanvasRatio?.let {
-                androidx.media3.effect.Presentation.createForAspectRatio(it,
-                    androidx.media3.effect.Presentation.LAYOUT_SCALE_TO_FIT) })
-        previewPlayer?.let { com.domenota.medialoader.data.editor.VideoEditorPlayerFactory.updateEffects(it, effects) }
+        delay(75L) // Coalesce fast slider and drag gestures before updating GL parameters.
+        previewSession?.update(textPreviewSpec, previewCanvasRatio)
     }
 
     LaunchedEffect(uri) {
@@ -613,6 +589,8 @@ private fun VideoEditorContent(
     LaunchedEffect(previewPlayer, playlistIdentity) {
         val p = project ?: return@LaunchedEffect
         val player = previewPlayer ?: return@LaunchedEffect
+        val installed = List(player.mediaItemCount, player::getMediaItemAt)
+        if (VideoPreviewQueueSync.matches(installed, p)) return@LaunchedEffect
         delay(160L) // Debounce trim-handle dragging rather than rebuilding every frame.
         val location = p.locateAt(playheadMs.coerceIn(0L, p.durationMs))
         val items = p.clips.map { clip ->
@@ -744,7 +722,9 @@ private fun VideoEditorContent(
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 // HTML v8 puts the canvas at ~40% of screen height; reserve the rest
                 // for transport/timeline rather than stretching portrait video into it.
-                val availableCanvas = (maxHeight - 146.dp).coerceAtLeast(48.dp)
+                val audioLaneHeight = if (selectedTool == VideoWorkspaceTool.TRIM) 0.dp
+                    else ((project?.visibleAudioTracks()?.size ?: 0).coerceAtMost(2) * 42).dp
+                val availableCanvas = (maxHeight - 146.dp - audioLaneHeight).coerceAtLeast(48.dp)
                 val referenceCanvas = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .4023f
                 val canvasHeight = minOf(availableCanvas, referenceCanvas)
                 Column(Modifier.fillMaxSize()) {
@@ -831,6 +811,9 @@ private fun VideoEditorContent(
                             editHistory.redo()?.let(::restoreSnapshot)
                             historyRevision++
                         },
+                        selectedAudioTrackId = selectedAudioTrackId,
+                        onSelectAudio = { selectedAudioTrackId = it; selectedTool = VideoWorkspaceTool.AUDIO },
+                        onChangeAudio = { next -> project = project?.editAudioTrack(next.id) { next } },
                         frameIntervalMs = selectedFrameDurationMs,
                         showFrameSteps = selectedTool == VideoWorkspaceTool.TRIM || selectedTool == VideoWorkspaceTool.MORE,
                         onFrameStep = { direction ->
@@ -1562,7 +1545,7 @@ private fun VideoEditorContent(
         onChoose = { choice ->
             project?.takeIf { it.audioTracks.size < VideoProjectDraft.MAX_AUDIO_TRACKS }?.let { draft ->
                 val track = VideoAudioTrackDraft(UUID.randomUUID().toString(), choice.uri,
-                    playheadMs.coerceIn(0, draft.durationMs - 1), choice.durationMs)
+                    playheadMs.coerceIn(0, draft.durationMs - 1), choice.durationMs, title = choice.name)
                 project = draft.addAudioTrack(track)
                 selectedAudioTrackId = track.id
                 musicPickerOpen = false; selectedTool = VideoWorkspaceTool.AUDIO

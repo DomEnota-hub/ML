@@ -88,46 +88,50 @@ internal class VideoTransitionOverlay(
 
 /** Clip-local filter treatments rendered above existing Media3 color grading. */
 @OptIn(UnstableApi::class)
-internal class VideoSpecialFxOverlay(
-    private val effect: VideoSpecialFxDraft,
-    private val timeOffsetMs: Long,
-) : BitmapOverlay() {
+internal class VideoSpecialFxOverlay(effect: VideoSpecialFxDraft, timeOffsetMs: Long) : BitmapOverlay() {
+    private data class State(val effect: VideoSpecialFxDraft, val offset: Long)
+    private val state = java.util.concurrent.atomic.AtomicReference(State(effect, timeOffsetMs))
+    private var applied: State? = null
     private var image: Bitmap? = null
     private var scale = 1f
+    private var width = 1
+    private var height = 1
 
+    fun update(effect: VideoSpecialFxDraft, timeOffsetMs: Long) { state.set(State(effect, timeOffsetMs)) }
     override fun configure(videoSize: Size) {
         super.configure(videoSize)
-        // Effect decorations do not need full-4K CPU bitmaps. The GPU
-        // scales this 1280px overlay to the original video output size.
         scale = (1280f / maxOf(videoSize.width, videoSize.height)).coerceAtMost(1f)
-        image?.recycle()
-        val bmp = Bitmap.createBitmap(
-            (videoSize.width * scale).roundToInt().coerceAtLeast(1),
-            (videoSize.height * scale).roundToInt().coerceAtLeast(1),
-            Bitmap.Config.ARGB_8888)
-        image = bmp
-        bmp.eraseColor(Color.TRANSPARENT)
-        val canvas = Canvas(bmp)
-        val width = bmp.width.toFloat()
-        val height = bmp.height.toFloat()
-        VideoSpecialFxPainter.draw(canvas, bmp.width, bmp.height, effect)
+        width = (videoSize.width * scale).roundToInt().coerceAtLeast(1)
+        height = (videoSize.height * scale).roundToInt().coerceAtLeast(1)
+        image?.recycle(); image = null; applied = null
+        paintLatest()
     }
-
-    override fun getBitmap(presentationTimeUs: Long): Bitmap = requireNotNull(image)
-
+    private fun paintLatest() {
+        val next = state.get()
+        if (applied == next && image != null) return
+        val active = next.effect.enabled
+        if (image == null || active && (image!!.width != width || image!!.height != height)) {
+            image?.recycle()
+            image = Bitmap.createBitmap(if (active) width else 1, if (active) height else 1, Bitmap.Config.ARGB_8888)
+        }
+        val bitmap = requireNotNull(image)
+        bitmap.eraseColor(Color.TRANSPARENT)
+        if (active) VideoSpecialFxPainter.draw(Canvas(bitmap), bitmap.width, bitmap.height, next.effect)
+        applied = next
+    }
+    override fun getBitmap(presentationTimeUs: Long): Bitmap {
+        paintLatest()
+        return requireNotNull(image)
+    }
     override fun getOverlaySettings(presentationTimeUs: Long): StaticOverlaySettings {
-        val alpha = if (effect.type == VideoSpecialFxType.PULSE) {
-            val seconds = (presentationTimeUs / 1000L - timeOffsetMs).coerceAtLeast(0L) / 1000.0
-            ((1.0 - cos(seconds * 2.0 * PI * 2.0)) * .22f * effect.intensity)
-                .toFloat().coerceIn(0f, 1f)
+        val current = applied ?: state.get()
+        val alpha = if (current.effect.type == VideoSpecialFxType.PULSE) {
+            val seconds = (presentationTimeUs / 1000L - current.offset).coerceAtLeast(0L) / 1000.0
+            ((1.0 - cos(seconds * 2.0 * PI * 2.0)) * .22f * current.effect.intensity).toFloat().coerceIn(0f, 1f)
         } else 1f
-        return StaticOverlaySettings.Builder()
-            .setScale(1f / scale, 1f / scale)
-            .setAlphaScale(alpha)
-            .build()
+        return StaticOverlaySettings.Builder().setScale(1f / scale, 1f / scale).setAlphaScale(alpha).build()
     }
-
     override fun release() {
-        try { super.release() } finally { image?.recycle(); image = null }
+        try { super.release() } finally { image?.recycle(); image = null; applied = null }
     }
 }

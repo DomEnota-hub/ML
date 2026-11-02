@@ -300,3 +300,26 @@ Undo и затронутые composition/toolbar tests прошли; новый 
 Текущий локальный блок: affected tests+androidTest compile+lint PASS (4m52s);
 1033теста и старые native матрицы повторно не запускались. Далее один focused
 native проход P0/canvas/UI; полный release-gate прогон — один раз перед приёмкой.
+
+## Continuation: stable preview and independent audio lanes
+
+8affc40 focused native evidence: project aspect MP4/JPEG and editor/music screen
+opening PASS; paused vignette 50→100 remained BROKEN (identical saved pixels).
+No claim of final preview correctness from the earlier one-off green run.
+
+Replaced changing effect lists/seek workarounds with a persistent preview graph:
+atomic overlay/text parameters, stable GL colour stage, REDRAW using the bounded
+Media3 replay cache. Geometry alone rebuilds the player, retaining playlist,
+position, volume, speed and play state. Preview input capped at1280 pixels to
+bound GPU textures. Export still uses the full-resolution pipeline.
+Local androidTest compile PASS; two native-Canvas regression tests PASS for
+same-timestamp strength/reselection and same-ID text opacity. Actual native P0
+and preview colour correctness remain NOT VERIFIED pending focused CI.
+
+Added independent purple audio lanes with cached actual PCM envelope, selection,
+move and reversible source trim respecting .25–4x speed; two rows visible with
+scroll for additional tracks. Video source-trim hides the audio rows because its
+ruler is source-relative. Real labels retained for imports/detached tracks.
+Audio-lane geometry tests plus existing trim/history/detach tests and compile
+PASS. Physical gestures and imported-audio audition remain NOT_DEVICE_TESTED.
+No full suite, release assembly or lint rerun in this iteration.
