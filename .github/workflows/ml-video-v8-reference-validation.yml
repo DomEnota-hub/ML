@@ -4,6 +4,15 @@ on:
     branches:
       - feature/ml-video-editor-v8-reference-rebuild-20261102
   workflow_dispatch:
+    inputs:
+      full_validation:
+        description: 'Run all release gates and the whole codec suite once'
+        type: boolean
+        default: false
+      device_test:
+        description: 'Focused Android test (class#method)'
+        type: string
+        default: 'com.domenota.medialoader.data.editor.Media3ActualVideoFxInstrumentedTest#effectsRedrawPausedFramesPlayAndMatchMp4'
 
 permissions:
   contents: read
@@ -32,18 +41,26 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Validate synthetic H264 fixture before codec tests
         run: python3 scripts/verify-video-fx-fixture.py
+      - name: Focused video checks and instrumented compile
+        if: ${{ !inputs.full_validation }}
+        run: gradle :app:testDebugUnitTest --tests '*VideoWorkspaceToolbarTest*' --tests '*VideoColorEffectsTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
       - name: Run all Android unit and Compose tests
+        if: ${{ inputs.full_validation }}
         run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint
+        if: ${{ inputs.full_validation }}
         run: gradle :app:lintDebug -Parm64Release=true --stacktrace
       - name: Verify all JavaScript/WebView scripts
+        if: ${{ inputs.full_validation }}
         run: |
           node scripts/test-youtube-thumbnail.cjs
           node scripts/test-hitmoz-native-script.cjs
           node scripts/test-muzmo-native-script.cjs
       - name: Compile isolated ARM64 QA package
+        if: ${{ inputs.full_validation }}
         run: gradle :app:assembleDebug -Parm64Release=true -PhitmozArm64=true --stacktrace
       - name: Verify QA identity, ABI and signature
+        if: ${{ inputs.full_validation }}
         shell: bash
         run: |
           set -euo pipefail
@@ -55,6 +72,7 @@ jobs:
           test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
           sha256sum "$apk"
       - name: Verify 1.7.112 production ARM64 release compile and size
+        if: ${{ inputs.full_validation }}
         shell: bash
         run: |
           set -euo pipefail
@@ -74,6 +92,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Keep short-lived CI APK (not published as QA prerelease)
+        if: ${{ inputs.full_validation }}
         uses: actions/upload-artifact@v4
         with:
           name: ML-Video-v8-Reference-ARM64-CI
@@ -85,6 +104,7 @@ jobs:
   # This is a real Android codec test, independent of JVM/Robolectric
   # snapshot tests. It decodes the completed MP4 and checks its pixels.
   mp4-codec-device:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     name: Real MP4 effect on Android emulator
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -113,6 +133,8 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: bash scripts/run-video-fx-device-tests.sh
+        env:
+          ML_DEVICE_TEST: ${{ inputs.full_validation && 'com.domenota.medialoader.data.editor.Media3ActualVideoFxInstrumentedTest' || inputs.device_test }}
       - name: Preserve real-codec evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4

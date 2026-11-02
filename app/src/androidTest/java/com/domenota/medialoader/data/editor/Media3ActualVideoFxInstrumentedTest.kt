@@ -186,6 +186,9 @@ class Media3ActualVideoFxInstrumentedTest {
                 var playerError: androidx.media3.common.PlaybackException? = null
                 scenario.onActivity { playerError = it.player.playerError }
                 if (playerError != null) throw AssertionError("$previewStage: player failed", playerError)
+                var ready = false
+                scenario.onActivity { ready = it.player.playbackState == androidx.media3.common.Player.STATE_READY && !it.player.isLoading }
+                if (!ready) continue
                 val image = capture() ?: continue
                 if (condition(image)) found = image else image.recycle()
             }
@@ -229,7 +232,13 @@ class Media3ActualVideoFxInstrumentedTest {
                 val full = try { awaitFrame { difference(white, it) > .04 && difference(half, it) > .04 } }
                     finally { half.recycle() }
                 var pausedFrameUs = 300_000L
-                scenario.onActivity { pausedFrameUs = it.frameTimeUs.get() }
+                scenario.onActivity { activity ->
+                    // Decoder metadata can already describe a prefetched next-clip buffer.
+                    // The paused player's item-relative presentation position is the visible clock.
+                    assertTrue("Paused preview must retain the selected clip", activity.player.currentMediaItemIndex == index % 2)
+                    assertTrue("Paused preview moved away from the requested frame", kotlin.math.abs(activity.player.currentPosition - 300L) <= 1L)
+                    pausedFrameUs = activity.player.currentPosition * 1000L
+                }
                 try {
                     File(evidence, "${type.name}_paused.png").outputStream().use {
                         full.compress(Bitmap.CompressFormat.PNG, 100, it)
@@ -247,7 +256,7 @@ class Media3ActualVideoFxInstrumentedTest {
                             specialFx = VideoSpecialFxDraft(type, 1f)))
                     } }
                     try {
-                        // Read the SAME source-frame timestamp, including pulse phase.
+                        // Compare the displayed item-relative paused position, including pulse phase.
                         assertTrue("Unexpected player frame timestamp: $pausedFrameUs",
                             pausedFrameUs in 0L..800_000L)
                         val encodedFrame = readFrame(output, pausedFrameUs)

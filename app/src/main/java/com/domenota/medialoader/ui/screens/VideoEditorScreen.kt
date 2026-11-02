@@ -1425,7 +1425,7 @@ private fun VideoEditorContent(
                 },
                 canSeparateAudio = !removeAudio &&
                     project?.clips?.any {
-                        it.mediaKind == VideoClipMediaKind.VIDEO && it.speed == 1f
+                        it.mediaKind == VideoClipMediaKind.VIDEO
                     } == true,
                 onDeleteClip = {
                     val draft = project
