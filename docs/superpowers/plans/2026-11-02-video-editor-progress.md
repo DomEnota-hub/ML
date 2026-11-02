@@ -46,3 +46,14 @@ not implemented in native VideoEditSpec/export. Existing native fonts/eyedropper
 matching/timed layers must survive future UI work. HTML is not proof of native
 feature implementation. Save exact dialog still absent; do not claim full parity.
 No Android changes/build/version bump; unrelated main-mode pending edits preserved.
+
+## v5: Save screenshot received — earlier waiting note superseded
+
+User supplied1000034632.jpg: a dimmed editor and bottom save progress dialog.
+Reproduced observed text, percentage/blue track, rounded grey panel and placement.
+HTML progress is explicitly demonstrative; no MP4 output claimed. Demo completion
+message discloses this. No changes to actual native background exporting.
+Source/evidence in references/2026-11-02-video-editor/v5; minimal save browser
+scenario and node check passed. Drive1akITdXSpuRRSKnTznuqELQyruWlZ7P-O,
+173585bytes; upload and readback verified. Save screenshot is no longer pending.
+Other unshown states remain unverified. No Android source/build/version changes.
