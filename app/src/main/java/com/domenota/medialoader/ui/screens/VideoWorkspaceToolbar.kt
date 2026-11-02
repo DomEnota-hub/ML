@@ -6,43 +6,43 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Tool panels are navigational chrome, not separate destructive editing modes. */
+/** Existing runtime actions remain stable while the shell is rebuilt to approved HTML v8. */
 internal enum class VideoWorkspaceTool(val label: String) {
-    TRIM("Обрезка"),
-    SPEED("Скорость"),
-    CROP("Кадр"),
-    ROTATE("Поворот"),
-    COLOR("Цвет"),
-    TRANSITION("Переход"),
-    EFFECTS("Эффекты"),
-    AUDIO("Звук"),
-    REVERSE("Реверс"),
-    TEXT("Текст"),
-    GRAPHICS("Стикеры"),
-    EXPORT("Экспорт"),
-    MORE("Ещё");
+    TRIM("Обрезка"), SPEED("Скорость"), CROP("Кадр"), ROTATE("Поворот"),
+    COLOR("Цвет"), TRANSITION("Переход"), EFFECTS("Эффекты"), AUDIO("Звук"),
+    REVERSE("Реверс"), TEXT("Текст"), GRAPHICS("Стикеры"),
+    EXPORT("Экспорт"), MORE("Ещё")
 }
+internal val videoToolYellow = Color(0xFFFFC000)
+
+internal enum class VideoReferenceSection { MAIN, EDITOR, MUSIC, TEXT }
 
 private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.TRIM -> Icons.Rounded.ContentCut
     VideoWorkspaceTool.SPEED -> Icons.Rounded.Speed
     VideoWorkspaceTool.CROP -> Icons.Rounded.Crop
     VideoWorkspaceTool.ROTATE -> Icons.Rounded.RotateRight
-    VideoWorkspaceTool.COLOR -> Icons.Rounded.Palette
+    VideoWorkspaceTool.COLOR -> Icons.Rounded.Tune
     VideoWorkspaceTool.TRANSITION -> Icons.Rounded.AutoAwesomeMotion
     VideoWorkspaceTool.EFFECTS -> Icons.Rounded.AutoFixHigh
-    VideoWorkspaceTool.AUDIO -> Icons.Rounded.VolumeUp
+    VideoWorkspaceTool.AUDIO -> Icons.Rounded.MusicNote
     VideoWorkspaceTool.REVERSE -> Icons.Rounded.FastRewind
     VideoWorkspaceTool.TEXT -> Icons.Rounded.TextFields
     VideoWorkspaceTool.GRAPHICS -> Icons.Rounded.EmojiEmotions
@@ -50,95 +50,137 @@ private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.MORE -> Icons.Rounded.MoreHoriz
 }
 
-internal val videoToolYellow = Color(0xFFFFBE23)
+private data class ReferenceRootAction(
+    val label: String,
+    val icon: ImageVector,
+    val action: VideoWorkspaceTool?,
+    val section: VideoReferenceSection? = null,
+    val colorManual: Boolean? = null,
+)
 
-private enum class VideoToolGroup(val title: String, val tools: List<VideoWorkspaceTool>) {
-    MONTAGE("Монтаж", listOf(VideoWorkspaceTool.TRIM, VideoWorkspaceTool.SPEED,
-        VideoWorkspaceTool.CROP, VideoWorkspaceTool.ROTATE, VideoWorkspaceTool.TRANSITION)),
-    DESIGN("Оформление", listOf(VideoWorkspaceTool.TEXT, VideoWorkspaceTool.GRAPHICS,
-        VideoWorkspaceTool.COLOR, VideoWorkspaceTool.EFFECTS)),
-    AUDIO("Звук", listOf(VideoWorkspaceTool.AUDIO, VideoWorkspaceTool.REVERSE)),
-    FINISH("Файл", listOf(VideoWorkspaceTool.EXPORT, VideoWorkspaceTool.MORE)),
-}
+private val rootActions = listOf(
+    ReferenceRootAction("Редактор", Icons.Rounded.ContentCut, null, VideoReferenceSection.EDITOR),
+    ReferenceRootAction("Музыка", Icons.Rounded.MusicNote, VideoWorkspaceTool.AUDIO, VideoReferenceSection.MUSIC),
+    ReferenceRootAction("Надписи", Icons.Rounded.TextFields, VideoWorkspaceTool.TEXT, VideoReferenceSection.TEXT),
+    ReferenceRootAction("Соотношение сторон", Icons.Rounded.AspectRatio, VideoWorkspaceTool.CROP),
+    ReferenceRootAction("Откорректировать", Icons.Rounded.Tune, VideoWorkspaceTool.COLOR, colorManual = true),
+    ReferenceRootAction("Фильтры", Icons.Rounded.Filter, VideoWorkspaceTool.COLOR, colorManual = false),
+    ReferenceRootAction("Ещё", Icons.Rounded.MoreHoriz, VideoWorkspaceTool.MORE),
+)
 
-private fun groupFor(tool: VideoWorkspaceTool?) =
-    VideoToolGroup.entries.firstOrNull { tool in it.tools } ?: VideoToolGroup.MONTAGE
+internal fun referenceRootLabels(): List<String> = rootActions.map { it.label }
+
+private val editorActions = listOf(
+    VideoWorkspaceTool.TRIM, VideoWorkspaceTool.SPEED, VideoWorkspaceTool.CROP,
+    VideoWorkspaceTool.ROTATE, VideoWorkspaceTool.REVERSE, VideoWorkspaceTool.TRANSITION,
+    VideoWorkspaceTool.EFFECTS,
+)
+private val musicActions = listOf(VideoWorkspaceTool.AUDIO)
+private val textActions = listOf(VideoWorkspaceTool.TEXT, VideoWorkspaceTool.GRAPHICS)
 
 /**
- * Two-level tool dock mirrors the reference editor's tool hierarchy.
- * Sections remain visible and stable; the existing actions/panels are unchanged.
+ * Native equivalent of HTML v8's ONE horizontally scrollable bottom dock.
+ * The root never shows the old two-level group chips; child sections replace it
+ * with a Back affordance and the corresponding tool row.
+ * Golden reference: Google Drive /Загрузчик/Прототипы/MediaLoader_Видеоредактор_v8_две_строки.html
  */
 @Composable
 internal fun VideoWorkspaceToolbar(
     selected: VideoWorkspaceTool?,
     onSelect: (VideoWorkspaceTool?) -> Unit,
     enabled: Boolean,
+    onColorManualMode: (Boolean) -> Unit = {},
 ) {
-    var group by androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(groupFor(selected))
-    }
-    androidx.compose.runtime.LaunchedEffect(selected) {
-        if (selected != null) group = groupFor(selected)
-    }
-    Column(
-        Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+    var section by remember { mutableStateOf(VideoReferenceSection.MAIN) }
+
+    Row(
+        Modifier.fillMaxWidth().height(89.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                .padding(horizontal = 10.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            VideoToolGroup.entries.forEach { entry ->
-                FilterChip(
-                    selected = entry == group,
-                    onClick = { group = entry },
-                    label = { Text(entry.title) },
-                    enabled = enabled,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = videoToolYellow,
-                        selectedLabelColor = Color.Black,
-                    ),
-                )
-            }
+        if (section != VideoReferenceSection.MAIN) {
+            IconButton(
+                onClick = { section = VideoReferenceSection.MAIN; onSelect(null) },
+                enabled = enabled,
+                modifier = Modifier.width(43.dp).height(45.dp),
+            ) { Icon(Icons.Rounded.ArrowBackIosNew, contentDescription = "К главному меню") }
         }
         Row(
-            Modifier.fillMaxWidth().height(76.dp).horizontalScroll(rememberScrollState())
-                .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier.weight(1f).horizontalScroll(rememberScrollState())
+                .padding(start = if (section == VideoReferenceSection.MAIN) 4.dp else 0.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            group.tools.forEach { tool ->
-                val active = tool == selected
-                Column(
-                    modifier = Modifier.width(66.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Surface(
-                        onClick = { onSelect(if (active) null else tool) },
+            if (section == VideoReferenceSection.MAIN) {
+                rootActions.forEach { item ->
+                    ReferenceDockItem(
+                        label = item.label,
+                        icon = item.icon,
+                        active = item.action != null && item.action == selected,
                         enabled = enabled,
-                        shape = RoundedCornerShape(15.dp),
-                        color = if (active) videoToolYellow
-                            else MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.size(45.dp),
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                tool.icon(), contentDescription = tool.label,
-                                modifier = Modifier.size(22.dp),
-                                tint = if (active) Color.Black
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Text(
-                        tool.label, color = if (active) videoToolYellow else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 10.sp, maxLines = 1,
+                        width = if (item.label == "Соотношение сторон") 72 else 62,
+                        onClick = {
+                            item.colorManual?.let(onColorManualMode)
+                            section = item.section ?: VideoReferenceSection.MAIN
+                            onSelect(item.action)
+                        },
+                    )
+                }
+            } else {
+                val actions = when (section) {
+                    VideoReferenceSection.EDITOR -> editorActions
+                    VideoReferenceSection.MUSIC -> musicActions
+                    VideoReferenceSection.TEXT -> textActions
+                    VideoReferenceSection.MAIN -> emptyList()
+                }
+                actions.forEach { tool ->
+                    ReferenceDockItem(
+                        label = tool.label,
+                        icon = tool.icon(),
+                        active = selected == tool,
+                        enabled = enabled,
+                        width = 72,
+                        onClick = { onSelect(if (selected == tool) null else tool) },
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReferenceDockItem(
+    label: String,
+    icon: ImageVector,
+    active: Boolean,
+    enabled: Boolean,
+    width: Int,
+    onClick: () -> Unit,
+) {
+    androidx.compose.material3.TextButton(
+        onClick = onClick, enabled = enabled,
+        modifier = Modifier.width(width.dp).height(83.dp),
+        contentPadding = PaddingValues(0.dp),
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(top = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                icon, contentDescription = label,
+                modifier = Modifier.size(22.dp),
+                tint = if (active) videoToolYellow else Color(0xFFECECEC),
+            )
+            val lines = when (label) {
+                "Соотношение сторон" -> "Соотношение\nсторон"
+                "Откорректировать" -> "Откорректи\nровать"
+                else -> label
+            }
+            Text(
+                lines, color = if (active) videoToolYellow else Color(0xFFECECEC),
+                fontSize = 9.sp, lineHeight = 11.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2, softWrap = false,
+            )
         }
     }
 }
