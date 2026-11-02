@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
 import android.media.MediaMetadataRetriever
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.content.Intent
@@ -15,6 +16,7 @@ import java.util.UUID
 import kotlinx.coroutines.delay
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -78,6 +80,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -201,6 +205,27 @@ fun VideoEditorScreen(
     val editHistory = remember(item.id) { VideoEditHistory<VideoEditorUndoSnapshot>() }
     var historyRevision by remember(item.id) { mutableIntStateOf(0) }
     var trimGestureActive by remember(item.id) { mutableStateOf(false) }
+    var requestedTrimBoundary by remember(item.id) {
+        mutableStateOf<VideoTrimBoundaryPreview.Request?>(null)
+    }
+    var trimBoundaryFrame by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    // A periodic sample processes the most RECENT pointer position even during
+    // continuous rapid drags; a per-event debounce would never fire.
+    LaunchedEffect(trimGestureActive) {
+        if (!trimGestureActive) return@LaunchedEffect
+        var lastRequest: VideoTrimBoundaryPreview.Request? = null
+        while (true) {
+            val request = requestedTrimBoundary
+            if (request != null && request != lastRequest) {
+                lastRequest = request
+                val frame = withContext(Dispatchers.IO) {
+                    VideoTrimBoundaryPreview.decode(context, request)
+                }
+                if (frame != null) trimBoundaryFrame = frame
+            }
+            delay(95L)
+        }
+    }
     val audioPreviewDeck = remember(item.id) { VideoAudioPreviewDeck(context) }
     DisposableEffect(audioPreviewDeck) { onDispose { audioPreviewDeck.release() } }
     val projectScope = rememberCoroutineScope()
@@ -682,6 +707,18 @@ fun VideoEditorScreen(
                         }
                     },
                 )
+                // During trim, source boundaries can be outside ExoPlayer's
+                // current (debounced) clip range. Show the true sampled frame,
+                // never the stale frame from the previous playlist.
+                if (trimGestureActive) {
+                    trimBoundaryFrame?.let { frame ->
+                        Image(frame.asImageBitmap(), contentDescription =
+                            "Граничный кадр обрезки",
+                            modifier = Modifier.width(videoFit.width.dp)
+                                .height(videoFit.height.dp),
+                            contentScale = ContentScale.Fit)
+                    }
+                }
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 val activeProject = project
@@ -753,8 +790,16 @@ fun VideoEditorScreen(
                             }
                         },
                         trimMode = selectedTool == VideoWorkspaceTool.TRIM,
-                        onTrimGestureStart = { trimGestureActive = true },
-                        onTrimGestureEnd = { trimGestureActive = false },
+                        onTrimGestureStart = {
+                            requestedTrimBoundary = null
+                            trimBoundaryFrame = null
+                            trimGestureActive = true
+                        },
+                        onTrimGestureEnd = {
+                            trimGestureActive = false
+                            requestedTrimBoundary = null
+                            trimBoundaryFrame = null
+                        },
                         onTrim = { id, from, to ->
                             val prior = project ?: return@VideoMultiClipTimeline
                             val previousClip = prior.clips.firstOrNull { it.id == id }
@@ -764,6 +809,8 @@ fun VideoEditorScreen(
                             // Track the boundary currently being dragged. Do not silently
                             // keep previewing the old playhead while trim handles move.
                             val boundarySourceMs = if (fromChanged) from else to - 1L
+                            requestedTrimBoundary = VideoTrimBoundaryPreview.Request(
+                                previousClip.sourceUri, boundarySourceMs)
                             val oldSourceOffset = (boundarySourceMs - previousClip.inMs)
                                 .coerceIn(0L, (previousClip.sourceSpanMs - 1L).coerceAtLeast(0L))
                             previewPlayer?.pause()
