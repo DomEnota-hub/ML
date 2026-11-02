@@ -64,3 +64,14 @@ ID1mysfXrzXaD5B-Nqxk76aWyEpIPaeXztQ; локальный одобренный и�
 GalleryAlbumNavigationTest/GalleryRangeSelectionTest/AudioQueuePlaybackTest
 прошли (Gradle27s). Уведомление и фоновое воспроизведение на физическом устройстве
 NOT_DEVICE_TESTED. Отдельный коммит от Media3.
+
+## P0: расширение реального кодек-теста
+
+Локально4Canvas/thumbnail теста теперь прошли, instrumented Kotlin compile прошёл.
+Внешний HTTP proxy потребовал системный Java truststore, проверка TLS не отключалась.
+Добавлен экспорт всех10эффектов0/50/100%, сравнение реальных декодированных RGB
+(31MP4 с общим NONE-baseline) и сохранение синтетических MP4/CSV в CI artifacts.
+OPTION_CLOSEST вместо sync-keyframe нужен для мерцания в300ms, иначе читался
+первый ключевой кадр снулевой фазой. Выполнение нового теста на Android пока pending.
+CI52766fc: qa упал на новом fixture-validator до Gradle; зависимость FFmpeg явно
+добавлена, runner закреплён ubuntu24.04 в24542da. Результат device job ещё ожидается.

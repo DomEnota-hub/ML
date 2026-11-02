@@ -127,5 +127,6 @@ jobs:
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             app/build/video-fx-logcat.txt
+            app/build/video-fx-evidence/
           if-no-files-found: warn
           retention-days: 7
