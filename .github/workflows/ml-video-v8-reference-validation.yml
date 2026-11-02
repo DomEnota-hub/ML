@@ -61,12 +61,7 @@ jobs:
           gradle :app:assembleRelease -Parm64Release=true --stacktrace
           file=app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$file"
-          aapt="$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt"
-          "$aapt" dump badging "$file" | grep -F "com.domenota.medialoader"
-          "$aapt" dump badging "$file" | grep -F "1.7.112"
-          bytes=$(stat -c %s "$file")
-          echo "Unsigned release size: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
-          test "$bytes" -lt 130000000
+          python3 scripts/verify-production-apk.py "$file" "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Preserve unit and lint reports even on failure
         if: always()
         uses: actions/upload-artifact@v4
