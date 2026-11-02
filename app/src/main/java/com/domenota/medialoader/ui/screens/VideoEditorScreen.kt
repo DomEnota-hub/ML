@@ -17,6 +17,7 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -587,17 +588,21 @@ fun VideoEditorScreen(
                         selectedTool == VideoWorkspaceTool.TEXT ||
                             selectedTool == VideoWorkspaceTool.GRAPHICS
                     },
-                    onOverlayDrag = { dx, dy ->
+                    onOverlayTransform = { dx, dy, zoom, angle ->
                         textLayers = textLayers.map { layer ->
                             if (layer.id == selectedOverlayId) layer.copy(
                                 centerX = (layer.centerX + dx).coerceIn(0f, 1f),
-                                centerY = (layer.centerY + dy).coerceIn(0f, 1f))
+                                centerY = (layer.centerY + dy).coerceIn(0f, 1f),
+                                size = (layer.size * zoom).coerceIn(.02f, .25f),
+                                rotation = normalizeVideoRotation(layer.rotation + angle))
                             else layer
                         }
                         graphicLayers = graphicLayers.map { layer ->
                             if (layer.id == selectedOverlayId) layer.copy(
                                 centerX = (layer.centerX + dx).coerceIn(0f, 1f),
-                                centerY = (layer.centerY + dy).coerceIn(0f, 1f))
+                                centerY = (layer.centerY + dy).coerceIn(0f, 1f),
+                                size = (layer.size * zoom).coerceIn(.03f, .85f),
+                                rotation = normalizeVideoRotation(layer.rotation + angle))
                             else layer
                         }
                     },
@@ -1361,9 +1366,9 @@ private fun CropVideoPreview(
     onCropChange: (CropFractions) -> Unit,
     showCropFrame: Boolean = true,
     activeOverlayCenter: Pair<Float, Float>? = null,
-    onOverlayDrag: (Float, Float) -> Unit = { _, _ -> },
+    onOverlayTransform: (Float, Float, Float, Float) -> Unit = { _, _, _, _ -> },
 ) {
-    val latestOverlayDrag by rememberUpdatedState(onOverlayDrag)
+    val latestOverlayTransform by rememberUpdatedState(onOverlayTransform)
     Box(modifier.background(Color.Black)) {
         AndroidView(
             factory = { viewContext ->
@@ -1388,12 +1393,13 @@ private fun CropVideoPreview(
             modifier = Modifier.fillMaxSize(),
         )
         if (activeOverlayCenter != null && !showCropFrame) {
-            Canvas(Modifier.fillMaxSize().pointerInput(true) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    latestOverlayDrag(
-                        dragAmount.x / size.width.coerceAtLeast(1),
-                        dragAmount.y / size.height.coerceAtLeast(1))
+            Canvas(Modifier.fillMaxSize().pointerInput(activeOverlayCenter) {
+                detectTransformGestures { _, pan, zoom, rotation ->
+                    latestOverlayTransform(
+                        pan.x / size.width.coerceAtLeast(1),
+                        pan.y / size.height.coerceAtLeast(1),
+                        zoom,
+                        rotation)
                 }
             }) {
                 val center = Offset(size.width * activeOverlayCenter.first,
@@ -1471,4 +1477,10 @@ private fun readVisualInfo(context: android.content.Context, uri: Uri): VideoInf
         if (options.outWidth <= 0 || options.outHeight <= 0) null
         else VideoInfo(options.outWidth, options.outHeight, 3000L, null, isImage = true)
     }.getOrNull()
+}
+
+/** Match text/sticker renderer rotation limits after continuous two-finger gestures. */
+internal fun normalizeVideoRotation(degrees: Float): Float {
+    if (!degrees.isFinite()) return 0f
+    return ((degrees + 180f) % 360f + 360f) % 360f - 180f
 }
