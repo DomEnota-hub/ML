@@ -50,6 +50,19 @@ jobs:
           "$bt/apksigner" verify --print-certs "$apk"
           test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
           sha256sum "$apk"
+      - name: Verify 1.7.112 production ARM64 release compile and size
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:assembleRelease -Parm64Release=true --stacktrace
+          file=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$file"
+          aapt="$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt"
+          "$aapt" dump badging "$file" | grep -F "com.domenota.medialoader"
+          "$aapt" dump badging "$file" | grep -F "1.7.112"
+          bytes=$(stat -c %s "$file")
+          echo "Unsigned release size: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
+          test "$bytes" -lt 130000000
       - name: Keep short-lived CI APK (not published as QA prerelease)
         uses: actions/upload-artifact@v4
         with:
