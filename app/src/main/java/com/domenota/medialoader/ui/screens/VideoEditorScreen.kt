@@ -38,6 +38,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.RotateRight
@@ -166,6 +171,7 @@ fun VideoEditorScreen(
     }
     var selectedOverlayId by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedTool by remember(item.id) { mutableStateOf<VideoWorkspaceTool?>(null) }
+    var referenceMoreOpen by remember(item.id) { mutableStateOf(false) }
     var referenceColorManual by remember(item.id) { mutableStateOf(false) }
     var exportSettings by remember(item.id) { mutableStateOf(VideoExportSettings()) }
     var firstClipInfo by remember(item.id) { mutableStateOf<VideoInfo?>(null) }
@@ -524,25 +530,47 @@ fun VideoEditorScreen(
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = Color(0xFF101010),
         topBar = {
             TopAppBar(
-                title = { Text("Видеоредактор", maxLines = 1) },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = requestExit) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
+                        Icon(Icons.Rounded.Close, contentDescription = "Закрыть редактор",
+                            tint = Color.White)
                     }
                 },
                 actions = {
-                    IconButton(onClick = ::resetEdits,
-                        enabled = hasUnsavedChanges && !ownExport && !busyWithOther) {
-                        Icon(Icons.Rounded.RestartAlt, contentDescription = "Сбросить")
-                    }
                     TextButton(onClick = { onExport(exportSpec()) },
                         enabled = info != null && !ownExport && !busyWithOther &&
                             !reversePreviewBusy) {
-                        Text("Сохранить")
+                        Text("Сохранить", color = Color.White)
+                    }
+                    Box {
+                        IconButton(onClick = { referenceMoreOpen = true }) {
+                            Icon(Icons.Rounded.MoreVert,
+                                contentDescription = "Дополнительные действия",
+                                tint = Color.White)
+                        }
+                        DropdownMenu(
+                            expanded = referenceMoreOpen,
+                            onDismissRequest = { referenceMoreOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Сбросить изменения") },
+                                enabled = hasUnsavedChanges && !ownExport && !busyWithOther,
+                                onClick = {
+                                    referenceMoreOpen = false
+                                    resetEdits()
+                                }
+                            )
+                        }
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF101010),
+                    titleContentColor = Color.White,
+                ),
             )
         },
     ) { padding ->
