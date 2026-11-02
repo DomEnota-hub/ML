@@ -60,7 +60,6 @@ fun GalleryModeScreen(
     onDetailChange: (Boolean) -> Unit = {}, onTrash: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
     onDeleteFolder: suspend (String) -> Unit = {},
-    miniPlayer: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -506,7 +505,6 @@ fun GalleryModeScreen(
         }
         Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
             .onSizeChanged { galleryOverlayHeightPx = it.height }.zIndex(6f)) {
-            miniPlayer()
             if (!detailOpen) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
         }
         }

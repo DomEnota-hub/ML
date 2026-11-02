@@ -904,7 +904,9 @@ fun MediaLoaderApp(
                 currentRoute != "diagnostics" && currentRoute != "vk-community") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
-                    AudioMiniPlayer(
+                    // Gallery intentionally has no player chrome. Playback is
+                    // owned by the service and continues independently of this UI.
+                    if (appMode != AppMode.GALLERY) AudioMiniPlayer(
                         onOpenQueue = openDownloadWithQueue,
                         onOpen = { mediaId ->
                             if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
@@ -1033,19 +1035,7 @@ fun MediaLoaderApp(
                     deviceAlbums = publicLibraryRefs.mapNotNull { ref -> ref.deviceAlbumId?.let { id ->
                         ref.key to DeviceAlbum(id, ref.deviceAlbumName ?: "Без альбома")
                     } }.toMap(),
-                    // Keep a playing-audio mini-player without letting Scaffold
-                    // reserve a solid background strip beneath the gallery.
-                    miniPlayer = {
-                        AudioMiniPlayer(
-                            compact = true,
-                            onOpenQueue = openDownloadWithQueue,
-                            onOpen = { mediaId ->
-                                if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
-                                    navController.navigate("viewer/$mediaId")
-                                }
-                            },
-                        )
-                    })
+                    )
                 else MusicModeScreen(
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
                     allAudio = libraryItems.filter { it.mediaType == MediaType.AUDIO }, playlists = playlists,

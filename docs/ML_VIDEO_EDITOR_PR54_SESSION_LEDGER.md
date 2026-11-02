@@ -54,3 +54,13 @@ ID1mysfXrzXaD5B-Nqxk76aWyEpIPaeXztQ; локальный одобренный и�
 
 Локально Android SDK/Java17/Gradle8.9 доступны; нет emulator и /dev/kvm.
 Реальные инструментальные тесты запускаются в CI Android35 x86_64 (не ARM64-телефон).
+
+## Изолированный блок галереи53.1
+
+Удалён сам слот miniPlayer из GalleryModeScreen и передаваемый callback.
+Внешний Scaffold больше не рисует AudioMiniPlayer при AppMode.GALLERY;
+переключатель Медиа/Альбомы сохранён. Музыкальный сервис, очередь, позиция,
+скорость и управление в MusicModeScreen не менялись. Локальные
+GalleryAlbumNavigationTest/GalleryRangeSelectionTest/AudioQueuePlaybackTest
+прошли (Gradle27s). Уведомление и фоновое воспроизведение на физическом устройстве
+NOT_DEVICE_TESTED. Отдельный коммит от Media3.
