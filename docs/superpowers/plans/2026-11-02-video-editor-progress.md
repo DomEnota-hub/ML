@@ -57,3 +57,15 @@ Source/evidence in references/2026-11-02-video-editor/v5; minimal save browser
 scenario and node check passed. Drive1akITdXSpuRRSKnTznuqELQyruWlZ7P-O,
 173585bytes; upload and readback verified. Save screenshot is no longer pending.
 Other unshown states remain unverified. No Android source/build/version changes.
+
+## New reference hierarchy clarified by user
+
+Drive «Образцы → Основное меню» contains2main-editor screenshots and6section
+folders with12more screenshots. Fetched all14and visually inspected them.
+This is the VIDEO EDITOR main menu, not downloader main-mode UI.
+Index and concrete v5 gaps saved in screenshots-drive-index.json and
+screenshots-drive-notes.md under references/2026-11-02-video-editor.
+Project aspect panel and local music selector/audio-clip toolbar are now visually
+documented and should replace pending/simplified UI next. Titles editor/full
+filter catalogue/online music states are still absent. No new HTML/native build
+in this clarification step; v5 remains the last delivered prototype.

@@ -1,0 +1,120 @@
+{
+  "root": {
+    "id": "1_gYKLDtiT0Krtv2SwAYLjnoAK3_oA07q",
+    "name": "Образцы "
+  },
+  "main": {
+    "id": "1vmekpotCut9F_NZn-OVQxqfyn1IVj4AJ",
+    "name": "Основное меню",
+    "files": [
+      {
+        "id": "1npR6kpZzoOPFM6U8_zbHWgFawcXh5W8y",
+        "name": "Screenshot_2026-11-02-15-05-37-872_com.miui.mediaeditor.jpg",
+        "mimeType": "image/jpeg"
+      },
+      {
+        "id": "1nBfGlohdr7XuhfMHGzVnXLMZb4_U1mvE",
+        "name": "Screenshot_2026-11-02-15-05-32-406_com.miui.mediaeditor.jpg",
+        "mimeType": "image/jpeg"
+      }
+    ]
+  },
+  "sections": [
+    {
+      "name": "Фильтры",
+      "id": "1JOoLoq8TfI1Hs5MRiYPKx3wzO32ZZKq8",
+      "files": [
+        {
+          "id": "1e4osUXImOyuF65NTiIiXHr9LsNhMfKpK",
+          "name": "Screenshot_2026-11-02-15-11-17-452_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        }
+      ]
+    },
+    {
+      "name": "Откорректировать",
+      "id": "1QGVSnCobUnyAKx0tJ4LP8hpx4q5tvPAK",
+      "files": [
+        {
+          "id": "1ruX3FFGBOqb8kO7KsqIG1lAeWGF_Y4D5",
+          "name": "Screenshot_2026-11-02-15-10-36-604_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        },
+        {
+          "id": "1YW6rqppWPHjXC0RLj-1XcE7vtK2QraJG",
+          "name": "Screenshot_2026-11-02-15-10-34-641_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        },
+        {
+          "id": "1PSJx4FKur1RQzbdpF6uwu6ghGpAaDu_k",
+          "name": "Screenshot_2026-11-02-15-10-31-239_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        },
+        {
+          "id": "1tWoN6P13EOb8chfwbSIoTMCYoovMyKFP",
+          "name": "/storage/emulated/0/DCIM/Screenshots/Screenshot_2026-11-02-15-10-25-648_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        }
+      ]
+    },
+    {
+      "name": "Соотношение сторон",
+      "id": "1epNmEDGoWoOGBLhShfMq1d8JZWcT2NEx",
+      "files": [
+        {
+          "id": "1clfaXDbwahhG1Kv2Yfke6p3P89Y2bUIa",
+          "name": "Screenshot_2026-11-02-15-09-53-995_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        },
+        {
+          "id": "11dc-YJUNCcUOZj4sCv14E_3Qs13LhKwA",
+          "name": "Screenshot_2026-11-02-15-09-51-088_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        }
+      ]
+    },
+    {
+      "name": "Надписи",
+      "id": "1lpBA-HJ9ZrpEsKrOunfralsSYz7mla0d",
+      "files": [
+        {
+          "id": "1SPAth-GQyt3zKKGfoQAh_dkvLGzJI2RZ",
+          "name": "Screenshot_2026-11-02-15-09-21-937_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        }
+      ]
+    },
+    {
+      "name": "Музыка",
+      "id": "1Y00XezQpXlFcFy7jmkbVnru4nbvcTVPm",
+      "files": [
+        {
+          "id": "1YsBsugNGrQ4rXbsDrgHqQ48BnyNUHsUa",
+          "name": "Screenshot_2026-11-02-15-08-58-595_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        },
+        {
+          "id": "13KkW6Uvc3Jrpz7OpI6Hd9IJYqvr9y8Du",
+          "name": "Screenshot_2026-11-02-15-08-12-506_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        }
+      ]
+    },
+    {
+      "name": "Редактор",
+      "id": "1B0D39Y4LWxegRCm1m0Ovnrcs2vSC56lv",
+      "files": [
+        {
+          "id": "1YbT2OyqgRsltVM240nGmOBenVdy9GoIE",
+          "name": "Screenshot_2026-11-02-15-07-29-899_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        },
+        {
+          "id": "10AfHFPPrD58kvmuQ2-BxNcLEsDMuc10R",
+          "name": "Screenshot_2026-11-02-15-07-19-488_com.miui.mediaeditor.jpg",
+          "mimeType": "image/jpeg"
+        }
+      ]
+    }
+  ]
+}
