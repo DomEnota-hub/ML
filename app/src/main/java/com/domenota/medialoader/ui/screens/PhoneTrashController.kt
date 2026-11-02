@@ -65,6 +65,10 @@ internal fun PhoneTrashController(
     }
     LaunchedEffect(request, index) {
         val action = request ?: return@LaunchedEffect
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            request = null
+            return@LaunchedEffect
+        }
         if (index >= action.batches.size) {
             request = null
             refresh++
