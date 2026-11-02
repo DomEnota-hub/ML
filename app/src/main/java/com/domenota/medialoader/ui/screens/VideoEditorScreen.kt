@@ -8,6 +8,7 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.media3.common.Player
+import androidx.media3.common.VideoFrameProcessor
 import com.domenota.medialoader.data.editor.VideoClipDraft
 import com.domenota.medialoader.data.editor.VideoAudioTrackDraft
 import com.domenota.medialoader.data.editor.VideoAudioPreviewDeck
@@ -468,6 +469,11 @@ fun VideoEditorScreen(
                 .build()
                 .apply {
                     setMediaItem(MediaItem.fromUri(sourceUri))
+                    // Media3 1.9 creates the effect video sink only when
+                    // setVideoEffects is first called BEFORE prepare().
+                    // An empty list is intentional: it enables GPU processing
+                    // without altering the original image initially.
+                    setVideoEffects(emptyList())
                     prepare()
                     playWhenReady = false
                 }
@@ -502,7 +508,10 @@ fun VideoEditorScreen(
         val effects = VideoEditor(context).previewEffects(
             textPreviewSpec, timeOffsetMs = textPreviewSpec.startMs)
         previewPlayer?.setVideoEffects(effects)
-        previewPlayer?.seekTo(previewPlayer.currentPosition)
+        // Media3 1.9 REDRAW asks the GPU video sink to repaint the paused
+        // frame with the just-updated shader/overlay. Seeking to the exact
+        // same timestamp does not reliably emit a new rendered video frame.
+        previewPlayer?.setVideoEffects(VideoFrameProcessor.REDRAW)
     }
 
     LaunchedEffect(uri) {
