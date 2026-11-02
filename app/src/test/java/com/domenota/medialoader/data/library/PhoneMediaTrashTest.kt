@@ -20,15 +20,17 @@ class PhoneMediaTrashTest {
     @Test fun onlySelectedMediaStoreTrashUrisCanBeRestoredOrDeleted() {
         val photo = row("phone-trash:image:42", "content://media/external/images/media/42")
         val video = row("phone-trash:video:7", "content://media/external/video/media/7")
+        val audio = row("phone-trash:audio:9", "content://media/external/audio/media/9")
         val app = row("ml-7", "content://media/external/images/media/42")
         val malicious = row("phone-trash:image:8", "content://untrusted/external/images/media/8")
         val result = PhoneMediaTrash.authorizedUris(
-            setOf(photo.id, video.id, app.id, malicious.id),
-            listOf(photo, video, app, malicious)
+            setOf(photo.id, video.id, audio.id, app.id, malicious.id),
+            listOf(photo, video, audio, app, malicious)
         )
-        assertEquals(2, result.size)
+        assertEquals(3, result.size)
         assertEquals(photo.savedUri, result[0].toString())
         assertEquals(video.savedUri, result[1].toString())
+        assertEquals(audio.savedUri, result[2].toString())
         assertFalse(PhoneMediaTrash.isPhoneTrashId(app.id))
     }
 
