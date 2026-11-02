@@ -568,11 +568,10 @@ fun VideoEditorScreen(
                 val isRotated = rotation % 180 != 0
                 val naturalWidth = if (isRotated) h else w
                 val naturalHeight = if (isRotated) w else h
-                val videoRatio = naturalWidth.toFloat() / naturalHeight.coerceAtLeast(1)
-                val fittedWidth = minOf(maxWidth, maxHeight * videoRatio)
-                val fittedHeight = fittedWidth / videoRatio
+                val videoFit = fitVideoPreview(
+                    maxWidth.value, maxHeight.value, naturalWidth, naturalHeight)
                 CropVideoPreview(
-                    modifier = Modifier.width(fittedWidth).height(fittedHeight),
+                    modifier = Modifier.width(videoFit.width.dp).height(videoFit.height.dp),
                     player = requireNotNull(previewPlayer),
                     sourceWidth = if (isRotated) h else w,
                     sourceHeight = if (isRotated) w else h,
