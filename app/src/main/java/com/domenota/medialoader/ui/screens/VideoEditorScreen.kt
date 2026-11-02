@@ -1312,6 +1312,25 @@ fun VideoEditorScreen(
                 onColorManualMode = { referenceColorManual = it },
                 colorManualMode = referenceColorManual,
                 canDeleteClip = (project?.clips?.size ?: 0) > 1,
+                canSplitClip = currentClip?.mediaKind == VideoClipMediaKind.VIDEO &&
+                    (currentClip?.sourceSpanMs ?: 0L) >= 200L,
+                onSplitClip = {
+                    val draft = project
+                    val ix = draft?.indexOf(selectedClipId) ?: -1
+                    val clip = draft?.clips?.getOrNull(ix)
+                    if (draft != null && clip != null &&
+                        clip.mediaKind == VideoClipMediaKind.VIDEO) {
+                        val local = (playheadMs - draft.timelineStart(ix))
+                            .coerceIn(0L, clip.durationMs)
+                        val splitSourceMs = clip.sourceAt(local)
+                        val rightId = UUID.randomUUID().toString()
+                        runCatching { draft.splitAt(clip.id, splitSourceMs, rightId) }
+                            .onSuccess { applyProject(it, rightId, splitSourceMs) }
+                            .onFailure {
+                                clipError = "Перемести указатель минимум на 0,1 с от края клипа"
+                            }
+                    }
+                },
                 canSeparateAudio = !removeAudio &&
                     project?.clips?.any {
                         it.mediaKind == VideoClipMediaKind.VIDEO && it.speed == 1f
