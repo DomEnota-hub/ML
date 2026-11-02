@@ -78,6 +78,13 @@ internal fun VideoMultiClipTimeline(
 ) {
     // Full timeline detail by default; the scale is not user-adjustable.
     val zoom = 2.5f
+    // The scale is calculated from the ORIGINAL (untrimmed) source length so
+    // yellow-handle trimming does not alter px/sec during a single gesture.
+    val referenceDurationMs = project.clips.maxOf {
+        (it.sourceDurationMs / it.speed).roundToLong().coerceAtLeast(1L)
+    }
+    val pixelsPerSecondDp = VideoClipReorderMath.pixelsPerSecondDp(
+        zoom, referenceDurationMs)
     val density = LocalDensity.current.density
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
@@ -116,10 +123,12 @@ internal fun VideoMultiClipTimeline(
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically) {
             itemsIndexed(project.clips, key = { _, clip -> clip.id }) { index, clip ->
-                    val width = VideoClipReorderMath.widthDp(clip.durationMs, zoom).dp
+                    val width = VideoClipReorderMath.widthDp(clip.durationMs, zoom, referenceDurationMs).dp
                     VideoClipStrip(
                         clip = clip,
                         widthModifier = Modifier.width(width),
+                        pixelsPerSecondDp = pixelsPerSecondDp,
+                        displayDensity = density,
                         isSelected = clip.id == selectedClipId,
                         localPositionMs = (positionMs - project.timelineStart(index))
                             .takeIf { it >= 0L && it <= clip.durationMs },
@@ -139,6 +148,7 @@ internal fun VideoMultiClipTimeline(
                             val destination = VideoClipReorderMath.destinationIndex(
                                 project.clips.map { it.durationMs },
                                 index, deltaPx, zoom, density,
+                                referenceDurationMs = referenceDurationMs,
                             )
                             if (destination != index) onMove(clip.id, destination)
                         }
@@ -157,6 +167,8 @@ internal fun VideoMultiClipTimeline(
 private fun VideoClipStrip(
     clip: VideoClipDraft,
     widthModifier: Modifier,
+    pixelsPerSecondDp: Float,
+    displayDensity: Float,
     isSelected: Boolean,
     localPositionMs: Long?,
     enabled: Boolean,
@@ -277,31 +289,63 @@ private fun VideoClipStrip(
             }
         }
         if (isSelected) {
-            // Trim handles operate directly on original clip source coordinates.
+            // Independent, stable source-bound trim handles. Pixels map to
+            // TIME on a fixed scale (not to the ever-changing current width).
+            // Each gesture captures its original bounds and cumulative movement.
+            // One finger drag therefore shortens/extends the clip proportionally.
             Box(Modifier.align(Alignment.CenterStart).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
-                .pointerInput(clip.id, enabled) {
-                    if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE ||
-                        latestClip.sourceSpanMs < 200L) return@pointerInput
-                    detectDragGestures { change, delta ->
-                        change.consume()
-                        val shift = (delta.x / pixelWidth * latestClip.sourceSpanMs).roundToLong()
-                        val limit = (latestClip.outMs - 100L).coerceAtLeast(0L)
-                        latestOnTrim((latestClip.inMs + shift).coerceIn(0L, limit), latestClip.outMs)
-                    }
+                .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
+                    if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE)
+                        return@pointerInput
+                    var initialIn = 0L
+                    var initialOut = 0L
+                    var cumulativePx = 0f
+                    var sourceSpeed = 1f
+                    detectDragGestures(
+                        onDragStart = {
+                            initialIn = latestClip.inMs
+                            initialOut = latestClip.outMs
+                            sourceSpeed = latestClip.speed
+                            cumulativePx = 0f
+                        },
+                        onDrag = { change, delta ->
+                            change.consume()
+                            cumulativePx += delta.x
+                            val shift = VideoClipReorderMath.sourceDeltaMs(
+                                cumulativePx, pixelsPerSecondDp, displayDensity, sourceSpeed)
+                            latestOnTrim((initialIn + shift)
+                                .coerceIn(0L, initialOut - 100L), initialOut)
+                        },
+                    )
                 })
             Box(Modifier.align(Alignment.CenterEnd).width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .85f))
-                .pointerInput(clip.id, enabled) {
-                    if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE ||
-                        latestClip.sourceSpanMs < 200L) return@pointerInput
-                    detectDragGestures { change, delta ->
-                        change.consume()
-                        val shift = (delta.x / pixelWidth * latestClip.sourceSpanMs).roundToLong()
-                        val minEnd = (latestClip.inMs + 100L).coerceAtMost(latestClip.sourceDurationMs)
-                        latestOnTrim(latestClip.inMs, (latestClip.outMs + shift)
-                            .coerceIn(minEnd, latestClip.sourceDurationMs))
-                    }
+                .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
+                    if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE)
+                        return@pointerInput
+                    var initialIn = 0L
+                    var initialOut = 0L
+                    var sourceDuration = 0L
+                    var sourceSpeed = 1f
+                    var cumulativePx = 0f
+                    detectDragGestures(
+                        onDragStart = {
+                            initialIn = latestClip.inMs
+                            initialOut = latestClip.outMs
+                            sourceDuration = latestClip.sourceDurationMs
+                            sourceSpeed = latestClip.speed
+                            cumulativePx = 0f
+                        },
+                        onDrag = { change, delta ->
+                            change.consume()
+                            cumulativePx += delta.x
+                            val shift = VideoClipReorderMath.sourceDeltaMs(
+                                cumulativePx, pixelsPerSecondDp, displayDensity, sourceSpeed)
+                            latestOnTrim(initialIn, (initialOut + shift)
+                                .coerceIn(initialIn + 100L, sourceDuration))
+                        },
+                    )
                 })
         }
         if (onSelectTransition != null) {
