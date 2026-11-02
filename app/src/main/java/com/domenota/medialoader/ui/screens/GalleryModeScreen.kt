@@ -148,6 +148,7 @@ fun GalleryModeScreen(
             }
         }
     }
+    val selectableDateRange = galleryDateRange(visibleDisplayed.map { it.createdAtEpochMillis })
     val dateSections = remember(visibleDisplayed) {
         visibleDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
             .atZone(ZoneId.systemDefault()).toLocalDate() }
@@ -515,7 +516,7 @@ fun GalleryModeScreen(
             text = {
                 Text(if (appFolder)
                     "Папка «${album.name}» будет удалена из MediaLoader. Её ${album.count} файлов сохранятся в «Медиа» без этой папки."
-                else "В альбоме «${album.name}» ${albumRows.size} файлов. Они будут удалены с устройства после системного подтверждения. Это не простое скрытие.")
+                else "В альбоме «${album.name}» ${albumRows.size} файлов. Они будут перемещены в корзину после системного подтверждения и смогут быть восстановлены.")
             },
             confirmButton = {
                 TextButton(
@@ -534,8 +535,9 @@ fun GalleryModeScreen(
             dismissButton = { TextButton({ deletingAlbum = null }) { Text("Отмена") } },
         )
     }
-    if (showDatePicker) {
+    if (showDatePicker && selectableDateRange != null) {
         GalleryDatePicker(
+            range = selectableDateRange,
             onDismiss = { showDatePicker = false },
             onPick = { chosen ->
                 showDatePicker = false
@@ -670,17 +672,25 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
 
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GalleryDatePicker(onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
-    val state = rememberDatePickerState()
+private fun GalleryDatePicker(range: GalleryDateRange, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
+    val selectableDates = remember(range) { object : SelectableDates {
+        override fun isSelectableDate(utcTimeMillis: Long): Boolean = range.contains(
+            Instant.ofEpochMilli(utcTimeMillis).atZone(ZoneOffset.UTC).toLocalDate())
+        override fun isSelectableYear(year: Int): Boolean = year in range.years
+    } }
+    val state = rememberDatePickerState(yearRange = range.years, selectableDates = selectableDates)
     DatePickerDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = {
                 state.selectedDateMillis?.let { millis ->
                     // Material DatePicker encodes dates in UTC, not the phone's current timezone.
-                    onPick(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate())
+                    val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                    if (range.contains(date)) onPick(date)
                 }
-            }, enabled = state.selectedDateMillis != null) { Text("Перейти") }
+            }, enabled = state.selectedDateMillis?.let { millis ->
+                range.contains(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate())
+            } == true) { Text("Перейти") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     ) {
