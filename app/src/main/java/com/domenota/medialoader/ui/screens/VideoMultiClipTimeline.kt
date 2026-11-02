@@ -71,6 +71,8 @@ internal fun VideoMultiClipTimeline(
     onSelect: (String) -> Unit,
     onSeek: (Long) -> Unit,
     onTrim: (String, Long, Long) -> Unit,
+    onTrimGestureStart: () -> Unit = {},
+    onTrimGestureEnd: () -> Unit = {},
     onMove: (String, Int) -> Unit,
     onAdd: () -> Unit,
     onSelectTransition: (String) -> Unit = {},
@@ -144,6 +146,8 @@ internal fun VideoMultiClipTimeline(
                                 (clip.durationMs * fraction).roundToLong())
                         },
                         onTrim = { a, b -> onTrim(clip.id, a, b) },
+                        onTrimGestureStart = onTrimGestureStart,
+                        onTrimGestureEnd = onTrimGestureEnd,
                         onDragOrder = { deltaPx ->
                             val destination = VideoClipReorderMath.destinationIndex(
                                 project.clips.map { it.durationMs },
@@ -177,11 +181,15 @@ private fun VideoClipStrip(
     onSelect: () -> Unit,
     onSeek: (Float) -> Unit,
     onTrim: (Long, Long) -> Unit,
+    onTrimGestureStart: () -> Unit,
+    onTrimGestureEnd: () -> Unit,
     onDragOrder: (Float) -> Unit,
 ) {
     val context = LocalContext.current
     val latestClip by rememberUpdatedState(clip)
     val latestOnTrim by rememberUpdatedState(onTrim)
+    val latestOnTrimGestureStart by rememberUpdatedState(onTrimGestureStart)
+    val latestOnTrimGestureEnd by rememberUpdatedState(onTrimGestureEnd)
     // Do not re-decode 4 full-resolution frames on EVERY millisecond of trim drag.
     // The player independently seeks to the exact active boundary every drag event.
     val thumbnailStartSecond = clip.inMs / 1000L
@@ -308,7 +316,10 @@ private fun VideoClipStrip(
                             initialOut = latestClip.outMs
                             sourceSpeed = latestClip.speed
                             cumulativePx = 0f
+                            latestOnTrimGestureStart()
                         },
+                        onDragEnd = { latestOnTrimGestureEnd() },
+                        onDragCancel = { latestOnTrimGestureEnd() },
                         onDrag = { change, delta ->
                             change.consume()
                             cumulativePx += delta.x
@@ -336,7 +347,10 @@ private fun VideoClipStrip(
                             sourceDuration = latestClip.sourceDurationMs
                             sourceSpeed = latestClip.speed
                             cumulativePx = 0f
+                            latestOnTrimGestureStart()
                         },
+                        onDragEnd = { latestOnTrimGestureEnd() },
+                        onDragCancel = { latestOnTrimGestureEnd() },
                         onDrag = { change, delta ->
                             change.consume()
                             cumulativePx += delta.x
