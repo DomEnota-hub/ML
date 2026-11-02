@@ -35,6 +35,8 @@ internal object PhoneMediaTrash {
         val sources = listOf(
             Triple("image", MediaStore.Images.Media.EXTERNAL_CONTENT_URI, MediaKind.IMAGE),
             Triple("video", MediaStore.Video.Media.EXTERNAL_CONTENT_URI, MediaKind.VIDEO),
+            // Music uses the same shared phone deletion host; do not orphan trashed audio.
+            Triple("audio", MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, MediaKind.AUDIO),
         )
         sources.flatMap { (type, collection, kind) ->
             val result = mutableListOf<DownloadUiItem>()
