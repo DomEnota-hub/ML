@@ -46,7 +46,7 @@ internal fun VideoColorPanel(
     val context = LocalContext.current
     val favoriteEffects = remember(context) {
         context.getSharedPreferences("ml_filter_favorites", android.content.Context.MODE_PRIVATE)
-            .getStringSet("ids", emptySet()).orEmpty()
+            .getStringSet("selected", emptySet()).orEmpty()
             .mapNotNull { name -> PhotoEffect.entries.find { it.name == name } }.toSet()
     }
     var thumbs by remember(clip?.sourceUri, clip?.inMs) {
