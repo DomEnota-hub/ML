@@ -1,9 +1,6 @@
 package com.domenota.medialoader.ui.components
 
-import android.Manifest
 import android.app.Activity
-import android.app.RecoverableSecurityException
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -14,10 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /** Stable request snapshot: provider notifications cannot remove the pending result handler. */
 @Composable
@@ -31,7 +25,6 @@ internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismis
     val localConfirmation = MediaDeletionPolicy.needsAppConfirmation(Build.VERSION.SDK_INT, canManage, targets)
     var confirmed by rememberSaveable(requestKey) { mutableStateOf(!localConfirmation) }
     var batchIndex by rememberSaveable(requestKey) { mutableIntStateOf(0) }
-    var legacyIndex by rememberSaveable(requestKey) { mutableIntStateOf(0) }
     var appIndex by rememberSaveable(requestKey) { mutableIntStateOf(0) }
     var waiting by rememberSaveable(requestKey) { mutableStateOf(false) }
     var revision by rememberSaveable(requestKey) { mutableIntStateOf(0) }
@@ -43,10 +36,6 @@ internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismis
             if (Build.VERSION.SDK_INT >= 30) batchIndex++
             revision++ // API29 retries the same authorized URI after RecoverableSecurityException.
         }
-    }
-    val legacy = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        waiting = false
-        if (granted) revision++ else { confirmed = false; error = "Нет разрешения на удаление файлов" }
     }
     LaunchedEffect(confirmed, revision) {
         if (!confirmed || waiting) return@LaunchedEffect
@@ -66,32 +55,13 @@ internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismis
                 consent.launch(IntentSenderRequest.Builder(MediaStore.createTrashRequest(context.contentResolver, uris, true).intentSender).build())
                 return@LaunchedEffect
             }
-            if (Build.VERSION.SDK_INT < 30) {
-                val uris = phoneBatches.flatten()
-                if (uris.isNotEmpty() && Build.VERSION.SDK_INT < 29 && ContextCompat.checkSelfPermission(context,
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                    waiting = true
-                    legacy.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    return@LaunchedEffect
-                }
-                while (legacyIndex < uris.size) {
-                    val uri = Uri.parse(uris[legacyIndex])
-                    require(uri.scheme == "content" && uri.authority == "media")
-                    withContext(Dispatchers.IO) { context.contentResolver.delete(uri, null, null) }
-                    legacyIndex++
-                }
-            }
             while (appIndex < appTargets.size) { onDeleteApp(appTargets[appIndex].id); appIndex++ }
             onDeleted()
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
-            if (Build.VERSION.SDK_INT == 29 && e is RecoverableSecurityException) {
-                waiting = true
-                consent.launch(IntentSenderRequest.Builder(e.userAction.actionIntent.intentSender).build())
-            } else {
-                waiting = false; confirmed = false
-                error = "Не удалось завершить удаление. Уже обработанные объекты не будут удаляться повторно."
-            }
+            waiting = false
+            confirmed = false
+            error = "Не удалось завершить перенос в корзину. Уже обработанные объекты не будут перемещаться повторно."
         }
     }
     if (!confirmed) AlertDialog(onDismissRequest = onDismiss,
