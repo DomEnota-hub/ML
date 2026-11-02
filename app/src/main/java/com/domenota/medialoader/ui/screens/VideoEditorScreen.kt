@@ -98,6 +98,7 @@ import com.domenota.medialoader.data.editor.VideoCropMath
 import com.domenota.medialoader.data.editor.VideoEditSpec
 import com.domenota.medialoader.data.editor.VideoEditor
 import com.domenota.medialoader.data.editor.VideoProjectDraft
+import com.domenota.medialoader.data.editor.VideoEditHistory
 import com.domenota.medialoader.data.editor.VideoColorGrade
 import com.domenota.medialoader.data.editor.VideoExportSettings
 import com.domenota.medialoader.data.editor.VideoClipMediaKind
@@ -128,6 +129,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import java.io.File
+
+private data class VideoEditorUndoSnapshot(
+    val project: VideoProjectDraft,
+    val textLayers: List<TextLayer>,
+    val graphicLayers: List<VideoGraphicLayer>,
+    val removeAudio: Boolean,
+    val reverseVideo: Boolean,
+    val exportSettings: VideoExportSettings,
+    val selectedClipId: String,
+)
 
 private data class VideoInfo(
     val width: Int,
@@ -186,6 +197,8 @@ fun VideoEditorScreen(
     var selectedPreviewInfo by remember(item.id) { mutableStateOf<VideoInfo?>(null) }
     var clipError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedAudioTrackId by remember(item.id) { mutableStateOf<String?>(null) }
+    val editHistory = remember(item.id) { VideoEditHistory<VideoEditorUndoSnapshot>() }
+    var historyRevision by remember(item.id) { mutableIntStateOf(0) }
     val audioPreviewDeck = remember(item.id) { VideoAudioPreviewDeck(context) }
     DisposableEffect(audioPreviewDeck) { onDispose { audioPreviewDeck.release() } }
     val projectScope = rememberCoroutineScope()
@@ -366,6 +379,35 @@ fun VideoEditorScreen(
         project = project,
         exportSettings = exportSettings,
     )
+
+    // Observe edits, not playback/seeking. Undo/redo restores the same snapshot
+    // without creating a second history entry. Bounded at 60 snapshots.
+    LaunchedEffect(project, textLayers, graphicLayers, removeAudio, reverseVideo, exportSettings) {
+        val current = project ?: return@LaunchedEffect
+        if (editHistory.record(VideoEditorUndoSnapshot(
+                current, textLayers, graphicLayers, removeAudio, reverseVideo,
+                exportSettings, selectedClipId))) historyRevision++
+    }
+    fun restoreSnapshot(snapshot: VideoEditorUndoSnapshot) {
+        project = snapshot.project
+        selectedClipId = snapshot.selectedClipId.takeIf {
+            id -> snapshot.project.indexOf(id) >= 0
+        } ?: snapshot.project.clips.first().id
+        playheadMs = playheadMs.coerceIn(0L, (snapshot.project.durationMs - 1L).coerceAtLeast(0L))
+        textLayers = snapshot.textLayers
+        graphicLayers = snapshot.graphicLayers
+        removeAudio = snapshot.removeAudio
+        reverseVideo = snapshot.reverseVideo
+        exportSettings = snapshot.exportSettings
+        selectedAudioTrackId = selectedAudioTrackId?.takeIf {
+            id -> snapshot.project.audioTracks.any { it.id == id }
+        }
+        selectedOverlayId = selectedOverlayId?.takeIf { id ->
+            snapshot.textLayers.any { it.id == id } ||
+                snapshot.graphicLayers.any { it.id == id }
+        }
+        clipError = null
+    }
 
     LaunchedEffect(reverseVideo, project, removeAudio, textLayers, graphicLayers) {
         reversePreviewJob?.cancel()
@@ -646,6 +688,16 @@ fun VideoEditorScreen(
                         positionMs = playheadMs,
                         isPlaying = timelineIsPlaying,
                         enabled = !ownExport && !busyWithOther,
+                        canUndo = historyRevision >= 0 && editHistory.canUndo,
+                        canRedo = historyRevision >= 0 && editHistory.canRedo,
+                        onUndo = {
+                            editHistory.undo()?.let(::restoreSnapshot)
+                            historyRevision++
+                        },
+                        onRedo = {
+                            editHistory.redo()?.let(::restoreSnapshot)
+                            historyRevision++
+                        },
                         frameIntervalMs = selectedFrameDurationMs,
                         onFrameStep = { direction ->
                             val interval = selectedFrameDurationMs
