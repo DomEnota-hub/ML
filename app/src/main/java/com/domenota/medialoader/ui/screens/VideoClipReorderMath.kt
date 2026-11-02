@@ -21,6 +21,24 @@ internal object VideoClipReorderMath {
         (durationMs.coerceAtLeast(1L) / 1000f *
             pixelsPerSecondDp(zoom, referenceDurationMs)).coerceAtLeast(56f)
 
+    /** The live yellow range sits over the ORIGINAL source reel during trimming. */
+    data class TrimSelection(val leftDp: Float, val rightDp: Float) {
+        val keptDp: Float get() = (rightDp - leftDp).coerceAtLeast(0f)
+    }
+
+    fun trimSelection(sourceDurationMs: Long, inMs: Long, outMs: Long,
+        displayWidthDp: Float): TrimSelection {
+        require(sourceDurationMs > 0L && inMs >= 0L && inMs < outMs &&
+            outMs <= sourceDurationMs)
+        require(displayWidthDp.isFinite() && displayWidthDp > 0f)
+        return TrimSelection(
+            leftDp = inMs.toDouble().div(sourceDurationMs).times(displayWidthDp)
+                .toFloat().coerceIn(0f, displayWidthDp),
+            rightDp = outMs.toDouble().div(sourceDurationMs).times(displayWidthDp)
+                .toFloat().coerceIn(0f, displayWidthDp),
+        )
+    }
+
     /** +/- screen pixels to +/- actual trimmed SOURCE milliseconds. */
     fun sourceDeltaMs(
         cumulativeDragPx: Float,
