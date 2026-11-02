@@ -25,8 +25,6 @@ import com.domenota.medialoader.data.editor.VideoFilterGroup
 import com.domenota.medialoader.data.editor.VideoFilterPreset
 import com.domenota.medialoader.data.editor.PhotoEffect
 import com.domenota.medialoader.data.editor.PhotoEffectCategory
-import com.domenota.medialoader.data.editor.PhotoColorMath
-import com.domenota.medialoader.data.editor.PhotoColorAdjustments
 import com.domenota.medialoader.data.editor.SharedVideoFilterCatalog
 import com.domenota.medialoader.data.editor.VideoClipDraft
 import java.util.Locale
@@ -58,15 +56,10 @@ internal fun VideoColorPanel(
         val active = clip ?: return@LaunchedEffect
         val selection = SharedVideoFilterCatalog.forCategory(group, favoriteEffects)
         thumbs = withContext(Dispatchers.IO) {
-            val sample = VideoFxThumbnail.readFrame(context, active) ?: return@withContext emptyMap()
-            try {
-                selection.associateWith { effect ->
-                    val rendered = PhotoColorMath.apply(
-                        sample, PhotoColorAdjustments(effect = effect))
-                    if (rendered === sample) sample.copy(Bitmap.Config.ARGB_8888, false)
-                    else rendered
-                }
-            } finally { sample.recycle() }
+            selection.mapNotNull { effect ->
+                VideoThumbnailMemoryCache.photo(context, active, effect)
+                    ?.let { effect to it }
+            }.toMap()
         }
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
