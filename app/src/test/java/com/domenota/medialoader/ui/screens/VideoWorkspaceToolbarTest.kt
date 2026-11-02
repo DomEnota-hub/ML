@@ -8,6 +8,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -79,7 +80,7 @@ class VideoWorkspaceToolbarTest {
             assertEquals(VideoWorkspaceTool.COLOR, selection.value)
             assertEquals(true, isManual.value)
         }
-        compose.onNodeWithContentDescription("Фильтры").performClick()
+        compose.onNodeWithContentDescription("Фильтры").performScrollTo().performClick()
         compose.runOnIdle {
             assertEquals(VideoWorkspaceTool.COLOR, selection.value)
             assertEquals(false, isManual.value)
