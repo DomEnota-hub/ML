@@ -92,7 +92,9 @@ fun GalleryModeScreen(
     fun closeAlbum() { selection = "all"; selectionTitle = ""; selectTab(1) }
     BackHandler(detailOpen || tab != 0) { if (detailOpen) closeAlbum() else selectTab(0) }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
-    var selectedIds by rememberSaveable(source.name, selection, search, tab, stateSaver = MediaSelectionState.saver) { mutableStateOf(arrayListOf<String>()) }
+    // Multi-select can include the entire phone library. Keep large IDs in
+    // transient screen state instead of serializing them into Android Bundles.
+    var selectedIds by remember(source.name, selection, search, tab) { mutableStateOf(arrayListOf<String>()) }
     val selecting = selectedIds.isNotEmpty()
     fun toggle(id: String) { selectedIds = ArrayList(if (id in selectedIds) selectedIds - id else selectedIds + id) }
     BackHandler(selecting) { selectedIds = arrayListOf() }
@@ -147,7 +149,14 @@ fun GalleryModeScreen(
         visibleDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
             .atZone(ZoneId.systemDefault()).toLocalDate() }
     }
-    LaunchedEffect(tab, scrollToTopRequest) { if (tab == 0) mediaGridState.scrollToItem(0) }
+    // Only an explicit new "top" request may reset scrolling. Recomposition
+    // after closing a viewer must preserve LazyGridState and its exact offset.
+    val topRequestTracker = remember { GalleryScrollRequestTracker(scrollToTopRequest) }
+    LaunchedEffect(scrollToTopRequest, tab) {
+        if (topRequestTracker.shouldScrollToTop(scrollToTopRequest, tab == 0)) {
+            mediaGridState.scrollToItem(0)
+        }
+    }
     LaunchedEffect(selectedJumpDate, dateSections, tab) {
         if (tab == 0) {
             selectedJumpDate?.let { chosen ->
