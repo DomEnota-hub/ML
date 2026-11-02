@@ -39,6 +39,20 @@ internal object VideoClipReorderMath {
         )
     }
 
+    /** Keep 17dp touch handles apart even for a selected interval of 0.1s. */
+    data class TrimGrips(val leftDp: Float, val rightDp: Float)
+
+    fun trimGrips(selection: TrimSelection, fullWidthDp: Float,
+        handleWidthDp: Float = 17f): TrimGrips {
+        require(fullWidthDp.isFinite() && handleWidthDp.isFinite() &&
+            handleWidthDp > 0f && fullWidthDp >= handleWidthDp * 2f)
+        val left = (selection.leftDp - handleWidthDp)
+            .coerceIn(0f, fullWidthDp - 2f * handleWidthDp)
+        val right = selection.rightDp.coerceIn(left + handleWidthDp,
+            fullWidthDp - handleWidthDp)
+        return TrimGrips(left, right)
+    }
+
     /** +/- screen pixels to +/- actual trimmed SOURCE milliseconds. */
     fun sourceDeltaMs(
         cumulativeDragPx: Float,
