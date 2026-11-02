@@ -107,3 +107,17 @@ Compose drag test20→15→20 для обеих границ на density1и2 п
 Общий локальный unit/Compose +lint +androidTest compile закончился SUCCESS:
 1027tests,0failures,1skipped (опциональный live Shazam); lint0errors,75warnings.
 Это результат до новых drag-тестов/debug-предпросмотра, не приёмка нового SHA.
+
+## Текст/замечание54.1 — конкретный пробел и ограниченное расширение
+
+До этой сессии общие TextLayer/UnifiedTextStyle имели цвет, opacity0–100,
+размер, обводку/цвет обводки, шрифты, геометрию и время. Отдельных shadow/bold/
+alignment в модели и renderer не было; UI-символы сами по себе не реализуют экспорт.
+Добавлены независимые поля bold/shadow/alignment с прежними defaults и
+рендеринг в общем TextLayerRenderer (используется фото/JPEG/Media3 текстовым overlay).
+Добавлены6стилевых плиток в UnifiedTextStyle, включая различимые векторы выравнивания.
+Фоторедактор не переписан, его исходные инструменты/тайминг/пипетка сохранены.
+Нулевой opacity исключает слой целиком, включая тень/контур.
+TextLayerStyleRenderingTest (native Canvas), TextLayerOpacityV8Test,
+VideoOverlayUnifiedTextTest прошли локально. Настоящий MP4 с новыми стилями и
+visual parity этой панели остаются NOT_DEVICE_TESTED до отдельного прохода.

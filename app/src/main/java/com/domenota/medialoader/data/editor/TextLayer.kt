@@ -2,6 +2,8 @@ package com.domenota.medialoader.data.editor
 
 import java.util.UUID
 
+enum class TextLayerAlignment { LEFT, CENTER, RIGHT }
+
 /** Coordinates and size refer to the final cropped/rotated image. Times refer to the exported clip. */
 data class TextLayer(
     val id: String = UUID.randomUUID().toString(),
@@ -16,6 +18,9 @@ data class TextLayer(
     val outline: Float = 0.06f,
     /** Shared photo/video layer opacity (0–1), independent per text layer. */
     val opacity: Float = 1f,
+    val bold: Boolean = false,
+    val shadow: Boolean = false,
+    val alignment: TextLayerAlignment = TextLayerAlignment.CENTER,
     val startMs: Long = 0L,
     val endMs: Long? = null,
 ) {
