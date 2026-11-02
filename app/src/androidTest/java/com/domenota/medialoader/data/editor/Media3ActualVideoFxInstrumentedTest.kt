@@ -4,6 +4,15 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Base64
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
+import androidx.test.core.app.ActivityScenario
+import androidx.media3.common.MediaItem
+import androidx.media3.common.VideoFrameProcessor
+import com.domenota.medialoader.testing.VideoEffectsProbeActivity
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -139,12 +148,107 @@ class Media3ActualVideoFxInstrumentedTest {
         }
     }
 
-    private fun readFrame(file: File): Bitmap {
+    /** Reads the real SurfaceView on Android: paused redraw and playing frames. */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @Test fun effectsRedrawPausedFramesPlayAndMatchMp4() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val source = File(context.cacheDir, "fx-player-source.mp4")
+        source.writeBytes(Base64.decode(instrumentation.context.assets
+            .open("fx_white_h264_160x90_800ms.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
+        val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
+        val scenario = ActivityScenario.launch(VideoEffectsProbeActivity::class.java)
+        suspend fun capture(): Bitmap? {
+            val answer = CompletableDeferred<Int>()
+            val image = Bitmap.createBitmap(160, 90, Bitmap.Config.ARGB_8888)
+            scenario.onActivity { activity ->
+                PixelCopy.request(activity.videoSurface, image,
+                    { status -> answer.complete(status) }, Handler(Looper.getMainLooper()))
+            }
+            return if (withTimeout(10_000L) { answer.await() } == PixelCopy.SUCCESS) image
+                else { image.recycle(); null }
+        }
+        fun difference(a: Bitmap, b: Bitmap): Double {
+            val p = IntArray(160 * 90); val q = IntArray(p.size)
+            a.getPixels(p, 0, 160, 0, 0, 160, 90); b.getPixels(q, 0, 160, 0, 0, 160, 90)
+            var total = 0L
+            for (i in p.indices) for (shift in listOf(0, 8, 16))
+                total += kotlin.math.abs(((p[i] ushr shift) and 255) - ((q[i] ushr shift) and 255))
+            return total.toDouble() / (p.size * 3)
+        }
+        suspend fun awaitFrame(condition: (Bitmap) -> Boolean): Bitmap = withTimeout(20_000L) {
+            var found: Bitmap? = null
+            while (found == null) {
+                delay(100)
+                val image = capture() ?: continue
+                if (condition(image)) found = image else image.recycle()
+            }
+            requireNotNull(found)
+        }
+        fun apply(type: VideoSpecialFxType, intensity: Float, clipIndex: Int = 0) {
+            scenario.onActivity { activity ->
+                activity.player.pause()
+                activity.player.seekTo(clipIndex, 300L)
+                activity.player.setVideoEffects(VideoEditor(activity).previewEffects(
+                    VideoEditSpec(specialFx = VideoSpecialFxDraft(type, intensity))))
+                activity.player.setVideoEffects(VideoFrameProcessor.REDRAW)
+            }
+        }
+        var baseline: Bitmap? = null
+        try {
+            scenario.onActivity { activity ->
+                activity.player.setMediaItems(listOf(MediaItem.fromUri(Uri.fromFile(source)),
+                    MediaItem.fromUri(Uri.fromFile(source))))
+                activity.player.seekTo(0, 300L)
+                activity.player.prepare()
+            }
+            val white = awaitFrame { image -> android.graphics.Color.red(image.getPixel(80, 45)) > 180 }
+            baseline = white
+            for ((index, type) in VideoSpecialFxType.entries.filterNot { it == VideoSpecialFxType.NONE }.withIndex()) {
+                apply(type, 0f, index % 2)
+                awaitFrame { difference(white, it) < 8.0 }.recycle()
+                apply(type, .5f, index % 2)
+                val half = awaitFrame { difference(white, it) > .04 }
+                apply(type, 1f, index % 2)
+                val full = try { awaitFrame { difference(white, it) > .04 && difference(half, it) > .04 } }
+                    finally { half.recycle() }
+                var pausedFrameUs = 300_000L
+                scenario.onActivity { pausedFrameUs = it.frameTimeUs.get() }
+                try {
+                    File(evidence, "${type.name}_paused.png").outputStream().use {
+                        full.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                    scenario.onActivity { it.player.play() }
+                    delay(200)
+                    var playing = false
+                    scenario.onActivity { playing = it.player.isPlaying }
+                    assertTrue("$type must play through the GPU effect pipeline", playing)
+                    awaitFrame { difference(white, it) > .04 }.recycle()
+                    scenario.onActivity { it.player.pause() }
+                    val output = withTimeout(180_000L) { withContext(Dispatchers.Main.immediate) {
+                        VideoEditor(context).export(Uri.fromFile(source), VideoEditSpec(endMs = 800L,
+                            specialFx = VideoSpecialFxDraft(type, 1f)))
+                    } }
+                    try {
+                        // Read the SAME source-frame timestamp, including pulse phase.
+                        assertTrue("Unexpected player frame timestamp: $pausedFrameUs",
+                            pausedFrameUs in 0L..800_000L)
+                        val encodedFrame = readFrame(output, pausedFrameUs)
+                        try { assertTrue("$type: preview differs from MP4 at $pausedFrameUs us",
+                            difference(full, encodedFrame) < 12.0) }
+                        finally { encodedFrame.recycle() }
+                    } finally { output.delete() }
+                } finally { full.recycle() }
+            }
+        } finally { baseline?.recycle(); scenario.close(); source.delete() }
+    }
+
+    private fun readFrame(file: File, timeUs: Long = 300_000L): Bitmap {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(file.absolutePath)
             requireNotNull(retriever.getFrameAtTime(
-                300_000L, MediaMetadataRetriever.OPTION_CLOSEST)) {
+                timeUs, MediaMetadataRetriever.OPTION_CLOSEST)) {
                 "No decoded frame in ${file.name}"
             }
         } finally {

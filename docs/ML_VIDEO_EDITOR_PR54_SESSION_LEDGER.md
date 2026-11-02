@@ -75,3 +75,15 @@ OPTION_CLOSEST вместо sync-keyframe нужен для мерцания в3
 первый ключевой кадр снулевой фазой. Выполнение нового теста на Android пока pending.
 CI52766fc: qa упал на новом fixture-validator до Gradle; зависимость FFmpeg явно
 добавлена, runner закреплён ubuntu24.04 в24542da. Результат device job ещё ожидается.
+
+## P0: SurfaceView/PixelCopy проверка предпросмотра
+
+Добавлен только в debug отдельный Activity-хост синтетического видео; в Release
+его нет. Instrumentation проверяет реальные SurfaceView-пиксели при смене эффектов
+на паузе (REDRAW), воспроизведение, уровни0/50/100 и чередование двух клипов.
+Отдельно сравниваются paused-frame и декодированный MP4 одного timestamp, включая
+фазу мерцания; сохраняются PNG. Это проверка Media3 pipeline, не полная приёмка
+пользовательского экрана VideoEditorScreen/ARM64. Пока NOT_DEVICE_TESTED.
+Локальная компиляция debug/androidTest прошла до последнего уточнения timestamp;
+полная локальная проверка1027unit/Compose:0failures,1skipped по XML, lint/compile
+ещё выполняются. Точный SHA и результаты CI фиксируются после завершения.

@@ -3,5 +3,6 @@
         <!-- Compose's test host follows MainActivity's configuration-change policy. -->
         <activity android:name="androidx.activity.ComponentActivity"
             android:configChanges="orientation|screenSize" />
+        <activity android:name=".testing.VideoEffectsProbeActivity" android:exported="false" />
     </application>
 </manifest>
