@@ -267,3 +267,36 @@ apply возвращает root. Исправлены растягивание c
 CI теперь: push→короткие затронутыеvideo tests+compile; workflow_dispatch→указанный
 native class#method; full_validation=true→один полный release-gate проход.
 Публикация/подпись по-прежнему не выполняются до закрытия блокеров и приёмки.
+
+## f847802 / короткий native прогон41533240675
+
+13actual GPU controls half/full PASS; native UI root/editor/trim/adjustment sections PASS.
+Preview без replay cache по-прежнему оставлял half vignette при100%; fresh periods
+сами по себе проблему не закрыли. Восстановлен Media3 bounded replay cache + seek
+из b59dde6, где все10preview/parity уже проходили. Интеграция требует group-level
+PlaybackVideoGraphWrapper API в закреплённомMedia3 1.9.0: SuppressLint RestrictedApi
+ТОЛЬКО на соответствующем override, с объяснением; не baseline и не скрытие
+ошибок тестов. ПамятьGPU2кадра, физический4Kprofiling всё ещё не подтверждён.
+
+Копирование evidence в новом тестовом классе исправлено: executeShellCommand не
+обрабатывает ';' как shell; mkdir иcp теперь отдельные команды. XML доказывает
+прохождение13регулировок; сырые файлы будут приложены в итоговом проходе.
+
+## Общий холст и музыка
+
+Добавлены8ratio поHTML (включая2.39:1/2.55:1) в project.aspect, отдельно от crop.
+Preview/MP4/JPEG используют единый canvas; Presentation применяется до титров,
+поэтому надпись может находиться и на полях холста. Выходное разрешение уважает
+заданный short side; default ORIGINAL сохраняет прежние проекты. Unit геометрии/
+Undo и затронутые composition/toolbar tests прошли; новый actual MP4/JPEG case pending.
+
+«Музыка» теперь открывает native экранv8: Онлайн/На устройстве, импорт черезSAF,
+список, прослушивание, удаление из списка и добавление дорожки. Импорт не изменяет
+проект до кнопки+; preview использует transient audio focus и освобождается при
+закрытии. В эталоне online backend отсутствует, в приложении показано недоступное
+состояние без фиктивного каталога. Music import/device audio focus требуют ручной
+приёмки. Разделение звука2× также разрешено в UI (старый speed==1 guard удалён).
+
+Текущий локальный блок: affected tests+androidTest compile+lint PASS (4m52s);
+1033теста и старые native матрицы повторно не запускались. Далее один focused
+native проход P0/canvas/UI; полный release-gate прогон — один раз перед приёмкой.

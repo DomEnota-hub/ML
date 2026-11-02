@@ -56,6 +56,7 @@ internal object VideoV8Icons {
     val crop = fromSvg("crop", "M4 2v15a3 3 0 0 0 3 3h15M2 5h15a3 3 0 0 1 3 3v14")
     val copy = fromSvg("copy", "M8 3h13v14H8zM3 8v13h13")
     val addText = fromSvg("add_text", "M3 5h14v14H3zM6 9h8m-4 0v7M20 12v9m-4-5h8")
+    val musicImport = fromSvg("music_import", "M3 6h7l2 2h9v12H3zM12 11v6m-3-3h6")
     val adjustments = mapOf(
         "exposure" to fromSvg("exposure", "M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20M8 9h8m-4-4v8m-4 4h8"),
         "brightness" to fromSvg("brightness", "M12 1v3m0 16v3M1 12h3m16 0h3M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0"),

@@ -217,6 +217,7 @@ class Media3ActualVideoFxInstrumentedTest {
             }
             val white = awaitFrame { image -> android.graphics.Color.red(image.getPixel(80, 45)) in 80..145 }
             baseline = white
+            File(evidence, "preview_baseline.png").outputStream().use { white.compress(Bitmap.CompressFormat.PNG, 100, it) }
             for ((index, type) in VideoSpecialFxType.entries.filterNot { it == VideoSpecialFxType.NONE }.withIndex()) {
                 previewStage = "$type zero"
                 apply(type, 0f, index % 2)
@@ -224,6 +225,7 @@ class Media3ActualVideoFxInstrumentedTest {
                 previewStage = "$type half paused"
                 apply(type, .5f, index % 2)
                 val half = awaitFrame { difference(white, it) > .04 }
+                File(evidence, "${type.name}_half_paused.png").outputStream().use { half.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 previewStage = "$type full paused"
                 apply(type, 1f, index % 2)
                 val full = try { awaitFrame { difference(white, it) > .04 && difference(half, it) > .04 } }
@@ -310,6 +312,10 @@ class Media3ActualVideoFxInstrumentedTest {
             click("Применить изменения")
             click("Откорректировать"); screenshot("05_adjustments_tone")
             click("Детализация"); screenshot("06_adjustments_detail")
+            click("Отменить изменения раздела")
+            click("Музыка"); screenshot("07_music_picker")
+            click("Онлайн"); screenshot("08_music_online_state")
+            click("Назад из музыки")
         } finally { preserveEvidence(evidence); scenario.close(); source.delete() }
     }
 

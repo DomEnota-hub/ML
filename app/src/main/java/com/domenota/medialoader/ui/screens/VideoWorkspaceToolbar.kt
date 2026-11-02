@@ -31,7 +31,7 @@ internal enum class VideoWorkspaceTool(val label: String) {
     EXPORT("Экспорт"), MORE("Ещё"),
     DELETE("Удалить"), SEPARATE_AUDIO("Разделить звук"),
     REPLACE("Заменить"), DUPLICATE("Копировать"),
-    SPLIT("Разделить"), COLOR_CHANNELS("Дополнительная коррекция")
+    SPLIT("Разделить"), MUSIC_PICKER("Музыка"), ASPECT("Соотношение сторон"), COLOR_CHANNELS("Дополнительная коррекция")
 }
 internal val videoToolYellow = Color(0xFFFFC000)
 
@@ -41,11 +41,12 @@ private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.TRIM -> VideoV8Icons.trim
     VideoWorkspaceTool.SPEED -> VideoV8Icons.speed
     VideoWorkspaceTool.CROP -> VideoV8Icons.crop
+    VideoWorkspaceTool.ASPECT -> VideoV8Icons.aspect
     VideoWorkspaceTool.ROTATE -> Icons.Rounded.RotateRight
     VideoWorkspaceTool.COLOR, VideoWorkspaceTool.COLOR_CHANNELS -> Icons.Rounded.Tune
     VideoWorkspaceTool.TRANSITION -> Icons.Rounded.AutoAwesomeMotion
     VideoWorkspaceTool.EFFECTS -> Icons.Rounded.AutoFixHigh
-    VideoWorkspaceTool.AUDIO -> VideoV8Icons.music
+    VideoWorkspaceTool.AUDIO, VideoWorkspaceTool.MUSIC_PICKER -> VideoV8Icons.music
     VideoWorkspaceTool.REVERSE -> VideoV8Icons.reverse
     VideoWorkspaceTool.TEXT -> VideoV8Icons.text
     VideoWorkspaceTool.GRAPHICS -> Icons.Rounded.EmojiEmotions
@@ -68,9 +69,9 @@ private data class ReferenceRootAction(
 
 private val rootActions = listOf(
     ReferenceRootAction("Редактор", VideoV8Icons.editor, null, VideoReferenceSection.EDITOR),
-    ReferenceRootAction("Музыка", VideoV8Icons.music, VideoWorkspaceTool.AUDIO, VideoReferenceSection.MUSIC),
+    ReferenceRootAction("Музыка", VideoV8Icons.music, VideoWorkspaceTool.MUSIC_PICKER, VideoReferenceSection.MUSIC),
     ReferenceRootAction("Надписи", VideoV8Icons.text, VideoWorkspaceTool.TEXT, VideoReferenceSection.TEXT),
-    ReferenceRootAction("Соотношение сторон", VideoV8Icons.aspect, VideoWorkspaceTool.CROP),
+    ReferenceRootAction("Соотношение сторон", VideoV8Icons.aspect, VideoWorkspaceTool.ASPECT),
     ReferenceRootAction("Откорректировать", VideoV8Icons.adjustment, VideoWorkspaceTool.COLOR, colorManual = true),
     ReferenceRootAction("Фильтры", VideoV8Icons.filters, VideoWorkspaceTool.COLOR, colorManual = false),
     ReferenceRootAction("Ещё", VideoV8Icons.more, VideoWorkspaceTool.MORE),

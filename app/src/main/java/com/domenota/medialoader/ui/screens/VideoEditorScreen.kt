@@ -233,6 +233,9 @@ private fun VideoEditorContent(
     }
     var selectedOverlayId by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedTool by remember(item.id) { mutableStateOf<VideoWorkspaceTool?>(null) }
+    var musicImporting by remember(item.id) { mutableStateOf(false) }
+    var musicPickerOpen by remember(item.id) { mutableStateOf(false) }
+    var musicChoices by remember(item.id) { mutableStateOf<List<VideoMusicChoice>>(emptyList()) }
     var referenceMoreOpen by remember(item.id) { mutableStateOf(false) }
     var referenceColorManual by remember(item.id) { mutableStateOf(false) }
     var exportSettings by remember(item.id) { mutableStateOf(VideoExportSettings()) }
@@ -348,33 +351,26 @@ private fun VideoEditorContent(
         ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         projectScope.launch {
-            var draft = project ?: return@launch
-            var added = 0
-            uris.forEach { nextUri ->
-                if (draft.audioTracks.size >= VideoProjectDraft.MAX_AUDIO_TRACKS) return@forEach
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(
-                        nextUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                val audioDuration = withContext(Dispatchers.IO) {
-                    readAudioDuration(context, nextUri)
-                }
-                if (audioDuration != null && audioDuration > 0L) {
-                    val track = VideoAudioTrackDraft(
-                        id = UUID.randomUUID().toString(),
-                        sourceUri = nextUri.toString(),
-                        atMs = playheadMs.coerceIn(0L, draft.durationMs - 1L),
-                        sourceDurationMs = audioDuration)
-                    draft = draft.addAudioTrack(track)
-                    selectedAudioTrackId = track.id
-                    added++
+            musicImporting = true
+            try {
+            val imported = uris.mapNotNull { nextUri ->
+                runCatching { context.contentResolver.takePersistableUriPermission(nextUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                withContext(Dispatchers.IO) {
+                    val duration = readAudioDuration(context, nextUri) ?: return@withContext null
+                    val name = runCatching { context.contentResolver.query(nextUri,
+                        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                        if (it.moveToFirst()) it.getString(0) else null } }.getOrNull()
+                        ?: nextUri.lastPathSegment ?: "Аудиофайл"
+                    VideoMusicChoice(UUID.randomUUID().toString(), nextUri.toString(), name, duration)
                 }
             }
-            if (added > 0) {
-                project = draft
-                selectedTool = VideoWorkspaceTool.AUDIO
+            if (imported.isNotEmpty()) {
+                musicChoices = (musicChoices + imported).distinctBy { it.uri }
                 clipError = null
-            } else clipError = "Не удалось добавить аудиофайлы"
+            } else clipError = "Не удалось прочитать аудиофайлы"
+
+            } finally { musicImporting = false }
         }
     }
     val replaceClip = rememberLauncherForActivityResult(
@@ -559,6 +555,14 @@ private fun VideoEditorContent(
             VideoOverlayTimeline.forClip(draft, index, textLayers, graphicLayers)
         }
     }
+    val canvasClip = project?.clips?.firstOrNull()
+    val canvasInfo = firstClipInfo ?: info
+    val naturalCanvasWidth = ((canvasInfo?.width ?: 16) * (canvasClip?.crop?.keptWidth ?: 1f)).coerceAtLeast(1f)
+    val naturalCanvasHeight = ((canvasInfo?.height ?: 9) * (canvasClip?.crop?.keptHeight ?: 1f)).coerceAtLeast(1f)
+    val naturalCanvasRatio = if ((canvasClip?.rotationDegrees ?: 0) % 180 == 0)
+        naturalCanvasWidth / naturalCanvasHeight else naturalCanvasHeight / naturalCanvasWidth
+    val previewCanvasRatio = if (selectedTool == VideoWorkspaceTool.CROP) null
+        else project?.aspect?.ratio ?: naturalCanvasRatio
     val textPreviewSpec = VideoEditSpec(startMs = currentClip?.inMs ?: 0L,
         cropLeft = previewCrop.left, cropRight = previewCrop.right,
         cropTop = previewCrop.top, cropBottom = previewCrop.bottom,
@@ -573,10 +577,13 @@ private fun VideoEditorContent(
         }.orEmpty(),
         textLayers = activeOverlays?.texts.orEmpty(),
         graphicLayers = activeOverlays?.graphics.orEmpty())
-    LaunchedEffect(previewPlayer, selectedClipId, textPreviewSpec) {
+    LaunchedEffect(previewPlayer, selectedClipId, textPreviewSpec, previewCanvasRatio) {
         delay(75L) // Coalesce fast slider and drag gestures before rebuilding GL effects.
         val effects = VideoEditor(context).previewEffects(
-            textPreviewSpec, timeOffsetMs = textPreviewSpec.startMs)
+            textPreviewSpec, timeOffsetMs = textPreviewSpec.startMs,
+            presentation = previewCanvasRatio?.let {
+                androidx.media3.effect.Presentation.createForAspectRatio(it,
+                    androidx.media3.effect.Presentation.LAYOUT_SCALE_TO_FIT) })
         previewPlayer?.let { com.domenota.medialoader.data.editor.VideoEditorPlayerFactory.updateEffects(it, effects) }
     }
 
@@ -742,7 +749,7 @@ private fun VideoEditorContent(
                 val canvasHeight = minOf(availableCanvas, referenceCanvas)
                 Column(Modifier.fillMaxSize()) {
             BoxWithConstraints(Modifier.height(canvasHeight).fillMaxWidth().padding(horizontal = 12.dp),
-                contentAlignment = Alignment.TopCenter) {
+                contentAlignment = Alignment.Center) {
                 val previewDimensions = selectedPreviewInfo ?: info
                 val showEditedFrame = selectedTool != VideoWorkspaceTool.CROP
                 val w = ((previewDimensions?.width ?: 16) *
@@ -753,7 +760,9 @@ private fun VideoEditorContent(
                 val naturalWidth = if (isRotated) h else w
                 val naturalHeight = if (isRotated) w else h
                 val videoFit = fitVideoPreview(
-                    maxWidth.value, maxHeight.value, naturalWidth, naturalHeight)
+                    minOf(maxWidth.value, androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * .88f),
+                    maxHeight.value, previewCanvasRatio?.let { (it * 1000).roundToInt() } ?: naturalWidth,
+                    if (previewCanvasRatio != null) 1000 else naturalHeight)
                 CropVideoPreview(
                     modifier = Modifier.width(videoFit.width.dp).height(videoFit.height.dp),
                     player = requireNotNull(previewPlayer),
@@ -1059,6 +1068,12 @@ private fun VideoEditorContent(
                                 }
                             }
                         }
+                        VideoWorkspaceTool.ASPECT -> {
+                            VideoProjectAspectPanel(project?.aspect ?: com.domenota.medialoader.data.editor.VideoProjectAspect.ORIGINAL,
+                                project != null && !ownExport && !busyWithOther) { aspect ->
+                                project = project?.copy(aspect = aspect)
+                            }
+                        }
                         VideoWorkspaceTool.CROP -> {
             Text("Кадрирование", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -1209,7 +1224,7 @@ private fun VideoEditorContent(
                                 removeOriginalAudio = removeAudio,
                                 enabled = !ownExport && !busyWithOther,
                                 onRemoveOriginalAudio = { removeAudio = it },
-                                onAdd = { addAudio.launch(arrayOf("audio/*")) },
+                                onAdd = { previewPlayer?.pause(); clipError = null; musicPickerOpen = true },
                                 onSelect = { selectedAudioTrackId = it },
                                 onUpdate = { id, transform ->
                                     val draft = project ?: return@VideoAudioTracksPanel
@@ -1416,6 +1431,7 @@ private fun VideoEditorContent(
                 }
 
                         }
+                        VideoWorkspaceTool.MUSIC_PICKER,
                         VideoWorkspaceTool.SPLIT,
                         VideoWorkspaceTool.DELETE,
                         VideoWorkspaceTool.SEPARATE_AUDIO,
@@ -1438,7 +1454,7 @@ private fun VideoEditorContent(
                 val panelTitle = when (panelTool) {
                     VideoWorkspaceTool.COLOR -> if (referenceColorManual) "Откорректировать" else "Фильтры"
                     VideoWorkspaceTool.TEXT -> "Надписи"
-                    VideoWorkspaceTool.CROP -> "Соотношение сторон"
+                    VideoWorkspaceTool.ASPECT -> "Соотношение сторон"
                     VideoWorkspaceTool.AUDIO -> "Музыка"
                     else -> panelTool.label
                 }
@@ -1447,7 +1463,10 @@ private fun VideoEditorContent(
             } else VideoWorkspaceToolbar(
                 selected = selectedTool,
                 onSelect = { next ->
-                    selectedTool = next
+                    selectedTool = if (next == VideoWorkspaceTool.MUSIC_PICKER) VideoWorkspaceTool.AUDIO else next
+                    if (next == VideoWorkspaceTool.MUSIC_PICKER) {
+                        previewPlayer?.pause(); clipError = null; musicPickerOpen = true
+                    }
                     if (next == VideoWorkspaceTool.TEXT) previewPlayer?.pause()
                 },
                 enabled = info != null && !ownExport && !busyWithOther,
@@ -1534,6 +1553,21 @@ private fun VideoEditorContent(
             )
         }
     }
+    if (musicPickerOpen) VideoMusicPicker(musicChoices,
+        canAdd = project != null && (project?.audioTracks?.size ?: 0) < VideoProjectDraft.MAX_AUDIO_TRACKS,
+        errorMessage = clipError, importing = musicImporting,
+        onImport = { addAudio.launch(arrayOf("audio/*")) },
+        onRemove = { id -> musicChoices = musicChoices.filterNot { it.id == id } },
+        onDismiss = { musicPickerOpen = false; closePanel(false) },
+        onChoose = { choice ->
+            project?.takeIf { it.audioTracks.size < VideoProjectDraft.MAX_AUDIO_TRACKS }?.let { draft ->
+                val track = VideoAudioTrackDraft(UUID.randomUUID().toString(), choice.uri,
+                    playheadMs.coerceIn(0, draft.durationMs - 1), choice.durationMs)
+                project = draft.addAudioTrack(track)
+                selectedAudioTrackId = track.id
+                musicPickerOpen = false; selectedTool = VideoWorkspaceTool.AUDIO
+            }
+        })
     if (ownExport) {
         VideoV8SaveProgress(
             operation = exportState.operation,
@@ -1602,6 +1636,7 @@ private fun CropVideoPreview(
                 PlayerView(viewContext).apply {
                     this.player = player
                     useController = false
+                    setKeepContentOnPlayerReset(true)
                     isClickable = false
                     isFocusable = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
