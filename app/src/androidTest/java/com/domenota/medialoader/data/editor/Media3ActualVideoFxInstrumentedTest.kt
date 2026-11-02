@@ -95,7 +95,7 @@ class Media3ActualVideoFxInstrumentedTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-matrix-source.mp4")
-        val encoded = instrumentation.context.assets.open("fx_white_h264_160x90_800ms.base64")
+        val encoded = instrumentation.context.assets.open("fx_gray_h264_160x90_800ms.base64")
             .bufferedReader().use { it.readText().trim() }
         source.writeBytes(Base64.decode(encoded, Base64.DEFAULT))
         val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
@@ -143,6 +143,7 @@ class Media3ActualVideoFxInstrumentedTest {
             }
         } finally {
             File(evidence, "metrics.csv").writeText(metrics.toString())
+            preserveEvidence(evidence)
             zero.recycle()
             source.delete()
         }
@@ -155,7 +156,7 @@ class Media3ActualVideoFxInstrumentedTest {
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "fx-player-source.mp4")
         source.writeBytes(Base64.decode(instrumentation.context.assets
-            .open("fx_white_h264_160x90_800ms.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
+            .open("fx_gray_h264_160x90_800ms.base64").bufferedReader().use { it.readText() }, Base64.DEFAULT))
         val evidence = File(context.getExternalFilesDir(null), "video-fx-evidence").apply { mkdirs() }
         val scenario = ActivityScenario.launch(VideoEffectsProbeActivity::class.java)
         suspend fun capture(): Bitmap? {
@@ -202,7 +203,7 @@ class Media3ActualVideoFxInstrumentedTest {
                 activity.player.seekTo(0, 300L)
                 activity.player.prepare()
             }
-            val white = awaitFrame { image -> android.graphics.Color.red(image.getPixel(80, 45)) > 180 }
+            val white = awaitFrame { image -> android.graphics.Color.red(image.getPixel(80, 45)) in 80..145 }
             baseline = white
             for ((index, type) in VideoSpecialFxType.entries.filterNot { it == VideoSpecialFxType.NONE }.withIndex()) {
                 apply(type, 0f, index % 2)
@@ -240,7 +241,18 @@ class Media3ActualVideoFxInstrumentedTest {
                     } finally { output.delete() }
                 } finally { full.recycle() }
             }
-        } finally { baseline?.recycle(); scenario.close(); source.delete() }
+        } finally { preserveEvidence(evidence); baseline?.recycle(); scenario.close(); source.delete() }
+    }
+
+    private fun preserveEvidence(directory: File) {
+        // Gradle uninstalls test APKs after connected tests; copy before uninstall.
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun shell(command: String) {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                automation.executeShellCommand(command)).use { it.readBytes() }
+        }
+        shell("mkdir -p /sdcard/Download/ml-video-fx-evidence")
+        shell("cp -r ${directory.absolutePath}/. /sdcard/Download/ml-video-fx-evidence/")
     }
 
     private fun readFrame(file: File, timeUs: Long = 300_000L): Bitmap {

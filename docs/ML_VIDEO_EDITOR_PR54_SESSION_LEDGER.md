@@ -87,3 +87,23 @@ CI52766fc: qa упал на новом fixture-validator до Gradle; завис
 Локальная компиляция debug/androidTest прошла до последнего уточнения timestamp;
 полная локальная проверка1027unit/Compose:0failures,1skipped по XML, lint/compile
 ещё выполняются. Точный SHA и результаты CI фиксируются после завершения.
+
+## Результаты bd92479 и следующий тестовый источник
+
+Device job125408265832: cinemaBarsAreActuallyBakedIntoMp4 PASS; matrix показал
+изменённые кадры VIGNETTE/SCANLINES/CINEMA_BARS, но PULSE50% получил0delta:
+белое осветляющее наложение нельзя проверить на белом источнике. Это дефект
+тестового стимула, не доказательство отсутствия эффекта. Добавлен валидный серый
+H264 для матрицы и player test; white остаётся для black-bars golden. FFmpeg
+полностью декодировал оба источника. Assertions не удалены/не ослаблены.
+Артефакт1.2MB получен через GitHub connector (CLI job redirect был недоступен).
+Evidence MP4 потерялись после Gradle uninstall; добавлено сохранение из теста
+в /sdcard/Download до uninstall с последующим adb pull. Только синтетические файлы.
+
+Compose drag test20→15→20 для обеих границ на density1и2 прошёл локально.
+Он проверяет реальные жесты и ширину выделения0.75, а не только функции математики;
+добавлены testTag без изменения жестовой реализации. Touch slop в тесте0 для
+точного сравнения математических5секунд; системный slop/физический телефон ещё NOT_DEVICE_TESTED.
+Общий локальный unit/Compose +lint +androidTest compile закончился SUCCESS:
+1027tests,0failures,1skipped (опциональный live Shazam); lint0errors,75warnings.
+Это результат до новых drag-тестов/debug-предпросмотра, не приёмка нового SHA.
