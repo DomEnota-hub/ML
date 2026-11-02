@@ -121,3 +121,21 @@ alignment в модели и renderer не было; UI-символы сами 
 TextLayerStyleRenderingTest (native Canvas), TextLayerOpacityV8Test,
 VideoOverlayUnifiedTextTest прошли локально. Настоящий MP4 с новыми стилями и
 visual parity этой панели остаются NOT_DEVICE_TESTED до отдельного прохода.
+
+## Подтверждённый P0 runtime-дефект и исправление
+
+CI run41485981783, SHA f48e614: MP4 matrix всех10эффектов0/50/100 PASS,
+cinema golden PASS. Получены31синтетических MP4 и metrics.csv. Примеры mean RGB
+изменения относительно0: PULSE50/100=23/46, CINEMA_BARS=15.53/29.78,
+SPOTLIGHT=28.81/56.57. Native SurfaceView test FAIL с timeout20s.
+Logcat объяснил реальную причину: ExoPlaybackException →
+UnsupportedOperationException «Replaying when enableReplayableCache is set to false».
+REDRAW допустим в1.9.0, но pre-prepare одного empty effects НЕДОСТАТОЧНО.
+
+Добавлен VideoEditorPlayerFactory: редакторный MediaCodecVideoRenderer создаёт
+PlaybackVideoGraphWrapper с setEnableReplayableCache(true); используется и
+реальным VideoEditorScreen, и debug-probe. Обычный видео/аудиоплеер не меняется.
+Upstream tag1.9.0 ReplayableFrameCacheGlShaderProgram CAPACITY=2: кеш GPU-кадров
+ограничен, но добавляет память/вычисления только редактору. Физическая4K-память
+всё ещё NOT_DEVICE_TESTED. Локальный AndroidTest compile10s PASS; реальное
+устранение ошибки подтверждается следующим CI, не одной компиляцией.

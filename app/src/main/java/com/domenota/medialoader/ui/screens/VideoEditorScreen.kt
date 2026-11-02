@@ -457,7 +457,7 @@ fun VideoEditorScreen(
 
     val previewPlayer = remember(uri) {
         uri?.let { sourceUri ->
-            ExoPlayer.Builder(context)
+            com.domenota.medialoader.data.editor.VideoEditorPlayerFactory.builder(context)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)

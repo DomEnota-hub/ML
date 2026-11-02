@@ -23,7 +23,7 @@ class VideoEffectsProbeActivity : Activity() {
             setBackgroundColor(android.graphics.Color.BLACK)
             addView(videoSurface, FrameLayout.LayoutParams(320, 180, Gravity.CENTER))
         })
-        player = ExoPlayer.Builder(this).build().apply {
+        player = com.domenota.medialoader.data.editor.VideoEditorPlayerFactory.builder(this).build().apply {
             setVideoSurfaceView(videoSurface)
             setVideoEffects(emptyList()) // Required before the FIRST prepare, as in the editor.
             setVideoFrameMetadataListener { pts, _, _, _ -> frameTimeUs.set(pts) }
