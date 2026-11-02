@@ -118,7 +118,11 @@ internal fun VideoWorkspaceToolbar(
                         active = item.action != null && item.action == selected &&
                             (item.colorManual == null || item.colorManual == colorManualMode),
                         enabled = enabled,
-                        width = if (item.label == "Соотношение сторон") 72 else 62,
+                        width = when (item.label) {
+                            "Соотношение сторон" -> 72
+                            "Откорректировать" -> 96
+                            else -> 62
+                        },
                         onClick = {
                             item.colorManual?.let(onColorManualMode)
                             section = item.section ?: VideoReferenceSection.MAIN
@@ -175,7 +179,6 @@ private fun ReferenceDockItem(
             )
             val lines = when (label) {
                 "Соотношение сторон" -> "Соотношение\nсторон"
-                "Откорректировать" -> "Откорректи\nровать"
                 else -> label
             }
             Text(
