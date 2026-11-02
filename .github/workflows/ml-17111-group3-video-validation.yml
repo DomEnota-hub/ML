@@ -1,0 +1,60 @@
+name: MediaLoader 1.7.111 video final validation
+on:
+  push:
+    branches:
+      - feature/ml-17111-group3-video-8-15-20261102
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml-17111-group3-video
+  cancel-in-progress: false
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Run all Android unit and Compose tests
+        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Verify all JavaScript/WebView scripts
+        run: |
+          node scripts/test-youtube-thumbnail.cjs
+          node scripts/test-hitmoz-native-script.cjs
+          node scripts/test-muzmo-native-script.cjs
+      - name: Compile isolated ARM64 QA package
+        run: gradle :app:assembleDebug -Parm64Release=true -PhitmozArm64=true --stacktrace
+      - name: Verify QA identity, ABI and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -s "$apk"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader.hitmoz'"
+          "$bt/apksigner" verify --print-certs "$apk"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          sha256sum "$apk"
+      - name: Keep short-lived CI APK (not published as QA prerelease)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML-1.7.111-Group3-ARM64-CI
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
