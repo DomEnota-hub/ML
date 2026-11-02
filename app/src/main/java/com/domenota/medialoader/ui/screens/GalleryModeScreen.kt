@@ -148,7 +148,11 @@ fun GalleryModeScreen(
             }
         }
     }
-    val selectableDateRange = galleryDateRange(visibleDisplayed.map { it.createdAtEpochMillis })
+    // A phone gallery can hold 10k+ files: do not parse every timestamp on each selection recomposition.
+    val currentCalendarDay = LocalDate.now()
+    val selectableDateRange = remember(visibleDisplayed, currentCalendarDay) {
+        galleryDateRange(visibleDisplayed.map { it.createdAtEpochMillis }, currentCalendarDay)
+    }
     val dateSections = remember(visibleDisplayed) {
         visibleDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
             .atZone(ZoneId.systemDefault()).toLocalDate() }
