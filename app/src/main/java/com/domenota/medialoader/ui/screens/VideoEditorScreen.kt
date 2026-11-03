@@ -1842,6 +1842,7 @@ private fun CropVideoPreview(
     }
 }
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 private fun readVideoInfo(context: android.content.Context, uri: Uri): VideoInfo? =
     runCatching {
         val retriever = MediaMetadataRetriever()

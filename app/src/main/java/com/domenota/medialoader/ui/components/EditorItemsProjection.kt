@@ -17,8 +17,9 @@ private data class Projection(val source: List<DownloadEntity>, val rows: List<D
 
 @Composable
 internal fun rememberEditorItems(rows: List<DownloadEntity>): List<DownloadUiItem> {
-    val result by produceState<Projection?>(null, InputIdentity(rows)) {
-        value = withContext(Dispatchers.Default) {
+    val result = remember { mutableStateOf<Projection?>(null) }
+    LaunchedEffect(InputIdentity(rows)) {
+        result.value = withContext(Dispatchers.Default) {
             Projection(rows, rows.mapNotNull { row ->
                 coroutineContext.ensureActive()
                 if (row.state == DownloadState.COMPLETED && row.savedUri != null) row.toUi() else null
@@ -26,5 +27,5 @@ internal fun rememberEditorItems(rows: List<DownloadEntity>): List<DownloadUiIte
         }
     }
     // Never show a previous input's private rows after permissions/lock state changes.
-    return result?.takeIf { it.source === rows }?.rows.orEmpty()
+    return result.value?.takeIf { it.source === rows }?.rows.orEmpty()
 }
