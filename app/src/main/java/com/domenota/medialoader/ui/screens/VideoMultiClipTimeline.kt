@@ -96,9 +96,26 @@ internal fun VideoMultiClipTimeline(
     onChangeText: (com.domenota.medialoader.data.editor.TextLayer) -> Unit = {},
     onTextGestureStart: () -> Unit = {}, onTextGestureEnd: () -> Unit = {},
     onAudioGestureStart: () -> Unit = {}, onAudioGestureEnd: () -> Unit = {},
+    frameCache: com.domenota.medialoader.data.editor.VideoSessionFrameCache? = null,
 ) {
     // Full timeline detail by default; the scale is not user-adjustable.
     val zoom = 2.5f
+    val localCache = remember { com.domenota.medialoader.data.editor.VideoSessionFrameCache() }
+    val sharedCache = frameCache ?: localCache
+    DisposableEffect(localCache) { onDispose { localCache.close() } }
+    val sampledPosition by rememberUpdatedState(positionMs)
+    val sampledAt = remember(positionMs) { android.os.SystemClock.uptimeMillis() }
+    val latestSampleAt by rememberUpdatedState(sampledAt)
+    var displayPosition by remember { mutableLongStateOf(positionMs) }
+    LaunchedEffect(isPlaying, project.durationMs) {
+        if (!isPlaying) return@LaunchedEffect
+        while (true) {
+            withFrameNanos { }
+            val elapsed = (android.os.SystemClock.uptimeMillis() - latestSampleAt).coerceIn(0L, 150L)
+            displayPosition = (sampledPosition + elapsed).coerceAtMost(project.durationMs - 1)
+        }
+    }
+    val visualPosition = if (isPlaying) displayPosition else positionMs
     // The scale is calculated from the ORIGINAL (untrimmed) source length so
     // yellow-handle trimming does not alter px/sec during a single gesture.
     val referenceDurationMs = project.clips.maxOf {
@@ -116,9 +133,9 @@ internal fun VideoMultiClipTimeline(
     val latestTrim by rememberUpdatedState(activeTrimClipId)
     var userScrubbing by remember { mutableStateOf(false) }
     // A fixed center cursor; playback and explicit seeks move the reel beneath it.
-    LaunchedEffect(positionMs, project.clips, activeTrimClipId, videoScroll.isScrollInProgress, userScrubbing) {
+    LaunchedEffect(visualPosition, project.clips, activeTrimClipId, videoScroll.isScrollInProgress, userScrubbing) {
         if (activeTrimClipId != null || videoScroll.isScrollInProgress || userScrubbing) return@LaunchedEffect
-        val location = project.locateAt(positionMs.coerceIn(0L, project.durationMs - 1L))
+        val location = project.locateAt(visualPosition.coerceIn(0L, project.durationMs - 1L))
         val offset = widths[location.clipIndex] * density * location.positionWithinClipMs /
             project.clips[location.clipIndex].durationMs
         videoScroll.requestScrollToItem(location.clipIndex, offset.roundToInt())
@@ -192,6 +209,7 @@ internal fun VideoMultiClipTimeline(
                         displayDuration, zoom, referenceDurationMs)
                     VideoClipStrip(
                         clip = clip,
+                        frameCache = sharedCache,
                         widthModifier = Modifier.width(width.dp),
                         showSourceTrim = sourceTrimMode,
                         fullWidthDp = width,
@@ -252,10 +270,10 @@ internal fun VideoMultiClipTimeline(
         }
         }
         if (!trimMode && activeTrimClipId == null && texts.isNotEmpty()) VideoTextLanes(project, texts, selectedTextId,
-            positionMs, videoScroll, project.clips.map { VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
+            visualPosition, videoScroll, project.clips.map { VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
             enabled, onSelectText, onChangeText, onTextGestureStart, onTextGestureEnd, leading.value)
             if (!trimMode && activeTrimClipId == null && project.audioTracks.isNotEmpty()) VideoAudioLanes(project,
-            selectedAudioTrackId, positionMs, videoScroll, project.clips.map {
+            selectedAudioTrackId, visualPosition, videoScroll, project.clips.map {
                 VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
             enabled, onSelectAudio, onChangeAudio, onAudioGestureStart, onAudioGestureEnd, leading.value)
       }
@@ -265,6 +283,7 @@ internal fun VideoMultiClipTimeline(
 @Composable
 private fun VideoClipStrip(
     clip: VideoClipDraft,
+    frameCache: com.domenota.medialoader.data.editor.VideoSessionFrameCache,
     widthModifier: Modifier,
     showSourceTrim: Boolean,
     fullWidthDp: Float,
@@ -290,17 +309,20 @@ private fun VideoClipStrip(
     // Do not re-decode 4 full-resolution frames on EVERY millisecond of trim drag.
     // The player independently seeks to the exact active boundary every drag event.
     val tileCount = kotlin.math.ceil(fullWidthDp / 56f).toInt().coerceIn(2, 18)
-    val tileWidthPx = (fullWidthDp / tileCount * displayDensity).roundToInt().coerceIn(48, 192)
+    val tileWidthPx = (kotlin.math.ceil(fullWidthDp / tileCount * displayDensity / 32f) * 32).toInt().coerceIn(64, 224)
     val tileHeightPx = (67f * displayDensity).roundToInt().coerceIn(90, 240)
     val thumbnailStartSecond = if (showSourceTrim) 0L else clip.inMs / 1000L
     val thumbnailEndSecond = if (showSourceTrim)
         clip.sourceDurationMs / 1000L else clip.outMs / 1000L
-    var thumbnails by remember(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond, tileCount) {
+    var thumbnails by remember(clip.sourceUri) {
         mutableStateOf<List<Bitmap>>(emptyList())
     }
     LaunchedEffect(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond,
         showSourceTrim, tileCount, tileWidthPx, tileHeightPx) {
         val decodeStarted = com.domenota.medialoader.core.logging.PerformanceLog.now()
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        val retainPrevious = thumbnails.isNotEmpty()
+        var cacheHits = 0
         val generated = withContext(Dispatchers.IO) {
             if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
                 runCatching {
@@ -320,6 +342,28 @@ private fun VideoClipStrip(
                     else listOf(small)
                 }.getOrDefault(emptyList())
             } else {
+                val source = Uri.parse(clip.sourceUri)
+                val revision = if (source.scheme == "file") source.path?.let { path ->
+                    java.io.File(path).let { "${it.length()}:${it.lastModified()}" }
+                }.orEmpty() else runCatching {
+                    context.contentResolver.query(source, arrayOf("_size", "date_modified"), null, null, null)?.use { cursor ->
+                        if (!cursor.moveToFirst()) "" else (0 until cursor.columnCount).joinToString(":") {
+                            if (cursor.isNull(it)) "" else cursor.getString(it).orEmpty()
+                        }
+                    }.orEmpty()
+                }.getOrDefault("") + ":${clip.sourceDurationMs}"
+                val first = if (showSourceTrim) 0L else clip.inMs
+                val span = if (showSourceTrim) clip.sourceDurationMs else clip.sourceSpanMs
+                val cachedFrames = (0 until tileCount).map { step ->
+                    val requested = first + (span - 1).coerceAtLeast(0) * step / (tileCount - 1)
+                    val time = (requested / 500 * 500).coerceIn(first, first + span - 1)
+                    frameCache.get(com.domenota.medialoader.data.editor.VideoSessionFrameCache.Key(
+                        clip.sourceUri, revision, time, tileWidthPx, tileHeightPx))
+                }
+                if (cachedFrames.all { it != null }) {
+                    cacheHits = cachedFrames.size
+                    cachedFrames.filterNotNull()
+                } else {
                 val retriever = MediaMetadataRetriever()
                 try {
                     retriever.setDataSource(context, Uri.parse(clip.sourceUri))
@@ -331,12 +375,20 @@ private fun VideoClipStrip(
                     val decodeScale = maxOf(tileWidthPx.toFloat() / sourceW, tileHeightPx.toFloat() / sourceH).coerceAtMost(1f)
                     val decodeW = (sourceW * decodeScale).roundToInt().coerceAtLeast(1)
                     val decodeH = (sourceH * decodeScale).roundToInt().coerceAtLeast(1)
+                    val partial = ArrayList<Bitmap>()
+                    var lastPublish = 0L
                     (0 until tileCount).mapNotNull { step ->
                         val firstMs = if (showSourceTrim) 0L else clip.inMs
                         val spanMs = if (showSourceTrim)
                             clip.sourceDurationMs else clip.sourceSpanMs
-                        val ms = firstMs + (spanMs - 1L)
-                            .coerceAtLeast(0L) * step / (tileCount - 1)
+                        if (job?.isActive == false) throw kotlinx.coroutines.CancellationException()
+                        val requestedMs = firstMs + (spanMs - 1L).coerceAtLeast(0L) * step / (tileCount - 1)
+                        val ms = (requestedMs / 500L * 500L).coerceIn(firstMs, firstMs + spanMs - 1)
+                        val key = com.domenota.medialoader.data.editor.VideoSessionFrameCache.Key(
+                            clip.sourceUri, revision, ms, tileWidthPx, tileHeightPx)
+                        val cached = frameCache.get(key)
+                        if (cached != null) cacheHits++
+                        val ready = cached ?: com.domenota.medialoader.data.editor.VideoFrameDecodeBudget.decode({ job?.isActive == false }) {
                         // Prefer decoder-side scaled frames; only fall back to
                         // full-frame extraction on Android API 26.
                         val bmp = if (Build.VERSION.SDK_INT >= 27)
@@ -355,17 +407,28 @@ private fun VideoClipStrip(
                             it.recycle()
                             small
                         }
+                        } // native decoder budget
+                        ready?.let { image ->
+                            if (cached == null) frameCache.put(key, image)
+                            partial.add(image)
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (!retainPrevious && (partial.size == 1 || now - lastPublish >= 250L)) {
+                                lastPublish = now
+                                val visible = partial.toList()
+                                withContext(Dispatchers.Main) { thumbnails = visible }
+                            }
+                        }
+                        ready
                     }
-                } catch (_: Exception) { emptyList() }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { emptyList() }
                 finally { retriever.release() }
+                }
             }
         }
-        thumbnails = generated
-        com.domenota.medialoader.core.logging.PerformanceLog.slow("timeline_thumbnail_batch", decodeStarted)
-    }
-    DisposableEffect(thumbnails) {
-        val owned = thumbnails
-        onDispose { owned.forEach { if (!it.isRecycled) it.recycle() } }
+        if (generated.isNotEmpty()) thumbnails = generated
+        com.domenota.medialoader.core.logging.PerformanceLog.end("timeline_thumbnail_batch", decodeStarted,
+            "tiles=${generated.size} · cacheHits=$cacheHits · cacheBytes=${frameCache.bytes()}")
     }
     var pixelWidth by remember { mutableFloatStateOf(1f) }
     var longPressDelta by remember { mutableFloatStateOf(0f) }

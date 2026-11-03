@@ -32,7 +32,9 @@ internal object VideoTrimBoundaryPreview {
                 source?.close(); source = null; uri = null
                 source = open(request.sourceUri); uri = request.sourceUri
             }
-            source?.frame(request.sourceMs)
+            com.domenota.medialoader.data.editor.VideoFrameDecodeBudget.decode {
+                source?.frame(request.sourceMs)
+            }
         }.getOrNull() } finally {
                 com.domenota.medialoader.core.logging.PerformanceLog.slow("trim_boundary_decode", started)
             }

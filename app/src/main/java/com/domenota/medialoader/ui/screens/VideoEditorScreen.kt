@@ -155,6 +155,7 @@ private data class VideoInfo(
     val durationMs: Long,
     val frameDurationMs: Long?,
     val isImage: Boolean = false,
+    val isHdr: Boolean = false,
 )
 
 /** The approved v8 editor has its own dark canvas, independent of the app's light theme. */
@@ -535,6 +536,8 @@ private fun VideoEditorContent(
         }
     }
 
+    val timelineFrameCache = remember(item.id) { com.domenota.medialoader.data.editor.VideoSessionFrameCache() }
+    DisposableEffect(timelineFrameCache) { onDispose { timelineFrameCache.close() } }
     val previewSession = remember(uri) { uri?.let {
         com.domenota.medialoader.data.editor.VideoEditorPreviewSession(context, it, deferPreparation = true)
     } }
@@ -559,6 +562,21 @@ private fun VideoEditorContent(
         }
         previewPlayer?.addListener(listener)
         onDispose { previewPlayer?.removeListener(listener) }
+    }
+    val previewLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(previewLifecycle, previewPlayer) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+                previewPlayer?.pause()
+                previewPlayer?.stop()
+                audioPreviewDeck.pause()
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME &&
+                    previewPlayer?.playbackState == Player.STATE_IDLE && previewPlayer.mediaItemCount > 0) {
+                previewPlayer.prepare()
+            }
+        }
+        previewLifecycle.lifecycle.addObserver(observer)
+        onDispose { previewLifecycle.lifecycle.removeObserver(observer) }
     }
     DisposableEffect(previewSession) {
         onDispose { previewSession?.release(); audioPreviewDeck.pause() }
@@ -817,6 +835,7 @@ private fun VideoEditorContent(
                 CropVideoPreview(
                     modifier = Modifier.width(videoFit.width.dp).height(videoFit.height.dp),
                     player = requireNotNull(previewPlayer),
+                    useTextureSurface = android.os.Build.VERSION.SDK_INT >= 30 && previewDimensions?.isHdr != true,
                     sourceWidth = if (isRotated) h else w,
                     sourceHeight = if (isRotated) w else h,
                     crop = crop,
@@ -876,6 +895,7 @@ private fun VideoEditorContent(
                 if (activeProject != null) {
                     if (!(selectedTool == VideoWorkspaceTool.TEXT && textEditing)) VideoMultiClipTimeline(
                         project = activeProject,
+                        frameCache = timelineFrameCache,
                         selectedClipId = selectedClipId,
                         positionMs = playheadMs,
                         isPlaying = timelineIsPlaying,
@@ -1708,6 +1728,7 @@ private fun ReverseVideoPreviewDialog(file: File, onDismiss: () -> Unit) {
 private fun CropVideoPreview(
     modifier: Modifier = Modifier,
     player: ExoPlayer,
+    useTextureSurface: Boolean = true,
     sourceWidth: Int,
     sourceHeight: Int,
     crop: CropFractions,
@@ -1723,9 +1744,11 @@ private fun CropVideoPreview(
 ) {
     val latestOverlayTransform by rememberUpdatedState(onOverlayTransform)
     Box(modifier.background(Color.Black)) {
-        AndroidView(
+        androidx.compose.runtime.key(useTextureSurface) { AndroidView(
             factory = { viewContext ->
-                PlayerView(viewContext).apply {
+                (if (useTextureSurface) android.view.LayoutInflater.from(viewContext).inflate(
+                    com.domenota.medialoader.R.layout.video_editor_preview, null, false) as PlayerView
+                    else PlayerView(viewContext)).apply {
                     this.player = player
                     useController = false
                     setKeepContentOnPlayerReset(true)
@@ -1742,8 +1765,9 @@ private fun CropVideoPreview(
                 if (player.playbackState == androidx.media3.common.Player.STATE_IDLE && player.mediaItemCount > 0)
                     player.prepare()
             },
+            onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize(),
-        )
+        ) }
         if (showCropFrame) CropFrameOverlay(
             crop = crop,
             sourceWidth = sourceWidth,
@@ -1814,7 +1838,11 @@ private fun readVideoInfo(context: android.content.Context, uri: Uri): VideoInfo
                     (duration.toDouble() / frameCount).toLong().coerceAtLeast(1L)
                 else -> null
             }
-            VideoInfo(width, height, duration, frameDurationMs)
+            val transfer = if (android.os.Build.VERSION.SDK_INT >= 30)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_COLOR_TRANSFER)?.toIntOrNull() else null
+            VideoInfo(width, height, duration, frameDurationMs,
+                isHdr = transfer == androidx.media3.common.C.COLOR_TRANSFER_ST2084 ||
+                    transfer == androidx.media3.common.C.COLOR_TRANSFER_HLG)
         } finally {
             retriever.release()
         }
