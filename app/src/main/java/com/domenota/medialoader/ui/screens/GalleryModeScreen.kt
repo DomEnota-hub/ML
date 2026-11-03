@@ -495,7 +495,7 @@ fun GalleryModeScreen(
                         album.cover?.let { cover ->
                             DownloadThumbnail(cover.savedUri, cover.previewUrl,
                                 cover.toUi().kind,
-                                Modifier.fillMaxWidth().height(65.dp).clip(RoundedCornerShape(9.dp)))
+                                Modifier.fillMaxWidth().height(65.dp).clip(RoundedCornerShape(9.dp)), progressive = true)
                         }
                         Text(album.name, fontSize = 12.sp, maxLines = 1,
                             overflow = TextOverflow.Ellipsis)
@@ -583,7 +583,7 @@ private fun GalleryAlbumCell(
         ) {
             val cover = album.cover
             if (cover != null) DownloadThumbnail(
-                cover.savedUri, cover.previewUrl, cover.toUi().kind, Modifier.fillMaxSize()
+                cover.savedUri, cover.previewUrl, cover.toUi().kind, Modifier.fillMaxSize(), progressive = true
             )
             else Icon(Icons.Rounded.PhotoLibrary, null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -637,7 +637,7 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
         .semantics { contentDescription = item.originalName }
         .combinedClickable(onClick = onOpen, onLongClick = onLongSelect, onLongClickLabel = "Выбрать файл")) {
-        DownloadThumbnail(item.savedUri, item.previewUrl, item.toUi().kind, Modifier.fillMaxSize())
+        DownloadThumbnail(item.savedUri, item.previewUrl, item.toUi().kind, Modifier.fillMaxSize(), progressive = true)
         if (selected) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = .25f)))
         if (selecting) IconButton(onClick = onSelect, modifier = Modifier.align(Alignment.TopEnd).size(40.dp)) {
             Icon(
