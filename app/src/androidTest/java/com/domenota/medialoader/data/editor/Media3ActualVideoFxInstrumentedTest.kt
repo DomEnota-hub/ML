@@ -358,6 +358,34 @@ class Media3ActualVideoFxInstrumentedTest {
                 android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true)
             delay(700)
         }
+        suspend fun awaitInitialVideoFrame() = withTimeout(20_000L) {
+            fun surface(view: android.view.View): android.view.SurfaceView? {
+                if (view is android.view.SurfaceView) return view
+                if (view is android.view.ViewGroup) for (i in 0 until view.childCount)
+                    surface(view.getChildAt(i))?.let { return it }
+                return null
+            }
+            while (true) {
+                delay(100)
+                val result = CompletableDeferred<Bitmap?>()
+                scenario.onActivity { activity ->
+                    val view = surface(activity.window.decorView)
+                    if (view == null || !view.holder.surface.isValid) result.complete(null) else {
+                        val image = Bitmap.createBitmap(90, 160, Bitmap.Config.ARGB_8888)
+                        PixelCopy.request(view, image, { status ->
+                            if (status == PixelCopy.SUCCESS) result.complete(image)
+                            else { image.recycle(); result.complete(null) }
+                        }, Handler(Looper.getMainLooper()))
+                    }
+                }
+                val image = result.await() ?: continue
+                val pixels = IntArray(image.width * image.height)
+                image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
+                image.recycle()
+                if (pixels.count { ((it ushr 16) and 255) > 40 || ((it ushr 8) and 255) > 40 || (it and 255) > 40 } > pixels.size / 10)
+                    return@withTimeout
+            }
+        }
         fun screenshot(name: String) {
             val image = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
             File(evidence, "ui_$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -365,7 +393,7 @@ class Media3ActualVideoFxInstrumentedTest {
         }
         try {
             withTimeout(20_000) { while (node("Редактор") == null) delay(100) }
-            delay(1500)
+            awaitInitialVideoFrame()
             screenshot("01_root_portrait")
             click("Редактор"); screenshot("02_editor")
             click("Обрезка"); screenshot("03_trim_source")

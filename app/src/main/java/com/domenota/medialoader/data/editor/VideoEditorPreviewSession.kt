@@ -18,6 +18,7 @@ import kotlin.math.roundToInt
  */
 @OptIn(UnstableApi::class)
 internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
+    private val deferPreparation: Boolean = false,
     private val onPlayerCreated: (ExoPlayer) -> Unit = {}) {
     private val context = context.applicationContext
     private val spec = AtomicReference(VideoEditSpec())
@@ -62,7 +63,10 @@ internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
                 .setUsage(C.USAGE_MEDIA).build(), true).setHandleAudioBecomingNoisy(true).build()
         player.setVideoEffects(graph.effects) // Before the FIRST prepare, including neutral overlays.
         onPlayerCreated(player)
-        if (items.isNotEmpty()) { player.setMediaItems(items, index, position); player.prepare() }
+        if (items.isNotEmpty()) {
+            player.setMediaItems(items, index, position)
+            if (!deferPreparation) player.prepare()
+        }
         return player
     }
     fun update(next: VideoEditSpec, canvasRatio: Float? = null) {

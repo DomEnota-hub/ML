@@ -523,7 +523,7 @@ private fun VideoEditorContent(
     }
 
     val previewSession = remember(uri) { uri?.let {
-        com.domenota.medialoader.data.editor.VideoEditorPreviewSession(context, it)
+        com.domenota.medialoader.data.editor.VideoEditorPreviewSession(context, it, deferPreparation = true)
     } }
     val previewPlayer = previewSession?.players?.collectAsState()?.value
     DisposableEffect(previewSession) {
@@ -543,7 +543,7 @@ private fun VideoEditorContent(
     val naturalCanvasRatio = if ((canvasClip?.rotationDegrees ?: 0) % 180 == 0)
         naturalCanvasWidth / naturalCanvasHeight else naturalCanvasHeight / naturalCanvasWidth
     val previewCanvasRatio = if (selectedTool == VideoWorkspaceTool.CROP) null
-        else project?.aspect?.ratio ?: naturalCanvasRatio
+        else project?.aspect?.ratio ?: canvasInfo?.let { naturalCanvasRatio }
     val textPreviewSpec = VideoEditSpec(startMs = currentClip?.inMs ?: 0L,
         cropLeft = previewCrop.left, cropRight = previewCrop.right,
         cropTop = previewCrop.top, cropBottom = previewCrop.bottom,
@@ -1625,7 +1625,13 @@ private fun CropVideoPreview(
                     setBackgroundColor(android.graphics.Color.BLACK)
                 }
             },
-            update = { it.player = player },
+            update = {
+                // Attach the Surface holder BEFORE preparing a newly rebuilt paused player.
+                // Otherwise its only initial frame can be rendered before this view is bound.
+                it.player = player
+                if (player.playbackState == androidx.media3.common.Player.STATE_IDLE && player.mediaItemCount > 0)
+                    player.prepare()
+            },
             modifier = Modifier.fillMaxSize(),
         )
         if (showCropFrame) CropFrameOverlay(

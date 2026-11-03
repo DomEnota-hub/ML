@@ -389,3 +389,27 @@ suite cannot hold unit/lint/build gates in the pending queue. The pending e30cfa
 QA run is cancelled before execution and replaced at the current documentation/
 workflow-only HEAD. Runtime/native sources remain byte-for-byte identical to
 e91589c; no extra codec rerun is introduced.
+
+## Native full suite / QA results and first-frame followup
+
+Native job125631631540 on e91589c:12tests,0failures/errors/skips;129actual MP4
+files preserved. All10FX/strengths, paused/playing/MP4 parity, entire photo
+catalogue,13controls, trim15/15/20,8text layers/sticker, AAC/MP3/mix, JPEG,
+aspect/title placement and cancellation passed. Evidence artifact13191940738.
+
+QA a877f44:1043tests,0failures,1optional skip; lint found a produceState assignment
+recognition error in the new audio lane. Explicit receiver assignment did not
+resolve the lint rule, so the producer now uses remember+LaunchedEffect (no
+suppression). Original audio decoding and rendering semantics are retained.
+
+Review of native UI evidence found the root screenshot black while subsequent
+panels already had video. Screen preview had prepared a new player before its
+PlayerView attached the Surface. Screen sessions now defer prepare until view
+binding, and no temporary16:9canvas is installed before source metadata exists.
+The UI probe waits for REAL nonblack PixelCopy video pixels before the initial
+screenshot, replacing a fixed1.5s sleep. Instrumented compile PASS locally.
+
+Followup checks: one full QA-only run at the new HEAD, plus ONLY the affected
+native editor-screen method. The passed12-codec suite is not repeated; export,
+FX shaders, source clock and audio processing are unchanged. Session default
+preparation for the codec probe is unchanged; deferred preparation is Screen-only.

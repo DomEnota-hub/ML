@@ -59,13 +59,22 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
     onGestureStart: () -> Unit, onGestureEnd: () -> Unit) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
-    val peaks by produceState<List<Float>>(emptyList(), track.sourceUri, track.sourceDurationMs) {
+    var peaks by remember(track.sourceUri, track.sourceDurationMs) { mutableStateOf(emptyList<Float>()) }
+    LaunchedEffect(track.sourceUri, track.sourceDurationMs) {
         suspend fun cached() = withContext(Dispatchers.IO) { readCachedAudioWaveform(context,
             Uri.parse(track.sourceUri), track.sourceDurationMs) }
         val ready = cached()
-        if (ready != null) value = ready else {
+        peaks = ready.orEmpty()
+        if (ready == null) {
             AudioWaveformPrecompute.requestImmediate(context, Uri.parse(track.sourceUri), track.sourceDurationMs)
-            repeat(240) { delay(1000); cached()?.let { value = it; return@produceState } }
+            repeat(240) {
+                delay(1000)
+                val loaded = cached()
+                if (loaded != null) {
+                    peaks = loaded
+                    return@LaunchedEffect
+                }
+            }
         }
     }
     var dragging by remember(track.id) { mutableStateOf(false) }
