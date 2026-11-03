@@ -66,6 +66,9 @@ import com.domenota.medialoader.ui.components.AppSlider as Slider
 import androidx.compose.material3.Text
 import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.material3.TopAppBar
+import com.domenota.medialoader.ui.components.TextLayerSelectionOverlay
+import com.domenota.medialoader.ui.components.UnifiedTextTab
+import com.domenota.medialoader.data.editor.VideoTextLaneEdit
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -257,6 +260,9 @@ private fun VideoEditorContent(
     var panelHistory by remember(item.id) { mutableStateOf<VideoEditHistory.Checkpoint<VideoEditorUndoSnapshot>?>(null) }
     var historyRevision by remember(item.id) { mutableIntStateOf(0) }
     var trimGestureActive by remember(item.id) { mutableStateOf(false) }
+    var overlayGestureActive by remember(item.id) { mutableStateOf(false) }
+    var textEditing by remember(item.id) { mutableStateOf(true) }
+    var textEditorTab by remember(item.id) { mutableStateOf(UnifiedTextTab.KEYBOARD) }
     var requestedTrimBoundary by remember(item.id) {
         mutableStateOf<VideoTrimBoundaryPreview.Request?>(null)
     }
@@ -455,8 +461,8 @@ private fun VideoEditorContent(
     // Observe edits, not playback/seeking. Undo/redo restores the same snapshot
     // without creating a second history entry. Bounded at 60 snapshots.
     LaunchedEffect(project, textLayers, graphicLayers, removeAudio, reverseVideo,
-        exportSettings, trimGestureActive) {
-        if (trimGestureActive) return@LaunchedEffect
+        exportSettings, trimGestureActive, overlayGestureActive) {
+        if (trimGestureActive || overlayGestureActive) return@LaunchedEffect
         val current = project ?: return@LaunchedEffect
         if (editHistory.record(VideoEditorUndoSnapshot(
                 current, textLayers, graphicLayers, removeAudio, reverseVideo,
@@ -558,9 +564,43 @@ private fun VideoEditorContent(
         }.orEmpty(),
         textLayers = activeOverlays?.texts.orEmpty(),
         graphicLayers = activeOverlays?.graphics.orEmpty())
-    LaunchedEffect(previewPlayer, selectedClipId, textPreviewSpec, previewCanvasRatio) {
-        delay(75L) // Coalesce fast slider and drag gestures before updating GL parameters.
-        previewSession?.update(textPreviewSpec, previewCanvasRatio)
+    val previewUpdates = remember(previewSession) {
+        kotlinx.coroutines.flow.MutableStateFlow(textPreviewSpec to previewCanvasRatio)
+    }
+    LaunchedEffect(textPreviewSpec, previewCanvasRatio) { previewUpdates.value = textPreviewSpec to previewCanvasRatio }
+    LaunchedEffect(previewSession) {
+        previewUpdates.sampleVideoEditorUpdates().collect { (spec, ratio) -> previewSession?.update(spec, ratio) }
+    }
+    fun seekOverlay(position: Long) {
+        val draft = project ?: return
+        val at = position.coerceIn(0, (draft.durationMs - 1).coerceAtLeast(0))
+        val location = draft.locateAt(at)
+        val clip = draft.clips[location.clipIndex]
+        previewPlayer?.pause()
+        previewPlayer?.seekTo(location.clipIndex, (clip.sourceAt(location.positionWithinClipMs) - clip.inMs).coerceAtLeast(0))
+        playheadMs = at
+    }
+    fun addText() {
+        val draft = project ?: return
+        if (textLayers.size >= 8) return
+        val at = playheadMs.coerceIn(0, draft.durationMs - 1)
+        val added = TextLayer(startMs = at, endMs = minOf(draft.durationMs, at + 3000))
+        textLayers = textLayers + added; selectedOverlayId = added.id
+        textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD; previewPlayer?.pause()
+    }
+    fun duplicateText() {
+        val layer = textLayers.firstOrNull { it.id == selectedOverlayId } ?: return
+        if (textLayers.size >= 8) return
+        val copied = VideoTextLaneEdit.duplicate(layer)
+        textLayers = textLayers + copied; selectedOverlayId = copied.id; textEditing = false
+    }
+    fun deleteText() {
+        textLayers = textLayers.filterNot { it.id == selectedOverlayId }
+        selectedOverlayId = null
+    }
+    fun selectText(id: String) {
+        selectedOverlayId = id; selectedTool = VideoWorkspaceTool.TEXT; textEditing = false
+        textLayers.firstOrNull { it.id == id }?.let { if (!it.visibleAt(playheadMs)) seekOverlay(it.startMs) }
     }
 
     LaunchedEffect(uri) {
@@ -723,7 +763,10 @@ private fun VideoEditorContent(
                 // for transport/timeline rather than stretching portrait video into it.
                 val audioLaneHeight = if (selectedTool == VideoWorkspaceTool.TRIM) 0.dp
                     else ((project?.visibleAudioTracks()?.size ?: 0).coerceAtMost(2) * 42).dp
-                val availableCanvas = (maxHeight - 146.dp - audioLaneHeight).coerceAtLeast(48.dp)
+                val editingText = selectedTool == VideoWorkspaceTool.TEXT && textEditing
+                val textLaneHeight = if (selectedTool == VideoWorkspaceTool.TRIM) 0.dp else (textLayers.size.coerceAtMost(2) * 40).dp
+                val timelineHeight = if (editingText) 0.dp else 146.dp + audioLaneHeight + textLaneHeight
+                val availableCanvas = (maxHeight - timelineHeight).coerceAtLeast(48.dp)
                 val referenceCanvas = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .4023f
                 val canvasHeight = minOf(availableCanvas, referenceCanvas)
                 Column(Modifier.fillMaxSize()) {
@@ -751,13 +794,21 @@ private fun VideoEditorContent(
                     cropPreset = cropPreset,
                     onCropChange = { updateSelectedGeometry(updatedCrop = it) },
                     showCropFrame = selectedTool == VideoWorkspaceTool.CROP,
+                    selectedTextLayer = textLayers.firstOrNull { it.id == selectedOverlayId && it.visibleAt(playheadMs) }
+                        .takeIf { selectedTool == VideoWorkspaceTool.TEXT },
+                    textCanvasWidth = previewCanvasRatio?.let { (it * 1000).roundToInt().coerceAtLeast(1) } ?: naturalWidth,
+                    textCanvasHeight = if (previewCanvasRatio != null) 1000 else naturalHeight,
+                    onTextChange = { next -> textLayers = textLayers.map { if (it.id == next.id) next else it } },
+                    onCopyText = ::duplicateText, onDeleteText = ::deleteText,
+                    onTextTap = { textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD },
+                    onTextGestureStart = { overlayGestureActive = true; previewPlayer?.pause() },
+                    onTextGestureEnd = { overlayGestureActive = false },
                     activeOverlayCenter = (textLayers.firstOrNull {
                         it.id == selectedOverlayId
                     }?.let { it.centerX to it.centerY } ?: graphicLayers.firstOrNull {
                         it.id == selectedOverlayId
                     }?.let { it.centerX to it.centerY }).takeIf {
-                        selectedTool == VideoWorkspaceTool.TEXT ||
-                            selectedTool == VideoWorkspaceTool.GRAPHICS
+                        selectedTool == VideoWorkspaceTool.GRAPHICS
                     },
                     onOverlayTransform = { dx, dy, zoom, angle ->
                         textLayers = textLayers.map { layer ->
@@ -794,7 +845,7 @@ private fun VideoEditorContent(
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 val activeProject = project
                 if (activeProject != null) {
-                    VideoMultiClipTimeline(
+                    if (!(selectedTool == VideoWorkspaceTool.TEXT && textEditing)) VideoMultiClipTimeline(
                         project = activeProject,
                         selectedClipId = selectedClipId,
                         positionMs = playheadMs,
@@ -810,6 +861,11 @@ private fun VideoEditorContent(
                             editHistory.redo()?.let(::restoreSnapshot)
                             historyRevision++
                         },
+                        texts = textLayers, selectedTextId = selectedOverlayId,
+                        onSelectText = ::selectText,
+                        onChangeText = { next -> textLayers = textLayers.map { if (it.id == next.id) next else it } },
+                        onTextGestureStart = { overlayGestureActive = true; previewPlayer?.pause() },
+                        onTextGestureEnd = { overlayGestureActive = false },
                         selectedAudioTrackId = selectedAudioTrackId,
                         onSelectAudio = { selectedAudioTrackId = it; selectedTool = VideoWorkspaceTool.AUDIO },
                         onChangeAudio = { next -> project = project?.editAudioTrack(next.id) { next } },
@@ -971,7 +1027,8 @@ private fun VideoEditorContent(
             }
                 }
             }
-            if (selectedTool != null && selectedTool != VideoWorkspaceTool.TRIM) {
+            if (selectedTool != null && selectedTool != VideoWorkspaceTool.TRIM &&
+                !(selectedTool == VideoWorkspaceTool.TEXT && !textEditing)) {
                 Column(Modifier.fillMaxWidth().heightIn(max = 218.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .35f))
                     .verticalScroll(rememberScrollState())
@@ -1301,6 +1358,8 @@ private fun VideoEditorContent(
                             val graphicsTab = selectedTool == VideoWorkspaceTool.GRAPHICS
                             VideoOverlayPanel(
                                 graphicsTab = graphicsTab,
+                                initialTextTab = textEditorTab,
+                                onConfirmText = { textEditing = false },
                                 durationMs = draft?.durationMs ?: 0L,
                                 playheadMs = playheadMs,
                                 texts = textLayers,
@@ -1308,16 +1367,7 @@ private fun VideoEditorContent(
                                 selectedId = selectedOverlayId,
                                 enabled = draft != null && !ownExport && !busyWithOther,
                                 onSelect = { selectedOverlayId = it },
-                                onAddText = {
-                                    if (draft != null && textLayers.size < 8) {
-                                        val from = playheadMs.coerceIn(0L, draft.durationMs - 1L)
-                                        val added = TextLayer(startMs = from,
-                                            endMs = minOf(draft.durationMs, from + 3000L))
-                                        textLayers = textLayers + added
-                                        selectedOverlayId = added.id
-                                        previewPlayer?.pause()
-                                    }
-                                },
+                                onAddText = ::addText,
                                 onAddGraphic = { kind ->
                                     if (draft != null && graphicLayers.size < 12) {
                                         val from = playheadMs.coerceIn(0L, draft.durationMs - 1L)
@@ -1432,7 +1482,14 @@ private fun VideoEditorContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             val panelTool = selectedTool
-            if (panelTool != null) {
+            if (panelTool == VideoWorkspaceTool.TEXT && !textEditing) {
+                VideoTextActions(!ownExport && !busyWithOther && textLayers.any { it.id == selectedOverlayId },
+                    textLayers.size < 8, onBack = { closePanel(true) },
+                    onEdit = { textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD },
+                    onStyle = { textEditing = true; textEditorTab = UnifiedTextTab.STYLE },
+                    onTrim = { selectedOverlayId?.let(::selectText) },
+                    onCopy = ::duplicateText, onDelete = ::deleteText)
+            } else if (panelTool != null) {
                 val panelTitle = when (panelTool) {
                     VideoWorkspaceTool.COLOR -> if (referenceColorManual) "Откорректировать" else "Фильтры"
                     VideoWorkspaceTool.TEXT -> "Надписи"
@@ -1449,7 +1506,13 @@ private fun VideoEditorContent(
                     if (next == VideoWorkspaceTool.MUSIC_PICKER) {
                         previewPlayer?.pause(); clipError = null; musicPickerOpen = true
                     }
-                    if (next == VideoWorkspaceTool.TEXT) previewPlayer?.pause()
+                    if (next == VideoWorkspaceTool.TEXT) {
+                        textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD
+                        if (textLayers.isEmpty()) addText()
+                        else if (selectedOverlayId == null) selectedOverlayId = textLayers.last().id
+                        selectedOverlayId?.let { id -> textLayers.firstOrNull { it.id == id }?.let { seekOverlay(it.startMs) } }
+                        previewPlayer?.pause()
+                    }
                 },
                 enabled = info != null && !ownExport && !busyWithOther,
                 onColorManualMode = { referenceColorManual = it },
@@ -1608,6 +1671,10 @@ private fun CropVideoPreview(
     cropPreset: CropAspectPreset,
     onCropChange: (CropFractions) -> Unit,
     showCropFrame: Boolean = true,
+    selectedTextLayer: TextLayer? = null,
+    textCanvasWidth: Int = sourceWidth, textCanvasHeight: Int = sourceHeight,
+    onTextChange: (TextLayer) -> Unit = {}, onCopyText: () -> Unit = {}, onDeleteText: () -> Unit = {},
+    onTextTap: () -> Unit = {}, onTextGestureStart: () -> Unit = {}, onTextGestureEnd: () -> Unit = {},
     activeOverlayCenter: Pair<Float, Float>? = null,
     onOverlayTransform: (Float, Float, Float, Float) -> Unit = { _, _, _, _ -> },
 ) {
@@ -1642,6 +1709,11 @@ private fun CropVideoPreview(
             onCropChange = onCropChange,
             modifier = Modifier.fillMaxSize(),
         )
+        if (selectedTextLayer != null && !showCropFrame) {
+            TextLayerSelectionOverlay(textCanvasWidth, textCanvasHeight, selectedTextLayer,
+                onTextChange, onTap = onTextTap, onDuplicate = onCopyText, onDelete = onDeleteText,
+                cornerActions = true, onGestureStart = onTextGestureStart, onGestureEnd = onTextGestureEnd)
+        }
         if (activeOverlayCenter != null && !showCropFrame) {
             Canvas(Modifier.fillMaxSize().pointerInput(activeOverlayCenter) {
                 detectTransformGestures { _, pan, zoom, rotation ->

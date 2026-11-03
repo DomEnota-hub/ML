@@ -83,6 +83,11 @@ internal fun VideoMultiClipTimeline(
     selectedAudioTrackId: String? = null,
     onSelectAudio: (String) -> Unit = {},
     onChangeAudio: (com.domenota.medialoader.data.editor.VideoAudioTrackDraft) -> Unit = {},
+    texts: List<com.domenota.medialoader.data.editor.TextLayer> = emptyList(),
+    selectedTextId: String? = null,
+    onSelectText: (String) -> Unit = {},
+    onChangeText: (com.domenota.medialoader.data.editor.TextLayer) -> Unit = {},
+    onTextGestureStart: () -> Unit = {}, onTextGestureEnd: () -> Unit = {},
 ) {
     // Full timeline detail by default; the scale is not user-adjustable.
     val zoom = 2.5f
@@ -95,6 +100,17 @@ internal fun VideoMultiClipTimeline(
         zoom, referenceDurationMs)
     val videoScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     val density = LocalDensity.current.density
+    androidx.compose.runtime.LaunchedEffect(selectedTextId, trimMode) {
+        val text = texts.firstOrNull { it.id == selectedTextId } ?: return@LaunchedEffect
+        if (trimMode) return@LaunchedEffect
+        val location = project.locateAt(text.startMs.coerceAtMost(project.durationMs - 1))
+        val clip = project.clips[location.clipIndex]
+        val width = VideoClipReorderMath.widthDp(clip.durationMs, zoom, referenceDurationMs)
+        val viewport = (videoScroll.layoutInfo.viewportEndOffset - videoScroll.layoutInfo.viewportStartOffset).coerceAtLeast(0)
+        val offset = (width * density * location.positionWithinClipMs / clip.durationMs - viewport / 2f)
+            .roundToInt().coerceAtLeast(0)
+        videoScroll.scrollToItem(location.clipIndex, offset)
+    }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween) {
@@ -181,6 +197,9 @@ internal fun VideoMultiClipTimeline(
                 }
             }
         }
+        if (!trimMode && texts.isNotEmpty()) VideoTextLanes(project, texts, selectedTextId,
+            positionMs, videoScroll, project.clips.map { VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
+            enabled, onSelectText, onChangeText, onTextGestureStart, onTextGestureEnd)
             if (!trimMode && project.audioTracks.isNotEmpty()) VideoAudioLanes(project,
             selectedAudioTrackId, positionMs, videoScroll, project.clips.map {
                 VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },

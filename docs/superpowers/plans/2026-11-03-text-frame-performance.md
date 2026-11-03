@@ -29,11 +29,11 @@ Files: MainActivity.kt, AudioWaveformPrecomputeWorker.kt, TimelineVisuals.kt, Li
 
 ### Task2: Direct text frame and intervals
 Files: TextLayerSelectionOverlay.kt, VideoEditorScreen.kt, VideoOverlayPanel.kt, VideoMultiClipTimeline.kt; new VideoTextControls.kt, VideoTextLanes.kt, VideoTextLaneEdit.kt.
-- [ ] Add text range/duplicate tests and extend existing video text control tests to reject geometry/time sliders.
-- [ ] Reuse frame with corner actions and one undo transaction per drag.
-- [ ] Add blue independent text lanes using existing project/scroll geometry and reversible range edits.
-- [ ] Provide compact input/tabs and edit/style/trim/copy/delete; keep graphics behavior.
-- [ ] Run selected text/frame/range/history tests and compile; commit.
+- [x] Add text range/duplicate tests and extend existing video text control tests to reject geometry/time sliders.
+- [x] Reuse frame with corner actions and one undo transaction per drag.
+- [x] Add blue independent text lanes using existing project/scroll geometry and reversible range edits.
+- [x] Provide compact input/tabs and edit/style/trim/copy/delete; keep graphics behavior.
+- [x] Run selected text/frame/range/history tests and compile; commit.
 
 ### Task3: Scoped verification and delivery
 - [ ] Run lint once after the block; fix concrete errors only.

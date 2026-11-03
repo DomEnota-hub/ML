@@ -39,7 +39,14 @@ internal fun VideoOverlayPanel(
     onRemoveText: (String) -> Unit,
     onRemoveGraphic: (String) -> Unit,
     onSeek: (Long) -> Unit,
+    initialTextTab: UnifiedTextTab = UnifiedTextTab.KEYBOARD,
+    onConfirmText: () -> Unit = {},
 ) {
+    if (!graphicsTab) {
+        VideoTextControls(texts.firstOrNull { it.id == selectedId }, texts.size, enabled,
+            initialTextTab, onAddText, onChangeText, onConfirmText)
+        return
+    }
     var selectedTextTab by remember { mutableStateOf(UnifiedTextTab.KEYBOARD) }
     val text = if (!graphicsTab) texts.firstOrNull { it.id == selectedId } else null
     val graphic = if (graphicsTab) graphics.firstOrNull { it.id == selectedId } else null

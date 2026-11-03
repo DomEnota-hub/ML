@@ -61,6 +61,7 @@ internal fun UnifiedTextStyle(
     layer: TextLayer,
     onChange: (TextLayer) -> Unit,
     enabled: Boolean = true,
+    showSize: Boolean = true,
     onPickColor: (() -> Unit)? = null,
 ) {
     Text("Цвет текста", style = MaterialTheme.typography.labelLarge)
@@ -117,7 +118,7 @@ internal fun UnifiedTextStyle(
         Text("${(layer.opacity * 100f).toInt()} %",
             style = MaterialTheme.typography.labelSmall)
     }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    if (showSize) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Размер", style = MaterialTheme.typography.labelMedium)
         CompactTextSlider(value = layer.size.coerceIn(.02f, .25f),
             onValueChange = { onChange(layer.copy(size = it)) },
