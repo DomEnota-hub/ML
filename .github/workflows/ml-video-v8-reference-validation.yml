@@ -9,6 +9,10 @@ on:
         description: 'Run all release gates and the whole codec suite once'
         type: boolean
         default: false
+      run_device_tests:
+        description: 'Run Android codecs (disable only when runtime and native tests are unchanged)'
+        type: boolean
+        default: true
       device_test:
         description: 'Focused Android test (class#method)'
         type: string
@@ -107,7 +111,7 @@ jobs:
   # This is a real Android codec test, independent of JVM/Robolectric
   # snapshot tests. It decodes the completed MP4 and checks its pixels.
   mp4-codec-device:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_device_tests }}
     name: Real MP4 effect on Android emulator
     runs-on: ubuntu-24.04
     timeout-minutes: 60

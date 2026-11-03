@@ -60,7 +60,14 @@ class VideoFinalStage9IntegrationTest {
         assertEquals(2f, items[0].speedProvider.getSpeed(0L), 0f)
         assertEquals(.5f, items[2].speedProvider.getSpeed(0L), 0f)
         assertEquals(2500L, items[1].mediaItem.localConfiguration!!.imageDurationMs)
-        assertTrue(items.all { it.effects.videoEffects.last() is Presentation })
+        // Size the shared canvas BEFORE titles/graphics, so they can occupy its bars.
+        // Encoded MP4/JPEG placement is covered by the actual aspect instrumented test.
+        assertTrue(items.all {
+            val effects = it.effects.videoEffects
+            val canvasIndex = effects.indexOfFirst { effect -> effect is Presentation }
+            val overlayIndex = effects.indexOfFirst { effect -> effect is OverlayEffect }
+            canvasIndex >= 0 && overlayIndex > canvasIndex
+        })
         assertTrue(items.all {
             it.effects.videoEffects.any { effect -> effect is OverlayEffect }
         })

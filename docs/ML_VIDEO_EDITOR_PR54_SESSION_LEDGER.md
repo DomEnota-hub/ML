@@ -369,3 +369,17 @@ One full_validation=true run now covers all tests/lint/JS/ARM64/debug identity/
 unsigned1.7.112 production preflight and the two native codec classes. Results
 must be read from that exact candidate SHA; this entry does not pre-claim PASS.
 Official signing/release remains blocked on manual acceptance and key access.
+
+##e91589c final gate followup
+
+Full QA ran1043tests: one obsolete Stage9 structural assertion failed; one
+optional test skipped. It asserted Presentation LAST, contradicting the approved
+canvas-before-title behavior already proven in real MP4/JPEG. Corrected it to
+require Presentation before OverlayEffect; its two focused integration cases
+PASS locally. No production/debug/instrumented source or dependencies changed.
+
+The e91589c native full-suite job continues. Added a manual workflow switch to
+avoid repeating it for this unit-test-only followup. Full QA (unit/Compose/lint/
+JS/ARM64/unsigned release) will run at the new HEAD. Native evidence remains
+explicitly attributed to e91589c; source-tree equality must be verified rather
+than claiming an old runtime test ran on a different SHA.
