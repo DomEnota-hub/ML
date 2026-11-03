@@ -14,7 +14,8 @@ import kotlin.math.abs
 internal class VideoAudioPreviewDeck(private val context: Context) {
     private data class Preview(val sourceUri: String, val player: ExoPlayer,
         var lastProjectMs: Long? = null, var lastTrack: VideoAudioTrackDraft? = null,
-        var lastDriftReportAt: Long = 0L)
+        var lastAudible: Boolean = false, var lastSampleAt: Long = 0L, var lastPlaying: Boolean = false,
+        var lastDriftReportAt: Long = 0L, var lastSeekAt: Long = Long.MIN_VALUE / 2)
     private val active = mutableMapOf<String, Preview>()
 
     fun synchronize(project: VideoProjectDraft?, positionMs: Long, playing: Boolean, embeddedTrackIds: Set<String> = emptySet()) {
@@ -47,27 +48,33 @@ internal class VideoAudioPreviewDeck(private val context: Context) {
                 val sourcePosition = track.sourceAt(localTime)
                 if (player.playbackParameters.speed != track.speed) player.setPlaybackSpeed(track.speed)
                 val previous = preview.lastTrack
-                val jump = preview.lastProjectMs == null || abs(positionMs - preview.lastProjectMs!!) > 250L ||
+                val now = android.os.SystemClock.elapsedRealtime()
+                val naturalAdvance = if (playing && preview.lastPlaying) now - preview.lastSampleAt else 0L
+                val jump = !preview.lastAudible || preview.lastProjectMs == null || abs(positionMs - preview.lastProjectMs!! - naturalAdvance) > 250L ||
                     previous == null || previous.inMs != track.inMs || previous.outMs != track.outMs ||
                     previous.atMs != track.atMs || previous.speed != track.speed
                 val drift = player.currentPosition - sourcePosition
-                val now = android.os.SystemClock.elapsedRealtime()
                 if (!jump && playing && player.playbackState == androidx.media3.common.Player.STATE_READY &&
                     abs(drift) > 500L && now - preview.lastDriftReportAt >= 2000L) {
                     preview.lastDriftReportAt = now
                     com.domenota.medialoader.core.logging.AppLog.w("AudioSync",
                         "Drift correction · projectMs=$positionMs · expectedSourceMs=$sourcePosition · actualSourceMs=${player.currentPosition}")
                 }
-                if (jump || (player.playbackState == androidx.media3.common.Player.STATE_READY &&
-                        abs(player.currentPosition - sourcePosition) > if (playing) 180L else 20L)) {
-                    player.playWhenReady = false
+                if (VideoAudioSyncDecision.shouldSeek(jump, player.playbackState == androidx.media3.common.Player.STATE_READY,
+                        playing, drift, now - preview.lastSeekAt)) {
+                    preview.lastSeekAt = now
+                    com.domenota.medialoader.core.logging.AppLog.verboseSampled("AudioSync", "seek:${track.id}",
+                        "Audio seek · jump=$jump · driftMs=$drift · playing=$playing")
                     player.seekTo(sourcePosition)
                 }
                 player.volume = track.gainAt(positionMs).coerceIn(0f, 1f)
                 player.playWhenReady = playing
             } else player.playWhenReady = false
             preview.lastProjectMs = positionMs
+            preview.lastAudible = audible
             preview.lastTrack = track
+            preview.lastSampleAt = android.os.SystemClock.elapsedRealtime()
+            preview.lastPlaying = playing
         }
     }
 

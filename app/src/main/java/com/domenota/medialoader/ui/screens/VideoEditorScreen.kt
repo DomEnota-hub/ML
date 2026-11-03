@@ -699,12 +699,28 @@ private fun VideoEditorContent(
             .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L))
         previewSession?.replacePlaylist(items, location.clipIndex, sourceOffset)
     }
-    LaunchedEffect(previewPlayer, project, removeAudio) {
+    val latestAudioProject by rememberUpdatedState(project)
+    LaunchedEffect(previewPlayer, removeAudio) {
         val player = previewPlayer ?: return@LaunchedEffect
-        val p = project ?: return@LaunchedEffect
-        val embedded = if (removeAudio) com.domenota.medialoader.data.editor.VideoOriginalAudioRouting.tracks(p) else emptyMap()
-        val embeddedIds = embedded.values.mapTo(mutableSetOf()) { it.id }
+        var routedProject: VideoProjectDraft? = null
+        var embedded = emptyMap<String, VideoAudioTrackDraft>()
+        var embeddedIds = emptySet<String>()
         while (true) {
+            val p = latestAudioProject
+            if (p == null || overlayGestureActive || trimGestureActive) {
+                audioPreviewDeck.pause()
+                delay(75L)
+                continue
+            }
+            if (p != routedProject) {
+                val next = if (removeAudio) com.domenota.medialoader.data.editor.VideoOriginalAudioRouting.tracks(p) else emptyMap()
+                val ids = next.values.mapTo(mutableSetOf()) { it.id }
+                if (routedProject == null || ids != embeddedIds) {
+                    com.domenota.medialoader.core.logging.AppLog.i("AudioRoute",
+                        "Preview route · embedded=${ids.size} · separate=${p.audioTracks.count { it.id !in ids }}")
+                }
+                embedded = next; embeddedIds = ids; routedProject = p
+            }
             // During trim, split or reorder the player still has the old playlist
             // until its debounced rebuild. Never let old positions overwrite the
             // newly selected source frame before the player is synchronized.
