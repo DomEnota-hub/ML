@@ -52,7 +52,12 @@ internal object VideoFxThumbnail {
                 retriever.release()
             }
         } ?: return@runCatching null
-        val output = Bitmap.createScaledBitmap(frame, 144, 94, true)
+        val output = Bitmap.createBitmap(144, 94, Bitmap.Config.ARGB_8888)
+        val scale = maxOf(144f / frame.width, 94f / frame.height)
+        val width = frame.width * scale; val height = frame.height * scale
+        Canvas(output).drawBitmap(frame, null, android.graphics.RectF(
+            (144 - width) / 2, (94 - height) / 2, (144 + width) / 2, (94 + height) / 2),
+            Paint(Paint.FILTER_BITMAP_FLAG))
         if (output !== frame) frame.recycle()
         output
     }.getOrNull()

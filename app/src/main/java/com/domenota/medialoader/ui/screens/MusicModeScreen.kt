@@ -79,19 +79,25 @@ fun MusicModeScreen(
     if (folderOpen != null) {
         val folder = folderOpen!!
         val folderTracks = folders[folder].orEmpty()
-        AlertDialog(onDismissRequest = { folderOpen = null }, title = { Text(MusicFolderRules.title(folder)) },
+        AlertDialog(onDismissRequest = { folderOpen = null }, title = { Text(MusicFolderRules.title(folder), color = MaterialTheme.colorScheme.onSurface) },
             text = { Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(folder in excludedFolders, { exclude ->
+                    TextButton(onClick = {
+                        val exclude = folder !in excludedFolders
                         excludedFolders = if (exclude) excludedFolders + folder else excludedFolders - folder
                         folderPrefs.edit().putStringSet("excluded", excludedFolders).apply()
-                    })
-                    Text("Исключить из общего списка")
+                    }) {
+                        Icon(if (folder in excludedFolders) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (folder in excludedFolders) "Отобразить в общем списке" else "Скрыть из общего списка")
+                    }
                 }
                 androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 320.dp)) {
                     items(folderTracks, key = { it.id }) { track ->
                         TextButton(onClick = { (onPreview ?: onOpen)(track.id, folderTracks.map { it.id }) }) {
-                            Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName)
+                            com.domenota.medialoader.ui.components.DownloadThumbnail(track.savedUri, track.previewUrl, track.toUi().kind, Modifier.size(44.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -159,25 +165,6 @@ fun MusicModeScreen(
                 }
             }
             if (tab == 1 && playlist == null) {
-                item(key = "music-folders-title") {
-                    Text("Папки с музыкой", Modifier.padding(17.dp), fontWeight = FontWeight.SemiBold)
-                }
-                items(folders.keys.filterNotNull().filter { it !in excludedFolders }.sorted(), key = { "folder:$it" }) { folder ->
-                    TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.Folder, null)
-                        Text("${MusicFolderRules.title(folder)} · ${folders[folder].orEmpty().size}",
-                            Modifier.weight(1f).padding(start = 12.dp), maxLines = 2)
-                    }
-                }
-                if (folders.keys.any { it in excludedFolders }) {
-                    item(key = "excluded-folders") {
-                        TextButton(onClick = { showExcluded = !showExcluded }) { Text("Исключённые папки") }
-                    }
-                    if (showExcluded) items(folders.keys.filterNotNull().filter { it in excludedFolders }.sorted(),
-                        key = { "excluded:$it" }) { folder ->
-                        TextButton(onClick = { folderOpen = folder }) { Text(MusicFolderRules.title(folder)) }
-                    }
-                }
                 item(key = "playlists-title") { Text("Мои плейлисты", Modifier.padding(horizontal = 17.dp, vertical = 15.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
                 items(playlists.chunked(2), key = { it.first().id }) { pair ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -202,6 +189,26 @@ fun MusicModeScreen(
                     }
                     if (playlists.isEmpty()) Text("Пока нет плейлистов", Modifier.padding(17.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                item(key = "music-folders-title") {
+                    Text("Папки с музыкой", Modifier.padding(17.dp), fontWeight = FontWeight.SemiBold)
+                }
+                items(folders.keys.filterNotNull().filter { it !in excludedFolders }.sorted(), key = { "folder:$it" }) { folder ->
+                    TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.Folder, null)
+                        Text("${MusicFolderRules.title(folder)} · ${folders[folder].orEmpty().size}",
+                            Modifier.weight(1f).padding(start = 12.dp), maxLines = 2, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+                if (folders.keys.any { it in excludedFolders }) {
+                    item(key = "excluded-folders") {
+                        TextButton(onClick = { showExcluded = !showExcluded }) { Text("Исключённые папки") }
+                    }
+                    if (showExcluded) items(folders.keys.filterNotNull().filter { it in excludedFolders }.sorted(),
+                        key = { "excluded:$it" }) { folder ->
+                        TextButton(onClick = { folderOpen = folder }) { Text(MusicFolderRules.title(folder), color = MaterialTheme.colorScheme.onSurface) }
+                    }
+                }
+
             } else {
                 if (playlist != null) item(key = "playlist-summary") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 19.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,

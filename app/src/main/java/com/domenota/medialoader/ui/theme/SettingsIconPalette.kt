@@ -38,8 +38,8 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFFF197D5), Color(0xFF42243B))
             else SettingsIconSwatch(Color(0xFF9D2B76), Color(0xFFFDE6F4))
         APPEARANCE ->
-            if (dark) SettingsIconSwatch(Color(0xFFC6A5E6), Color(0xFF392D48))
-            else SettingsIconSwatch(Color(0xFF80549D), Color(0xFFF0E8F8))
+            if (dark) SettingsIconSwatch(Color(0xFFADC5CC), Color(0xFF2B3B42))
+            else SettingsIconSwatch(Color(0xFF4A6670), Color(0xFFE6EFF2))
         INSTAGRAM ->
             if (dark) SettingsIconSwatch(Color(0xFFFFA2BD), Color(0xFF452631))
             else SettingsIconSwatch(Color(0xFFAB305F), Color(0xFFFDE2EF))
@@ -71,14 +71,14 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFFF5E285), Color(0xFF454023))
             else SettingsIconSwatch(Color(0xFF82610B), Color(0xFFFFF7D5))
         DIAGNOSTICS ->
-            if (dark) SettingsIconSwatch(Color(0xFFBDA2EE), Color(0xFF342C48))
-            else SettingsIconSwatch(Color(0xFF73539A), Color(0xFFECE5F7))
+            if (dark) SettingsIconSwatch(Color(0xFFFF8791), Color(0xFF48252D))
+            else SettingsIconSwatch(Color(0xFFB43149), Color(0xFFFFE4E9))
         LOG ->
             if (dark) SettingsIconSwatch(Color(0xFF8BAEFF), Color(0xFF253357))
             else SettingsIconSwatch(Color(0xFF3E5FAF), Color(0xFFE5EBFF))
         INSTAGRAM_MODE ->
-            if (dark) SettingsIconSwatch(Color(0xFFFFA58E), Color(0xFF4A2D26))
-            else SettingsIconSwatch(Color(0xFFA94331), Color(0xFFFFE8DD))
+            if (dark) SettingsIconSwatch(Color(0xFFC6D38C), Color(0xFF394127))
+            else SettingsIconSwatch(Color(0xFF5C6B2E), Color(0xFFF0F4DD))
         MUSIC ->
             if (dark) SettingsIconSwatch(Color(0xFFFFC08A), Color(0xFF432C1C))
             else SettingsIconSwatch(Color(0xFF925118), Color(0xFFFFF0D9))
@@ -101,8 +101,8 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFF54D6C2), Color(0xFF173F3A))
             else SettingsIconSwatch(Color(0xFF006F61), Color(0xFFDBF7EE))
         QUALITY ->
-            if (dark) SettingsIconSwatch(Color(0xFFE4A6FF), Color(0xFF402750))
-            else SettingsIconSwatch(Color(0xFF853D9B), Color(0xFFF6E4FF))
+            if (dark) SettingsIconSwatch(Color(0xFF9ACBE8), Color(0xFF283E4B))
+            else SettingsIconSwatch(Color(0xFF37677F), Color(0xFFE3F1F8))
         VIDEO_THUMBNAIL ->
             if (dark) SettingsIconSwatch(Color(0xFFFF9CBB), Color(0xFF462633))
             else SettingsIconSwatch(Color(0xFFA42B5B), Color(0xFFFFE1ED))
