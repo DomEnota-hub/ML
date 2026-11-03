@@ -383,3 +383,9 @@ avoid repeating it for this unit-test-only followup. Full QA (unit/Compose/lint/
 JS/ARM64/unsigned release) will run at the new HEAD. Native evidence remains
 explicitly attributed to e91589c; source-tree equality must be verified rather
 than claiming an old runtime test ran on a different SHA.
+
+QA-only manual runs now use their own concurrency group so an unchanged native
+suite cannot hold unit/lint/build gates in the pending queue. The pending e30cfac
+QA run is cancelled before execution and replaced at the current documentation/
+workflow-only HEAD. Runtime/native sources remain byte-for-byte identical to
+e91589c; no extra codec rerun is introduced.

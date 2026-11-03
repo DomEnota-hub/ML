@@ -22,7 +22,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ml-video-editor-v8-reference
+  # Independent QA-only followups must not wait for an unchanged codec suite.
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.run_device_tests == false && 'ml-video-editor-v8-qa' || 'ml-video-editor-v8-reference' }}
   cancel-in-progress: false
 
 jobs:
