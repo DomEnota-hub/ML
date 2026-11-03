@@ -36,6 +36,8 @@ internal fun VideoTextLanes(project: VideoProjectDraft, texts: List<TextLayer>, 
     onGestureStart: () -> Unit, onGestureEnd: () -> Unit) {
     val scale = remember(project.clips, widths) { VideoAudioLaneScale(project, widths) }
     val density = LocalDensity.current.density
+    val latestScale by rememberUpdatedState(scale)
+    val latestDuration by rememberUpdatedState(project.durationMs)
     val scrollDp = scale.prefix(scroll.firstVisibleItemIndex) + scroll.firstVisibleItemScrollOffset / density
     val visible = texts.filter { it.startMs < project.durationMs }
     LazyColumn(Modifier.fillMaxWidth().height((visible.size.coerceAtMost(2) * 40).dp),
@@ -57,9 +59,9 @@ internal fun VideoTextLanes(project: VideoProjectDraft, texts: List<TextLayer>, 
                     baseline = current; delta = 0f; select(baseline.id); startGesture()
                 }, onDragEnd = { finishGesture() }, onDragCancel = { finishGesture() }) { pointer, amount ->
                     pointer.consume(); delta += amount.x / density
-                    val originalTime = if (handle == VideoTextLaneHandle.END) baseline.endMs ?: project.durationMs else baseline.startMs
-                    val target = scale.timeAt(scale.xAt(originalTime) + delta)
-                    changeLayer(VideoTextLaneEdit.apply(baseline, handle, target, project.durationMs))
+                    val originalTime = if (handle == VideoTextLaneHandle.END) baseline.endMs ?: latestDuration else baseline.startMs
+                    val target = latestScale.timeAt(latestScale.xAt(originalTime) + delta)
+                    changeLayer(VideoTextLaneEdit.apply(baseline, handle, target, latestDuration))
                 }
             }
             val selected = layer.id == selectedId
@@ -77,7 +79,8 @@ internal fun VideoTextLanes(project: VideoProjectDraft, texts: List<TextLayer>, 
                         .drag(VideoTextLaneHandle.MOVE))
                     if (selected) listOf(Alignment.CenterStart to VideoTextLaneHandle.START,
                         Alignment.CenterEnd to VideoTextLaneHandle.END).forEach { (alignment, handle) ->
-                        Box(Modifier.align(alignment).width(17.dp).fillMaxHeight().drag(handle),
+                        Box(Modifier.align(alignment).width(17.dp).fillMaxHeight()
+                            .testTag("text-lane-${layer.id}-${handle.name}").drag(handle),
                             contentAlignment = Alignment.Center) {
                             Box(Modifier.width(2.dp).height(14.dp).background(Color.White))
                         }

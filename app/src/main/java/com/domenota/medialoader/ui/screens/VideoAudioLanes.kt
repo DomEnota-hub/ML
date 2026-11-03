@@ -80,6 +80,7 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
     var dragging by remember(track.id) { mutableStateOf(false) }
     val latestTrack by rememberUpdatedState(track)
     val latestScale by rememberUpdatedState(scale)
+    val latestDuration by rememberUpdatedState(projectDurationMs)
     val latestChange by rememberUpdatedState(onChange)
     val latestSelect by rememberUpdatedState(onSelect)
     val latestStart by rememberUpdatedState(onGestureStart)
@@ -94,7 +95,7 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
             change.consume(); delta += amount.x / density
             val originalTime = if (handle == VideoAudioLaneHandle.END) initial.atMs + initial.durationMs else initial.atMs
             val target = latestScale.timeAt(latestScale.xAt(originalTime) + delta)
-            latestChange(VideoAudioLaneEdit.apply(initial, handle, target, projectDurationMs))
+            latestChange(VideoAudioLaneEdit.apply(initial, handle, target, latestDuration))
         }
     }
     val start = scale.xAt(track.atMs)

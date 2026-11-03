@@ -27,3 +27,11 @@ Continuous UI preview now samples latest parameters every50ms, replacing75ms
 debounce that could postpone every update until the finger stopped. Sampling
 regression test proves intermediate updates while changes continue.
 No export/shader/codec implementation changed; no full MP4 matrix rerun.
+
+Final review: one bounded fresh read-only review (no builds/tests by reviewer).
+Important finding: pointer handlers retained old text scale/project duration after
+clip-speed edits. Reproduced by priming a handle, extending5s→10s, then dragging
+past7s; RED assertion observed at the old5s limit. Fixed using live remembered
+scale/duration, and the equivalent audio duration capture. New regression plus
+text/audio geometry PASS; final lint and androidTest compile PASS(3m20s).
+No further review pass or broad test suite was run.
