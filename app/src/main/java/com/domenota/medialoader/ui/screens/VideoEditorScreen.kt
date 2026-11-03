@@ -459,7 +459,7 @@ private fun VideoEditorContent(
         removeAudio = removeAudio,
         reverse = reverseVideo,
         textLayers = VideoOverlayTimeline.validatedTexts(
-            textLayers, project?.durationMs ?: 0L),
+            textLayers.filter { it.text.isNotBlank() }, project?.durationMs ?: 0L),
         graphicLayers = VideoOverlayTimeline.validatedGraphics(
             graphicLayers, project?.durationMs ?: 0L),
         project = project,
@@ -509,7 +509,10 @@ private fun VideoEditorContent(
         }
     }
     fun closePanel(apply: Boolean) {
-        if (apply) currentSnapshot()?.let { editHistory.record(it) }
+        if (apply) {
+            textLayers = textLayers.filter { it.text.isNotBlank() }
+            currentSnapshot()?.let { editHistory.record(it) }
+        }
         else {
             panelSnapshot?.let(::restoreSnapshot)
             panelHistory?.let(editHistory::restore)
@@ -583,9 +586,11 @@ private fun VideoEditorContent(
     }
     val previewCrop = if (selectedTool == VideoWorkspaceTool.CROP)
         CropFractions() else crop
+    val previewTextLayers = com.domenota.medialoader.data.editor.VideoTextDraft.preview(
+        textLayers, selectedOverlayId.takeIf { selectedTool == VideoWorkspaceTool.TEXT })
     val activeOverlays = project?.let { draft ->
         draft.indexOf(selectedClipId).takeIf { it >= 0 }?.let { index ->
-            VideoOverlayTimeline.forClip(draft, index, textLayers, graphicLayers)
+            VideoOverlayTimeline.forClip(draft, index, previewTextLayers, graphicLayers)
         }
     }
     val canvasClip = project?.clips?.firstOrNull()
@@ -630,7 +635,12 @@ private fun VideoEditorContent(
         val draft = project ?: return
         if (textLayers.size >= 8) return
         val at = playheadMs.coerceIn(0, draft.durationMs - 1)
-        val added = TextLayer(startMs = at, endMs = minOf(draft.durationMs, at + 3000))
+        // Capture BEFORE inserting a draft; the tool-entry effect runs after this event.
+        if (panelSnapshot == null) currentSnapshot()?.let {
+            editHistory.record(it)
+            panelSnapshot = it; panelHistory = editHistory.checkpoint()
+        }
+        val added = TextLayer(text = "", startMs = at, endMs = minOf(draft.durationMs, at + 3000))
         textLayers = textLayers + added; selectedOverlayId = added.id
         textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD; previewPlayer?.pause()
     }
@@ -861,11 +871,13 @@ private fun VideoEditorContent(
                     cropPreset = cropPreset,
                     onCropChange = { updateSelectedGeometry(updatedCrop = it) },
                     showCropFrame = selectedTool == VideoWorkspaceTool.CROP,
-                    selectedTextLayer = textLayers.firstOrNull { it.id == selectedOverlayId && it.visibleAt(playheadMs) }
+                    selectedTextLayer = previewTextLayers.firstOrNull { it.id == selectedOverlayId && it.visibleAt(playheadMs) }
                         .takeIf { selectedTool == VideoWorkspaceTool.TEXT },
                     textCanvasWidth = previewCanvasRatio?.let { (it * 1000).roundToInt().coerceAtLeast(1) } ?: naturalWidth,
                     textCanvasHeight = if (previewCanvasRatio != null) 1000 else naturalHeight,
-                    onTextChange = { next -> textLayers = textLayers.map { if (it.id == next.id) next else it } },
+                    onTextChange = { next -> textLayers = textLayers.map {
+                        if (it.id == next.id) next.copy(text = it.text) else it
+                    } },
                     onCopyText = ::duplicateText, onDeleteText = ::deleteText,
                     onTextTap = { textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD },
                     onTextGestureStart = { overlayGestureActive = true; previewPlayer?.pause() },
@@ -1441,7 +1453,12 @@ private fun VideoEditorContent(
                             VideoOverlayPanel(
                                 graphicsTab = graphicsTab,
                                 initialTextTab = textEditorTab,
-                                onConfirmText = { textEditing = false },
+                                onConfirmText = {
+                                    textLayers = textLayers.filter { it.text.isNotBlank() }
+                                    selectedOverlayId = selectedOverlayId?.takeIf { id -> textLayers.any { it.id == id } }
+                                    textEditing = false
+                                    if (selectedOverlayId == null) closePanel(true)
+                                },
                                 durationMs = draft?.durationMs ?: 0L,
                                 playheadMs = playheadMs,
                                 texts = textLayers,
