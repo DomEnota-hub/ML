@@ -320,34 +320,16 @@ internal fun PhotoGeometryDialog(
                 .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GeometryMode.entries.forEach { option ->
-                    FilterChip(selected = mode == option, onClick = {
-                        mode = option
-                    }, leadingIcon = {
-                        Icon(when (option) {
-                            GeometryMode.STRAIGHTEN -> Icons.Rounded.RotateRight
-                            GeometryMode.HORIZONTAL -> Icons.Rounded.SwapHoriz
-                            GeometryMode.VERTICAL -> Icons.Rounded.SwapVert
-                            GeometryMode.FREE -> Icons.Rounded.CropFree
-                        }, contentDescription = null, modifier = Modifier.size(18.dp))
-                    }, label = { Text(option.title) },
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(17.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = Color(0xFF26262B),
-                            labelColor = Color.White,
-                            selectedContainerColor = geoAccent,
-                            selectedLabelColor = Color.Black,
-                            selectedLeadingIconColor = Color.Black),
-                        modifier = Modifier.height(52.dp))
+                    PhotoToolCard(option.title, when (option) {
+                        GeometryMode.STRAIGHTEN -> Icons.Rounded.RotateRight
+                        GeometryMode.HORIZONTAL -> Icons.Rounded.SwapHoriz
+                        GeometryMode.VERTICAL -> Icons.Rounded.SwapVert
+                        GeometryMode.FREE -> Icons.Rounded.CropFree
+                    }, mode == option, { mode = option }, enabled = true)
                 }
-                IconButton(onClick = { zoom.reset() }) {
-                    Icon(Icons.Rounded.CenterFocusStrong, "Сбросить масштаб", tint = Color.White)
-                }
-                IconButton(onClick = { showGuides = !showGuides }) {
-                    Icon(Icons.Rounded.GridOn, "Сетка", tint = Color.White)
-                }
-                IconButton(onClick = { commit(PhotoGeometry()) }) {
-                    Icon(Icons.Rounded.RestartAlt, "Сбросить геометрию", tint = Color.White)
-                }
+                PhotoToolCard("Масштаб", Icons.Rounded.CenterFocusStrong, false, { zoom.reset() }, true)
+                PhotoToolCard("Сетка", Icons.Rounded.GridOn, showGuides, { showGuides = !showGuides }, true)
+                PhotoToolCard("Сбросить", Icons.Rounded.RestartAlt, false, { commit(PhotoGeometry()) }, true)
             }
         }
     }
