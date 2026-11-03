@@ -4,6 +4,10 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.doOnPreDraw
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -28,9 +32,6 @@ class MainActivity : ComponentActivity() {
             finish()
             return
         }
-        // Share forwarding must run before scheduling background work.
-        runCatching { AudioWaveformPrecompute.schedule(applicationContext) }
-            .onFailure { AppLog.w("AudioWaveform", "Background scan deferred: ${it.javaClass.simpleName}") }
         com.domenota.medialoader.ui.theme.edgeToEdgeWindow(window)
         val archivePrefs = getSharedPreferences("module_archive", MODE_PRIVATE)
         if (!archivePrefs.getBoolean("instagram_profile_disabled", false)) {
@@ -52,6 +53,12 @@ class MainActivity : ComponentActivity() {
                     sharedTextGeneration = sharedTextGeneration,
                     onSharedTextConsumed = { sharedText = null },
                 )
+            }
+        }
+        window.decorView.doOnPreDraw {
+            lifecycleScope.launch(Dispatchers.IO) {
+                runCatching { AudioWaveformPrecompute.schedule(applicationContext) }
+                    .onFailure { AppLog.w("AudioWaveform", "Background scan deferred: ${it.javaClass.simpleName}") }
             }
         }
     }

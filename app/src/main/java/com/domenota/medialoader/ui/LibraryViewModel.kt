@@ -18,6 +18,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.onEach
@@ -112,7 +115,7 @@ internal fun hasPhoneLibraryAccess(context: Context, mode: AppMode): Boolean =
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
 internal class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     private val equalizerRepository = com.domenota.medialoader.data.playback.EqualizerSettingsRepository.get(application)
     private val equalizerDraft = MutableStateFlow<com.domenota.medialoader.data.playback.EqualizerSettings?>(null)
@@ -189,9 +192,14 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         // the first visible page until its last provider URI has been resolved.
         val resolved = mutableListOf<LibraryMediaRef>()
         if (rows.isEmpty()) emit(emptyList())
+        var publishedAt = android.os.SystemClock.elapsedRealtime()
         for (batch in rows.chunked(16)) {
             resolved += references(batch, true)
-            emit(resolved.toList())
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (resolved.size == batch.size || resolved.size == rows.size || now - publishedAt >= 250L) {
+                emit(resolved.toList())
+                publishedAt = now
+            }
         }
         com.domenota.medialoader.core.logging.AppLog.i("Library", "App identity index ready · count=${resolved.size}")
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -201,8 +209,13 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 references(pictures.items + audio.items, false, pictures.identities + audio.identities), private),
                 pictures.revision, audio.revision)
         }
-    }.onEach { index ->
-        try { playlistRepository.reconcileAliases(index.refs.flatMap { ref ->
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, LibraryIndex())
+
+    init {
+        // Persistence is downstream maintenance, never a prerequisite for showing known media.
+        viewModelScope.launch(Dispatchers.IO) {
+            index.filter { it.ready }.map { it.refs }.distinctUntilChanged().debounce(500L).collectLatest { refs ->
+        try { playlistRepository.reconcileAliases(refs.flatMap { ref ->
             (ref.aliases + ref.key).map { it to ref.key }
         }.toMap()) }
         catch (e: CancellationException) { throw e }
@@ -210,12 +223,15 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         try { withContext(Dispatchers.IO) {
             com.domenota.medialoader.data.playback.VideoWatchProgress.linkAliases(
                 getApplication<Application>().getSharedPreferences("video_playback_positions", Context.MODE_PRIVATE),
-                index.refs.filter { it.item.mediaType == com.domenota.medialoader.core.model.MediaType.VIDEO }
+                refs.filter { it.item.mediaType == com.domenota.medialoader.core.model.MediaType.VIDEO }
                     .flatMap { ref -> (ref.aliases + ref.key).map { it to ref.key } }.toMap())
         } }
         catch (e: CancellationException) { throw e }
         catch (_: Exception) { com.domenota.medialoader.core.logging.AppLog.w("Library", "Video alias persistence deferred") }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, LibraryIndex())
+
+            }
+        }
+    }
 
     private val accessSignatures = mutableMapOf<AppMode, List<Boolean>>()
     private val refreshedAt = mutableMapOf<AppMode, Long>()

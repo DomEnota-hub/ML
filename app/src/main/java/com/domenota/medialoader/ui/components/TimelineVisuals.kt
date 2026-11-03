@@ -338,12 +338,14 @@ internal fun loadAudioWaveform(
     uri: Uri,
     durationMs: Long,
     bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
+    isCancelled: () -> Boolean = { false },
 ): List<Float> {
     val cache = audioWaveformCacheFile(context, uri, durationMs, bucketCount)
     val lock = audioCacheLocks.computeIfAbsent(cache.name) { Any() }
-    return synchronized(lock) {
+    readAudioWaveformCacheFile(cache, bucketCount)?.let { return it }
+    return com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode(isCancelled) { synchronized(lock) {
         readAudioWaveformCacheFile(cache, bucketCount)?.let { return@synchronized it }
-        val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount)
+        val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount, isCancelled)
         if (decoded.size == bucketCount && decoded.any { it > 0f }) {
             runCatching {
                 cache.parentFile?.mkdirs()
@@ -357,7 +359,7 @@ internal fun loadAudioWaveform(
             }
         }
         decoded
-    }
+    } }
 }
 
 private fun decodeAudioWaveform(
@@ -365,6 +367,7 @@ private fun decodeAudioWaveform(
     uri: Uri,
     durationMs: Long,
     bucketCount: Int,
+    isCancelled: () -> Boolean,
 ): List<Float> {
     val extractor = MediaExtractor()
     var codec: MediaCodec? = null
@@ -403,6 +406,8 @@ private fun decodeAudioWaveform(
         var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
 
         while (!outputEnded) {
+            if (isCancelled() || Thread.currentThread().isInterrupted)
+                throw java.util.concurrent.CancellationException("Waveform decode stopped")
             if (!inputEnded) {
                 val inputIndex = decoder.dequeueInputBuffer(CODEC_TIMEOUT_US)
                 if (inputIndex >= 0) {
@@ -463,6 +468,8 @@ private fun decodeAudioWaveform(
             else sqrt(energy[index] / sampleCounts[index]).toFloat()
         }
         normalizeWaveformRms(rms)
+    } catch (cancelled: java.util.concurrent.CancellationException) {
+        throw cancelled
     } catch (_: Exception) {
         emptyList()
     } finally {

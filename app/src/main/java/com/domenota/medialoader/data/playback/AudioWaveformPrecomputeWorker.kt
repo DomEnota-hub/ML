@@ -48,9 +48,12 @@ class AudioWaveformPrecomputeWorker(
                 val uri = Uri.parse(requested)
                 val duration = readDurationMs(app, uri).takeIf { it > 0L }
                     ?: inputData.getLong("durationMs", 0L)
-                if (duration > 0L) loadAudioWaveform(app, uri, duration)
+                if (duration > 0L) loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
                 Result.success()
-            }.getOrElse { Result.failure() }
+            }.getOrElse {
+                if (it is java.util.concurrent.CancellationException) throw it
+                Result.failure()
+            }
         }
         val tracks = linkedMapOf<String, Long>()
         // Never index the application's hidden or private audio history.
@@ -99,9 +102,9 @@ class AudioWaveformPrecomputeWorker(
                 // Use the same metadata retriever as the editor: MediaStore durations can differ by rounding.
                 val duration = readDurationMs(app, uri).takeIf { it > 0L } ?: knownDuration
                 if (duration > 0L && !hasCachedAudioWaveform(app, uri, duration)) {
-                    loadAudioWaveform(app, uri, duration)
+                    loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
                 }
-            }
+            }.onFailure { if (it is java.util.concurrent.CancellationException) throw it }
         }
         prefs.edit().putInt("inventory", inventory).putInt("cursor", if (stop < entries.size) stop else 0).apply()
         if (stop < entries.size) {
@@ -125,13 +128,19 @@ class AudioWaveformPrecomputeWorker(
 }
 
 object AudioWaveformPrecompute {
-    private const val ONCE = "waveform-once-v1"
-    private const val PERIODIC = "waveform-periodic-v1"
+    private const val ONCE = "waveform-idle-once-v2"
+    private const val PERIODIC = "waveform-idle-periodic-v2"
 
     /** Scheduled even if the audio editor is never opened. Android may defer on low battery. */
     fun schedule(context: Context) {
         val manager = WorkManager.getInstance(context.applicationContext)
-        val constraints = Constraints.Builder().setRequiresBatteryNotLow(true).build()
+        val prefs = context.getSharedPreferences("waveform_precompute_v1", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("idle_policy_v2", false)) {
+            manager.cancelUniqueWork("waveform-once-v1")
+            manager.cancelUniqueWork("waveform-periodic-v1")
+            prefs.edit().putBoolean("idle_policy_v2", true).apply()
+        }
+        val constraints = WaveformWorkPolicy.bulkConstraints()
         manager.enqueueUniquePeriodicWork(
             PERIODIC, ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<AudioWaveformPrecomputeWorker>(6, TimeUnit.HOURS)
@@ -145,7 +154,7 @@ object AudioWaveformPrecompute {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             ONCE, ExistingWorkPolicy.APPEND,
             OneTimeWorkRequestBuilder<AudioWaveformPrecomputeWorker>()
-                .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+                .setConstraints(WaveformWorkPolicy.bulkConstraints())
                 .build()
         )
     }
@@ -157,6 +166,7 @@ object AudioWaveformPrecompute {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             "waveform-priority-$id", ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<AudioWaveformPrecomputeWorker>()
+                .setConstraints(WaveformWorkPolicy.priorityConstraints())
                 .setInputData(workDataOf("requestedUri" to uri.toString(), "durationMs" to durationMs))
                 .build()
         )
@@ -167,7 +177,7 @@ object AudioWaveformPrecompute {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             ONCE, ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<AudioWaveformPrecomputeWorker>()
-                .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+                .setConstraints(WaveformWorkPolicy.bulkConstraints())
                 .build()
         )
     }
