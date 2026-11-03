@@ -44,7 +44,7 @@ internal fun VideoColorPanel(
         }
         return
     }
-    var group by remember { mutableStateOf(PhotoEffectCategory.POPULAR) }
+    var group by remember { mutableStateOf(PhotoEffectCategory.ALL) }
     val context = LocalContext.current
     val favoriteEffects = remember(context) {
         context.getSharedPreferences("ml_filter_favorites", android.content.Context.MODE_PRIVATE)
@@ -68,7 +68,7 @@ internal fun VideoColorPanel(
     }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            PhotoEffectCategory.entries.forEach { category ->
+            PhotoEffectCategory.entries.filter { it != PhotoEffectCategory.POPULAR }.forEach { category ->
                 FilterChip(selected = group == category, enabled = enabled,
                     onClick = { group = category }, label = { Text(category.label) })
             }
