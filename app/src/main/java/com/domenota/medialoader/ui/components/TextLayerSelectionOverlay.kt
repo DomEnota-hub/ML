@@ -49,7 +49,7 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
     val padding = with(density) { 8.dp.toPx() } / displayScale
-    val radius = with(density) { 14.dp.toPx() } / displayScale
+    val radius = with(density) { 12.dp.toPx() } / displayScale
     val target = with(density) { 24.dp.toPx() } / displayScale
     // Layout includes font, multiline wrapping and actual alignment, as in the export renderer.
     fun frame(value: TextLayer): SelectionFrame {
@@ -140,6 +140,9 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
         if (viewport.width == 0) return@Canvas
         val f = visibleFrame
         val (copyTarget, deleteTarget) = actionPositions(f, layer.rotation)
+        withTransform({ rotate(layer.rotation, f.center) }) {
+            drawRect(Color.White, f.bounds.topLeft, f.bounds.size, style = Stroke(1.5.dp.toPx() / displayScale))
+        }
         listOf(copyTarget, deleteTarget).forEach { circle ->
             drawCircle(Color.White, radius * .86f, circle)
         }
@@ -156,9 +159,6 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
             deleteTarget + Offset(radius * .25f, radius * .25f), strokeWidth = 1.7.dp.toPx())
         drawLine(Color.DarkGray, deleteTarget - Offset(radius * .25f, -radius * .25f),
             deleteTarget + Offset(radius * .25f, -radius * .25f), strokeWidth = 1.7.dp.toPx())
-        withTransform({ rotate(layer.rotation, f.center) }) {
-            drawRect(Color.White, f.bounds.topLeft, f.bounds.size, style = Stroke(1.5.dp.toPx() / displayScale))
-        }
         if ((f.corner - f.handle).getDistance() > 1f) {
             drawLine(Color.White, f.corner, f.handle, 1.dp.toPx() / displayScale)
         }

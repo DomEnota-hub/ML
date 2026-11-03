@@ -49,9 +49,9 @@ internal fun PhoneTrashController(
             }
         }
     }
-    var preview by remember { mutableStateOf<DownloadUiItem?>(null) }
-    preview?.let { item -> TrashMediaPreview(item) { preview = null } }
     var phoneItems by remember { mutableStateOf(emptyList<DownloadUiItem>()) }
+    var preview by remember { mutableStateOf<DownloadUiItem?>(null) }
+    preview?.let { item -> TrashMediaPreview(item, phoneItems) { preview = null } }
     var refresh by remember { mutableIntStateOf(0) }
     var request by remember { mutableStateOf<PhoneTrashRequest?>(null) }
     var index by remember { mutableIntStateOf(0) }

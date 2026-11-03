@@ -203,9 +203,16 @@ fun TrashScreen(
                     Column {
                         Box(Modifier.fillMaxWidth().aspectRatio(1f).clickable { onOpen(item.id) }) {
                             DownloadThumbnail(item.savedUri, null, item.kind, Modifier.fillMaxSize())
-                            androidx.compose.material3.Checkbox(item.id in selected,
-                                { value -> selected = if (value) selected + item.id else selected - item.id },
-                                Modifier.align(Alignment.TopStart).background(MaterialTheme.colorScheme.surface.copy(alpha = .8f)))
+                            Box(Modifier.align(Alignment.TopStart).size(44.dp)
+                                .toggleable(item.id in selected, role = Role.Checkbox, onValueChange = { value ->
+                                    selected = if (value) selected + item.id else selected - item.id
+                                }), contentAlignment = Alignment.Center) {
+                                val checked = item.id in selected
+                                Box(Modifier.size(24.dp).background(if (checked) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = .35f), CircleShape)
+                                    .border(2.dp, Color.White, CircleShape), contentAlignment = Alignment.Center) {
+                                    if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(17.dp), tint = Color.White)
+                                }
+                            }
                         }
                         Text(item.title, maxLines = 2, style = MaterialTheme.typography.labelSmall)
                     }

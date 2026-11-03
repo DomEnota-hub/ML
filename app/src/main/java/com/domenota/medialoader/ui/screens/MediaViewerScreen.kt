@@ -251,23 +251,6 @@ fun MediaViewerScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            if (mediaQueue.size > 1 && selectedIndex >= 0 && !videoControlsLocked) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { selectedId = mediaQueue[selectedIndex - 1].id },
-                        enabled = selectedIndex > 0) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Предыдущий файл")
-                    }
-                    Text("${selectedIndex + 1} из ${mediaQueue.size}")
-                    IconButton(onClick = { selectedId = mediaQueue[selectedIndex + 1].id },
-                        enabled = selectedIndex < mediaQueue.lastIndex) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Следующий файл",
-                            modifier = Modifier.graphicsLayer { rotationZ = 180f })
-                    }
-                }
-            }
-
             if (trashReadOnly && !videoFullscreen) Surface(tonalElevation = 3.dp) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -358,24 +341,14 @@ fun MediaViewerScreen(
         }
 
         when (selectedItem.mediaType) {
-            MediaType.PHOTO -> PhotoPager(
-                startItem = selectedItem,
-                queue = if (mediaQueue.isEmpty()) photoQueue else emptyList(),
-                onCurrentItemChanged = { displayedItem = it },
+            MediaType.PHOTO, MediaType.VIDEO -> MediaSwipePages(
+                start = item, queue = mediaQueue.ifEmpty { photoQueue },
+                onCurrent = { selectedId = it.id; displayedItem = it },
                 modifier = Modifier.fillMaxSize().padding(padding),
-            )
-            MediaType.VIDEO -> key(selectedItem.id) { LocalVideoPlayer(
-                itemId = selectedItem.id,
-                uri = uri,
-                fullscreen = videoFullscreen,
-                controlsLocked = videoControlsLocked,
-                onControlsLockedChange = { videoControlsLocked = it },
-                onFullscreenChange = { videoFullscreen = it },
+                onOpenExternal = onOpenExternal, allowExternal = !trashReadOnly,
+                onFullscreenChange = { videoFullscreen = it }, onLockedChange = { videoControlsLocked = it },
                 onVideoOrientation = { landscapeVideo = it },
-                onOpenExternal = { onOpenExternal(selectedItem) },
-                allowExternal = !selectedItem.isPrivate,
-                modifier = Modifier.fillMaxSize().padding(padding),
-            ) }
+            )
             MediaType.AUDIO -> BackgroundAudioPlayer(
                 item = selectedItem,
                 uri = uri,
@@ -1279,7 +1252,7 @@ internal fun ZoomablePhoto(
     count: Int,
     onZoomedChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    showMetadata: Boolean = true,
+    showMetadata: Boolean = false,
     onTap: () -> Unit = {},
 ) {
     val context = LocalContext.current

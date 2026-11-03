@@ -126,7 +126,7 @@ fun PrivateScreen(
                     val favorite = assignments[row.id]?.isFavorite == true
                     DownloadRow(row, modifier = modifier, compact = gridMode,
                         onOpen = { if (!busy && !externalBusy) {
-                            if (gridMode && onOpenGrid != null) onOpenGrid(row.id, uiItems.map { it.id })
+                            if (onOpenGrid != null) onOpenGrid(row.id, uiItems.map { it.id })
                             else onOpen(row.id)
                         } }, onCancel = {},
                         onHide = { if (!busy && !externalBusy) deleteTarget = listOf(row.id) },
@@ -165,7 +165,9 @@ fun PrivateScreen(
                             item(key = "group:$groupKey") {
                                 DownloadGroupCard(group, expanded,
                                     onExpand = { expandedGroups = if (expanded) expandedGroups - groupKey else expandedGroups + groupKey },
-                                    onOpen = { if (!busy && !externalBusy) onOpen(it) },
+                                    onOpen = { if (!busy && !externalBusy) {
+                                        if (onOpenGrid != null) onOpenGrid(it, group.map { row -> row.id }) else onOpen(it)
+                                    } },
                                     allFavorite = allFavorite,
                                     onFavorite = { action { batch(ids) { onSetFavorite(it, !allFavorite) } } },
                                     onChooseFolder = { folderTarget = ids },

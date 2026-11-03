@@ -606,7 +606,7 @@ fun DownloadsScreen(
                     Spacer(Modifier.height(8.dp))
                 }
             } else DownloadRows(searchedHistory, { id ->
-                if (gridMode && onOpenGrid != null) onOpenGrid(id, searchedHistory.flatten().map { it.id })
+                if (onOpenGrid != null) onOpenGrid(id, searchedHistory.flatten().map { it.id })
                 else onOpenDownload(id)
             }, onCancelDownload, onShareDownload, onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload, recognitionEnabled, onRecognizeDownload,
                 assignmentById, folderNames,
