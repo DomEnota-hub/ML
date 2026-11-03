@@ -115,6 +115,15 @@ jobs:
           file=app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$file"
           python3 scripts/verify-production-apk.py "$file" "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Preserve unsigned production candidate
+        if: ${{ inputs.full_validation }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML-1.7.112-Production-ARM64-Unsigned
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
       - name: Preserve unit and lint reports even on failure
         if: ${{ always() && (!inputs.review_apk || inputs.full_validation) }}
         uses: actions/upload-artifact@v4
