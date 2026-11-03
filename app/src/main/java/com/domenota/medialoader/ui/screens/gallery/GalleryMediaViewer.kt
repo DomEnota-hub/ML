@@ -50,6 +50,8 @@ internal fun GalleryMediaViewer(
     onMoveToPrivate: (DownloadEntity) -> Unit, onOpenExternal: (DownloadEntity) -> Unit,
     onCurrentItemChanged: (DownloadEntity) -> Unit,
 ) {
+    val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
+    DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
     val queue = remember(media, item) { GalleryViewerState.queue(media.ifEmpty { listOf(item) }.map { it.id }, media.ifEmpty { listOf(item) }) }
     if (queue.isEmpty()) { LaunchedEffect(Unit) { onBack() }; return }
     var currentId by rememberSaveable { mutableStateOf(item.id) }
@@ -123,15 +125,15 @@ internal fun GalleryMediaViewer(
                 }
             }) { padding ->
             // Pager may ask its previous key provider for one new index during a size update.
-            HorizontalPager(state = pager, key = { page -> queue.getOrNull(page)?.id ?: "pending-gallery-page:$page" }, beyondViewportPageCount = 0,
+            HorizontalPager(state = pager, key = { page -> queue.getOrNull(page)?.id ?: "pending-gallery-page:$page" }, beyondViewportPageCount = 1,
                 userScrollEnabled = !zoomed && !fullscreen && !locked,
                 modifier = Modifier.fillMaxSize().padding(padding)) { page ->
                 val row = queue.getOrNull(page) ?: return@HorizontalPager
                 val uri = Uri.parse(requireNotNull(row.savedUri))
-                if (row.mediaType == MediaType.PHOTO) key(row.id, pager.settledPage) {
+                if (row.mediaType == MediaType.PHOTO) key(row.id) {
                     ZoomablePhoto(row, uri, page + 1, queue.size,
                         onZoomedChanged = { if (page == pager.currentPage) zoomed = it }, modifier = Modifier.fillMaxSize(),
-                        showMetadata = false, onTap = { chrome = !chrome })
+                        showMetadata = false, onTap = { chrome = !chrome }, photoCache = photoCache, active = page == pager.settledPage)
                 } else if (GalleryViewerState.canCreateVideo(page, pager.settledPage, pager.isScrollInProgress)) key(row.id) {
                     // ExoPlayer starts with playWhenReady=false; only its play button starts playback.
                     LocalVideoPlayer(row.id, uri, fullscreen, locked, { locked = it }, { fullscreen = it }, { landscape = it },

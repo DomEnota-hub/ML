@@ -13,6 +13,7 @@ internal data class GalleryAlbumSettings(
     val hiddenAlbums: Set<String> = emptySet(),
     val excludedFromMedia: Set<String> = emptySet(),
     val order: List<String> = emptyList(),
+    val quickAlbums: Set<String> = emptySet(),
 )
 
 internal class GalleryAlbumSettingsStore(context: Context) {
@@ -31,12 +32,14 @@ internal class GalleryAlbumSettingsStore(context: Context) {
             hiddenAlbums = preferences.getStringSet(prefix + "hidden", emptySet()).orEmpty().toSet(),
             excludedFromMedia = preferences.getStringSet(prefix + "exclude", emptySet()).orEmpty().toSet(),
             order = order,
+            quickAlbums = preferences.getStringSet(prefix + "quick", emptySet()).orEmpty().toSet(),
         )
     }
 
     fun save(source: String, settings: GalleryAlbumSettings): Boolean {
         val prefix = "$source:"
         return preferences.edit()
+            .putStringSet(prefix + "quick", settings.quickAlbums.toSet())
             .putStringSet(prefix + "hidden", settings.hiddenAlbums.toSet())
             .putStringSet(prefix + "exclude", settings.excludedFromMedia.toSet())
             .putString(prefix + "order", JSONArray(settings.order).toString())
@@ -107,4 +110,16 @@ internal fun removeGalleryAlbumSettings(settings: GalleryAlbumSettings, key: Str
         hiddenAlbums = settings.hiddenAlbums - key,
         excludedFromMedia = settings.excludedFromMedia - key,
         order = settings.order - key,
+        quickAlbums = settings.quickAlbums - key,
     )
+
+/** System shortcuts never appear in the album catalog and cannot be dragged. */
+internal fun dropGalleryAlbum(settings: GalleryAlbumSettings, albums: List<GalleryAlbum>, from: String,
+    target: String?, quick: Boolean): GalleryAlbumSettings {
+    if (albums.none { it.key == from }) return settings
+    var next = settings.copy(quickAlbums = if (quick) settings.quickAlbums + from else settings.quickAlbums - from,
+        hiddenAlbums = if (quick) settings.hiddenAlbums - from else settings.hiddenAlbums)
+    if (target != null && target != from && (target in next.quickAlbums) == quick &&
+        (from in next.hiddenAlbums) == (target in next.hiddenAlbums)) next = moveGalleryAlbum(next, albums, from, target)
+    return next
+}

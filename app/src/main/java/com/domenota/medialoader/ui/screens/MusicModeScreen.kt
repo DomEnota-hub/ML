@@ -69,10 +69,26 @@ fun MusicModeScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val folderPrefs = remember(context) { context.getSharedPreferences("music_folder_visibility", 0) }
     var excludedFolders by remember { mutableStateOf(folderPrefs.getStringSet("excluded", emptySet()).orEmpty().toSet()) }
+    var hiddenTrackKeys by remember { mutableStateOf(folderPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty().toSet()) }
+    var hiddenTracksOpen by remember { mutableStateOf(false) }
+    fun toggleHidden(track: DownloadEntity) {
+        hiddenTrackKeys = MusicTrackVisibility.update(hiddenTrackKeys, track, !MusicTrackVisibility.hidden(track, hiddenTrackKeys))
+        folderPrefs.edit().putStringSet("hidden_tracks", hiddenTrackKeys).apply()
+    }
     var folderOpen by rememberSaveable { mutableStateOf<String?>(null) }
     var showExcluded by rememberSaveable { mutableStateOf(false) }
     val available = remember(allAudio) { allAudio.filter(::availableAudio).associateBy { it.id } }
     val tracks = remember(items) { items.filter(::availableAudio).distinctBy { it.id } }
+    val hiddenTracks = remember(tracks, hiddenTrackKeys) { tracks.filter { MusicTrackVisibility.hidden(it, hiddenTrackKeys) } }
+    if (hiddenTracksOpen) AlertDialog(onDismissRequest = { hiddenTracksOpen = false }, title = { Text("Скрытые треки") },
+        text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 360.dp)) {
+            items(hiddenTracks, key = { it.id }) { track ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName, Modifier.weight(1f))
+                    IconButton(onClick = { toggleHidden(track) }) { Icon(Icons.Rounded.Visibility, "Отобразить ${track.originalName}") }
+                }
+            }
+        } }, confirmButton = { TextButton(onClick = { hiddenTracksOpen = false }) { Text("Готово") } })
     val folders = remember(tracks, deviceMusicFolders) {
         tracks.groupBy { MusicFolderRules.key(it, deviceMusicFolders) }.filterKeys { it != null }
     }
@@ -114,8 +130,8 @@ fun MusicModeScreen(
             { addingPlaylist = null }, onPreview ?: onOpen, { onAddTracks(toAdd.id, it) })
         return
     }
-    val filtered = remember(tracks, playlist, tab, available, search, excludedFolders, deviceMusicFolders) {
-        (if (tab == 0) tracks.filter { MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) }
+    val filtered = remember(tracks, playlist, tab, available, search, excludedFolders, deviceMusicFolders, hiddenTrackKeys) {
+        (if (tab == 0) tracks.filter { MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) && !MusicTrackVisibility.hidden(it, hiddenTrackKeys) }
             else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
             .filter { matchesMusicSearch(it, search) }
     }
@@ -163,6 +179,9 @@ fun MusicModeScreen(
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading, message, error,
                         tab == 0 && displayed.isEmpty(), "Нет аудиофайлов") }
                 }
+            }
+            if (playlist == null && hiddenTracks.isNotEmpty()) item(key = "hidden-tracks") {
+                TextButton(onClick = { hiddenTracksOpen = true }) { Icon(Icons.Rounded.VisibilityOff, null); Text("Скрытые треки (${hiddenTracks.size})") }
             }
             if (tab == 1 && playlist == null) {
                 item(key = "playlists-title") { Text("Мои плейлисты", Modifier.padding(horizontal = 17.dp, vertical = 15.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
@@ -242,7 +261,7 @@ fun MusicModeScreen(
                             MusicLibraryTrackRow(track, { preview(id) }, id == currentPlayingId, playing) {
                                 MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } },
                                     { onOpen(id, queue) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
-                                    null, null, null)
+                                    null, null, null, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) })
                             }
                         }
                     }
@@ -254,7 +273,7 @@ fun MusicModeScreen(
                         MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } }, { onOpen(id, queue) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
                             playlist?.let { entry -> { mutate { onRemoveTrack(entry.id, id) } } },
                             playlist?.takeIf { it.trackIds.indexOf(id) > 0 }?.let { entry -> { mutate { onMoveTrack(entry.id, id, -1) } } },
-                            playlist?.takeIf { it.trackIds.indexOf(id) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } })
+                            playlist?.takeIf { it.trackIds.indexOf(id) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } }, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) })
                     }
                 }
             }
@@ -318,7 +337,7 @@ private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDel
 
 @Composable
 private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Unit)?, onOpen: () -> Unit, onAdd: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
-                              onRemove: (() -> Unit)?, onUp: (() -> Unit)?, onDown: (() -> Unit)?) {
+                              onRemove: (() -> Unit)?, onUp: (() -> Unit)?, onDown: (() -> Unit)?, hidden: Boolean = false, onToggleHidden: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия: ${track.originalName}") }
@@ -332,6 +351,8 @@ private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Un
             if (onRemove != null) DropdownMenuItem({ Text("Убрать из плейлиста") }, { menu = false; onRemove() }, leadingIcon = { Icon(Icons.Rounded.PlaylistRemove, null) })
             if (onUp != null) DropdownMenuItem({ Text("Выше") }, { menu = false; onUp() }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) })
             if (onDown != null) DropdownMenuItem({ Text("Ниже") }, { menu = false; onDown() }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })
+            if (onToggleHidden != null) DropdownMenuItem({ Text(if (hidden) "Отобразить в общем списке" else "Скрыть") },
+                { menu = false; onToggleHidden() }, leadingIcon = { Icon(if (hidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null) })
             DropdownMenuItem({ Text("Поделиться") }, { menu = false; onShare() }, leadingIcon = { Icon(Icons.Rounded.Share, null) })
             DropdownMenuItem({ Text("Удалить файл", color = MaterialTheme.colorScheme.error) }, { menu = false; onDelete() },
                 leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) })

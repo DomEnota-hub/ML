@@ -1238,7 +1238,7 @@ private fun PhotoPager(
     }
 }
 
-private data class DecodedImage(
+internal data class DecodedImage(
     val bitmap: Bitmap,
     val sourceWidth: Int,
     val sourceHeight: Int,
@@ -1254,20 +1254,28 @@ internal fun ZoomablePhoto(
     modifier: Modifier = Modifier,
     showMetadata: Boolean = false,
     onTap: () -> Unit = {},
+    photoCache: PhotoPreviewCache? = null,
+    active: Boolean = true,
 ) {
     val context = LocalContext.current
-    var decoded by remember(uri) { mutableStateOf<DecodedImage?>(null) }
+    var decoded by remember(uri) { mutableStateOf(photoCache?.get(uri.toString())) }
     var failed by remember(uri) { mutableStateOf(false) }
     var scale by remember(uri) { mutableFloatStateOf(1f) }
     var offset by remember(uri) { mutableStateOf(Offset.Zero) }
     var containerSize by remember(uri) { mutableStateOf(IntSize.Zero) }
 
-    LaunchedEffect(uri) {
-        val result = withContext(Dispatchers.IO) {
-            runCatching { decodeLocalImage(context, uri) }
+    LaunchedEffect(uri, active) {
+        val preview = photoCache?.get(uri.toString()) ?: withContext(Dispatchers.IO) {
+            runCatching { viewerPhotoDecode(context, uri, 1280)?.also { photoCache?.put(uri.toString(), it) } }.getOrNull()
         }
-        decoded = result.getOrNull()
-        failed = result.isFailure || decoded == null
+        // Retain visible pixels while upgrading; neighbours only keep small previews.
+        if (!active || decoded == null) decoded = preview
+        if (active && preview != null) {
+            val full = if (preview.bitmap.width >= preview.sourceWidth && preview.bitmap.height >= preview.sourceHeight) preview
+                else withContext(Dispatchers.IO) { runCatching { viewerPhotoDecode(context, uri, 4096) }.getOrNull() }
+            if (full != null) decoded = full
+        }
+        failed = decoded == null
     }
 
     LaunchedEffect(scale) {
@@ -1284,7 +1292,7 @@ internal fun ZoomablePhoto(
                     offset = clampPhotoOffset(offset, scale, size, image)
                 }
             }
-            .pointerInput(uri, decoded, containerSize) {
+            .pointerInput(uri, containerSize) {
                 detectTapGestures(
                     onTap = { onTap() },
                     onDoubleTap = {
@@ -1299,7 +1307,7 @@ internal fun ZoomablePhoto(
                     },
                 )
             }
-            .pointerInput(uri, decoded, containerSize) {
+            .pointerInput(uri, containerSize) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
                     var transformActive = scale > 1.01f
@@ -1412,7 +1420,7 @@ private fun formatMediaSize(bytes: Long?): String {
     }
 }
 
-private fun decodeLocalImage(
+internal fun decodeLocalImage(
     context: android.content.Context,
     uri: Uri,
     maxSide: Int = 4096,

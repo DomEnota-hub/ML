@@ -17,6 +17,8 @@ internal fun MediaSwipePages(start: DownloadEntity, queue: List<DownloadEntity>,
     onOpenExternal: (DownloadEntity) -> Unit = {}, allowExternal: Boolean = false,
     onFullscreenChange: (Boolean) -> Unit = {}, onLockedChange: (Boolean) -> Unit = {},
     onVideoOrientation: (Boolean) -> Unit = {}) {
+    val photoCache = remember { PhotoPreviewCache() }
+    DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
     val rows = remember(start.id, queue) {
         val valid = queue.filter { it.mediaType != MediaType.AUDIO && it.savedUri != null }.distinctBy { it.id }
         if (valid.any { it.id == start.id }) valid else listOf(start) + valid
@@ -31,13 +33,13 @@ internal fun MediaSwipePages(start: DownloadEntity, queue: List<DownloadEntity>,
         onFullscreenChange(false); onLockedChange(false)
     }
     androidx.activity.compose.BackHandler(fullscreen) { fullscreen = false; onFullscreenChange(false) }
-    HorizontalPager(pager, modifier = modifier.testTag("media-pages"), key = { rows[it].id }, userScrollEnabled = !zoomed && !locked && !fullscreen) { index ->
+    HorizontalPager(pager, beyondViewportPageCount = 1, modifier = modifier.testTag("media-pages"), key = { rows[it].id }, userScrollEnabled = !zoomed && !locked && !fullscreen) { index ->
         val row = rows[index]
         val uri = row.savedUri?.let(Uri::parse)
         if (uri == null) Text("Файл недоступен")
         else if (row.mediaType == MediaType.PHOTO) {
             ZoomablePhoto(row, uri, index + 1, rows.size,
-                { if (pager.currentPage == index) zoomed = it }, Modifier.fillMaxSize(), showMetadata = false)
+                { if (pager.currentPage == index) zoomed = it }, Modifier.fillMaxSize(), showMetadata = false, photoCache = photoCache, active = pager.settledPage == index)
         } else if (pager.currentPage == index && !pager.isScrollInProgress) {
             LocalVideoPlayer(row.id, uri, fullscreen, locked,
                 { locked = it; onLockedChange(it) }, { fullscreen = it; onFullscreenChange(it) }, onVideoOrientation,
