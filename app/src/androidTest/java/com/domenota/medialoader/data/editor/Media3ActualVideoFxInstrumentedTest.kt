@@ -372,6 +372,12 @@ class Media3ActualVideoFxInstrumentedTest {
             delay(700)
         }
         suspend fun awaitInitialVideoFrame() = withTimeout(20_000L) {
+            fun texture(view: android.view.View): android.view.TextureView? {
+                if (view is android.view.TextureView) return view
+                if (view is android.view.ViewGroup) for (i in 0 until view.childCount)
+                    texture(view.getChildAt(i))?.let { return it }
+                return null
+            }
             fun surface(view: android.view.View): android.view.SurfaceView? {
                 if (view is android.view.SurfaceView) return view
                 if (view is android.view.ViewGroup) for (i in 0 until view.childCount)
@@ -382,6 +388,11 @@ class Media3ActualVideoFxInstrumentedTest {
                 delay(100)
                 val result = CompletableDeferred<Bitmap?>()
                 scenario.onActivity { activity ->
+                    val textureView = texture(activity.window.decorView)
+                    if (textureView != null) {
+                        result.complete(if (textureView.isAvailable) textureView.getBitmap(90, 160) else null)
+                        return@onActivity
+                    }
                     val view = surface(activity.window.decorView)
                     if (view == null || !view.holder.surface.isValid) result.complete(null) else {
                         val image = Bitmap.createBitmap(90, 160, Bitmap.Config.ARGB_8888)

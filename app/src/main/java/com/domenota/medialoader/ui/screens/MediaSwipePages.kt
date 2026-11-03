@@ -6,6 +6,7 @@ import androidx.compose.foundation.pager.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.MediaType
 
@@ -30,7 +31,7 @@ internal fun MediaSwipePages(start: DownloadEntity, queue: List<DownloadEntity>,
         onFullscreenChange(false); onLockedChange(false)
     }
     androidx.activity.compose.BackHandler(fullscreen) { fullscreen = false; onFullscreenChange(false) }
-    HorizontalPager(pager, modifier = modifier, key = { rows[it].id }, userScrollEnabled = !zoomed && !locked && !fullscreen) { index ->
+    HorizontalPager(pager, modifier = modifier.testTag("media-pages"), key = { rows[it].id }, userScrollEnabled = !zoomed && !locked && !fullscreen) { index ->
         val row = rows[index]
         val uri = row.savedUri?.let(Uri::parse)
         if (uri == null) Text("Файл недоступен")

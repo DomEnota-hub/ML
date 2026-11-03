@@ -63,7 +63,7 @@ class GridViewerUiTest {
         val rows = (1..2).map { DownloadEntity("video-$it", "test", "video-$it", MediaType.VIDEO,
             DownloadState.COMPLETED, "file:///missing-$it.mp4", null, 0) }
         compose.setContent { MaterialTheme { MediaViewerScreen(rows.first(), {}, {}, {}, mediaQueue = rows) } }
-        compose.onNodeWithContentDescription("Следующий файл").performClick()
+        compose.onNodeWithTag("media-pages").performTouchInput { swipeLeft() }
         compose.onNodeWithContentDescription("Настройки плеера").assertExists()
         // Drive the real native controller: Robolectric has no rendered video surface for touch routing.
         compose.runOnIdle {
@@ -89,17 +89,19 @@ class GridViewerUiTest {
         val restoration = StateRestorationTester(compose)
         restoration.setContent { MaterialTheme { MediaViewerScreen(rows.first(), {}, {}, {},
             mediaQueue = rows, onEdit = { edited = it.id }) } }
-        compose.onNodeWithContentDescription("Предыдущий файл").assertIsNotEnabled()
-        compose.onNodeWithContentDescription("Следующий файл").performClick()
+        compose.onNodeWithTag("media-pages").performTouchInput { swipeRight() }
+        compose.onNodeWithText("file-0").assertIsDisplayed()
+        compose.onNodeWithTag("media-pages").performTouchInput { swipeLeft() }
         compose.onNodeWithText("file-1").assertIsDisplayed()
         compose.onNodeWithContentDescription("Редактировать").performClick()
         assertEquals("1", edited)
-        compose.onNodeWithContentDescription("Следующий файл").performClick()
+        compose.onNodeWithTag("media-pages").performTouchInput { swipeLeft() }
         compose.onNodeWithText("file-2").assertIsDisplayed()
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithText("file-2").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Следующий файл").assertIsNotEnabled()
-        compose.onNodeWithContentDescription("Предыдущий файл").performClick()
+        compose.onNodeWithTag("media-pages").performTouchInput { swipeLeft() }
+        compose.onNodeWithText("file-2").assertIsDisplayed()
+        compose.onNodeWithTag("media-pages").performTouchInput { swipeRight() }
         compose.onNodeWithText("file-1").assertIsDisplayed()
     }
 }
