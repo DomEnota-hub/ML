@@ -5,6 +5,10 @@ on:
       - feature/ml-video-editor-v8-reference-rebuild-20261102
   workflow_dispatch:
     inputs:
+      official_release_review:
+        description: 'Build isolated unsigned Release QA for local official signing'
+        type: boolean
+        default: false
       full_validation:
         description: 'Run all release gates and the whole codec suite once'
         type: boolean
@@ -72,17 +76,34 @@ jobs:
           node scripts/test-muzmo-native-script.cjs
       - name: Compile isolated ARM64 QA package
         if: ${{ inputs.full_validation || inputs.review_apk }}
-        run: gradle :app:assembleDebug -Parm64Release=true -PhitmozArm64=true --stacktrace
+        run: |
+          if [ "${{ inputs.official_release_review }}" = true ]; then
+            gradle :app:assembleRelease -Parm64Release=true -PofficialQa=true --stacktrace
+          else
+            gradle :app:assembleDebug -Parm64Release=true -PhitmozArm64=true --stacktrace
+          fi
       - name: Verify QA identity, ABI and signature
         if: ${{ inputs.full_validation || inputs.review_apk }}
         shell: bash
         run: |
           set -euo pipefail
-          apk=app/build/outputs/apk/debug/app-debug.apk
+          if [ "${{ inputs.official_release_review }}" = true ]; then
+            apk=app/build/outputs/apk/release/app-release-unsigned.apk
+            expected_package=com.domenota.medialoader.officialqa
+          else
+            apk=app/build/outputs/apk/debug/app-debug.apk
+            expected_package=com.domenota.medialoader.hitmoz
+          fi
           bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
           test -s "$apk"
-          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader.hitmoz'"
-          "$bt/apksigner" verify --print-certs "$apk"
+          "$bt/aapt" dump badging "$apk" > /tmp/ml-review-badging.txt
+          grep -F "package: name='$expected_package'" /tmp/ml-review-badging.txt
+          if [ "${{ inputs.official_release_review }}" = true ]; then
+            ! grep -q application-debuggable /tmp/ml-review-badging.txt
+            test "$(stat -c %s "$apk")" -le 130000000
+          else
+            "$bt/apksigner" verify --print-certs "$apk"
+          fi
           test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
           sha256sum "$apk"
       - name: Verify 1.7.112 production ARM64 release compile and size
@@ -109,8 +130,8 @@ jobs:
         if: ${{ inputs.full_validation || inputs.review_apk }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.review_apk && 'ML-Text-Performance-ARM64-Review' || 'ML-Video-v8-Reference-ARM64-CI' }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: ${{ inputs.official_release_review && 'ML-Official-Key-Release-Review-Unsigned' || (inputs.review_apk && 'ML-Text-Performance-ARM64-Review' || 'ML-Video-v8-Reference-ARM64-CI') }}
+          path: ${{ inputs.official_release_review && 'app/build/outputs/apk/release/app-release-unsigned.apk' || 'app/build/outputs/apk/debug/app-debug.apk' }}
           if-no-files-found: error
           retention-days: ${{ inputs.review_apk && 7 || 2 }}
           compression-level: 0
