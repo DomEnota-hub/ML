@@ -348,10 +348,23 @@ class Media3ActualVideoFxInstrumentedTest {
                 for (i in 0 until n.childCount) n.getChild(i)?.let { child -> search(child)?.let { return it } }
                 return null
             }
+            // Compose replaces its virtual descendants after panel changes. Do not reuse
+            // UiAutomation's cached root from before the transition/first decoded frame.
+            if (android.os.Build.VERSION.SDK_INT >= 33) instrumentation.uiAutomation.clearCache()
             return instrumentation.uiAutomation.rootInActiveWindow?.let(::search)
         }
         suspend fun click(label: String) {
-            withTimeout(10_000) { while (node(label) == null) delay(100) }
+            try { withTimeout(10_000) { while (node(label) == null) delay(100) } }
+            catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+                val labels = mutableListOf<String>()
+                fun describe(n: android.view.accessibility.AccessibilityNodeInfo) {
+                    labels += "${n.className}: text=${n.text}; description=${n.contentDescription}"
+                    for (i in 0 until n.childCount) n.getChild(i)?.let(::describe)
+                }
+                instrumentation.uiAutomation.rootInActiveWindow?.let(::describe)
+                File(evidence, "ui_missing_control.txt").writeText("Missing: $label\n" + labels.joinToString("\n"))
+                throw AssertionError("Native editor control never became accessible: $label", timeout)
+            }
             var target = node(label)
             while (target != null && !target.isClickable) target = target.parent
             assertTrue("No clickable native editor control: $label", target?.performAction(

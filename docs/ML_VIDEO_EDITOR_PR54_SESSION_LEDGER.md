@@ -413,3 +413,15 @@ Followup checks: one full QA-only run at the new HEAD, plus ONLY the affected
 native editor-screen method. The passed12-codec suite is not repeated; export,
 FX shaders, source clock and audio processing are unchanged. Session default
 preparation for the codec probe is unchanged; deferred preparation is Screen-only.
+
+##fe8c750 followup
+
+QA:1043unit/Compose tests PASS(1optional skip), lint PASS, all3WebView/JS scripts
+PASS; ARM64 package/release gates still executing at time of this entry.
+Native UI's real first-frame assertion PASSED and the root screenshot now has
+video. Later navigation timed out querying the visible «Обрезка» accessibility
+node; saved02_editor.png shows the correct panel/button. The probe now clears
+UiAutomation's virtual-node cache on supported API33+ before querying Compose
+panels and preserves node diagnostics on timeout. Only androidTest helper/docs
+change in this followup; production/debug sources are identical to fe8c750.
+Only the one native UI scenario is rerun, not1043tests/lint/all12codec cases.
