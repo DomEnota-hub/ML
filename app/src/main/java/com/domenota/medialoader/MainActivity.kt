@@ -26,12 +26,15 @@ class MainActivity : ComponentActivity() {
     private var wasForeground = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val startupAt = android.os.SystemClock.uptimeMillis()
         AppLog.init(applicationContext)
+        com.domenota.medialoader.core.logging.PerformanceLog.begin("activity_create")
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null && forwardAutomaticShare(intent, false)) {
             finish()
             return
         }
+        com.domenota.medialoader.core.logging.PerformanceLog.start()
         com.domenota.medialoader.ui.theme.edgeToEdgeWindow(window)
         val archivePrefs = getSharedPreferences("module_archive", MODE_PRIVATE)
         if (!archivePrefs.getBoolean("instagram_profile_disabled", false)) {
@@ -56,6 +59,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         window.decorView.doOnPreDraw {
+            com.domenota.medialoader.core.logging.PerformanceLog.end("activity_first_pre_draw", startupAt)
             lifecycleScope.launch(Dispatchers.IO) {
                 runCatching { AudioWaveformPrecompute.schedule(applicationContext) }
                     .onFailure { AppLog.w("AudioWaveform", "Background scan deferred: ${it.javaClass.simpleName}") }
@@ -74,8 +78,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        com.domenota.medialoader.core.logging.PerformanceLog.start()
+    }
+    override fun onStop() {
+        com.domenota.medialoader.core.logging.PerformanceLog.stop()
+        wasForeground = false
+        super.onStop()
+    }
+
     override fun onResume() { super.onResume(); wasForeground = true }
-    override fun onStop() { wasForeground = false; super.onStop() }
 
     private fun forwardAutomaticShare(incoming: Intent?, returnToSource: Boolean): Boolean {
         if (InstagramShareRouting.automaticUrl(this, incoming) == null) return false

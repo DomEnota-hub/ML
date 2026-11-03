@@ -24,14 +24,19 @@ internal object VideoTrimBoundaryPreview {
         private var uri: String? = null
         private var source: Source? = null
         private var closed = false
-        fun decode(request: Request): Bitmap? = runCatching {
+        fun decode(request: Request): Bitmap? {
+            val started = com.domenota.medialoader.core.logging.PerformanceLog.now()
+            return try { runCatching {
             if (closed) return null
             if (uri != request.sourceUri) {
                 source?.close(); source = null; uri = null
                 source = open(request.sourceUri); uri = request.sourceUri
             }
             source?.frame(request.sourceMs)
-        }.getOrNull()
+        }.getOrNull() } finally {
+                com.domenota.medialoader.core.logging.PerformanceLog.slow("trim_boundary_decode", started)
+            }
+        }
         override fun close() {
             if (closed) return
             closed = true

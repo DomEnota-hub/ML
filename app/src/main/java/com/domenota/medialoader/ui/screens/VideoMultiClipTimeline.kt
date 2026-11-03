@@ -292,6 +292,7 @@ private fun VideoClipStrip(
     }
     LaunchedEffect(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond,
         showSourceTrim) {
+        val decodeStarted = com.domenota.medialoader.core.logging.PerformanceLog.now()
         val generated = withContext(Dispatchers.IO) {
             if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
                 runCatching {
@@ -340,6 +341,7 @@ private fun VideoClipStrip(
             }
         }
         thumbnails = generated
+        com.domenota.medialoader.core.logging.PerformanceLog.slow("timeline_thumbnail_batch", decodeStarted)
     }
     DisposableEffect(thumbnails) {
         val owned = thumbnails

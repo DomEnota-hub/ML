@@ -221,6 +221,7 @@ private fun VideoEditorContent(
     val busyWithOther = exportState.exporting && exportState.sourceId != null &&
         exportState.sourceId != item.id
     var info by remember(uri) { mutableStateOf<VideoInfo?>(null) }
+    com.domenota.medialoader.ui.components.ScreenPerformanceProbe("video_editor_metadata", info != null)
     var removeAudio by remember { mutableStateOf(false) }
     var reverseVideo by remember(item.id) { mutableStateOf(false) }
     var reversePreviewFile by remember(item.id) { mutableStateOf<File?>(null) }
@@ -260,6 +261,7 @@ private fun VideoEditorContent(
     var panelHistory by remember(item.id) { mutableStateOf<VideoEditHistory.Checkpoint<VideoEditorUndoSnapshot>?>(null) }
     var historyRevision by remember(item.id) { mutableIntStateOf(0) }
     var trimFramePending by remember(item.id) { mutableStateOf(false) }
+    var trimDiagnosticsStartedAt by remember(item.id) { mutableLongStateOf(0L) }
     var trimEndHandle by remember(item.id) { mutableStateOf(false) }
     var trimGestureActive by remember(item.id) { mutableStateOf(false) }
     var overlayGestureActive by remember(item.id) { mutableStateOf(false) }
@@ -949,12 +951,14 @@ private fun VideoEditorContent(
                         trimSourcePositionMs = requestedTrimBoundary?.sourceMs.takeIf { trimGestureActive },
                         onTrimSideChange = { trimEndHandle = it },
                         onTrimGestureStart = {
+                            trimDiagnosticsStartedAt = com.domenota.medialoader.core.logging.PerformanceLog.begin("video_trim_gesture")
                             requestedTrimBoundary = null
                             trimFramePending = false
                             trimBoundaryFrame = null
                             trimGestureActive = true
                         },
                         onTrimGestureEnd = {
+                            com.domenota.medialoader.core.logging.PerformanceLog.end("video_trim_gesture", trimDiagnosticsStartedAt)
                             trimGestureActive = false
                             requestedTrimBoundary = null
                             val player = previewPlayer

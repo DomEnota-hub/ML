@@ -198,6 +198,14 @@ fun MediaLoaderApp(
     var librarySearchVisible by rememberSaveable(appMode, librarySource) { mutableStateOf(false) }
     val phoneGallery by libraryModel.gallery.collectAsStateWithLifecycle()
     val phoneMusic by libraryModel.music.collectAsStateWithLifecycle()
+    com.domenota.medialoader.ui.components.ScreenPerformanceProbe(
+        "${currentRoute ?: "initial"}:$appMode:$librarySource",
+        if (appMode == AppMode.GALLERY && librarySource == LibrarySource.PHONE)
+            phoneGallery.loaded && !phoneGallery.requiresValidation
+        else if (appMode == AppMode.MUSIC && librarySource == LibrarySource.PHONE)
+            phoneMusic.loaded && !phoneMusic.requiresValidation
+        else true)
+
     val libraryIndex by libraryModel.index.collectAsStateWithLifecycle()
     val unifiedLibrary = libraryIndex.refs
     val libraryAudioState by libraryModel.audioPreview.state.collectAsStateWithLifecycle()
@@ -238,17 +246,21 @@ fun MediaLoaderApp(
         libraryPermissions.launch(PhoneMediaLibrary.permissions(mode))
     }
     fun changeAppMode(next: AppMode) {
+        val dispatchedAt = com.domenota.medialoader.core.logging.PerformanceLog.begin("mode_switch:$next")
         // Check access synchronously before a cached phone-backed screen can be rendered.
         if (next == AppMode.MUSIC || (next == AppMode.GALLERY &&
                 (gallerySource == LibrarySource.PHONE || phoneGallery.loaded))) libraryModel.refresh(next)
         libraryPreferences.mode = next
         appMode = next
+        com.domenota.medialoader.core.logging.PerformanceLog.end("mode_switch_dispatch:$next", dispatchedAt)
     }
     fun changeLibrarySource(next: LibrarySource) {
+        val dispatchedAt = com.domenota.medialoader.core.logging.PerformanceLog.begin("source_switch:$next")
         if (next == LibrarySource.PHONE) libraryModel.refresh(appMode)
         libraryPreferences.setSource(appMode, next)
         if (appMode == AppMode.GALLERY) gallerySource = next else musicLibrarySource = next
         if (next == LibrarySource.PHONE && !hasPhoneLibraryAccess(context, appMode)) requestLibraryAccess(appMode)
+        com.domenota.medialoader.core.logging.PerformanceLog.end("source_switch_dispatch:$next", dispatchedAt)
     }
     val phoneViewingId = backStackEntry?.arguments?.getString("downloadId")
     fun refreshPhoneLibraries(force: Boolean = false) {

@@ -18,6 +18,7 @@ object AppLog {
     private const val MAX_ARCHIVES = 4
     private const val TAIL_LINES = 2500
     private val lock = Any()
+    private val writer = BoundedLogWriter()
     private val sampled = mutableMapOf<String, Pair<Long, Int>>()
     private val operationCounter = AtomicLong()
     private val timestamp = ThreadLocal.withInitial {
@@ -100,21 +101,29 @@ object AppLog {
     fun w(tag: String, message: String, error: Throwable? = null) = append("WARN", tag, message, error)
     fun e(tag: String, message: String, error: Throwable? = null) = append("ERROR", tag, message, error)
 
-    fun readText(): String = synchronized(lock) {
-        val file = logFile() ?: return@synchronized ""
-        runCatching {
-            val all = logFiles(file)
-            all.flatMap { it.readLines().takeLast(TAIL_LINES) }.takeLast(TAIL_LINES)
-                .joinToString("\n")
-        }.getOrElse { "Не удалось прочитать журнал: ${it.message}" }
+    fun readText(): String {
+        writer.flush()
+        return synchronized(lock) {
+            val file = logFile() ?: return@synchronized ""
+            runCatching {
+                val all = logFiles(file)
+                all.flatMap { it.readLines().takeLast(TAIL_LINES) }.takeLast(TAIL_LINES)
+                    .joinToString("\n")
+            }.getOrElse { "Не удалось прочитать журнал: ${it.message}" }
+        }
     }
 
-    fun clear() = synchronized(lock) {
-        val file = logFile() ?: return@synchronized
-        runCatching { logFiles(file).forEach { it.delete() } }
+    fun clear() {
+        val done = java.util.concurrent.CountDownLatch(1)
+        val queued = writer.offer { synchronized(lock) {
+            try { logFile()?.let { file -> logFiles(file).forEach { it.delete() } } }
+            finally { done.countDown() }
+        } }
+        if (queued) done.await(2, java.util.concurrent.TimeUnit.SECONDS)
     }
 
     fun exportMarkdown(includeExplanations: Boolean = false): String {
+        val flushed = writer.flush()
         val now = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date())
         val rawBody = synchronized(lock) {
             val file = logFile()
@@ -131,6 +140,8 @@ object AppLog {
             appendLine("- Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
             appendLine("- Устройство: ${Build.MANUFACTURER} ${Build.MODEL}")
             appendLine("- Расширенный журнал на момент экспорта: ${if (extended) "включён" else "выключен"}")
+            appendLine("- Диагностика производительности: включена в активном приложении (UI_STALL / FRAME_GAPS / Perf)")
+            appendLine("- Очередь журнала: flush=$flushed; пропущено при перегрузке=${writer.dropped.get()}")
             appendLine("- Пояснения: ${if (includeExplanations) "включены" else "выключены"}")
             appendLine()
             appendLine("> Журнал формируется локально. Значения известных cookie/session-полей автоматически скрываются.")
@@ -144,20 +155,25 @@ object AppLog {
 
     private fun append(level: String, tag: String, message: String, error: Throwable?) {
         val file = logFile() ?: return
-        val safeMessage = redact(message)
-        val safeStack = error?.stackTraceToString()?.let(::redact)
-        synchronized(lock) {
-            runCatching {
-                file.parentFile?.mkdirs()
-                file.appendText(buildString {
-                    append(timestamp.get().format(Date()))
-                    append(" [").append(level).append("] [").append(tag).append("] ")
-                    appendLine(safeMessage)
-                    if (!safeStack.isNullOrBlank()) {
-                        safeStack.lineSequence().take(80).forEach { appendLine("    $it") }
-                    }
-                })
-                trimIfNeeded(file)
+        // Capture event time/thread before enqueueing; slow storage cannot delay callers.
+        val eventAt = System.currentTimeMillis()
+        val eventThread = Thread.currentThread().name
+        val boundedMessage = message.take(24_000)
+        val boundedStack = error?.stackTraceToString()?.take(24_000)
+        writer.offer {
+            val safeMessage = redact(boundedMessage)
+            synchronized(lock) {
+                runCatching {
+                    file.parentFile?.mkdirs()
+                    file.appendText(buildString {
+                        append(timestamp.get().format(Date(eventAt)))
+                        append(" [").append(level).append("] [").append(tag).append("] ")
+                        append("[thread=").append(eventThread).append("] ")
+                        appendLine(safeMessage)
+                        boundedStack?.let { appendLine(redact(it)) }
+                    })
+                    trimIfNeeded(file)
+                }
             }
         }
     }
@@ -190,6 +206,7 @@ object AppLog {
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
                 e("Crash", "Uncaught exception on thread ${thread.name}", throwable)
+                writer.flush(500)
                 previous?.uncaughtException(thread, throwable)
             }
             crashHandlerInstalled = true
