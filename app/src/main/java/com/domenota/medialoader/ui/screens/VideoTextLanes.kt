@@ -33,12 +33,12 @@ import kotlin.math.roundToInt
 internal fun VideoTextLanes(project: VideoProjectDraft, texts: List<TextLayer>, selectedId: String?,
     positionMs: Long, scroll: LazyListState, widths: List<Float>, enabled: Boolean,
     onSelect: (String) -> Unit, onChange: (TextLayer) -> Unit,
-    onGestureStart: () -> Unit, onGestureEnd: () -> Unit) {
+    onGestureStart: () -> Unit, onGestureEnd: () -> Unit, leadingPaddingDp: Float = 0f) {
     val scale = remember(project.clips, widths) { VideoAudioLaneScale(project, widths) }
     val density = LocalDensity.current.density
     val latestScale by rememberUpdatedState(scale)
     val latestDuration by rememberUpdatedState(project.durationMs)
-    val scrollDp = scale.prefix(scroll.firstVisibleItemIndex) + scroll.firstVisibleItemScrollOffset / density
+    val scrollDp = scale.prefix(scroll.firstVisibleItemIndex) + scroll.firstVisibleItemScrollOffset / density - leadingPaddingDp
     val visible = texts.filter { it.startMs < project.durationMs }
     LazyColumn(Modifier.fillMaxWidth().height((visible.size.coerceAtMost(2) * 40).dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {

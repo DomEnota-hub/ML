@@ -39,3 +39,12 @@ Files: TextLayerSelectionOverlay.kt, VideoEditorScreen.kt, VideoOverlayPanel.kt,
 - [x] Run lint after the block; repeat only for the concrete final-review fix.
 - [ ] Build one reviewable ARM64 QA candidate. Use one focused native UI capture if needed; do not repeat passed export matrix for unchanged DSP.
 - [x] Record mechanisms/evidence and unverified phone behavior in the ledger; final HEAD/build result reported at delivery.
+
+### Task4: New trim reference (user steering while review build runs)
+- [x] Add source-expansion anchor math and reusable-decoder lifetime checks.
+- [x] Keep a fixed viewport cursor; scroll/tap updates seek, playback/release follows the cursor.
+- [x] Expand the source ruler only during a handle drag, anchoring the touched grip; collapse to actual remaining width on release.
+- [x] Track the active side explicitly, including no-change/clamped gestures; display source clock while dragging.
+- [x] Reuse MediaMetadataRetriever across drag samples; retain boundary image until the rebuilt clipped player renders.
+- [x] Affected trim/geometry/decoder tests, compile and lint passed.
+- [ ] Build one updated review APK after this added requirement.

@@ -48,6 +48,7 @@ import com.domenota.medialoader.data.editor.VideoClipDraft
 import com.domenota.medialoader.data.editor.VideoClipMediaKind
 import com.domenota.medialoader.data.editor.VideoProjectDraft
 import com.domenota.medialoader.ui.components.formatPreciseMediaTime
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -73,6 +74,8 @@ internal fun VideoMultiClipTimeline(
     onSeek: (Long) -> Unit,
     onTrim: (String, Long, Long) -> Unit,
     trimMode: Boolean = false,
+    trimSourcePositionMs: Long? = null,
+    onTrimSideChange: (Boolean) -> Unit = {},
     onTrimGestureStart: () -> Unit = {},
     onTrimGestureEnd: () -> Unit = {},
     onMove: (String, Int) -> Unit,
@@ -100,26 +103,51 @@ internal fun VideoMultiClipTimeline(
         zoom, referenceDurationMs)
     val videoScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     val density = LocalDensity.current.density
-    androidx.compose.runtime.LaunchedEffect(selectedTextId, trimMode) {
-        val text = texts.firstOrNull { it.id == selectedTextId } ?: return@LaunchedEffect
-        if (trimMode) return@LaunchedEffect
-        val location = project.locateAt(text.startMs.coerceAtMost(project.durationMs - 1))
-        val clip = project.clips[location.clipIndex]
-        val width = VideoClipReorderMath.widthDp(clip.durationMs, zoom, referenceDurationMs)
-        val viewport = (videoScroll.layoutInfo.viewportEndOffset - videoScroll.layoutInfo.viewportStartOffset).coerceAtLeast(0)
-        val offset = (width * density * location.positionWithinClipMs / clip.durationMs - viewport / 2f)
-            .roundToInt().coerceAtLeast(0)
-        videoScroll.scrollToItem(location.clipIndex, offset)
+    var activeTrimClipId by remember { mutableStateOf<String?>(null) }
+    val widths = project.clips.map { VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) }
+    val scale = com.domenota.medialoader.data.editor.VideoAudioLaneScale(project, widths)
+    val latestScale by rememberUpdatedState(scale)
+    val latestSeek by rememberUpdatedState(onSeek)
+    val latestTrim by rememberUpdatedState(activeTrimClipId)
+    var userScrubbing by remember { mutableStateOf(false) }
+    // A fixed center cursor; playback and explicit seeks move the reel beneath it.
+    LaunchedEffect(positionMs, project.clips, activeTrimClipId, videoScroll.isScrollInProgress, userScrubbing) {
+        if (activeTrimClipId != null || videoScroll.isScrollInProgress || userScrubbing) return@LaunchedEffect
+        val location = project.locateAt(positionMs.coerceIn(0L, project.durationMs - 1L))
+        val offset = widths[location.clipIndex] * density * location.positionWithinClipMs /
+            project.clips[location.clipIndex].durationMs
+        videoScroll.requestScrollToItem(location.clipIndex, offset.roundToInt())
     }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    LaunchedEffect(videoScroll) {
+        var lastSeekUptime = 0L
+        snapshotFlow { Triple(videoScroll.firstVisibleItemIndex,
+            videoScroll.firstVisibleItemScrollOffset, videoScroll.isScrollInProgress) }
+            .collectLatest { (index, offset, moving) ->
+                val wasScrubbing = userScrubbing
+                if (latestTrim == null && (moving || wasScrubbing)) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    // Intermediate positions are bounded, but release is never sampled away.
+                    if (!moving || now - lastSeekUptime >= 50L) {
+                        latestSeek(latestScale.timeAt(latestScale.prefix(index) + offset / density))
+                        lastSeekUptime = now
+                    }
+                }
+                userScrubbing = moving
+            }
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+      val leading = maxWidth / 2
+      Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween) {
             IconButton(onClick = onTogglePlayback, enabled = enabled, modifier = Modifier.size(38.dp)) {
                 Icon(if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     contentDescription = if (isPlaying) "Пауза" else "Воспроизвести")
             }
-            Text(formatPreciseMediaTime(positionMs) + " / " +
-                formatPreciseMediaTime(project.durationMs),
+            Text(formatPreciseMediaTime(trimSourcePositionMs ?: positionMs) + " / " +
+                formatPreciseMediaTime(if (trimSourcePositionMs != null)
+                    project.clips.firstOrNull { it.id == selectedClipId }?.sourceDurationMs ?: project.durationMs
+                    else project.durationMs),
                 style = MaterialTheme.typography.labelMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 IconButton(onClick = onUndo, enabled = enabled && canUndo,
@@ -144,11 +172,13 @@ internal fun VideoMultiClipTimeline(
                 }
             }
         }
-        LazyRow(Modifier.fillMaxWidth().height(77.dp), state = videoScroll,
+        Box(Modifier.fillMaxWidth().height(77.dp)) {
+        LazyRow(Modifier.fillMaxSize().testTag("video-reel"), state = videoScroll,
+            contentPadding = PaddingValues(horizontal = leading),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically) {
             itemsIndexed(project.clips, key = { _, clip -> clip.id }) { index, clip ->
-                    val sourceTrimMode = trimMode && clip.id == selectedClipId &&
+                    val sourceTrimMode = activeTrimClipId == clip.id &&
                         clip.mediaKind == VideoClipMediaKind.VIDEO
                     val displayDuration = if (sourceTrimMode)
                         (clip.sourceDurationMs / clip.speed).roundToLong()
@@ -160,13 +190,12 @@ internal fun VideoMultiClipTimeline(
                         widthModifier = Modifier.width(width.dp),
                         showSourceTrim = sourceTrimMode,
                         fullWidthDp = width,
-                        pixelsPerSecondDp = if (sourceTrimMode)
-                            width / (clip.sourceDurationMs / clip.speed / 1000f)
-                        else pixelsPerSecondDp,
+                        pixelsPerSecondDp = VideoClipReorderMath.widthDp(
+                            (clip.sourceDurationMs / clip.speed).roundToLong(), zoom, referenceDurationMs) /
+                            (clip.sourceDurationMs / clip.speed / 1000f),
                         displayDensity = density,
                         isSelected = clip.id == selectedClipId,
-                        localPositionMs = (positionMs - project.timelineStart(index))
-                            .takeIf { it >= 0L && it <= clip.durationMs },
+                        localPositionMs = null,
                         enabled = enabled,
                         onSelectTransition = if (index < project.clips.lastIndex)
                             ({ onSelectTransition(clip.id) }) else null,
@@ -179,8 +208,21 @@ internal fun VideoMultiClipTimeline(
                                 (clip.durationMs * fraction).roundToLong())
                         },
                         onTrim = { a, b -> onTrim(clip.id, a, b) },
-                        onTrimGestureStart = onTrimGestureStart,
-                        onTrimGestureEnd = onTrimGestureEnd,
+                        onTrimGestureStart = { end ->
+                            val sourceWidth = VideoClipReorderMath.widthDp(
+                                (clip.sourceDurationMs / clip.speed).roundToLong(), zoom, referenceDurationMs)
+                            val shift = VideoClipReorderMath.trimExpansionScrollDp(width, sourceWidth,
+                                clip.sourceDurationMs, clip.inMs, clip.outMs, end)
+                            videoScroll.requestScrollToItem(videoScroll.firstVisibleItemIndex,
+                                videoScroll.firstVisibleItemScrollOffset + (shift * density).roundToInt())
+                            activeTrimClipId = clip.id
+                            onTrimSideChange(end)
+                            onTrimGestureStart()
+                        },
+                        onTrimGestureEnd = {
+                            activeTrimClipId = null
+                            onTrimGestureEnd()
+                        },
                         onDragOrder = { deltaPx ->
                             val destination = VideoClipReorderMath.destinationIndex(
                                 project.clips.map { it.durationMs },
@@ -191,21 +233,28 @@ internal fun VideoMultiClipTimeline(
                         }
                     )
             }
-            item {
-                IconButton(onClick = onAdd, enabled = enabled) {
-                    Icon(Icons.Rounded.Add, contentDescription = "Добавить клипы")
-                }
-            }
         }
-        if (!trimMode && texts.isNotEmpty()) VideoTextLanes(project, texts, selectedTextId,
+        Canvas(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight()) {
+            drawLine(Color.White, Offset(size.width / 2f, 0f),
+                Offset(size.width / 2f, size.height), 2.dp.toPx())
+        }
+        FilledIconButton(onClick = onAdd, enabled = enabled,
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp).size(38.dp),
+            shape = RoundedCornerShape(10.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFE5E5E5),
+                contentColor = Color.Black)) {
+            Icon(Icons.Rounded.Add, contentDescription = "Добавить клипы")
+        }
+        }
+        if (!trimMode && activeTrimClipId == null && texts.isNotEmpty()) VideoTextLanes(project, texts, selectedTextId,
             positionMs, videoScroll, project.clips.map { VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
-            enabled, onSelectText, onChangeText, onTextGestureStart, onTextGestureEnd)
-            if (!trimMode && project.audioTracks.isNotEmpty()) VideoAudioLanes(project,
+            enabled, onSelectText, onChangeText, onTextGestureStart, onTextGestureEnd, leading.value)
+            if (!trimMode && activeTrimClipId == null && project.audioTracks.isNotEmpty()) VideoAudioLanes(project,
             selectedAudioTrackId, positionMs, videoScroll, project.clips.map {
                 VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
-            enabled, onSelectAudio, onChangeAudio, onTrimGestureStart, onTrimGestureEnd)
+            enabled, onSelectAudio, onChangeAudio, onTrimGestureStart, onTrimGestureEnd, leading.value)
+      }
     }
-
 }
 
 @Composable
@@ -224,7 +273,7 @@ private fun VideoClipStrip(
     onSelect: () -> Unit,
     onSeek: (Float) -> Unit,
     onTrim: (Long, Long) -> Unit,
-    onTrimGestureStart: () -> Unit,
+    onTrimGestureStart: (Boolean) -> Unit,
     onTrimGestureEnd: () -> Unit,
     onDragOrder: (Float) -> Unit,
 ) {
@@ -395,7 +444,7 @@ private fun VideoClipStrip(
                             initialOut = latestClip.outMs
                             sourceSpeed = latestClip.speed
                             cumulativePx = 0f
-                            latestOnTrimGestureStart()
+                            latestOnTrimGestureStart(false)
                         },
                         onDragEnd = { latestOnTrimGestureEnd() },
                         onDragCancel = { latestOnTrimGestureEnd() },
@@ -428,7 +477,7 @@ private fun VideoClipStrip(
                             sourceDuration = latestClip.sourceDurationMs
                             sourceSpeed = latestClip.speed
                             cumulativePx = 0f
-                            latestOnTrimGestureStart()
+                            latestOnTrimGestureStart(true)
                         },
                         onDragEnd = { latestOnTrimGestureEnd() },
                         onDragCancel = { latestOnTrimGestureEnd() },
@@ -443,9 +492,10 @@ private fun VideoClipStrip(
                     )
                 })
         }
+        if (isSelected && !showSourceTrim) Box(Modifier.fillMaxSize().testTag("trim-kept-${clip.id}"))
         // Do not let the transition corner button intercept the right trim
         // grip. The transition remains available in the common editor dock.
-        if (onSelectTransition != null && !showSourceTrim) {
+        if (onSelectTransition != null && !isSelected) {
             Box(Modifier.align(Alignment.TopEnd).size(28.dp)
                 .clip(RoundedCornerShape(bottomStart = 8.dp))
                 .background(if (transitionEnabled) selectedYellow else Color.Black.copy(alpha = .65f))

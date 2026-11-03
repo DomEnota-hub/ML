@@ -15,30 +15,50 @@ import kotlin.math.roundToInt
 internal object VideoTrimBoundaryPreview {
     data class Request(val sourceUri: String, val sourceMs: Long)
 
-    fun decode(context: Context, request: Request): Bitmap? = runCatching {
-        val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSource(context, Uri.parse(request.sourceUri))
-            val timeUs = request.sourceMs.coerceAtLeast(0L) * 1000L
-            if (Build.VERSION.SDK_INT >= 27) {
-                // Decode at preview resolution: never allocate a full 4K frame.
-                retriever.getScaledFrameAtTime(
-                    timeUs, MediaMetadataRetriever.OPTION_CLOSEST, 360, 360)
-            } else {
-                val frame = retriever.getFrameAtTime(
-                    timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
-                    ?: return@runCatching null
-                val scale = (360f / maxOf(frame.width, frame.height)).coerceAtMost(1f)
-                if (scale == 1f) frame else {
-                    val small = Bitmap.createScaledBitmap(frame,
-                        (frame.width * scale).roundToInt().coerceAtLeast(1),
-                        (frame.height * scale).roundToInt().coerceAtLeast(1), true)
-                    frame.recycle()
-                    small
-                }
+    interface Source : java.io.Closeable { fun frame(sourceMs: Long): Bitmap? }
+
+    /** One retriever per gesture/source, rather than reopening the file every 95ms. */
+    class Decoder(context: Context,
+        private val open: (String) -> Source = { RetrieverSource(context, it) }
+    ) : java.io.Closeable {
+        private var uri: String? = null
+        private var source: Source? = null
+        private var closed = false
+        fun decode(request: Request): Bitmap? = runCatching {
+            if (closed) return null
+            if (uri != request.sourceUri) {
+                source?.close(); source = null; uri = null
+                source = open(request.sourceUri); uri = request.sourceUri
             }
-        } finally {
-            retriever.release()
+            source?.frame(request.sourceMs)
+        }.getOrNull()
+        override fun close() {
+            if (closed) return
+            closed = true
+            try { source?.close() } finally { source = null; uri = null }
         }
-    }.getOrNull()
+    }
+
+    fun decode(context: Context, request: Request): Bitmap? = Decoder(context).use { it.decode(request) }
+
+    private class RetrieverSource(context: Context, uri: String) : Source {
+        private val retriever = MediaMetadataRetriever().also {
+            try { it.setDataSource(context, Uri.parse(uri)) }
+            catch (error: Exception) { it.release(); throw error }
+        }
+        override fun frame(sourceMs: Long): Bitmap? {
+            val timeUs = sourceMs.coerceAtLeast(0L) * 1000L
+            if (Build.VERSION.SDK_INT >= 27) return retriever.getScaledFrameAtTime(
+                timeUs, MediaMetadataRetriever.OPTION_CLOSEST, 360, 360)
+            val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                ?: return null
+            val scale = (360f / maxOf(frame.width, frame.height)).coerceAtMost(1f)
+            if (scale == 1f) return frame
+            return Bitmap.createScaledBitmap(frame,
+                (frame.width * scale).roundToInt().coerceAtLeast(1),
+                (frame.height * scale).roundToInt().coerceAtLeast(1), true)
+                .also { frame.recycle() }
+        }
+        override fun close() { retriever.release() }
+    }
 }

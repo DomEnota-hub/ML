@@ -38,10 +38,10 @@ import kotlin.math.roundToInt
 internal fun VideoAudioLanes(project: VideoProjectDraft, selectedId: String?, positionMs: Long,
     videoScroll: LazyListState, widths: List<Float>, enabled: Boolean,
     onSelect: (String) -> Unit, onChange: (VideoAudioTrackDraft) -> Unit,
-    onGestureStart: () -> Unit, onGestureEnd: () -> Unit) {
+    onGestureStart: () -> Unit, onGestureEnd: () -> Unit, leadingPaddingDp: Float = 0f) {
     val scale = remember(project.clips, widths) { VideoAudioLaneScale(project, widths) }
     val density = LocalDensity.current.density
-    val scrollDp = scale.prefix(videoScroll.firstVisibleItemIndex) + videoScroll.firstVisibleItemScrollOffset / density
+    val scrollDp = scale.prefix(videoScroll.firstVisibleItemIndex) + videoScroll.firstVisibleItemScrollOffset / density - leadingPaddingDp
     val tracks = project.visibleAudioTracks()
     LazyColumn(Modifier.fillMaxWidth().height((tracks.size.coerceAtMost(2) * 42).dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -44,3 +44,35 @@ it does not repeat already passed local tests/lint or unchanged real codec suite
 Physical cold/warm startup,11k-file gallery/music,4K/long export latency and memory
 remain NOT_DEVICE_TESTED. A hardware trace is the next step if stutters persist.
 Official release/signing/merge remain outside this review delivery.
+
+Task4 — latest user trim reference, inspected from Drive:
+«Образцы » / «Обрезка », file16dWMyg_qTlVv4gj2mZEaO1KRQx08VhK1,
+14.07s portrait recording. Reviewed full recording contact sheet and timeline crops.
+Reference: fixed center playhead, reel scrubs beneath, live source boundary frame,
+yellow remaining range contracts, reel collapses to remaining duration on release.
+Implemented: centered padded reel + viewport Add button; source ruler expands only
+while a grip is held, with scroll compensation keeping that grip under the finger.
+Collapsed thumbnails sample the kept range. Selected clips expose independent trim
+handles without the transition button intercepting them. Both original bounds are
+retained, allowing reverse gestures to restore excluded media. Active side is
+explicit, including clamped/no-change drags, rather than inferred from changed inMs.
+Source clock during drag; remaining/project durations still update in the model.
+One MediaMetadataRetriever per gesture/source replaces reopening every95ms.
+Boundary image is held across a pending playlist replacement until its first frame;
+no source file or export trim semantics changed. Audio/text rows offset for centered
+video padding; selected text and audio geometry regressions remain covered.
+A bounded read-only review found release-seek could be sampled away before the
+playback-follow effect ran. Fixed with immediate final seek and a scrub ownership
+flag; intermediate seek frequency remains bounded. Manual scrubbing pauses playback.
+Initial targeted checks:18tests PASS22s (2density 20→15→20s gestures both ends,
+10trim/reorder math,2viewport anchor,1decoder lifetime,1text gesture,2audio geometry).
+The gesture checks also allow recomposition while a finger is still held.
+Native video decoder fluidity, frame visual matching, phone touch behavior and
+performance remain NOT_DEVICE_TESTED. No claim of measured speedup or full Xiaomi
+parity; no full export matrix or official release performed for this UI-only delta.
+Earlier2305f23 review artifact is intermediate and DOES NOT include this trim work.
+Final trim verification: targeted18tests + lintDebug PASS(3m22s).
+Strengthened held-touch/recomposition and immediate scrub-release checks, plus
+small-movement grip geometry:16tests PASS(18s); unchanged decoder/text/audio
+checks passed in the preceding batch. Removed the17dp grip dead zone at both ends.
+The bounded review finding is addressed; no second broad review/test sweep.

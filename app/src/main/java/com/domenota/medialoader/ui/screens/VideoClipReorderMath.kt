@@ -46,11 +46,20 @@ internal object VideoClipReorderMath {
         handleWidthDp: Float = 17f): TrimGrips {
         require(fullWidthDp.isFinite() && handleWidthDp.isFinite() &&
             handleWidthDp > 0f && fullWidthDp >= handleWidthDp * 2f)
-        val left = (selection.leftDp - handleWidthDp)
+        val left = selection.leftDp
             .coerceIn(0f, fullWidthDp - 2f * handleWidthDp)
-        val right = selection.rightDp.coerceIn(left + handleWidthDp,
+        val right = (selection.rightDp - handleWidthDp).coerceIn(left + handleWidthDp,
             fullWidthDp - handleWidthDp)
         return TrimGrips(left, right)
+    }
+
+    /** Compensate reel expansion without moving the grip beneath the finger. */
+    fun trimExpansionScrollDp(keptWidth: Float, sourceWidth: Float,
+        sourceDurationMs: Long, inMs: Long, outMs: Long, endHandle: Boolean): Float {
+        val normal = trimGrips(TrimSelection(0f, keptWidth), keptWidth)
+        val expanded = trimGrips(trimSelection(sourceDurationMs, inMs, outMs, sourceWidth), sourceWidth)
+        return if (endHandle) expanded.rightDp - normal.rightDp
+            else expanded.leftDp - normal.leftDp
     }
 
     /** +/- screen pixels to +/- actual trimmed SOURCE milliseconds. */

@@ -259,6 +259,8 @@ private fun VideoEditorContent(
     var panelSnapshot by remember(item.id) { mutableStateOf<VideoEditorUndoSnapshot?>(null) }
     var panelHistory by remember(item.id) { mutableStateOf<VideoEditHistory.Checkpoint<VideoEditorUndoSnapshot>?>(null) }
     var historyRevision by remember(item.id) { mutableIntStateOf(0) }
+    var trimFramePending by remember(item.id) { mutableStateOf(false) }
+    var trimEndHandle by remember(item.id) { mutableStateOf(false) }
     var trimGestureActive by remember(item.id) { mutableStateOf(false) }
     var overlayGestureActive by remember(item.id) { mutableStateOf(false) }
     var textEditing by remember(item.id) { mutableStateOf(true) }
@@ -272,16 +274,19 @@ private fun VideoEditorContent(
     LaunchedEffect(trimGestureActive) {
         if (!trimGestureActive) return@LaunchedEffect
         var lastRequest: VideoTrimBoundaryPreview.Request? = null
-        while (true) {
+        val decoder = VideoTrimBoundaryPreview.Decoder(context)
+        try { while (true) {
             val request = requestedTrimBoundary
             if (request != null && request != lastRequest) {
                 lastRequest = request
                 val frame = withContext(Dispatchers.IO) {
-                    VideoTrimBoundaryPreview.decode(context, request)
+                    decoder.decode(request)
                 }
                 if (frame != null) trimBoundaryFrame = frame
             }
             delay(95L)
+        } } finally {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { decoder.close() }
         }
     }
     val audioPreviewDeck = remember(item.id) { VideoAudioPreviewDeck(context) }
@@ -532,6 +537,25 @@ private fun VideoEditorContent(
         com.domenota.medialoader.data.editor.VideoEditorPreviewSession(context, it, deferPreparation = true)
     } }
     val previewPlayer = previewSession?.players?.collectAsState()?.value
+    DisposableEffect(previewPlayer) {
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                val draft = project ?: return
+                val player = previewPlayer ?: return
+                if (!trimGestureActive && VideoPreviewQueueSync.matches(
+                        List(player.mediaItemCount, player::getMediaItemAt), draft)) {
+                    trimFramePending = false
+                    trimBoundaryFrame = null
+                }
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                trimFramePending = false; trimBoundaryFrame = null
+                clipError = error.message ?: "Не удалось показать видео"
+            }
+        }
+        previewPlayer?.addListener(listener)
+        onDispose { previewPlayer?.removeListener(listener) }
+    }
     DisposableEffect(previewSession) {
         onDispose { previewSession?.release(); audioPreviewDeck.pause() }
     }
@@ -662,7 +686,7 @@ private fun VideoEditorContent(
             // newly selected source frame before the player is synchronized.
             val queueIsCurrent = VideoPreviewQueueSync.matches(
                 (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }, p)
-            if (queueIsCurrent) {
+            if (queueIsCurrent && !trimGestureActive && !trimFramePending) {
                 val index = player.currentMediaItemIndex
                 if (index in p.clips.indices) {
                     val clip = p.clips[index]
@@ -761,10 +785,10 @@ private fun VideoEditorContent(
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 // HTML v8 puts the canvas at ~40% of screen height; reserve the rest
                 // for transport/timeline rather than stretching portrait video into it.
-                val audioLaneHeight = if (selectedTool == VideoWorkspaceTool.TRIM) 0.dp
+                val audioLaneHeight = if (selectedTool == VideoWorkspaceTool.TRIM || trimGestureActive) 0.dp
                     else ((project?.visibleAudioTracks()?.size ?: 0).coerceAtMost(2) * 42).dp
                 val editingText = selectedTool == VideoWorkspaceTool.TEXT && textEditing
-                val textLaneHeight = if (selectedTool == VideoWorkspaceTool.TRIM) 0.dp else (textLayers.size.coerceAtMost(2) * 40).dp
+                val textLaneHeight = if (selectedTool == VideoWorkspaceTool.TRIM || trimGestureActive) 0.dp else (textLayers.size.coerceAtMost(2) * 40).dp
                 val timelineHeight = if (editingText) 0.dp else 146.dp + audioLaneHeight + textLaneHeight
                 val availableCanvas = (maxHeight - timelineHeight).coerceAtLeast(48.dp)
                 val referenceCanvas = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .4023f
@@ -832,7 +856,7 @@ private fun VideoEditorContent(
                 // During trim, source boundaries can be outside ExoPlayer's
                 // current (debounced) clip range. Show the true sampled frame,
                 // never the stale frame from the previous playlist.
-                if (trimGestureActive) {
+                if (trimGestureActive || trimFramePending) {
                     trimBoundaryFrame?.let { frame ->
                         Image(frame.asImageBitmap(), contentDescription =
                             "Граничный кадр обрезки",
@@ -902,6 +926,7 @@ private fun VideoEditorContent(
                             selectedTool = VideoWorkspaceTool.TRIM
                         },
                         onSeek = { target ->
+                            previewPlayer?.pause()
                             val original = activeProject.locateAt(target)
                             val precise = VideoTimelineFrameMath.projectPosition(
                                 activeProject, target,
@@ -921,25 +946,31 @@ private fun VideoEditorContent(
                             }
                         },
                         trimMode = selectedTool == VideoWorkspaceTool.TRIM,
+                        trimSourcePositionMs = requestedTrimBoundary?.sourceMs.takeIf { trimGestureActive },
+                        onTrimSideChange = { trimEndHandle = it },
                         onTrimGestureStart = {
                             requestedTrimBoundary = null
+                            trimFramePending = false
                             trimBoundaryFrame = null
                             trimGestureActive = true
                         },
                         onTrimGestureEnd = {
                             trimGestureActive = false
                             requestedTrimBoundary = null
-                            trimBoundaryFrame = null
+                            val player = previewPlayer
+                            val draft = project
+                            trimFramePending = trimBoundaryFrame != null && player != null && draft != null &&
+                                !VideoPreviewQueueSync.matches(List(player.mediaItemCount, player::getMediaItemAt), draft)
+                            if (!trimFramePending) trimBoundaryFrame = null
                         },
                         onTrim = { id, from, to ->
                             val prior = project ?: return@VideoMultiClipTimeline
                             val previousClip = prior.clips.firstOrNull { it.id == id }
                                 ?: return@VideoMultiClipTimeline
                             val previousIndex = prior.indexOf(id)
-                            val fromChanged = previousClip.inMs != from
                             // Track the boundary currently being dragged. Do not silently
                             // keep previewing the old playhead while trim handles move.
-                            val boundarySourceMs = if (fromChanged) from else to - 1L
+                            val boundarySourceMs = if (trimEndHandle) to - 1L else from
                             requestedTrimBoundary = VideoTrimBoundaryPreview.Request(
                                 previousClip.sourceUri, boundarySourceMs)
                             val oldSourceOffset = (boundarySourceMs - previousClip.inMs)
