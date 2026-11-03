@@ -182,6 +182,11 @@ fun MediaLoaderApp(
     var showPicker by rememberSaveable { mutableStateOf(false) }
     val uiPrefs = remember(context) { context.getSharedPreferences("ui", 0) }
     val libraryModel: LibraryViewModel = viewModel()
+    DisposableEffect(libraryModel, currentRoute) {
+        libraryModel.holdAutomaticMediaIndexing(currentRoute == VIDEO_EDITOR_ROUTE ||
+            currentRoute == AUDIO_EDITOR_ROUTE || currentRoute == PHOTO_EDITOR_ROUTE)
+        onDispose { libraryModel.holdAutomaticMediaIndexing(false) }
+    }
     val libraryPreferences = remember(context) { LibraryPreferences(context) }
     var appMode by rememberSaveable { mutableStateOf(libraryPreferences.mode) }
     var privateNavigation by remember { mutableStateOf(false) }
@@ -215,9 +220,11 @@ fun MediaLoaderApp(
     }
     val libraryItems = remember(publicLibraryRefs) { publicLibraryRefs.map { it.item } }
     val libraryAudioItems = remember(libraryItems) { libraryItems.filter { it.mediaType == MediaType.AUDIO } }
-    val libraryRefsByAlias = remember(publicLibraryRefs) { buildMap {
+    val libraryAliasProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        emptyMap<String, com.domenota.medialoader.data.library.LibraryMediaRef>(), libraryPrivateKeys, publicLibraryRefs) { buildMap {
         publicLibraryRefs.forEach { ref -> (ref.aliases + ref.key).forEach { alias -> put(alias, ref) } }
     } }
+    val libraryRefsByAlias = libraryAliasProjection.value
     val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
     val currentLibraryAudioId = libraryAudioState.currentId?.let { id -> libraryRefsByAlias[id]?.key
         ?: libraryAudioState.identities.firstNotNullOfOrNull { libraryRefsByAlias[it]?.key } ?: id }
@@ -289,8 +296,6 @@ fun MediaLoaderApp(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    fun awaitingPhone(id: String?): Boolean = id?.startsWith("phone:") == true &&
-        (if (id.startsWith("phone:audio:")) !phoneMusic.loaded else !phoneGallery.loaded)
     val libraryHeader: @Composable () -> Unit = {
         LibraryModeHeader(appMode, librarySource, ::changeAppMode, ::changeLibrarySource,
             onTrash = { navController.navigate("trash") },
@@ -336,13 +341,18 @@ fun MediaLoaderApp(
     val privateDownloads by viewModel.privateDownloads.collectAsStateWithLifecycle()
     val privateState by viewModel.privateAccess.state.collectAsState()
     // Keep old phone IDs resolvable for restored routes/playlists without showing duplicate cards.
-    val indexedLibraryRows = remember(downloads, publicLibraryRefs) {
+    val indexedLibraryProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(), libraryPrivateKeys, downloads, publicLibraryRefs) {
         val knownIds = downloads.mapTo(mutableSetOf()) { it.id }
         val indexed = downloads + publicLibraryRefs.flatMap { ref ->
             (ref.aliases.filter { it.startsWith("phone:") } + ref.key).distinct().map { ref.item.copy(id = it) }
         }.filter { knownIds.add(it.id) }
         indexed
     }
+    val indexedLibraryRows = indexedLibraryProjection.value
+    fun awaitingPhone(id: String?): Boolean = id?.startsWith("phone:") == true &&
+        (!indexedLibraryProjection.ready || !libraryAliasProjection.ready ||
+            if (id.startsWith("phone:audio:")) !phoneMusic.loaded else !phoneGallery.loaded)
     val publicLibraryRows = remember(indexedLibraryRows, libraryAudioState.queue, libraryPrivateKeys) {
         val session = libraryPrivateKeys?.let { keys ->
             com.domenota.medialoader.data.playback.AudioPlaybackMetadata.publicSessionRows(libraryAudioState.queue, indexedLibraryRows, keys)
@@ -434,7 +444,9 @@ fun MediaLoaderApp(
         } })
     val catalogFolders by viewModel.catalogFolders.collectAsStateWithLifecycle()
     val catalogAssignments by viewModel.catalogAssignments.collectAsStateWithLifecycle()
-    val libraryCatalogAssignments = remember(publicLibraryRefs, externalCatalog, catalogAssignments, catalogFolders) {
+    val libraryCatalogAssignments = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        emptyList<com.domenota.medialoader.core.database.CatalogAssignmentEntity>(), libraryPrivateKeys,
+        publicLibraryRefs, externalCatalog, catalogAssignments, catalogFolders) {
         val validFolders = catalogFolders.mapTo(mutableSetOf()) { it.id }
         val externalAssignments = publicLibraryRefs.mapNotNull { ref ->
             ref.aliases.firstNotNullOfOrNull { externalByAlias[it] }?.let { entry ->
@@ -443,7 +455,7 @@ fun MediaLoaderApp(
             }
         }
         (catalogAssignments + externalAssignments).distinctBy { it.downloadId }
-    }
+    }.value
     val setLibraryFavorite: suspend (String, Boolean) -> Unit = { id, favorite ->
         val ref = libraryRefsByAlias[id] ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let(libraryRefsByAlias::get)
         requireNotNull(ref) { "Файл недоступен" }
@@ -1350,11 +1362,12 @@ fun MediaLoaderApp(
                 val snapshot = ViewerQueueCache.resolve(
                     entry.savedStateHandle.get<String>("grid_viewer_token"))
                 val currentGalleryId = entry.savedStateHandle.get<String>("gallery_current_id") ?: downloadId
-                val galleryCandidates = if (galleryPresentation) GalleryViewerState.publicCandidates(publicLibraryRefs, libraryPrivateKeys,
+                val galleryCandidates = remember(galleryPresentation, publicLibraryRefs, libraryPrivateKeys,
+                    snapshot, downloadId, fileStatuses) { if (galleryPresentation) GalleryViewerState.publicCandidates(publicLibraryRefs, libraryPrivateKeys,
                     snapshot.toSet() + listOfNotNull(downloadId)).filter { row ->
                     !row.hidden && !row.isPrivate && row.savedUri != null && row.state == DownloadState.COMPLETED &&
                         fileStatuses[row.id] != SavedFileStatus.MISSING && fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE
-                } else emptyList()
+                } else emptyList() }
                 val resolvedGalleryId = GalleryViewerState.neighbor(currentGalleryId, snapshot.ifEmpty { listOfNotNull(downloadId) },
                     galleryCandidates.mapTo(mutableSetOf()) { it.id })
                 val audioCurrentId = entry.savedStateHandle.get<String>("audio_current_id")

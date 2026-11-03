@@ -239,17 +239,28 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private var observedPrivateKeys: Set<String>? = null
     private var mediaChangeJob: Job? = null
     private val pendingMediaChanges = mutableSetOf<AppMode>()
-    private fun scheduleMediaChange(uri: android.net.Uri?) {
+    private var editorHoldsAutomaticIndexing = false
+    fun holdAutomaticMediaIndexing(held: Boolean) {
+        if (editorHoldsAutomaticIndexing == held) return
+        editorHoldsAutomaticIndexing = held
+        if (held) mediaChangeJob?.cancel()
+        else if (pendingMediaChanges.isNotEmpty()) scheduleMediaChange(null, addModes = false)
+    }
+    private fun scheduleMediaChange(uri: android.net.Uri?, addModes: Boolean = true) {
         // Only a changed media kind needs rescanning. Preserve unknown URI events
         // conservatively, and coalesce successive callbacks while scans are busy.
-        pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
+        if (addModes) pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
+        mediaChangeJob?.cancel()
+        if (editorHoldsAutomaticIndexing) return
         if (AppMode.MUSIC in pendingMediaChanges) AudioWaveformPrecompute.request(getApplication())
         mediaChangeJob?.cancel()
         mediaChangeJob = viewModelScope.launch {
             kotlinx.coroutines.delay(500)
+            if (editorHoldsAutomaticIndexing) return@launch
             val affected = pendingMediaChanges.toSet()
             // The current scan must finish before the next reconciliation starts.
             affected.forEach { jobs[it]?.join() }
+            if (editorHoldsAutomaticIndexing) return@launch
             pendingMediaChanges.removeAll(affected)
             affected.forEach { mode ->
                 val state = if (mode == AppMode.GALLERY) galleryState else musicState
