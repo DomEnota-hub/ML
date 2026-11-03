@@ -78,16 +78,21 @@ fun MusicModeScreen(
             { addingPlaylist = null }, onPreview ?: onOpen, { onAddTracks(toAdd.id, it) })
         return
     }
-    val filtered = (if (tab == 0) tracks else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
-        .filter { matchesMusicSearch(it, search) }
-    val displayed = if (tab == 0) sortMusicRows(filtered, sort) else filtered
+    val filtered = remember(tracks, playlist, tab, available, search) {
+        (if (tab == 0) tracks else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
+            .filter { matchesMusicSearch(it, search) }
+    }
+    val displayed = remember(filtered, sort, tab) { if (tab == 0) sortMusicRows(filtered, sort) else filtered }
+    val sections = remember(displayed, sort) { displayed.groupBy { musicGroupHeading(it, sort) } }
     LaunchedEffect(tab, scrollToTopRequest) {
         if (tab == 0) listState.scrollToItem(0)
     }
-    val displayedIds = if (playlist == null) displayed.map { it.id } else playlist.trackIds.filter { id ->
-        available[id]?.let { matchesMusicSearch(it, search) } ?: search.isBlank()
+    val displayedIds = remember(displayed, playlist, available, search) {
+        if (playlist == null) displayed.map { it.id } else playlist.trackIds.filter { id ->
+            available[id]?.let { matchesMusicSearch(it, search) } ?: search.isBlank()
+        }
     }
-    val queue = displayed.map { it.id }
+    val queue = remember(displayed) { displayed.map { it.id } }
     fun preview(id: String) { (onPreview ?: onOpen)(id, queue) }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyColumn(Modifier.weight(1f).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
@@ -170,7 +175,6 @@ fun MusicModeScreen(
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (tab == 0) {
-                    val sections = displayed.groupBy { musicGroupHeading(it, sort) }
                     sections.forEach { (letter, records) ->
                         item(key = "music-letter:$letter") {
                             Text(letter, Modifier.fillMaxWidth().padding(start = 17.dp, top = 15.dp, bottom = 7.dp),

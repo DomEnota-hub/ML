@@ -35,3 +35,12 @@ past7s; RED assertion observed at the old5s limit. Fixed using live remembered
 scale/duration, and the equivalent audio duration capture. New regression plus
 text/audio geometry PASS; final lint and androidTest compile PASS(3m20s).
 No further review pass or broad test suite was run.
+
+Task3: MusicMode filtering/sorting/grouping/queues and root library projections
+are remembered by their actual content/search/sort keys. Existing LibraryModeScreens
+and ShortViewport tests PASS; no device timing is inferred. Final source is frozen
+for delivery. Review-only CI builds/signature-checks an isolated ARM64 Debug APK;
+it does not repeat already passed local tests/lint or unchanged real codec suite.
+Physical cold/warm startup,11k-file gallery/music,4K/long export latency and memory
+remain NOT_DEVICE_TESTED. A hardware trace is the next step if stutters persist.
+Official release/signing/merge remain outside this review delivery.

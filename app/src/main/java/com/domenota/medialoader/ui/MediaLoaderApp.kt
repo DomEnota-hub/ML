@@ -206,6 +206,7 @@ fun MediaLoaderApp(
         if (libraryPrivateKeys == null) emptyList() else UnifiedMediaLibrary.merge(unifiedLibrary, emptyList(), libraryPrivateKeys.orEmpty())
     }
     val libraryItems = remember(publicLibraryRefs) { publicLibraryRefs.map { it.item } }
+    val libraryAudioItems = remember(libraryItems) { libraryItems.filter { it.mediaType == MediaType.AUDIO } }
     val libraryRefsByAlias = remember(publicLibraryRefs) { buildMap {
         publicLibraryRefs.forEach { ref -> (ref.aliases + ref.key).forEach { alias -> put(alias, ref) } }
     } }
@@ -219,6 +220,7 @@ fun MediaLoaderApp(
     val appLibraryItems = remember(publicLibraryRefs, externalByAlias) { publicLibraryRefs.filter { ref ->
         ref.appDownloadId != null || ref.aliases.any { externalByAlias[it]?.folderId != null }
     }.map { it.item } }
+    val appLibraryAudioItems = remember(appLibraryItems) { appLibraryItems.filter { it.mediaType == MediaType.AUDIO } }
     val playlists by libraryModel.playlistRepository.playlists.collectAsStateWithLifecycle()
     var playlistsReady by remember { mutableStateOf(false) }
     LaunchedEffect(libraryModel) { libraryModel.playlistRepository.awaitLoaded(); playlistsReady = true }
@@ -226,7 +228,7 @@ fun MediaLoaderApp(
         try { libraryModel.audioPreview.observe() }
         catch (e: CancellationException) { throw e } catch (_: Exception) { /* A later play request can reconnect. */ }
     }
-    val phoneRows = phoneGallery.items + phoneMusic.items
+    val phoneRows = remember(phoneGallery.items, phoneMusic.items) { phoneGallery.items + phoneMusic.items }
     var permissionMode by rememberSaveable { mutableStateOf(AppMode.GALLERY) }
     val libraryPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         libraryModel.refresh(permissionMode)
@@ -1039,7 +1041,7 @@ fun MediaLoaderApp(
                     )
                 else MusicModeScreen(
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
-                    allAudio = libraryItems.filter { it.mediaType == MediaType.AUDIO }, playlists = playlists,
+                    allAudio = libraryAudioItems, playlists = playlists,
                     header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded && phoneMusic.loading),
                     message = if (librarySource == LibrarySource.PHONE) phoneMusic.message else null,
                     onOpen = openDownloadWithQueue,
@@ -1091,8 +1093,8 @@ fun MediaLoaderApp(
                     onSource = { source ->
                         musicLibrarySource = source; libraryPreferences.setSource(AppMode.MUSIC, source)
                         if (source == LibrarySource.PHONE && !hasPhoneLibraryAccess(context, AppMode.MUSIC)) requestLibraryAccess(AppMode.MUSIC)
-                    }, appTracks = appLibraryItems.filter { it.mediaType == MediaType.AUDIO },
-                    allTracks = libraryItems.filter { it.mediaType == MediaType.AUDIO }, aliases = libraryAliases,
+                    }, appTracks = appLibraryAudioItems,
+                    allTracks = libraryAudioItems, aliases = libraryAliases,
                     onBack = { navController.popBackStack() }, onPreview = previewLibraryAudio,
                     onAdd = { libraryModel.playlistRepository.addTracksResolved(playlist.id, it, libraryAliases) },
                     validateSelection = { ids -> withContext(Dispatchers.IO) {

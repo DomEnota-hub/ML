@@ -36,6 +36,6 @@ Files: TextLayerSelectionOverlay.kt, VideoEditorScreen.kt, VideoOverlayPanel.kt,
 - [x] Run selected text/frame/range/history tests and compile; commit.
 
 ### Task3: Scoped verification and delivery
-- [ ] Run lint once after the block; fix concrete errors only.
+- [x] Run lint after the block; repeat only for the concrete final-review fix.
 - [ ] Build one reviewable ARM64 QA candidate. Use one focused native UI capture if needed; do not repeat passed export matrix for unchanged DSP.
-- [ ] Record exact HEAD, changed mechanisms, measured evidence vs unverified phone behavior and remaining work.
+- [x] Record mechanisms/evidence and unverified phone behavior in the ledger; final HEAD/build result reported at delivery.

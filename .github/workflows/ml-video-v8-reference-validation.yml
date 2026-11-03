@@ -9,6 +9,10 @@ on:
         description: 'Run all release gates and the whole codec suite once'
         type: boolean
         default: false
+      review_apk:
+        description: 'Build an isolated ARM64 review APK; targeted checks are recorded locally'
+        type: boolean
+        default: false
       run_device_tests:
         description: 'Run Android codecs (disable only when runtime and native tests are unchanged)'
         type: boolean
@@ -28,7 +32,7 @@ concurrency:
 
 jobs:
   qa:
-    if: ${{ github.event_name == 'push' || inputs.full_validation }}
+    if: ${{ github.event_name == 'push' || inputs.full_validation || inputs.review_apk }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -46,11 +50,13 @@ jobs:
           # This trusted long-lived feature branch otherwise stays cache-read-only.
           cache-read-only: false
       - name: Install fixture decoder
+        if: ${{ !inputs.review_apk || inputs.full_validation }}
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Validate synthetic H264 fixture before codec tests
+        if: ${{ !inputs.review_apk || inputs.full_validation }}
         run: python3 scripts/verify-video-fx-fixture.py
       - name: Focused video checks and instrumented compile
-        if: ${{ !inputs.full_validation }}
+        if: ${{ !inputs.full_validation && !inputs.review_apk }}
         run: gradle :app:testDebugUnitTest --tests '*VideoWorkspaceToolbarTest*' --tests '*VideoColorEffectsTest*' --tests '*VideoReferenceAdjustmentsTest*' --tests '*VideoProjectAspectTest*' --tests '*VideoAudioLaneGeometryTest*' --tests '*VideoMutablePreviewOverlayTest*' --tests '*VideoPreviewFrameClockTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
       - name: Run all Android unit and Compose tests
         if: ${{ inputs.full_validation }}
@@ -65,10 +71,10 @@ jobs:
           node scripts/test-hitmoz-native-script.cjs
           node scripts/test-muzmo-native-script.cjs
       - name: Compile isolated ARM64 QA package
-        if: ${{ inputs.full_validation }}
+        if: ${{ inputs.full_validation || inputs.review_apk }}
         run: gradle :app:assembleDebug -Parm64Release=true -PhitmozArm64=true --stacktrace
       - name: Verify QA identity, ABI and signature
-        if: ${{ inputs.full_validation }}
+        if: ${{ inputs.full_validation || inputs.review_apk }}
         shell: bash
         run: |
           set -euo pipefail
@@ -89,7 +95,7 @@ jobs:
           test -s "$file"
           python3 scripts/verify-production-apk.py "$file" "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Preserve unit and lint reports even on failure
-        if: always()
+        if: ${{ always() && (!inputs.review_apk || inputs.full_validation) }}
         uses: actions/upload-artifact@v4
         with:
           name: video-v8-unit-lint-${{ github.sha }}
@@ -100,13 +106,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Keep short-lived CI APK (not published as QA prerelease)
-        if: ${{ inputs.full_validation }}
+        if: ${{ inputs.full_validation || inputs.review_apk }}
         uses: actions/upload-artifact@v4
         with:
-          name: ML-Video-v8-Reference-ARM64-CI
+          name: ${{ inputs.review_apk && 'ML-Text-Performance-ARM64-Review' || 'ML-Video-v8-Reference-ARM64-CI' }}
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 2
+          retention-days: ${{ inputs.review_apk && 7 || 2 }}
           compression-level: 0
 
   # This is a real Android codec test, independent of JVM/Robolectric
