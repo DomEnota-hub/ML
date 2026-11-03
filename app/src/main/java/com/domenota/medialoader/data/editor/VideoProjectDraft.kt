@@ -148,8 +148,25 @@ data class VideoProjectDraft(
         error("Unreachable: project has at least one clip")
     }
 
+    /** Only untouched detached original sound follows its source clip. Manual edits stay independent. */
+    private fun withSynchronizedOriginalAudio(nextClips: List<VideoClipDraft>): VideoProjectDraft {
+        val next = copy(clips = nextClips)
+        return next.copy(audioTracks = audioTracks.map { track ->
+            val index = clips.indexOfFirst { clip ->
+                track.id.startsWith("detached-${clip.id}-") && track.sourceUri == clip.sourceUri &&
+                    track.inMs == clip.inMs && track.outMs == clip.outMs && track.speed == clip.speed &&
+                    track.atMs == timelineStart(clips.indexOf(clip))
+            }
+            if (index < 0) track else {
+                val updated = nextClips[index]
+                track.withRange(inMs = updated.inMs, outMs = updated.outMs, speed = updated.speed)
+                    .copy(atMs = next.timelineStart(index))
+            }
+        })
+    }
+
     fun trimClip(id: String, startMs: Long, endMs: Long): VideoProjectDraft =
-        copy(clips = clips.map { clip ->
+        withSynchronizedOriginalAudio( clips.map { clip ->
             if (clip.id == id) {
                 require(clip.mediaKind == VideoClipMediaKind.VIDEO) {
                     "Для фотографии измени длительность, а не точки обрезки"
@@ -167,7 +184,7 @@ data class VideoProjectDraft(
     }
 
     fun setSpeed(id: String, speed: Float): VideoProjectDraft =
-        copy(clips = clips.map { clip -> if (clip.id == id) {
+        withSynchronizedOriginalAudio( clips.map { clip -> if (clip.id == id) {
             require(clip.mediaKind == VideoClipMediaKind.VIDEO) {
                 "Для фотографии изменяй длительность"
             }
