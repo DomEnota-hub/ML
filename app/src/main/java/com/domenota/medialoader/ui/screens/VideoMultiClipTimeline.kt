@@ -273,7 +273,7 @@ internal fun VideoMultiClipTimeline(
             visualPosition, videoScroll, project.clips.map { VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
             enabled, onSelectText, onChangeText, onTextGestureStart, onTextGestureEnd, leading.value)
             if (!trimMode && activeTrimClipId == null && project.audioTracks.isNotEmpty()) VideoAudioLanes(project,
-            selectedAudioTrackId, visualPosition, videoScroll, project.clips.map {
+            selectedAudioTrackId, videoScroll, project.clips.map {
                 VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
             enabled, onSelectAudio, onChangeAudio, onAudioGestureStart, onAudioGestureEnd, leading.value)
       }

@@ -17,8 +17,8 @@ internal class VideoAudioPreviewDeck(private val context: Context) {
         var lastDriftReportAt: Long = 0L)
     private val active = mutableMapOf<String, Preview>()
 
-    fun synchronize(project: VideoProjectDraft?, positionMs: Long, playing: Boolean) {
-        val tracks = project?.visibleAudioTracks().orEmpty()
+    fun synchronize(project: VideoProjectDraft?, positionMs: Long, playing: Boolean, embeddedTrackIds: Set<String> = emptySet()) {
+        val tracks = project?.visibleAudioTracks().orEmpty().filterNot { it.id in embeddedTrackIds }
         val valid = tracks.map { it.id }.toSet()
         active.keys.filterNot { it in valid }.forEach { key ->
             active.remove(key)?.player?.release()

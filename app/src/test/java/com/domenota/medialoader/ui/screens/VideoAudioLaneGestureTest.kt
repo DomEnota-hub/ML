@@ -34,7 +34,7 @@ class VideoAudioLaneGestureTest {
         var starts = 0; var ends = 0
         compose.setContent { CompositionLocalProvider(LocalDensity provides Density(1f)) { MaterialTheme {
             Box(Modifier.width(300.dp)) {
-                VideoAudioLanes(project, "audio", 0L, rememberLazyListState(), listOf(750f), true,
+                VideoAudioLanes(project, "audio", rememberLazyListState(), listOf(750f), true,
                     {}, { next -> project = project.editAudioTrack(next.id) { next } },
                     { starts++ }, { ends++ })
             }

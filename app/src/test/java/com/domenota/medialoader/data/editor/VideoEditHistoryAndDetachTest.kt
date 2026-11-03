@@ -54,4 +54,15 @@ class VideoEditHistoryAndDetachTest {
             fail("No audio must not silently mute video")
         } catch (_: IllegalArgumentException) { }
     }
+    @Test fun originalAudioUsesVideoClockUntilItsTimingChanges() {
+        val project = VideoOriginalAudioDetach.detach(VideoProjectDraft(listOf(video("a", 1000, 19000))), setOf("a")).project
+        val track = project.audioTracks.single()
+        assertEquals(track, VideoOriginalAudioRouting.tracks(project)["a"])
+        val trimmed = track.withRange(inMs = 3000, outMs = 16000).copy(atMs = 2000)
+        assertEquals(trimmed, VideoOriginalAudioRouting.tracks(project.copy(audioTracks = listOf(trimmed)))["a"])
+        assertTrue(VideoOriginalAudioRouting.tracks(project.copy(audioTracks = listOf(trimmed.copy(atMs = 2500)))).isEmpty())
+        assertTrue(VideoOriginalAudioRouting.tracks(project.copy(audioTracks = listOf(track.copy(speed = 2f)))).isEmpty())
+        assertTrue(VideoOriginalAudioRouting.tracks(project.copy(audioTracks = emptyList())).isEmpty())
+    }
+
 }

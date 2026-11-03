@@ -24,6 +24,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -39,18 +41,18 @@ import kotlin.math.roundToInt
 
 /** Cached real PCM envelope; video lazy-row decoding/trim gesture implementation is untouched. */
 @Composable
-internal fun VideoAudioLanes(project: VideoProjectDraft, selectedId: String?, positionMs: Long,
+internal fun VideoAudioLanes(project: VideoProjectDraft, selectedId: String?,
     videoScroll: LazyListState, widths: List<Float>, enabled: Boolean,
     onSelect: (String) -> Unit, onChange: (VideoAudioTrackDraft) -> Unit,
     onGestureStart: () -> Unit, onGestureEnd: () -> Unit, leadingPaddingDp: Float = 0f) {
     val scale = remember(project.clips, widths) { VideoAudioLaneScale(project, widths) }
     val density = LocalDensity.current.density
-    val scrollDp = scale.prefix(videoScroll.firstVisibleItemIndex) + videoScroll.firstVisibleItemScrollOffset / density - leadingPaddingDp
+    val scrollDp = { scale.prefix(videoScroll.firstVisibleItemIndex) + videoScroll.firstVisibleItemScrollOffset / density - leadingPaddingDp }
     val tracks = project.visibleAudioTracks()
     LazyColumn(Modifier.fillMaxWidth().height((tracks.size.coerceAtMost(2) * 42).dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(tracks, key = { it.id }) { track ->
-            VideoAudioLane(track, track.id == selectedId, scale, scrollDp, positionMs, enabled,
+            VideoAudioLane(track, track.id == selectedId, scale, scrollDp, enabled,
                 project.durationMs, onSelect, onChange, onGestureStart, onGestureEnd)
         }
     }
@@ -58,7 +60,7 @@ internal fun VideoAudioLanes(project: VideoProjectDraft, selectedId: String?, po
 
 @Composable
 private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
-    scale: VideoAudioLaneScale, scrollDp: Float, positionMs: Long, enabled: Boolean,
+    scale: VideoAudioLaneScale, scrollDp: () -> Float, enabled: Boolean,
     projectDurationMs: Long, onSelect: (String) -> Unit, onChange: (VideoAudioTrackDraft) -> Unit,
     onGestureStart: () -> Unit, onGestureEnd: () -> Unit) {
     val context = LocalContext.current
@@ -86,25 +88,28 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
     val latestSelect by rememberUpdatedState(onSelect)
     val latestStart by rememberUpdatedState(onGestureStart)
     val latestEnd by rememberUpdatedState(onGestureEnd)
-    fun Modifier.drag(handle: VideoAudioLaneHandle) = pointerInput(track.id, handle, enabled) {
+    val handleCoordinates = remember { mutableMapOf<VideoAudioLaneHandle, LayoutCoordinates>() }
+    fun Modifier.drag(handle: VideoAudioLaneHandle) = onGloballyPositioned { handleCoordinates[handle] = it }.pointerInput(track.id, handle, enabled) {
         if (!enabled) return@pointerInput
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             down.consume()
             val initial = latestTrack
             val gestureScale = latestScale
+            val startPointer = handleCoordinates[handle]?.localToRoot(down.position)?.x ?: down.position.x
             var delta = 0f
             dragging = true; latestSelect(initial.id); latestStart()
             try {
                 do {
                     val event = awaitPointerEvent()
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    delta += change.positionChange().x / density
+                    delta = ((handleCoordinates[handle]?.localToRoot(change.position)?.x ?: change.position.x) - startPointer) / density
                     change.consume()
                     val originalTime = if (handle == VideoAudioLaneHandle.END)
                         initial.atMs + initial.durationMs else initial.atMs
                     val target = gestureScale.timeAt(gestureScale.xAt(originalTime) + delta)
-                    latestChange(VideoAudioLaneEdit.apply(initial, handle, target, latestDuration))
+                    val updated = VideoAudioLaneEdit.apply(initial, handle, target, latestDuration)
+                    if (updated != latestTrack) latestChange(updated)
                 } while (change.pressed)
             } finally { dragging = false; latestEnd() }
         }
@@ -115,7 +120,7 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
     val width = (end - start).coerceAtLeast(1f)
     val handles = selected && (width >= 40f || dragging)
     Box(Modifier.fillMaxWidth().height(38.dp).clipToBounds()) {
-        Box(Modifier.offset { IntOffset(((start - scrollDp) * density).roundToInt(), 0) }
+        Box(Modifier.offset { IntOffset(((start - scrollDp()) * density).roundToInt(), 0) }
             .wrapContentWidth(Alignment.Start, unbounded = true)
             .width(width.dp).testTag("audio-lane-${track.id}").fillMaxHeight().clip(RoundedCornerShape(7.dp))
             .background(Color(0xFFAD37BE)).border(if (selected) 3.dp else 1.dp,
@@ -146,7 +151,7 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
             }
         }
         Canvas(Modifier.fillMaxSize()) {
-            val x = (scale.xAt(positionMs) - scrollDp) * density
+            val x = size.width / 2f
             if (x in 0f..size.width) drawLine(Color.White, Offset(x, 0f), Offset(x, size.height), 1.5.dp.toPx())
         }
     }

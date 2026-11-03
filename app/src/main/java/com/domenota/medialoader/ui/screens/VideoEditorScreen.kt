@@ -702,7 +702,8 @@ private fun VideoEditorContent(
     LaunchedEffect(previewPlayer, project, removeAudio) {
         val player = previewPlayer ?: return@LaunchedEffect
         val p = project ?: return@LaunchedEffect
-        player.volume = if (removeAudio) 0f else 1f
+        val embedded = if (removeAudio) com.domenota.medialoader.data.editor.VideoOriginalAudioRouting.tracks(p) else emptyMap()
+        val embeddedIds = embedded.values.mapTo(mutableSetOf()) { it.id }
         while (true) {
             // During trim, split or reorder the player still has the old playlist
             // until its debounced rebuild. Never let old positions overwrite the
@@ -723,7 +724,9 @@ private fun VideoEditorContent(
             }
             timelineIsPlaying = queueIsCurrent && player.isPlaying
             if (queueIsCurrent) {
-                audioPreviewDeck.synchronize(p, playheadMs, player.isPlaying)
+                val clipId = p.clips.getOrNull(player.currentMediaItemIndex)?.id
+                player.volume = if (!removeAudio) 1f else embedded[clipId]?.gainAt(playheadMs) ?: 0f
+                audioPreviewDeck.synchronize(p, playheadMs, player.isPlaying, embeddedIds)
             } else audioPreviewDeck.pause()
             delay(75L)
         }
