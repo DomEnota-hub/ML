@@ -5,6 +5,14 @@ on:
       - feature/ml-video-editor-v8-reference-rebuild-20261102
   workflow_dispatch:
     inputs:
+      publish_verified_release:
+        description: 'Promote the pinned, locally signed production APK'
+        type: boolean
+        default: false
+      release_apk_url:
+        description: 'Short-lived download URL for the pinned signed APK'
+        type: string
+        required: false
       official_release_review:
         description: 'Build isolated unsigned Release QA for local official signing'
         type: boolean
@@ -36,7 +44,7 @@ concurrency:
 
 jobs:
   qa:
-    if: ${{ github.event_name == 'push' || inputs.full_validation || inputs.review_apk }}
+    if: ${{ !inputs.publish_verified_release && (github.event_name == 'push' || inputs.full_validation || inputs.review_apk) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -148,7 +156,7 @@ jobs:
   # This is a real Android codec test, independent of JVM/Robolectric
   # snapshot tests. It decodes the completed MP4 and checks its pixels.
   mp4-codec-device:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_device_tests }}
+    if: ${{ !inputs.publish_verified_release && github.event_name == 'workflow_dispatch' && inputs.run_device_tests }}
     name: Real MP4 effect on Android emulator
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -191,5 +199,93 @@ jobs:
             app/build/outputs/androidTest-results/
             app/build/video-fx-logcat.txt
             app/build/video-fx-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
+  publish-verified-production:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_verified_release }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Mask short-lived artifact URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = context.payload.inputs.release_apk_url;
+            if (!url) throw new Error('Signed APK URL required');
+            core.setSecret(url);
+      - uses: actions/checkout@v4
+        with:
+          ref: 045fe113a78d3a946fd306a350defa00a115146f
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install signature inspection tools
+        run: '"$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"'
+      - name: Verify publish and download production APK
+        env:
+          ML_APK_URL: ${{ inputs.release_apk_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$RUNNER_TEMP/ML_1.7.112_ARM64_DomEnota_SIGNED.apk"
+          curl --fail --silent --show-error --location "$ML_APK_URL" -o "$apk"
+          echo "69ce3b1982e00899ead8f20c9ebeb0ca43def5b915a56a03588d0c78ed25ce9c  $apk" | sha256sum --check
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          "$bt/aapt" dump badging "$apk" > "$RUNNER_TEMP/badging.txt"
+          grep -F "package: name='com.domenota.medialoader' versionCode='173' versionName='1.7.112'" "$RUNNER_TEMP/badging.txt"
+          ! grep -q application-debuggable "$RUNNER_TEMP/badging.txt"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          test "$(stat -c %s "$apk")" -le 130000000
+          "$bt/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/certificate.txt"
+          grep -F '4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2' "$RUNNER_TEMP/certificate.txt"
+          test "$(git rev-parse HEAD)" = 045fe113a78d3a946fd306a350defa00a115146f
+          cat > "$RUNNER_TEMP/release-notes.md" <<'RELEASE_NOTES'
+          Обычная версия «Загрузчика» 1.7.112 для ARM64. Обновление основной 1.7.110: пакет com.domenota.medialoader, versionCode 173. Подписано официальным сертификатом DomEnota.
+
+          Изменения:
+          - Переработанный видеоредактор: общая лента инструментов, текстовые слои, фильтры и видеоэффекты, работа с обрезкой и отдельным звуком.
+          - Исправлена отмена новой надписи: «Ваш текст» остаётся подсказкой предпросмотра, поле ввода пустое.
+          - Кнопки «Геометрии» фоторедактора приведены к общему стилю.
+          - Перелистывание фото и видео свайпами, более свободная область просмотра, круглый выбор в корзине.
+          - Папки музыки с возможностью скрытия из общего списка, постепенная загрузка миниатюр, сохранение состояния экранов и улучшения журналирования.
+
+          Сборка: Release, arm64-v8a, Android 8.0 и новее.
+          Сертификат SHA-256: 4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2
+
+          Проверки релиза: 1083 unit/Compose PASS, один opt-in live-тест Shazam пропущен; Android lint — 0 ошибок; WebView JS и production ARM64 preflight пройдены.
+          CI финального исходника: https://github.com/DomEnota-hub/ML/actions/runs/41705740591
+          12 Android codec-тестов MP4/эффектов/фильтров/текста/обрезки/аудио пройдены: https://github.com/DomEnota-hub/ML/actions/runs/41700876743 (processing/export implementation после этого не менялась; финальная правка — lint opt-in и эквивалентный UI-state helper).
+          Исходный SHA: 045fe113a78d3a946fd306a350defa00a115146f
+          SHA-256 APK: 69ce3b1982e00899ead8f20c9ebeb0ca43def5b915a56a03588d0c78ed25ce9c
+          Размер APK: 104564134 байт.
+          RELEASE_NOTES
+          gh release create v1.7.112 "$apk" --repo DomEnota-hub/ML --target 045fe113a78d3a946fd306a350defa00a115146f --title 'Загрузчик 1.7.112 · ARM64' --notes-file "$RUNNER_TEMP/release-notes.md" --latest
+          mkdir -p "$RUNNER_TEMP/roundtrip"
+          gh release download v1.7.112 --repo DomEnota-hub/ML --pattern ML_1.7.112_ARM64_DomEnota_SIGNED.apk --dir "$RUNNER_TEMP/roundtrip"
+          back="$RUNNER_TEMP/roundtrip/ML_1.7.112_ARM64_DomEnota_SIGNED.apk"
+          echo "69ce3b1982e00899ead8f20c9ebeb0ca43def5b915a56a03588d0c78ed25ce9c  $back" | sha256sum --check
+          "$bt/apksigner" verify --print-certs "$back" > "$RUNNER_TEMP/roundtrip-certificate.txt"
+          grep -F '4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2' "$RUNNER_TEMP/roundtrip-certificate.txt"
+          gh release view v1.7.112 --repo DomEnota-hub/ML --json id,url,isDraft,isPrerelease,tagName,assets > "$RUNNER_TEMP/release-verification.json"
+          printf '%s\n' 'source=045fe113a78d3a946fd306a350defa00a115146f' 'apk_sha256=69ce3b1982e00899ead8f20c9ebeb0ca43def5b915a56a03588d0c78ed25ce9c' 'roundtrip_sha256=69ce3b1982e00899ead8f20c9ebeb0ca43def5b915a56a03588d0c78ed25ce9c' 'certificate_sha256=4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2' > "$RUNNER_TEMP/release-integrity.txt"
+          cat "$RUNNER_TEMP/release-integrity.txt"
+
+      - name: Preserve release integrity evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML-1.7.112-Release-Verification
+          path: |
+            ${{ runner.temp }}/release-verification.json
+            ${{ runner.temp }}/release-integrity.txt
+            ${{ runner.temp }}/certificate.txt
+            ${{ runner.temp }}/roundtrip-certificate.txt
+            ${{ runner.temp }}/badging.txt
           if-no-files-found: warn
           retention-days: 7
