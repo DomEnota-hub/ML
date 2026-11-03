@@ -38,8 +38,8 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFFF197D5), Color(0xFF42243B))
             else SettingsIconSwatch(Color(0xFF9D2B76), Color(0xFFFDE6F4))
         APPEARANCE ->
-            if (dark) SettingsIconSwatch(Color(0xFFFFD269), Color(0xFF44361A))
-            else SettingsIconSwatch(Color(0xFF916115), Color(0xFFFFF0C6))
+            if (dark) SettingsIconSwatch(Color(0xFFC6A5E6), Color(0xFF392D48))
+            else SettingsIconSwatch(Color(0xFF80549D), Color(0xFFF0E8F8))
         INSTAGRAM ->
             if (dark) SettingsIconSwatch(Color(0xFFFFA2BD), Color(0xFF452631))
             else SettingsIconSwatch(Color(0xFFAB305F), Color(0xFFFDE2EF))
@@ -71,8 +71,8 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFFF5E285), Color(0xFF454023))
             else SettingsIconSwatch(Color(0xFF82610B), Color(0xFFFFF7D5))
         DIAGNOSTICS ->
-            if (dark) SettingsIconSwatch(Color(0xFFFF8BB2), Color(0xFF482438))
-            else SettingsIconSwatch(Color(0xFFB32962), Color(0xFFFFE4F0))
+            if (dark) SettingsIconSwatch(Color(0xFFBDA2EE), Color(0xFF342C48))
+            else SettingsIconSwatch(Color(0xFF73539A), Color(0xFFECE5F7))
         LOG ->
             if (dark) SettingsIconSwatch(Color(0xFF8BAEFF), Color(0xFF253357))
             else SettingsIconSwatch(Color(0xFF3E5FAF), Color(0xFFE5EBFF))
@@ -86,8 +86,8 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFFFF8D9A), Color(0xFF4A2833))
             else SettingsIconSwatch(Color(0xFFB13D54), Color(0xFFFFE3E8))
         CLEAR_HISTORY ->
-            if (dark) SettingsIconSwatch(Color(0xFFFFD477), Color(0xFF493717))
-            else SettingsIconSwatch(Color(0xFF85600A), Color(0xFFFFF3D6))
+            if (dark) SettingsIconSwatch(Color(0xFFE5A28E), Color(0xFF49312C))
+            else SettingsIconSwatch(Color(0xFFA05743), Color(0xFFFAE9E2))
         AMBER ->
             if (dark) SettingsIconSwatch(Color(0xFFFFC46C), Color(0xFF48331A))
             else SettingsIconSwatch(Color(0xFF946018), Color(0xFFFFF1D4))
@@ -116,8 +116,8 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFFC4D6FF), Color(0xFF263955))
             else SettingsIconSwatch(Color(0xFF3F5F95), Color(0xFFE8EEFE))
         ADVANCED_LOG ->
-            if (dark) SettingsIconSwatch(Color(0xFFFFAB5D), Color(0xFF48311C))
-            else SettingsIconSwatch(Color(0xFF955617), Color(0xFFFFF0DA))
+            if (dark) SettingsIconSwatch(Color(0xFFA3B9CC), Color(0xFF2B3945))
+            else SettingsIconSwatch(Color(0xFF526E85), Color(0xFFE6EEF4))
         NEUTRAL, ABOUT ->
             if (dark) SettingsIconSwatch(Color(0xFFB2BBD1), Color(0xFF2A303E))
             else SettingsIconSwatch(Color(0xFF515C73), Color(0xFFE9ECF3))
