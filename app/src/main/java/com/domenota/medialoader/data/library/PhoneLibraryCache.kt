@@ -28,7 +28,7 @@ internal class PhoneLibraryCache(context: Context) {
             if (stamp.versions == null) return@withLock null
             try {
                 val root = file(mode).openRead().bufferedReader().use { JSONObject(it.readText()) }
-                if (root.getInt("schema") != 1 || root.getString("access") != access ||
+                if (root.getInt("schema") != (if (mode == AppMode.MUSIC) 2 else 1) || root.getString("access") != access ||
                     root.getString("privacy") != privacy || root.getString("versions") != stamp.versions) return@withLock null
                 val entries = root.getJSONArray("entries")
                 val identities = mutableMapOf<String, Set<String>>()
@@ -68,7 +68,7 @@ internal class PhoneLibraryCache(context: Context) {
                     .put("aliases", JSONArray(snapshot.identities[row.savedUri].orEmpty().toList()))
                     .put("fingerprint", snapshot.fingerprints[row.savedUri]))
             }
-            val root = JSONObject().put("schema", 1).put("access", access).put("privacy", privacy)
+            val root = JSONObject().put("schema", if (mode == AppMode.MUSIC) 2 else 1).put("access", access).put("privacy", privacy)
                 .put("versions", stamp.versions).put("generation", stamp.generation).put("entries", entries)
             directory.mkdirs()
             val target = file(mode)

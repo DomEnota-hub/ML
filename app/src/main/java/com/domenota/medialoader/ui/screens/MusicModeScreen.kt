@@ -41,6 +41,7 @@ fun MusicModeScreen(
     onPreview: ((String, List<String>) -> Unit)? = null, onAddPlaylistTracks: ((String) -> Unit)? = null,
     onEnqueue: ((String, Boolean) -> Unit)? = null,
     onDetailChange: (Boolean) -> Unit = {}, currentPlayingId: String? = null, playing: Boolean = false,
+    deviceMusicFolders: Map<String, String> = emptyMap(),
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     val tab = tabOverride ?: localTab
@@ -65,8 +66,37 @@ fun MusicModeScreen(
         catch (e: Exception) { error = e.message ?: "Не удалось выполнить действие" }
         finally { busy = false }
     } }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val folderPrefs = remember(context) { context.getSharedPreferences("music_folder_visibility", 0) }
+    var excludedFolders by remember { mutableStateOf(folderPrefs.getStringSet("excluded", emptySet()).orEmpty().toSet()) }
+    var folderOpen by rememberSaveable { mutableStateOf<String?>(null) }
+    var showExcluded by rememberSaveable { mutableStateOf(false) }
     val available = remember(allAudio) { allAudio.filter(::availableAudio).associateBy { it.id } }
     val tracks = remember(items) { items.filter(::availableAudio).distinctBy { it.id } }
+    val folders = remember(tracks, deviceMusicFolders) {
+        tracks.groupBy { MusicFolderRules.key(it, deviceMusicFolders) }.filterKeys { it != null }
+    }
+    if (folderOpen != null) {
+        val folder = folderOpen!!
+        val folderTracks = folders[folder].orEmpty()
+        AlertDialog(onDismissRequest = { folderOpen = null }, title = { Text(MusicFolderRules.title(folder)) },
+            text = { Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(folder in excludedFolders, { exclude ->
+                        excludedFolders = if (exclude) excludedFolders + folder else excludedFolders - folder
+                        folderPrefs.edit().putStringSet("excluded", excludedFolders).apply()
+                    })
+                    Text("Исключить из общего списка")
+                }
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                    items(folderTracks, key = { it.id }) { track ->
+                        TextButton(onClick = { (onPreview ?: onOpen)(track.id, folderTracks.map { it.id }) }) {
+                            Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName)
+                        }
+                    }
+                }
+            } }, confirmButton = { TextButton(onClick = { folderOpen = null }) { Text("Готово") } })
+    }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     LaunchedEffect(playlist?.id, addingPlaylist) { onDetailChange(playlist != null || addingPlaylist != null) }
@@ -78,8 +108,9 @@ fun MusicModeScreen(
             { addingPlaylist = null }, onPreview ?: onOpen, { onAddTracks(toAdd.id, it) })
         return
     }
-    val filtered = remember(tracks, playlist, tab, available, search) {
-        (if (tab == 0) tracks else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
+    val filtered = remember(tracks, playlist, tab, available, search, excludedFolders, deviceMusicFolders) {
+        (if (tab == 0) tracks.filter { MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) }
+            else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
             .filter { matchesMusicSearch(it, search) }
     }
     val displayed = remember(filtered, sort, tab) { if (tab == 0) sortMusicRows(filtered, sort) else filtered }
@@ -128,6 +159,25 @@ fun MusicModeScreen(
                 }
             }
             if (tab == 1 && playlist == null) {
+                item(key = "music-folders-title") {
+                    Text("Папки с музыкой", Modifier.padding(17.dp), fontWeight = FontWeight.SemiBold)
+                }
+                items(folders.keys.filterNotNull().filter { it !in excludedFolders }.sorted(), key = { "folder:$it" }) { folder ->
+                    TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.Folder, null)
+                        Text("${MusicFolderRules.title(folder)} · ${folders[folder].orEmpty().size}",
+                            Modifier.weight(1f).padding(start = 12.dp), maxLines = 2)
+                    }
+                }
+                if (folders.keys.any { it in excludedFolders }) {
+                    item(key = "excluded-folders") {
+                        TextButton(onClick = { showExcluded = !showExcluded }) { Text("Исключённые папки") }
+                    }
+                    if (showExcluded) items(folders.keys.filterNotNull().filter { it in excludedFolders }.sorted(),
+                        key = { "excluded:$it" }) { folder ->
+                        TextButton(onClick = { folderOpen = folder }) { Text(MusicFolderRules.title(folder)) }
+                    }
+                }
                 item(key = "playlists-title") { Text("Мои плейлисты", Modifier.padding(horizontal = 17.dp, vertical = 15.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
                 items(playlists.chunked(2), key = { it.first().id }) { pair ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

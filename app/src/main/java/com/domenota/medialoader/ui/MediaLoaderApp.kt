@@ -1072,6 +1072,9 @@ fun MediaLoaderApp(
                     } }.toMap(),
                     )
                 else MusicModeScreen(
+                    deviceMusicFolders = remember(phoneMusic.items) { phoneMusic.items.mapNotNull { row ->
+                        row.savedUri?.let { uri -> row.groupId?.let { uri to it } }
+                    }.toMap() },
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
                     allAudio = libraryAudioItems, playlists = playlists,
                     header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded && phoneMusic.loading),
