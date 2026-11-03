@@ -4,7 +4,11 @@ import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -61,20 +65,17 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
     val density = LocalDensity.current.density
     var peaks by remember(track.sourceUri, track.sourceDurationMs) { mutableStateOf(emptyList<Float>()) }
     LaunchedEffect(track.sourceUri, track.sourceDurationMs) {
-        suspend fun cached() = withContext(Dispatchers.IO) { readCachedAudioWaveform(context,
-            Uri.parse(track.sourceUri), track.sourceDurationMs) }
-        val ready = cached()
-        peaks = ready.orEmpty()
-        if (ready == null) {
-            AudioWaveformPrecompute.requestImmediate(context, Uri.parse(track.sourceUri), track.sourceDurationMs)
-            repeat(240) {
-                delay(1000)
-                val loaded = cached()
-                if (loaded != null) {
-                    peaks = loaded
-                    return@LaunchedEffect
-                }
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        try {
+            peaks = withContext(Dispatchers.IO) {
+                val uri = Uri.parse(track.sourceUri)
+                readCachedAudioWaveform(context, uri, track.sourceDurationMs)
+                    ?: com.domenota.medialoader.ui.components.loadAudioWaveform(context, uri,
+                        track.sourceDurationMs, isCancelled = { job?.isActive == false })
             }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.w("AudioWaveform", "Audio lane waveform failed", error)
         }
     }
     var dragging by remember(track.id) { mutableStateOf(false) }
@@ -87,24 +88,36 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
     val latestEnd by rememberUpdatedState(onGestureEnd)
     fun Modifier.drag(handle: VideoAudioLaneHandle) = pointerInput(track.id, handle, enabled) {
         if (!enabled) return@pointerInput
-        var initial = latestTrack
-        var delta = 0f
-        detectDragGestures(onDragStart = {
-            initial = latestTrack; delta = 0f; dragging = true; latestSelect(initial.id); latestStart()
-        }, onDragEnd = { dragging = false; latestEnd() }, onDragCancel = { dragging = false; latestEnd() }) { change, amount ->
-            change.consume(); delta += amount.x / density
-            val originalTime = if (handle == VideoAudioLaneHandle.END) initial.atMs + initial.durationMs else initial.atMs
-            val target = latestScale.timeAt(latestScale.xAt(originalTime) + delta)
-            latestChange(VideoAudioLaneEdit.apply(initial, handle, target, latestDuration))
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            down.consume()
+            val initial = latestTrack
+            val gestureScale = latestScale
+            var delta = 0f
+            dragging = true; latestSelect(initial.id); latestStart()
+            try {
+                do {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    delta += change.positionChange().x / density
+                    change.consume()
+                    val originalTime = if (handle == VideoAudioLaneHandle.END)
+                        initial.atMs + initial.durationMs else initial.atMs
+                    val target = gestureScale.timeAt(gestureScale.xAt(originalTime) + delta)
+                    latestChange(VideoAudioLaneEdit.apply(initial, handle, target, latestDuration))
+                } while (change.pressed)
+            } finally { dragging = false; latestEnd() }
         }
     }
+
     val start = scale.xAt(track.atMs)
     val end = scale.xAt(track.atMs + track.durationMs)
     val width = (end - start).coerceAtLeast(1f)
     val handles = selected && (width >= 40f || dragging)
     Box(Modifier.fillMaxWidth().height(38.dp).clipToBounds()) {
         Box(Modifier.offset { IntOffset(((start - scrollDp) * density).roundToInt(), 0) }
-            .width(width.dp).fillMaxHeight().clip(RoundedCornerShape(7.dp))
+            .wrapContentWidth(Alignment.Start, unbounded = true)
+            .width(width.dp).testTag("audio-lane-${track.id}").fillMaxHeight().clip(RoundedCornerShape(7.dp))
             .background(Color(0xFFAD37BE)).border(if (selected) 3.dp else 1.dp,
                 Color(0xFFDF7CF4), RoundedCornerShape(7.dp))) {
             Canvas(Modifier.fillMaxSize()) {
@@ -126,9 +139,9 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
                 .pointerInput(track.id) { detectTapGestures { if (enabled) latestSelect(track.id) } }
                 .drag(VideoAudioLaneHandle.MOVE))
             if (handles) {
-                Box(Modifier.align(Alignment.CenterStart).width(17.dp).fillMaxHeight().drag(VideoAudioLaneHandle.START),
+                Box(Modifier.align(Alignment.CenterStart).testTag("audio-start-${track.id}").width(17.dp).fillMaxHeight().drag(VideoAudioLaneHandle.START),
                     contentAlignment = Alignment.Center) { Box(Modifier.width(2.dp).height(15.dp).background(Color(0xFF54205E))) }
-                Box(Modifier.align(Alignment.CenterEnd).width(17.dp).fillMaxHeight().drag(VideoAudioLaneHandle.END),
+                Box(Modifier.align(Alignment.CenterEnd).testTag("audio-end-${track.id}").width(17.dp).fillMaxHeight().drag(VideoAudioLaneHandle.END),
                     contentAlignment = Alignment.Center) { Box(Modifier.width(2.dp).height(15.dp).background(Color(0xFF54205E))) }
             }
         }

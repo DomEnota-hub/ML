@@ -75,17 +75,23 @@ internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
         val current = player
         if (key != geometry || current.playerError != null) {
             geometry = key
-            replacePlaylist(List(current.mediaItemCount, current::getMediaItemAt),
+            rebuildPlayer(List(current.mediaItemCount, current::getMediaItemAt),
                 current.currentMediaItemIndex, current.currentPosition)
         } else {
             graph.update(next)
             if (!current.playWhenReady) current.setVideoEffects(VideoFrameProcessor.REDRAW)
         }
     }
-    /** Media3 can retain an old paused GL output across a clipped-input replacement.
-     * Queue changes get a fresh graph; ordinary seeks and slider updates keep the same graph.
-     */
+    /** Clip edits replace media on the existing surface; never release a player per trim. */
     fun replacePlaylist(items: List<MediaItem>, index: Int, positionMs: Long) {
+        val wasPrepared = player.playbackState != Player.STATE_IDLE || player.playerError != null
+        clock.clear()
+        player.stop()
+        player.setMediaItems(items, index, positionMs)
+        if (!deferPreparation || wasPrepared) player.prepare()
+    }
+
+    private fun rebuildPlayer(items: List<MediaItem>, index: Int, positionMs: Long) {
         val current = player
         val playing = current.playWhenReady
         val speed = current.playbackParameters

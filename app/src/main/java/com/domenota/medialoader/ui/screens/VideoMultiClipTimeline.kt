@@ -95,6 +95,7 @@ internal fun VideoMultiClipTimeline(
     onSelectText: (String) -> Unit = {},
     onChangeText: (com.domenota.medialoader.data.editor.TextLayer) -> Unit = {},
     onTextGestureStart: () -> Unit = {}, onTextGestureEnd: () -> Unit = {},
+    onAudioGestureStart: () -> Unit = {}, onAudioGestureEnd: () -> Unit = {},
 ) {
     // Full timeline detail by default; the scale is not user-adjustable.
     val zoom = 2.5f
@@ -256,7 +257,7 @@ internal fun VideoMultiClipTimeline(
             if (!trimMode && activeTrimClipId == null && project.audioTracks.isNotEmpty()) VideoAudioLanes(project,
             selectedAudioTrackId, positionMs, videoScroll, project.clips.map {
                 VideoClipReorderMath.widthDp(it.durationMs, zoom, referenceDurationMs) },
-            enabled, onSelectAudio, onChangeAudio, onTrimGestureStart, onTrimGestureEnd, leading.value)
+            enabled, onSelectAudio, onChangeAudio, onAudioGestureStart, onAudioGestureEnd, leading.value)
       }
     }
 }
@@ -288,14 +289,17 @@ private fun VideoClipStrip(
     val latestOnTrimGestureEnd by rememberUpdatedState(onTrimGestureEnd)
     // Do not re-decode 4 full-resolution frames on EVERY millisecond of trim drag.
     // The player independently seeks to the exact active boundary every drag event.
+    val tileCount = kotlin.math.ceil(fullWidthDp / 56f).toInt().coerceIn(2, 18)
+    val tileWidthPx = (fullWidthDp / tileCount * displayDensity).roundToInt().coerceIn(48, 192)
+    val tileHeightPx = (67f * displayDensity).roundToInt().coerceIn(90, 240)
     val thumbnailStartSecond = if (showSourceTrim) 0L else clip.inMs / 1000L
     val thumbnailEndSecond = if (showSourceTrim)
         clip.sourceDurationMs / 1000L else clip.outMs / 1000L
-    var thumbnails by remember(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond) {
+    var thumbnails by remember(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond, tileCount) {
         mutableStateOf<List<Bitmap>>(emptyList())
     }
     LaunchedEffect(clip.sourceUri, thumbnailStartSecond, thumbnailEndSecond,
-        showSourceTrim) {
+        showSourceTrim, tileCount, tileWidthPx, tileHeightPx) {
         val decodeStarted = com.domenota.medialoader.core.logging.PerformanceLog.now()
         val generated = withContext(Dispatchers.IO) {
             if (clip.mediaKind == VideoClipMediaKind.IMAGE) {
@@ -319,24 +323,36 @@ private fun VideoClipStrip(
                 val retriever = MediaMetadataRetriever()
                 try {
                     retriever.setDataSource(context, Uri.parse(clip.sourceUri))
-                    (0..3).mapNotNull { step ->
+                    val encodedW = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: tileWidthPx
+                    val encodedH = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: tileHeightPx
+                    val rotated = (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0) % 180 != 0
+                    val sourceW = (if (rotated) encodedH else encodedW).coerceAtLeast(1)
+                    val sourceH = (if (rotated) encodedW else encodedH).coerceAtLeast(1)
+                    val decodeScale = maxOf(tileWidthPx.toFloat() / sourceW, tileHeightPx.toFloat() / sourceH).coerceAtMost(1f)
+                    val decodeW = (sourceW * decodeScale).roundToInt().coerceAtLeast(1)
+                    val decodeH = (sourceH * decodeScale).roundToInt().coerceAtLeast(1)
+                    (0 until tileCount).mapNotNull { step ->
                         val firstMs = if (showSourceTrim) 0L else clip.inMs
                         val spanMs = if (showSourceTrim)
                             clip.sourceDurationMs else clip.sourceSpanMs
                         val ms = firstMs + (spanMs - 1L)
-                            .coerceAtLeast(0L) * step / 3
+                            .coerceAtLeast(0L) * step / (tileCount - 1)
                         // Prefer decoder-side scaled frames; only fall back to
                         // full-frame extraction on Android API 26.
                         val bmp = if (Build.VERSION.SDK_INT >= 27)
                             retriever.getScaledFrameAtTime(ms * 1000L,
-                                MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 150, 100)
+                                MediaMetadataRetriever.OPTION_CLOSEST_SYNC, decodeW, decodeH)
                         else retriever.getFrameAtTime(ms * 1000L,
                             MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                         bmp?.let {
-                            val w = (it.width * (100f / it.height.coerceAtLeast(1)))
-                                .toInt().coerceIn(1, 150)
-                            val small = Bitmap.createScaledBitmap(it, w, 100, true)
-                            if (small !== it) it.recycle()
+                            val small = Bitmap.createBitmap(tileWidthPx, tileHeightPx, Bitmap.Config.ARGB_8888)
+                            val scale = maxOf(tileWidthPx.toFloat() / it.width, tileHeightPx.toFloat() / it.height)
+                            val w = it.width * scale; val h = it.height * scale
+                            android.graphics.Canvas(small).drawBitmap(it, null,
+                                android.graphics.RectF((tileWidthPx - w) / 2f, (tileHeightPx - h) / 2f,
+                                    (tileWidthPx + w) / 2f, (tileHeightPx + h) / 2f),
+                                android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+                            it.recycle()
                             small
                         }
                     }

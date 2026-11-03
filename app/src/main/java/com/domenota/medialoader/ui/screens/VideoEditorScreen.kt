@@ -898,6 +898,8 @@ private fun VideoEditorContent(
                         selectedAudioTrackId = selectedAudioTrackId,
                         onSelectAudio = { selectedAudioTrackId = it; selectedTool = VideoWorkspaceTool.AUDIO },
                         onChangeAudio = { next -> project = project?.editAudioTrack(next.id) { next } },
+                        onAudioGestureStart = { overlayGestureActive = true; previewPlayer?.pause() },
+                        onAudioGestureEnd = { overlayGestureActive = false },
                         frameIntervalMs = selectedFrameDurationMs,
                         showFrameSteps = selectedTool == VideoWorkspaceTool.TRIM || selectedTool == VideoWorkspaceTool.MORE,
                         onFrameStep = { direction ->
