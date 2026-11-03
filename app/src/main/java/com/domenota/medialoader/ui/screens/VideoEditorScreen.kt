@@ -551,6 +551,8 @@ private fun VideoEditorContent(
                 }
             }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                com.domenota.medialoader.core.logging.AppLog.e("VideoPreview",
+                    "Player failure · code=${error.errorCodeName}", error)
                 trimFramePending = false; trimBoundaryFrame = null
                 clipError = error.message ?: "Не удалось показать видео"
             }
@@ -652,7 +654,8 @@ private fun VideoEditorContent(
         listOf(it.sourceUri, it.inMs.toString(), it.outMs.toString(),
             it.mediaKind.name, it.sourceDurationMs.toString())
     }
-    LaunchedEffect(previewPlayer, playlistIdentity) {
+    LaunchedEffect(previewPlayer, playlistIdentity, trimGestureActive) {
+        if (trimGestureActive) return@LaunchedEffect
         val p = project ?: return@LaunchedEffect
         val player = previewPlayer ?: return@LaunchedEffect
         val installed = List(player.mediaItemCount, player::getMediaItemAt)
@@ -966,23 +969,26 @@ private fun VideoEditorContent(
                             trimFramePending = trimBoundaryFrame != null && player != null && draft != null &&
                                 !VideoPreviewQueueSync.matches(List(player.mediaItemCount, player::getMediaItemAt), draft)
                             if (!trimFramePending) trimBoundaryFrame = null
+                            if (player != null && draft != null && VideoPreviewQueueSync.matches(
+                                    List(player.mediaItemCount, player::getMediaItemAt), draft)) {
+                                val location = draft.locateAt(playheadMs.coerceIn(0L, draft.durationMs - 1L))
+                                val clip = draft.clips[location.clipIndex]
+                                player.seekTo(location.clipIndex,
+                                    (clip.sourceAt(location.positionWithinClipMs) - clip.inMs).coerceAtLeast(0L))
+                            }
                         },
                         onTrim = { id, from, to ->
                             val prior = project ?: return@VideoMultiClipTimeline
                             val previousClip = prior.clips.firstOrNull { it.id == id }
                                 ?: return@VideoMultiClipTimeline
-                            val previousIndex = prior.indexOf(id)
                             // Track the boundary currently being dragged. Do not silently
                             // keep previewing the old playhead while trim handles move.
                             val boundarySourceMs = if (trimEndHandle) to - 1L else from
                             requestedTrimBoundary = VideoTrimBoundaryPreview.Request(
                                 previousClip.sourceUri, boundarySourceMs)
-                            val oldSourceOffset = (boundarySourceMs - previousClip.inMs)
-                                .coerceIn(0L, (previousClip.sourceSpanMs - 1L).coerceAtLeast(0L))
+                            // The sampled source frame owns drag preview. Seeking the old
+                            // clipped decoder for each pointer event causes flush/reinit churn.
                             previewPlayer?.pause()
-                            if (previousIndex in 0 until (previewPlayer?.mediaItemCount ?: 0)) {
-                                previewPlayer?.seekTo(previousIndex, oldSourceOffset)
-                            }
                             val oldLocation = prior.locateAt(
                                 playheadMs.coerceIn(0L, prior.durationMs - 1L))
                             runCatching { prior.trimClip(id, from, to) }

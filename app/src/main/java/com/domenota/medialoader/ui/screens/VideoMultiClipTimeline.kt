@@ -12,6 +12,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -433,6 +437,11 @@ private fun VideoClipStrip(
                 .offset(x = grips.leftDp.dp).testTag("trim-start-${clip.id}")
                 .width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .93f))
+                .drawBehind {
+                    val x = size.width / 2f
+                    drawLine(Color.Black, Offset(x, size.height * .32f),
+                        Offset(x, size.height * .68f), 2.dp.toPx())
+                }
                 .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
                     if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE)
                         return@pointerInput
@@ -440,30 +449,38 @@ private fun VideoClipStrip(
                     var initialOut = 0L
                     var cumulativePx = 0f
                     var sourceSpeed = 1f
-                    detectDragGestures(
-                        onDragStart = {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
                             initialIn = latestClip.inMs
                             initialOut = latestClip.outMs
                             sourceSpeed = latestClip.speed
                             cumulativePx = 0f
-                            latestOnTrimGestureStart(false)
-                        },
-                        onDragEnd = { latestOnTrimGestureEnd() },
-                        onDragCancel = { latestOnTrimGestureEnd() },
-                        onDrag = { change, delta ->
-                            change.consume()
-                            cumulativePx += delta.x
-                            val shift = VideoClipReorderMath.sourceDeltaMs(
-                                cumulativePx, pixelsPerSecondDp, displayDensity, sourceSpeed)
+                        latestOnTrimGestureStart(false)
+                        try {
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                val delta = change.positionChange()
+                                change.consume()
+                                cumulativePx += delta.x
+                                val shift = VideoClipReorderMath.sourceDeltaMs(
+                                    cumulativePx, pixelsPerSecondDp, displayDensity, sourceSpeed)
                             latestOnTrim((initialIn + shift)
                                 .coerceIn(0L, initialOut - 100L), initialOut)
-                        },
-                    )
+                            } while (change.pressed)
+                        } finally { latestOnTrimGestureEnd() }
+                    }
                 })
             Box(Modifier.align(Alignment.CenterStart)
                 .offset(x = grips.rightDp.dp).testTag("trim-end-${clip.id}")
                 .width(17.dp).fillMaxHeight()
                 .background(selectedYellow.copy(alpha = .93f))
+                .drawBehind {
+                    val x = size.width / 2f
+                    drawLine(Color.Black, Offset(x, size.height * .32f),
+                        Offset(x, size.height * .68f), 2.dp.toPx())
+                }
                 .pointerInput(clip.id, enabled, pixelsPerSecondDp, displayDensity) {
                     if (!enabled || latestClip.mediaKind == VideoClipMediaKind.IMAGE)
                         return@pointerInput
@@ -472,26 +489,29 @@ private fun VideoClipStrip(
                     var sourceDuration = 0L
                     var sourceSpeed = 1f
                     var cumulativePx = 0f
-                    detectDragGestures(
-                        onDragStart = {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
                             initialIn = latestClip.inMs
                             initialOut = latestClip.outMs
                             sourceDuration = latestClip.sourceDurationMs
                             sourceSpeed = latestClip.speed
                             cumulativePx = 0f
-                            latestOnTrimGestureStart(true)
-                        },
-                        onDragEnd = { latestOnTrimGestureEnd() },
-                        onDragCancel = { latestOnTrimGestureEnd() },
-                        onDrag = { change, delta ->
-                            change.consume()
-                            cumulativePx += delta.x
-                            val shift = VideoClipReorderMath.sourceDeltaMs(
-                                cumulativePx, pixelsPerSecondDp, displayDensity, sourceSpeed)
+                        latestOnTrimGestureStart(true)
+                        try {
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                val delta = change.positionChange()
+                                change.consume()
+                                cumulativePx += delta.x
+                                val shift = VideoClipReorderMath.sourceDeltaMs(
+                                    cumulativePx, pixelsPerSecondDp, displayDensity, sourceSpeed)
                             latestOnTrim(initialIn, (initialOut + shift)
                                 .coerceIn(initialIn + 100L, sourceDuration))
-                        },
-                    )
+                            } while (change.pressed)
+                        } finally { latestOnTrimGestureEnd() }
+                    }
                 })
         }
         if (isSelected && !showSourceTrim) Box(Modifier.fillMaxSize().testTag("trim-kept-${clip.id}"))

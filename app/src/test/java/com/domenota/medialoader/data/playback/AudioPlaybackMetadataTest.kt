@@ -40,4 +40,24 @@ class AudioPlaybackMetadataTest {
         assertTrue(AudioPlaybackMetadata.publicSessionRows(listOf(public, private, unavailable), emptyList(),
             setOf("file-stat:identity")).isEmpty())
     }
+    @Test fun restoringLargeQueueReadsTheLibraryOnlyOnce() {
+        val rows = (0 until 500).map { row("track-$it").copy(savedUri = "content://media/audio/$it") }
+        var reads = 0
+        val counted = object : AbstractList<DownloadEntity>() {
+            override val size = rows.size
+            override fun get(index: Int): DownloadEntity { reads++; return rows[index] }
+        }
+        val queue = rows.takeLast(100).map { AudioPlaybackMetadata.item(it, emptySet()) }
+        assertEquals(100, AudioPlaybackMetadata.publicSessionRows(queue, counted, emptySet()).size)
+        assertTrue("Do not rescan the library for each queue entry: $reads", reads <= rows.size)
+    }
+    @Test fun conflictingIdAndUriStillUseTheOriginalFirstMatchingRow() {
+        val uriMatch = row("earlier").copy(originalName = "first")
+        val idMatch = row("target").copy(savedUri = "content://other", originalName = "second")
+        val media = AudioPlaybackMetadata.item(row("target"), emptySet())
+        val resolved = AudioPlaybackMetadata.publicSessionRows(listOf(media),
+            listOf(uriMatch, idMatch, uriMatch), emptySet()).single()
+        assertEquals("first", resolved.originalName)
+    }
+
 }

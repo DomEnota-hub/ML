@@ -22,9 +22,25 @@ internal object AudioPlaybackMetadata {
     }
     /** A service session can outlive the activity and its phone-media index. Preserve raw
      * session IDs so a mini-player click resolves even before MediaStore is indexed. */
-    fun publicSessionRows(items: List<MediaItem>, lookup: List<DownloadEntity>, blocked: Set<String>): List<DownloadEntity> =
-        items.mapNotNull { media -> publicRow(media, lookup, blocked)?.takeIf { !it.savedUri.isNullOrBlank() }
-            ?.copy(id = media.mediaId) }.distinctBy { it.id }
+    fun publicSessionRows(items: List<MediaItem>, lookup: List<DownloadEntity>, blocked: Set<String>): List<DownloadEntity> {
+        if (items.isEmpty()) return emptyList()
+        val byId = HashMap<String, DownloadEntity>()
+        val byUri = HashMap<String, DownloadEntity>()
+        val ordinal = java.util.IdentityHashMap<DownloadEntity, Int>()
+        lookup.forEachIndexed { index, row -> ordinal.putIfAbsent(row, index); if (!row.isPrivate && !row.hidden) {
+            byId.putIfAbsent(row.id, row)
+            row.savedUri?.let { byUri.putIfAbsent(it, row) }
+        } }
+        return items.mapNotNull { media ->
+            val uri = media.mediaMetadata.extras?.getString(PUBLIC_URI)
+                ?: media.localConfiguration?.uri?.toString()
+            // Preserve the original first-in-list resolution when ID and URI disagree.
+            val candidates = listOfNotNull(byId[media.mediaId], uri?.let(byUri::get))
+                .sortedBy { ordinal[it] ?: Int.MAX_VALUE }
+            publicRow(media, candidates, blocked)?.takeIf { !it.savedUri.isNullOrBlank() }
+                ?.copy(id = media.mediaId)
+        }.distinctBy { it.id }
+    }
 
     fun item(row: DownloadEntity, identities: Set<String>): MediaItem = MediaItem.Builder()
         .setMediaId(row.id).setUri(requireNotNull(row.savedUri))

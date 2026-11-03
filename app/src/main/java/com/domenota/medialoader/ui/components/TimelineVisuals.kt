@@ -136,34 +136,30 @@ fun AudioWaveformTimeline(
     val context = LocalContext.current
     var waveform by remember(uri, durationMs) { mutableStateOf<List<Float>>(emptyList()) }
 
+    var loading by remember(uri, durationMs) { mutableStateOf(true) }
     LaunchedEffect(uri, durationMs) {
         if (durationMs <= 0L) return@LaunchedEffect
-        // Editor NEVER decodes an uncached audio file or blocks on another decoder.
-        // Only read a completed atomic cache and request a priority background job.
-        val saved = withContext(Dispatchers.IO) {
-            readCachedAudioWaveform(context, uri, durationMs)
-        }
-        if (saved != null) {
-            waveform = saved
-        } else {
-            AudioWaveformPrecompute.requestImmediate(context, uri, durationMs)
-            // WorkManager may be deferred by Android; UI stays responsive while it runs.
-            repeat(240) {
-                delay(1000L)
-                val ready = withContext(Dispatchers.IO) {
-                    readCachedAudioWaveform(context, uri, durationMs)
-                }
-                if (ready != null) {
-                    waveform = ready
-                    return@LaunchedEffect
-                }
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        val started = com.domenota.medialoader.core.logging.PerformanceLog.begin("editor_waveform")
+        try {
+            waveform = withContext(Dispatchers.IO) {
+                readCachedAudioWaveform(context, uri, durationMs)
+                    ?: loadAudioWaveform(context, uri, durationMs, isCancelled = { job?.isActive == false })
             }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.e("AudioWaveform", "Editor waveform failed", error)
+        } finally {
+            loading = false
+            com.domenota.medialoader.core.logging.PerformanceLog.end("editor_waveform", started,
+                "buckets=${waveform.size}")
         }
     }
 
     val barColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+    Box(modifier) {
     Canvas(
-        modifier
+        Modifier.fillMaxSize()
             .clip(RoundedCornerShape(12.dp))
             .background(
                 androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
@@ -188,6 +184,12 @@ fun AudioWaveformTimeline(
             )
         }
     }
+    if (waveform.isEmpty()) androidx.compose.material3.Text(
+        if (loading) "Строим звуковую волну…" else "Не удалось построить звуковую волну",
+        modifier = Modifier.align(Alignment.Center),
+        style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+    }
+
 }
 
 /** One non-overlapping window per visible column; preserves transients when resized. */

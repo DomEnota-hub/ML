@@ -336,17 +336,25 @@ fun MediaLoaderApp(
     val privateDownloads by viewModel.privateDownloads.collectAsStateWithLifecycle()
     val privateState by viewModel.privateAccess.state.collectAsState()
     // Keep old phone IDs resolvable for restored routes/playlists without showing duplicate cards.
-    val publicLibraryRows = remember(downloads, publicLibraryRefs, libraryAudioState.queue, libraryPrivateKeys) {
+    val indexedLibraryRows = remember(downloads, publicLibraryRefs) {
         val knownIds = downloads.mapTo(mutableSetOf()) { it.id }
         val indexed = downloads + publicLibraryRefs.flatMap { ref ->
             (ref.aliases.filter { it.startsWith("phone:") } + ref.key).distinct().map { ref.item.copy(id = it) }
         }.filter { knownIds.add(it.id) }
-        val session = libraryPrivateKeys?.let { keys ->
-            com.domenota.medialoader.data.playback.AudioPlaybackMetadata.publicSessionRows(libraryAudioState.queue, indexed, keys)
-        }.orEmpty()
-        indexed + session.filter { knownIds.add(it.id) }
+        indexed
     }
-    val accessibleDownloads = if (privateState.unlocked) publicLibraryRows + privateDownloads else publicLibraryRows
+    val publicLibraryRows = remember(indexedLibraryRows, libraryAudioState.queue, libraryPrivateKeys) {
+        val session = libraryPrivateKeys?.let { keys ->
+            com.domenota.medialoader.data.playback.AudioPlaybackMetadata.publicSessionRows(libraryAudioState.queue, indexedLibraryRows, keys)
+        }.orEmpty()
+        if (session.isEmpty()) indexedLibraryRows else {
+            val knownIds = indexedLibraryRows.mapTo(mutableSetOf()) { it.id }
+            indexedLibraryRows + session.filter { knownIds.add(it.id) }
+        }
+    }
+    val accessibleDownloads = remember(privateState.unlocked, publicLibraryRows, privateDownloads) {
+        if (privateState.unlocked) publicLibraryRows + privateDownloads else publicLibraryRows
+    }
     var pendingPrivateMoves by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var returnAfterPrivateSetup by rememberSaveable { mutableStateOf(false) }
     val privateMoveStatus by viewModel.privateMoveState.collectAsStateWithLifecycle()
@@ -1207,12 +1215,10 @@ fun MediaLoaderApp(
                     onRutubeSignIn = startRutubeLogin,
                     onRutubeSignOut = viewModel::logoutRutube,
                     hiddenCount = hiddenCount,
-                    hiddenItems = hiddenItems.map { entry ->
+                    hiddenItems = remember(hiddenItems) { hiddenItems.map { entry ->
                         entry.toUi().copy(savedUri = viewModel.trashedUri(entry.id))
-                    },
-                    editorItems = accessibleDownloads.filter {
-                        it.state == DownloadState.COMPLETED && it.savedUri != null
-                    }.map { it.toUi() },
+                    } },
+                    editorItems = com.domenota.medialoader.ui.components.rememberEditorItems(accessibleDownloads),
                     editorAlbumsById = remember(
                         accessibleDownloads, libraryRefsByAlias, libraryCatalogAssignments, catalogFolders
                     ) {

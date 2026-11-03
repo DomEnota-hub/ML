@@ -56,6 +56,25 @@ class VideoSourceTrimGestureTest {
         assertEquals(released, position)
     }
 
+    @Test fun leftGripRespondsBeforeTheDefaultScrollTouchSlop() {
+        var project by mutableStateOf(VideoProjectDraft(listOf(
+            VideoClipDraft("a", "file:///synthetic-not-decoded.mp4", 20_000L))))
+        compose.setContent { CompositionLocalProvider(LocalDensity provides Density(1f)) {
+            MaterialTheme { VideoMultiClipTimeline(project, "a", 0L, false, true, false, false,
+                {}, {}, null, {}, {}, {}, onTrim = { id, start, end ->
+                    project = project.trimClip(id, start, end)
+                }, onMove = { _, _ -> }, onAdd = {}, onTogglePlayback = {}) }
+        } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("trim-start-a", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveBy(Offset(4f, 0f), 50)
+        }
+        compose.waitForIdle()
+        assertTrue("Small handle motion must trim immediately", project.clips.first().inMs > 0)
+        compose.onNodeWithTag("trim-start-a", useUnmergedTree = true).performTouchInput { up() }
+    }
+
     private fun checkBothEnds(density: Float) {
         var project by mutableStateOf(VideoProjectDraft(listOf(
             VideoClipDraft("a", "file:///synthetic-not-decoded.mp4", 20_000L))))
