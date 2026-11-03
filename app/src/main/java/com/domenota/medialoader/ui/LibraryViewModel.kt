@@ -204,8 +204,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         com.domenota.medialoader.core.logging.AppLog.i("Library", "App identity index ready · count=${resolved.size}")
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val index = combine(appReferences, gallery, music, privateKeys) { app, pictures, audio, private ->
-        if (private == null || app == null) LibraryIndex() else withContext(Dispatchers.IO) {
-            LibraryIndex(true, UnifiedMediaLibrary.merge(app,
+        if (private == null) LibraryIndex() else withContext(Dispatchers.IO) {
+            LibraryIndex(true, UnifiedMediaLibrary.merge(app.orEmpty(),
                 references(pictures.items + audio.items, false, pictures.identities + audio.identities), private),
                 pictures.revision, audio.revision)
         }

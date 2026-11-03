@@ -1015,6 +1015,8 @@ fun MediaLoaderApp(
             modifier = Modifier.fillMaxSize(),
         ) {
             composable(AppDestination.Home.route) {
+                val modeStates = rememberSaveableStateHolder()
+                modeStates.SaveableStateProvider(appMode.name) {
                 if (appMode == AppMode.DOWNLOADER) HomeScreen(
                     title = { AppModeTitle(appMode, ::changeAppMode) },
                     url = pendingUrl,
@@ -1048,7 +1050,7 @@ fun MediaLoaderApp(
                 )
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneGallery.loaded) emptyList() else libraryItems,
-                    source = librarySource, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded && phoneGallery.loading),
+                    source = librarySource, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
                     folders = catalogFolders, assignments = libraryCatalogAssignments, header = libraryHeader,
                     onOpen = openDownloadWithQueue,
@@ -1077,7 +1079,7 @@ fun MediaLoaderApp(
                     }.toMap() },
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
                     allAudio = libraryAudioItems, playlists = playlists,
-                    header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded && phoneMusic.loading),
+                    header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneMusic.message else null,
                     onOpen = openDownloadWithQueue,
                     onOpenPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
@@ -1105,6 +1107,7 @@ fun MediaLoaderApp(
                     onAddPlaylistTracks = { navController.navigate("playlist-add/$it") },
                     onDetailChange = { musicDetailOpen = it }, currentPlayingId = currentLibraryAudioId,
                     playing = libraryAudioState.playing)
+                }
             }
             composable("equalizer") {
                 val settings by libraryModel.equalizerSettings.collectAsStateWithLifecycle()
@@ -1345,6 +1348,9 @@ fun MediaLoaderApp(
                         onShare = {},
                         audioQueue = audioRows,
                         photoQueue = photoRows,
+                        mediaQueue = hiddenItems.filter { it.mediaType != MediaType.AUDIO }.mapNotNull { row ->
+                            viewModel.trashedUri(row.id)?.let { row.copy(savedUri = it) }
+                        },
                         onEdit = null,
                         trashReadOnly = true,
                         onRestoreFromTrash = { row ->
