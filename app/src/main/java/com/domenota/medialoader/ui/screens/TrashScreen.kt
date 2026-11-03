@@ -14,6 +14,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -70,6 +74,7 @@ fun TrashScreen(
     onRestore: (Set<String>) -> Unit,
     onDelete: (Set<String>) -> Unit,
 ) {
+    var grid by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var phoneTab by remember { mutableStateOf(false) }
     val allItems = if (phoneTab) phoneItems else items
     fun phoneIds(ids: Set<String>) = ids.filterTo(mutableSetOf(), PhoneMediaTrash::isPhoneTrashId)
@@ -124,6 +129,10 @@ fun TrashScreen(
                     IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад") }
                 },
                 actions = {
+                    IconButton(onClick = { grid = !grid }) {
+                        Icon(if (grid) Icons.Rounded.ViewList else Icons.Rounded.GridView,
+                            if (grid) "Показать списком" else "Показать сеткой")
+                    }
                     Box {
                         IconButton(onClick = { expanded = true }) {
                             Icon(Icons.Rounded.MoreVert, contentDescription = "Действия с корзиной")
@@ -186,6 +195,22 @@ fun TrashScreen(
         if (allItems.isEmpty()) {
             Box(Modifier.fillMaxWidth().heightIn(min = 260.dp),
                 contentAlignment = Alignment.Center) { Text("Корзина пуста") }
+        } else if (grid) {
+            LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(allItems, key = { it.id }) { item ->
+                    Column {
+                        Box(Modifier.fillMaxWidth().aspectRatio(1f).clickable { onOpen(item.id) }) {
+                            DownloadThumbnail(item.savedUri, null, item.kind, Modifier.fillMaxSize())
+                            androidx.compose.material3.Checkbox(item.id in selected,
+                                { value -> selected = if (value) selected + item.id else selected - item.id },
+                                Modifier.align(Alignment.TopStart).background(MaterialTheme.colorScheme.surface.copy(alpha = .8f)))
+                        }
+                        Text(item.title, maxLines = 2, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
         } else {
             LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -206,7 +231,7 @@ fun TrashScreen(
                                         tint = MaterialTheme.colorScheme.onPrimary)
                                 }
                             }
-                            Row(Modifier.weight(1f).clickable { if (!PhoneMediaTrash.isPhoneTrashId(item.id)) onOpen(item.id) },
+                            Row(Modifier.weight(1f).clickable { onOpen(item.id) },
                                 verticalAlignment = Alignment.CenterVertically) {
                                 DownloadThumbnail(item.savedUri, null, item.kind, Modifier.size(56.dp))
                                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
