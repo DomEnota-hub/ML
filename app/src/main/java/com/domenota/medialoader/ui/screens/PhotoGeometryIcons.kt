@@ -5,7 +5,7 @@ internal object PhotoGeometryIcons {
     val horizon = VideoV8Icons.fromSvg("geometry_horizon",
         "M3 8a9 9 0 0 1 17-2M21 16a9 9 0 0 1-17 2M1 12h22M20 2v5h-5M4 22v-5h5")
     val horizontal = VideoV8Icons.fromSvg("geometry_horizontal",
-        "M8 3l10-1 1 7M16 21l-10 1-1-7M2 9h20M2 15h20M6 9v6M18 9v6")
+        "M4 6L20 4v14L4 20Z M1 12h22")
     val vertical = VideoV8Icons.fromSvg("geometry_vertical",
         "M9 4l-5 1-1 14 6-1M15 4l5 1 1 14-6-1M12 1v22")
     val distortion = VideoV8Icons.fromSvg("geometry_distortion",

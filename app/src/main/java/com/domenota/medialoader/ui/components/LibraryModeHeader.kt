@@ -48,10 +48,16 @@ internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
 @Composable
 internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource, onMode: (AppMode) -> Unit,
     onSource: (LibrarySource) -> Unit, onTrash: () -> Unit, onSettings: () -> Unit,
-    onSearch: () -> Unit = {}, onPrivate: () -> Unit = {}) {
+    onSearch: () -> Unit = {}, onPrivate: () -> Unit = {}, onHiddenTracks: (() -> Unit)? = null) {
     Column(Modifier.fillMaxWidth().padding(start = 17.dp, end = 17.dp, top = 9.dp, bottom = 15.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { AppModeTitle(mode, onMode) }
+            if (mode == AppMode.MUSIC && onHiddenTracks != null) {
+                IconButton(onHiddenTracks) {
+                    Icon(Icons.Rounded.VisibilityOff, "Скрытые треки", Modifier.size(23.dp),
+                        tint = MaterialTheme.colorScheme.onSurface)
+                }
+            }
             IconButton(onSearch) { Icon(Icons.Rounded.Search, "Поиск", Modifier.size(23.dp)) }
             IconButton(onPrivate) { Icon(Icons.Rounded.Lock, "Личное", Modifier.size(23.dp)) }
             if (mode == AppMode.GALLERY) {

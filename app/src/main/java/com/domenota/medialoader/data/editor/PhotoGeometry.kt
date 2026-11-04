@@ -23,7 +23,7 @@ data class PhotoGeometry(
     val distortion: Float = 0f,
 ) {
     init {
-        require(straighten.isFinite() && straighten in -45f..45f)
+        require(straighten.isFinite() && straighten in -100f..100f)
         require(horizontalPerspective.isFinite() && horizontalPerspective in -100f..100f)
         require(verticalPerspective.isFinite() && verticalPerspective in -100f..100f)
         require(distortion.isFinite() && distortion in -100f..100f)

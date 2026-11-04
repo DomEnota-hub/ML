@@ -296,11 +296,13 @@ fun MediaLoaderApp(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    var hiddenMusicTracksOpen by remember { mutableStateOf(false) }
     val libraryHeader: @Composable () -> Unit = {
         LibraryModeHeader(appMode, librarySource, ::changeAppMode, ::changeLibrarySource,
             onTrash = { navController.navigate("trash") },
             onSettings = { navController.navigate(AppDestination.Settings.route) },
             onSearch = { librarySearchVisible = !librarySearchVisible },
+            onHiddenTracks = if (appMode == AppMode.MUSIC) ({ hiddenMusicTracksOpen = true }) else null,
             onPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) })
     }
     // A single observable music-source state feeds Settings and BOTH preview hosts.
@@ -1074,6 +1076,8 @@ fun MediaLoaderApp(
                     } }.toMap(),
                     )
                 else MusicModeScreen(
+                    hiddenTracksOpen = hiddenMusicTracksOpen,
+                    onDismissHiddenTracks = { hiddenMusicTracksOpen = false },
                     deviceMusicFolders = remember(phoneMusic.items) { phoneMusic.items.mapNotNull { row ->
                         row.savedUri?.let { uri -> row.groupId?.let { uri to it } }
                     }.toMap() },

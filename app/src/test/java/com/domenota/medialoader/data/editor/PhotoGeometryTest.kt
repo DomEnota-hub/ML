@@ -68,7 +68,7 @@ class PhotoGeometryTest {
 
     @Test fun numericalBoundsAreStrict() {
         assertThrows(IllegalArgumentException::class.java) {
-            PhotoGeometry(straighten = 50f)
+            PhotoGeometry(straighten = 101f)
         }
         assertThrows(IllegalArgumentException::class.java) {
             PhotoGeometry(horizontalPerspective = Float.NaN)
@@ -76,5 +76,16 @@ class PhotoGeometryTest {
         assertThrows(IllegalArgumentException::class.java) {
             PhotoGeometryPoint(-.01f, .5f)
         }
+    }
+    @Test fun horizonAcceptsBothHundredDegreeExtremesAndKeepsRotationCentered() {
+        for (angle in listOf(-100f,-90f,-45f,45f,90f,100f)) {
+            val matrix=PhotoGeometryMath.transformMatrix(PhotoGeometry(straighten=angle),200,100)
+            val points=floatArrayOf(100f,50f,110f,50f)
+            matrix.mapPoints(points)
+            assertTrue(points.all { it.isFinite() })
+            assertEquals(100f,points[0],.001f);assertEquals(50f,points[1],.001f)
+            assertTrue(if (angle>0) points[3]>50f else points[3]<50f)
+        }
+        assertThrows(IllegalArgumentException::class.java) { PhotoGeometry(straighten=-101f) }
     }
 }

@@ -290,7 +290,7 @@ internal fun PhotoGeometryDialog(
                         GeometryMode.DISTORTION -> geometry.distortion
                         GeometryMode.FREE -> 0f
                     }
-                    val range = if (mode == GeometryMode.STRAIGHTEN) -45f..45f else -100f..100f
+                    val range = -100f..100f
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
                         Text(when (mode) { GeometryMode.STRAIGHTEN -> "Угол"; GeometryMode.DISTORTION -> "Искажение"; else -> "Перспектива" },

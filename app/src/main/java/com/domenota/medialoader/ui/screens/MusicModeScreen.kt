@@ -42,6 +42,7 @@ fun MusicModeScreen(
     onEnqueue: ((String, Boolean) -> Unit)? = null,
     onDetailChange: (Boolean) -> Unit = {}, currentPlayingId: String? = null, playing: Boolean = false,
     deviceMusicFolders: Map<String, String> = emptyMap(),
+    hiddenTracksOpen: Boolean = false, onDismissHiddenTracks: () -> Unit = {},
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     val tab = tabOverride ?: localTab
@@ -70,7 +71,6 @@ fun MusicModeScreen(
     val folderPrefs = remember(context) { context.getSharedPreferences("music_folder_visibility", 0) }
     var excludedFolders by remember { mutableStateOf(folderPrefs.getStringSet("excluded", emptySet()).orEmpty().toSet()) }
     var hiddenTrackKeys by remember { mutableStateOf(folderPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty().toSet()) }
-    var hiddenTracksOpen by remember { mutableStateOf(false) }
     fun toggleHidden(track: DownloadEntity) {
         hiddenTrackKeys = MusicTrackVisibility.update(hiddenTrackKeys, track, !MusicTrackVisibility.hidden(track, hiddenTrackKeys))
         folderPrefs.edit().putStringSet("hidden_tracks", hiddenTrackKeys).apply()
@@ -80,15 +80,16 @@ fun MusicModeScreen(
     val available = remember(allAudio) { allAudio.filter(::availableAudio).associateBy { it.id } }
     val tracks = remember(items) { items.filter(::availableAudio).distinctBy { it.id } }
     val hiddenTracks = remember(tracks, hiddenTrackKeys) { tracks.filter { MusicTrackVisibility.hidden(it, hiddenTrackKeys) } }
-    if (hiddenTracksOpen) AlertDialog(onDismissRequest = { hiddenTracksOpen = false }, title = { Text("Скрытые треки") },
+    if (hiddenTracksOpen) AlertDialog(onDismissRequest = onDismissHiddenTracks, title = { Text("Скрытые треки") },
         text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 360.dp)) {
+            if (hiddenTracks.isEmpty()) item { Text("Нет скрытых треков") }
             items(hiddenTracks, key = { it.id }) { track ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName, Modifier.weight(1f))
                     IconButton(onClick = { toggleHidden(track) }) { Icon(Icons.Rounded.Visibility, "Отобразить ${track.originalName}") }
                 }
             }
-        } }, confirmButton = { TextButton(onClick = { hiddenTracksOpen = false }) { Text("Готово") } })
+        } }, confirmButton = { TextButton(onClick = onDismissHiddenTracks) { Text("Готово") } })
     val folders = remember(tracks, deviceMusicFolders) {
         tracks.groupBy { MusicFolderRules.key(it, deviceMusicFolders) }.filterKeys { it != null }
     }
@@ -180,9 +181,7 @@ fun MusicModeScreen(
                         tab == 0 && displayed.isEmpty(), "Нет аудиофайлов") }
                 }
             }
-            if (playlist == null && hiddenTracks.isNotEmpty()) item(key = "hidden-tracks") {
-                TextButton(onClick = { hiddenTracksOpen = true }) { Icon(Icons.Rounded.VisibilityOff, null); Text("Скрытые треки (${hiddenTracks.size})") }
-            }
+
             if (tab == 1 && playlist == null) {
                 item(key = "playlists-title") { Text("Мои плейлисты", Modifier.padding(horizontal = 17.dp, vertical = 15.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
                 items(playlists.chunked(2), key = { it.first().id }) { pair ->
