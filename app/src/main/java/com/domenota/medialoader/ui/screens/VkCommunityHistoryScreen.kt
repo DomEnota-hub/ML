@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.vkcommunity.VkCommunityJob
 import com.domenota.medialoader.data.vkcommunity.VkHistoryPolicy
+import com.domenota.medialoader.data.vkcommunity.VkJobPhase
 import java.text.DateFormat
 import java.util.Date
 
@@ -37,6 +38,9 @@ fun VkCommunityHistoryScreen(
             Text("Журнал поиска VK", style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.weight(1f))
         }
+        Text("Очистка удаляет записи и результаты поиска. Скачанные файлы сохраняются.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (jobs.any { VkHistoryPolicy.canDelete(it.phase) })
             TextButton(onClick = onClear) { Text("Очистить журнал") }
         if (jobs.isEmpty()) Text("Поисков пока не было")
@@ -48,17 +52,26 @@ fun VkCommunityHistoryScreen(
                         Text("${job.startDate} — ${job.endDate} · " +
                             DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
                                 .format(Date(job.createdAt)))
-                        Text("${job.phase.name.lowercase()} · найдено ${job.found} · " +
+                        Text("${historyPhaseLabel(job.phase)} · найдено ${job.found} · " +
                             "скачано ${job.downloaded} · ошибок ${job.failed}")
                         Row {
                             TextButton(onClick = { onOpen(job) }) { Text("Результаты") }
-                            TextButton(onClick = { onRepeat(job) }) { Text("Повторить поиск") }
                             if (VkHistoryPolicy.canDelete(job.phase))
                                 TextButton(onClick = { onDelete(job) }) { Text("Удалить") }
                         }
+                        TextButton(onClick = { onRepeat(job) }) { Text("Полный поиск за тот же период") }
                     }
                 }
             }
         }
     }
+}
+
+private fun historyPhaseLabel(phase: VkJobPhase): String = when (phase) {
+    VkJobPhase.SCANNING -> "Идёт поиск"
+    VkJobPhase.READY -> "Поиск завершён"
+    VkJobPhase.DOWNLOADING -> "Идёт загрузка"
+    VkJobPhase.FINISHED -> "Загрузка завершена"
+    VkJobPhase.ERROR -> "Ошибка"
+    VkJobPhase.CANCELLED -> "Остановлено"
 }

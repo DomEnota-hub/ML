@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -88,7 +89,11 @@ internal fun EditorFilePickerDialog(
     albumsById: Map<String, List<String>>,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
+    loading: Boolean = false,
+    message: String? = null,
 ) {
+    val menuMaxHeight = (LocalConfiguration.current.screenHeightDp.dp * .75f).coerceAtLeast(96.dp)
+    val bottomMenuSpace = (WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp).coerceAtLeast(64.dp)
     val context = LocalContext.current
     val prefs = remember(context) {
         context.getSharedPreferences("editor_file_picker_v1", android.content.Context.MODE_PRIVATE)
@@ -118,7 +123,7 @@ internal fun EditorFilePickerDialog(
     // Dialog height with usePlatformDefaultWidth=false on some Android devices.
     EditorWindow(onDismissRequest = onDismiss) {
         Surface(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().navigationBarsPadding()
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -159,9 +164,9 @@ internal fun EditorFilePickerDialog(
                             Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(5.dp))
                             Text(album ?: "Все альбомы", maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                                overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
-                        DropdownMenu(expanded = albumMenu, onDismissRequest = { albumMenu = false }) {
+                        DropdownMenu(expanded = albumMenu, onDismissRequest = { albumMenu = false }, modifier = Modifier.heightIn(max = menuMaxHeight)) {
                             DropdownMenuItem(text = { Text("Все альбомы (${available.size})") },
                                 onClick = { album = null; albumMenu = false })
                             albums.forEach { name ->
@@ -170,6 +175,7 @@ internal fun EditorFilePickerDialog(
                                 DropdownMenuItem(text = { Text("$name ($total)", maxLines = 1) },
                                     onClick = { album = name; albumMenu = false })
                             }
+                            Spacer(Modifier.height(bottomMenuSpace))
                         }
                     }
                     Box(Modifier.weight(1f)) {
@@ -179,9 +185,9 @@ internal fun EditorFilePickerDialog(
                             Icon(Icons.Rounded.Sort, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(5.dp))
                             Text(sort.title, maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                                overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
-                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }, modifier = Modifier.heightIn(max = menuMaxHeight)) {
                             EditorPickerSort.entries.forEach { option ->
                                 DropdownMenuItem(text = { Text(option.title) }, onClick = {
                                     sort = option
@@ -192,7 +198,10 @@ internal fun EditorFilePickerDialog(
                         }
                     }
                 }
-                Text("Показано: ${choices.size} из ${available.size}",
+                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                message?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Text(if (loading) "Загружаем файлы… Показано: ${choices.size}" else "Показано: ${choices.size} из ${available.size}",
                     modifier = Modifier.padding(vertical = 6.dp),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -1165,7 +1165,7 @@ private fun PhotoEffectCard(
 }
 
 @Composable
-private fun PhotoToolCard(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
+internal fun PhotoToolCard(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
     selected: Boolean, onClick: () -> Unit, enabled: Boolean) {
     Surface(onClick = onClick, enabled = enabled,
         modifier = Modifier.width(94.dp).height(61.dp),

@@ -31,7 +31,9 @@ internal fun peekAudioWaveform(context: Context, uri: Uri): FloatArray? =
     waveformCache(context).peek(uri.toString())
 
 internal fun loadAudioWaveform(context: Context, uri: Uri): FloatArray =
-    waveformCache(context).get(uri.toString()) { decodeAudioPeaks(context, uri) }
+    waveformCache(context).get(uri.toString()) {
+        com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode { decodeAudioPeaks(context, uri) }
+    }
 
 /** Decodes the file in the background and groups PCM loudness by playback time. */
 internal fun decodeAudioPeaks(context: Context, uri: Uri, count: Int = 256): FloatArray {

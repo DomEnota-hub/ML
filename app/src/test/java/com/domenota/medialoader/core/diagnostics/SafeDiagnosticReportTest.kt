@@ -206,4 +206,14 @@ class SafeDiagnosticReportTest {
         }.isFailure)
         assertEquals(0, report().count { it == '<' })
     }
+    @Test fun sessionAndMusicLimitationsExportUsefulNotesWithoutRawSecrets() {
+        for (reason in listOf("SESSION_PROBE_UNAVAILABLE","SESSION_CHALLENGE_REQUIRED","SESSION_HTTP_302","SESSION_HTTP_500","MUSIC_SEARCH_UNAVAILABLE")) {
+            val spec=DiagnosticCheckSpec("source.rutube.session",DiagnosticComponent.SOURCES,DiagnosticImpact.OPTIONAL,DiagnosticScope.FULL)
+            val result=DiagnosticFinding.fromOutcome(spec,DiagnosticOutcome.unavailable("secret-token-cookie",reason),1000,1)
+            val text=SafeDiagnosticReport.render(SafeDiagnosticReport.Input(listOf(spec),DiagnosticRun(DiagnosticMode.FULL,900,1100,listOf(result)),emptyList(),1200,"1.7.117",178,36))
+            assertFalse(text.contains("secret-token-cookie"))
+            assertFalse(text.contains("дополнительных разрешённых"))
+            assertTrue(text.contains("не подтверждает скачивание"))
+        }
+    }
 }

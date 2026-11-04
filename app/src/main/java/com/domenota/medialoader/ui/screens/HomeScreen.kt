@@ -60,6 +60,9 @@ fun HomeScreen(
     recognitionEnabled: Boolean = false,
     onRecognizeDownload: (String) -> Unit = {},
     title: (@Composable () -> Unit)? = null,
+    deferredLinks: List<String> = emptyList(), deferredActive: String? = null, deferredMessage: String? = null,
+    onDeferredOpen: (String) -> Unit = {}, onDeferredRemove: (String) -> Unit = {},
+    onDeferredRetryAll: () -> Unit = {}, onDeferredStop: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
@@ -107,6 +110,34 @@ fun HomeScreen(
              }
         }
         Spacer(Modifier.height(24.dp))
+        if (deferredLinks.isNotEmpty() || deferredActive != null) {
+            AppCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Ожидает скачивания", style = MaterialTheme.typography.titleLarge)
+                    Text("Нажмите ссылку для выбора файлов. «Повторить всё» скачает найденные файлы с текущими настройками.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    deferredLinks.forEach { link ->
+                        Row(Modifier.fillMaxWidth().clickable(enabled = deferredActive == null) { onDeferredOpen(link) }
+                            .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Link, null, Modifier.padding(end = 12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(com.domenota.medialoader.data.deferred.DeferredLinkStore.source(link), style = MaterialTheme.typography.titleMedium)
+                                Text(if (link == deferredActive) "Проверяем ссылку…" else link, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            IconButton(onClick = { onDeferredRemove(link) }, enabled = deferredActive == null) {
+                                Icon(Icons.Rounded.Close, "Убрать из отложенного")
+                            }
+                        }
+                    }
+                    deferredMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    com.domenota.medialoader.ui.components.NeutralTextButton(
+                        onClick = if (deferredActive == null) onDeferredRetryAll else onDeferredStop,
+                        modifier = Modifier.fillMaxWidth()) { Text(if (deferredActive == null) "Повторить всё" else "Остановить") }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
         Text("Открыть источник", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

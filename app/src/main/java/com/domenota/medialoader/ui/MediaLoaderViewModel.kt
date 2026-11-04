@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 data class RecognitionProposal(
@@ -100,6 +101,57 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     fun clearBulkSelection() = repository.bulk.setAllSelected(false)
     fun clearBulkHistory() = repository.bulk.clearHistory()
     fun retryBulkFailed() = repository.bulk.retryFailed()
+    private val deferredStore = com.domenota.medialoader.data.deferred.DeferredLinkStore(application)
+    val deferredLinks = deferredStore.links
+    private val _deferredActive = MutableStateFlow<String?>(null)
+    val deferredActive = _deferredActive.asStateFlow()
+    private val _deferredMessage = MutableStateFlow<String?>(null)
+    val deferredMessage = _deferredMessage.asStateFlow()
+    private var deferredJob: Job? = null
+    fun deferLink(url: String) {
+        if (deferredStore.add(url)) Toast.makeText(getApplication(), "Добавлено в отложенное", Toast.LENGTH_SHORT).show()
+    }
+    fun removeDeferredLink(url: String) = deferredStore.remove(url)
+    fun stopDeferred() { deferredJob?.cancel() }
+    fun retryDeferred() {
+        if (deferredJob?.isActive == true) return
+        val snapshot = deferredLinks.value.toList()
+        deferredJob = viewModelScope.launch {
+            _deferredMessage.value = null
+            var failed = 0
+            try {
+                for (url in snapshot) {
+                    if (url !in deferredLinks.value) continue
+                    _deferredActive.value = url
+                    try {
+                        val items = analyzeMedia(url)
+                        val selected = items.defaultSelectedIds()
+                        val chosen = items.filter { it.id in selected }
+                        check(chosen.isNotEmpty()) { "Медиа не найдено" }
+                        val fresh = chosen.filter { repository.findDownloaded(it) == null }
+                        if (fresh.isEmpty()) { deferredStore.remove(url); continue }
+                        ActiveDownloadService.start(getApplication())
+                        val rows = queueMedia(fresh)
+                        check(rows.isNotEmpty()) { "Не удалось добавить загрузку" }
+                        // Once accepted, the ordinary download history owns retries.
+                        deferredStore.remove(url)
+                        val ids = rows.map { it.id }.toSet()
+                        val started = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
+                            repository.downloads.first { records -> records.any {
+                                it.id in ids && it.state != com.domenota.medialoader.core.model.DownloadState.QUEUED
+                            } }
+                        }
+                        if (started == null) {
+                            _deferredMessage.value = "Загрузка ещё в очереди. Остальные ссылки сохранены — повторите позже."
+                            break
+                        }
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { failed++; _deferredMessage.value = "Не удалось обработать ссылок: $failed. Они сохранены для повтора." }
+                }
+            } finally { _deferredActive.value = null }
+        }
+    }
+
     private var analysisJob: Job? = null
     private var fullSongJob: Job? = null
     private val fullSongGate = FullSongSessionGate()
@@ -544,6 +596,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
 
                 ActiveDownloadService.start(getApplication())
                 queueMedia(toQueue)
+                deferredStore.remove(state.url)
                 _preview.update { it.copy(enqueuing = false, duplicateMatches = emptyList()) }
                 onQueued()
             } catch (cancelled: CancellationException) {

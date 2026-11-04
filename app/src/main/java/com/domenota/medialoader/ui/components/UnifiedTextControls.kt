@@ -22,7 +22,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.domenota.medialoader.data.editor.TextLayerAlignment
 import com.domenota.medialoader.data.editor.TextLayer
 
 /** The same text component on the photo editor and video overlay editor. */
@@ -57,6 +61,7 @@ internal fun UnifiedTextStyle(
     layer: TextLayer,
     onChange: (TextLayer) -> Unit,
     enabled: Boolean = true,
+    showSize: Boolean = true,
     onPickColor: (() -> Unit)? = null,
 ) {
     Text("Цвет текста", style = MaterialTheme.typography.labelLarge)
@@ -83,7 +88,37 @@ internal fun UnifiedTextStyle(
             Icon(Icons.Rounded.Colorize, contentDescription = "Пипетка")
         }
     }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextStyleToggle("Жирный", "B", layer.bold, enabled, Modifier.weight(1f)) {
+            onChange(layer.copy(bold = !layer.bold))
+        }
+        TextStyleToggle("Контур", "A", layer.outline > 0f, enabled, Modifier.weight(1f)) {
+            onChange(layer.copy(outline = if (layer.outline > 0f) 0f else .06f))
+        }
+        TextStyleToggle("Тень", "A", layer.shadow, enabled, Modifier.weight(1f)) {
+            onChange(layer.copy(shadow = !layer.shadow))
+        }
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(TextLayerAlignment.LEFT to "Слева", TextLayerAlignment.CENTER to "По центру",
+            TextLayerAlignment.RIGHT to "Справа").forEach { (alignment, title) ->
+            TextStyleToggle(title, when (alignment) {
+                TextLayerAlignment.LEFT -> "≡"; TextLayerAlignment.CENTER -> "≡"; TextLayerAlignment.RIGHT -> "≡"
+            }, layer.alignment == alignment, enabled, Modifier.weight(1f)) {
+                onChange(layer.copy(alignment = alignment))
+            }
+        }
+    }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("Прозрачность", style = MaterialTheme.typography.labelMedium)
+        CompactTextSlider(
+            value = layer.opacity, onValueChange = { onChange(layer.copy(opacity = it)) },
+            valueRange = 0f..1f, enabled = enabled,
+            modifier = Modifier.weight(1f))
+        Text("${(layer.opacity * 100f).toInt()} %",
+            style = MaterialTheme.typography.labelSmall)
+    }
+    if (showSize) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Размер", style = MaterialTheme.typography.labelMedium)
         CompactTextSlider(value = layer.size.coerceIn(.02f, .25f),
             onValueChange = { onChange(layer.copy(size = it)) },
@@ -108,6 +143,45 @@ internal fun UnifiedTextStyle(
                 selectedLabelColor = Color.Black),
             onClick = { onChange(layer.copy(outlineColor = android.graphics.Color.WHITE)) },
             enabled = enabled, label = { Text("Светлая") })
+    }
+}
+
+@Composable
+private fun TextStyleToggle(title: String, symbol: String, selected: Boolean, enabled: Boolean,
+    modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(onClick = onClick, enabled = enabled, modifier = modifier.height(66.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+        color = if (selected) textEditorAccent else Color(0xFF2C2C2C),
+        contentColor = if (selected) Color.Black else Color.White) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) {
+            val ink = LocalContentColor.current
+            Canvas(Modifier.size(24.dp)) {
+                if (title in listOf("Слева", "По центру", "Справа")) {
+                    listOf(.85f, .58f, .85f, .48f).forEachIndexed { i, fraction ->
+                        val length = size.width * fraction
+                        val x = when (title) { "Слева" -> 0f; "Справа" -> size.width - length; else -> (size.width - length) / 2 }
+                        drawLine(ink, Offset(x, size.height * (.2f + i * .2f)),
+                            Offset(x + length, size.height * (.2f + i * .2f)),
+                            strokeWidth = 1.5.dp.toPx(), cap = StrokeCap.Round)
+                    }
+                } else {
+                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                        color = ink.toArgb(); textSize = size.height * .87f
+                        textAlign = android.graphics.Paint.Align.CENTER
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        if (title == "Контур") { style = android.graphics.Paint.Style.STROKE; strokeWidth = 1.dp.toPx() }
+                    }
+                    if (title == "Тень") {
+                        paint.alpha = 80
+                        drawContext.canvas.nativeCanvas.drawText(symbol, size.width / 2 + 2.dp.toPx(), size.height * .83f, paint)
+                        paint.alpha = 255
+                    }
+                    drawContext.canvas.nativeCanvas.drawText(symbol, size.width / 2, size.height * .77f, paint)
+                }
+            }
+            Text(title, fontSize = 10.sp)
+        }
     }
 }
 

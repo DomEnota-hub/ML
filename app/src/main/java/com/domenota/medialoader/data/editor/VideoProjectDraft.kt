@@ -71,12 +71,15 @@ data class VideoAudioTrackDraft(
     val volume: Float = 1f,
     val fadeInMs: Long = 0L,
     val fadeOutMs: Long = 0L,
+    val speed: Float = 1f,
+    val title: String? = null,
 ) {
     init {
         require(id.isNotBlank() && sourceUri.isNotBlank())
         require(atMs >= 0L)
         require(sourceDurationMs > 0L && inMs >= 0L &&
             outMs > inMs && outMs <= sourceDurationMs)
+        require(speed.isFinite() && speed in .25f..4f)
         require(volume.isFinite() && volume in 0f..1f)
         require(fadeInMs >= 0L && fadeOutMs >= 0L)
         require(fadeInMs + fadeOutMs <= durationMs) {
@@ -84,8 +87,19 @@ data class VideoAudioTrackDraft(
         }
     }
 
-    val durationMs: Long get() = outMs - inMs
+    val durationMs: Long get() = ((outMs - inMs).toDouble() / speed).roundToLong().coerceAtLeast(1L)
     val endAtMs: Long get() = atMs + durationMs
+    fun sourceAt(localTimeMs: Long): Long =
+        (inMs + localTimeMs.toDouble() * speed).roundToLong().coerceIn(inMs, outMs - 1L)
+
+    fun withRange(inMs: Long = this.inMs, outMs: Long = this.outMs,
+        speed: Float = this.speed): VideoAudioTrackDraft {
+        val resized = copy(inMs = inMs, outMs = outMs, speed = speed, fadeInMs = 0, fadeOutMs = 0)
+        val startFade = minOf(fadeInMs, resized.durationMs)
+        return resized.copy(fadeInMs = startFade,
+            fadeOutMs = minOf(fadeOutMs, resized.durationMs - startFade))
+    }
+
     fun gainAt(projectPositionMs: Long): Float {
         val local = projectPositionMs - atMs
         if (local < 0L || local >= durationMs) return 0f
@@ -107,6 +121,7 @@ data class VideoTimelineLocation(
 data class VideoProjectDraft(
     val clips: List<VideoClipDraft>,
     val audioTracks: List<VideoAudioTrackDraft> = emptyList(),
+    val aspect: VideoProjectAspect = VideoProjectAspect.ORIGINAL,
 ) {
     init {
         require(clips.isNotEmpty() && clips.size <= MAX_CLIPS)
@@ -133,8 +148,25 @@ data class VideoProjectDraft(
         error("Unreachable: project has at least one clip")
     }
 
+    /** Only untouched detached original sound follows its source clip. Manual edits stay independent. */
+    private fun withSynchronizedOriginalAudio(nextClips: List<VideoClipDraft>): VideoProjectDraft {
+        val next = copy(clips = nextClips)
+        return next.copy(audioTracks = audioTracks.map { track ->
+            val index = clips.indexOfFirst { clip ->
+                track.id.startsWith("detached-${clip.id}-") && track.sourceUri == clip.sourceUri &&
+                    track.inMs == clip.inMs && track.outMs == clip.outMs && track.speed == clip.speed &&
+                    track.atMs == timelineStart(clips.indexOf(clip))
+            }
+            if (index < 0) track else {
+                val updated = nextClips[index]
+                track.withRange(inMs = updated.inMs, outMs = updated.outMs, speed = updated.speed)
+                    .copy(atMs = next.timelineStart(index))
+            }
+        })
+    }
+
     fun trimClip(id: String, startMs: Long, endMs: Long): VideoProjectDraft =
-        copy(clips = clips.map { clip ->
+        withSynchronizedOriginalAudio( clips.map { clip ->
             if (clip.id == id) {
                 require(clip.mediaKind == VideoClipMediaKind.VIDEO) {
                     "Для фотографии измени длительность, а не точки обрезки"
@@ -152,7 +184,7 @@ data class VideoProjectDraft(
     }
 
     fun setSpeed(id: String, speed: Float): VideoProjectDraft =
-        copy(clips = clips.map { clip -> if (clip.id == id) {
+        withSynchronizedOriginalAudio( clips.map { clip -> if (clip.id == id) {
             require(clip.mediaKind == VideoClipMediaKind.VIDEO) {
                 "Для фотографии изменяй длительность"
             }
@@ -206,12 +238,10 @@ data class VideoProjectDraft(
 
     /** Clip overlay to actual project bounds; a track past the project end is omitted. */
     fun visibleAudioTracks(): List<VideoAudioTrackDraft> = audioTracks.mapNotNull { track ->
-        if (track.atMs >= durationMs) null
-        else track.copy(outMs = minOf(track.outMs, track.inMs + durationMs - track.atMs),
-            fadeInMs = minOf(track.fadeInMs, minOf(track.durationMs, durationMs - track.atMs)),
-            fadeOutMs = minOf(track.fadeOutMs,
-                (minOf(track.durationMs, durationMs - track.atMs) -
-                    minOf(track.fadeInMs, minOf(track.durationMs, durationMs - track.atMs))).coerceAtLeast(0L)))
+        val remaining = durationMs - track.atMs
+        val sourceSpan = (remaining.coerceAtLeast(0L).toDouble() * track.speed).toLong()
+        if (remaining <= 0L || sourceSpan <= 0L) null
+        else track.withRange(outMs = minOf(track.outMs, track.inMs + sourceSpan))
     }
 
     fun indexOf(id: String): Int = clips.indexOfFirst { it.id == id }

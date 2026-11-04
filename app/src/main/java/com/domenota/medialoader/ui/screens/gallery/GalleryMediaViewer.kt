@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
+import com.domenota.medialoader.ui.components.VideoSongSearchDialog
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -50,6 +52,8 @@ internal fun GalleryMediaViewer(
     onMoveToPrivate: (DownloadEntity) -> Unit, onOpenExternal: (DownloadEntity) -> Unit,
     onCurrentItemChanged: (DownloadEntity) -> Unit,
 ) {
+    val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
+    DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
     val queue = remember(media, item) { GalleryViewerState.queue(media.ifEmpty { listOf(item) }.map { it.id }, media.ifEmpty { listOf(item) }) }
     if (queue.isEmpty()) { LaunchedEffect(Unit) { onBack() }; return }
     var currentId by rememberSaveable { mutableStateOf(item.id) }
@@ -63,6 +67,7 @@ internal fun GalleryMediaViewer(
     var locked by rememberSaveable(current.id) { mutableStateOf(false) }
     var landscape by rememberSaveable(current.id) { mutableStateOf(false) }
     var menu by remember(current.id) { mutableStateOf(false) }
+    var songSearch by remember(current.id) { mutableStateOf(false) }
     var info by remember(current.id) { mutableStateOf(false) }
     var chooseFolder by remember(current.id) { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -119,19 +124,18 @@ internal fun GalleryMediaViewer(
                             tint = if (current.id in favoriteIds) MaterialTheme.colorScheme.primary else Color.White)
                     }
                     IconButton({ onDelete(current) }) { Icon(Icons.Rounded.DeleteOutline, "Удалить", tint = MaterialTheme.colorScheme.error) }
-                    IconButton({ menu = true }) { Icon(Icons.Rounded.MoreHoriz, "Ещё", tint = Color.White) }
                 }
             }) { padding ->
             // Pager may ask its previous key provider for one new index during a size update.
-            HorizontalPager(state = pager, key = { page -> queue.getOrNull(page)?.id ?: "pending-gallery-page:$page" }, beyondViewportPageCount = 0,
+            HorizontalPager(state = pager, key = { page -> queue.getOrNull(page)?.id ?: "pending-gallery-page:$page" }, beyondViewportPageCount = 1,
                 userScrollEnabled = !zoomed && !fullscreen && !locked,
                 modifier = Modifier.fillMaxSize().padding(padding)) { page ->
                 val row = queue.getOrNull(page) ?: return@HorizontalPager
                 val uri = Uri.parse(requireNotNull(row.savedUri))
-                if (row.mediaType == MediaType.PHOTO) key(row.id, pager.settledPage) {
+                if (row.mediaType == MediaType.PHOTO) key(row.id) {
                     ZoomablePhoto(row, uri, page + 1, queue.size,
                         onZoomedChanged = { if (page == pager.currentPage) zoomed = it }, modifier = Modifier.fillMaxSize(),
-                        showMetadata = false, onTap = { chrome = !chrome })
+                        showMetadata = false, onTap = { chrome = !chrome }, photoCache = photoCache, active = page == pager.settledPage)
                 } else if (GalleryViewerState.canCreateVideo(page, pager.settledPage, pager.isScrollInProgress)) key(row.id) {
                     // ExoPlayer starts with playWhenReady=false; only its play button starts playback.
                     LocalVideoPlayer(row.id, uri, fullscreen, locked, { locked = it }, { fullscreen = it }, { landscape = it },
@@ -145,10 +149,14 @@ internal fun GalleryMediaViewer(
         error?.let { message -> Snackbar(Modifier.align(Alignment.BottomCenter).padding(12.dp),
             action = { TextButton({ error = null }) { Text("Закрыть") } }) { Text(message) } }
     }
+    if (songSearch) VideoSongSearchDialog(current.savedUri.orEmpty()) { songSearch = false }
     if (menu) ModalBottomSheet(onDismissRequest = { menu = false }) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
         Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 24.dp)) {
             Text("Действия с файлом", fontSize = 18.sp, modifier = Modifier.padding(bottom = 12.dp))
+            if (current.mediaType == MediaType.VIDEO) TextButton({ menu = false; songSearch = true }, Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.MusicNote, null); Spacer(Modifier.width(12.dp)); Text("Найти трек")
+            }
             TextButton({ menu = false; info = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Info, null); Spacer(Modifier.width(12.dp)); Text("Сведения") }
             TextButton({ menu = false; chooseFolder = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(12.dp)); Text("Добавить в альбом") }
             TextButton({ menu = false; onOpenExternal(current) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.OpenInNew, null); Spacer(Modifier.width(12.dp)); Text("Открыть другим приложением") }

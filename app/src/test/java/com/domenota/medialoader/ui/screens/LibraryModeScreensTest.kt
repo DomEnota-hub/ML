@@ -66,8 +66,7 @@ class LibraryModeScreensTest {
         compose.onNodeWithText("В избранное").performClick()
         compose.waitForIdle()
         assertEquals("a" to true, favorite)
-        compose.onNodeWithContentDescription("Действия: Camera.jpg").performClick()
-        compose.onNodeWithText("Открыть").performClick()
+        compose.onNodeWithContentDescription("Camera.jpg").performClick()
         assertEquals("a" to listOf("a"), opened)
         compose.onNodeWithContentDescription("Действия: Camera.jpg").performClick()
         compose.onNodeWithText("Удалить").performClick()
@@ -154,12 +153,10 @@ class LibraryModeScreensTest {
         compose.setContent { Music(listOf(title, artist), listOf(title, artist), emptyList(),
             onOpen = { id, ids -> opened = id to ids }) }
         compose.onNodeWithText("Поиск музыки").performTextInput("Moonlight")
-        compose.onNodeWithContentDescription("Действия: 001.mp3").performClick()
-        compose.onNodeWithText("Открыть").performClick()
+        compose.onNodeWithText(audioTitle(title)).performClick()
         assertEquals("title" to listOf("title"), opened)
         compose.onNodeWithText("Поиск музыки").performTextReplacement("Aurora")
-        compose.onNodeWithContentDescription("Действия: 002.mp3").performClick()
-        compose.onNodeWithText("Открыть").performClick()
+        compose.onNodeWithText(audioTitle(artist)).performClick()
         assertEquals("artist" to listOf("artist"), opened)
     }
 

@@ -50,7 +50,7 @@ class VkFavoriteCheckWorker(context: Context, parameters: WorkerParameters) :
                 continue
             }
             try {
-                scan(job, entry, favorite, api, token)
+                scan(job, entry, favorite, batch.mode, api, token)
             } catch (error: CancellationException) {
                 failPending(batch, "Проверка прервана. Её можно повторить")
                 throw error
@@ -81,12 +81,12 @@ class VkFavoriteCheckWorker(context: Context, parameters: WorkerParameters) :
     }
 
     private suspend fun scan(job: VkCommunityJob, entry: VkFavoriteCheckEntry,
-        favorite: VkFavorite, api: VkCommunityApi, token: String) {
+        favorite: VkFavorite, mode: VkFavoriteSearchMode, api: VkCommunityApi, token: String) {
         val link = VkCommunityLink.parse(entry.link)
             ?: throw VkApiFailure(VkApiFailure.Kind.OTHER)
         val zone = ZoneId.of(job.zoneId)
         val period = VkDatePeriod.of(LocalDate.parse(job.startDate), LocalDate.parse(job.endDate))
-        val after = VkFavoriteCheckStore.afterEpoch(favorite, zone)
+        val after = VkFavoriteCheckStore.afterEpoch(favorite, zone, mode)
         var cursor = VkScanCursor(job.offset, job.totalPosts, false)
         while (!isStopped) {
             val page = withRateBackoff { api.wallPage(link, cursor.offset, token) }

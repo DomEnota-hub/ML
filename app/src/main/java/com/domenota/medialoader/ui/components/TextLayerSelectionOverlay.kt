@@ -6,6 +6,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -33,7 +35,8 @@ import kotlin.math.sin
 @Composable
 internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer: TextLayer,
     onChange: (TextLayer) -> Unit, zoom: PreviewZoom = PreviewZoom(),
-    onTap: () -> Unit = {}, onDuplicate: () -> Unit = {}, onDelete: () -> Unit = {}) {
+    onTap: () -> Unit = {}, onDuplicate: () -> Unit = {}, onDelete: () -> Unit = {},
+    cornerActions: Boolean = false, onGestureStart: () -> Unit = {}, onGestureEnd: () -> Unit = {}) {
     val displayScale = zoom.scale
     val context = LocalContext.current
     val current by rememberUpdatedState(layer)
@@ -41,10 +44,12 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
     val tapped by rememberUpdatedState(onTap)
     val duplicate by rememberUpdatedState(onDuplicate)
     val delete by rememberUpdatedState(onDelete)
+    val started by rememberUpdatedState(onGestureStart)
+    val finished by rememberUpdatedState(onGestureEnd)
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
     val padding = with(density) { 8.dp.toPx() } / displayScale
-    val radius = with(density) { 14.dp.toPx() } / displayScale
+    val radius = with(density) { 12.dp.toPx() } / displayScale
     val target = with(density) { 24.dp.toPx() } / displayScale
     // Layout includes font, multiline wrapping and actual alignment, as in the export renderer.
     fun frame(value: TextLayer): SelectionFrame {
@@ -67,8 +72,20 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
         val handle = Offset(placed.first, placed.second)
         return SelectionFrame(center, bounds, corner, handle, scale)
     }
+    fun actionPositions(f: SelectionFrame, rotation: Float): Pair<Offset, Offset> {
+        if (!cornerActions) return Offset(f.bounds.left, f.bounds.top - radius * 1.7f) to
+            Offset(f.bounds.right, f.bounds.top - radius * 1.7f)
+        fun safe(point: Offset) = Offset(point.x.coerceIn(radius, maxOf(radius, viewport.width - radius)),
+            point.y.coerceIn(radius, maxOf(radius, viewport.height - radius)))
+        return safe(f.center + (f.bounds.topLeft - f.center).rotated(rotation)) to
+            safe(f.center + (f.bounds.topRight - f.center).rotated(rotation))
+    }
+    val copyPaint = remember(radius) { android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.DKGRAY; textSize = radius * .95f
+        textAlign = android.graphics.Paint.Align.CENTER; typeface = android.graphics.Typeface.DEFAULT_BOLD
+    } }
     val visibleFrame = remember(layer, viewport, density, zoom) { frame(layer) }
-    Canvas(Modifier.fillMaxSize().onSizeChanged { viewport = it }
+    Canvas(Modifier.fillMaxSize().then(if (cornerActions) Modifier.clipToBounds() else Modifier).onSizeChanged { viewport = it }
         .semantics {
             contentDescription = "Рамка надписи: перемещение, размер и поворот"
             customActions = listOf(
@@ -84,8 +101,7 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
                 val down = awaitFirstDown(requireUnconsumed = true)
                 val start = current
                 val initial = frame(start)
-                val copyTarget = Offset(initial.bounds.left, initial.bounds.top - radius * 1.7f)
-                val deleteTarget = Offset(initial.bounds.right, initial.bounds.top - radius * 1.7f)
+                val (copyTarget, deleteTarget) = actionPositions(initial, start.rotation)
                 if ((down.position - copyTarget).getDistance() <= target) {
                     down.consume(); duplicate(); return@awaitEachGesture
                 }
@@ -98,7 +114,8 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
                 down.consume()
                 val startVector = down.position - initial.center
                 var dragged = false
-                do {
+                started()
+                try { do {
                     val event = awaitPointerEvent()
                     val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
                     if (pointer.isConsumed) break
@@ -117,27 +134,31 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
                             centerY = (start.centerY + offset.y / (imageHeight * initial.scale)).coerceIn(0f, 1f)))
                     }
                     pointer.consume()
-                } while (event.changes.any { it.pressed })
+                } while (event.changes.any { it.pressed }) } finally { finished() }
             }
         }) {
         if (viewport.width == 0) return@Canvas
         val f = visibleFrame
-        val copyTarget = Offset(f.bounds.left, f.bounds.top - radius * 1.7f)
-        val deleteTarget = Offset(f.bounds.right, f.bounds.top - radius * 1.7f)
+        val (copyTarget, deleteTarget) = actionPositions(f, layer.rotation)
+        withTransform({ rotate(layer.rotation, f.center) }) {
+            drawRect(Color.White, f.bounds.topLeft, f.bounds.size, style = Stroke(1.5.dp.toPx() / displayScale))
+        }
         listOf(copyTarget, deleteTarget).forEach { circle ->
             drawCircle(Color.White, radius * .86f, circle)
         }
+        if (cornerActions) {
+            drawContext.canvas.nativeCanvas.drawText("+1", copyTarget.x,
+                copyTarget.y - (copyPaint.ascent() + copyPaint.descent()) / 2f, copyPaint)
+        } else {
         drawLine(Color.DarkGray, copyTarget - Offset(radius * .32f, 0f),
             copyTarget + Offset(radius * .32f, 0f), strokeWidth = 1.7.dp.toPx())
         drawLine(Color.DarkGray, copyTarget - Offset(0f, radius * .32f),
             copyTarget + Offset(0f, radius * .32f), strokeWidth = 1.7.dp.toPx())
+        }
         drawLine(Color.DarkGray, deleteTarget - Offset(radius * .25f, radius * .25f),
             deleteTarget + Offset(radius * .25f, radius * .25f), strokeWidth = 1.7.dp.toPx())
         drawLine(Color.DarkGray, deleteTarget - Offset(radius * .25f, -radius * .25f),
             deleteTarget + Offset(radius * .25f, -radius * .25f), strokeWidth = 1.7.dp.toPx())
-        withTransform({ rotate(layer.rotation, f.center) }) {
-            drawRect(Color.White, f.bounds.topLeft, f.bounds.size, style = Stroke(1.5.dp.toPx() / displayScale))
-        }
         if ((f.corner - f.handle).getDistance() > 1f) {
             drawLine(Color.White, f.corner, f.handle, 1.dp.toPx() / displayScale)
         }

@@ -180,38 +180,9 @@ fun MediaViewerScreen(
     }
     var confirmTrashDelete by remember { mutableStateOf(false) }
     var songSearchOpen by remember(selectedItem.id) { mutableStateOf(false) }
-    var songSearchBusy by remember(selectedItem.id) { mutableStateOf(false) }
-    var songSearchResult by remember(selectedItem.id) { mutableStateOf<MusicRecognitionResult?>(null) }
-    var songSearchMessage by remember(selectedItem.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(songSearchOpen) {
-        if (songSearchOpen && selectedItem.mediaType == MediaType.VIDEO) {
-            songSearchBusy = true
-            songSearchResult = runCatching {
-                MediaRepository.get(context).recognizeSavedVideo(selectedItem.savedUri.orEmpty())
-            }.getOrNull()
-            songSearchMessage = if (songSearchResult == null) {
-                "Композицию определить не удалось. Введите исполнителя и название вручную."
-            } else "Трек распознан по звуку видео"
-            songSearchBusy = false
-        }
-    }
-
-    if (songSearchOpen) {
-        if (songSearchBusy) AlertDialog(
-            onDismissRequest = { songSearchOpen = false },
-            title = { Text("Ищем полную песню") },
-            text = { CircularProgressIndicator() },
-            confirmButton = { TextButton(onClick = { songSearchOpen = false }) { Text("Отмена") } },
-        ) else FullSongSearchDialog(
-            source = FullSongSource.fromStored(context.getSharedPreferences("ui", 0)
-                .getString(FullSongSource.PREF_KEY, null)),
-            initialArtist = songSearchResult?.artist.orEmpty(),
-            initialTitle = songSearchResult?.title.orEmpty(),
-            recognizedArtworkUrl = songSearchResult?.artworkUrl,
-            recognitionMessage = songSearchMessage,
-            onDismiss = { songSearchOpen = false },
-        )
-    }
+    if (songSearchOpen) com.domenota.medialoader.ui.components.VideoSongSearchDialog(
+        displayedItem.savedUri.orEmpty(), onDismiss = { songSearchOpen = false },
+    )
 
     if (confirmTrashDelete) AlertDialog(
         onDismissRequest = { confirmTrashDelete = false },
@@ -251,23 +222,6 @@ fun MediaViewerScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            if (mediaQueue.size > 1 && selectedIndex >= 0 && !videoControlsLocked) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { selectedId = mediaQueue[selectedIndex - 1].id },
-                        enabled = selectedIndex > 0) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Предыдущий файл")
-                    }
-                    Text("${selectedIndex + 1} из ${mediaQueue.size}")
-                    IconButton(onClick = { selectedId = mediaQueue[selectedIndex + 1].id },
-                        enabled = selectedIndex < mediaQueue.lastIndex) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Следующий файл",
-                            modifier = Modifier.graphicsLayer { rotationZ = 180f })
-                    }
-                }
-            }
-
             if (trashReadOnly && !videoFullscreen) Surface(tonalElevation = 3.dp) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -318,12 +272,11 @@ fun MediaViewerScreen(
                             DropdownMenu(expanded = actionMenuOpen,
                                 onDismissRequest = { actionMenuOpen = false }) {
                                 if (displayedItem.mediaType == MediaType.VIDEO) DropdownMenuItem(
-                                    text = { Text("Найти полную песню") },
+                                    text = { Text("Найти трек") },
                                     leadingIcon = { Icon(Icons.Outlined.MusicNote, contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp)) },
                                     onClick = {
                                         actionMenuOpen = false
-                                        songSearchBusy = true
                                         songSearchOpen = true
                                     },
                                 )
@@ -358,24 +311,14 @@ fun MediaViewerScreen(
         }
 
         when (selectedItem.mediaType) {
-            MediaType.PHOTO -> PhotoPager(
-                startItem = selectedItem,
-                queue = if (mediaQueue.isEmpty()) photoQueue else emptyList(),
-                onCurrentItemChanged = { displayedItem = it },
+            MediaType.PHOTO, MediaType.VIDEO -> MediaSwipePages(
+                start = item, queue = mediaQueue.ifEmpty { photoQueue },
+                onCurrent = { selectedId = it.id; displayedItem = it },
                 modifier = Modifier.fillMaxSize().padding(padding),
-            )
-            MediaType.VIDEO -> key(selectedItem.id) { LocalVideoPlayer(
-                itemId = selectedItem.id,
-                uri = uri,
-                fullscreen = videoFullscreen,
-                controlsLocked = videoControlsLocked,
-                onControlsLockedChange = { videoControlsLocked = it },
-                onFullscreenChange = { videoFullscreen = it },
+                onOpenExternal = onOpenExternal, allowExternal = !trashReadOnly,
+                onFullscreenChange = { videoFullscreen = it }, onLockedChange = { videoControlsLocked = it },
                 onVideoOrientation = { landscapeVideo = it },
-                onOpenExternal = { onOpenExternal(selectedItem) },
-                allowExternal = !selectedItem.isPrivate,
-                modifier = Modifier.fillMaxSize().padding(padding),
-            ) }
+            )
             MediaType.AUDIO -> BackgroundAudioPlayer(
                 item = selectedItem,
                 uri = uri,
@@ -1265,7 +1208,7 @@ private fun PhotoPager(
     }
 }
 
-private data class DecodedImage(
+internal data class DecodedImage(
     val bitmap: Bitmap,
     val sourceWidth: Int,
     val sourceHeight: Int,
@@ -1279,22 +1222,30 @@ internal fun ZoomablePhoto(
     count: Int,
     onZoomedChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    showMetadata: Boolean = true,
+    showMetadata: Boolean = false,
     onTap: () -> Unit = {},
+    photoCache: PhotoPreviewCache? = null,
+    active: Boolean = true,
 ) {
     val context = LocalContext.current
-    var decoded by remember(uri) { mutableStateOf<DecodedImage?>(null) }
+    var decoded by remember(uri) { mutableStateOf(photoCache?.get(uri.toString())) }
     var failed by remember(uri) { mutableStateOf(false) }
     var scale by remember(uri) { mutableFloatStateOf(1f) }
     var offset by remember(uri) { mutableStateOf(Offset.Zero) }
     var containerSize by remember(uri) { mutableStateOf(IntSize.Zero) }
 
-    LaunchedEffect(uri) {
-        val result = withContext(Dispatchers.IO) {
-            runCatching { decodeLocalImage(context, uri) }
+    LaunchedEffect(uri, active) {
+        val preview = photoCache?.get(uri.toString()) ?: withContext(Dispatchers.IO) {
+            runCatching { viewerPhotoDecode(context, uri, 1280)?.also { photoCache?.put(uri.toString(), it) } }.getOrNull()
         }
-        decoded = result.getOrNull()
-        failed = result.isFailure || decoded == null
+        // Retain visible pixels while upgrading; neighbours only keep small previews.
+        if (!active || decoded == null) decoded = preview
+        if (active && preview != null) {
+            val full = if (preview.bitmap.width >= preview.sourceWidth && preview.bitmap.height >= preview.sourceHeight) preview
+                else withContext(Dispatchers.IO) { runCatching { viewerPhotoDecode(context, uri, 4096) }.getOrNull() }
+            if (full != null) decoded = full
+        }
+        failed = decoded == null
     }
 
     LaunchedEffect(scale) {
@@ -1311,7 +1262,7 @@ internal fun ZoomablePhoto(
                     offset = clampPhotoOffset(offset, scale, size, image)
                 }
             }
-            .pointerInput(uri, decoded, containerSize) {
+            .pointerInput(uri, containerSize) {
                 detectTapGestures(
                     onTap = { onTap() },
                     onDoubleTap = {
@@ -1326,7 +1277,7 @@ internal fun ZoomablePhoto(
                     },
                 )
             }
-            .pointerInput(uri, decoded, containerSize) {
+            .pointerInput(uri, containerSize) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
                     var transformActive = scale > 1.01f
@@ -1439,7 +1390,7 @@ private fun formatMediaSize(bytes: Long?): String {
     }
 }
 
-private fun decodeLocalImage(
+internal fun decodeLocalImage(
     context: android.content.Context,
     uri: Uri,
     maxSide: Int = 4096,

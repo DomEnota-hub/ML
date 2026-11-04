@@ -27,6 +27,8 @@ class AudioExtractor(
     private val context: Context,
     private val storage: StorageManager,
     private val instagramCookies: () -> String? = { null },
+    private val mediaUrlAllowed: (String) -> Boolean = { InstagramProvider.safeMediaUrl(it) },
+    private val referer: String = "https://www.instagram.com/",
 ) {
     class NoAudioTrackException : Exception("В этом видео нет звуковой дорожки.")
     class VideoTooLargeException : IOException("Видео слишком большое для извлечения аудио.")
@@ -80,13 +82,13 @@ class AudioExtractor(
     ) {
         var source = URL(url)
         repeat(5) {
-            if (!InstagramProvider.safeMediaUrl(source.toString())) throw IOException("Недопустимый адрес медиа")
+            if (!mediaUrlAllowed(source.toString())) throw IOException("Недопустимый адрес медиа")
             val connection = source.openConnection() as HttpURLConnection
             try {
             connection.instanceFollowRedirects = false
             connection.connectTimeout = 12000
             connection.readTimeout = 20000
-            connection.setRequestProperty("Referer", "https://www.instagram.com/")
+            connection.setRequestProperty("Referer", referer)
             connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
             if (source.host.equals("instagram.com", true) || source.host.endsWith(".instagram.com", true)) {
                 instagramCookies()?.let { connection.setRequestProperty("Cookie", it) }
@@ -95,7 +97,7 @@ class AudioExtractor(
             if (status in 300..399) {
                 val location = connection.getHeaderField("Location") ?: throw IOException("Перенаправление без адреса")
                 val next = URL(source, location)
-                if (!InstagramProvider.safeMediaUrl(next.toString())) throw IOException("Недопустимый адрес медиа")
+                if (!mediaUrlAllowed(next.toString())) throw IOException("Недопустимый адрес медиа")
                 source = next
                 return@repeat
             }

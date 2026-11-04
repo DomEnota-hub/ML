@@ -57,9 +57,22 @@ internal class VideoAudioMixEngine(private val context: Context) {
             val args = VideoAudioMixCommand.build(video, audioInputs, tracks,
                 output, hasOriginalAudio, project.durationMs)
             val ok = suspendCancellableCoroutine<Boolean> { continuation ->
-                val session = FFmpegKit.executeWithArgumentsAsync(args.toTypedArray()) { completed ->
+                val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                var reported = 10
+                val session = FFmpegKit.executeWithArgumentsAsync(args.toTypedArray(), { completed ->
                     if (continuation.isActive) continuation.resume(ReturnCode.isSuccess(completed.returnCode))
-                }
+                }, null, { statistics ->
+                    // FFmpeg time is encoded output milliseconds, after trim/atempo/fade.
+                    if (statistics.time.isFinite() && statistics.time >= 0) {
+                        val percent = (10 + statistics.time * 89 / project.durationMs).toInt().coerceIn(10, 99)
+                        mainHandler.post {
+                            if (continuation.isActive && percent > reported) {
+                                reported = percent
+                                onProgress(percent)
+                            }
+                        }
+                    }
+                })
                 continuation.invokeOnCancellation { FFmpegKit.cancel(session.sessionId) }
             }
             check(ok && output.isFile && output.length() > 0L) {
@@ -111,6 +124,13 @@ internal object VideoAudioMixCommand {
                 "aformat=channel_layouts=stereo",
                 "volume=${"%.3f".format(Locale.US, track.volume)}",
             )
+            // atempo preserves pitch and must precede fades, whose times are OUTPUT time.
+            var tempo = track.speed
+            val tempoFilters = mutableListOf<String>()
+            while (tempo < .5f) { tempoFilters += "atempo=0.5"; tempo /= .5f }
+            while (tempo > 2f) { tempoFilters += "atempo=2.0"; tempo /= 2f }
+            if (tempo != 1f) tempoFilters += "atempo=${"%.6f".format(Locale.US, tempo)}"
+            commands.addAll(2, tempoFilters)
             if (track.fadeInMs > 0L)
                 commands += "afade=t=in:st=0:d=${seconds(track.fadeInMs)}"
             if (track.fadeOutMs > 0L) {

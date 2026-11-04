@@ -54,7 +54,10 @@ class PhoneMediaLibrary(context: Context) {
             val projection = mutableListOf("_id", "_display_name", "_size", "date_added", "_data", "date_modified")
             if (Build.VERSION.SDK_INT >= 30) projection += MediaStore.MediaColumns.GENERATION_MODIFIED
             if (type != MediaType.PHOTO) projection += "duration"
-            if (type == MediaType.AUDIO) projection += listOf("title", "artist")
+            if (type == MediaType.AUDIO) {
+                projection += listOf("title", "artist")
+                if (Build.VERSION.SDK_INT >= 29) projection += listOf("relative_path", "volume_name")
+            }
             else projection += listOf("bucket_display_name", "bucket_id")
             val rows = mutableListOf<DownloadEntity>()
             try {
@@ -181,7 +184,9 @@ class PhoneMediaLibrary(context: Context) {
                 sizeBytes = number("_size")?.takeIf { it >= 0 },
                 createdAtEpochMillis = (number("date_added") ?: 0L) * 1000,
                 previewUrl = if (type != MediaType.AUDIO) uri else null,
-                groupId = if (type != MediaType.AUDIO) string("bucket_display_name") else null,
+                groupId = if (type != MediaType.AUDIO) string("bucket_display_name") else
+                    string("relative_path")?.let { "${string("volume_name").orEmpty()}:$it" }
+                        ?: string("_data")?.substringBeforeLast('/', ""),
                 bulkMediaKey = if (type != MediaType.AUDIO) number("bucket_id")?.toString() else null,
                 sourceAudioArtist = if (type == MediaType.AUDIO) string("artist") else null,
                 sourceAudioTitle = if (type == MediaType.AUDIO) string("title") else null,

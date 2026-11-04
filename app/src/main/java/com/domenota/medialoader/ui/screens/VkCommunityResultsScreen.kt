@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.vkcommunity.VkAdStatus
 import com.domenota.medialoader.data.vkcommunity.VkCommunityDatabase
 import com.domenota.medialoader.data.vkcommunity.VkCommunityJob
+import com.domenota.medialoader.data.vkcommunity.VkFavoriteSearchMode
 import com.domenota.medialoader.data.vkcommunity.VkItemPhase
 import com.domenota.medialoader.data.vkcommunity.VkJobPhase
 import com.domenota.medialoader.data.vkcommunity.VkResultPosition
@@ -71,6 +72,7 @@ fun VkCommunityResultsScreen(
     onContinue: () -> Unit, onRepeat: () -> Unit,
     onFinishReview: (() -> Unit)? = null,
     isFavoriteCheck: Boolean = false,
+    favoriteSearchMode: VkFavoriteSearchMode? = null,
 ) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("vk_community_ui", 0) }
@@ -91,6 +93,13 @@ fun VkCommunityResultsScreen(
                 style = MaterialTheme.typography.titleLarge)
         }
         job?.let { current ->
+            Text("${current.startDate} — ${current.endDate}",
+                style = MaterialTheme.typography.bodySmall)
+            favoriteSearchMode?.let { mode ->
+                Text(if (mode == VkFavoriteSearchMode.FULL_PERIOD) "Полный поиск по дате сообщества"
+                    else "Новые после последнего завершённого просмотра",
+                    style = MaterialTheme.typography.bodySmall)
+            }
             Text(when (current.phase) {
                 VkJobPhase.SCANNING -> "Идёт поиск"
                 VkJobPhase.READY -> "Поиск завершён"
@@ -112,7 +121,9 @@ fun VkCommunityResultsScreen(
                 if (!readOnly && !isFavoriteCheck && current.phase in setOf(VkJobPhase.ERROR, VkJobPhase.CANCELLED) &&
                     !current.scanComplete)
                     OutlinedButton(onClick = onContinue) { Text("Продолжить") }
-                if (readOnly && !isFavoriteCheck) OutlinedButton(onClick = onRepeat) { Text("Повторить поиск") }
+                if (!isFavoriteCheck && current.phase !in
+                    setOf(VkJobPhase.SCANNING, VkJobPhase.DOWNLOADING))
+                    OutlinedButton(onClick = onRepeat) { Text("Повторить полный поиск") }
             }
             if (!readOnly && current.found > 0) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -201,9 +212,12 @@ fun VkCommunityResultsScreen(
         }
         if (!readOnly && job?.scanComplete == true && onFinishReview != null) {
             OutlinedButton(onClick = onFinishReview, modifier = Modifier.fillMaxWidth()) {
-                Text("Завершить просмотр")
+                Text("Отметить просмотренным")
             }
         }
+        if (readOnly && isFavoriteCheck) Text("Просмотр отмечен",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -43,8 +43,12 @@ class VideoOverlayUnifiedTextTest {
             }
         }
         compose.onNodeWithText("Клавиатура").assertExists()
+        listOf("Горизонталь", "Вертикаль", "Поворот", "Начало", "Конец").forEach {
+            compose.onNodeWithText(it).assertDoesNotExist()
+        }
         compose.onNodeWithText("Стиль").performClick()
         compose.onNodeWithText("Цвет текста").assertExists()
+        compose.onNodeWithText("Размер").assertDoesNotExist()
         compose.onNodeWithText("Обводка").assertExists()
         compose.onNodeWithText("Шрифт").performClick()
         compose.onNodeWithText("Библиотека шрифтов").assertExists()

@@ -20,15 +20,17 @@ data class PhotoGeometry(
     val horizontalPerspective: Float = 0f,
     val verticalPerspective: Float = 0f,
     val corners: List<PhotoGeometryPoint> = identityCorners(),
+    val distortion: Float = 0f,
 ) {
     init {
-        require(straighten.isFinite() && straighten in -45f..45f)
+        require(straighten.isFinite() && straighten in -100f..100f)
         require(horizontalPerspective.isFinite() && horizontalPerspective in -100f..100f)
         require(verticalPerspective.isFinite() && verticalPerspective in -100f..100f)
+        require(distortion.isFinite() && distortion in -100f..100f)
         require(corners.size == 4 && PhotoGeometryMath.isValidQuad(corners))
     }
     fun isNeutral() = straighten == 0f && horizontalPerspective == 0f &&
-        verticalPerspective == 0f && corners == identityCorners()
+        verticalPerspective == 0f && distortion == 0f && corners == identityCorners()
 
     companion object {
         fun identityCorners() = listOf(
@@ -67,70 +69,23 @@ object PhotoGeometryMath {
         return if (isValidQuad(candidate)) settings.copy(corners = candidate) else settings
     }
 
-    /**
-     * A camera-like rotation of the photo plane, projected onto the image rectangle.
-     * HORIZONTAL rotates around the upright Y axis (the left and right sides recede);
-     * VERTICAL rotates around the horizontal X axis (top and bottom recede).
-     *
-     * This is shared by scrubbing previews and final exports. Values are expressed
-     * in UI units (-100..100), not literal degrees.
+    /** Centered perspective: positive H brings the right edge nearer; negative V the top.
+     * Do not independently fit X/Y back into a rectangle: that erases perspective scale.
+     * Combined controls share a depth budget so the plane never crosses the camera.
      */
     fun destination(settings: PhotoGeometry, width: Int, height: Int): FloatArray {
         require(width > 0 && height > 0)
-        val horizontal = settings.horizontalPerspective
-        val vertical = settings.verticalPerspective
-        if (horizontal == 0f && vertical == 0f) {
-            return FloatArray(8) { i ->
-                val p = settings.corners[i / 2]
-                if (i % 2 == 0) p.x * width else p.y * height
+        val horizontal = settings.horizontalPerspective / 100f
+        val vertical = settings.verticalPerspective / 100f
+        val depth = .65f / max(1f, abs(horizontal) + abs(vertical))
+        return FloatArray(8).also { result ->
+            settings.corners.forEachIndexed { index, point ->
+                val x = point.x - .5f
+                val y = point.y - .5f
+                val denominator = 1f - 2f * depth * (horizontal * x + vertical * y)
+                result[index * 2] = (.5f + x / denominator) * width
+                result[index * 2 + 1] = (.5f + y / denominator) * height
             }
-        }
-
-        // Capped below 90 degrees so the four projected corners never fold
-        // over each other or reveal the back of the photo.
-        val yaw = Math.toRadians((horizontal * .64f).toDouble())
-        val pitch = Math.toRadians((vertical * .64f).toDouble())
-        val yawCos = cos(yaw).toFloat()
-        val yawSin = sin(yaw).toFloat()
-        val pitchCos = cos(pitch).toFloat()
-        val pitchSin = sin(pitch).toFloat()
-        val focalLength = 1.6f
-        val projected = settings.corners.map { corner ->
-            val x = corner.x - .5f
-            val y = corner.y - .5f
-            // Rotate first around Y, then around X.
-            val rx = x * yawCos
-            val zYaw = -x * yawSin
-            val ry = y * pitchCos - zYaw * pitchSin
-            val z = y * pitchSin + zYaw * pitchCos
-            val projection = focalLength / (focalLength + z)
-            Pair(rx * projection, ry * projection)
-        }
-        val minX = projected.minOf { it.first }
-        val maxX = projected.maxOf { it.first }
-        val minY = projected.minOf { it.second }
-        val maxY = projected.maxOf { it.second }
-        val spanX = (maxX - minX).coerceAtLeast(.001f)
-        val spanY = (maxY - minY).coerceAtLeast(.001f)
-        val hasFreeCorners = settings.corners != PhotoGeometry.identityCorners()
-        val scaleX = if (hasFreeCorners) minOf(1f, .98f / spanX)
-            else (1f - .03f * (kotlin.math.abs(horizontal) / 100f)) / spanX
-        val scaleY = if (hasFreeCorners) minOf(1f, .98f / spanY)
-            else (1f - .03f * (kotlin.math.abs(vertical) / 100f)) / spanY
-        val centerX = (minX + maxX) / 2f
-        val centerY = (minY + maxY) / 2f
-        val normalized = projected.map { p ->
-            PhotoGeometryPoint(
-                (.5f + (p.first - centerX) * scaleX).coerceIn(0f, 1f),
-                (.5f + (p.second - centerY) * scaleY).coerceIn(0f, 1f),
-            )
-        }
-        // Preserve even extreme custom corner edits rather than generating an
-        // invalid perspective homography.
-        val quad = if (isValidQuad(normalized)) normalized else settings.corners
-        return FloatArray(8) { i ->
-            val p = quad[i / 2]
-            if (i % 2 == 0) p.x * width else p.y * height
         }
     }
 
@@ -208,6 +163,13 @@ object PhotoGeometryMath {
 
     fun apply(source: Bitmap, settings: PhotoGeometry): Bitmap {
         if (settings.isNeutral()) return source
+        if (settings.distortion != 0f) {
+            // Keep the lens mesh in a bounded bitmap plane. Projecting its expanded
+            // corners through a perspective matrix can cross the camera horizon.
+            val planar = apply(source, settings.copy(distortion = 0f))
+            try { return PhotoDistortionMath.apply(planar, settings.distortion) }
+            finally { if (planar !== source) planar.recycle() }
+        }
         val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
         try {
             val canvas = Canvas(output)

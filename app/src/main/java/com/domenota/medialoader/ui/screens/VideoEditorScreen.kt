@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
 import android.media.MediaMetadataRetriever
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.content.Intent
@@ -15,6 +16,7 @@ import java.util.UUID
 import kotlinx.coroutines.delay
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -38,6 +40,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.RotateRight
@@ -59,6 +66,10 @@ import com.domenota.medialoader.ui.components.AppSlider as Slider
 import androidx.compose.material3.Text
 import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.material3.TopAppBar
+import com.domenota.medialoader.ui.components.TextLayerSelectionOverlay
+import com.domenota.medialoader.ui.components.UnifiedTextTab
+import com.domenota.medialoader.data.editor.VideoTextLaneEdit
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -73,6 +84,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -93,6 +106,8 @@ import com.domenota.medialoader.data.editor.VideoCropMath
 import com.domenota.medialoader.data.editor.VideoEditSpec
 import com.domenota.medialoader.data.editor.VideoEditor
 import com.domenota.medialoader.data.editor.VideoProjectDraft
+import com.domenota.medialoader.data.editor.VideoEditHistory
+import com.domenota.medialoader.data.editor.VideoOriginalAudioDetach
 import com.domenota.medialoader.data.editor.VideoColorGrade
 import com.domenota.medialoader.data.editor.VideoExportSettings
 import com.domenota.medialoader.data.editor.VideoClipMediaKind
@@ -124,18 +139,75 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import java.io.File
 
+private data class VideoEditorUndoSnapshot(
+    val project: VideoProjectDraft,
+    val textLayers: List<TextLayer>,
+    val graphicLayers: List<VideoGraphicLayer>,
+    val removeAudio: Boolean,
+    val reverseVideo: Boolean,
+    val exportSettings: VideoExportSettings,
+    val selectedClipId: String,
+)
+
 private data class VideoInfo(
     val width: Int,
     val height: Int,
     val durationMs: Long,
     val frameDurationMs: Long?,
     val isImage: Boolean = false,
+    val isHdr: Boolean = false,
 )
+
+/** The approved v8 editor has its own dark canvas, independent of the app's light theme. */
+@Composable
+fun VideoEditorScreen(
+    item: DownloadEntity,
+    exportState: EditorExportState,
+    onBack: () -> Unit,
+    onExport: (VideoEditSpec) -> Unit,
+    onSaveFrame: (Long, VideoEditSpec) -> Unit,
+    onExtractAudio: (Long, Long?) -> Unit,
+    onCancelExport: () -> Unit,
+) {
+    val editorWindow = LocalContext.current.findActivity()?.window
+    DisposableEffect(editorWindow) {
+        val controller = editorWindow?.let {
+            androidx.core.view.WindowInsetsControllerCompat(it, it.decorView)
+        }
+        val previousStatus = controller?.isAppearanceLightStatusBars
+        val previousNavigation = controller?.isAppearanceLightNavigationBars
+        controller?.isAppearanceLightStatusBars = false
+        controller?.isAppearanceLightNavigationBars = false
+        onDispose {
+            previousStatus?.let { controller?.isAppearanceLightStatusBars = it }
+            previousNavigation?.let { controller?.isAppearanceLightNavigationBars = it }
+        }
+    }
+    androidx.compose.runtime.SideEffect {
+        editorWindow?.let { window ->
+            androidx.core.view.WindowInsetsControllerCompat(window, window.decorView).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+            }
+        }
+    }
+    MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme(
+        primary = Color(0xFFFFC000), onPrimary = Color.Black,
+        background = Color(0xFF101010), onBackground = Color(0xFFECECEC),
+        surface = Color(0xFF242424), onSurface = Color(0xFFECECEC),
+        surfaceVariant = Color(0xFF303030), onSurfaceVariant = Color(0xFFBDBDBD),
+        outline = Color(0xFF606060), secondary = Color(0xFFFFC000),
+        primaryContainer = Color(0xFF4D4100), onPrimaryContainer = Color(0xFFFFE58A),
+    )) {
+        VideoEditorContent(item, exportState, onBack, onExport, onSaveFrame,
+            onExtractAudio, onCancelExport)
+    }
+}
 
 @OptIn(UnstableApi::class)
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VideoEditorScreen(
+private fun VideoEditorContent(
     item: DownloadEntity,
     exportState: EditorExportState,
     onBack: () -> Unit,
@@ -150,6 +222,7 @@ fun VideoEditorScreen(
     val busyWithOther = exportState.exporting && exportState.sourceId != null &&
         exportState.sourceId != item.id
     var info by remember(uri) { mutableStateOf<VideoInfo?>(null) }
+    com.domenota.medialoader.ui.components.ScreenPerformanceProbe("video_editor_metadata", info != null)
     var removeAudio by remember { mutableStateOf(false) }
     var reverseVideo by remember(item.id) { mutableStateOf(false) }
     var reversePreviewFile by remember(item.id) { mutableStateOf<File?>(null) }
@@ -166,6 +239,11 @@ fun VideoEditorScreen(
     }
     var selectedOverlayId by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedTool by remember(item.id) { mutableStateOf<VideoWorkspaceTool?>(null) }
+    var musicImporting by remember(item.id) { mutableStateOf(false) }
+    var musicPickerOpen by remember(item.id) { mutableStateOf(false) }
+    var musicChoices by remember(item.id) { mutableStateOf<List<VideoMusicChoice>>(emptyList()) }
+    var referenceMoreOpen by remember(item.id) { mutableStateOf(false) }
+    var referenceColorManual by remember(item.id) { mutableStateOf(false) }
     var exportSettings by remember(item.id) { mutableStateOf(VideoExportSettings()) }
     var firstClipInfo by remember(item.id) { mutableStateOf<VideoInfo?>(null) }
 
@@ -179,6 +257,41 @@ fun VideoEditorScreen(
     var selectedPreviewInfo by remember(item.id) { mutableStateOf<VideoInfo?>(null) }
     var clipError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedAudioTrackId by remember(item.id) { mutableStateOf<String?>(null) }
+    val editHistory = remember(item.id) { VideoEditHistory<VideoEditorUndoSnapshot>() }
+    var panelSnapshot by remember(item.id) { mutableStateOf<VideoEditorUndoSnapshot?>(null) }
+    var panelHistory by remember(item.id) { mutableStateOf<VideoEditHistory.Checkpoint<VideoEditorUndoSnapshot>?>(null) }
+    var historyRevision by remember(item.id) { mutableIntStateOf(0) }
+    var trimFramePending by remember(item.id) { mutableStateOf(false) }
+    var trimDiagnosticsStartedAt by remember(item.id) { mutableLongStateOf(0L) }
+    var trimEndHandle by remember(item.id) { mutableStateOf(false) }
+    var trimGestureActive by remember(item.id) { mutableStateOf(false) }
+    var overlayGestureActive by remember(item.id) { mutableStateOf(false) }
+    var textEditing by remember(item.id) { mutableStateOf(true) }
+    var textEditorTab by remember(item.id) { mutableStateOf(UnifiedTextTab.KEYBOARD) }
+    var requestedTrimBoundary by remember(item.id) {
+        mutableStateOf<VideoTrimBoundaryPreview.Request?>(null)
+    }
+    var trimBoundaryFrame by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    // A periodic sample processes the most RECENT pointer position even during
+    // continuous rapid drags; a per-event debounce would never fire.
+    LaunchedEffect(trimGestureActive) {
+        if (!trimGestureActive) return@LaunchedEffect
+        var lastRequest: VideoTrimBoundaryPreview.Request? = null
+        val decoder = VideoTrimBoundaryPreview.Decoder(context)
+        try { while (true) {
+            val request = requestedTrimBoundary
+            if (request != null && request != lastRequest) {
+                lastRequest = request
+                val frame = withContext(Dispatchers.IO) {
+                    decoder.decode(request)
+                }
+                if (frame != null) trimBoundaryFrame = frame
+            }
+            delay(95L)
+        } } finally {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { decoder.close() }
+        }
+    }
     val audioPreviewDeck = remember(item.id) { VideoAudioPreviewDeck(context) }
     DisposableEffect(audioPreviewDeck) { onDispose { audioPreviewDeck.release() } }
     val projectScope = rememberCoroutineScope()
@@ -253,33 +366,26 @@ fun VideoEditorScreen(
         ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         projectScope.launch {
-            var draft = project ?: return@launch
-            var added = 0
-            uris.forEach { nextUri ->
-                if (draft.audioTracks.size >= VideoProjectDraft.MAX_AUDIO_TRACKS) return@forEach
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(
-                        nextUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                val audioDuration = withContext(Dispatchers.IO) {
-                    readAudioDuration(context, nextUri)
-                }
-                if (audioDuration != null && audioDuration > 0L) {
-                    val track = VideoAudioTrackDraft(
-                        id = UUID.randomUUID().toString(),
-                        sourceUri = nextUri.toString(),
-                        atMs = playheadMs.coerceIn(0L, draft.durationMs - 1L),
-                        sourceDurationMs = audioDuration)
-                    draft = draft.addAudioTrack(track)
-                    selectedAudioTrackId = track.id
-                    added++
+            musicImporting = true
+            try {
+            val imported = uris.mapNotNull { nextUri ->
+                runCatching { context.contentResolver.takePersistableUriPermission(nextUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                withContext(Dispatchers.IO) {
+                    val duration = readAudioDuration(context, nextUri) ?: return@withContext null
+                    val name = runCatching { context.contentResolver.query(nextUri,
+                        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                        if (it.moveToFirst()) it.getString(0) else null } }.getOrNull()
+                        ?: nextUri.lastPathSegment ?: "Аудиофайл"
+                    VideoMusicChoice(UUID.randomUUID().toString(), nextUri.toString(), name, duration)
                 }
             }
-            if (added > 0) {
-                project = draft
-                selectedTool = VideoWorkspaceTool.AUDIO
+            if (imported.isNotEmpty()) {
+                musicChoices = (musicChoices + imported).distinctBy { it.uri }
                 clipError = null
-            } else clipError = "Не удалось добавить аудиофайлы"
+            } else clipError = "Не удалось прочитать аудиофайлы"
+
+            } finally { musicImporting = false }
         }
     }
     val replaceClip = rememberLauncherForActivityResult(
@@ -353,12 +459,69 @@ fun VideoEditorScreen(
         removeAudio = removeAudio,
         reverse = reverseVideo,
         textLayers = VideoOverlayTimeline.validatedTexts(
-            textLayers, project?.durationMs ?: 0L),
+            textLayers.filter { it.text.isNotBlank() }, project?.durationMs ?: 0L),
         graphicLayers = VideoOverlayTimeline.validatedGraphics(
             graphicLayers, project?.durationMs ?: 0L),
         project = project,
         exportSettings = exportSettings,
     )
+
+    // Observe edits, not playback/seeking. Undo/redo restores the same snapshot
+    // without creating a second history entry. Bounded at 60 snapshots.
+    LaunchedEffect(project, textLayers, graphicLayers, removeAudio, reverseVideo,
+        exportSettings, trimGestureActive, overlayGestureActive) {
+        if (trimGestureActive || overlayGestureActive) return@LaunchedEffect
+        val current = project ?: return@LaunchedEffect
+        if (editHistory.record(VideoEditorUndoSnapshot(
+                current, textLayers, graphicLayers, removeAudio, reverseVideo,
+                exportSettings, selectedClipId))) historyRevision++
+    }
+    fun restoreSnapshot(snapshot: VideoEditorUndoSnapshot) {
+        project = snapshot.project
+        selectedClipId = snapshot.selectedClipId.takeIf {
+            id -> snapshot.project.indexOf(id) >= 0
+        } ?: snapshot.project.clips.first().id
+        playheadMs = playheadMs.coerceIn(0L, (snapshot.project.durationMs - 1L).coerceAtLeast(0L))
+        textLayers = snapshot.textLayers
+        graphicLayers = snapshot.graphicLayers
+        removeAudio = snapshot.removeAudio
+        reverseVideo = snapshot.reverseVideo
+        exportSettings = snapshot.exportSettings
+        selectedAudioTrackId = selectedAudioTrackId?.takeIf {
+            id -> snapshot.project.audioTracks.any { it.id == id }
+        }
+        selectedOverlayId = selectedOverlayId?.takeIf { id ->
+            snapshot.textLayers.any { it.id == id } ||
+                snapshot.graphicLayers.any { it.id == id }
+        }
+        clipError = null
+    }
+
+    fun currentSnapshot(): VideoEditorUndoSnapshot? = project?.let {
+        VideoEditorUndoSnapshot(it, textLayers, graphicLayers, removeAudio, reverseVideo,
+            exportSettings, selectedClipId)
+    }
+    LaunchedEffect(selectedTool) {
+        if (selectedTool == null) { panelSnapshot = null; panelHistory = null }
+        else if (panelSnapshot == null) currentSnapshot()?.let {
+            editHistory.record(it)
+            panelSnapshot = it; panelHistory = editHistory.checkpoint()
+        }
+    }
+    fun closePanel(apply: Boolean) {
+        if (apply) {
+            textLayers = textLayers.filter { it.text.isNotBlank() }
+            currentSnapshot()?.let { editHistory.record(it) }
+        }
+        else {
+            panelSnapshot?.let(::restoreSnapshot)
+            panelHistory?.let(editHistory::restore)
+        }
+        trimGestureActive = false; requestedTrimBoundary = null; trimBoundaryFrame = null
+        panelSnapshot = null; panelHistory = null
+        selectedTool = null; historyRevision++
+    }
+    androidx.activity.compose.BackHandler(enabled = selectedTool != null && !ownExport) { closePanel(false) }
 
     LaunchedEffect(reverseVideo, project, removeAudio, textLayers, graphicLayers) {
         reversePreviewJob?.cancel()
@@ -376,35 +539,68 @@ fun VideoEditorScreen(
         }
     }
 
-    val previewPlayer = remember(uri) {
-        uri?.let { sourceUri ->
-            ExoPlayer.Builder(context)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .setUsage(C.USAGE_MEDIA)
-                        .build(),
-                    true,
-                )
-                .setHandleAudioBecomingNoisy(true)
-                .build()
-                .apply {
-                    setMediaItem(MediaItem.fromUri(sourceUri))
-                    prepare()
-                    playWhenReady = false
-                }
-        }
-    }
+    val timelineFrameCache = remember(item.id) { com.domenota.medialoader.data.editor.VideoSessionFrameCache() }
+    DisposableEffect(timelineFrameCache) { onDispose { timelineFrameCache.close() } }
+    val previewSession = remember(uri) { uri?.let {
+        com.domenota.medialoader.data.editor.VideoEditorPreviewSession(context, it, deferPreparation = true)
+    } }
+    val previewPlayer = previewSession?.players?.collectAsState()?.value
     DisposableEffect(previewPlayer) {
-        onDispose { previewPlayer?.release(); audioPreviewDeck.pause() }
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                val draft = project ?: return
+                val player = previewPlayer ?: return
+                if (!trimGestureActive && VideoPreviewQueueSync.matches(
+                        List(player.mediaItemCount, player::getMediaItemAt), draft)) {
+                    trimFramePending = false
+                    trimBoundaryFrame = null
+                }
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                com.domenota.medialoader.core.logging.AppLog.e("VideoPreview",
+                    "Player failure · code=${error.errorCodeName}", error)
+                trimFramePending = false; trimBoundaryFrame = null
+                clipError = error.message ?: "Не удалось показать видео"
+            }
+        }
+        previewPlayer?.addListener(listener)
+        onDispose { previewPlayer?.removeListener(listener) }
+    }
+    val previewLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(previewLifecycle, previewPlayer) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+                previewPlayer?.pause()
+                previewPlayer?.stop()
+                audioPreviewDeck.pause()
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME &&
+                    previewPlayer?.playbackState == Player.STATE_IDLE && previewPlayer.mediaItemCount > 0) {
+                previewPlayer.prepare()
+            }
+        }
+        previewLifecycle.lifecycle.addObserver(observer)
+        onDispose { previewLifecycle.lifecycle.removeObserver(observer) }
+    }
+    DisposableEffect(previewSession) {
+        onDispose { previewSession?.release(); audioPreviewDeck.pause() }
     }
     val previewCrop = if (selectedTool == VideoWorkspaceTool.CROP)
         CropFractions() else crop
+    val previewTextLayers = com.domenota.medialoader.data.editor.VideoTextDraft.preview(
+        textLayers, selectedOverlayId.takeIf { selectedTool == VideoWorkspaceTool.TEXT })
     val activeOverlays = project?.let { draft ->
         draft.indexOf(selectedClipId).takeIf { it >= 0 }?.let { index ->
-            VideoOverlayTimeline.forClip(draft, index, textLayers, graphicLayers)
+            VideoOverlayTimeline.forClip(draft, index, previewTextLayers, graphicLayers)
         }
     }
+    val canvasClip = project?.clips?.firstOrNull()
+    val canvasInfo = firstClipInfo ?: info
+    val naturalCanvasWidth = ((canvasInfo?.width ?: 16) * (canvasClip?.crop?.keptWidth ?: 1f)).coerceAtLeast(1f)
+    val naturalCanvasHeight = ((canvasInfo?.height ?: 9) * (canvasClip?.crop?.keptHeight ?: 1f)).coerceAtLeast(1f)
+    val naturalCanvasRatio = if ((canvasClip?.rotationDegrees ?: 0) % 180 == 0)
+        naturalCanvasWidth / naturalCanvasHeight else naturalCanvasHeight / naturalCanvasWidth
+    val previewCanvasRatio = if (selectedTool == VideoWorkspaceTool.CROP) null
+        else project?.aspect?.ratio ?: canvasInfo?.let { naturalCanvasRatio }
     val textPreviewSpec = VideoEditSpec(startMs = currentClip?.inMs ?: 0L,
         cropLeft = previewCrop.left, cropRight = previewCrop.right,
         cropTop = previewCrop.top, cropBottom = previewCrop.bottom,
@@ -419,12 +615,48 @@ fun VideoEditorScreen(
         }.orEmpty(),
         textLayers = activeOverlays?.texts.orEmpty(),
         graphicLayers = activeOverlays?.graphics.orEmpty())
-    LaunchedEffect(previewPlayer, selectedClipId, textPreviewSpec) {
-        delay(75L) // Coalesce fast slider and drag gestures before rebuilding GL effects.
-        val effects = VideoEditor(context).previewEffects(
-            textPreviewSpec, timeOffsetMs = textPreviewSpec.startMs)
-        previewPlayer?.setVideoEffects(effects)
-        previewPlayer?.seekTo(previewPlayer.currentPosition)
+    val previewUpdates = remember(previewSession) {
+        kotlinx.coroutines.flow.MutableStateFlow(textPreviewSpec to previewCanvasRatio)
+    }
+    LaunchedEffect(textPreviewSpec, previewCanvasRatio) { previewUpdates.value = textPreviewSpec to previewCanvasRatio }
+    LaunchedEffect(previewSession) {
+        previewUpdates.sampleVideoEditorUpdates().collect { (spec, ratio) -> previewSession?.update(spec, ratio) }
+    }
+    fun seekOverlay(position: Long) {
+        val draft = project ?: return
+        val at = position.coerceIn(0, (draft.durationMs - 1).coerceAtLeast(0))
+        val location = draft.locateAt(at)
+        val clip = draft.clips[location.clipIndex]
+        previewPlayer?.pause()
+        previewPlayer?.seekTo(location.clipIndex, (clip.sourceAt(location.positionWithinClipMs) - clip.inMs).coerceAtLeast(0))
+        playheadMs = at
+    }
+    fun addText() {
+        val draft = project ?: return
+        if (textLayers.size >= 8) return
+        val at = playheadMs.coerceIn(0, draft.durationMs - 1)
+        // Capture BEFORE inserting a draft; the tool-entry effect runs after this event.
+        if (panelSnapshot == null) currentSnapshot()?.let {
+            editHistory.record(it)
+            panelSnapshot = it; panelHistory = editHistory.checkpoint()
+        }
+        val added = TextLayer(text = "", startMs = at, endMs = minOf(draft.durationMs, at + 3000))
+        textLayers = textLayers + added; selectedOverlayId = added.id
+        textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD; previewPlayer?.pause()
+    }
+    fun duplicateText() {
+        val layer = textLayers.firstOrNull { it.id == selectedOverlayId } ?: return
+        if (textLayers.size >= 8) return
+        val copied = VideoTextLaneEdit.duplicate(layer)
+        textLayers = textLayers + copied; selectedOverlayId = copied.id; textEditing = false
+    }
+    fun deleteText() {
+        textLayers = textLayers.filterNot { it.id == selectedOverlayId }
+        selectedOverlayId = null
+    }
+    fun selectText(id: String) {
+        selectedOverlayId = id; selectedTool = VideoWorkspaceTool.TEXT; textEditing = false
+        textLayers.firstOrNull { it.id == id }?.let { if (!it.visibleAt(playheadMs)) seekOverlay(it.startMs) }
     }
 
     LaunchedEffect(uri) {
@@ -450,9 +682,12 @@ fun VideoEditorScreen(
         listOf(it.sourceUri, it.inMs.toString(), it.outMs.toString(),
             it.mediaKind.name, it.sourceDurationMs.toString())
     }
-    LaunchedEffect(previewPlayer, playlistIdentity) {
+    LaunchedEffect(previewPlayer, playlistIdentity, trimGestureActive) {
+        if (trimGestureActive) return@LaunchedEffect
         val p = project ?: return@LaunchedEffect
         val player = previewPlayer ?: return@LaunchedEffect
+        val installed = List(player.mediaItemCount, player::getMediaItemAt)
+        if (VideoPreviewQueueSync.matches(installed, p)) return@LaunchedEffect
         delay(160L) // Debounce trim-handle dragging rather than rebuilding every frame.
         val location = p.locateAt(playheadMs.coerceIn(0L, p.durationMs))
         val items = p.clips.map { clip ->
@@ -472,20 +707,36 @@ fun VideoEditorScreen(
         val clip = p.clips[location.clipIndex]
         val sourceOffset = (clip.sourceAt(location.positionWithinClipMs) - clip.inMs)
             .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L))
-        player.setMediaItems(items, location.clipIndex, sourceOffset)
-        player.prepare()
+        previewSession?.replacePlaylist(items, location.clipIndex, sourceOffset)
     }
-    LaunchedEffect(previewPlayer, project, removeAudio) {
+    val latestAudioProject by rememberUpdatedState(project)
+    LaunchedEffect(previewPlayer, removeAudio) {
         val player = previewPlayer ?: return@LaunchedEffect
-        val p = project ?: return@LaunchedEffect
-        player.volume = if (removeAudio) 0f else 1f
+        var routedProject: VideoProjectDraft? = null
+        var embedded = emptyMap<String, VideoAudioTrackDraft>()
+        var embeddedIds = emptySet<String>()
         while (true) {
+            val p = latestAudioProject
+            if (p == null || overlayGestureActive || trimGestureActive) {
+                audioPreviewDeck.pause()
+                delay(75L)
+                continue
+            }
+            if (p != routedProject) {
+                val next = if (removeAudio) com.domenota.medialoader.data.editor.VideoOriginalAudioRouting.tracks(p) else emptyMap()
+                val ids = next.values.mapTo(mutableSetOf()) { it.id }
+                if (routedProject == null || ids != embeddedIds) {
+                    com.domenota.medialoader.core.logging.AppLog.i("AudioRoute",
+                        "Preview route · embedded=${ids.size} · separate=${p.audioTracks.count { it.id !in ids }}")
+                }
+                embedded = next; embeddedIds = ids; routedProject = p
+            }
             // During trim, split or reorder the player still has the old playlist
             // until its debounced rebuild. Never let old positions overwrite the
             // newly selected source frame before the player is synchronized.
             val queueIsCurrent = VideoPreviewQueueSync.matches(
                 (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }, p)
-            if (queueIsCurrent) {
+            if (queueIsCurrent && !trimGestureActive && !trimFramePending) {
                 val index = player.currentMediaItemIndex
                 if (index in p.clips.indices) {
                     val clip = p.clips[index]
@@ -499,7 +750,10 @@ fun VideoEditorScreen(
             }
             timelineIsPlaying = queueIsCurrent && player.isPlaying
             if (queueIsCurrent) {
-                audioPreviewDeck.synchronize(p, playheadMs, player.isPlaying)
+                val clipId = p.clips.getOrNull(player.currentMediaItemIndex)?.id
+                player.volume = if (!removeAudio) 1f else embedded[clipId]?.gainAt(playheadMs) ?: 0f
+                audioPreviewDeck.synchronize(p, playheadMs, player.isPlaying, embeddedIds,
+                    masterBuffering = player.playWhenReady && player.playbackState == Player.STATE_BUFFERING)
             } else audioPreviewDeck.pause()
             delay(75L)
         }
@@ -523,25 +777,48 @@ fun VideoEditorScreen(
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = Color(0xFF101010),
         topBar = {
             TopAppBar(
-                title = { Text("Видеоредактор", maxLines = 1) },
+                windowInsets = WindowInsets(0, 0, 0, 0),
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = requestExit) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
+                        Icon(Icons.Rounded.Close, contentDescription = "Закрыть редактор",
+                            tint = Color.White)
                     }
                 },
                 actions = {
-                    IconButton(onClick = ::resetEdits,
-                        enabled = hasUnsavedChanges && !ownExport && !busyWithOther) {
-                        Icon(Icons.Rounded.RestartAlt, contentDescription = "Сбросить")
-                    }
                     TextButton(onClick = { onExport(exportSpec()) },
                         enabled = info != null && !ownExport && !busyWithOther &&
                             !reversePreviewBusy) {
-                        Text("Сохранить")
+                        Text("Сохранить", color = Color.White)
+                    }
+                    Box {
+                        IconButton(onClick = { referenceMoreOpen = true }) {
+                            Icon(Icons.Rounded.MoreVert,
+                                contentDescription = "Дополнительные действия",
+                                tint = Color.White)
+                        }
+                        DropdownMenu(
+                            expanded = referenceMoreOpen,
+                            onDismissRequest = { referenceMoreOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Сбросить изменения") },
+                                enabled = hasUnsavedChanges && !ownExport && !busyWithOther,
+                                onClick = {
+                                    referenceMoreOpen = false
+                                    resetEdits()
+                                }
+                            )
+                        }
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF101010),
+                    titleContentColor = Color.White,
+                ),
             )
         },
     ) { padding ->
@@ -558,7 +835,19 @@ fun VideoEditorScreen(
             // reachable even with portrait video and Android navigation bars.
             // Preview is bounded by the remaining screen height. Portrait videos must
             // never push trim, tool panels or the Android navigation area off-screen.
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                // HTML v8 puts the canvas at ~40% of screen height; reserve the rest
+                // for transport/timeline rather than stretching portrait video into it.
+                val audioLaneHeight = if (selectedTool == VideoWorkspaceTool.TRIM || trimGestureActive) 0.dp
+                    else ((project?.visibleAudioTracks()?.size ?: 0).coerceAtMost(2) * 42).dp
+                val editingText = selectedTool == VideoWorkspaceTool.TEXT && textEditing
+                val textLaneHeight = if (selectedTool == VideoWorkspaceTool.TRIM || trimGestureActive) 0.dp else (textLayers.size.coerceAtMost(2) * 40).dp
+                val timelineHeight = if (editingText) 0.dp else 146.dp + audioLaneHeight + textLaneHeight
+                val availableCanvas = (maxHeight - timelineHeight).coerceAtLeast(48.dp)
+                val referenceCanvas = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .4023f
+                val canvasHeight = minOf(availableCanvas, referenceCanvas)
+                Column(Modifier.fillMaxSize()) {
+            BoxWithConstraints(Modifier.height(canvasHeight).fillMaxWidth().padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center) {
                 val previewDimensions = selectedPreviewInfo ?: info
                 val showEditedFrame = selectedTool != VideoWorkspaceTool.CROP
@@ -570,23 +859,36 @@ fun VideoEditorScreen(
                 val naturalWidth = if (isRotated) h else w
                 val naturalHeight = if (isRotated) w else h
                 val videoFit = fitVideoPreview(
-                    maxWidth.value, maxHeight.value, naturalWidth, naturalHeight)
+                    minOf(maxWidth.value, androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * .88f),
+                    maxHeight.value, previewCanvasRatio?.let { (it * 1000).roundToInt() } ?: naturalWidth,
+                    if (previewCanvasRatio != null) 1000 else naturalHeight)
                 CropVideoPreview(
                     modifier = Modifier.width(videoFit.width.dp).height(videoFit.height.dp),
                     player = requireNotNull(previewPlayer),
+                    useTextureSurface = android.os.Build.VERSION.SDK_INT >= 30 && previewDimensions?.isHdr != true,
                     sourceWidth = if (isRotated) h else w,
                     sourceHeight = if (isRotated) w else h,
                     crop = crop,
                     cropPreset = cropPreset,
                     onCropChange = { updateSelectedGeometry(updatedCrop = it) },
                     showCropFrame = selectedTool == VideoWorkspaceTool.CROP,
+                    selectedTextLayer = previewTextLayers.firstOrNull { it.id == selectedOverlayId && it.visibleAt(playheadMs) }
+                        .takeIf { selectedTool == VideoWorkspaceTool.TEXT },
+                    textCanvasWidth = previewCanvasRatio?.let { (it * 1000).roundToInt().coerceAtLeast(1) } ?: naturalWidth,
+                    textCanvasHeight = if (previewCanvasRatio != null) 1000 else naturalHeight,
+                    onTextChange = { next -> textLayers = textLayers.map {
+                        if (it.id == next.id) next.copy(text = it.text) else it
+                    } },
+                    onCopyText = ::duplicateText, onDeleteText = ::deleteText,
+                    onTextTap = { textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD },
+                    onTextGestureStart = { overlayGestureActive = true; previewPlayer?.pause() },
+                    onTextGestureEnd = { overlayGestureActive = false },
                     activeOverlayCenter = (textLayers.firstOrNull {
                         it.id == selectedOverlayId
                     }?.let { it.centerX to it.centerY } ?: graphicLayers.firstOrNull {
                         it.id == selectedOverlayId
                     }?.let { it.centerX to it.centerY }).takeIf {
-                        selectedTool == VideoWorkspaceTool.TEXT ||
-                            selectedTool == VideoWorkspaceTool.GRAPHICS
+                        selectedTool == VideoWorkspaceTool.GRAPHICS
                     },
                     onOverlayTransform = { dx, dy, zoom, angle ->
                         textLayers = textLayers.map { layer ->
@@ -607,17 +909,51 @@ fun VideoEditorScreen(
                         }
                     },
                 )
+                // During trim, source boundaries can be outside ExoPlayer's
+                // current (debounced) clip range. Show the true sampled frame,
+                // never the stale frame from the previous playlist.
+                if (trimGestureActive || trimFramePending) {
+                    trimBoundaryFrame?.let { frame ->
+                        Image(frame.asImageBitmap(), contentDescription =
+                            "Граничный кадр обрезки",
+                            modifier = Modifier.width(videoFit.width.dp)
+                                .height(videoFit.height.dp),
+                            contentScale = ContentScale.Fit)
+                    }
+                }
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 val activeProject = project
                 if (activeProject != null) {
-                    VideoMultiClipTimeline(
+                    if (!(selectedTool == VideoWorkspaceTool.TEXT && textEditing)) VideoMultiClipTimeline(
                         project = activeProject,
+                        frameCache = timelineFrameCache,
                         selectedClipId = selectedClipId,
                         positionMs = playheadMs,
                         isPlaying = timelineIsPlaying,
                         enabled = !ownExport && !busyWithOther,
+                        canUndo = historyRevision >= 0 && editHistory.canUndo,
+                        canRedo = historyRevision >= 0 && editHistory.canRedo,
+                        onUndo = {
+                            editHistory.undo()?.let(::restoreSnapshot)
+                            historyRevision++
+                        },
+                        onRedo = {
+                            editHistory.redo()?.let(::restoreSnapshot)
+                            historyRevision++
+                        },
+                        texts = textLayers, selectedTextId = selectedOverlayId,
+                        onSelectText = ::selectText,
+                        onChangeText = { next -> textLayers = textLayers.map { if (it.id == next.id) next else it } },
+                        onTextGestureStart = { overlayGestureActive = true; previewPlayer?.pause() },
+                        onTextGestureEnd = { overlayGestureActive = false },
+                        selectedAudioTrackId = selectedAudioTrackId,
+                        onSelectAudio = { selectedAudioTrackId = it; selectedTool = VideoWorkspaceTool.AUDIO },
+                        onChangeAudio = { next -> project = project?.editAudioTrack(next.id) { next } },
+                        onAudioGestureStart = { overlayGestureActive = true; previewPlayer?.pause() },
+                        onAudioGestureEnd = { overlayGestureActive = false },
                         frameIntervalMs = selectedFrameDurationMs,
+                        showFrameSteps = selectedTool == VideoWorkspaceTool.TRIM || selectedTool == VideoWorkspaceTool.MORE,
                         onFrameStep = { direction ->
                             val interval = selectedFrameDurationMs
                             val draft = project
@@ -649,6 +985,7 @@ fun VideoEditorScreen(
                             selectedTool = VideoWorkspaceTool.TRIM
                         },
                         onSeek = { target ->
+                            previewPlayer?.pause()
                             val original = activeProject.locateAt(target)
                             val precise = VideoTimelineFrameMath.projectPosition(
                                 activeProject, target,
@@ -667,21 +1004,45 @@ fun VideoEditorScreen(
                                         .coerceIn(0L, (clip.sourceSpanMs - 1L).coerceAtLeast(0L)))
                             }
                         },
+                        trimMode = selectedTool == VideoWorkspaceTool.TRIM,
+                        trimSourcePositionMs = requestedTrimBoundary?.sourceMs.takeIf { trimGestureActive },
+                        onTrimSideChange = { trimEndHandle = it },
+                        onTrimGestureStart = {
+                            trimDiagnosticsStartedAt = com.domenota.medialoader.core.logging.PerformanceLog.begin("video_trim_gesture")
+                            requestedTrimBoundary = null
+                            trimFramePending = false
+                            trimBoundaryFrame = null
+                            trimGestureActive = true
+                        },
+                        onTrimGestureEnd = {
+                            com.domenota.medialoader.core.logging.PerformanceLog.end("video_trim_gesture", trimDiagnosticsStartedAt)
+                            trimGestureActive = false
+                            requestedTrimBoundary = null
+                            val player = previewPlayer
+                            val draft = project
+                            trimFramePending = trimBoundaryFrame != null && player != null && draft != null &&
+                                !VideoPreviewQueueSync.matches(List(player.mediaItemCount, player::getMediaItemAt), draft)
+                            if (!trimFramePending) trimBoundaryFrame = null
+                            if (player != null && draft != null && VideoPreviewQueueSync.matches(
+                                    List(player.mediaItemCount, player::getMediaItemAt), draft)) {
+                                val location = draft.locateAt(playheadMs.coerceIn(0L, draft.durationMs - 1L))
+                                val clip = draft.clips[location.clipIndex]
+                                player.seekTo(location.clipIndex,
+                                    (clip.sourceAt(location.positionWithinClipMs) - clip.inMs).coerceAtLeast(0L))
+                            }
+                        },
                         onTrim = { id, from, to ->
                             val prior = project ?: return@VideoMultiClipTimeline
                             val previousClip = prior.clips.firstOrNull { it.id == id }
                                 ?: return@VideoMultiClipTimeline
-                            val previousIndex = prior.indexOf(id)
-                            val fromChanged = previousClip.inMs != from
                             // Track the boundary currently being dragged. Do not silently
                             // keep previewing the old playhead while trim handles move.
-                            val boundarySourceMs = if (fromChanged) from else to - 1L
-                            val oldSourceOffset = (boundarySourceMs - previousClip.inMs)
-                                .coerceIn(0L, (previousClip.sourceSpanMs - 1L).coerceAtLeast(0L))
+                            val boundarySourceMs = if (trimEndHandle) to - 1L else from
+                            requestedTrimBoundary = VideoTrimBoundaryPreview.Request(
+                                previousClip.sourceUri, boundarySourceMs)
+                            // The sampled source frame owns drag preview. Seeking the old
+                            // clipped decoder for each pointer event causes flush/reinit churn.
                             previewPlayer?.pause()
-                            if (previousIndex in 0 until (previewPlayer?.mediaItemCount ?: 0)) {
-                                previewPlayer?.seekTo(previousIndex, oldSourceOffset)
-                            }
                             val oldLocation = prior.locateAt(
                                 playheadMs.coerceIn(0L, prior.durationMs - 1L))
                             runCatching { prior.trimClip(id, from, to) }
@@ -752,12 +1113,6 @@ fun VideoEditorScreen(
                             }
                         },
                     )
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Клипов: ${activeProject.clips.size}",
-                            style = MaterialTheme.typography.labelSmall)
-                        Text("Выбран: ${activeProject.indexOf(selectedClipId) + 1}",
-                            style = MaterialTheme.typography.labelSmall)
-                    }
                 } else Text("Читаем видео…",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 clipError?.let { error ->
@@ -765,73 +1120,19 @@ fun VideoEditorScreen(
                         style = MaterialTheme.typography.bodySmall)
                 }
             }
-            if (selectedTool != null) {
+                }
+            }
+            if (selectedTool != null && selectedTool != VideoWorkspaceTool.TRIM &&
+                !(selectedTool == VideoWorkspaceTool.TEXT && !textEditing)) {
                 Column(Modifier.fillMaxWidth().heightIn(max = 218.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .35f))
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp)) {
                     when (selectedTool) {
-                        VideoWorkspaceTool.TRIM -> {
-                            val current = project
-                            val index = current?.indexOf(selectedClipId) ?: -1
-                            val selected = current?.clips?.getOrNull(index)
-                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { addClips.launch(arrayOf("video/*", "image/*")) }) {
-                                    Text("+ Добавить")
-                                }
-                                TextButton(onClick = {
-                                    if (current != null && selected != null) {
-                                        val local = (playheadMs - current.timelineStart(index))
-                                            .coerceIn(0L, selected.durationMs)
-                                        val point = selected.sourceAt(local)
-                                        val rightId = UUID.randomUUID().toString()
-                                        runCatching {
-                                            current.splitAt(selected.id, point, rightId)
-                                        }.onSuccess { applyProject(it, rightId, point) }
-                                            .onFailure { clipError = "Раздели клип не ближе 0,1 с к краю" }
-                                    }
-                                }, enabled = selected != null &&
-                                    selected.mediaKind == VideoClipMediaKind.VIDEO &&
-                                    selected.sourceSpanMs >= 200L) {
-                                    Text("Разделить")
-                                }
-                                TextButton(onClick = {
-                                    if (current != null && selected != null) {
-                                        val copyId = UUID.randomUUID().toString()
-                                        runCatching {
-                                            current.duplicate(selected.id, copyId)
-                                        }.onSuccess { applyProject(it, copyId, selected.inMs) }
-                                            .onFailure { clipError = it.message }
-                                    }
-                                }, enabled = selected != null) { Text("Копировать") }
-                                TextButton(onClick = { replaceClip.launch(arrayOf("video/*", "image/*")) },
-                                    enabled = selected != null) { Text("Заменить") }
-                                TextButton(onClick = {
-                                    if (current != null && selected != null && current.clips.size > 1) {
-                                        val next = current.delete(selected.id)
-                                        applyProject(next, next.clips[index.coerceAtMost(
-                                            next.clips.lastIndex)].id)
-                                    }
-                                }, enabled = selected != null && (current?.clips?.size ?: 0) > 1) {
-                                    Text("Удалить")
-                                }
-                                TextButton(onClick = {
-                                    if (current != null && index > 0)
-                                        applyProject(current.move(selectedClipId, index - 1))
-                                }, enabled = index > 0) { Text("←") }
-                                TextButton(onClick = {
-                                    if (current != null && index in 0 until current.clips.lastIndex)
-                                        applyProject(current.move(selectedClipId, index + 1))
-                                }, enabled = current != null && index >= 0 &&
-                                    index < current.clips.lastIndex) { Text("→") }
-                            }
-                            Text("Жёлтые края — обрезка. Удержание и сдвиг клипа — изменение порядка. " +
-                                "Свайп по таймлайну — прокрутка.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        // The trim handles already live in the timeline.
+                        // Do not show a second row of tiny text buttons and
+                        // obsolete instructional copy under the preview.
+                        VideoWorkspaceTool.TRIM -> Unit
                         VideoWorkspaceTool.SPEED -> {
                             val selected = currentClip
                             Text(if (selected?.mediaKind == VideoClipMediaKind.IMAGE)
@@ -899,6 +1200,12 @@ fun VideoEditorScreen(
                                             label = { Text("×" + value.toString()) })
                                     }
                                 }
+                            }
+                        }
+                        VideoWorkspaceTool.ASPECT -> {
+                            VideoProjectAspectPanel(project?.aspect ?: com.domenota.medialoader.data.editor.VideoProjectAspect.ORIGINAL,
+                                project != null && !ownExport && !busyWithOther) { aspect ->
+                                project = project?.copy(aspect = aspect)
                             }
                         }
                         VideoWorkspaceTool.CROP -> {
@@ -985,8 +1292,14 @@ fun VideoEditorScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         }
+                        VideoWorkspaceTool.COLOR_CHANNELS -> {
+                            VideoLegacyColorControls(clipColor,
+                                !ownExport && !busyWithOther, ::updateSelectedColor)
+                        }
                         VideoWorkspaceTool.COLOR -> {
                             VideoColorPanel(
+                                manualByDefault = referenceColorManual,
+                                clip = currentClip,
                                 color = clipColor,
                                 enabled = currentClip != null && !ownExport && !busyWithOther,
                                 onColorChange = ::updateSelectedColor,
@@ -1045,7 +1358,7 @@ fun VideoEditorScreen(
                                 removeOriginalAudio = removeAudio,
                                 enabled = !ownExport && !busyWithOther,
                                 onRemoveOriginalAudio = { removeAudio = it },
-                                onAdd = { addAudio.launch(arrayOf("audio/*")) },
+                                onAdd = { previewPlayer?.pause(); clipError = null; musicPickerOpen = true },
                                 onSelect = { selectedAudioTrackId = it },
                                 onUpdate = { id, transform ->
                                     val draft = project ?: return@VideoAudioTracksPanel
@@ -1140,6 +1453,13 @@ fun VideoEditorScreen(
                             val graphicsTab = selectedTool == VideoWorkspaceTool.GRAPHICS
                             VideoOverlayPanel(
                                 graphicsTab = graphicsTab,
+                                initialTextTab = textEditorTab,
+                                onConfirmText = {
+                                    textLayers = textLayers.filter { it.text.isNotBlank() }
+                                    selectedOverlayId = selectedOverlayId?.takeIf { id -> textLayers.any { it.id == id } }
+                                    textEditing = false
+                                    if (selectedOverlayId == null) closePanel(true)
+                                },
                                 durationMs = draft?.durationMs ?: 0L,
                                 playheadMs = playheadMs,
                                 texts = textLayers,
@@ -1147,16 +1467,7 @@ fun VideoEditorScreen(
                                 selectedId = selectedOverlayId,
                                 enabled = draft != null && !ownExport && !busyWithOther,
                                 onSelect = { selectedOverlayId = it },
-                                onAddText = {
-                                    if (draft != null && textLayers.size < 8) {
-                                        val from = playheadMs.coerceIn(0L, draft.durationMs - 1L)
-                                        val added = TextLayer(startMs = from,
-                                            endMs = minOf(draft.durationMs, from + 3000L))
-                                        textLayers = textLayers + added
-                                        selectedOverlayId = added.id
-                                        previewPlayer?.pause()
-                                    }
-                                },
+                                onAddText = ::addText,
                                 onAddGraphic = { kind ->
                                     if (draft != null && graphicLayers.size < 12) {
                                         val from = playheadMs.coerceIn(0L, draft.durationMs - 1L)
@@ -1200,22 +1511,12 @@ fun VideoEditorScreen(
                             )
                         }
                         VideoWorkspaceTool.MORE -> {
-            if (ownExport) {
-                Text("${exportState.operation} · ${exportState.progress}%")
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { exportState.progress / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "Можно выйти из редактора — обработка продолжится в фоне.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                Spacer(Modifier.height(4.dp))
-                TextButton(onClick = onCancelExport) { Text("Отменить") }
-            } else {
+            if (!ownExport) {
+                OutlinedButton(onClick = { selectedTool = VideoWorkspaceTool.COLOR_CHANNELS },
+                    enabled = !busyWithOther, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text("Дополнительная коррекция")
+                }
+
                 if (busyWithOther) {
                     Text(
                         "Сейчас обрабатывается другой файл. Дождись завершения или отмени обработку из уведомления.",
@@ -1224,35 +1525,13 @@ fun VideoEditorScreen(
                         modifier = Modifier.padding(bottom = 10.dp),
                     )
                 }
-                Button(
-                    onClick = {
-                        onExport(exportSpec())
-                    },
-                    enabled = info != null && !busyWithOther && !reversePreviewBusy,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                ) {
-                    Text("Сохранить копию")
-                }
-                Spacer(Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = {
                         previewPlayer?.pause()
-                        val positionMs = VideoFramePosition.clamp(
-                            trimStart + (previewPlayer?.currentPosition ?: 0L),
-                            trimStart, trimEnd, fullDuration,
-                        )
-                        onSaveFrame(positionMs, VideoEditSpec(
-                            startMs = trimStart,
-                            cropLeft = crop.left,
-                            cropRight = crop.right,
-                            cropTop = crop.top,
-                            cropBottom = crop.bottom,
-                            rotationDegrees = rotation,
-                            textLayers = textLayers.mapNotNull { it.within(trimEnd - trimStart) },
-                        ))
+                        onSaveFrame(playheadMs, exportSpec())
                     },
                     enabled = info != null && !busyWithOther &&
-                        currentClip?.sourceUri == uri.toString(),
+                        currentClip?.mediaKind == com.domenota.medialoader.data.editor.VideoClipMediaKind.VIDEO,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 ) {
                     Icon(Icons.Rounded.PhotoCamera, contentDescription = null)
@@ -1284,16 +1563,14 @@ fun VideoEditorScreen(
                 }
 
                         }
+                        VideoWorkspaceTool.MUSIC_PICKER,
+                        VideoWorkspaceTool.SPLIT,
+                        VideoWorkspaceTool.DELETE,
+                        VideoWorkspaceTool.SEPARATE_AUDIO,
+                        VideoWorkspaceTool.REPLACE,
+                        VideoWorkspaceTool.DUPLICATE -> Unit
                         null -> Unit
                     }
-                }
-            }
-            if (ownExport) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)) {
-                    Text("${exportState.operation} · ${exportState.progress}%")
-                    LinearProgressIndicator(progress = { exportState.progress / 100f },
-                        modifier = Modifier.fillMaxWidth())
-                    TextButton(onClick = onCancelExport) { Text("Отменить обработку") }
                 }
             }
             exportState.outputDetails
@@ -1304,15 +1581,144 @@ fun VideoEditorScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            VideoWorkspaceToolbar(
+            val panelTool = selectedTool
+            if (panelTool == VideoWorkspaceTool.TEXT && !textEditing) {
+                VideoTextActions(!ownExport && !busyWithOther && textLayers.any { it.id == selectedOverlayId },
+                    textLayers.size < 8, onBack = { closePanel(true) },
+                    onEdit = { textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD },
+                    onStyle = { textEditing = true; textEditorTab = UnifiedTextTab.STYLE },
+                    onTrim = { selectedOverlayId?.let(::selectText) },
+                    onCopy = ::duplicateText, onDelete = ::deleteText)
+            } else if (panelTool != null) {
+                val panelTitle = when (panelTool) {
+                    VideoWorkspaceTool.COLOR -> if (referenceColorManual) "Откорректировать" else "Фильтры"
+                    VideoWorkspaceTool.TEXT -> "Надписи"
+                    VideoWorkspaceTool.ASPECT -> "Соотношение сторон"
+                    VideoWorkspaceTool.AUDIO -> "Музыка"
+                    else -> panelTool.label
+                }
+                VideoReferencePanelFooter(panelTitle, !ownExport && !busyWithOther,
+                    onCancel = { closePanel(false) }, onApply = { closePanel(true) })
+            } else VideoWorkspaceToolbar(
                 selected = selectedTool,
                 onSelect = { next ->
-                    selectedTool = next
-                    if (next == VideoWorkspaceTool.TEXT) previewPlayer?.pause()
+                    selectedTool = if (next == VideoWorkspaceTool.MUSIC_PICKER) VideoWorkspaceTool.AUDIO else next
+                    if (next == VideoWorkspaceTool.MUSIC_PICKER) {
+                        previewPlayer?.pause(); clipError = null; musicPickerOpen = true
+                    }
+                    if (next == VideoWorkspaceTool.TEXT) {
+                        textEditing = true; textEditorTab = UnifiedTextTab.KEYBOARD
+                        if (textLayers.isEmpty()) addText()
+                        else if (selectedOverlayId == null) selectedOverlayId = textLayers.last().id
+                        selectedOverlayId?.let { id -> textLayers.firstOrNull { it.id == id }?.let { seekOverlay(it.startMs) } }
+                        previewPlayer?.pause()
+                    }
                 },
                 enabled = info != null && !ownExport && !busyWithOther,
+                onColorManualMode = { referenceColorManual = it },
+                colorManualMode = referenceColorManual,
+                canDeleteClip = (project?.clips?.size ?: 0) > 1,
+                canSplitClip = currentClip?.mediaKind == VideoClipMediaKind.VIDEO &&
+                    (currentClip?.sourceSpanMs ?: 0L) >= 200L,
+                onSplitClip = {
+                    val draft = project
+                    val ix = draft?.indexOf(selectedClipId) ?: -1
+                    val clip = draft?.clips?.getOrNull(ix)
+                    if (draft != null && clip != null &&
+                        clip.mediaKind == VideoClipMediaKind.VIDEO) {
+                        val local = (playheadMs - draft.timelineStart(ix))
+                            .coerceIn(0L, clip.durationMs)
+                        val splitSourceMs = clip.sourceAt(local)
+                        val rightId = UUID.randomUUID().toString()
+                        runCatching { draft.splitAt(clip.id, splitSourceMs, rightId) }
+                            .onSuccess { applyProject(it, rightId, splitSourceMs) }
+                            .onFailure {
+                                clipError = "Перемести указатель минимум на 0,1 с от края клипа"
+                            }
+                    }
+                },
+                canSeparateAudio = !removeAudio &&
+                    project?.clips?.any {
+                        it.mediaKind == VideoClipMediaKind.VIDEO
+                    } == true,
+                onDeleteClip = {
+                    val draft = project
+                    if (draft != null && draft.clips.size > 1) {
+                        val index = draft.indexOf(selectedClipId)
+                        if (index >= 0) {
+                            val next = draft.delete(selectedClipId)
+                            applyProject(next,
+                                next.clips[index.coerceAtMost(next.clips.lastIndex)].id)
+                        }
+                    }
+                },
+                onDuplicateClip = {
+                    val draft = project
+                    val chosen = draft?.clips?.firstOrNull { it.id == selectedClipId }
+                    if (draft != null && chosen != null) {
+                        val id = UUID.randomUUID().toString()
+                        runCatching { draft.duplicate(selectedClipId, id) }
+                            .onSuccess { applyProject(it, id, chosen.inMs) }
+                            .onFailure { clipError = it.message }
+                    }
+                },
+                onReplaceClip = {
+                    replaceClip.launch(arrayOf("video/*", "image/*"))
+                },
+                onSeparateAudio = {
+                    val draft = project
+                    if (draft == null || removeAudio) {
+                        clipError = "Исходный звук уже отделён или отключён"
+                    } else {
+                        projectScope.launch {
+                            val audioIds = withContext(Dispatchers.IO) {
+                                draft.clips.filter {
+                                    it.mediaKind == VideoClipMediaKind.VIDEO &&
+                                        VideoOriginalAudioDetach.hasAudio(context, it.sourceUri)
+                                }.map { it.id }.toSet()
+                            }
+                            if (project != draft) {
+                                clipError = "Проект изменился. Повтори разделение звука."
+                            } else runCatching {
+                                VideoOriginalAudioDetach.detach(draft, audioIds)
+                            }.onSuccess { detached ->
+                                project = detached.project
+                                // Mute embedded sound; use separate, editable tracks
+                                // for both preview and MP4 mixing instead.
+                                removeAudio = true
+                                selectedAudioTrackId = detached.newTrackIds.first()
+                                selectedTool = VideoWorkspaceTool.AUDIO
+                                clipError = null
+                            }.onFailure {
+                                clipError = it.message ?: "Не удалось отделить звук"
+                            }
+                        }
+                    }
+                },
             )
         }
+    }
+    if (musicPickerOpen) VideoMusicPicker(musicChoices,
+        canAdd = project != null && (project?.audioTracks?.size ?: 0) < VideoProjectDraft.MAX_AUDIO_TRACKS,
+        errorMessage = clipError, importing = musicImporting,
+        onImport = { addAudio.launch(arrayOf("audio/*")) },
+        onRemove = { id -> musicChoices = musicChoices.filterNot { it.id == id } },
+        onDismiss = { musicPickerOpen = false; closePanel(false) },
+        onChoose = { choice ->
+            project?.takeIf { it.audioTracks.size < VideoProjectDraft.MAX_AUDIO_TRACKS }?.let { draft ->
+                val track = VideoAudioTrackDraft(UUID.randomUUID().toString(), choice.uri,
+                    playheadMs.coerceIn(0, draft.durationMs - 1), choice.durationMs, title = choice.name)
+                project = draft.addAudioTrack(track)
+                selectedAudioTrackId = track.id
+                musicPickerOpen = false; selectedTool = VideoWorkspaceTool.AUDIO
+            }
+        })
+    if (ownExport) {
+        VideoV8SaveProgress(
+            operation = exportState.operation,
+            progress = exportState.progress,
+            onCancel = onCancelExport,
+        )
     }
     reversePreviewFile?.let { file ->
         ReverseVideoPreviewDialog(file) {
@@ -1359,31 +1765,46 @@ private fun ReverseVideoPreviewDialog(file: File, onDismiss: () -> Unit) {
 private fun CropVideoPreview(
     modifier: Modifier = Modifier,
     player: ExoPlayer,
+    useTextureSurface: Boolean = true,
     sourceWidth: Int,
     sourceHeight: Int,
     crop: CropFractions,
     cropPreset: CropAspectPreset,
     onCropChange: (CropFractions) -> Unit,
     showCropFrame: Boolean = true,
+    selectedTextLayer: TextLayer? = null,
+    textCanvasWidth: Int = sourceWidth, textCanvasHeight: Int = sourceHeight,
+    onTextChange: (TextLayer) -> Unit = {}, onCopyText: () -> Unit = {}, onDeleteText: () -> Unit = {},
+    onTextTap: () -> Unit = {}, onTextGestureStart: () -> Unit = {}, onTextGestureEnd: () -> Unit = {},
     activeOverlayCenter: Pair<Float, Float>? = null,
     onOverlayTransform: (Float, Float, Float, Float) -> Unit = { _, _, _, _ -> },
 ) {
     val latestOverlayTransform by rememberUpdatedState(onOverlayTransform)
     Box(modifier.background(Color.Black)) {
-        AndroidView(
+        androidx.compose.runtime.key(useTextureSurface) { AndroidView(
             factory = { viewContext ->
-                PlayerView(viewContext).apply {
+                (if (useTextureSurface) android.view.LayoutInflater.from(viewContext).inflate(
+                    com.domenota.medialoader.R.layout.video_editor_preview, null, false) as PlayerView
+                    else PlayerView(viewContext)).apply {
                     this.player = player
                     useController = false
+                    setKeepContentOnPlayerReset(true)
                     isClickable = false
                     isFocusable = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     setBackgroundColor(android.graphics.Color.BLACK)
                 }
             },
-            update = { it.player = player },
+            update = {
+                // Attach the Surface holder BEFORE preparing a newly rebuilt paused player.
+                // Otherwise its only initial frame can be rendered before this view is bound.
+                it.player = player
+                if (player.playbackState == androidx.media3.common.Player.STATE_IDLE && player.mediaItemCount > 0)
+                    player.prepare()
+            },
+            onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize(),
-        )
+        ) }
         if (showCropFrame) CropFrameOverlay(
             crop = crop,
             sourceWidth = sourceWidth,
@@ -1392,6 +1813,11 @@ private fun CropVideoPreview(
             onCropChange = onCropChange,
             modifier = Modifier.fillMaxSize(),
         )
+        if (selectedTextLayer != null && !showCropFrame) {
+            TextLayerSelectionOverlay(textCanvasWidth, textCanvasHeight, selectedTextLayer,
+                onTextChange, onTap = onTextTap, onDuplicate = onCopyText, onDelete = onDeleteText,
+                cornerActions = true, onGestureStart = onTextGestureStart, onGestureEnd = onTextGestureEnd)
+        }
         if (activeOverlayCenter != null && !showCropFrame) {
             Canvas(Modifier.fillMaxSize().pointerInput(activeOverlayCenter) {
                 detectTransformGestures { _, pan, zoom, rotation ->
@@ -1417,6 +1843,7 @@ private fun CropVideoPreview(
     }
 }
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 private fun readVideoInfo(context: android.content.Context, uri: Uri): VideoInfo? =
     runCatching {
         val retriever = MediaMetadataRetriever()
@@ -1449,7 +1876,11 @@ private fun readVideoInfo(context: android.content.Context, uri: Uri): VideoInfo
                     (duration.toDouble() / frameCount).toLong().coerceAtLeast(1L)
                 else -> null
             }
-            VideoInfo(width, height, duration, frameDurationMs)
+            val transfer = if (android.os.Build.VERSION.SDK_INT >= 30)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_COLOR_TRANSFER)?.toIntOrNull() else null
+            VideoInfo(width, height, duration, frameDurationMs,
+                isHdr = transfer == androidx.media3.common.C.COLOR_TRANSFER_ST2084 ||
+                    transfer == androidx.media3.common.C.COLOR_TRANSFER_HLG)
         } finally {
             retriever.release()
         }

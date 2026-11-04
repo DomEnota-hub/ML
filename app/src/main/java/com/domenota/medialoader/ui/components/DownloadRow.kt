@@ -107,9 +107,12 @@ fun DownloadRow(
         }
     }
     var renameDialog by remember { mutableStateOf(false) }
+    var videoSongSearch by remember(item.id) { mutableStateOf(false) }
     var sourceDialog by remember { mutableStateOf(false) }
     var selectedMusicSource by remember { mutableStateOf<FullSongSource?>(null) }
     var newName by remember(item.title) { mutableStateOf(StorageNaming.editableStem(item.title)) }
+
+    if (videoSongSearch) VideoSongSearchDialog(item.savedUri.orEmpty()) { videoSongSearch = false }
 
     val sourceUrl = item.sourcePageUrl?.takeUnless {
         item.kind == MediaKind.AUDIO && item.providerId?.lowercase() in setOf("hitmoz", "muzmo")
@@ -226,8 +229,6 @@ fun DownloadRow(
                             onClick = { menuExpanded = false; onChooseFolder() },
                         )
                         if (!missing && !inaccessible) {
-                            DropdownMenuItem(leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null) },
-                            text = { Text("Открыть") }, onClick = { menuExpanded = false; onOpen() })
                             if (allowSharing) DropdownMenuItem(leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null) },
                             text = { Text("Поделиться") }, onClick = { menuExpanded = false; onShare() })
                         }
@@ -274,6 +275,13 @@ fun DownloadRow(
                                     )
                                     AppLog.i("MusicSource", "History full-song launch · adapter=${selectedMusicSource?.storedValue}")
                                 },
+                            )
+                        }
+                        if (!missing && !inaccessible && !item.savedUri.isNullOrBlank() && item.kind == MediaKind.VIDEO) {
+                            DropdownMenuItem(
+                                leadingIcon = { MusicSearchActionIcon(recognition = true) },
+                                text = { Text("Найти трек") },
+                                onClick = { menuExpanded = false; videoSongSearch = true },
                             )
                         }
                         if (!missing && !inaccessible && recognitionEnabled && item.kind == MediaKind.AUDIO) {

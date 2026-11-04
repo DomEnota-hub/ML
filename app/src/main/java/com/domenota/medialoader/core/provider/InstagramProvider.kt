@@ -18,6 +18,7 @@ class InstagramProvider(
     /** Saved session cookies or null. Used only after the public attempt fails (and always for Stories). */
     private val cookies: () -> String? = { null },
     private val apiClient: InstagramApiClient = InstagramApiClient(),
+    private val onSessionMediaResolved: () -> Unit = {},
     private val pageSource: suspend (String) -> String = ::fetchInstagramPage,
 ) : MediaProvider {
     override val id = ID
@@ -56,7 +57,9 @@ class InstagramProvider(
         // 2) Public access failed: use the saved session if the user already signed in.
         val session = cookies()?.takeIf { it.isNotBlank() }
         if (session != null) {
-            return parseApiResponse(apiClient.mediaInfo(mediaId(code), session), code)
+            return parseApiResponse(apiClient.mediaInfo(mediaId(code), session), code).also {
+                if (it.isNotEmpty()) onSessionMediaResolved()
+            }
         }
         // 3) Otherwise ask the UI to offer sign-in.
         throw ProviderException(
@@ -99,6 +102,7 @@ class InstagramProvider(
                     val root = JSONObject(apiClient.mediaInfo(mediaId(link.id), session))
                     val product = root.optJSONArray("items")?.optJSONObject(0)
                     if (product != null) {
+                        onSessionMediaResolved()
                         name = captionStem(product)
                         if (name != null) AppLog.verbose("Instagram", "Caption source · method=authorized-api")
                     }
@@ -135,7 +139,9 @@ class InstagramProvider(
         val session = cookies()?.takeIf { it.isNotBlank() } ?: throw ProviderException(
             ProviderException.Reason.ACCESS_REQUIRED, "Stories доступны только после входа в аккаунт Instagram.", ID,
         )
-        return parseApiResponse(apiClient.mediaInfo(link.id, session), link.id)
+        return parseApiResponse(apiClient.mediaInfo(link.id, session), link.id).also {
+            if (it.isNotEmpty()) onSessionMediaResolved()
+        }
     }
 
     private suspend fun <T> attempt(block: suspend () -> T, onLoginWall: () -> Unit): T? = try {

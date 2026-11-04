@@ -136,34 +136,30 @@ fun AudioWaveformTimeline(
     val context = LocalContext.current
     var waveform by remember(uri, durationMs) { mutableStateOf<List<Float>>(emptyList()) }
 
+    var loading by remember(uri, durationMs) { mutableStateOf(true) }
     LaunchedEffect(uri, durationMs) {
         if (durationMs <= 0L) return@LaunchedEffect
-        // Editor NEVER decodes an uncached audio file or blocks on another decoder.
-        // Only read a completed atomic cache and request a priority background job.
-        val saved = withContext(Dispatchers.IO) {
-            readCachedAudioWaveform(context, uri, durationMs)
-        }
-        if (saved != null) {
-            waveform = saved
-        } else {
-            AudioWaveformPrecompute.requestImmediate(context, uri, durationMs)
-            // WorkManager may be deferred by Android; UI stays responsive while it runs.
-            repeat(240) {
-                delay(1000L)
-                val ready = withContext(Dispatchers.IO) {
-                    readCachedAudioWaveform(context, uri, durationMs)
-                }
-                if (ready != null) {
-                    waveform = ready
-                    return@LaunchedEffect
-                }
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        val started = com.domenota.medialoader.core.logging.PerformanceLog.begin("editor_waveform")
+        try {
+            waveform = withContext(Dispatchers.IO) {
+                readCachedAudioWaveform(context, uri, durationMs)
+                    ?: loadAudioWaveform(context, uri, durationMs, isCancelled = { job?.isActive == false })
             }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.e("AudioWaveform", "Editor waveform failed", error)
+        } finally {
+            loading = false
+            com.domenota.medialoader.core.logging.PerformanceLog.end("editor_waveform", started,
+                "buckets=${waveform.size}")
         }
     }
 
     val barColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+    Box(modifier) {
     Canvas(
-        modifier
+        Modifier.fillMaxSize()
             .clip(RoundedCornerShape(12.dp))
             .background(
                 androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
@@ -188,6 +184,12 @@ fun AudioWaveformTimeline(
             )
         }
     }
+    if (waveform.isEmpty()) androidx.compose.material3.Text(
+        if (loading) "Строим звуковую волну…" else "Не удалось построить звуковую волну",
+        modifier = Modifier.align(Alignment.Center),
+        style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+    }
+
 }
 
 /** One non-overlapping window per visible column; preserves transients when resized. */
@@ -338,12 +340,14 @@ internal fun loadAudioWaveform(
     uri: Uri,
     durationMs: Long,
     bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
+    isCancelled: () -> Boolean = { false },
 ): List<Float> {
     val cache = audioWaveformCacheFile(context, uri, durationMs, bucketCount)
     val lock = audioCacheLocks.computeIfAbsent(cache.name) { Any() }
-    return synchronized(lock) {
+    readAudioWaveformCacheFile(cache, bucketCount)?.let { return it }
+    return com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode(isCancelled) { synchronized(lock) {
         readAudioWaveformCacheFile(cache, bucketCount)?.let { return@synchronized it }
-        val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount)
+        val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount, isCancelled)
         if (decoded.size == bucketCount && decoded.any { it > 0f }) {
             runCatching {
                 cache.parentFile?.mkdirs()
@@ -357,7 +361,7 @@ internal fun loadAudioWaveform(
             }
         }
         decoded
-    }
+    } }
 }
 
 private fun decodeAudioWaveform(
@@ -365,6 +369,7 @@ private fun decodeAudioWaveform(
     uri: Uri,
     durationMs: Long,
     bucketCount: Int,
+    isCancelled: () -> Boolean,
 ): List<Float> {
     val extractor = MediaExtractor()
     var codec: MediaCodec? = null
@@ -403,6 +408,8 @@ private fun decodeAudioWaveform(
         var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
 
         while (!outputEnded) {
+            if (isCancelled() || Thread.currentThread().isInterrupted)
+                throw java.util.concurrent.CancellationException("Waveform decode stopped")
             if (!inputEnded) {
                 val inputIndex = decoder.dequeueInputBuffer(CODEC_TIMEOUT_US)
                 if (inputIndex >= 0) {
@@ -463,6 +470,8 @@ private fun decodeAudioWaveform(
             else sqrt(energy[index] / sampleCounts[index]).toFloat()
         }
         normalizeWaveformRms(rms)
+    } catch (cancelled: java.util.concurrent.CancellationException) {
+        throw cancelled
     } catch (_: Exception) {
         emptyList()
     } finally {

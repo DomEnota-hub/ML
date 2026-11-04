@@ -17,7 +17,10 @@ data class VkFavoriteCheckEntry(
     val reviewed: Boolean = false,
 )
 
-data class VkFavoriteCheckBatch(val id: String, val entries: List<VkFavoriteCheckEntry>)
+enum class VkFavoriteSearchMode { NEW_ONLY, FULL_PERIOD }
+
+data class VkFavoriteCheckBatch(val id: String, val entries: List<VkFavoriteCheckEntry>,
+    val mode: VkFavoriteSearchMode = VkFavoriteSearchMode.NEW_ONLY)
 
 /** Persists the latest check so the summary survives leaving the screen and process restart. */
 class VkFavoriteCheckStore(context: Context) {
@@ -36,10 +39,20 @@ class VkFavoriteCheckStore(context: Context) {
         return updated.takeIf { save(it) }
     }
 
+    /** Removing a journal entry also removes its summary, never its downloaded files. */
+    @Synchronized fun removeJobs(jobIds: Set<String>): Boolean {
+        val batch = current() ?: return true
+        val remaining = batch.entries.filterNot { it.jobId in jobIds }
+        return if (remaining.isEmpty()) prefs.edit().remove("batch").commit()
+            else save(batch.copy(entries = remaining))
+    }
+
     companion object {
-        fun afterEpoch(favorite: VkFavorite, zone: ZoneId): Long =
-            favorite.reviewedThroughEpoch ?: LocalDate.parse(favorite.sinceDate)
-                .atStartOfDay(zone).toEpochSecond() - 1
+        fun afterEpoch(favorite: VkFavorite, zone: ZoneId,
+            mode: VkFavoriteSearchMode = VkFavoriteSearchMode.NEW_ONLY): Long =
+            if (mode == VkFavoriteSearchMode.NEW_ONLY && favorite.reviewedThroughEpoch != null)
+                favorite.reviewedThroughEpoch
+            else LocalDate.parse(favorite.sinceDate).atStartOfDay(zone).toEpochSecond() - 1
 
         fun canReview(entry: VkFavoriteCheckEntry, favorite: VkFavorite?, scanComplete: Boolean): Boolean =
             favorite != null && entry.favoriteKey == favorite.key &&
@@ -49,6 +62,7 @@ class VkFavoriteCheckStore(context: Context) {
 
         fun encode(batch: VkFavoriteCheckBatch): String = JSONObject().apply {
             put("id", batch.id)
+            put("mode", batch.mode.name)
             put("entries", JSONArray().apply { batch.entries.forEach { entry ->
                 put(JSONObject().put("favorite_key", entry.favoriteKey).put("label", entry.label)
                     .put("link", entry.link).put("job_id", entry.jobId)
@@ -70,7 +84,8 @@ class VkFavoriteCheckStore(context: Context) {
                         entry.optLong("reviewed_through_at_start").takeIf { it > 0 },
                         entry.getLong("through_epoch"), entry.optBoolean("reviewed")))
                 }
-            })
+            }, runCatching { VkFavoriteSearchMode.valueOf(obj.optString("mode")) }
+                .getOrDefault(VkFavoriteSearchMode.NEW_ONLY))
         }.getOrNull()
     }
 }

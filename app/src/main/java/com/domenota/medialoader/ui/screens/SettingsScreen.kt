@@ -118,6 +118,7 @@ import com.domenota.medialoader.core.diagnostics.InstagramSessionLabel
 import com.domenota.medialoader.core.diagnostics.InstagramSessionTone
 import com.domenota.medialoader.core.recognition.MusicRecognitionMode
 import com.domenota.medialoader.data.MediaRepository
+import com.domenota.medialoader.data.gapi.GapiKeyStore
 import com.domenota.medialoader.data.diagnostics.ActiveSessionDiagnosticProbes
 import com.domenota.medialoader.data.search.FullSongSource
 import com.domenota.medialoader.ui.components.AppCard
@@ -157,6 +158,9 @@ fun SettingsScreen(
     hiddenCount: Int,
     hiddenItems: List<DownloadUiItem>,
     editorItems: List<DownloadUiItem> = emptyList(),
+    onEditorPickerChange: (MediaKind?) -> Unit = {},
+    editorLoading: Boolean = false,
+    editorMessage: String? = null,
     onEditFile: (String) -> Unit = {},
     onOpenEqualizer: () -> Unit = {},
     onChangeFolder: (String) -> Unit,
@@ -208,6 +212,8 @@ fun SettingsScreen(
     val needsGalleryAccess = permissionRevision.let { lacksFullPermission(AppMode.GALLERY) }
     val needsMusicAccess = permissionRevision.let { lacksFullPermission(AppMode.MUSIC) }
     var editorKind by remember { mutableStateOf<MediaKind?>(null) }
+    LaunchedEffect(editorKind) { onEditorPickerChange(editorKind) }
+    DisposableEffect(Unit) { onDispose { onEditorPickerChange(null) } }
     var accountsExpanded by rememberSaveable { mutableStateOf(false) }
     var downloadExpanded by rememberSaveable { mutableStateOf(false) }
     var musicOptionsExpanded by rememberSaveable { mutableStateOf(false) }
@@ -338,6 +344,8 @@ fun SettingsScreen(
     var recognitionDialog by remember { mutableStateOf(false) }
     var musicSourceDialog by remember { mutableStateOf(false) }
     var instagramModeDialog by remember { mutableStateOf(false) }
+    val gapiKeyStore = remember(context) { GapiKeyStore(context) }
+    var gapiKeysDialog by remember { mutableStateOf(false) }
     var spareAuthorizationDialog by remember { mutableStateOf(false) }
     var folderDialog by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("MediaLoader") }
@@ -601,6 +609,12 @@ fun SettingsScreen(
         },
     )
 
+    if (gapiKeysDialog) GapiKeysDialog(
+        store = gapiKeyStore,
+        gateRevision = developerVisible,
+        onDismissRequest = { gapiKeysDialog = false },
+    )
+
     if (instagramModeDialog) AlertDialog(
         onDismissRequest = { instagramModeDialog = false },
         title = { Text("Режим загрузки Instagram") },
@@ -784,6 +798,8 @@ fun SettingsScreen(
     editorKind?.let { kind ->
         EditorFilePickerDialog(
             kind = kind,
+            loading = editorLoading,
+            message = editorMessage,
             files = editorItems,
             albumsById = editorAlbumsById,
             onSelect = { id ->
@@ -931,6 +947,11 @@ fun SettingsScreen(
                 if (automaticInstagram) "Автоматический" else "Ручной",
                 grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
                 onClick = { instagramModeDialog = true })
+            GroupDivider()
+            SettingRow(Icons.Rounded.Key, "Ключи GAPI для Instagram и VK",
+                "Ключи, приоритет и резерв через аккаунт",
+                grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM,
+                onClick = { gapiKeysDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.CloseFullscreen, "Закрывать окно после выбора файла",
                 "После добавления в загрузки", grouped = true, nested = true, iconTone = SettingIconTone.CLOSE_PICKER,

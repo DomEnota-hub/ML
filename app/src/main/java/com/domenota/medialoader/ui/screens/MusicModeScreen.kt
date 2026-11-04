@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +42,8 @@ fun MusicModeScreen(
     onPreview: ((String, List<String>) -> Unit)? = null, onAddPlaylistTracks: ((String) -> Unit)? = null,
     onEnqueue: ((String, Boolean) -> Unit)? = null,
     onDetailChange: (Boolean) -> Unit = {}, currentPlayingId: String? = null, playing: Boolean = false,
+    deviceMusicFolders: Map<String, String> = emptyMap(),
+    hiddenTracksOpen: Boolean = false, onDismissHiddenTracks: () -> Unit = {},
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     val tab = tabOverride ?: localTab
@@ -65,8 +68,59 @@ fun MusicModeScreen(
         catch (e: Exception) { error = e.message ?: "Не удалось выполнить действие" }
         finally { busy = false }
     } }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val folderPrefs = remember(context) { context.getSharedPreferences("music_folder_visibility", 0) }
+    var excludedFolders by remember { mutableStateOf(folderPrefs.getStringSet("excluded", emptySet()).orEmpty().toSet()) }
+    var hiddenTrackKeys by remember { mutableStateOf(folderPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty().toSet()) }
+    fun toggleHidden(track: DownloadEntity) {
+        hiddenTrackKeys = MusicTrackVisibility.update(hiddenTrackKeys, track, !MusicTrackVisibility.hidden(track, hiddenTrackKeys))
+        folderPrefs.edit().putStringSet("hidden_tracks", hiddenTrackKeys).apply()
+    }
+    var folderOpen by rememberSaveable { mutableStateOf<String?>(null) }
+    var showExcluded by rememberSaveable { mutableStateOf(false) }
     val available = remember(allAudio) { allAudio.filter(::availableAudio).associateBy { it.id } }
     val tracks = remember(items) { items.filter(::availableAudio).distinctBy { it.id } }
+    val hiddenTracks = remember(tracks, hiddenTrackKeys) { tracks.filter { MusicTrackVisibility.hidden(it, hiddenTrackKeys) } }
+    if (hiddenTracksOpen) AlertDialog(onDismissRequest = onDismissHiddenTracks, title = { Text("Скрытые треки") },
+        text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 360.dp)) {
+            if (hiddenTracks.isEmpty()) item { Text("Нет скрытых треков") }
+            items(hiddenTracks, key = { it.id }) { track ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName, Modifier.weight(1f))
+                    IconButton(onClick = { toggleHidden(track) }) { Icon(Icons.Rounded.Visibility, "Отобразить ${track.originalName}") }
+                }
+            }
+        } }, confirmButton = { TextButton(onClick = onDismissHiddenTracks) { Text("Готово") } })
+    val folders = remember(tracks, deviceMusicFolders) {
+        tracks.groupBy { MusicFolderRules.key(it, deviceMusicFolders) }.filterKeys { it != null }
+    }
+    if (folderOpen != null) {
+        val folder = folderOpen!!
+        val folderTracks = folders[folder].orEmpty()
+        AlertDialog(onDismissRequest = { folderOpen = null }, title = { Text(MusicFolderRules.title(folder), color = MaterialTheme.colorScheme.onSurface) },
+            text = { Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        val exclude = folder !in excludedFolders
+                        excludedFolders = if (exclude) excludedFolders + folder else excludedFolders - folder
+                        folderPrefs.edit().putStringSet("excluded", excludedFolders).apply()
+                    }) {
+                        Icon(if (folder in excludedFolders) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (folder in excludedFolders) "Отобразить в общем списке" else "Скрыть из общего списка")
+                    }
+                }
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                    items(folderTracks, key = { it.id }) { track ->
+                        TextButton(onClick = { (onPreview ?: onOpen)(track.id, folderTracks.map { it.id }) }) {
+                            com.domenota.medialoader.ui.components.DownloadThumbnail(track.savedUri, track.previewUrl, track.toUi().kind, Modifier.size(44.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+            } }, confirmButton = { TextButton(onClick = { folderOpen = null }) { Text("Готово") } })
+    }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     LaunchedEffect(playlist?.id, addingPlaylist) { onDetailChange(playlist != null || addingPlaylist != null) }
@@ -78,16 +132,22 @@ fun MusicModeScreen(
             { addingPlaylist = null }, onPreview ?: onOpen, { onAddTracks(toAdd.id, it) })
         return
     }
-    val filtered = (if (tab == 0) tracks else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
-        .filter { matchesMusicSearch(it, search) }
-    val displayed = if (tab == 0) sortMusicRows(filtered, sort) else filtered
+    val filtered = remember(tracks, playlist, tab, available, search, excludedFolders, deviceMusicFolders, hiddenTrackKeys) {
+        (if (tab == 0) tracks.filter { MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) && !MusicTrackVisibility.hidden(it, hiddenTrackKeys) }
+            else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
+            .filter { matchesMusicSearch(it, search) }
+    }
+    val displayed = remember(filtered, sort, tab) { if (tab == 0) sortMusicRows(filtered, sort) else filtered }
+    val sections = remember(displayed, sort) { displayed.groupBy { musicGroupHeading(it, sort) } }
     LaunchedEffect(tab, scrollToTopRequest) {
         if (tab == 0) listState.scrollToItem(0)
     }
-    val displayedIds = if (playlist == null) displayed.map { it.id } else playlist.trackIds.filter { id ->
-        available[id]?.let { matchesMusicSearch(it, search) } ?: search.isBlank()
+    val displayedIds = remember(displayed, playlist, available, search) {
+        if (playlist == null) displayed.map { it.id } else playlist.trackIds.filter { id ->
+            available[id]?.let { matchesMusicSearch(it, search) } ?: search.isBlank()
+        }
     }
-    val queue = displayed.map { it.id }
+    val queue = remember(displayed) { displayed.map { it.id } }
     fun preview(id: String) { (onPreview ?: onOpen)(id, queue) }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyColumn(Modifier.weight(1f).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
@@ -103,17 +163,17 @@ fun MusicModeScreen(
                         label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
                     if (tab == 0) Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
-                        Text("Сортировка: ${sort.label}", style = MaterialTheme.typography.bodySmall,
+                        Text(musicSortCaption(sort), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Box {
                             IconButton(onClick = { sortMenu = true }) {
                                 Icon(Icons.Rounded.Sort, contentDescription = "Сортировка треков")
                             }
                             DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                                MusicLibrarySort.entries.forEach { option ->
-                                    DropdownMenuItem(text = { Text(option.label) },
-                                        onClick = { sort = option; sortMenu = false },
-                                        leadingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) })
+                                MusicLibrarySort.entries.filter { it != MusicLibrarySort.DATE_OLDEST }.forEach { option ->
+                                    DropdownMenuItem(text = { Text(musicSortCaption(if (option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE_OLDEST) sort else option)) },
+                                        onClick = { sort = if (option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE) MusicLibrarySort.DATE_OLDEST else option; sortMenu = false },
+                                        leadingIcon = { if (sort == option || option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE_OLDEST) Icon(Icons.Rounded.Check, null) })
                                 }
                             }
                         }
@@ -122,6 +182,7 @@ fun MusicModeScreen(
                         tab == 0 && displayed.isEmpty(), "Нет аудиофайлов") }
                 }
             }
+
             if (tab == 1 && playlist == null) {
                 item(key = "playlists-title") { Text("Мои плейлисты", Modifier.padding(horizontal = 17.dp, vertical = 15.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
                 items(playlists.chunked(2), key = { it.first().id }) { pair ->
@@ -147,6 +208,26 @@ fun MusicModeScreen(
                     }
                     if (playlists.isEmpty()) Text("Пока нет плейлистов", Modifier.padding(17.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                item(key = "music-folders-title") {
+                    Text("Папки с музыкой", Modifier.padding(17.dp), fontWeight = FontWeight.SemiBold)
+                }
+                items(folders.keys.filterNotNull().filter { it !in excludedFolders }.sorted(), key = { "folder:$it" }) { folder ->
+                    TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.Folder, null)
+                        Text("${MusicFolderRules.title(folder)} · ${folders[folder].orEmpty().size}",
+                            Modifier.weight(1f).padding(start = 12.dp), maxLines = 2, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+                if (folders.keys.any { it in excludedFolders }) {
+                    item(key = "excluded-folders") {
+                        TextButton(onClick = { showExcluded = !showExcluded }) { Text("Исключённые папки") }
+                    }
+                    if (showExcluded) items(folders.keys.filterNotNull().filter { it in excludedFolders }.sorted(),
+                        key = { "excluded:$it" }) { folder ->
+                        TextButton(onClick = { folderOpen = folder }) { Text(MusicFolderRules.title(folder), color = MaterialTheme.colorScheme.onSurface) }
+                    }
+                }
+
             } else {
                 if (playlist != null) item(key = "playlist-summary") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 19.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
@@ -170,7 +251,6 @@ fun MusicModeScreen(
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (tab == 0) {
-                    val sections = displayed.groupBy { musicGroupHeading(it, sort) }
                     sections.forEach { (letter, records) ->
                         item(key = "music-letter:$letter") {
                             Text(letter, Modifier.fillMaxWidth().padding(start = 17.dp, top = 15.dp, bottom = 7.dp),
@@ -181,7 +261,7 @@ fun MusicModeScreen(
                             MusicLibraryTrackRow(track, { preview(id) }, id == currentPlayingId, playing) {
                                 MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } },
                                     { onOpen(id, queue) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
-                                    null, null, null)
+                                    null, null, null, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) })
                             }
                         }
                     }
@@ -193,7 +273,7 @@ fun MusicModeScreen(
                         MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } }, { onOpen(id, queue) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
                             playlist?.let { entry -> { mutate { onRemoveTrack(entry.id, id) } } },
                             playlist?.takeIf { it.trackIds.indexOf(id) > 0 }?.let { entry -> { mutate { onMoveTrack(entry.id, id, -1) } } },
-                            playlist?.takeIf { it.trackIds.indexOf(id) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } })
+                            playlist?.takeIf { it.trackIds.indexOf(id) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } }, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) })
                     }
                 }
             }
@@ -257,12 +337,13 @@ private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDel
 
 @Composable
 private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Unit)?, onOpen: () -> Unit, onAdd: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
-                              onRemove: (() -> Unit)?, onUp: (() -> Unit)?, onDown: (() -> Unit)?) {
+                              onRemove: (() -> Unit)?, onUp: (() -> Unit)?, onDown: (() -> Unit)?, hidden: Boolean = false, onToggleHidden: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
+    var properties by remember { mutableStateOf(false) }
+    if (properties) MusicFilePropertiesDialog(track) { properties = false }
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия: ${track.originalName}") }
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem({ Text("Открыть") }, { menu = false; onOpen() }, leadingIcon = { Icon(Icons.Rounded.PlayArrow, null) })
             if (onEnqueue != null) {
                 DropdownMenuItem({ Text("Играть следующим") }, { menu = false; onEnqueue(true) }, leadingIcon = { Icon(Icons.Rounded.SkipNext, null) })
                 DropdownMenuItem({ Text("Добавить в конец очереди") }, { menu = false; onEnqueue(false) }, leadingIcon = { Icon(Icons.Rounded.QueueMusic, null) })
@@ -271,9 +352,23 @@ private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Un
             if (onRemove != null) DropdownMenuItem({ Text("Убрать из плейлиста") }, { menu = false; onRemove() }, leadingIcon = { Icon(Icons.Rounded.PlaylistRemove, null) })
             if (onUp != null) DropdownMenuItem({ Text("Выше") }, { menu = false; onUp() }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) })
             if (onDown != null) DropdownMenuItem({ Text("Ниже") }, { menu = false; onDown() }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })
+            if (onToggleHidden != null) DropdownMenuItem({ Text(if (hidden) "Отобразить в общем списке" else "Скрыть") },
+                { menu = false; onToggleHidden() }, leadingIcon = { Icon(if (hidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null) })
+            DropdownMenuItem({ Text("Свойства") }, { menu = false; properties = true }, leadingIcon = { Icon(Icons.Rounded.Info, null) })
             DropdownMenuItem({ Text("Поделиться") }, { menu = false; onShare() }, leadingIcon = { Icon(Icons.Rounded.Share, null) })
             DropdownMenuItem({ Text("Удалить файл", color = MaterialTheme.colorScheme.error) }, { menu = false; onDelete() },
                 leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) })
         }
+    }
+}
+
+@Composable
+private fun musicSortCaption(sort: MusicLibrarySort): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
+    val dated = sort == MusicLibrarySort.DATE || sort == MusicLibrarySort.DATE_OLDEST
+    withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.onSurface)) {
+        append(if (dated) "По дате · " else sort.label)
+    }
+    if (dated) withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.primary)) {
+        append(if (sort == MusicLibrarySort.DATE) "новые" else "старые")
     }
 }

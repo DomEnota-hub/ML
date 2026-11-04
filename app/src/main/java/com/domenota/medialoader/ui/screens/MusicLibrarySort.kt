@@ -5,7 +5,7 @@ import java.text.Collator
 import java.util.Locale
 
 internal enum class MusicLibrarySort(val label: String) {
-    TITLE("По названию"), DATE("По дате · новые"), ARTIST("По исполнителю")
+    TITLE("По названию"), DATE("По дате · новые"), DATE_OLDEST("По дате · старые"), ARTIST("По исполнителю")
 }
 
 internal fun musicDisplayTitle(track: DownloadEntity): String =
@@ -19,7 +19,7 @@ internal fun musicGroupHeading(track: DownloadEntity, order: MusicLibrarySort): 
     MusicLibrarySort.ARTIST -> musicGroupLetter(
         track.recognizedArtist ?: track.sourceAudioArtist ?: "#"
     )
-    MusicLibrarySort.DATE -> java.time.Instant.ofEpochMilli(track.createdAtEpochMillis)
+    MusicLibrarySort.DATE, MusicLibrarySort.DATE_OLDEST -> java.time.Instant.ofEpochMilli(track.createdAtEpochMillis)
         .atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
 }
 
@@ -32,6 +32,8 @@ internal fun sortMusicRows(rows: List<DownloadEntity>, order: MusicLibrarySort):
     val collator = Collator.getInstance(Locale.forLanguageTag("ru-RU")).apply { strength = Collator.PRIMARY }
     return when (order) {
         MusicLibrarySort.DATE -> rows.sortedWith(compareByDescending<DownloadEntity> { it.createdAtEpochMillis }
+            .thenComparator { a,b -> collator.compare(musicDisplayTitle(a), musicDisplayTitle(b)) })
+        MusicLibrarySort.DATE_OLDEST -> rows.sortedWith(compareBy<DownloadEntity> { it.createdAtEpochMillis }
             .thenComparator { a,b -> collator.compare(musicDisplayTitle(a), musicDisplayTitle(b)) })
         MusicLibrarySort.ARTIST -> rows.sortedWith { a,b ->
             collator.compare(

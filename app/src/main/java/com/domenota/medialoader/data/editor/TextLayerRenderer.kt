@@ -33,17 +33,30 @@ internal object EditorFonts {
 }
 
 internal object TextLayerRenderer {
+    /** Opacity is applied to BOTH stroke and fill and therefore exported identically. */
+    internal fun opacityAlpha(argb: Int, opacity: Float): Int =
+        (Color.alpha(argb) * opacity.coerceIn(0f, 1f))
+            .roundToInt().coerceIn(0, 255)
+
     /** Same layout for export, preview and selection bounds. */
     fun layout(context: Context, width: Int, height: Int, layer: TextLayer): StaticLayout {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = EditorFonts.face(context, layer.fontId)
+            val face = EditorFonts.face(context, layer.fontId)
+            typeface = if (layer.bold) android.graphics.Typeface.create(face,
+                if (face.isItalic) android.graphics.Typeface.BOLD_ITALIC else android.graphics.Typeface.BOLD) else face
             textSize = min(width, height) * layer.size
             color = layer.color
             strokeJoin = Paint.Join.ROUND
         }
         return StaticLayout.Builder.obtain(layer.text, 0, layer.text.length, paint,
             (width * 0.9f).toInt().coerceAtLeast(1))
-            .setAlignment(Layout.Alignment.ALIGN_CENTER).setIncludePad(false).build()
+            .setAlignment(when (layer.alignment) {
+                TextLayerAlignment.LEFT -> Layout.Alignment.ALIGN_NORMAL
+                TextLayerAlignment.CENTER -> Layout.Alignment.ALIGN_CENTER
+                TextLayerAlignment.RIGHT -> Layout.Alignment.ALIGN_OPPOSITE
+            })
+            .setTextDirection(android.text.TextDirectionHeuristics.LTR)
+            .setIncludePad(false).build()
     }
 
     suspend fun videoPreview(context: Context, uri: android.net.Uri, positionMs: Long,
@@ -64,7 +77,7 @@ internal object TextLayerRenderer {
 
     fun draw(context: Context, canvas: Canvas, width: Int, height: Int,
         layers: List<TextLayer>, positionMs: Long = 0L, includeAll: Boolean = false) {
-        layers.filter { includeAll && it.text.isNotBlank() || it.visibleAt(positionMs) }.forEach { layer ->
+        layers.filter { it.opacity > 0f && (includeAll && it.text.isNotBlank() || it.visibleAt(positionMs)) }.forEach { layer ->
             val layout = layout(context, width, height, layer)
             val paint = layout.paint
             val saved = canvas.save()
@@ -75,11 +88,16 @@ internal object TextLayerRenderer {
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = paint.textSize * layer.outline * 2f
                 paint.color = layer.outlineColor
+                paint.alpha = opacityAlpha(paint.color, layer.opacity)
                 layout.draw(canvas)
             }
             paint.style = Paint.Style.FILL
             paint.color = layer.color
+            paint.alpha = opacityAlpha(paint.color, layer.opacity)
+            if (layer.shadow) paint.setShadowLayer(paint.textSize * .12f,
+                paint.textSize * .06f, paint.textSize * .09f, Color.argb(160, 0, 0, 0))
             layout.draw(canvas)
+            paint.clearShadowLayer()
             canvas.restoreToCount(saved)
         }
     }

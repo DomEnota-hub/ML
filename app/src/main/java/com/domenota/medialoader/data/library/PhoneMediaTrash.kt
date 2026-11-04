@@ -31,6 +31,8 @@ internal object PhoneMediaTrash {
             MediaStore.MediaColumns._ID,
             MediaStore.MediaColumns.DISPLAY_NAME,
             MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_EXPIRES,
+            MediaStore.MediaColumns.DATE_MODIFIED,
         )
         val sources = listOf(
             Triple("image", MediaStore.Images.Media.EXTERNAL_CONTENT_URI, MediaKind.IMAGE),
@@ -43,6 +45,8 @@ internal object PhoneMediaTrash {
             try {
                 resolver.query(collection, projection, args, null)?.use { cursor ->
                     val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                    val expiresColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_EXPIRES)
+                    val modifiedColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
                     val nameColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
                     while (cursor.moveToNext()) {
                         val mediaId = cursor.getLong(idColumn)
@@ -58,6 +62,8 @@ internal object PhoneMediaTrash {
                             savedUri = uri.toString(),
                             kind = kind,
                             providerId = "device",
+                            trashOrderMs = (expiresColumn.takeIf { it >= 0 && !cursor.isNull(it) }
+                                ?: modifiedColumn.takeIf { it >= 0 && !cursor.isNull(it) })?.let { cursor.getLong(it) * 1000L } ?: 0L,
                         )
                     }
                 }
@@ -67,7 +73,7 @@ internal object PhoneMediaTrash {
                 // Some third-party media providers do not implement MATCH_ONLY.
             }
             result
-        }
+        }.sortedByDescending { it.trashOrderMs }
     }
 
     fun authorizedUris(ids: Set<String>, items: List<DownloadUiItem>): List<Uri> =

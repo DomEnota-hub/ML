@@ -1,0 +1,195 @@
+name: MediaLoader v8 reference UI UX rebuild validation
+on:
+  push:
+    branches:
+      - feature/ml-video-editor-v8-reference-rebuild-20261102
+  workflow_dispatch:
+    inputs:
+      official_release_review:
+        description: 'Build isolated unsigned Release QA for local official signing'
+        type: boolean
+        default: false
+      full_validation:
+        description: 'Run all release gates and the whole codec suite once'
+        type: boolean
+        default: false
+      review_apk:
+        description: 'Build an isolated ARM64 review APK; targeted checks are recorded locally'
+        type: boolean
+        default: false
+      run_device_tests:
+        description: 'Run Android codecs (disable only when runtime and native tests are unchanged)'
+        type: boolean
+        default: true
+      device_test:
+        description: 'Focused Android test (class#method)'
+        type: string
+        default: 'com.domenota.medialoader.data.editor.Media3ActualVideoFxInstrumentedTest#effectsRedrawPausedFramesPlayAndMatchMp4'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Independent QA-only followups must not wait for an unchanged codec suite.
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.run_device_tests == false && 'ml-video-editor-v8-qa' || 'ml-video-editor-v8-reference' }}
+  cancel-in-progress: false
+
+jobs:
+  qa:
+    if: ${{ github.event_name == 'push' || inputs.full_validation || inputs.review_apk }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+          # This trusted long-lived feature branch otherwise stays cache-read-only.
+          cache-read-only: false
+      - name: Install fixture decoder
+        if: ${{ !inputs.review_apk || inputs.full_validation }}
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Validate synthetic H264 fixture before codec tests
+        if: ${{ !inputs.review_apk || inputs.full_validation }}
+        run: python3 scripts/verify-video-fx-fixture.py
+      - name: Focused video checks and instrumented compile
+        if: ${{ !inputs.full_validation && !inputs.review_apk }}
+        run: gradle :app:testDebugUnitTest --tests '*VideoWorkspaceToolbarTest*' --tests '*VideoColorEffectsTest*' --tests '*VideoReferenceAdjustmentsTest*' --tests '*VideoProjectAspectTest*' --tests '*VideoAudioLaneGeometryTest*' --tests '*VideoMutablePreviewOverlayTest*' --tests '*VideoPreviewFrameClockTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
+      - name: Run all Android unit and Compose tests
+        if: ${{ inputs.full_validation }}
+        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        if: ${{ inputs.full_validation }}
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Verify all JavaScript/WebView scripts
+        if: ${{ inputs.full_validation }}
+        run: |
+          node scripts/test-youtube-thumbnail.cjs
+          node scripts/test-hitmoz-native-script.cjs
+          node scripts/test-muzmo-native-script.cjs
+      - name: Compile isolated ARM64 QA package
+        if: ${{ inputs.full_validation || inputs.review_apk }}
+        run: |
+          if [ "${{ inputs.official_release_review }}" = true ]; then
+            gradle :app:assembleRelease -Parm64Release=true -PofficialQa=true --stacktrace
+          else
+            gradle :app:assembleDebug -Parm64Release=true -PhitmozArm64=true --stacktrace
+          fi
+      - name: Verify QA identity, ABI and signature
+        if: ${{ inputs.full_validation || inputs.review_apk }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.official_release_review }}" = true ]; then
+            apk=app/build/outputs/apk/release/app-release-unsigned.apk
+            expected_package=com.domenota.medialoader.officialqa
+          else
+            apk=app/build/outputs/apk/debug/app-debug.apk
+            expected_package=com.domenota.medialoader.hitmoz
+          fi
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -s "$apk"
+          "$bt/aapt" dump badging "$apk" > /tmp/ml-review-badging.txt
+          grep -F "package: name='$expected_package'" /tmp/ml-review-badging.txt
+          if [ "${{ inputs.official_release_review }}" = true ]; then
+            ! grep -q application-debuggable /tmp/ml-review-badging.txt
+            test "$(stat -c %s "$apk")" -le 130000000
+          else
+            "$bt/apksigner" verify --print-certs "$apk"
+          fi
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          sha256sum "$apk"
+      - name: Verify 1.7.128 production ARM64 release compile and size
+        if: ${{ inputs.full_validation }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:assembleRelease -Parm64Release=true --stacktrace
+          file=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$file"
+          python3 scripts/verify-production-apk.py "$file" "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Preserve unsigned production candidate
+        if: ${{ inputs.full_validation }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML-1.7.128-Production-ARM64-Unsigned
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Preserve unit and lint reports even on failure
+        if: ${{ always() && (!inputs.review_apk || inputs.full_validation) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-v8-unit-lint-${{ github.sha }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results*
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Keep short-lived CI APK (not published as QA prerelease)
+        if: ${{ inputs.full_validation || inputs.review_apk }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.official_release_review && 'ML-Official-Key-Release-Review-Unsigned' || (inputs.review_apk && 'ML-Text-Performance-ARM64-Review' || 'ML-Video-v8-Reference-ARM64-CI') }}
+          path: ${{ inputs.official_release_review && 'app/build/outputs/apk/release/app-release-unsigned.apk' || 'app/build/outputs/apk/debug/app-debug.apk' }}
+          if-no-files-found: error
+          retention-days: ${{ inputs.review_apk && 7 || 2 }}
+          compression-level: 0
+
+  # This is a real Android codec test, independent of JVM/Robolectric
+  # snapshot tests. It decodes the completed MP4 and checks its pixels.
+  mp4-codec-device:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_device_tests }}
+    name: Real MP4 effect on Android emulator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+          # This trusted long-lived feature branch otherwise stays cache-read-only.
+          cache-read-only: false
+      - name: Enable emulator hardware acceleration
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Verify the exported MP4 pixels using Android Media3 codec
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash scripts/run-video-fx-device-tests.sh
+        env:
+          ML_DEVICE_TEST: ${{ inputs.full_validation && 'com.domenota.medialoader.data.editor.Media3ActualVideoFxInstrumentedTest,com.domenota.medialoader.data.editor.VideoReferenceAdjustmentsInstrumentedTest' || inputs.device_test }}
+      - name: Preserve real-codec evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-v8-device-${{ github.sha }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/video-fx-logcat.txt
+            app/build/video-fx-evidence/
+          if-no-files-found: warn
+          retention-days: 7

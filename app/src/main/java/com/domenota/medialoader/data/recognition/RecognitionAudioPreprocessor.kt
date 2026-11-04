@@ -50,7 +50,10 @@ class RecognitionAudioPreprocessor(private val context: Context) {
                 "-acodec pcm_s16le -f s16le ${quote(output.absolutePath)}"
             val succeeded = suspendCancellableCoroutine<Boolean> { continuation ->
                 val session = FFmpegKit.executeAsync(command) { completed ->
-                    if (continuation.isActive) continuation.resume(ReturnCode.isSuccess(completed.returnCode))
+                    val success = ReturnCode.isSuccess(completed.returnCode)
+                    if (!success) AppLog.e("VideoRecognition",
+                        "Audio extraction failed · code=${completed.returnCode} · detail=${completed.allLogsAsString.takeLast(2000)}")
+                    if (continuation.isActive) continuation.resume(success)
                 }
                 continuation.invokeOnCancellation { FFmpegKit.cancel(session.sessionId) }
             }

@@ -42,4 +42,26 @@ class DownloadsGridUiTest {
         compose.onNodeWithText("Переместить в личное").assertIsDisplayed()
         assertTrue(compose.activity.getSharedPreferences("ui", Context.MODE_PRIVATE).getBoolean("downloads_grid", false))
     }
+    @Test fun selectionKeepsFourColumnGridAndPreviewDoesNotChangeChecks() {
+        val photos=(1..5).map { DownloadUiItem(id="$it",title="Фото $it",subtitle="Фото",sizeLabel=null,
+            state=DownloadUiState.COMPLETED,kind=MediaKind.IMAGE,savedUri="content://media/$it") }
+        var opened=""
+        compose.setContent { MaterialTheme { DownloadsScreen(photos,onOpenDownload={opened=it},onCancelDownload={},
+            onShareDownload={},onHideDownload={},onRetryDownload={},onReanalyzeMissing={},onRenameDownload={_,_->}) } }
+        compose.onNodeWithContentDescription("Показать сеткой").performScrollTo().performClick()
+        compose.onNodeWithText("Выбрать").performScrollTo().performClick()
+        val first=compose.onNodeWithContentDescription("Фото 1")
+        first.performScrollTo()
+        val a=first.fetchSemanticsNode().boundsInRoot
+        val b=compose.onNodeWithContentDescription("Фото 4").fetchSemanticsNode().boundsInRoot
+        assertEquals(a.top,b.top,1f);assertTrue(b.left>a.left)
+        compose.onNodeWithContentDescription("Выбрать Фото 1").performClick()
+        compose.onNodeWithText("Выбрано: 1").assertExists()
+        first.performTouchInput { click(bottomRight-androidx.compose.ui.geometry.Offset(5f,5f)) }
+        assertEquals("1",opened)
+        compose.onNodeWithText("Выбрано: 1").assertExists()
+        compose.onNodeWithContentDescription("Выбрать Фото 1").assertIsOn()
+        compose.onNodeWithText("Отмена").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Показать списком").assertExists()
+    }
 }

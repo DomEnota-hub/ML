@@ -60,4 +60,15 @@ class LibraryHeaderActionsTest {
         compose.onNodeWithText("Доступ к файлам").assertDoesNotExist()
         assertEquals(1, opened)
     }
+    @Test fun hiddenMusicTracksActionIsLeftOfSearchAndInvokesItsCallback() {
+        var hidden=0
+        compose.setContent { MaterialTheme {
+            LibraryModeHeader(AppMode.MUSIC,LibrarySource.PHONE,{},{},{},{},onHiddenTracks={hidden++})
+        } }
+        val eye=compose.onNodeWithContentDescription("Скрытые треки")
+        val search=compose.onNodeWithContentDescription("Поиск")
+        org.junit.Assert.assertTrue(eye.fetchSemanticsNode().boundsInRoot.center.x <
+            search.fetchSemanticsNode().boundsInRoot.center.x)
+        eye.performClick();assertEquals(1,hidden)
+    }
 }

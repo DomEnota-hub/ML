@@ -5,6 +5,11 @@ plugins {
     id 'org.jetbrains.kotlin.kapt'
 }
 
+// Local-only input: never store credentials in tracked Gradle files or CI logs.
+def gapiKeysFile = rootProject.file('.gapi-local/builtin-keys.json')
+def gapiKeysJson = gapiKeysFile.isFile() ? gapiKeysFile.getText('UTF-8') : '[]'
+def gapiKeysLiteral = groovy.json.JsonOutput.toJson(gapiKeysJson)
+
 android {
     namespace 'com.domenota.medialoader'
     compileSdk 35
@@ -24,10 +29,12 @@ android {
 
     defaultConfig {
         applicationId 'com.domenota.medialoader'
+        buildConfigField 'String', 'GAPI_BUILTIN_KEYS_JSON', gapiKeysLiteral
         minSdk 26
         targetSdk 35
-        versionCode 172
-        versionName '1.7.111'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        versionCode 189
+        versionName '1.7.128'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
         // Package only ARM64 native libraries without changing the release app ID.
         if (project.hasProperty('arm64Release')) {
@@ -43,6 +50,14 @@ android {
             manifestPlaceholders = [launcherLabel: 'Загрузчик · Debug']
             ndk { abiFilters 'arm64-v8a' }
         }
+        if (project.hasProperty('officialQa')) {
+            applicationIdSuffix '.officialqa'
+            versionNameSuffix '-review'
+            versionCode 200000 + Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '0')
+            manifestPlaceholders = [launcherLabel: 'Загрузчик · Release QA']
+            ndk { abiFilters 'arm64-v8a' }
+        }
+
     }
 
     buildFeatures {
@@ -107,7 +122,12 @@ dependencies {
     // Offline Russian and English OCR with genuine per-character boxes.
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     // Audio-only LGPL build with libmp3lame; actual transcoding, not an extension change.
-    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7'
+    // AudioExtractor and AudioEditor use FFmpegKit only for audio transcoding
+    // (including MP3/lame); video MP4 export uses Android Media3 Transformer.
+    // Audio-tier removes unused video/TLS native codecs from ARM64 production APK.
+    // Keep a compatibility escape hatch while validating legacy media sources.
+    def ffmpegTier = project.hasProperty('mlFfmpegFull') ? 'full' : 'audio'
+    implementation "dev.ffmpegkit-maintained:ffmpeg-kit-${ffmpegTier}:8.1.7"
     // The audio AAR references this class at runtime; this variant does not bring it into the APK.
     implementation 'com.arthenica:smart-exception-java:0.2.1'
     implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
@@ -121,4 +141,9 @@ dependencies {
     testImplementation 'androidx.compose.ui:ui-test-junit4'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
     testImplementation 'org.json:json:20240303'
+
+    // Actual Android codec/Transformer regression verification of effects in MP4.
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:core:1.6.1'
 }

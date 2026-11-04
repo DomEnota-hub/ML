@@ -8,7 +8,7 @@ class AccountBrowserPolicyTest {
     @Test fun rutubeAllowsOfficialIdentityRedirect() {
         assertTrue(AccountBrowserPolicy.allowsRutubeNavigation("https://auth.gid.ru/login"))
         assertTrue(AccountBrowserPolicy.allowsRutubeNavigation("https://rutube.ru/"))
-        assertFalse(AccountBrowserPolicy.allowsRutubeNavigation("https://auth.gid.ru.evil.test/"))
+        assertFalse(AccountBrowserPolicy.isRutubeSite("https://auth.gid.ru.evil.test/"))
         assertFalse(AccountBrowserPolicy.allowsRutubeNavigation("http://auth.gid.ru/login"))
     }
 
@@ -22,5 +22,15 @@ class AccountBrowserPolicyTest {
         assertTrue(AccountBrowserPolicy.rutubeProfileConfirmed("true"))
         assertFalse(AccountBrowserPolicy.rutubeProfileConfirmed("false"))
         assertFalse(AccountBrowserPolicy.rutubeProfileConfirmed("null"))
+    }
+    @Test fun everyHttpsLoginProviderCanNavigateButOnlyRutubeCanConfirm() {
+        for (host in listOf("id.vk.ru","id.vk.com","auth.gid.ru","id.mts.ru","id.sber.ru","passport.yandex.ru","new-provider.example")) {
+            assertTrue(AccountBrowserPolicy.allowsRutubeNavigation("https://$host/login"))
+            assertFalse(AccountBrowserPolicy.canCaptureRutubeSession("https://$host/login","true"))
+        }
+        assertTrue(AccountBrowserPolicy.canCaptureRutubeSession("https://rutube.ru/profile/","true"))
+        assertFalse(AccountBrowserPolicy.canCaptureRutubeSession("https://rutube.ru.evil.test/","true"))
+        assertFalse(AccountBrowserPolicy.canCaptureRutubeSession("https://rutube.ru/profile/","false"))
+        assertFalse(AccountBrowserPolicy.allowsRutubeNavigation("https://user:pass@rutube.ru"))
     }
 }

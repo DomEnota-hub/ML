@@ -25,9 +25,28 @@ object RemoteImageLoader {
     private val retryPolicy = ThumbnailRetryPolicy()
     private val fetchLocks = Array(32) { Any() }
 
+    /** Memory lookup is safe during composition and never waits for in-flight network I/O. */
+    fun cachedMemory(url: String, maxDimension: Int = 1024): Bitmap? =
+        cache.get("${maxDimension.coerceIn(256, 2048)}:$url")
+
+    /** Only committed cache files are read; network requests hold a separate lock. */
+    fun cached(context: Context, url: String, maxDimension: Int = 1024): Bitmap? {
+        val dimension = maxDimension.coerceIn(256, 2048)
+        val cacheKey = "$dimension:$url"
+        cache.get(cacheKey)?.let { return it }
+        val diskFile = localFile(context, url)
+        return runCatching {
+            if (!diskFile.isFile) return@runCatching null
+            decodeSampled(diskFile.readBytes(), dimension)?.also { bitmap ->
+                cacheBitmap(cacheKey, bitmap)
+                diskFile.setLastModified(System.currentTimeMillis())
+            }
+        }.getOrNull()
+    }
+
     fun fetch(context: Context, url: String, sourceHint: String? = null,
         maxDimension: Int = 1024): Bitmap? =
-        synchronized(fetchLocks[(url.hashCode() and Int.MAX_VALUE) % fetchLocks.size]) {
+        cached(context, url, maxDimension) ?: synchronized(fetchLocks[(url.hashCode() and Int.MAX_VALUE) % fetchLocks.size]) {
             fetchLocked(context, url, sourceHint, maxDimension.coerceIn(256, 2048))
         }
 

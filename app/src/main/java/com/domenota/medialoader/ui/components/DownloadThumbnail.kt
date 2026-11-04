@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
@@ -42,6 +43,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.collectAsState
@@ -55,23 +57,26 @@ private val thumbnailGate = Semaphore(2)
 private val sourceThumbnailGate = Semaphore(2)
 private val thumbnailLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
 private val lastThumbnailPrune = java.util.concurrent.atomic.AtomicLong(0L)
-private fun memoryKey(uri: String, kind: MediaKind): String =
-    "$kind|$uri|${if (kind == MediaKind.AUDIO) AudioThumbnailInvalidation.revision(uri) else 0L}"
+private fun memoryKey(uri: String, kind: MediaKind, side: Int = MAX_THUMBNAIL_SIDE): String =
+    "$side|$kind|$uri|${if (kind == MediaKind.AUDIO) AudioThumbnailInvalidation.revision(uri) else 0L}"
 
-internal suspend fun prepareDownloadThumbnail(context: Context, uri: String, kind: MediaKind, previewUrl: String? = null): Bitmap? =
+internal suspend fun prepareDownloadThumbnail(context: Context, uri: String, kind: MediaKind, previewUrl: String? = null,
+    side: Int = MAX_THUMBNAIL_SIDE, publishFallback: (Bitmap) -> Unit = {}): Bitmap? =
     if (kind == MediaKind.VIDEO) withContext(Dispatchers.IO) {
         preferredVideoThumbnail(VideoPreferences(context).thumbnailMode, previewUrl,
-            loadSource = { sourceThumbnailGate.withPermit { RemoteImageLoader.fetch(context, it, maxDimension = MAX_THUMBNAIL_SIDE) } },
-            loadFrame = { prepareFrameThumbnail(context, uri, kind) })
-    } else prepareFrameThumbnail(context, uri, kind)
+            loadSource = { sourceThumbnailGate.withPermit { RemoteImageLoader.fetch(context, it, maxDimension = side) } },
+            loadFrame = { prepareFrameThumbnail(context, uri, kind, side) },
+            loadCachedSource = { RemoteImageLoader.cached(context, it, maxDimension = side) },
+            publishFallback = publishFallback)
+    } else prepareFrameThumbnail(context, uri, kind, side)
 
-private suspend fun prepareFrameThumbnail(context: Context, uri: String, kind: MediaKind): Bitmap? {
-    val key = memoryKey(uri, kind)
+private suspend fun prepareFrameThumbnail(context: Context, uri: String, kind: MediaKind, side: Int): Bitmap? {
+    val key = memoryKey(uri, kind, side)
     thumbnailMemory.get(key)?.let { return it }
     return withContext(Dispatchers.IO) {
         thumbnailLocks.computeIfAbsent(key) { Mutex() }.withLock {
             thumbnailMemory.get(key) ?: thumbnailGate.withPermit {
-                loadCachedOrCreateThumbnail(context, uri, kind)?.also { thumbnailMemory.put(key, it) }
+                loadCachedOrCreateThumbnail(context, uri, kind, side)?.also { thumbnailMemory.put(key, it) }
             }
         }
     }
@@ -79,7 +84,7 @@ private suspend fun prepareFrameThumbnail(context: Context, uri: String, kind: M
 
 /**
  * Audio/photos prefer local thumbnails. Videos follow the source-cover/frame preference;
- * source covers use the existing persistent image cache, with lazy local-frame fallback.
+ * source covers use the persistent image cache, with a local frame shown during network I/O.
  */
 @Composable
 fun DownloadThumbnail(
@@ -87,6 +92,7 @@ fun DownloadThumbnail(
     previewUrl: String?,
     kind: MediaKind,
     modifier: Modifier = Modifier,
+    progressive: Boolean = false,
 ) {
     val context = LocalContext.current
     val settings = remember(context) { VideoPreferences(context) }
@@ -99,26 +105,47 @@ fun DownloadThumbnail(
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
+    var requestedSide by remember { mutableStateOf(MAX_THUMBNAIL_SIDE) }
     val sourceFirst = kind == MediaKind.VIDEO && thumbnailMode == VideoThumbnailMode.SOURCE
     val revisions by AudioThumbnailInvalidation.revisions.collectAsState()
     val revision = if (kind == MediaKind.AUDIO && savedUri != null)
         revisions[savedUri] ?: 0L else 0L
-    var local by remember(savedUri, kind, revision, sourceFirst, previewUrl) {
-        mutableStateOf(if (sourceFirst) null else savedUri?.let { thumbnailMemory.get(memoryKey(it, kind)) })
+    var local by remember(savedUri, kind, revision, sourceFirst, previewUrl, requestedSide) {
+        mutableStateOf(
+            (if (sourceFirst) previewUrl?.let { RemoteImageLoader.cachedMemory(it, requestedSide) } else null)
+                ?: savedUri?.let { thumbnailMemory.get(memoryKey(it, kind, requestedSide)) }
+        )
     }
-    var localReady by remember(savedUri, kind, revision, sourceFirst, previewUrl) { mutableStateOf(savedUri == null) }
+    var localReady by remember(savedUri, kind, revision, sourceFirst, previewUrl, requestedSide) { mutableStateOf(savedUri == null) }
 
-    LaunchedEffect(savedUri, kind, revision, sourceFirst, previewUrl) {
+    LaunchedEffect(savedUri, kind, revision, sourceFirst, previewUrl, requestedSide) {
         localReady = false
-        local = if (savedUri == null) {
-            null
+        if (progressive && !sourceFirst && savedUri != null && kind != MediaKind.AUDIO) {
+            progressivePreview(local, quick = {
+                val uri = Uri.parse(savedUri)
+                withContext(Dispatchers.IO) { thumbnailGate.withPermit {
+                    runCatching {
+                        if (Build.VERSION.SDK_INT >= 29 && uri.scheme == "content" && uri.authority == "media")
+                            context.contentResolver.loadThumbnail(uri, android.util.Size(96, 96), null)
+                        else if (kind == MediaKind.IMAGE) decodeSampledUri(context, uri, 96)
+                        else null
+                    }.getOrNull()
+                } }
+            }, detailed = { prepareDownloadThumbnail(context, savedUri, kind, previewUrl, requestedSide) },
+                publish = { local = it })
         } else {
-            prepareDownloadThumbnail(context, savedUri, kind, previewUrl)
+            val refined = savedUri?.let {
+                prepareDownloadThumbnail(context, it, kind, previewUrl, requestedSide, publishFallback = { local = it })
+            }
+            if (refined != null) local = refined
         }
         localReady = true
     }
 
-    Box(modifier, contentAlignment = Alignment.Center) {
+    Box(modifier.onSizeChanged { size ->
+        if (progressive && kind != MediaKind.AUDIO) requestedSide =
+            (((maxOf(size.width, size.height) * 2 + 63) / 64) * 64).coerceIn(320, 1024)
+    }, contentAlignment = Alignment.Center) {
         if (kind == MediaKind.AUDIO) {
             Icon(Icons.Rounded.MusicNote, contentDescription = null,
                 modifier = Modifier.size(38.dp),
@@ -141,13 +168,14 @@ private fun loadCachedOrCreateThumbnail(
     context: Context,
     savedUri: String,
     kind: MediaKind,
+    side: Int,
 ): Bitmap? {
-    val cacheFile = thumbnailFile(context, savedUri, kind)
+    val cacheFile = thumbnailFile(context, savedUri, kind, side)
     if (cacheFile.exists() && cacheFile.length() > 0L) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(cacheFile.absolutePath, bounds)
         var sample = 1
-        while (max(bounds.outWidth, bounds.outHeight) / sample > MAX_THUMBNAIL_SIDE * 2) sample *= 2
+        while (max(bounds.outWidth, bounds.outHeight) / sample > side * 2) sample *= 2
         BitmapFactory.decodeFile(cacheFile.absolutePath,
             BitmapFactory.Options().apply { inSampleSize = sample })?.let {
             cacheFile.setLastModified(System.currentTimeMillis())
@@ -157,12 +185,12 @@ private fun loadCachedOrCreateThumbnail(
     }
 
     val saved = Uri.parse(savedUri)
-    val source = decodeLocalThumbnail(context, saved, kind) ?: run {
+    val source = decodeLocalThumbnail(context, saved, kind, side) ?: run {
         AppLog.verboseSampled("Thumbnail", "local-missing:${kind.name}",
             "Local preview unavailable · kind=${kind.name} · scheme=${saved.scheme.orEmpty()} · remoteFallback=true")
         return null
     }
-    val thumb = scaleThumbnail(source, MAX_THUMBNAIL_SIDE)
+    val thumb = scaleThumbnail(source, side)
     if (thumb !== source) source.recycle()
 
     runCatching {
@@ -200,29 +228,22 @@ private fun decodeLocalThumbnail(
     context: Context,
     uri: Uri,
     kind: MediaKind,
+    side: Int,
 ): Bitmap? = runCatching {
     when (kind) {
         MediaKind.VIDEO -> {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(context, uri)
-                val scaled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                    retriever.getScaledFrameAtTime(
-                        1_500_000L,
-                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                        MAX_THUMBNAIL_SIDE,
-                        MAX_THUMBNAIL_SIDE,
-                    )
-                } else null
-                scaled ?: retriever.getFrameAtTime(
-                    1_500_000L,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                ) ?: retriever.getFrameAtTime(
-                    0L,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                )
-            } finally {
-                retriever.release()
+            val system = if (Build.VERSION.SDK_INT >= 29 && uri.scheme == "content" && uri.authority == "media")
+                runCatching { context.contentResolver.loadThumbnail(uri, android.util.Size(side, side), null) }.getOrNull()
+            else null
+            system ?: MediaMetadataRetriever().let { retriever ->
+                try {
+                    retriever.setDataSource(context, uri)
+                    val scaled = if (Build.VERSION.SDK_INT >= 27) runCatching {
+                        retriever.getScaledFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, side, side)
+                    }.getOrNull() else null
+                    scaled ?: runCatching { retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
+                        ?: runCatching { retriever.getFrameAtTime(-1L) }.getOrNull()
+                } finally { retriever.release() }
             }
         }
         MediaKind.AUDIO -> {
@@ -286,10 +307,10 @@ private fun scaleThumbnail(bitmap: Bitmap, maxSide: Int): Bitmap {
     )
 }
 
-private fun thumbnailFile(context: Context, savedUri: String, kind: MediaKind): File {
+private fun thumbnailFile(context: Context, savedUri: String, kind: MediaKind, side: Int): File {
     if (kind == MediaKind.AUDIO) return AudioThumbnailInvalidation.file(context.filesDir, savedUri)
     val digest = MessageDigest.getInstance("SHA-256")
-        .digest("${kind.name}|v2|$savedUri".toByteArray())
+        .digest("${kind.name}|v3|$side|$savedUri".toByteArray())
         .joinToString("") { "%02x".format(it) }
     return File(File(context.filesDir, "thumbnails"), "$digest.jpg")
 }

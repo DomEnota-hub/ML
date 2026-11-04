@@ -182,6 +182,11 @@ fun MediaLoaderApp(
     var showPicker by rememberSaveable { mutableStateOf(false) }
     val uiPrefs = remember(context) { context.getSharedPreferences("ui", 0) }
     val libraryModel: LibraryViewModel = viewModel()
+    DisposableEffect(libraryModel, currentRoute) {
+        libraryModel.holdAutomaticMediaIndexing(currentRoute == VIDEO_EDITOR_ROUTE ||
+            currentRoute == AUDIO_EDITOR_ROUTE || currentRoute == PHOTO_EDITOR_ROUTE)
+        onDispose { libraryModel.holdAutomaticMediaIndexing(false) }
+    }
     val libraryPreferences = remember(context) { LibraryPreferences(context) }
     var appMode by rememberSaveable { mutableStateOf(libraryPreferences.mode) }
     var privateNavigation by remember { mutableStateOf(false) }
@@ -198,6 +203,14 @@ fun MediaLoaderApp(
     var librarySearchVisible by rememberSaveable(appMode, librarySource) { mutableStateOf(false) }
     val phoneGallery by libraryModel.gallery.collectAsStateWithLifecycle()
     val phoneMusic by libraryModel.music.collectAsStateWithLifecycle()
+    com.domenota.medialoader.ui.components.ScreenPerformanceProbe(
+        "${currentRoute ?: "initial"}:$appMode:$librarySource",
+        if (appMode == AppMode.GALLERY && librarySource == LibrarySource.PHONE)
+            phoneGallery.loaded && !phoneGallery.requiresValidation
+        else if (appMode == AppMode.MUSIC && librarySource == LibrarySource.PHONE)
+            phoneMusic.loaded && !phoneMusic.requiresValidation
+        else true)
+
     val libraryIndex by libraryModel.index.collectAsStateWithLifecycle()
     val unifiedLibrary = libraryIndex.refs
     val libraryAudioState by libraryModel.audioPreview.state.collectAsStateWithLifecycle()
@@ -206,9 +219,12 @@ fun MediaLoaderApp(
         if (libraryPrivateKeys == null) emptyList() else UnifiedMediaLibrary.merge(unifiedLibrary, emptyList(), libraryPrivateKeys.orEmpty())
     }
     val libraryItems = remember(publicLibraryRefs) { publicLibraryRefs.map { it.item } }
-    val libraryRefsByAlias = remember(publicLibraryRefs) { buildMap {
+    val libraryAudioItems = remember(libraryItems) { libraryItems.filter { it.mediaType == MediaType.AUDIO } }
+    val libraryAliasProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        emptyMap<String, com.domenota.medialoader.data.library.LibraryMediaRef>(), libraryPrivateKeys, publicLibraryRefs) { buildMap {
         publicLibraryRefs.forEach { ref -> (ref.aliases + ref.key).forEach { alias -> put(alias, ref) } }
     } }
+    val libraryRefsByAlias = libraryAliasProjection.value
     val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
     val currentLibraryAudioId = libraryAudioState.currentId?.let { id -> libraryRefsByAlias[id]?.key
         ?: libraryAudioState.identities.firstNotNullOfOrNull { libraryRefsByAlias[it]?.key } ?: id }
@@ -219,6 +235,7 @@ fun MediaLoaderApp(
     val appLibraryItems = remember(publicLibraryRefs, externalByAlias) { publicLibraryRefs.filter { ref ->
         ref.appDownloadId != null || ref.aliases.any { externalByAlias[it]?.folderId != null }
     }.map { it.item } }
+    val appLibraryAudioItems = remember(appLibraryItems) { appLibraryItems.filter { it.mediaType == MediaType.AUDIO } }
     val playlists by libraryModel.playlistRepository.playlists.collectAsStateWithLifecycle()
     var playlistsReady by remember { mutableStateOf(false) }
     LaunchedEffect(libraryModel) { libraryModel.playlistRepository.awaitLoaded(); playlistsReady = true }
@@ -226,7 +243,8 @@ fun MediaLoaderApp(
         try { libraryModel.audioPreview.observe() }
         catch (e: CancellationException) { throw e } catch (_: Exception) { /* A later play request can reconnect. */ }
     }
-    val phoneRows = phoneGallery.items + phoneMusic.items
+    var editorLibraryMode by remember { mutableStateOf<AppMode?>(null) }
+    val phoneRows = remember(phoneGallery.items, phoneMusic.items) { phoneGallery.items + phoneMusic.items }
     var permissionMode by rememberSaveable { mutableStateOf(AppMode.GALLERY) }
     val libraryPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         libraryModel.refresh(permissionMode)
@@ -236,21 +254,26 @@ fun MediaLoaderApp(
         libraryPermissions.launch(PhoneMediaLibrary.permissions(mode))
     }
     fun changeAppMode(next: AppMode) {
+        val dispatchedAt = com.domenota.medialoader.core.logging.PerformanceLog.begin("mode_switch:$next")
         // Check access synchronously before a cached phone-backed screen can be rendered.
         if (next == AppMode.MUSIC || (next == AppMode.GALLERY &&
                 (gallerySource == LibrarySource.PHONE || phoneGallery.loaded))) libraryModel.refresh(next)
         libraryPreferences.mode = next
         appMode = next
+        com.domenota.medialoader.core.logging.PerformanceLog.end("mode_switch_dispatch:$next", dispatchedAt)
     }
     fun changeLibrarySource(next: LibrarySource) {
+        val dispatchedAt = com.domenota.medialoader.core.logging.PerformanceLog.begin("source_switch:$next")
         if (next == LibrarySource.PHONE) libraryModel.refresh(appMode)
         libraryPreferences.setSource(appMode, next)
         if (appMode == AppMode.GALLERY) gallerySource = next else musicLibrarySource = next
         if (next == LibrarySource.PHONE && !hasPhoneLibraryAccess(context, appMode)) requestLibraryAccess(appMode)
+        com.domenota.medialoader.core.logging.PerformanceLog.end("source_switch_dispatch:$next", dispatchedAt)
     }
     val phoneViewingId = backStackEntry?.arguments?.getString("downloadId")
     fun refreshPhoneLibraries(force: Boolean = false) {
         val needed = mutableSetOf<AppMode>()
+        editorLibraryMode?.let { needed += it }
         if (appMode == AppMode.GALLERY && (librarySource == LibrarySource.PHONE ||
                 externalCatalog.any { it.ref.item.mediaType != MediaType.AUDIO })) needed += AppMode.GALLERY
         if (appMode == AppMode.MUSIC) needed += AppMode.MUSIC
@@ -275,13 +298,13 @@ fun MediaLoaderApp(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    fun awaitingPhone(id: String?): Boolean = id?.startsWith("phone:") == true &&
-        (if (id.startsWith("phone:audio:")) !phoneMusic.loaded else !phoneGallery.loaded)
+    var hiddenMusicTracksOpen by remember { mutableStateOf(false) }
     val libraryHeader: @Composable () -> Unit = {
         LibraryModeHeader(appMode, librarySource, ::changeAppMode, ::changeLibrarySource,
             onTrash = { navController.navigate("trash") },
             onSettings = { navController.navigate(AppDestination.Settings.route) },
             onSearch = { librarySearchVisible = !librarySearchVisible },
+            onHiddenTracks = if (appMode == AppMode.MUSIC) ({ hiddenMusicTracksOpen = true }) else null,
             onPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) })
     }
     // A single observable music-source state feeds Settings and BOTH preview hosts.
@@ -316,23 +339,39 @@ fun MediaLoaderApp(
     val pickerState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val preview by viewModel.preview.collectAsStateWithLifecycle()
+    val deferredLinks by viewModel.deferredLinks.collectAsStateWithLifecycle()
+    val deferredActive by viewModel.deferredActive.collectAsStateWithLifecycle()
+    val deferredMessage by viewModel.deferredMessage.collectAsStateWithLifecycle()
     val bulk by viewModel.bulkState.collectAsStateWithLifecycle()
     val bulkHistory by viewModel.bulkHistory.collectAsStateWithLifecycle()
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val privateDownloads by viewModel.privateDownloads.collectAsStateWithLifecycle()
     val privateState by viewModel.privateAccess.state.collectAsState()
     // Keep old phone IDs resolvable for restored routes/playlists without showing duplicate cards.
-    val publicLibraryRows = remember(downloads, publicLibraryRefs, libraryAudioState.queue, libraryPrivateKeys) {
+    val indexedLibraryProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(), libraryPrivateKeys, downloads, publicLibraryRefs) {
         val knownIds = downloads.mapTo(mutableSetOf()) { it.id }
         val indexed = downloads + publicLibraryRefs.flatMap { ref ->
             (ref.aliases.filter { it.startsWith("phone:") } + ref.key).distinct().map { ref.item.copy(id = it) }
         }.filter { knownIds.add(it.id) }
-        val session = libraryPrivateKeys?.let { keys ->
-            com.domenota.medialoader.data.playback.AudioPlaybackMetadata.publicSessionRows(libraryAudioState.queue, indexed, keys)
-        }.orEmpty()
-        indexed + session.filter { knownIds.add(it.id) }
+        indexed
     }
-    val accessibleDownloads = if (privateState.unlocked) publicLibraryRows + privateDownloads else publicLibraryRows
+    val indexedLibraryRows = indexedLibraryProjection.value
+    fun awaitingPhone(id: String?): Boolean = id?.startsWith("phone:") == true &&
+        (!indexedLibraryProjection.ready || !libraryAliasProjection.ready ||
+            if (id.startsWith("phone:audio:")) !phoneMusic.loaded else !phoneGallery.loaded)
+    val publicLibraryRows = remember(indexedLibraryRows, libraryAudioState.queue, libraryPrivateKeys) {
+        val session = libraryPrivateKeys?.let { keys ->
+            com.domenota.medialoader.data.playback.AudioPlaybackMetadata.publicSessionRows(libraryAudioState.queue, indexedLibraryRows, keys)
+        }.orEmpty()
+        if (session.isEmpty()) indexedLibraryRows else {
+            val knownIds = indexedLibraryRows.mapTo(mutableSetOf()) { it.id }
+            indexedLibraryRows + session.filter { knownIds.add(it.id) }
+        }
+    }
+    val accessibleDownloads = remember(privateState.unlocked, publicLibraryRows, privateDownloads) {
+        if (privateState.unlocked) publicLibraryRows + privateDownloads else publicLibraryRows
+    }
     var pendingPrivateMoves by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var returnAfterPrivateSetup by rememberSaveable { mutableStateOf(false) }
     val privateMoveStatus by viewModel.privateMoveState.collectAsStateWithLifecycle()
@@ -412,7 +451,9 @@ fun MediaLoaderApp(
         } })
     val catalogFolders by viewModel.catalogFolders.collectAsStateWithLifecycle()
     val catalogAssignments by viewModel.catalogAssignments.collectAsStateWithLifecycle()
-    val libraryCatalogAssignments = remember(publicLibraryRefs, externalCatalog, catalogAssignments, catalogFolders) {
+    val libraryCatalogAssignments = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        emptyList<com.domenota.medialoader.core.database.CatalogAssignmentEntity>(), libraryPrivateKeys,
+        publicLibraryRefs, externalCatalog, catalogAssignments, catalogFolders) {
         val validFolders = catalogFolders.mapTo(mutableSetOf()) { it.id }
         val externalAssignments = publicLibraryRefs.mapNotNull { ref ->
             ref.aliases.firstNotNullOfOrNull { externalByAlias[it] }?.let { entry ->
@@ -421,7 +462,7 @@ fun MediaLoaderApp(
             }
         }
         (catalogAssignments + externalAssignments).distinctBy { it.downloadId }
-    }
+    }.value
     val setLibraryFavorite: suspend (String, Boolean) -> Unit = { id, favorite ->
         val ref = libraryRefsByAlias[id] ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let(libraryRefsByAlias::get)
         requireNotNull(ref) { "Файл недоступен" }
@@ -596,6 +637,15 @@ fun MediaLoaderApp(
         } else {
             viewModel.showMessage("Для сохранения в Загрузки на Android 8–9 нужен доступ к хранилищу.")
         }
+    }
+    val deferredPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.retryDeferred()
+    }
+    val retryDeferred: () -> Unit = {
+        if (Build.VERSION.SDK_INT < 29 && viewModel.needsLegacyStoragePermission() &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)
+            deferredPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        else viewModel.retryDeferred()
     }
     val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) viewModel.selectFolder(uri)
@@ -891,7 +941,8 @@ fun MediaLoaderApp(
     LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
     val galleryHomeOverlay = galleryBottomSwitcherIsOverlay(appMode, currentRoute)
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
+            else MaterialTheme.colorScheme.background,
         // The gallery controls must be an overlay, not a reserved Scaffold bar.
         contentWindowInsets = if (galleryHomeOverlay) WindowInsets.statusBars
             else ScaffoldDefaults.contentWindowInsets,
@@ -904,7 +955,9 @@ fun MediaLoaderApp(
                 currentRoute != "diagnostics" && currentRoute != "vk-community") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
-                    AudioMiniPlayer(
+                    // Gallery intentionally has no player chrome. Playback is
+                    // owned by the service and continues independently of this UI.
+                    if (appMode != AppMode.GALLERY) AudioMiniPlayer(
                         onOpenQueue = openDownloadWithQueue,
                         onOpen = { mediaId ->
                             if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
@@ -978,6 +1031,8 @@ fun MediaLoaderApp(
             modifier = Modifier.fillMaxSize(),
         ) {
             composable(AppDestination.Home.route) {
+                val modeStates = rememberSaveableStateHolder()
+                modeStates.SaveableStateProvider(appMode.name) {
                 if (appMode == AppMode.DOWNLOADER) HomeScreen(
                     title = { AppModeTitle(appMode, ::changeAppMode) },
                     url = pendingUrl,
@@ -993,6 +1048,9 @@ fun MediaLoaderApp(
                         viewModel.analyze(pendingUrl)
                         showPicker = true
                     },
+                    deferredLinks = deferredLinks, deferredActive = deferredActive, deferredMessage = deferredMessage,
+                    onDeferredOpen = { link -> pendingUrl = link; lastHandledLink = link; viewModel.analyze(link); showPicker = true },
+                    onDeferredRemove = viewModel::removeDeferredLink, onDeferredRetryAll = retryDeferred, onDeferredStop = viewModel::stopDeferred,
                     onOpenDownloads = goToDownloads,
                     onOpenSource = { source ->
                         showPicker = false
@@ -1011,7 +1069,7 @@ fun MediaLoaderApp(
                 )
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneGallery.loaded) emptyList() else libraryItems,
-                    source = librarySource, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded && phoneGallery.loading),
+                    source = librarySource, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
                     folders = catalogFolders, assignments = libraryCatalogAssignments, header = libraryHeader,
                     onOpen = openDownloadWithQueue,
@@ -1033,23 +1091,16 @@ fun MediaLoaderApp(
                     deviceAlbums = publicLibraryRefs.mapNotNull { ref -> ref.deviceAlbumId?.let { id ->
                         ref.key to DeviceAlbum(id, ref.deviceAlbumName ?: "Без альбома")
                     } }.toMap(),
-                    // Keep a playing-audio mini-player without letting Scaffold
-                    // reserve a solid background strip beneath the gallery.
-                    miniPlayer = {
-                        AudioMiniPlayer(
-                            compact = true,
-                            onOpenQueue = openDownloadWithQueue,
-                            onOpen = { mediaId ->
-                                if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
-                                    navController.navigate("viewer/$mediaId")
-                                }
-                            },
-                        )
-                    })
+                    )
                 else MusicModeScreen(
+                    hiddenTracksOpen = hiddenMusicTracksOpen,
+                    onDismissHiddenTracks = { hiddenMusicTracksOpen = false },
+                    deviceMusicFolders = remember(phoneMusic.items) { phoneMusic.items.mapNotNull { row ->
+                        row.savedUri?.let { uri -> row.groupId?.let { uri to it } }
+                    }.toMap() },
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
-                    allAudio = libraryItems.filter { it.mediaType == MediaType.AUDIO }, playlists = playlists,
-                    header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded && phoneMusic.loading),
+                    allAudio = libraryAudioItems, playlists = playlists,
+                    header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneMusic.message else null,
                     onOpen = openDownloadWithQueue,
                     onOpenPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
@@ -1077,6 +1128,7 @@ fun MediaLoaderApp(
                     onAddPlaylistTracks = { navController.navigate("playlist-add/$it") },
                     onDetailChange = { musicDetailOpen = it }, currentPlayingId = currentLibraryAudioId,
                     playing = libraryAudioState.playing)
+                }
             }
             composable("equalizer") {
                 val settings by libraryModel.equalizerSettings.collectAsStateWithLifecycle()
@@ -1100,8 +1152,8 @@ fun MediaLoaderApp(
                     onSource = { source ->
                         musicLibrarySource = source; libraryPreferences.setSource(AppMode.MUSIC, source)
                         if (source == LibrarySource.PHONE && !hasPhoneLibraryAccess(context, AppMode.MUSIC)) requestLibraryAccess(AppMode.MUSIC)
-                    }, appTracks = appLibraryItems.filter { it.mediaType == MediaType.AUDIO },
-                    allTracks = libraryItems.filter { it.mediaType == MediaType.AUDIO }, aliases = libraryAliases,
+                    }, appTracks = appLibraryAudioItems,
+                    allTracks = libraryAudioItems, aliases = libraryAliases,
                     onBack = { navController.popBackStack() }, onPreview = previewLibraryAudio,
                     onAdd = { libraryModel.playlistRepository.addTracksResolved(playlist.id, it, libraryAliases) },
                     validateSelection = { ids -> withContext(Dispatchers.IO) {
@@ -1202,23 +1254,44 @@ fun MediaLoaderApp(
                     onRutubeSignIn = startRutubeLogin,
                     onRutubeSignOut = viewModel::logoutRutube,
                     hiddenCount = hiddenCount,
-                    hiddenItems = hiddenItems.map { entry ->
+                    hiddenItems = remember(hiddenItems) { hiddenItems.map { entry ->
                         entry.toUi().copy(savedUri = viewModel.trashedUri(entry.id))
+                    } },
+                    onEditorPickerChange = { kind ->
+                        val mode = when (kind) {
+                            com.domenota.medialoader.ui.model.MediaKind.AUDIO -> AppMode.MUSIC
+                            null -> null
+                            else -> AppMode.GALLERY
+                        }
+                        editorLibraryMode = mode
+                        if (mode != null) {
+                            if (!hasPhoneLibraryAccess(context,mode)) requestLibraryAccess(mode)
+                            else libraryModel.refresh(mode)
+                        }
                     },
-                    editorItems = accessibleDownloads.filter {
-                        it.state == DownloadState.COMPLETED && it.savedUri != null
-                    }.map { it.toUi() },
+                    editorLoading = when (editorLibraryMode) {
+                        AppMode.MUSIC -> phoneMusic.loading
+                        AppMode.GALLERY -> phoneGallery.loading
+                        else -> false
+                    },
+                    editorMessage = when (editorLibraryMode) {
+                        AppMode.MUSIC -> phoneMusic.message
+                        AppMode.GALLERY -> phoneGallery.message
+                        else -> null
+                    },
+                    editorItems = com.domenota.medialoader.ui.components.rememberEditorItems(accessibleDownloads, libraryAliases),
                     editorAlbumsById = remember(
-                        accessibleDownloads, libraryRefsByAlias, libraryCatalogAssignments, catalogFolders
+                        accessibleDownloads, libraryRefsByAlias, libraryCatalogAssignments, catalogFolders, phoneRows
                     ) {
                         val folderNames = catalogFolders.associate { it.id to it.name }
+                        val deviceFolders = phoneRows.mapNotNull { row -> row.savedUri?.let { it to row.groupId } }.toMap()
                         val assigned = libraryCatalogAssignments.associateBy { it.downloadId }
                         accessibleDownloads.associate { file ->
                             val ref = libraryRefsByAlias[file.id]
                             val assignment = assigned[file.id] ?: ref?.let { assigned[it.key] }
                             val names = listOfNotNull(
                                 assignment?.folderId?.let(folderNames::get),
-                                ref?.deviceAlbumName?.takeIf { it.isNotBlank() },
+                                (ref?.deviceAlbumName ?: deviceFolders[file.savedUri])?.takeIf { it.isNotBlank() },
                             ).distinct()
                             file.id to names
                         }
@@ -1319,6 +1392,9 @@ fun MediaLoaderApp(
                         onShare = {},
                         audioQueue = audioRows,
                         photoQueue = photoRows,
+                        mediaQueue = hiddenItems.filter { it.mediaType != MediaType.AUDIO }.mapNotNull { row ->
+                            viewModel.trashedUri(row.id)?.let { row.copy(savedUri = it) }
+                        },
                         onEdit = null,
                         trashReadOnly = true,
                         onRestoreFromTrash = { row ->
@@ -1339,11 +1415,12 @@ fun MediaLoaderApp(
                 val snapshot = ViewerQueueCache.resolve(
                     entry.savedStateHandle.get<String>("grid_viewer_token"))
                 val currentGalleryId = entry.savedStateHandle.get<String>("gallery_current_id") ?: downloadId
-                val galleryCandidates = if (galleryPresentation) GalleryViewerState.publicCandidates(publicLibraryRefs, libraryPrivateKeys,
+                val galleryCandidates = remember(galleryPresentation, publicLibraryRefs, libraryPrivateKeys,
+                    snapshot, downloadId, fileStatuses) { if (galleryPresentation) GalleryViewerState.publicCandidates(publicLibraryRefs, libraryPrivateKeys,
                     snapshot.toSet() + listOfNotNull(downloadId)).filter { row ->
                     !row.hidden && !row.isPrivate && row.savedUri != null && row.state == DownloadState.COMPLETED &&
                         fileStatuses[row.id] != SavedFileStatus.MISSING && fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE
-                } else emptyList()
+                } else emptyList() }
                 val resolvedGalleryId = GalleryViewerState.neighbor(currentGalleryId, snapshot.ifEmpty { listOfNotNull(downloadId) },
                     galleryCandidates.mapTo(mutableSetOf()) { it.id })
                 val audioCurrentId = entry.savedStateHandle.get<String>("audio_current_id")
@@ -1535,6 +1612,7 @@ fun MediaLoaderApp(
                     busy = preview.enqueuing,
                     onLogin = startLoginForCurrentUrl,
                     onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }) },
+                    onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
                 )
             }
         }
@@ -1572,6 +1650,7 @@ fun MediaLoaderApp(
                 busy = preview.enqueuing,
                 onLogin = startLoginForCurrentUrl,
                 onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }) },
+                    onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
                 asSheet = true,
             )
         }

@@ -39,7 +39,19 @@ internal fun PhoneTrashController(
     onDeleteApp: (Set<String>) -> Unit,
 ) {
     val context = LocalContext.current
+    var sortedAppItems by remember { mutableStateOf(appItems) }
+    LaunchedEffect(appItems) {
+        sortedAppItems = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            appItems.sortedByDescending { row ->
+                row.savedUri?.let { value -> val uri = Uri.parse(value)
+                    if (uri.scheme == "file") java.io.File(uri.path.orEmpty()).lastModified() else row.trashOrderMs
+                } ?: row.trashOrderMs
+            }
+        }
+    }
     var phoneItems by remember { mutableStateOf(emptyList<DownloadUiItem>()) }
+    var preview by remember { mutableStateOf<DownloadUiItem?>(null) }
+    preview?.let { item -> TrashMediaPreview(item, phoneItems) { preview = null } }
     var refresh by remember { mutableIntStateOf(0) }
     var request by remember { mutableStateOf<PhoneTrashRequest?>(null) }
     var index by remember { mutableIntStateOf(0) }
@@ -103,10 +115,10 @@ internal fun PhoneTrashController(
     }
 
     TrashScreen(
-        items = appItems,
+        items = sortedAppItems,
         phoneItems = phoneItems,
         onBack = onBack,
-        onOpen = onOpenApp,
+        onOpen = { id -> if (PhoneMediaTrash.isPhoneTrashId(id)) preview = phoneItems.firstOrNull { it.id == id } else onOpenApp(id) },
         onRestore = onRestoreApp,
         onDelete = onDeleteApp,
         onRestorePhone = { begin(false, it) },
