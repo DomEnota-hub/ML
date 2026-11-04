@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - release/ml-1.7.110-video-editor-arm64
+      - tools/ml-17129-local-signing-tools-20261104
   workflow_dispatch:
 permissions:
   contents: read
