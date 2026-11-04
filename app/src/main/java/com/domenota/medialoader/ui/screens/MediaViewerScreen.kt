@@ -180,38 +180,9 @@ fun MediaViewerScreen(
     }
     var confirmTrashDelete by remember { mutableStateOf(false) }
     var songSearchOpen by remember(selectedItem.id) { mutableStateOf(false) }
-    var songSearchBusy by remember(selectedItem.id) { mutableStateOf(false) }
-    var songSearchResult by remember(selectedItem.id) { mutableStateOf<MusicRecognitionResult?>(null) }
-    var songSearchMessage by remember(selectedItem.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(songSearchOpen) {
-        if (songSearchOpen && selectedItem.mediaType == MediaType.VIDEO) {
-            songSearchBusy = true
-            songSearchResult = runCatching {
-                MediaRepository.get(context).recognizeSavedVideo(selectedItem.savedUri.orEmpty())
-            }.getOrNull()
-            songSearchMessage = if (songSearchResult == null) {
-                "Композицию определить не удалось. Введите исполнителя и название вручную."
-            } else "Трек распознан по звуку видео"
-            songSearchBusy = false
-        }
-    }
-
-    if (songSearchOpen) {
-        if (songSearchBusy) AlertDialog(
-            onDismissRequest = { songSearchOpen = false },
-            title = { Text("Ищем полную песню") },
-            text = { CircularProgressIndicator() },
-            confirmButton = { TextButton(onClick = { songSearchOpen = false }) { Text("Отмена") } },
-        ) else FullSongSearchDialog(
-            source = FullSongSource.fromStored(context.getSharedPreferences("ui", 0)
-                .getString(FullSongSource.PREF_KEY, null)),
-            initialArtist = songSearchResult?.artist.orEmpty(),
-            initialTitle = songSearchResult?.title.orEmpty(),
-            recognizedArtworkUrl = songSearchResult?.artworkUrl,
-            recognitionMessage = songSearchMessage,
-            onDismiss = { songSearchOpen = false },
-        )
-    }
+    if (songSearchOpen) com.domenota.medialoader.ui.components.VideoSongSearchDialog(
+        displayedItem.savedUri.orEmpty(), onDismiss = { songSearchOpen = false },
+    )
 
     if (confirmTrashDelete) AlertDialog(
         onDismissRequest = { confirmTrashDelete = false },
@@ -301,12 +272,11 @@ fun MediaViewerScreen(
                             DropdownMenu(expanded = actionMenuOpen,
                                 onDismissRequest = { actionMenuOpen = false }) {
                                 if (displayedItem.mediaType == MediaType.VIDEO) DropdownMenuItem(
-                                    text = { Text("Найти полную песню") },
+                                    text = { Text("Найти трек") },
                                     leadingIcon = { Icon(Icons.Outlined.MusicNote, contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp)) },
                                     onClick = {
                                         actionMenuOpen = false
-                                        songSearchBusy = true
                                         songSearchOpen = true
                                     },
                                 )

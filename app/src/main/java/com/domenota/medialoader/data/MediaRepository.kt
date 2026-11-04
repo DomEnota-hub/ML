@@ -475,7 +475,7 @@ class MediaRepository private constructor(context: Context) {
         beginRecognition()
         return try {
             val pcm = recognitionAudioPreprocessor.decodeVideo(savedUri)
-            if (pcm.isEmpty()) null else liveMusicRecognizer.recognize(pcm)
+            if (pcm.isEmpty()) null else withContext(Dispatchers.Default) { liveMusicRecognizer.recognize(pcm) }
         } finally {
             endRecognition()
         }

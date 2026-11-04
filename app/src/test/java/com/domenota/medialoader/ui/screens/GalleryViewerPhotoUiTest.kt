@@ -50,6 +50,12 @@ class GalleryViewerPhotoUiTest {
         var current: String? = null
         compose.setContent { MaterialTheme { Viewer(first, listOf(first, last)) { current = it.id } } }
         compose.waitUntil(5000) { compose.onAllNodesWithContentDescription("First").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Ещё").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Действия с файлом").performClick()
+        compose.onNodeWithText("Сведения").assertExists()
+        compose.onNodeWithText("Найти трек").assertDoesNotExist()
+        compose.onNodeWithText("Сведения").performClick()
+        compose.onNodeWithText("Закрыть").performClick()
         compose.onNodeWithContentDescription("Поделиться").assertExists()
         compose.onNodeWithContentDescription("First").performTouchInput { click() }
         // A single tap is delivered after the double-tap recognition window.
