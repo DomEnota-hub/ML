@@ -61,6 +61,7 @@ import com.domenota.medialoader.data.bulk.BulkPhase
 import com.domenota.medialoader.data.bulk.BulkRules
 import com.domenota.medialoader.data.bulk.BulkState
 import com.domenota.medialoader.ui.components.RemotePreview
+import com.domenota.medialoader.ui.components.BulkResultsGallery
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -91,6 +92,7 @@ fun BulkDownloadScreen(
     onRetryFailed: () -> Unit,
     onOpenJob: (String) -> Unit,
     onClearHistory: () -> Unit,
+    onOpenGroupMedia: (String, List<String>) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -421,20 +423,11 @@ fun BulkDownloadScreen(
                         Text("Повторить неудачные ($failed)")
                     }
                 }
-                val byId = downloads.associateBy { it.id }
-                state.candidates.filter { it.downloadId != null }
-                    .groupBy { it.item.sourcePageUrl ?: it.item.sourceGroupId.orEmpty() }
-                    .entries.forEachIndexed { index, (_, candidates) ->
-                        Text("Публикация ${index + 1} · " +
-                            bulkProviderName(candidates.first().item.providerId),
-                            style = MaterialTheme.typography.titleSmall)
-                        candidates.forEach { candidate ->
-                            candidate.downloadId?.let(byId::get)?.let { row ->
-                                Text("${row.originalName} · ${bulkDownloadLabel(row.state)}",
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
+                BulkResultsGallery(
+                    state = state,
+                    downloads = downloads,
+                    onOpenGroupMedia = onOpenGroupMedia,
+                )
             }
             state.errors.forEach {
                 Text(it, color = MaterialTheme.colorScheme.error,
