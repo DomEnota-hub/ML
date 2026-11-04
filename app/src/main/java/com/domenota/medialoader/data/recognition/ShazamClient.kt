@@ -2,13 +2,19 @@ package com.domenota.medialoader.data.recognition
 
 import com.domenota.medialoader.core.recognition.MusicRecognitionResult
 import com.domenota.medialoader.core.recognition.RecognitionSource
+import java.io.EOFException
 import java.io.IOException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -22,17 +28,20 @@ internal fun interface ShazamApi {
  * It sends only the compact acoustic signature, not the original audio file.
  */
 internal class ShazamClient : ShazamApi {
-    private val requestMutex = Mutex()
-    private var lastRequestAtMs = 0L
-
+    // Shared across all instances: live recognition, saved videos and Instagram clips
+    // must not independently flood the same upstream endpoint.
     override suspend fun recognize(
         signature: ShazamSignatureGenerator.Signature,
-    ): MusicRecognitionResult? = requestMutex.withLock {
-        val now = System.currentTimeMillis()
-        val waitMs = MIN_REQUEST_INTERVAL_MS - (now - lastRequestAtMs)
-        if (waitMs > 0L) delay(waitMs)
-        lastRequestAtMs = System.currentTimeMillis()
-        perform(signature)
+    ): MusicRecognitionResult? = requestThrottle.execute {
+        try {
+            perform(signature)
+        } catch (error: IOException) {
+            // Retry a dropped connection / timeout just once; never retry 429,
+            // other HTTP errors, or a valid "no match" response.
+            if (!isTransientShazamNetworkError(error)) throw error
+            delay(1_200L)
+            perform(signature)
+        }
     }
 
     private suspend fun perform(
@@ -74,7 +83,11 @@ internal class ShazamClient : ShazamApi {
 
             val status = connection.responseCode
             if (status == 404) return@withContext null
-            if (status == 429) throw IOException("Shazam временно ограничил частоту запросов.")
+            if (status == 429) {
+                val retryAfter = parseShazamRetryAfterMs(
+                    connection.getHeaderField("Retry-After"), System.currentTimeMillis())
+                throw ShazamRateLimitException(retryAfter ?: DEFAULT_RATE_LIMIT_MS)
+            }
             if (status !in 200..299) throw IOException("Shazam ответил HTTP $status.")
 
             val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -129,7 +142,7 @@ internal class ShazamClient : ShazamApi {
     }
 
     private companion object {
-        const val MIN_REQUEST_INTERVAL_MS = 1_000L
+        private val requestThrottle = ShazamRequestThrottle()
         const val USER_AGENT =
             "Dalvik/2.1.0 (Linux; U; Android 6.0.1; SM-G920F Build/MMB29K)"
         const val RECOGNITION_URL =
@@ -138,3 +151,66 @@ internal class ShazamClient : ShazamApi {
                 "&sharehub=true&hubv5minorversion=v5.1&hidelb=true&video=v3"
     }
 }
+
+
+/** A 429 is a cooldown, not a missing song. Never retry the blocked request immediately. */
+internal class ShazamRateLimitException(val retryInMs: Long) : IOException(
+    "Shazam ограничил запросы. Повторите примерно через " +
+        if (retryInMs < 60_000L) ((retryInMs + 999L) / 1_000L).toString() + " с."
+        else ((retryInMs + 59_999L) / 60_000L).toString() + " мин."
+)
+
+/**
+ * Parse Retry-After in seconds or HTTP-date form. Invalid values use our
+ * conservative cooldown. Cap upstream delays to avoid arithmetic overflow.
+ */
+internal fun parseShazamRetryAfterMs(value: String?, nowEpochMs: Long): Long? {
+    val raw = value?.trim().orEmpty().takeIf { it.isNotEmpty() } ?: return null
+    val duration = raw.toLongOrNull()?.takeIf { it >= 0L }?.let { seconds ->
+        if (seconds > MAX_SHZ_COOLDOWN_MS / 1_000L) MAX_SHZ_COOLDOWN_MS else seconds * 1_000L
+    } ?: runCatching {
+        ZonedDateTime.parse(raw, DateTimeFormatter.RFC_1123_DATE_TIME)
+            .toInstant().toEpochMilli() - nowEpochMs
+    }.getOrNull() ?: return null
+    return duration.coerceIn(0L, MAX_SHZ_COOLDOWN_MS)
+}
+
+internal fun isTransientShazamNetworkError(error: IOException): Boolean =
+    error is SocketTimeoutException || error is EOFException || error is SocketException ||
+        (error.message?.contains("unexpected end of stream", ignoreCase = true) == true)
+
+/**
+ * One in-process gate for all ShazamClient instances. The lock serializes
+ * network attempts. After a 429 subsequent calls fail fast until cooldown ends.
+ * Monotonic time avoids device-clock changes invalidating the wait.
+ */
+internal class ShazamRequestThrottle(
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val minSpacingMs: Long = 1_500L,
+    private val minCooldownMs: Long = DEFAULT_RATE_LIMIT_MS,
+) {
+    private val mutex = Mutex()
+    private var lastStartedAtMs: Long? = null
+    private var cooldownUntilMs: Long? = null
+
+    suspend fun <T> execute(block: suspend () -> T): T = mutex.withLock {
+        val remaining = (cooldownUntilMs?.minus(nowMs()) ?: 0L).coerceAtLeast(0L)
+        if (remaining > 0L) throw ShazamRateLimitException(remaining)
+        val last = lastStartedAtMs
+        if (last != null) {
+            val untilNext = (minSpacingMs - (nowMs() - last)).coerceAtLeast(0L)
+            if (untilNext > 0L) delay(untilNext)
+        }
+        lastStartedAtMs = nowMs()
+        try {
+            block()
+        } catch (rateLimited: ShazamRateLimitException) {
+            val pause = maxOf(minCooldownMs, rateLimited.retryInMs)
+            cooldownUntilMs = nowMs() + pause
+            throw ShazamRateLimitException(pause)
+        }
+    }
+}
+
+private const val DEFAULT_RATE_LIMIT_MS = 60_000L
+private const val MAX_SHZ_COOLDOWN_MS = 86_400_000L
