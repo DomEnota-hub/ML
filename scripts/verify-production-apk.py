@@ -10,7 +10,7 @@ apk, aapt = map(Path, sys.argv[1:3])
 assert apk.is_file() and 0 < apk.stat().st_size <= 130_000_000, "APK missing or exceeds 130MB"
 badging = subprocess.check_output([str(aapt), "dump", "badging", str(apk)], text=True)
 identity = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging, re.M)
-assert identity and identity.groups() == ("com.domenota.medialoader", "187", "1.7.126"), "Wrong production identity/version"
+assert identity and identity.groups() == ("com.domenota.medialoader", "188", "1.7.127"), "Wrong production identity/version"
 with zipfile.ZipFile(apk) as archive:
     abis = {name.split('/')[1] for name in archive.namelist() if name.startswith('lib/') and name.endswith('.so')}
 assert abis == {"arm64-v8a"}, f"Unexpected production ABIs: {abis}"

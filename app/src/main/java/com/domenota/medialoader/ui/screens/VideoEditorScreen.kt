@@ -752,7 +752,8 @@ private fun VideoEditorContent(
             if (queueIsCurrent) {
                 val clipId = p.clips.getOrNull(player.currentMediaItemIndex)?.id
                 player.volume = if (!removeAudio) 1f else embedded[clipId]?.gainAt(playheadMs) ?: 0f
-                audioPreviewDeck.synchronize(p, playheadMs, player.isPlaying, embeddedIds)
+                audioPreviewDeck.synchronize(p, playheadMs, player.isPlaying, embeddedIds,
+                    masterBuffering = player.playWhenReady && player.playbackState == Player.STATE_BUFFERING)
             } else audioPreviewDeck.pause()
             delay(75L)
         }

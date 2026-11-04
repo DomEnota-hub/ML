@@ -21,7 +21,8 @@ internal class VideoAudioPreviewDeck(private val context: Context) {
         var playingSinceMs: Long? = null)
     private val active = mutableMapOf<String, Preview>()
 
-    fun synchronize(project: VideoProjectDraft?, positionMs: Long, playing: Boolean, embeddedTrackIds: Set<String> = emptySet()) {
+    fun synchronize(project: VideoProjectDraft?, positionMs: Long, playing: Boolean, embeddedTrackIds: Set<String> = emptySet(),
+        masterBuffering: Boolean = false) {
         val tracks = project?.visibleAudioTracks().orEmpty().filterNot { it.id in embeddedTrackIds }
         val valid = tracks.map { it.id }.toSet()
         active.keys.filterNot { it in valid }.forEach { key ->
@@ -55,7 +56,6 @@ internal class VideoAudioPreviewDeck(private val context: Context) {
             val sourcePosition = VideoAudioSyncDecision.sourcePositionMs(track, positionMs)
             val audible = sourcePosition != null
             if (sourcePosition != null) {
-                if (player.playbackParameters.speed != track.speed) player.setPlaybackSpeed(track.speed)
                 val now = android.os.SystemClock.elapsedRealtime()
                 val jump = VideoAudioSyncDecision.isJump(track, positionMs, preview.lastTrack,
                     preview.lastProjectMs, preview.lastAudible, playing, preview.lastPlaying,
@@ -71,14 +71,20 @@ internal class VideoAudioPreviewDeck(private val context: Context) {
                     com.domenota.medialoader.core.logging.AppLog.w("AudioSync",
                         "Drift correction · projectMs=$positionMs · expectedSourceMs=$sourcePosition · actualSourceMs=${player.currentPosition}")
                 }
-                if (VideoAudioSyncDecision.shouldSeek(jump, ready,
-                        playing, drift, now - preview.lastSeekAt, continuousPlaybackMs)) {
+                val didSeek = VideoAudioSyncDecision.shouldSeek(jump, ready,
+                    playing, drift, now - preview.lastSeekAt, continuousPlaybackMs,
+                    masterBuffering, track.speed)
+                if (didSeek) {
                     preview.lastSeekAt = now
                     preview.playingSinceMs = null
                     com.domenota.medialoader.core.logging.AppLog.verboseSampled("AudioSync", "seek:${track.id}",
                         "Audio seek · jump=$jump · driftMs=$drift · playing=$playing")
                     player.seekTo(sourcePosition)
                 }
+                val speed = VideoAudioSyncDecision.playbackSpeed(track.speed, drift,
+                    playing && ready && !jump && !didSeek, player.playbackParameters.speed)
+                if (kotlin.math.abs(player.playbackParameters.speed - speed) > .001f)
+                    player.setPlaybackSpeed(speed)
                 player.volume = track.gainAt(positionMs).coerceIn(0f, 1f)
                 player.playWhenReady = playing
             } else {
