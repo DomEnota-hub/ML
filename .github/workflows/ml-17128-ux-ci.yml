@@ -1,0 +1,42 @@
+name: MediaLoader 1.7.128 UX cards build
+on:
+  push:
+    branches:
+      - feature/ml-17128-recognition-bulk-progress-cards-20261104
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml-17128-ux-cards
+  cancel-in-progress: true
+
+jobs:
+  android-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Compile changed Compose screens and test recognition stages
+        run: gradle :app:testDebugUnitTest --tests '*SavedVideoMusicRecognitionTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
+      - name: Store test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17128-ux-unit-${{ github.sha }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 7
