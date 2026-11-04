@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -162,17 +163,17 @@ fun MusicModeScreen(
                         label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
                     if (tab == 0) Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
-                        Text("Сортировка: ${sort.label}", style = MaterialTheme.typography.bodySmall,
+                        Text(musicSortCaption(sort), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Box {
                             IconButton(onClick = { sortMenu = true }) {
                                 Icon(Icons.Rounded.Sort, contentDescription = "Сортировка треков")
                             }
                             DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                                MusicLibrarySort.entries.forEach { option ->
-                                    DropdownMenuItem(text = { Text(option.label) },
-                                        onClick = { sort = option; sortMenu = false },
-                                        leadingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) })
+                                MusicLibrarySort.entries.filter { it != MusicLibrarySort.DATE_OLDEST }.forEach { option ->
+                                    DropdownMenuItem(text = { Text(musicSortCaption(if (option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE_OLDEST) sort else option)) },
+                                        onClick = { sort = if (option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE) MusicLibrarySort.DATE_OLDEST else option; sortMenu = false },
+                                        leadingIcon = { if (sort == option || option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE_OLDEST) Icon(Icons.Rounded.Check, null) })
                                 }
                             }
                         }
@@ -338,6 +339,8 @@ private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDel
 private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Unit)?, onOpen: () -> Unit, onAdd: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
                               onRemove: (() -> Unit)?, onUp: (() -> Unit)?, onDown: (() -> Unit)?, hidden: Boolean = false, onToggleHidden: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
+    var properties by remember { mutableStateOf(false) }
+    if (properties) MusicFilePropertiesDialog(track) { properties = false }
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия: ${track.originalName}") }
         DropdownMenu(menu, { menu = false }) {
@@ -352,9 +355,21 @@ private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Un
             if (onDown != null) DropdownMenuItem({ Text("Ниже") }, { menu = false; onDown() }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })
             if (onToggleHidden != null) DropdownMenuItem({ Text(if (hidden) "Отобразить в общем списке" else "Скрыть") },
                 { menu = false; onToggleHidden() }, leadingIcon = { Icon(if (hidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null) })
+            DropdownMenuItem({ Text("Свойства") }, { menu = false; properties = true }, leadingIcon = { Icon(Icons.Rounded.Info, null) })
             DropdownMenuItem({ Text("Поделиться") }, { menu = false; onShare() }, leadingIcon = { Icon(Icons.Rounded.Share, null) })
             DropdownMenuItem({ Text("Удалить файл", color = MaterialTheme.colorScheme.error) }, { menu = false; onDelete() },
                 leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) })
         }
+    }
+}
+
+@Composable
+private fun musicSortCaption(sort: MusicLibrarySort): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
+    val dated = sort == MusicLibrarySort.DATE || sort == MusicLibrarySort.DATE_OLDEST
+    withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.onSurface)) {
+        append(if (dated) "По дате · " else sort.label)
+    }
+    if (dated) withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.primary)) {
+        append(if (sort == MusicLibrarySort.DATE) "новые" else "старые")
     }
 }

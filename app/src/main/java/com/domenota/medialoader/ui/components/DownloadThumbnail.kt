@@ -224,26 +224,18 @@ private fun decodeLocalThumbnail(
 ): Bitmap? = runCatching {
     when (kind) {
         MediaKind.VIDEO -> {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(context, uri)
-                val scaled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                    retriever.getScaledFrameAtTime(
-                        1_500_000L,
-                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                        side,
-                        side,
-                    )
-                } else null
-                scaled ?: retriever.getFrameAtTime(
-                    1_500_000L,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                ) ?: retriever.getFrameAtTime(
-                    0L,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                )
-            } finally {
-                retriever.release()
+            val system = if (Build.VERSION.SDK_INT >= 29 && uri.scheme == "content" && uri.authority == "media")
+                runCatching { context.contentResolver.loadThumbnail(uri, android.util.Size(side, side), null) }.getOrNull()
+            else null
+            system ?: MediaMetadataRetriever().let { retriever ->
+                try {
+                    retriever.setDataSource(context, uri)
+                    val scaled = if (Build.VERSION.SDK_INT >= 27) runCatching {
+                        retriever.getScaledFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, side, side)
+                    }.getOrNull() else null
+                    scaled ?: runCatching { retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
+                        ?: runCatching { retriever.getFrameAtTime(-1L) }.getOrNull()
+                } finally { retriever.release() }
             }
         }
         MediaKind.AUDIO -> {

@@ -37,6 +37,12 @@ internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isC
                 Modifier.padding(top = 5.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        track.durationMs?.takeIf { it > 0 }?.let { duration ->
+            val seconds = duration / 1000
+            Text(if (seconds >= 3600) "%d:%02d:%02d".format(seconds/3600,seconds/60%60,seconds%60)
+                else "%d:%02d".format(seconds/60,seconds%60), fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         trailing()
     }
 }

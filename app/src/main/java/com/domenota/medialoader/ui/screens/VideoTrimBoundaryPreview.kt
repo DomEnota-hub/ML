@@ -56,10 +56,10 @@ internal object VideoTrimBoundaryPreview {
         override fun frame(sourceMs: Long): Bitmap? {
             val timeUs = sourceMs.coerceAtLeast(0L) * 1000L
             if (Build.VERSION.SDK_INT >= 27) return retriever.getScaledFrameAtTime(
-                timeUs, MediaMetadataRetriever.OPTION_CLOSEST, 360, 360)
+                timeUs, MediaMetadataRetriever.OPTION_CLOSEST, 1280, 1280)
             val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                 ?: return null
-            val scale = (360f / maxOf(frame.width, frame.height)).coerceAtMost(1f)
+            val scale = (1280f / maxOf(frame.width, frame.height)).coerceAtMost(1f)
             if (scale == 1f) return frame
             return Bitmap.createScaledBitmap(frame,
                 (frame.width * scale).roundToInt().coerceAtLeast(1),

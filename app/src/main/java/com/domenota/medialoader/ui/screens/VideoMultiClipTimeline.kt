@@ -479,10 +479,13 @@ private fun VideoClipStrip(
                 contentAlignment = Alignment.Center) {
                 Text("Видео", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                thumbnails.forEach { bmp ->
-                    Image(bmp.asImageBitmap(), contentDescription = null,
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                        contentScale = ContentScale.Crop)
+                repeat(tileCount) { index ->
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        thumbnails.getOrNull(index)?.let { bmp ->
+                            Image(bmp.asImageBitmap(), contentDescription = null,
+                                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        }
+                    }
                 }
             }
         }

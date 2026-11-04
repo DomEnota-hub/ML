@@ -38,8 +38,8 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFFF197D5), Color(0xFF42243B))
             else SettingsIconSwatch(Color(0xFF9D2B76), Color(0xFFFDE6F4))
         APPEARANCE ->
-            if (dark) SettingsIconSwatch(Color(0xFFADC5CC), Color(0xFF2B3B42))
-            else SettingsIconSwatch(Color(0xFF4A6670), Color(0xFFE6EFF2))
+            if (dark) SettingsIconSwatch(Color(0xFF91ACFF), Color(0xFF263557))
+            else SettingsIconSwatch(Color(0xFF345BB3), Color(0xFFE4EBFF))
         INSTAGRAM ->
             if (dark) SettingsIconSwatch(Color(0xFFFFA2BD), Color(0xFF452631))
             else SettingsIconSwatch(Color(0xFFAB305F), Color(0xFFFDE2EF))
