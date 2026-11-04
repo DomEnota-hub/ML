@@ -28,14 +28,17 @@ class GapiKeyStoreTest {
         context.getSharedPreferences("ui-test", 0), listOf(builtin), { now },
     )
 
-    @Test fun `builtins require both current developer and extended log preferences`() {
+    @Test fun `builtins follow developer mode independently of extended logging`() {
         val store = store()
         assertTrue(store.add("Мой ключ", "custom-secret"))
         val ui = context.getSharedPreferences("ui-test", 0)
         assertEquals(listOf("Мой ключ"), store.eligible().map { it.name })
-        ui.edit().putBoolean("logs_unlocked", true).commit()
-        assertFalse(store.builtinAllowed())
+        ui.edit().putBoolean("developer_visible", true).commit()
+        assertTrue(store.builtinAllowed())
+        assertEquals(2, store.eligible().size)
         ui.edit().putBoolean("extended_app_log", true).commit()
+        ui.edit().putBoolean("extended_app_log", false).commit()
+        assertTrue(store.builtinAllowed())
         assertEquals(2, store.eligible().size)
         ui.edit().putBoolean("developer_visible", false).commit()
         assertFalse(store.builtinAllowed())

@@ -611,7 +611,7 @@ fun SettingsScreen(
 
     if (gapiKeysDialog) GapiKeysDialog(
         store = gapiKeyStore,
-        gateRevision = developerVisible to extendedLog,
+        gateRevision = developerVisible,
         onDismissRequest = { gapiKeysDialog = false },
     )
 

@@ -44,10 +44,10 @@ class GapiKeyStore internal constructor(
 
     fun currentMonth(): String = YearMonth.from(Instant.ofEpochMilli(now()).atZone(ZoneOffset.UTC)).toString()
 
-    // Both switches are deliberately read each time: this store can outlive the Settings screen.
+    // Read the current developer setting each time; verbose logging is independent.
     fun builtinAllowed(): Boolean = uiPreferences.getBoolean(
         "developer_visible", uiPreferences.getBoolean("logs_unlocked", false),
-    ) && uiPreferences.getBoolean("extended_app_log", false)
+    )
 
     var fallbackEnabled: Boolean
         get() = preferences?.getBoolean("account_fallback", true) ?: true
