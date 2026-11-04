@@ -81,6 +81,9 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.ui.components.AppCard
 import com.domenota.medialoader.ui.components.DownloadRow
 import com.domenota.medialoader.ui.components.DownloadThumbnail
+import com.domenota.medialoader.ui.components.BulkProgressCard
+import com.domenota.medialoader.data.bulk.BulkState
+import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.ui.components.EmptyStateCard
 import com.domenota.medialoader.ui.components.SectionTitle
 import com.domenota.medialoader.ui.components.SourceIcon
@@ -153,9 +156,16 @@ fun DownloadsScreen(
     onSetFavorite: suspend (String, Boolean) -> Unit = { _, _ -> },
     onDeleteGroupFile: suspend (String) -> Unit = {},
     onOpenGrid: ((String, List<String>) -> Unit)? = null,
+    bulkState: BulkState = BulkState(),
+    bulkDownloads: List<DownloadEntity> = emptyList(),
+    onBulkDetails: () -> Unit = {},
+    onBulkStopAnalysis: () -> Unit = {},
+    onBulkPause: () -> Unit = {},
+    onBulkResume: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val listScrollState = rememberLazyListState()
+    var dismissedBulkJobId by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(listScrollState) {
         try {
             snapshotFlow { listScrollState.isScrollInProgress }.collectLatest { scrolling ->
@@ -442,6 +452,18 @@ fun DownloadsScreen(
                         Icon(Icons.Rounded.Close, contentDescription = "Очистить поиск")
                     }
                 },
+            )
+        }
+        if (bulkState.jobId.isNotBlank() && bulkState.jobId != dismissedBulkJobId) {
+            Spacer(Modifier.height(13.dp))
+            BulkProgressCard(
+                state = bulkState,
+                downloads = bulkDownloads,
+                onDetails = onBulkDetails,
+                onStopAnalysis = onBulkStopAnalysis,
+                onPause = onBulkPause,
+                onResume = onBulkResume,
+                onDismissFinished = { dismissedBulkJobId = bulkState.jobId },
             )
         }
         Spacer(Modifier.height(16.dp))

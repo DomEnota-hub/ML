@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/ml-video-editor-v8-reference-rebuild-20261102
+      - feature/ml-17128-recognition-bulk-progress-cards-20261104
   workflow_dispatch:
     inputs:
       official_release_review:

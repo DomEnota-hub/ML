@@ -15,6 +15,23 @@ private class InputIdentity(val rows: List<DownloadEntity>) {
 }
 private data class Projection(val source: List<DownloadEntity>, val aliases: Map<String, String>, val rows: List<DownloadUiItem>)
 
+/**
+ * Preserve the previous visible picker cards only when the currently authorized
+ * source still contains the SAME file ID and URI. Changes of permission/privacy,
+ * deletion, or hiding remove an entry immediately, even if the rebuild lags.
+ */
+internal fun retainEditorFilesForCurrentSource(
+    previous: List<DownloadUiItem>,
+    current: List<DownloadEntity>,
+): List<DownloadUiItem> {
+    if (previous.isEmpty() || current.isEmpty()) return emptyList()
+    val allowed = current.asSequence()
+        .filter { !it.hidden && it.state == DownloadState.COMPLETED &&
+            !it.savedUri.isNullOrBlank() }
+        .associate { it.id to it.savedUri }
+    return previous.filter { allowed[it.id] == it.savedUri }
+}
+
 /** Alias rows remain available to old routes; the picker shows one logical file. */
 internal fun editorUniqueFiles(rows: List<DownloadEntity>, aliases: Map<String, String>): List<DownloadEntity> {
     val seenIds = HashSet<String>()
@@ -42,6 +59,15 @@ internal fun rememberEditorItems(rows: List<DownloadEntity>, aliases: Map<String
             })
         }
     }
-    // Never show a previous input's private rows after permissions/lock state changes.
-    return result.value?.takeIf { it.source === rows && it.aliases == aliases }?.rows.orEmpty()
+    val snapshot = result.value ?: return emptyList()
+    if (snapshot.source === rows && snapshot.aliases == aliases) return snapshot.rows
+
+    // Refreshes of a large MediaStore library replace List instances often.
+    // A new background projection may not be ready for a frame, but an empty
+    // result here visibly flips the picker from 212 videos to 0 and back.
+    // Keep only entries still present in the CURRENT authorized inputs: this
+    // fails closed for deleted/hidden/private/permission-revoked rows.
+    return remember(snapshot, InputIdentity(rows)) {
+        retainEditorFilesForCurrentSource(snapshot.rows, rows)
+    }
 }

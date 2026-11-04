@@ -732,7 +732,7 @@ fun MediaLoaderApp(
                 Toast.makeText(context, "Файл удалён с устройства", Toast.LENGTH_SHORT).show()
             } else if (status == SavedFileStatus.INACCESSIBLE) {
                 Toast.makeText(context, "Нет доступа к файлу", Toast.LENGTH_SHORT).show()
-            } else if ((internalViewerEnabled || item.isPrivate || appMode != AppMode.DOWNLOADER) && item.state == DownloadState.COMPLETED && item.savedUri != null) {
+            } else if ((internalViewerEnabled || item.isPrivate || appMode != AppMode.DOWNLOADER || queueIds.isNotEmpty()) && item.state == DownloadState.COMPLETED && item.savedUri != null) {
                 if (item.mediaType == MediaType.AUDIO && !item.isPrivate) {
                     val selectedRows = LibraryAudioQueue.resolve(queueIds, publicLibraryRows, false, fileStatuses)
                     val selected = (listOf(item) + selectedRows).distinctBy { it.savedUri }.map { row ->
@@ -1210,6 +1210,12 @@ fun MediaLoaderApp(
                     onRenameDownload = viewModel::renameDownload,
                     recognitionEnabled = musicRecognitionMode != MusicRecognitionMode.OFF,
                     onRecognizeDownload = viewModel::recognizeDownload,
+                    bulkState = bulk,
+                    bulkDownloads = downloads,
+                    onBulkDetails = { navController.navigate(BULK_ROUTE) },
+                    onBulkStopAnalysis = viewModel::stopBulkAnalysis,
+                    onBulkPause = viewModel::pauseBulk,
+                    onBulkResume = viewModel::resumeBulk,
                 )
             }
             composable(PRIVATE_ROUTE) {
@@ -1582,6 +1588,7 @@ fun MediaLoaderApp(
                     onRetryFailed = viewModel::retryBulkFailed,
                     onOpenJob = viewModel::openBulkJob,
                     onClearHistory = viewModel::clearBulkHistory,
+                    onOpenGroupMedia = openDownloadWithQueue,
                 )
             }
             composable(PREVIEW_ROUTE) {

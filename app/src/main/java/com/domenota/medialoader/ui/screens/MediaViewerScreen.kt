@@ -63,6 +63,7 @@ import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Settings as SettingsIcon
@@ -350,6 +351,7 @@ internal fun LocalVideoPlayer(
     val context = LocalContext.current
     val gestureThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
     val playButtonHalfPx = with(LocalDensity.current) { 32.dp.toPx() }
+    val previousButtonHalfPx = with(LocalDensity.current) { 24.dp.toPx() }
     val toolbarHalfPx = with(LocalDensity.current) { 20.dp.toPx() }
     var timelineTop by remember { mutableStateOf<Float?>(null) }
     var videoViewportSize by remember { mutableStateOf(IntSize.Zero) }
@@ -374,6 +376,7 @@ internal fun LocalVideoPlayer(
     }
     var playbackError by remember(uri) { mutableStateOf<PlaybackException?>(null) }
     var retryGeneration by remember(uri) { mutableStateOf(0) }
+    var nativePreviousCenter by remember(uri, retryGeneration) { mutableStateOf<Offset?>(null) }
     var seekFeedback by remember(uri) { mutableStateOf(SeekFeedbackState()) }
     var adjustmentFeedback by remember(uri) { mutableStateOf<String?>(null) }
     var adjustmentActive by remember(uri) { mutableStateOf(false) }
@@ -599,6 +602,12 @@ internal fun LocalVideoPlayer(
                     setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
                     setShowRewindButton(false)
                     setShowFastForwardButton(false)
+                    setShowPreviousButton(true)
+                    // A one-item Media3 queue may DISABLE its previous button.
+                    // Keep the existing native slot but provide our own active
+                    // Compose control aligned over it.
+                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
+                        ?.apply { scaleX = 0f; scaleY = 0f }
                     // Media3 restores the native button's alpha when playback state changes.
                     // Keep its layout slot for adjacent buttons, but draw only our Compose icon.
                     findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
@@ -626,6 +635,10 @@ internal fun LocalVideoPlayer(
                             }
                         findViewById<android.view.View>(androidx.media3.ui.R.id.exo_position)
                             ?.takeIf { it.height > 0 }?.let { toolbarCenterY = centerInPlayer(it).y }
+                        findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
+                            ?.takeIf { it.width > 0 && it.height > 0 }?.let {
+                                nativePreviousCenter = centerInPlayer(it)
+                            }
                         val button = findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
                         if (button != null && button.width > 0) {
                             var x = button.width / 2f
@@ -821,6 +834,26 @@ internal fun LocalVideoPlayer(
                         },
                     )
                 })
+        }
+        // This arrow is always actionable, even if Media3 would disable its
+        // native "previous media item" action for a one-video queue.
+        if (!controlsLocked && chromeVisible && nativePreviousCenter != null) IconButton(
+            onClick = {
+                if (player.playbackState == Player.STATE_ENDED) player.pause()
+                player.seekTo(0L)
+                playbackEnded = false
+                com.domenota.medialoader.data.playback.VideoWatchProgress.saveResume(prefs, itemId, null)
+                com.domenota.medialoader.data.playback.VideoWatchProgress.record(prefs, itemId, 0L, playableDurationMs)
+            },
+            modifier = Modifier.align(Alignment.TopStart)
+                .offset { IntOffset(
+                    (nativePreviousCenter!!.x - previousButtonHalfPx).toInt(),
+                    (nativePreviousCenter!!.y - previousButtonHalfPx).toInt(),
+                ) }.size(48.dp),
+        ) {
+            Icon(Icons.Rounded.SkipPrevious, contentDescription = "К началу видео",
+                tint = androidx.compose.ui.graphics.Color.White,
+                modifier = Modifier.size(30.dp))
         }
         if (!controlsLocked && chromeVisible) IconButton(
             onClick = {

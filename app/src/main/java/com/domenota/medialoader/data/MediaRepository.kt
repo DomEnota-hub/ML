@@ -500,7 +500,10 @@ class MediaRepository private constructor(context: Context) {
                 referer?.let { mapOf("Referer" to it) }.orEmpty()))
     }
 
-    suspend fun recognizeSavedVideo(savedUri: String): MusicRecognitionResult? {
+    suspend fun recognizeSavedVideo(
+        savedUri: String,
+        onStage: suspend (com.domenota.medialoader.data.recognition.SavedVideoRecognitionStage) -> Unit = {},
+    ): MusicRecognitionResult? {
         if (privateFiles.owns(savedUri)) privateAccess.requireUnlocked()
         beginRecognition()
         return try {
@@ -513,7 +516,10 @@ class MediaRepository private constructor(context: Context) {
                             val pcm = recognitionAudioPreprocessor.decodeVideo(uri)
                             AppLog.i("VideoRecognition", "Audio decoded · samples=${pcm.size} · elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}")
                             pcm
-                        }, liveMusicRecognizer)
+                        }, liveMusicRecognizer,
+                        onStage = { stage ->
+                            withContext(Dispatchers.Main.immediate) { onStage(stage) }
+                        })
                 }
                 AppLog.i("VideoRecognition", "Finished · matched=${result != null} · elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}")
                 result
