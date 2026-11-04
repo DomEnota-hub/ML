@@ -1,0 +1,87 @@
+name: MediaLoader 1.7.129 ARM64 DomEnota-signed device review
+on:
+  push:
+    branches:
+      - feature/ml-17128-recognition-bulk-progress-cards-20261104
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml-17129-signed-review
+  cancel-in-progress: true
+
+jobs:
+  build-sign-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Compile Release ARM64 with current source
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Sign the APK with the existing DomEnota certificate
+        shell: bash
+        env:
+          ML_RELEASE_KEYSTORE_BASE64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
+          ML_RELEASE_STORE_PASSWORD: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
+          ML_RELEASE_KEY_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
+          ML_RELEASE_KEY_PASSWORD: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
+          ML_RELEASE_SIGNER_SHA256: ${{ secrets.ML_RELEASE_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          for name in ML_RELEASE_KEYSTORE_BASE64 ML_RELEASE_STORE_PASSWORD ML_RELEASE_KEY_ALIAS ML_RELEASE_KEY_PASSWORD ML_RELEASE_SIGNER_SHA256; do
+            if test -z "${!name:-}"; then
+              echo "::error::Required protected signing secret missing: $name"
+              exit 1
+            fi
+          done
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -s "$unsigned"
+          "$bt/aapt" dump badging "$unsigned" |
+            grep -F "package: name='com.domenota.medialoader' versionCode='190' versionName='1.7.129'"
+          test "$(unzip -Z1 "$unsigned" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          test "$(stat -c %s "$unsigned")" -le 130000000
+          key="$RUNNER_TEMP/ml-signing.keystore"
+          aligned="$RUNNER_TEMP/ml-aligned.apk"
+          mkdir -p signed-output
+          signed="signed-output/ML_1.7.129_ARM64_DomEnota_SIGNED_PR55.apk"
+          trap 'rm -f "$key" "$aligned"' EXIT
+          printf '%s' "$ML_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          "$bt/zipalign" -p -f 4 "$unsigned" "$aligned"
+          "$bt/apksigner" sign --min-sdk-version 26             --ks "$key" --ks-key-alias "$ML_RELEASE_KEY_ALIAS"             --ks-pass env:ML_RELEASE_STORE_PASSWORD             --key-pass env:ML_RELEASE_KEY_PASSWORD             --out "$signed" "$aligned"
+          "$bt/apksigner" verify --verbose "$signed"
+          actual=$("$bt/apksigner" verify --print-certs "$signed" |
+            sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+).*$/\1/p' | head -n1 |
+            tr '[:upper:]' '[:lower:]' | tr -d ':')
+          expected=$(printf '%s' "$ML_RELEASE_SIGNER_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ': ')
+          original="4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2"
+          test -n "$actual"
+          test "$actual" = "$expected"
+          test "$actual" = "$original"
+          "$bt/aapt" dump badging "$signed" |
+            grep -F "package: name='com.domenota.medialoader' versionCode='190' versionName='1.7.129'"
+          test "$(unzip -Z1 "$signed" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          test "$(stat -c %s "$signed")" -le 130000000
+          (cd signed-output && sha256sum "$(basename "$signed")" > SHA256SUMS.txt)
+          echo "Verified version, ARM64 ABI, installed app ID, and same trusted DomEnota certificate."
+      - name: Upload signed review APK (no public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML-1.7.129-ARM64-DomEnota-SIGNED-PR55
+          path: signed-output/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
