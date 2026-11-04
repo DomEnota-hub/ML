@@ -13,9 +13,14 @@ internal class SavedVideoRecognitionFailure(val stage: Stage, cause: Exception) 
     }
 }
 
+internal enum class SavedVideoRecognitionStage { EXTRACTING_AUDIO, SEARCHING_MATCH }
+
 internal object SavedVideoMusicRecognition {
     suspend fun recognize(savedUri: String, decode: suspend (String) -> ShortArray,
-        provider: MusicRecognitionProvider): MusicRecognitionResult? {
+        provider: MusicRecognitionProvider,
+        onStage: suspend (SavedVideoRecognitionStage) -> Unit = {},
+    ): MusicRecognitionResult? {
+        onStage(SavedVideoRecognitionStage.EXTRACTING_AUDIO)
         val pcm = try {
             decode(savedUri)
         } catch (e: CancellationException) {
@@ -23,6 +28,7 @@ internal object SavedVideoMusicRecognition {
         } catch (e: Exception) {
             throw SavedVideoRecognitionFailure(SavedVideoRecognitionFailure.Stage.AUDIO, e)
         }
+        onStage(SavedVideoRecognitionStage.SEARCHING_MATCH)
         return try {
             provider.recognize(pcm)
         } catch (e: CancellationException) {
