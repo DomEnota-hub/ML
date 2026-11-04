@@ -68,7 +68,9 @@ fun VideoSongSearchDialog(savedUri: String, onDismiss: () -> Unit) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: com.domenota.medialoader.data.recognition.SavedVideoRecognitionFailure) {
-            message = e.stage.userMessage + " Можно ввести название вручную."
+            val rateLimit = e.cause as? com.domenota.medialoader.data.recognition.ShazamRateLimitException
+            message = (rateLimit?.message ?: e.stage.userMessage) +
+                " Можно ввести название вручную."
         } catch (e: Exception) {
             com.domenota.medialoader.core.logging.AppLog.e(
                 "VideoRecognition", "Could not start recognition", e)
