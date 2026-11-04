@@ -358,7 +358,6 @@ internal fun LocalVideoPlayer(
     var gestureOrigin by remember { mutableStateOf(Offset.Zero) }
     var toolbarCenterY by remember { mutableStateOf<Float?>(null) }
     var nativePlayCenter by remember { mutableStateOf<Offset?>(null) }
-    var nativePreviousCenter by remember(uri, retryGeneration) { mutableStateOf<Offset?>(null) }
     var videoResizeMode by rememberSaveable { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var forcedAspectRatio by rememberSaveable { mutableStateOf<Float?>(null) }
     var sourceAspectRatio by remember { mutableStateOf(0f) }
@@ -377,6 +376,7 @@ internal fun LocalVideoPlayer(
     }
     var playbackError by remember(uri) { mutableStateOf<PlaybackException?>(null) }
     var retryGeneration by remember(uri) { mutableStateOf(0) }
+    var nativePreviousCenter by remember(uri, retryGeneration) { mutableStateOf<Offset?>(null) }
     var seekFeedback by remember(uri) { mutableStateOf(SeekFeedbackState()) }
     var adjustmentFeedback by remember(uri) { mutableStateOf<String?>(null) }
     var adjustmentActive by remember(uri) { mutableStateOf(false) }
