@@ -40,4 +40,55 @@ class EditorItemsProjectionTest {
         assertFalse("Private rows cannot survive a locked input", leaks.any { it })
         assertTrue(shown.isEmpty())
     }
+    @Test fun refreshedVideoMetadataDoesNotBlankAnAlreadyVisiblePicker() {
+        val video = DownloadEntity("vid-1", "device", "movie.mp4", MediaType.VIDEO,
+            DownloadState.COMPLETED, "content://media/external/video/media/42", 1024L, 0L)
+        var rows by mutableStateOf(listOf(video))
+        var shown by mutableStateOf(emptyList<String>())
+        var monitoring = false
+        val emptyFrames = mutableListOf<Boolean>()
+        compose.setContent {
+            val projected = rememberEditorItems(rows)
+            SideEffect {
+                shown = projected.map { it.id }
+                if (monitoring) emptyFrames.add(projected.isEmpty())
+            }
+            Text(projected.size.toString())
+        }
+        compose.waitUntil(5000) { shown == listOf(video.id) }
+        compose.runOnIdle {
+            monitoring = true
+            rows = listOf(video.copy(sizeBytes = 2048L))
+        }
+        compose.waitForIdle()
+        assertTrue("Should observe at least one refresh frame", emptyFrames.isNotEmpty())
+        assertFalse("Unchanged video must not blink to zero while mapping runs", emptyFrames.any { it })
+        assertEquals(listOf(video.id), shown)
+    }
+
+    @Test fun removedOrRevokedVideoIsHiddenImmediately() {
+        val video = DownloadEntity("vid-2", "device", "movie.mp4", MediaType.VIDEO,
+            DownloadState.COMPLETED, "content://media/external/video/media/43", 1024L, 0L)
+        var rows by mutableStateOf(listOf(video))
+        var shown by mutableStateOf(emptyList<String>())
+        val revokedFrames = mutableListOf<Boolean>()
+        var revoked = false
+        compose.setContent {
+            val projected = rememberEditorItems(rows)
+            SideEffect {
+                shown = projected.map { it.id }
+                if (revoked) revokedFrames.add(projected.isNotEmpty())
+            }
+            Text(projected.size.toString())
+        }
+        compose.waitUntil(5000) { shown == listOf(video.id) }
+        compose.runOnIdle {
+            revoked = true
+            rows = listOf(video.copy(hidden = true))
+        }
+        compose.waitForIdle()
+        assertFalse("Hidden video must disappear without a stale frame", revokedFrames.any { it })
+        assertTrue(shown.isEmpty())
+    }
+
 }

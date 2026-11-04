@@ -1,8 +1,9 @@
-name: MediaLoader 1.7.128 UX cards build
+name: MediaLoader 1.7.130 Shazam and video picker regression tests
 on:
   push:
     branches:
       - feature/ml-17128-recognition-bulk-progress-cards-20261104
+      - fix/ml-shazam-throttle-retry-20261104
   workflow_dispatch:
 
 permissions:
@@ -29,7 +30,7 @@ jobs:
         run: |
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Compile changed Compose screens and test recognition stages
-        run: gradle :app:testDebugUnitTest --tests '*SavedVideoMusicRecognitionTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
+        run: gradle :app:testDebugUnitTest --tests '*ShazamRequestThrottleTest*' --tests '*ShazamClientTest*' --tests '*ShazamRecognitionProviderTest*' --tests '*SavedVideoMusicRecognitionTest*' --tests '*EditorItemsRetentionPolicyTest*' --tests '*VideoPlayerUiPolicyTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
       - name: Store test evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,4 +1,4 @@
-name: MediaLoader 1.7.129 ARM64 unsigned handoff for local DomEnota signing
+name: MediaLoader 1.7.130 ARM64 unsigned handoff for local DomEnota signing
 on:
   push:
     branches:
@@ -37,14 +37,14 @@ jobs:
           file="app/build/outputs/apk/release/app-release-unsigned.apk"
           test -s "$file"
           "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$file" |
-            grep -F "package: name='com.domenota.medialoader' versionCode='190' versionName='1.7.129'"
+            grep -F "package: name='com.domenota.medialoader' versionCode='191' versionName='1.7.130'"
           test "$(unzip -Z1 "$file" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
           test "$(stat -c %s "$file")" -le 130000000
           sha256sum "$file" | tee "$RUNNER_TEMP/unsigned-sha256.txt"
       - name: Upload unsigned candidate for offline private signing
         uses: actions/upload-artifact@v4
         with:
-          name: ML-1.7.129-ARM64-unsigned-for-DomEnota-local-sign
+          name: ML-1.7.130-ARM64-unsigned-for-DomEnota-local-sign
           path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 7
