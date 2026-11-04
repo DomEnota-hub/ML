@@ -53,11 +53,23 @@ class VkCommunityController(context: Context) {
     fun repeat(job: VkCommunityJob): String? =
         search(job.link, VkHistoryPolicy.repeatPeriod(job), job.zoneId)
 
-    fun deleteHistoryJob(id: String): Boolean = database.deleteJob(id)
+    fun deleteHistoryJob(id: String): Boolean {
+        val deleted = database.deleteJob(id)
+        if (deleted) favoriteChecks.removeJobs(setOf(id))
+        return deleted
+    }
 
-    fun clearHistory(): Int = database.clearHistory()
+    fun clearHistory(): Int {
+        val removed = database.clearHistory()
+        val missing = favoriteChecks.current()?.entries.orEmpty()
+            .filter { database.job(it.jobId) == null }.map { it.jobId }.toSet()
+        favoriteChecks.removeJobs(missing)
+        return removed
+    }
 
-    fun checkFavoritePublications(): VkFavoriteCheckBatch? {
+    @Synchronized fun checkFavoritePublications(
+        mode: VkFavoriteSearchMode = VkFavoriteSearchMode.NEW_ONLY,
+    ): VkFavoriteCheckBatch? {
         if (tokens.read() == null) return null
         val saved = favorites.list()
         if (saved.isEmpty()) return null
@@ -74,7 +86,7 @@ class VkCommunityController(context: Context) {
             VkFavoriteCheckEntry(favorite.key, favorite.label, favorite.link, jobId,
                 favorite.sinceDate, favorite.reviewedThroughEpoch, through)
         }
-        val batch = VkFavoriteCheckBatch(UUID.randomUUID().toString(), entries)
+        val batch = VkFavoriteCheckBatch(UUID.randomUUID().toString(), entries, mode)
         if (!favoriteChecks.save(batch)) return null
         scheduleFavoriteCheck(batch.id)
         return batch

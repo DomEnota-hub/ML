@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +58,7 @@ import com.domenota.medialoader.data.vkcommunity.VkCommunityApi
 import com.domenota.medialoader.data.vkcommunity.VkFavoriteStore
 import com.domenota.medialoader.data.vkcommunity.VkFavorite
 import com.domenota.medialoader.data.vkcommunity.VkFavoriteCheckBatch
+import com.domenota.medialoader.data.vkcommunity.VkFavoriteSearchMode
 import com.domenota.medialoader.data.vkcommunity.VkCommunityJob
 import com.domenota.medialoader.data.vkcommunity.VkCommunityLink
 import com.domenota.medialoader.data.vkcommunity.VkDatePeriod
@@ -83,6 +85,7 @@ fun VkCommunityScreen(onBack: () -> Unit) {
     val favoritesStore = remember(context) { VkFavoriteStore(context.applicationContext) }
     val prefs = remember(context) { context.getSharedPreferences("vk_community_ui", 0) }
     val scope = rememberCoroutineScope()
+    val screenStates = rememberSaveableStateHolder()
     val today = remember { LocalDate.now() }
     var tab by remember { mutableIntStateOf(0) }
     var link by remember { mutableStateOf(prefs.getString("community_link", "").orEmpty()) }
@@ -117,12 +120,33 @@ fun VkCommunityScreen(onBack: () -> Unit) {
     var favoriteToRemove by remember { mutableStateOf<VkFavorite?>(null) }
     var favoriteDateTarget by remember { mutableStateOf<VkFavorite?>(null) }
     var favoriteBatch by remember { mutableStateOf<VkFavoriteCheckBatch?>(controller.favoriteChecks.current()) }
+    var favoriteCheckStarting by remember { mutableStateOf(false) }
     var favoriteJobs by remember { mutableStateOf<Map<String, VkCommunityJob>>(emptyMap()) }
     var returnToChecks by remember { mutableStateOf(false) }
     var reviewError by remember { mutableStateOf<String?>(null) }
     var journal by remember { mutableStateOf<List<VkCommunityJob>>(emptyList()) }
     var deleteJobId by remember { mutableStateOf<String?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+
+    fun startFavoriteCheck(mode: VkFavoriteSearchMode) {
+        if (favoriteCheckStarting) return
+        favoriteCheckStarting = true
+        scope.launch {
+            try {
+                val started = withContext(Dispatchers.IO) {
+                    controller.checkFavoritePublications(mode)
+                }
+                if (started == null) {
+                    message = "Проверьте ключ VK и избранные сообщества"
+                    view = "setup"
+                } else {
+                    favoriteBatch = started
+                    favoriteJobs = emptyMap()
+                    view = "checks"
+                }
+            } finally { favoriteCheckStarting = false }
+        }
+    }
 
     LaunchedEffect(Unit) {
         val token = withContext(Dispatchers.IO) { controller.tokens.read() }
@@ -244,6 +268,7 @@ fun VkCommunityScreen(onBack: () -> Unit) {
                 val updated = controller.database.jobs()
                 withContext(Dispatchers.Main) {
                     journal = updated
+                    favoriteBatch = controller.favoriteChecks.current()
                     if (!deleted) message = "Активное задание нельзя удалить"
                     if (activeJobId == target && deleted) activeJobId = null
                     if (jobId == target && deleted) { jobId = null; job = null; visibleImages = emptyList() }
@@ -255,13 +280,14 @@ fun VkCommunityScreen(onBack: () -> Unit) {
     ) }
     if (confirmClear) AlertDialog(
         onDismissRequest = { confirmClear = false }, title = { Text("Очистить журнал?") },
-        text = { Text("Завершённые задания и их результаты будут удалены. Активное задание и скачанные файлы сохранятся.") },
+        text = { Text("Неактивные задания и их результаты будут удалены. Выполняющиеся задания и скачанные файлы сохранятся.") },
         confirmButton = { TextButton(onClick = {
             scope.launch(Dispatchers.IO) {
                 controller.clearHistory()
                 val updated = controller.database.jobs()
                 withContext(Dispatchers.Main) {
                     journal = updated
+                    favoriteBatch = controller.favoriteChecks.current()
                     if (jobId != null && updated.none { it.id == jobId }) {
                         jobId = null; job = null; visibleImages = emptyList()
                     }
@@ -325,96 +351,99 @@ fun VkCommunityScreen(onBack: () -> Unit) {
     )
 
     if (view == "results") {
-        VkCommunityResultsScreen(job, visibleImages, page, hasPendingSelection, readOnly,
-            database = controller.database,
-            onBack = {
-                view = when { returnToChecks -> "checks"; readOnly -> "history"; else -> "setup" }
-                if (returnToChecks || !readOnly) jobId = activeJobId
-                returnToChecks = false
-                readOnly = false
-            },
-            onPage = { page = it },
-            onSelect = { item, checked ->
-                visibleImages = visibleImages.map {
-                    if (it.candidate.photoKey == item.candidate.photoKey) it.copy(selected = checked) else it
-                }
-                scope.launch(Dispatchers.IO) {
-                    controller.database.select(item.jobId, item.candidate.photoKey, checked)
-                }
-            },
-            onSelectPost = { item, checked ->
-                visibleImages = visibleImages.map {
-                    if (it.candidate.postKey == item.candidate.postKey &&
-                        it.phase in setOf(VkItemPhase.FOUND, VkItemPhase.ERROR))
-                        it.copy(selected = checked) else it
-                }
-                scope.launch(Dispatchers.IO) {
-                    controller.database.selectPost(item.jobId, item.candidate.postKey, checked)
-                }
-            },
-            onSelectAll = { checked -> jobId?.let { id -> scope.launch(Dispatchers.IO) {
-                controller.database.selectAll(id, checked)
-            } } },
-            onDownload = { jobId?.let(controller::download) },
-            onRetry = { jobId?.let { controller.download(it, true) } },
-            onCancel = { jobId?.let(controller::cancel) },
-            onContinue = { jobId?.let(controller::continueSearch) },
-            onRepeat = { job?.let { old -> scope.launch(Dispatchers.IO) {
-                val started = controller.repeat(old)
-                withContext(Dispatchers.Main) {
-                    if (started == null) { message = "Проверьте ключ VK"; view = "setup" }
-                    else { activeJobId = started; jobId = started; job = null; page = 0; readOnly = false; view = "results" }
-                }
-            } } },
-            onFinishReview = if (returnToChecks) ({ jobId?.let { id ->
-                scope.launch(Dispatchers.IO) {
-                    val done = controller.completeFavoriteReview(id)
-                    withContext(Dispatchers.Main) {
-                        if (done) {
-                            favoriteBatch = controller.favoriteChecks.current()
-                            view = "checks"; returnToChecks = false; jobId = activeJobId
-                            readOnly = false
-                        } else reviewError = "Проверьте результат поиска и дату сообщества. Изображения останутся для следующей проверки."
+        screenStates.SaveableStateProvider("results:$jobId:$page") {
+            VkCommunityResultsScreen(job, visibleImages, page, hasPendingSelection, readOnly,
+                database = controller.database,
+                onBack = {
+                    view = when { returnToChecks -> "checks"; readOnly -> "history"; else -> "setup" }
+                    if (returnToChecks || !readOnly) jobId = activeJobId
+                    returnToChecks = false
+                    readOnly = false
+                },
+                onPage = { page = it },
+                onSelect = { item, checked ->
+                    visibleImages = visibleImages.map {
+                        if (it.candidate.photoKey == item.candidate.photoKey) it.copy(selected = checked) else it
                     }
-                }
-            } }) else null,
-            isFavoriteCheck = returnToChecks,
-        )
+                    scope.launch(Dispatchers.IO) {
+                        controller.database.select(item.jobId, item.candidate.photoKey, checked)
+                    }
+                },
+                onSelectPost = { item, checked ->
+                    visibleImages = visibleImages.map {
+                        if (it.candidate.postKey == item.candidate.postKey &&
+                            it.phase in setOf(VkItemPhase.FOUND, VkItemPhase.ERROR))
+                            it.copy(selected = checked) else it
+                    }
+                    scope.launch(Dispatchers.IO) {
+                        controller.database.selectPost(item.jobId, item.candidate.postKey, checked)
+                    }
+                },
+                onSelectAll = { checked -> jobId?.let { id -> scope.launch(Dispatchers.IO) {
+                    controller.database.selectAll(id, checked)
+                } } },
+                onDownload = { jobId?.let(controller::download) },
+                onRetry = { jobId?.let { controller.download(it, true) } },
+                onCancel = { jobId?.let(controller::cancel) },
+                onContinue = { jobId?.let(controller::continueSearch) },
+                onRepeat = { job?.let { old -> scope.launch(Dispatchers.IO) {
+                    val started = controller.repeat(old)
+                    withContext(Dispatchers.Main) {
+                        if (started == null) { message = "Проверьте ключ VK"; view = "setup" }
+                        else { activeJobId = started; jobId = started; job = null; visibleImages = emptyList();
+                        page = 0; readOnly = false; view = "results" }
+                    }
+                } } },
+                onFinishReview = if (returnToChecks) ({ jobId?.let { id ->
+                    scope.launch(Dispatchers.IO) {
+                        val done = controller.completeFavoriteReview(id)
+                        withContext(Dispatchers.Main) {
+                            if (done) {
+                                favoriteBatch = controller.favoriteChecks.current()
+                                favorites = favoritesStore.list()
+                                readOnly = true
+                            } else reviewError = "Проверьте результат поиска и дату сообщества. Изображения останутся для следующей проверки."
+                        }
+                    }
+                } }) else null,
+                isFavoriteCheck = returnToChecks,
+                favoriteSearchMode = favoriteBatch?.mode.takeIf { returnToChecks },
+            )
+        }
         return
     }
     if (view == "checks") {
-        VkFavoriteCheckScreen(favoriteBatch, favoriteJobs, favorites,
-            onBack = { view = "setup"; jobId = activeJobId },
-            onOpen = { entry ->
-                returnToChecks = true
-                jobId = entry.jobId; job = null; visibleImages = emptyList()
-                page = 0; readOnly = entry.reviewed; view = "results"
-            },
-            onRetry = { scope.launch(Dispatchers.IO) { controller.retryFavoriteCheck() } },
-            onNewCheck = { scope.launch(Dispatchers.IO) {
-                val started = controller.checkFavoritePublications()
-                withContext(Dispatchers.Main) {
-                    if (started == null) { message = "Проверьте ключ VK и избранные сообщества"; view = "setup" }
-                    else { favoriteBatch = started; favoriteJobs = emptyMap() }
-                }
-            } })
+        screenStates.SaveableStateProvider("checks:${favoriteBatch?.id}") {
+            VkFavoriteCheckScreen(favoriteBatch, favoriteJobs, favorites,
+                onBack = { view = "setup"; jobId = activeJobId },
+                onOpen = { entry ->
+                    returnToChecks = true
+                    jobId = entry.jobId; job = null; visibleImages = emptyList()
+                    page = 0; readOnly = entry.reviewed; view = "results"
+                },
+                onRetry = { scope.launch(Dispatchers.IO) { controller.retryFavoriteCheck() } },
+                onNewCheck = ::startFavoriteCheck, starting = favoriteCheckStarting)
+        }
         return
     }
     if (view == "history") {
-        VkCommunityHistoryScreen(journal, onBack = {
-            view = "setup"; jobId = activeJobId; job = null; visibleImages = emptyList();
-            readOnly = false
-        },
-            onOpen = { selected -> jobId = selected.id; job = selected; visibleImages = emptyList();
-                page = 0; readOnly = true; view = "results" },
-            onRepeat = { old -> scope.launch(Dispatchers.IO) {
-                val started = controller.repeat(old)
-                withContext(Dispatchers.Main) {
-                    if (started == null) { message = "Проверьте ключ VK"; view = "setup" }
-                    else { activeJobId = started; jobId = started; job = null; page = 0; readOnly = false; view = "results" }
-                }
-            } },
-            onDelete = { deleteJobId = it.id }, onClear = { confirmClear = true })
+        screenStates.SaveableStateProvider("history") {
+            VkCommunityHistoryScreen(journal, onBack = {
+                view = "setup"; jobId = activeJobId; job = null; visibleImages = emptyList();
+                readOnly = false
+            },
+                onOpen = { selected -> jobId = selected.id; job = selected; visibleImages = emptyList();
+                    page = 0; readOnly = true; view = "results" },
+                onRepeat = { old -> scope.launch(Dispatchers.IO) {
+                    val started = controller.repeat(old)
+                    withContext(Dispatchers.Main) {
+                        if (started == null) { message = "Проверьте ключ VK"; view = "setup" }
+                        else { activeJobId = started; jobId = started; job = null; visibleImages = emptyList();
+                        page = 0; readOnly = false; view = "results" }
+                    }
+                } },
+                onDelete = { deleteJobId = it.id }, onClear = { confirmClear = true })
+        }
         return
     }
 
@@ -558,7 +587,7 @@ fun VkCommunityScreen(onBack: () -> Unit) {
                                             if (favorite.avatarUrl == null) 0.dp else 8.dp)) {
                                             Text(favorite.label, maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis)
-                                            Text("С ${runCatching { LocalDate.parse(favorite.sinceDate).format(DATE) }.getOrDefault(favorite.sinceDate)}",
+                                            Text("Начало поиска: ${runCatching { LocalDate.parse(favorite.sinceDate).format(DATE) }.getOrDefault(favorite.sinceDate)}",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
@@ -577,29 +606,12 @@ fun VkCommunityScreen(onBack: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(enabled = tokenPresent, onClick = {
-                    val existing = controller.favoriteChecks.current()
-                    val pending = existing?.entries?.any { entry ->
-                        !entry.reviewed && favorites.firstOrNull { it.key == entry.favoriteKey }?.let {
-                            it.sinceDate == entry.sinceDate &&
-                                it.reviewedThroughEpoch == entry.reviewedThroughAtStart
-                        } == true && controller.database.job(entry.jobId)?.let {
-                            it.phase == VkJobPhase.SCANNING || it.scanComplete
-                        } == true
-                    } == true
-                    if (pending) {
-                        favoriteBatch = existing
-                        view = "checks"
-                    } else scope.launch(Dispatchers.IO) {
-                        val started = controller.checkFavoritePublications()
-                        withContext(Dispatchers.Main) {
-                            if (started == null) message = "Проверьте ключ VK и избранные сообщества"
-                            else { favoriteBatch = started; view = "checks" }
-                        }
-                    }
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Проверить публикации")
-                }
+                Text("Новые публикации — после последнего завершённого просмотра. " +
+                    "Полный поиск — с указанной даты каждого сообщества по сегодня, включая просмотренные.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                VkFavoriteSearchActions(enabled = tokenPresent && !favoriteCheckStarting,
+                    onSearch = ::startFavoriteCheck)
                 if (favoriteBatch != null) TextButton(onClick = { view = "checks" }) {
                     Text("Последняя проверка")
                 }
@@ -613,7 +625,8 @@ fun VkCommunityScreen(onBack: () -> Unit) {
                         val started = controller.search(link, period)
                         withContext(Dispatchers.Main) {
                             if (started == null) message = "Проверьте адрес сообщества и ключ VK"
-                            else { activeJobId = started; jobId = started; job = null; page = 0; readOnly = false; view = "results" }
+                            else { activeJobId = started; jobId = started; job = null; visibleImages = emptyList();
+                        page = 0; readOnly = false; view = "results" }
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) { Text("Найти изображения") }

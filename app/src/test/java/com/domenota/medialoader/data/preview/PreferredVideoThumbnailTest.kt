@@ -4,7 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import com.domenota.medialoader.data.preferences.VideoThumbnailMode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -42,4 +45,51 @@ class PreferredVideoThumbnailTest {
             fail("Cancellation must propagate")
         } catch (_: CancellationException) { assertFalse(decoded) }
     }
+    @Test fun savedFrameIsPublishedWhileSourceCoverIsStillLoading() = runBlocking {
+        val sourceStarted = CompletableDeferred<Unit>()
+        val finishSource = CompletableDeferred<Bitmap?>()
+        val fallback = CompletableDeferred<Bitmap>()
+        val frame = bitmap(Color.BLUE)
+        val cover = bitmap(Color.RED)
+        val result = async {
+            preferredVideoThumbnail(VideoThumbnailMode.SOURCE, "https://example.org/slow",
+                loadSource = { sourceStarted.complete(Unit); finishSource.await() },
+                loadFrame = { frame }, publishFallback = { fallback.complete(it) })
+        }
+        try {
+            withTimeout(1_000) {
+                sourceStarted.await()
+                assertSame(frame, fallback.await())
+            }
+            assertFalse(result.isCompleted)
+            finishSource.complete(cover)
+            assertSame(cover, result.await())
+        } finally { result.cancel() }
+    }
+
+    @Test fun cachedSourceSkipsNetworkAndLocalExtraction() = runBlocking {
+        val cover = bitmap(Color.RED)
+        var networkReads = 0
+        var frameReads = 0
+        val result = preferredVideoThumbnail(VideoThumbnailMode.SOURCE, "https://example.org/cached",
+            loadSource = { networkReads++; cover },
+            loadFrame = { frameReads++; bitmap(Color.BLUE) },
+            loadCachedSource = { cover }, publishFallback = { fail("No fallback needed") })
+        assertSame(cover, result)
+        assertEquals(0, networkReads)
+        assertEquals(0, frameReads)
+    }
+
+    @Test fun unavailableSourceKeepsPublishedFrameWithoutDecodingItAgain() = runBlocking {
+        var reads = 0
+        val frame = bitmap(Color.BLUE)
+        var shown: Bitmap? = null
+        val result = preferredVideoThumbnail(VideoThumbnailMode.SOURCE, "https://example.org/expired",
+            loadSource = { null }, loadFrame = { reads++; frame },
+            publishFallback = { shown = it })
+        assertSame(frame, shown)
+        assertSame(frame, result)
+        assertEquals(1, reads)
+    }
+
 }

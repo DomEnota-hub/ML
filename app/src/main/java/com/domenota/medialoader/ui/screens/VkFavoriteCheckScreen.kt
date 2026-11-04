@@ -29,12 +29,14 @@ import com.domenota.medialoader.data.vkcommunity.VkFavoriteCheckBatch
 import com.domenota.medialoader.data.vkcommunity.VkFavoriteCheckEntry
 import com.domenota.medialoader.data.vkcommunity.VkFavorite
 import com.domenota.medialoader.data.vkcommunity.VkJobPhase
+import com.domenota.medialoader.data.vkcommunity.VkFavoriteSearchMode
 
 @Composable
 fun VkFavoriteCheckScreen(batch: VkFavoriteCheckBatch?, jobs: Map<String, VkCommunityJob>,
     favorites: List<VkFavorite>,
     onBack: () -> Unit, onOpen: (VkFavoriteCheckEntry) -> Unit,
-    onRetry: () -> Unit, onNewCheck: () -> Unit) {
+    onRetry: () -> Unit, onNewCheck: (VkFavoriteSearchMode) -> Unit,
+    starting: Boolean = false) {
     val entries = batch?.entries.orEmpty()
     val currentFavorites = favorites.associateBy { it.key }
     fun stale(entry: VkFavoriteCheckEntry): Boolean {
@@ -54,9 +56,12 @@ fun VkFavoriteCheckScreen(batch: VkFavoriteCheckBatch?, jobs: Map<String, VkComm
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "К сообществам") }
-            Text("Новые публикации VK", style = MaterialTheme.typography.titleLarge)
+            Text(if (batch?.mode == VkFavoriteSearchMode.FULL_PERIOD) "Полный поиск VK"
+                else "Новые публикации VK", style = MaterialTheme.typography.titleLarge)
         }
-        Text("Изображения из избранных сообществ. Скачивание начнётся только после вашего выбора.",
+        Text(if (batch?.mode == VkFavoriteSearchMode.FULL_PERIOD)
+            "Поиск с указанной даты каждого сообщества по сегодня, включая просмотренные публикации."
+            else "Публикации после последнего завершённого просмотра. Непросмотренные результаты попадут в следующую проверку.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(12.dp))
@@ -68,8 +73,8 @@ fun VkFavoriteCheckScreen(batch: VkFavoriteCheckBatch?, jobs: Map<String, VkComm
                     Column(Modifier.padding(14.dp)) {
                         Text(entry.label, style = MaterialTheme.typography.titleMedium)
                         val status = when {
-                            stale(entry) -> "Дата изменена · нужна новая проверка"
-                            entry.reviewed && (job?.found ?: 0) == 0 -> "Новых изображений нет"
+                            stale(entry) -> "Условия изменены · нужна новая проверка"
+                            entry.reviewed && (job?.found ?: 0) == 0 -> "Изображений за период нет"
                             entry.reviewed -> "Просмотрено · найдено ${job?.found ?: 0}"
                             job == null -> "Результаты удалены · нужна новая проверка"
                             job.phase == VkJobPhase.SCANNING -> "Проверяется…"
@@ -89,12 +94,23 @@ fun VkFavoriteCheckScreen(batch: VkFavoriteCheckBatch?, jobs: Map<String, VkComm
                 }
             }
         }
-        if (pendingReview) Text("Завершите просмотр найденных изображений перед новой проверкой.",
-            style = MaterialTheme.typography.bodySmall)
+        if (pendingReview) Text("Можно запустить поиск снова. Текущие результаты сохранятся в журнале, дата просмотра не изменится.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (failed && !running) OutlinedButton(onClick = onRetry,
             modifier = Modifier.fillMaxWidth()) { Text("Повторить ошибки") }
-        Button(onClick = onNewCheck, enabled = !running && !pendingReview,
-            modifier = Modifier.fillMaxWidth()) { Text("Проверить снова") }
+        VkFavoriteSearchActions(enabled = !running && !starting && favorites.isNotEmpty(),
+            onSearch = onNewCheck)
         Spacer(Modifier.height(8.dp))
     }
+}
+
+/** Shared commands keep the two search meanings explicit on setup and summary screens. */
+@Composable
+internal fun VkFavoriteSearchActions(enabled: Boolean,
+    onSearch: (VkFavoriteSearchMode) -> Unit) {
+    Button(onClick = { onSearch(VkFavoriteSearchMode.NEW_ONLY) }, enabled = enabled,
+        modifier = Modifier.fillMaxWidth()) { Text("Проверить новые публикации") }
+    OutlinedButton(onClick = { onSearch(VkFavoriteSearchMode.FULL_PERIOD) }, enabled = enabled,
+        modifier = Modifier.fillMaxWidth()) { Text("Полный поиск по датам сообществ") }
 }

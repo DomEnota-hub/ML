@@ -339,6 +339,9 @@ fun MediaLoaderApp(
     val pickerState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val preview by viewModel.preview.collectAsStateWithLifecycle()
+    val deferredLinks by viewModel.deferredLinks.collectAsStateWithLifecycle()
+    val deferredActive by viewModel.deferredActive.collectAsStateWithLifecycle()
+    val deferredMessage by viewModel.deferredMessage.collectAsStateWithLifecycle()
     val bulk by viewModel.bulkState.collectAsStateWithLifecycle()
     val bulkHistory by viewModel.bulkHistory.collectAsStateWithLifecycle()
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
@@ -634,6 +637,15 @@ fun MediaLoaderApp(
         } else {
             viewModel.showMessage("Для сохранения в Загрузки на Android 8–9 нужен доступ к хранилищу.")
         }
+    }
+    val deferredPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.retryDeferred()
+    }
+    val retryDeferred: () -> Unit = {
+        if (Build.VERSION.SDK_INT < 29 && viewModel.needsLegacyStoragePermission() &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)
+            deferredPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        else viewModel.retryDeferred()
     }
     val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) viewModel.selectFolder(uri)
@@ -1036,6 +1048,9 @@ fun MediaLoaderApp(
                         viewModel.analyze(pendingUrl)
                         showPicker = true
                     },
+                    deferredLinks = deferredLinks, deferredActive = deferredActive, deferredMessage = deferredMessage,
+                    onDeferredOpen = { link -> pendingUrl = link; lastHandledLink = link; viewModel.analyze(link); showPicker = true },
+                    onDeferredRemove = viewModel::removeDeferredLink, onDeferredRetryAll = retryDeferred, onDeferredStop = viewModel::stopDeferred,
                     onOpenDownloads = goToDownloads,
                     onOpenSource = { source ->
                         showPicker = false
@@ -1597,6 +1612,7 @@ fun MediaLoaderApp(
                     busy = preview.enqueuing,
                     onLogin = startLoginForCurrentUrl,
                     onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }) },
+                    onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
                 )
             }
         }
@@ -1634,6 +1650,7 @@ fun MediaLoaderApp(
                 busy = preview.enqueuing,
                 onLogin = startLoginForCurrentUrl,
                 onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }) },
+                    onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
                 asSheet = true,
             )
         }

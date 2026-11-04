@@ -95,6 +95,7 @@ fun PreviewScreen(
     busy: Boolean = false,
     onLogin: () -> Unit = {},
     onRetry: () -> Unit = {},
+    onDefer: (() -> Unit)? = null,
     asSheet: Boolean = false,
     onFindFullSong: () -> Unit = {},
     onCloseFullSong: () -> Unit = {},
@@ -241,7 +242,7 @@ fun PreviewScreen(
         when (state) {
             AnalysisUiState.ANALYZING -> AnalysisCard()
             AnalysisUiState.ACCESS_REQUIRED -> AccessRequiredCard(url = url, message = errorMessage, onLogin = onLogin)
-            AnalysisUiState.ERROR -> ErrorCard(message = errorMessage, onRetry = onRetry)
+            AnalysisUiState.ERROR -> ErrorCard(message = errorMessage, onRetry = onRetry, onDefer = onDefer)
             AnalysisUiState.PREVIEW_READY -> MediaList(
                 items = items,
                 onToggleItem = onToggleItem,
@@ -513,7 +514,7 @@ private fun AccessRequiredCard(url: String, message: String?, onLogin: () -> Uni
 }
 
 @Composable
-private fun ErrorCard(message: String?, onRetry: () -> Unit) {
+private fun ErrorCard(message: String?, onRetry: () -> Unit, onDefer: (() -> Unit)?) {
     AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text("Не удалось получить медиа", style = MaterialTheme.typography.titleMedium)
@@ -523,7 +524,12 @@ private fun ErrorCard(message: String?, onRetry: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(16.dp))
             GradientActionButton(text = "Повторить", onClick = onRetry)
+            if (onDefer != null) {
+                Spacer(Modifier.height(6.dp))
+                TextButton(onClick = onDefer, modifier = Modifier.fillMaxWidth()) { Text("Добавить в отложенное") }
+            }
         }
     }
 }

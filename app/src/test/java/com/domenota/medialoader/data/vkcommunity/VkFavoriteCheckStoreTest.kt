@@ -27,6 +27,25 @@ class VkFavoriteCheckStoreTest {
         assertTrue(VkFavoriteCheckStore.canReview(entry, favorite, scanComplete = true))
     }
 
+    @Test fun fullSearchUsesChosenDateEvenAfterReview() {
+        val zone = java.time.ZoneId.of("UTC")
+        val reviewed = favorite.copy(reviewedThroughEpoch = 1_792_600_000L)
+        assertEquals(1_792_454_399L, VkFavoriteCheckStore.afterEpoch(
+            reviewed, zone, VkFavoriteSearchMode.FULL_PERIOD))
+        assertEquals(1_792_600_000L, VkFavoriteCheckStore.afterEpoch(
+            reviewed, zone, VkFavoriteSearchMode.NEW_ONLY))
+    }
+
+    @Test fun batchCodecRetainsFullSearchMode() {
+        val batch = VkFavoriteCheckBatch("full", emptyList(), VkFavoriteSearchMode.FULL_PERIOD)
+        assertEquals(batch, VkFavoriteCheckStore.decode(VkFavoriteCheckStore.encode(batch)))
+    }
+
+    @Test fun oldBatchesKeepIncrementalSearchMode() {
+        assertEquals(VkFavoriteSearchMode.NEW_ONLY,
+            VkFavoriteCheckStore.decode("""{"id":"old","entries":[]}""")?.mode)
+    }
+
     @Test fun lowerBoundUsesChosenDateUntilFirstCompletedReview() {
         assertEquals(100L, VkFavoriteCheckStore.afterEpoch(favorite, java.time.ZoneId.of("UTC")))
         assertEquals(1_792_454_399L, VkFavoriteCheckStore.afterEpoch(

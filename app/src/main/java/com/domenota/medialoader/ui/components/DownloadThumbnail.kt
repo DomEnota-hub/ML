@@ -60,11 +60,14 @@ private val lastThumbnailPrune = java.util.concurrent.atomic.AtomicLong(0L)
 private fun memoryKey(uri: String, kind: MediaKind, side: Int = MAX_THUMBNAIL_SIDE): String =
     "$side|$kind|$uri|${if (kind == MediaKind.AUDIO) AudioThumbnailInvalidation.revision(uri) else 0L}"
 
-internal suspend fun prepareDownloadThumbnail(context: Context, uri: String, kind: MediaKind, previewUrl: String? = null, side: Int = MAX_THUMBNAIL_SIDE): Bitmap? =
+internal suspend fun prepareDownloadThumbnail(context: Context, uri: String, kind: MediaKind, previewUrl: String? = null,
+    side: Int = MAX_THUMBNAIL_SIDE, publishFallback: (Bitmap) -> Unit = {}): Bitmap? =
     if (kind == MediaKind.VIDEO) withContext(Dispatchers.IO) {
         preferredVideoThumbnail(VideoPreferences(context).thumbnailMode, previewUrl,
             loadSource = { sourceThumbnailGate.withPermit { RemoteImageLoader.fetch(context, it, maxDimension = side) } },
-            loadFrame = { prepareFrameThumbnail(context, uri, kind, side) })
+            loadFrame = { prepareFrameThumbnail(context, uri, kind, side) },
+            loadCachedSource = { RemoteImageLoader.cached(context, it, maxDimension = side) },
+            publishFallback = publishFallback)
     } else prepareFrameThumbnail(context, uri, kind, side)
 
 private suspend fun prepareFrameThumbnail(context: Context, uri: String, kind: MediaKind, side: Int): Bitmap? {
@@ -81,7 +84,7 @@ private suspend fun prepareFrameThumbnail(context: Context, uri: String, kind: M
 
 /**
  * Audio/photos prefer local thumbnails. Videos follow the source-cover/frame preference;
- * source covers use the existing persistent image cache, with lazy local-frame fallback.
+ * source covers use the persistent image cache, with a local frame shown during network I/O.
  */
 @Composable
 fun DownloadThumbnail(
@@ -108,7 +111,10 @@ fun DownloadThumbnail(
     val revision = if (kind == MediaKind.AUDIO && savedUri != null)
         revisions[savedUri] ?: 0L else 0L
     var local by remember(savedUri, kind, revision, sourceFirst, previewUrl, requestedSide) {
-        mutableStateOf(if (sourceFirst) null else savedUri?.let { thumbnailMemory.get(memoryKey(it, kind, requestedSide)) })
+        mutableStateOf(
+            (if (sourceFirst) previewUrl?.let { RemoteImageLoader.cachedMemory(it, requestedSide) } else null)
+                ?: savedUri?.let { thumbnailMemory.get(memoryKey(it, kind, requestedSide)) }
+        )
     }
     var localReady by remember(savedUri, kind, revision, sourceFirst, previewUrl, requestedSide) { mutableStateOf(savedUri == null) }
 
@@ -128,7 +134,9 @@ fun DownloadThumbnail(
             }, detailed = { prepareDownloadThumbnail(context, savedUri, kind, previewUrl, requestedSide) },
                 publish = { local = it })
         } else {
-            val refined = savedUri?.let { prepareDownloadThumbnail(context, it, kind, previewUrl, requestedSide) }
+            val refined = savedUri?.let {
+                prepareDownloadThumbnail(context, it, kind, previewUrl, requestedSide, publishFallback = { local = it })
+            }
             if (refined != null) local = refined
         }
         localReady = true
