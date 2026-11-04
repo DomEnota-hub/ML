@@ -42,6 +42,21 @@ internal fun rememberEditorItems(rows: List<DownloadEntity>, aliases: Map<String
             })
         }
     }
-    // Never show a previous input's private rows after permissions/lock state changes.
-    return result.value?.takeIf { it.source === rows && it.aliases == aliases }?.rows.orEmpty()
+    val snapshot = result.value ?: return emptyList()
+    if (snapshot.source === rows && snapshot.aliases == aliases) return snapshot.rows
+
+    // Refreshes of a large MediaStore library replace List instances often.
+    // A new background projection may not be ready for a frame, but an empty
+    // result here visibly flips the picker from 212 videos to 0 and back.
+    // Keep only entries still present in the CURRENT authorized inputs: this
+    // fails closed for deleted/hidden/private/permission-revoked rows.
+    val currentAllowed = remember(InputIdentity(rows)) {
+        rows.asSequence()
+            .filter { !it.hidden && it.state == DownloadState.COMPLETED &&
+                !it.savedUri.isNullOrBlank() }
+            .associate { it.id to it.savedUri }
+    }
+    return remember(snapshot, currentAllowed) {
+        snapshot.rows.filter { row -> currentAllowed[row.id] == row.savedUri }
+    }
 }
