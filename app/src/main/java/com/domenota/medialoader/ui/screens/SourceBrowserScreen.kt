@@ -136,6 +136,7 @@ fun SourceBrowserScreen(
     var awaitingVkApp by remember(source) { mutableStateOf(false) }
     var captureVkSessionAfterApp by remember(source) { mutableStateOf(false) }
     var instagramCookieCaptured by remember(source) { mutableStateOf(false) }
+    var rutubeCaptured by remember(source) { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val web = remember(source) {
@@ -214,6 +215,12 @@ fun SourceBrowserScreen(
                     if (!request.isForMainFrame) return false
                     val address = request.url.toString()
                     val allowed = source.allowsNavigation(address)
+                    if (!allowed && source == BrowserSource.RUTUBE) {
+                        if (com.domenota.medialoader.ui.RutubeAuthNavigation.open(context, address)) return true
+                        com.domenota.medialoader.ui.RutubeAuthNavigation.webFallback(address)?.let {
+                            view.loadUrl(it); return true
+                        }
+                    }
                     val appTarget = if (!allowed && source == BrowserSource.VK)
                         VkAuthNavigationRecovery.officialAppTarget(address) else null
                     val recovery = if (!allowed && appTarget == null && source == BrowserSource.VK)
@@ -278,8 +285,9 @@ fun SourceBrowserScreen(
                     }
                     if (source == BrowserSource.RUTUBE && source.isSite(url)) {
                         view.evaluateJavascript(AccountBrowserPolicy.rutubeProfileScript) { evidence ->
-                            if (AccountBrowserPolicy.rutubeProfileConfirmed(evidence)) {
-                                syncSession(source, context.applicationContext)
+                            if (view.url == url && AccountBrowserPolicy.canCaptureRutubeSession(view.url, evidence) &&
+                                saveRutubeBrowserSession(context.applicationContext)) {
+                                rutubeCaptured = true
                                 currentRutubeSessionCaptured()
                             }
                         }
@@ -307,6 +315,25 @@ fun SourceBrowserScreen(
                 }
             }
             loadUrl(source.startUrl)
+        }
+    }
+    // React may finish authentication after onPageFinished. Retry only on RUTUBE,
+    // bounded to this page; navigation/disposal cancels the observer coroutine.
+    LaunchedEffect(web, pageUrl, progress) {
+        if (source != BrowserSource.RUTUBE || progress != 100 || !AccountBrowserPolicy.isRutubeSite(pageUrl))
+            return@LaunchedEffect
+        val checkedUrl = pageUrl
+        repeat(30) {
+            if (rutubeCaptured || web.url != checkedUrl) return@LaunchedEffect
+            web.evaluateJavascript(AccountBrowserPolicy.rutubeProfileScript) { evidence ->
+                if (!rutubeCaptured && web.url == checkedUrl &&
+                    AccountBrowserPolicy.canCaptureRutubeSession(web.url,evidence) &&
+                    saveRutubeBrowserSession(context.applicationContext)) {
+                    rutubeCaptured = true
+                    currentRutubeSessionCaptured()
+                }
+            }
+            delay(1000L)
         }
     }
     DisposableEffect(web, lifecycleOwner) {
@@ -1339,3 +1366,10 @@ private val browserScript = """
   }
 })();
 """.trimIndent()
+
+private fun saveRutubeBrowserSession(context: android.content.Context): Boolean {
+    val manager = CookieManager.getInstance()
+    manager.flush()
+    return RutubeYtDlpRuntime(context).saveWebSession(manager.getCookie("https://rutube.ru"),
+        manager.getCookie("https://www.rutube.ru"), manager.getCookie("https://studio.rutube.ru"))
+}

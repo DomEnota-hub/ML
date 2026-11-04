@@ -81,8 +81,13 @@ class RutubeLoginActivity : ComponentActivity() {
         }
         view.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                if (!request.isForMainFrame) return !isAllowedHost(request.url.scheme, request.url.host)
-                return !isAllowedHost(request.url.scheme, request.url.host)
+                val address = request.url.toString()
+                if (AccountBrowserPolicy.allowsRutubeNavigation(address)) return false
+                if (request.isForMainFrame) {
+                    if (RutubeAuthNavigation.open(this@RutubeLoginActivity,address)) return true
+                    RutubeAuthNavigation.webFallback(address)?.let { view.loadUrl(it) }
+                }
+                return true
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
@@ -107,6 +112,8 @@ class RutubeLoginActivity : ComponentActivity() {
 
     private fun checkSession(): Boolean {
         if (finished) return true
+        val checkedUrl = web?.url
+        if (!AccountBrowserPolicy.isRutubeSite(checkedUrl)) return false
         val manager = CookieManager.getInstance()
         val rutube = manager.getCookie("https://rutube.ru")
         val www = manager.getCookie("https://www.rutube.ru")
@@ -115,7 +122,7 @@ class RutubeLoginActivity : ComponentActivity() {
         verifying = true
         web?.evaluateJavascript(AccountBrowserPolicy.rutubeProfileScript) { evidence ->
             verifying = false
-            if (AccountBrowserPolicy.rutubeProfileConfirmed(evidence) && !isFinishing &&
+            if (web?.url == checkedUrl && AccountBrowserPolicy.canCaptureRutubeSession(web?.url,evidence) && !isFinishing &&
                 RutubeYtDlpRuntime(applicationContext).saveWebSession(rutube, www, studio)) {
                 finished = true
                 manager.flush()
