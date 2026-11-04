@@ -196,6 +196,11 @@ private fun ReferenceDockItem(
     width: Int,
     onClick: () -> Unit,
 ) {
+    val foreground = when {
+        !enabled -> Color(0xFF737373)
+        active -> videoToolYellow
+        else -> Color(0xFFECECEC)
+    }
     androidx.compose.material3.TextButton(
         onClick = onClick, enabled = enabled,
         modifier = Modifier.width(width.dp).height(83.dp),
@@ -209,7 +214,7 @@ private fun ReferenceDockItem(
             Icon(
                 icon, contentDescription = label,
                 modifier = Modifier.size(22.dp),
-                tint = if (active) videoToolYellow else Color(0xFFECECEC),
+                tint = foreground,
             )
             val lines = when (label) {
                 "Соотношение сторон" -> "Соотношение\nсторон"
@@ -218,7 +223,7 @@ private fun ReferenceDockItem(
                 else -> label
             }
             Text(
-                lines, color = if (active) videoToolYellow else Color(0xFFECECEC),
+                lines, color = foreground,
                 fontSize = 9.sp, lineHeight = 11.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 2, softWrap = false,
