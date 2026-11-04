@@ -1236,7 +1236,7 @@ fun MediaLoaderApp(
                     hiddenItems = remember(hiddenItems) { hiddenItems.map { entry ->
                         entry.toUi().copy(savedUri = viewModel.trashedUri(entry.id))
                     } },
-                    editorItems = com.domenota.medialoader.ui.components.rememberEditorItems(accessibleDownloads),
+                    editorItems = com.domenota.medialoader.ui.components.rememberEditorItems(accessibleDownloads, libraryAliases),
                     editorAlbumsById = remember(
                         accessibleDownloads, libraryRefsByAlias, libraryCatalogAssignments, catalogFolders
                     ) {

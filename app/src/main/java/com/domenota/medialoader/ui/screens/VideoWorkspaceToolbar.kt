@@ -46,7 +46,8 @@ private fun VideoWorkspaceTool.icon(): ImageVector = when (this) {
     VideoWorkspaceTool.COLOR, VideoWorkspaceTool.COLOR_CHANNELS -> Icons.Rounded.Tune
     VideoWorkspaceTool.TRANSITION -> Icons.Rounded.AutoAwesomeMotion
     VideoWorkspaceTool.EFFECTS -> VideoV8Icons.effects
-    VideoWorkspaceTool.AUDIO, VideoWorkspaceTool.MUSIC_PICKER -> VideoV8Icons.music
+    VideoWorkspaceTool.AUDIO -> VideoV8Icons.volume
+    VideoWorkspaceTool.MUSIC_PICKER -> VideoV8Icons.music
     VideoWorkspaceTool.REVERSE -> VideoV8Icons.reverse
     VideoWorkspaceTool.TEXT -> VideoV8Icons.text
     VideoWorkspaceTool.GRAPHICS -> Icons.Rounded.EmojiEmotions

@@ -159,7 +159,7 @@ internal fun EditorFilePickerDialog(
                             Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(5.dp))
                             Text(album ?: "Все альбомы", maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                                overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
                         DropdownMenu(expanded = albumMenu, onDismissRequest = { albumMenu = false }) {
                             DropdownMenuItem(text = { Text("Все альбомы (${available.size})") },
@@ -179,7 +179,7 @@ internal fun EditorFilePickerDialog(
                             Icon(Icons.Rounded.Sort, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(5.dp))
                             Text(sort.title, maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                                overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
                         DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                             EditorPickerSort.entries.forEach { option ->

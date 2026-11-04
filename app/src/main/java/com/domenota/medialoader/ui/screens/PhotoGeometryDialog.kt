@@ -4,7 +4,8 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
@@ -26,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,8 +44,8 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 private enum class GeometryMode(val title: String) {
-    STRAIGHTEN("Горизонт"), HORIZONTAL("Горизонтальная"),
-    VERTICAL("Вертикальная"), FREE("Свободно")
+    STRAIGHTEN("Горизонт"), HORIZONTAL("Горизонтально"),
+    VERTICAL("Вертикально"), DISTORTION("Искажение"), FREE("Свободно")
 }
 private val geoAccent = Color(0xFFFFBD19)
 
@@ -91,7 +93,7 @@ internal fun PhotoGeometryDialog(
     var reducedSource by remember(source) { mutableStateOf<Bitmap?>(null) }
     val zoom = remember(source) { PhotoViewportState() }
     val density = LocalDensity.current
-    val cornerHitRadius = with(density) { 92.dp.toPx() }
+    val cornerHitRadius = with(density) { 112.dp.toPx() }
     val transforms = rememberTransformableState { zoomChange, panChange, _ ->
         val nextScale = (zoom.scale * zoomChange).coerceIn(1f, 5f)
         val limits = photoPanLimits(viewport.width.toFloat(), viewport.height.toFloat(),
@@ -198,44 +200,46 @@ internal fun PhotoGeometryDialog(
                         rotationZ = geometry.straighten -
                             (if (rendered != null) renderedGeometry.straighten else 0f)
                     })
-                Canvas(Modifier.fillMaxSize()
+                Canvas(Modifier.fillMaxSize().testTag("geometry-canvas")
                     .pointerInput(mode, viewport, source) {
                         if (mode != GeometryMode.FREE || viewport.width <= 0 ||
                             viewport.height <= 0) return@pointerInput
                         val rect = photoCanvasRect(viewport.width.toFloat(),
                             viewport.height.toFloat(), source.width, source.height)
-                        detectDragGestures(
-                            onDragStart = { pos ->
-                                activeCorner = geometryCornerHitIndex(
-                                    current.corners, rect, pos, cornerHitRadius)
-                                beforeDrag = if (activeCorner >= 0) current else null
-                            },
-                            onDrag = { pointer, _ ->
-                                if (activeCorner >= 0) {
-                                    // Drag outside the visible image clamps at its borders.
-                                    val at = rect.normalize(
-                                        pointer.position.x.coerceIn(rect.x, rect.x + rect.width),
-                                        pointer.position.y.coerceIn(rect.y, rect.y + rect.height))
-                                    geometry = PhotoGeometryMath.moveCorner(current, activeCorner,
-                                        PhotoGeometryPoint(at.x, at.y))
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val prior = current
+                            val corner = geometryCornerHitIndex(prior.corners, rect, down.position, cornerHitRadius)
+                            if (corner < 0) return@awaitEachGesture
+                            val point = prior.corners[corner]
+                            val grabOffset = Offset(rect.x + rect.width * point.x,
+                                rect.y + rect.height * point.y) - down.position
+                            activeCorner = corner
+                            beforeDrag = prior
+                            var completed = false
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    // Release the one-finger corner edit to the two-finger viewport gesture.
+                                    if (event.changes.count { it.pressed } > 1) break
+                                    val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (pointer.isConsumed) break
+                                    if (!pointer.pressed) { completed = true; break }
+                                    val position = pointer.position + grabOffset
+                                    val at = rect.normalize(position.x.coerceIn(rect.x, rect.x + rect.width),
+                                        position.y.coerceIn(rect.y, rect.y + rect.height))
+                                    geometry = PhotoGeometryMath.moveCorner(current, corner, PhotoGeometryPoint(at.x, at.y))
                                     pointer.consume()
                                 }
-                            },
-                            onDragEnd = {
-                                beforeDrag?.let { previous ->
-                                    if (previous != geometry) {
-                                        undo = (undo + previous).takeLast(40)
-                                        redo = emptyList()
-                                    }
-                                }
+                            } finally {
+                                if (completed && prior != geometry) {
+                                    undo = (undo + prior).takeLast(40)
+                                    redo = emptyList()
+                                } else if (!completed) geometry = prior
                                 activeCorner = -1
                                 beforeDrag = null
-                            },
-                            onDragCancel = {
-                                beforeDrag?.let { geometry = it }
-                                beforeDrag = null; activeCorner = -1
-                            },
-                        )
+                            }
+                        }
                     }) {
                     if (!showGuides || viewport.width == 0 || viewport.height == 0)
                         return@Canvas
@@ -283,12 +287,13 @@ internal fun PhotoGeometryDialog(
                         GeometryMode.STRAIGHTEN -> geometry.straighten
                         GeometryMode.HORIZONTAL -> geometry.horizontalPerspective
                         GeometryMode.VERTICAL -> geometry.verticalPerspective
+                        GeometryMode.DISTORTION -> geometry.distortion
                         GeometryMode.FREE -> 0f
                     }
                     val range = if (mode == GeometryMode.STRAIGHTEN) -45f..45f else -100f..100f
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (mode == GeometryMode.STRAIGHTEN) "Угол" else "Перспектива",
+                        Text(when (mode) { GeometryMode.STRAIGHTEN -> "Угол"; GeometryMode.DISTORTION -> "Искажение"; else -> "Перспектива" },
                             color = Color.LightGray, fontSize = 12.sp)
                         Text(
                             if (mode == GeometryMode.STRAIGHTEN) "${value.roundToInt()}°"
@@ -303,6 +308,7 @@ internal fun PhotoGeometryDialog(
                                     GeometryMode.STRAIGHTEN -> geometry.copy(straighten = n)
                                     GeometryMode.HORIZONTAL -> geometry.copy(horizontalPerspective = n)
                                     GeometryMode.VERTICAL -> geometry.copy(verticalPerspective = n)
+                                    GeometryMode.DISTORTION -> geometry.copy(distortion = n)
                                     GeometryMode.FREE -> geometry
                                 }
                             }, onValueChangeFinished = {
@@ -321,10 +327,11 @@ internal fun PhotoGeometryDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GeometryMode.entries.forEach { option ->
                     PhotoToolCard(option.title, when (option) {
-                        GeometryMode.STRAIGHTEN -> Icons.Rounded.RotateRight
-                        GeometryMode.HORIZONTAL -> Icons.Rounded.SwapHoriz
-                        GeometryMode.VERTICAL -> Icons.Rounded.SwapVert
-                        GeometryMode.FREE -> Icons.Rounded.CropFree
+                        GeometryMode.STRAIGHTEN -> PhotoGeometryIcons.horizon
+                        GeometryMode.HORIZONTAL -> PhotoGeometryIcons.horizontal
+                        GeometryMode.VERTICAL -> PhotoGeometryIcons.vertical
+                        GeometryMode.DISTORTION -> PhotoGeometryIcons.distortion
+                        GeometryMode.FREE -> PhotoGeometryIcons.free
                     }, mode == option, { mode = option }, enabled = true)
                 }
                 PhotoToolCard("Масштаб", Icons.Rounded.CenterFocusStrong, false, { zoom.reset() }, true)

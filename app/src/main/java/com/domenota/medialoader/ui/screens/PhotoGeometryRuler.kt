@@ -33,7 +33,7 @@ internal fun geometryRulerDragValue(
 
 /**
  * Scrubbable ruler: the yellow hairline is the current value, while the labeled
- * zero tick moves under it. All three geometry modes share the same interaction.
+ * zero tick moves under it. All geometry modes share the same interaction.
  */
 @Composable
 internal fun PhotoGeometryRuler(
@@ -47,7 +47,7 @@ internal fun PhotoGeometryRuler(
     val latestChange by rememberUpdatedState(onValueChange)
     val latestFinished by rememberUpdatedState(onValueChangeFinished)
     val density = LocalDensity.current
-    val pixelsPerDegree = with(density) { 4.dp.toPx() }
+    val pixelsPerDegree = with(density) { 2.dp.toPx() }
     val shortTick = with(density) { 8.dp.toPx() }
     val longTick = with(density) { 18.dp.toPx() }
     val white = Color.White.copy(alpha = .70f)

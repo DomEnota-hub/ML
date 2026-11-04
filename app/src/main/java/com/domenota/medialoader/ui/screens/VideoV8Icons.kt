@@ -9,11 +9,11 @@ import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.unit.dp
 
 /**
- * EXACT 24x24 contours from approved HTML v8's referenceIconShapes, not generic
- * Material icons. Stroke, cap and join match the <svg> stylesheet in the mockup.
+ * 24x24 editor contours. Video actions are aligned with Drive reference 1.jpg/2.jpg;
+ * unrelated icons retain the approved v8 contours. Rounded strokes share one weight.
  */
 internal object VideoV8Icons {
-    private fun fromSvg(name: String, data: String): ImageVector =
+    internal fun fromSvg(name: String, data: String, solidData: String = ""): ImageVector =
         ImageVector.Builder(
             name = "video_v8_$name",
             defaultWidth = 24.dp,
@@ -27,6 +27,10 @@ internal object VideoV8Icons {
                 strokeLineWidth = 1.7f,
                 strokeLineCap = StrokeCap.Round,
                 strokeLineJoin = StrokeJoin.Round,
+            )
+            if (solidData.isNotEmpty()) addPath(
+                pathData = PathParser().parsePathString(solidData).toNodes(),
+                fill = SolidColor(Color.White),
             )
         }.build()
 
@@ -45,17 +49,25 @@ internal object VideoV8Icons {
     val more = fromSvg("more", "M12 3.9v.2M12 11.9v.2M12 19.9v.2")
     val undo = fromSvg("undo", "M9 5 3 10l6 5M3 10h10c6 0 8 3 8 9")
     val redo = fromSvg("redo", "m15 5 6 5-6 5m6-5H11c-6 0-8 3-8 9")
-    val trash = fromSvg("trash", "M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7")
+    val trash = fromSvg("trash",
+        "M3 6h18M8 6l2-3h4l2 3M5 6l1 14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-14M10 10v7M14 10v7")
     val effects = fromSvg("effects", "M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4Z M20 2v4m-2-2h4")
-    val separate = fromSvg("separate", "M12 21H6a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h11a4 4 0 0 1 4 4v6 M9 7l6 4-6 4Z M18 21v-7l4-1v6 M18 21a2 2 0 1 1-4 0a2 2 0 0 1 4 0")
-    val replace = fromSvg("replace", "M4 7V3h16v14M20 17v4H4V7M1 7l3-3 3 3m10 10 3 3 3-3")
-    val trim = fromSvg("trim", "M3 3h3v18H3M21 3h-3v18h3M12 2v20")
-    val speed = fromSvg("speed", "M15 2.5a10 10 0 1 0 5 3.5M12 12l7-7")
-    val volume = fromSvg("volume", "M3 8h6l7-6v20l-7-6H3a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1ZM20 6a9 9 0 0 1 0 12")
+    val separate = fromSvg("separate",
+        "M11 21H6a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v5M17 20v-6h5", "M8 7v9l6-4.5Z M17 18a3 3 0 1 0 0 4Z")
+    val replace = fromSvg("replace",
+        "M2 12V8a6 6 0 0 1 6-6h10a4 4 0 0 1 3 1M22 12v4a6 6 0 0 1-6 6H6a4 4 0 0 1-3-1", "M2 12V7l5 0Z M22 12v5h-5Z")
+    val trim = fromSvg("trim",
+        "M3 2h2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H3M21 2h-2a1 1 0 0 0-1 1v18a1 1 0 0 0 1 1h2M11 2v20M13 2v20")
+    val speed = fromSvg("speed",
+        "M9 2.5a10 10 0 1 0 9 1M12 12l7-7")
+    val volume = fromSvg("volume",
+        "M3 8h5l7-5v18l-7-5H3a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2ZM19 6a8 8 0 0 1 0 12")
     val reverse = fromSvg("reverse",
-        "M2 11V7a5 5 0 0 1 5-5h10a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5H7a5 5 0 0 1-5-5M10 8l6 4-6 4Z")
-    val crop = fromSvg("crop", "M4 2v15a3 3 0 0 0 3 3h15M2 5h15a3 3 0 0 1 3 3v14")
-    val copy = fromSvg("copy", "M8 3h13v14H8zM3 8v13h13")
+        "M2 10V7a5 5 0 0 1 5-5h10a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5H7a5 5 0 0 1-5-5", "M10 8v8l6-4Z")
+    val crop = fromSvg("crop",
+        "M4 1v15a4 4 0 0 0 4 4h15M1 4h15a4 4 0 0 1 4 4v15")
+    val copy = fromSvg("copy",
+        "M9 4V3a2 2 0 0 1 2-2h8a4 4 0 0 1 4 4v9a3 3 0 0 1-1 2M5 7h9a4 4 0 0 1 4 4v9a3 3 0 0 1-3 3H5a4 4 0 0 1-4-4v-8a4 4 0 0 1 4-4Z")
     val addText = fromSvg("add_text", "M3 5h14v14H3zM6 9h8m-4 0v7M20 12v9m-4-5h8")
     val musicImport = fromSvg("music_import", "M3 6h7l2 2h9v12H3zM12 11v6m-3-3h6")
     val adjustments = mapOf(

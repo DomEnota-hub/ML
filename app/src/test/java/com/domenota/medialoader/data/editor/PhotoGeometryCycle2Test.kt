@@ -18,10 +18,10 @@ class PhotoGeometryCycle2Test {
 
     @Test fun verticalControlRotatesAroundHorizontalAxis() {
         val quad = PhotoGeometryMath.destination(
-            PhotoGeometry(verticalPerspective = 65f), 1000, 1000)
+            PhotoGeometry(verticalPerspective = -65f), 1000, 1000)
         val topWidth = quad[2] - quad[0]
         val bottomWidth = quad[4] - quad[6]
-        assertTrue("Top edge should appear nearer on positive pitch", topWidth > bottomWidth)
+        assertTrue("Reference: negative vertical brings the top edge nearer", topWidth > bottomWidth)
         assertEquals(quad[1], quad[3], .01f) // horizontal top edge
         assertEquals(quad[5], quad[7], .01f) // horizontal bottom edge
     }
@@ -38,14 +38,23 @@ class PhotoGeometryCycle2Test {
             for (v in listOf(-100f, -50f, 0f, 50f, 100f)) {
                 val quad = PhotoGeometryMath.destination(PhotoGeometry(
                     horizontalPerspective = h, verticalPerspective = v), 1000, 1000)
-                val points = (0..3).map {
-                    PhotoGeometryPoint(quad[it * 2] / 1000, quad[it * 2 + 1] / 1000)
+                assertTrue(quad.all { it.isFinite() })
+                for (i in 0..3) {
+                    val a=i*2; val b=((i+1)%4)*2; val c=((i+2)%4)*2
+                    val cross=(quad[b]-quad[a])*(quad[c+1]-quad[b+1]) -
+                        (quad[b+1]-quad[a+1])*(quad[c]-quad[b])
+                    assertTrue("Folded plane: $h / $v", cross > 0f)
                 }
-                assertTrue("Invalid yaw/pitch: $h / $v", PhotoGeometryMath.isValidQuad(points))
             }
         }
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsOutOfRangePerspective() { PhotoGeometry(verticalPerspective = 100.1f) }
+    @Test fun nearEdgeGrowsBeyondOriginalFrameInsteadOfFittingBothAxesBack() {
+        val q = PhotoGeometryMath.destination(PhotoGeometry(horizontalPerspective=65f), 1000, 1000)
+        assertTrue(q[3] < 0f)
+        assertTrue(q[5] > 1000f)
+        assertTrue(q[7]-q[1] < 1000f)
+    }
 }

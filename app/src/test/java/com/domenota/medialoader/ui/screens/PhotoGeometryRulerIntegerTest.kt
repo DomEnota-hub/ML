@@ -27,4 +27,12 @@ class PhotoGeometryRulerIntegerTest {
         val accumulated = geometryRulerDragValue(0f, -10f, 4f, -45f..45f)
         assertEquals(3, accumulated.roundToInt())
     }
+    @Test fun fasterRulerIsSymmetricAndStillAccumulatesSmallMoves() {
+        assertEquals(100f,geometryRulerDragValue(0f,-200f,2f,-100f..100f),.001f)
+        assertEquals(-100f,geometryRulerDragValue(0f,200f,2f,-100f..100f),.001f)
+        assertEquals(45f,geometryRulerDragValue(0f,-90f,2f,-45f..45f),.001f)
+        assertEquals(-45f,geometryRulerDragValue(0f,90f,2f,-45f..45f),.001f)
+        var raw=0f;repeat(4) { raw=geometryRulerDragValue(raw,-.5f,2f,-100f..100f) }
+        assertEquals(1f,raw,.001f)
+    }
 }
