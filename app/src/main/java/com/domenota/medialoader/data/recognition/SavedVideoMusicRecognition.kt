@@ -13,7 +13,7 @@ internal class SavedVideoRecognitionFailure(val stage: Stage, cause: Exception) 
     }
 }
 
-internal enum class SavedVideoRecognitionStage { EXTRACTING_AUDIO, SEARCHING_MATCH }
+enum class SavedVideoRecognitionStage { EXTRACTING_AUDIO, SEARCHING_MATCH }
 
 internal object SavedVideoMusicRecognition {
     suspend fun recognize(savedUri: String, decode: suspend (String) -> ShortArray,

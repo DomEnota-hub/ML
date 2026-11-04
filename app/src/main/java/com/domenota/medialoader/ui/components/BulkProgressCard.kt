@@ -14,9 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.ChevronDown
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.ChevronUp
+import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ListAlt
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.HorizontalDivider
@@ -101,7 +101,7 @@ fun BulkProgressCard(
                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 if (!expanded) Text("$processed/$total", color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall)
-                Icon(if (expanded) Icons.Rounded.ChevronUp else Icons.Rounded.ChevronDown,
+                Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = if (expanded) "Свернуть" else "Развернуть",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
