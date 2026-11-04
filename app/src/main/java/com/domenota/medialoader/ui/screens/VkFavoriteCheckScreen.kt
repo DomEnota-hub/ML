@@ -82,6 +82,12 @@ fun VkFavoriteCheckScreen(batch: VkFavoriteCheckBatch?, jobs: Map<String, VkComm
                             else -> "Найдено ${job.found} изображений · выбрано ${job.selected}"
                         }
                         Text(status, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        job?.let {
+                            Text("Период: ${it.startDate} — ${it.endDate}", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Проверено записей: ${it.scannedPosts}. Счётчик выше показывает изображения.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         if (job?.phase == VkJobPhase.SCANNING)
                             CircularProgressIndicator(Modifier.padding(top = 8.dp))
                         if (!stale(entry) && job?.scanComplete == true) {

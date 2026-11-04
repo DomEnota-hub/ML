@@ -12,7 +12,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -66,16 +73,19 @@ fun GapiKeysDialog(
         title = { Text("Ключи GAPI", color = MaterialTheme.colorScheme.onSurface) },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
-                Text("GAPI — основной способ загрузки Instagram. Ключи проверяются по порядку сверху вниз.",
+                Text("GAPI — основной способ загрузки из Instagram и видео VK.",
                     color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(8.dp))
+                Text("Сначала используется верхний доступный ключ. Когда его месячный лимит исчерпан, приложение переключается на следующий.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!store.storageAvailable) Text(
                     "Защищённое хранилище ключей недоступно. GAPI отключён. Перезапустите приложение и попробуйте снова.",
                     color = MaterialTheme.colorScheme.error,
                 )
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Резерв через аккаунт", color = MaterialTheme.colorScheme.onSurface)
-                        Text("Использовать сохранённую сессию, если ключи недоступны",
+                        Text("Резервный способ", color = MaterialTheme.colorScheme.onSurface)
+                        Text("При ошибке API использовать прежний способ загрузки и сохранённый аккаунт, если он потребуется",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -88,8 +98,9 @@ fun GapiKeysDialog(
                 if (visibleKeys.isEmpty()) Text("Добавьте свой ключ GAPI.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 visibleKeys.forEachIndexed { index, key ->
-                    HorizontalDivider()
-                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Spacer(Modifier.height(12.dp))
+                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("${index + 1}. ${key.name}", style = MaterialTheme.typography.titleSmall,
@@ -107,17 +118,17 @@ fun GapiKeysDialog(
                             })
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            NeutralTextButton(enabled = index > 0, onClick = {
+                            IconButton(modifier = Modifier.size(40.dp), enabled = index > 0, onClick = {
                                 val target = visibleKeys[index - 1]
                                 mutate { store.move(key.id, keys.indexOf(target) - keys.indexOf(key)) }
-                            }) { Text("Выше") }
-                            NeutralTextButton(enabled = index < visibleKeys.lastIndex, onClick = {
+                            }) { Icon(Icons.Rounded.KeyboardArrowUp, "Повысить приоритет") }
+                            IconButton(modifier = Modifier.size(40.dp), enabled = index < visibleKeys.lastIndex, onClick = {
                                 val target = visibleKeys[index + 1]
                                 mutate { store.move(key.id, keys.indexOf(target) - keys.indexOf(key)) }
-                            }) { Text("Ниже") }
+                            }) { Icon(Icons.Rounded.KeyboardArrowDown, "Понизить приоритет") }
                             NeutralTextButton(onClick = {
                                 editing = key; name = key.name; token = ""; error = null
-                            }) { Text("Имя") }
+                            }) { Text("Название") }
                         }
                         if (key.invalid || key.exhaustedMonth == store.currentMonth() ||
                             key.pauseUntilMillis > System.currentTimeMillis()) {
@@ -129,16 +140,17 @@ fun GapiKeysDialog(
                             Text("Удалить", color = MaterialTheme.colorScheme.error)
                         }
                     }
+                    }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Spacer(Modifier.height(8.dp))
-                NeutralTextButton(enabled = store.storageAvailable, onClick = {
-                    adding = true; name = ""; token = ""; error = null
-                }) { Text("Добавить ключ") }
                 NeutralTextButton(onClick = ::refresh) { Text("Обновить статусы") }
             }
         },
         confirmButton = { NeutralTextButton(onClick = onDismissRequest) { Text("Закрыть") } },
+        dismissButton = { NeutralTextButton(enabled = store.storageAvailable, onClick = {
+            adding = true; name = ""; token = ""; error = null
+        }) { Text("Добавить ключ") } },
     )
 
     if (adding || editing != null) AlertDialog(
