@@ -950,7 +950,7 @@ fun SettingsScreen(
             GroupDivider()
             SettingRow(Icons.Rounded.Key, "Ключи GAPI для Instagram",
                 "Ключи, приоритет и резерв через аккаунт",
-                grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
+                grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM,
                 onClick = { gapiKeysDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.CloseFullscreen, "Закрывать окно после выбора файла",
