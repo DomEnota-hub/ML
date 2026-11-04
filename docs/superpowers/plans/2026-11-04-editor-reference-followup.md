@@ -20,7 +20,7 @@
 - [x] Перспектива: центрированная homography с сохранением направления H из образца, V отрицательный приближает верхнюю сторону. Устранить независимую нормализацию по X/Y, скрывавшую/растягивавшую перспективу. Стабильный знаменатель при совместных экстремумах.
 - [x] Добавить distortion (-100..100, 0 identity), радиальную монотонную сетку с нормализованными координатами. Positive увеличивает центр, negative сжимает центр относительно краёв, как на19–22с. Canvas.drawBitmapMesh; общая preview/export реализация, bounded preview960px.
 - [x] VideoV8Icons: обновить trim/speed/volume/reverse/trash/separate/replace/crop/copy по двум jpg; AUDIO/volume должен рисовать динамик, а не ноту. Такой же stroke-стиль для geometry horizon/perspective/distortion/free.
-- [ ] Запустить выбранные тесты и ARM64 Release, проверить production подпись/пакет. Следующая версия1.7.114/code175. Зафиксировать локально, передать подписанный APK через Dropbox по принятому в сессии способу.
+- [x] Запустить выбранные тесты и ARM64 Release, проверить production подпись/пакет. Следующая версия1.7.114/code175. Зафиксировать локально, передать подписанный APK через Dropbox по принятому в сессии способу.
 
 ## Проверить при саморевью
 
@@ -29,3 +29,7 @@
 ## Адресный результат
 
 32 теста / 0 failures / 0 errors / 0 skipped. В том числе native Canvas distortion и Compose-захват за пределами прежней92dp зоны с проверкой сохранения смещения до пальца. Лог: /tmp/ml114-targeted-build.log. Release собирается тем же запуском; полный CI/lint/emulator не запускался.
+
+## Завершение
+
+Итого33 уникальных адресных теста PASS (32 первоначально, затем11 только geometry/lens после исправления порядка — включая новый независимый pixel oracle). Final Release BUILD SUCCESSFUL4m36s, лог /tmp/ml114-release-final.log. Runtime source cff47121eab7bfdb746b8e93cfadcc482f3b5143. APK1.7.114/code175/com.domenota.medialoader/ARM64/non-debug signed official certificate. SHA256 b94795ce58094f42e47ae5ec8f273b71f10de4ce07b2c9e1cb081ec7c79d2713,104576422bytes. Dropbox upload completed, metadata size verified. Подробности/ссылка: /workspace/ML_1.7.114_HANDOFF_20261104.md. ПолныйCI и физическое устройство не проверялись.
