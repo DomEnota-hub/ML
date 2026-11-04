@@ -21,3 +21,6 @@ keystore.properties
 signing.properties
 .env
 .env.*
+
+# Local GAPI credentials embedded only by local builds
+/.gapi-local/

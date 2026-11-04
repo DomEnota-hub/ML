@@ -185,7 +185,19 @@ class MediaRepository private constructor(context: Context) {
     private val catalog = DownloadCatalogRepository(historyDb)
     private val resolver: MediaResolver = DefaultMediaResolver(
         listOf(
-            InstagramProvider(cookies = { sessions.cookies() }),
+            com.domenota.medialoader.data.gapi.GapiInstagramProvider(
+                legacy = InstagramProvider(cookies = { sessions.cookies() },
+                    onSessionMediaResolved = sessions::markWorkingMediaSession),
+                keys = com.domenota.medialoader.data.gapi.GapiKeyStore(appContext),
+                networkAvailable = {
+                    val manager = appContext.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+                        as? android.net.ConnectivityManager
+                    manager == null || manager.activeNetwork?.let { network ->
+                        manager.getNetworkCapabilities(network)?.hasCapability(
+                            android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                    } == true
+                },
+            ),
             YouTubeProvider(youtubePreviewStreams),
             VkProvider(vkPreviewStreams),
             RutubeProvider(rutubePreviewStreams),
@@ -578,7 +590,7 @@ class MediaRepository private constructor(context: Context) {
     /** Uses the same provider extractor without changing saved sessions on a diagnostic failure. */
     suspend fun diagnosticResolve(url: String): List<MediaItem> = resolver.resolve(url)
 
-    /** Public access first; the saved session is used inside the provider only as a fallback. */
+    /** GAPI first for Instagram; existing extractors and saved sessions remain per-request fallbacks. */
     suspend fun resolve(url: String): List<MediaItem> = try {
         val startedAt = android.os.SystemClock.elapsedRealtime()
         val sourceHost = runCatching { android.net.Uri.parse(url).host.orEmpty() }.getOrDefault("")
@@ -604,8 +616,6 @@ class MediaRepository private constructor(context: Context) {
                 item.copy(sourcePageUrl = if (item.providerId == VkProvider.ID) item.downloadUrl else url)
             }
         }.let { PreferredVideoQuality.apply(it, videoPreferences.preferredHeight) }.also { results ->
-            if (results.any { it.providerId == InstagramProvider.ID })
-                sessions.markWorkingMediaSession()
             AppLog.verbose(
                 "Resolve",
                 "Completed · items=${results.size} · sources=${results.map { it.providerId }.distinct().joinToString(",")} · elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}",

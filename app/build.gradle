@@ -5,6 +5,11 @@ plugins {
     id 'org.jetbrains.kotlin.kapt'
 }
 
+// Local-only input: never store credentials in tracked Gradle files or CI logs.
+def gapiKeysFile = rootProject.file('.gapi-local/builtin-keys.json')
+def gapiKeysJson = gapiKeysFile.isFile() ? gapiKeysFile.getText('UTF-8') : '[]'
+def gapiKeysLiteral = groovy.json.JsonOutput.toJson(gapiKeysJson)
+
 android {
     namespace 'com.domenota.medialoader'
     compileSdk 35
@@ -24,11 +29,12 @@ android {
 
     defaultConfig {
         applicationId 'com.domenota.medialoader'
+        buildConfigField 'String', 'GAPI_BUILTIN_KEYS_JSON', gapiKeysLiteral
         minSdk 26
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 182
-        versionName '1.7.121'
+        versionCode 183
+        versionName '1.7.122'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
         // Package only ARM64 native libraries without changing the release app ID.
         if (project.hasProperty('arm64Release')) {

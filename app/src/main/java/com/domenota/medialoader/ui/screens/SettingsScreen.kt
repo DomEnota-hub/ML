@@ -118,6 +118,7 @@ import com.domenota.medialoader.core.diagnostics.InstagramSessionLabel
 import com.domenota.medialoader.core.diagnostics.InstagramSessionTone
 import com.domenota.medialoader.core.recognition.MusicRecognitionMode
 import com.domenota.medialoader.data.MediaRepository
+import com.domenota.medialoader.data.gapi.GapiKeyStore
 import com.domenota.medialoader.data.diagnostics.ActiveSessionDiagnosticProbes
 import com.domenota.medialoader.data.search.FullSongSource
 import com.domenota.medialoader.ui.components.AppCard
@@ -343,6 +344,8 @@ fun SettingsScreen(
     var recognitionDialog by remember { mutableStateOf(false) }
     var musicSourceDialog by remember { mutableStateOf(false) }
     var instagramModeDialog by remember { mutableStateOf(false) }
+    val gapiKeyStore = remember(context) { GapiKeyStore(context) }
+    var gapiKeysDialog by remember { mutableStateOf(false) }
     var spareAuthorizationDialog by remember { mutableStateOf(false) }
     var folderDialog by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("MediaLoader") }
@@ -604,6 +607,12 @@ fun SettingsScreen(
         dismissButton = {
             TextButton(onClick = { confirmClearAppLog = false }) { Text("Отмена") }
         },
+    )
+
+    if (gapiKeysDialog) GapiKeysDialog(
+        store = gapiKeyStore,
+        gateRevision = developerVisible to extendedLog,
+        onDismissRequest = { gapiKeysDialog = false },
     )
 
     if (instagramModeDialog) AlertDialog(
@@ -938,6 +947,11 @@ fun SettingsScreen(
                 if (automaticInstagram) "Автоматический" else "Ручной",
                 grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
                 onClick = { instagramModeDialog = true })
+            GroupDivider()
+            SettingRow(Icons.Rounded.Key, "Ключи GAPI для Instagram",
+                "Ключи, приоритет и резерв через аккаунт",
+                grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
+                onClick = { gapiKeysDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.CloseFullscreen, "Закрывать окно после выбора файла",
                 "После добавления в загрузки", grouped = true, nested = true, iconTone = SettingIconTone.CLOSE_PICKER,

@@ -180,7 +180,7 @@ object AppLog {
 
     private fun redact(value: String): String = secretPattern.replace(value) { match ->
         "${match.groupValues[1]}=<redacted>"
-    }
+    }.replace(Regex("(?i)\\bgapi_(?:live|test)_[A-Za-z0-9_-]+"), "<gapi-key-redacted>")
 
     private fun logFile(): File? = appContext?.let { File(it.filesDir, "logs/medialoader.log") }
 

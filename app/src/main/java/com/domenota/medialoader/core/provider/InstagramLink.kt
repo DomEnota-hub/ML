@@ -43,7 +43,7 @@ object InstagramLinkParser {
 
         fun typeAt(index: Int): InstagramLinkType? = when (path.getOrNull(index)) {
             "p" -> InstagramLinkType.POST
-            "reel" -> InstagramLinkType.REEL
+            "reel", "reels" -> InstagramLinkType.REEL
             "tv" -> InstagramLinkType.TV
             else -> null
         }
