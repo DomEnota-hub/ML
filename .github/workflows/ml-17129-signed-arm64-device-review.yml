@@ -2,7 +2,7 @@ name: MediaLoader 1.7.130 ARM64 unsigned handoff for local DomEnota signing
 on:
   push:
     branches:
-      - feature/ml-17128-recognition-bulk-progress-cards-20261104
+      - build/ml-17130-arm64-unsigned-20261104
   workflow_dispatch:
 
 permissions:
