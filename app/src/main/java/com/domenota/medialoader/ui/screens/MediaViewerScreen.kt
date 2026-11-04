@@ -599,6 +599,23 @@ internal fun LocalVideoPlayer(
                     setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
                     setShowRewindButton(false)
                     setShowFastForwardButton(false)
+                    setShowPreviousButton(true)
+                    // The native previous-track arrow does nothing for a single video.
+                    // Reuse its existing position to restart the CURRENT video without
+                    // changing play/pause state; after ENDED, stay paused at 00:00.
+                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
+                        ?.apply {
+                            contentDescription = "К началу видео"
+                            setOnClickListener {
+                                if (player.playbackState == Player.STATE_ENDED) player.pause()
+                                player.seekTo(0L)
+                                playbackEnded = false
+                                com.domenota.medialoader.data.playback.VideoWatchProgress
+                                    .saveResume(prefs, itemId, null)
+                                com.domenota.medialoader.data.playback.VideoWatchProgress
+                                    .record(prefs, itemId, 0L, playableDurationMs)
+                            }
+                        }
                     // Media3 restores the native button's alpha when playback state changes.
                     // Keep its layout slot for adjacent buttons, but draw only our Compose icon.
                     findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
