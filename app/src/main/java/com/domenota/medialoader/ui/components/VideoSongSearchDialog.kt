@@ -24,8 +24,11 @@ fun VideoSongSearchDialog(savedUri: String, onDismiss: () -> Unit) {
                 else "Трек распознан по звуку видео"
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
-            message = "Не удалось распознать звук видео. Проверьте доступ к файлу и интернету или введите название вручную."
+        } catch (e: com.domenota.medialoader.data.recognition.SavedVideoRecognitionFailure) {
+            message = e.stage.userMessage + " Можно ввести название вручную."
+        } catch (e: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.e("VideoRecognition", "Could not start recognition", e)
+            message = "Не удалось запустить распознавание видео. Можно ввести название вручную."
         } finally { busy = false }
     }
     if (busy) AlertDialog(

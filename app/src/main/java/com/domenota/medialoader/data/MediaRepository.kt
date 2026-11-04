@@ -504,8 +504,25 @@ class MediaRepository private constructor(context: Context) {
         if (privateFiles.owns(savedUri)) privateAccess.requireUnlocked()
         beginRecognition()
         return try {
-            val pcm = recognitionAudioPreprocessor.decodeVideo(savedUri)
-            if (pcm.isEmpty()) null else withContext(Dispatchers.Default) { liveMusicRecognizer.recognize(pcm) }
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            AppLog.i("VideoRecognition", "Saved video recognition started")
+            try {
+                val result = withContext(Dispatchers.Default) {
+                    com.domenota.medialoader.data.recognition.SavedVideoMusicRecognition.recognize(
+                        savedUri, { uri ->
+                            val pcm = recognitionAudioPreprocessor.decodeVideo(uri)
+                            AppLog.i("VideoRecognition", "Audio decoded · samples=${pcm.size} · elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}")
+                            pcm
+                        }, liveMusicRecognizer)
+                }
+                AppLog.i("VideoRecognition", "Finished · matched=${result != null} · elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}")
+                result
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: com.domenota.medialoader.data.recognition.SavedVideoRecognitionFailure) {
+                AppLog.e("VideoRecognition", "Failed · stage=${e.stage} · elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}", e.cause ?: e)
+                throw e
+            }
         } finally {
             endRecognition()
         }
