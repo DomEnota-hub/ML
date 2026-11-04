@@ -15,6 +15,23 @@ private class InputIdentity(val rows: List<DownloadEntity>) {
 }
 private data class Projection(val source: List<DownloadEntity>, val aliases: Map<String, String>, val rows: List<DownloadUiItem>)
 
+/**
+ * Preserve the previous visible picker cards only when the currently authorized
+ * source still contains the SAME file ID and URI. Changes of permission/privacy,
+ * deletion, or hiding remove an entry immediately, even if the rebuild lags.
+ */
+internal fun retainEditorFilesForCurrentSource(
+    previous: List<DownloadUiItem>,
+    current: List<DownloadEntity>,
+): List<DownloadUiItem> {
+    if (previous.isEmpty() || current.isEmpty()) return emptyList()
+    val allowed = current.asSequence()
+        .filter { !it.hidden && it.state == DownloadState.COMPLETED &&
+            !it.savedUri.isNullOrBlank() }
+        .associate { it.id to it.savedUri }
+    return previous.filter { allowed[it.id] == it.savedUri }
+}
+
 /** Alias rows remain available to old routes; the picker shows one logical file. */
 internal fun editorUniqueFiles(rows: List<DownloadEntity>, aliases: Map<String, String>): List<DownloadEntity> {
     val seenIds = HashSet<String>()
@@ -50,13 +67,7 @@ internal fun rememberEditorItems(rows: List<DownloadEntity>, aliases: Map<String
     // result here visibly flips the picker from 212 videos to 0 and back.
     // Keep only entries still present in the CURRENT authorized inputs: this
     // fails closed for deleted/hidden/private/permission-revoked rows.
-    val currentAllowed = remember(InputIdentity(rows)) {
-        rows.asSequence()
-            .filter { !it.hidden && it.state == DownloadState.COMPLETED &&
-                !it.savedUri.isNullOrBlank() }
-            .associate { it.id to it.savedUri }
-    }
-    return remember(snapshot, currentAllowed) {
-        snapshot.rows.filter { row -> currentAllowed[row.id] == row.savedUri }
+    return remember(snapshot, InputIdentity(rows)) {
+        retainEditorFilesForCurrentSource(snapshot.rows, rows)
     }
 }
