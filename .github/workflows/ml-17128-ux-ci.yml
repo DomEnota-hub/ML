@@ -30,7 +30,7 @@ jobs:
         run: |
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Compile changed Compose screens and test recognition stages
-        run: gradle :app:testDebugUnitTest --tests '*ShazamRequestThrottleTest*' --tests '*ShazamClientTest*' --tests '*ShazamRecognitionProviderTest*' --tests '*SavedVideoMusicRecognitionTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
+        run: gradle :app:testDebugUnitTest --tests '*ShazamRequestThrottleTest*' --tests '*ShazamClientTest*' --tests '*ShazamRecognitionProviderTest*' --tests '*SavedVideoMusicRecognitionTest*' --tests '*EditorItemsProjectionTest*' --tests '*VideoPlayerUiPolicyTest*' :app:compileDebugAndroidTestKotlin -Parm64Release=true --stacktrace
       - name: Store test evidence
         if: always()
         uses: actions/upload-artifact@v4
