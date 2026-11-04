@@ -344,7 +344,6 @@ private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Un
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия: ${track.originalName}") }
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem({ Text("Открыть") }, { menu = false; onOpen() }, leadingIcon = { Icon(Icons.Rounded.PlayArrow, null) })
             if (onEnqueue != null) {
                 DropdownMenuItem({ Text("Играть следующим") }, { menu = false; onEnqueue(true) }, leadingIcon = { Icon(Icons.Rounded.SkipNext, null) })
                 DropdownMenuItem({ Text("Добавить в конец очереди") }, { menu = false; onEnqueue(false) }, leadingIcon = { Icon(Icons.Rounded.QueueMusic, null) })

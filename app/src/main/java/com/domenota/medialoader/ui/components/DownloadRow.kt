@@ -229,8 +229,6 @@ fun DownloadRow(
                             onClick = { menuExpanded = false; onChooseFolder() },
                         )
                         if (!missing && !inaccessible) {
-                            DropdownMenuItem(leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null) },
-                            text = { Text("Открыть") }, onClick = { menuExpanded = false; onOpen() })
                             if (allowSharing) DropdownMenuItem(leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null) },
                             text = { Text("Поделиться") }, onClick = { menuExpanded = false; onShare() })
                         }

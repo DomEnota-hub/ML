@@ -59,8 +59,7 @@ class LibraryModeShortViewportTest {
                 { _, _ -> }, { _, _, _ -> }, {}, {})
         } } }
         compose.onNodeWithTag("music-library").performScrollToNode(hasContentDescription("Действия: Track.mp3"))
-        compose.onNodeWithContentDescription("Действия: Track.mp3").assertIsDisplayed().performClick()
-        compose.onNodeWithText("Открыть").performClick()
+        compose.onNodeWithText(audioTitle(track)).assertIsDisplayed().performClick()
         assertEquals("audio" to listOf("audio"), opened)
     }
 
