@@ -1,5 +1,8 @@
 package com.domenota.medialoader.data.editor
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -8,6 +11,17 @@ import kotlin.math.tan
 /** Monotone lens warp, shared by the bounded preview and full-resolution Canvas export. */
 internal object PhotoDistortionMath {
     const val GRID = 64
+    fun apply(source: Bitmap, amount: Float): Bitmap {
+        require(amount.isFinite() && amount in -100f..100f)
+        if (amount == 0f) return source
+        val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        try {
+            Canvas(output).drawBitmapMesh(source, GRID, GRID,
+                vertices(source.width, source.height, amount), 0, null, 0,
+                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            return output
+        } catch (error: Throwable) { output.recycle(); throw error }
+    }
     fun vertices(width: Int, height: Int, amount: Float, grid: Int = GRID): FloatArray {
         require(width > 0 && height > 0 && grid > 0)
         require(amount.isFinite() && amount in -100f..100f)

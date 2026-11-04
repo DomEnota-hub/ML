@@ -163,18 +163,18 @@ object PhotoGeometryMath {
 
     fun apply(source: Bitmap, settings: PhotoGeometry): Bitmap {
         if (settings.isNeutral()) return source
+        if (settings.distortion != 0f) {
+            // Keep the lens mesh in a bounded bitmap plane. Projecting its expanded
+            // corners through a perspective matrix can cross the camera horizon.
+            val planar = apply(source, settings.copy(distortion = 0f))
+            try { return PhotoDistortionMath.apply(planar, settings.distortion) }
+            finally { if (planar !== source) planar.recycle() }
+        }
         val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
         try {
             val canvas = Canvas(output)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-            val matrix = transformMatrix(settings, source.width, source.height)
-            if (settings.distortion == 0f) canvas.drawBitmap(source, matrix, paint)
-            else {
-                canvas.concat(matrix)
-                canvas.drawBitmapMesh(source, PhotoDistortionMath.GRID, PhotoDistortionMath.GRID,
-                    PhotoDistortionMath.vertices(source.width, source.height, settings.distortion),
-                    0, null, 0, paint)
-            }
+            canvas.drawBitmap(source, transformMatrix(settings, source.width, source.height),
+                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
             return output
         } catch (error: Throwable) {
             output.recycle()

@@ -55,4 +55,21 @@ class PhotoDistortionTest {
             assertEquals(255,Color.alpha(output.getPixel(64,48)))
         } finally { output.recycle();source.recycle() }
     }
+    @Test fun combinedNegativeLensAndExtremePerspectiveMatchesIndependentPixelOracle() {
+        val source=Bitmap.createBitmap(256,128,Bitmap.Config.ARGB_8888)
+        for(y in 0 until 128) for(x in 0 until 256) source.setPixel(x,y,Color.rgb(x,100,100))
+        val result=PhotoGeometryMath.apply(source,PhotoGeometry(horizontalPerspective=100f,distortion=-100f))
+        try {
+            // Independently invert lens radius, then the centered perspective, for a horizontal gradient.
+            val angle=1.25;val side=1/kotlin.math.sqrt(2.0)
+            val zoom=side*kotlin.math.tan(angle)/kotlin.math.tan(side*angle)
+            val destination=.75
+            val planar=kotlin.math.sqrt(2.0)/angle * kotlin.math.atan(
+                destination*kotlin.math.tan(angle)/(kotlin.math.sqrt(2.0)*zoom))
+            val original=planar/(1+.65*planar)
+            val expected=(original+1)*127.5
+            assertEquals(expected,Color.red(result.getPixel(224,64)).toDouble(),3.0)
+            assertEquals(255,Color.alpha(result.getPixel(128,64)))
+        } finally { result.recycle();source.recycle() }
+    }
 }
