@@ -132,7 +132,7 @@ internal fun VideoMultiClipTimeline(
     val latestSeek by rememberUpdatedState(onSeek)
     val latestTrim by rememberUpdatedState(activeTrimClipId)
     var userScrubbing by remember { mutableStateOf(false) }
-    // A fixed center cursor; playback and explicit seeks move the reel beneath it.
+    // A fixed cursor near the left edge; all lanes share its leading inset.
     LaunchedEffect(visualPosition, project.clips, activeTrimClipId, videoScroll.isScrollInProgress, userScrubbing) {
         if (activeTrimClipId != null || videoScroll.isScrollInProgress || userScrubbing) return@LaunchedEffect
         val location = project.locateAt(visualPosition.coerceIn(0L, project.durationMs - 1L))
@@ -158,7 +158,8 @@ internal fun VideoMultiClipTimeline(
             }
     }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-      val leading = maxWidth / 2
+      val leading = 32.dp.coerceAtMost(maxWidth / 3)
+      val trailing = maxWidth - leading
       Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween) {
@@ -196,7 +197,7 @@ internal fun VideoMultiClipTimeline(
         }
         Box(Modifier.fillMaxWidth().height(77.dp)) {
         LazyRow(Modifier.fillMaxSize().testTag("video-reel"), state = videoScroll,
-            contentPadding = PaddingValues(horizontal = leading),
+            contentPadding = PaddingValues(start = leading, end = trailing),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically) {
             itemsIndexed(project.clips, key = { _, clip -> clip.id }) { index, clip ->
@@ -210,7 +211,7 @@ internal fun VideoMultiClipTimeline(
                     VideoClipStrip(
                         clip = clip,
                         frameCache = sharedCache,
-                        widthModifier = Modifier.width(width.dp),
+                        widthModifier = Modifier.width(width.dp).testTag("video-clip-${clip.id}"),
                         showSourceTrim = sourceTrimMode,
                         fullWidthDp = width,
                         pixelsPerSecondDp = VideoClipReorderMath.widthDp(
@@ -257,7 +258,8 @@ internal fun VideoMultiClipTimeline(
                     )
             }
         }
-        Canvas(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight()) {
+        Canvas(Modifier.align(Alignment.CenterStart).offset(x = leading - 1.dp)
+            .width(2.dp).fillMaxHeight().testTag("video-playhead")) {
             drawLine(Color.White, Offset(size.width / 2f, 0f),
                 Offset(size.width / 2f, size.height), 2.dp.toPx())
         }

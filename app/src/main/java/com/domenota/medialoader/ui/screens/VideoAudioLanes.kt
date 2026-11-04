@@ -53,7 +53,7 @@ internal fun VideoAudioLanes(project: VideoProjectDraft, selectedId: String?,
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(tracks, key = { it.id }) { track ->
             VideoAudioLane(track, track.id == selectedId, scale, scrollDp, enabled,
-                project.durationMs, onSelect, onChange, onGestureStart, onGestureEnd)
+                project.durationMs, onSelect, onChange, onGestureStart, onGestureEnd, leadingPaddingDp)
         }
     }
 }
@@ -62,7 +62,7 @@ internal fun VideoAudioLanes(project: VideoProjectDraft, selectedId: String?,
 private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
     scale: VideoAudioLaneScale, scrollDp: () -> Float, enabled: Boolean,
     projectDurationMs: Long, onSelect: (String) -> Unit, onChange: (VideoAudioTrackDraft) -> Unit,
-    onGestureStart: () -> Unit, onGestureEnd: () -> Unit) {
+    onGestureStart: () -> Unit, onGestureEnd: () -> Unit, cursorDp: Float) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
     var peaks by remember(track.sourceUri, track.sourceDurationMs) { mutableStateOf(emptyList<Float>()) }
@@ -150,7 +150,8 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
                     contentAlignment = Alignment.Center) { Box(Modifier.width(2.dp).height(15.dp).background(Color(0xFF54205E))) }
             }
         }
-        Canvas(Modifier.fillMaxSize()) {
+        Canvas(Modifier.align(Alignment.CenterStart).offset(x = cursorDp.dp - .75.dp)
+            .width(1.5.dp).fillMaxHeight().testTag("audio-playhead-${track.id}")) {
             val x = size.width / 2f
             if (x in 0f..size.width) drawLine(Color.White, Offset(x, 0f), Offset(x, size.height), 1.5.dp.toPx())
         }

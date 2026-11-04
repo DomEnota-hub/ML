@@ -183,23 +183,30 @@ class MediaRepository private constructor(context: Context) {
             }, com.domenota.medialoader.core.database.PRIVATE_HISTORY_MIGRATION).build()
     private val history = HistoryRepository(historyDb.downloadDao(), historyDb.catalogDao())
     private val catalog = DownloadCatalogRepository(historyDb)
+    private val gapiKeys = com.domenota.medialoader.data.gapi.GapiKeyStore(appContext)
+    private val gapiRequests = com.domenota.medialoader.data.gapi.GapiRequestCoordinator()
+    private fun networkAvailable(): Boolean {
+        val manager = appContext.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager
+        return manager == null || manager.activeNetwork?.let { network ->
+            manager.getNetworkCapabilities(network)?.hasCapability(
+                android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        } == true
+    }
     private val resolver: MediaResolver = DefaultMediaResolver(
         listOf(
             com.domenota.medialoader.data.gapi.GapiInstagramProvider(
                 legacy = InstagramProvider(cookies = { sessions.cookies() },
                     onSessionMediaResolved = sessions::markWorkingMediaSession),
-                keys = com.domenota.medialoader.data.gapi.GapiKeyStore(appContext),
-                networkAvailable = {
-                    val manager = appContext.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
-                        as? android.net.ConnectivityManager
-                    manager == null || manager.activeNetwork?.let { network ->
-                        manager.getNetworkCapabilities(network)?.hasCapability(
-                            android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-                    } == true
-                },
+                keys = gapiKeys,
+                coordinator = gapiRequests,
+                networkAvailable = ::networkAvailable,
             ),
             YouTubeProvider(youtubePreviewStreams),
-            VkProvider(vkPreviewStreams),
+            com.domenota.medialoader.data.gapi.GapiVkProvider(
+                legacy = VkProvider(vkPreviewStreams), keys = gapiKeys,
+                coordinator = gapiRequests, networkAvailable = ::networkAvailable,
+            ),
             RutubeProvider(rutubePreviewStreams),
         ),
     )
@@ -208,6 +215,9 @@ class MediaRepository private constructor(context: Context) {
     private val instagramMusicRecognizer = InstagramMusicRecognizer()
     private val liveMusicRecognizer = ShazamRecognitionProvider()
     private val previewAudioExtractor = AudioExtractor(appContext, storage, sessions::cookies)
+    private val vkPreviewAudioExtractor = AudioExtractor(appContext, storage,
+        mediaUrlAllowed = com.domenota.medialoader.core.provider.VkDirectMedia::isSafeUrl,
+        referer = com.domenota.medialoader.core.provider.VkDirectMedia.REFERER)
     private val recognitionAudioPreprocessor = RecognitionAudioPreprocessor(appContext)
     private val sourceCoverGate = Semaphore(2)
     private val videoPreferences = VideoPreferences(appContext)
@@ -459,7 +469,8 @@ class MediaRepository private constructor(context: Context) {
     suspend fun previewPlayback(item: MediaItem): PreviewPlayback {
         val extractor = when (item.providerId) {
             YouTubeProvider.ID -> youtubePreviewStreams
-            VkProvider.ID -> vkPreviewStreams
+            VkProvider.ID -> if (com.domenota.medialoader.core.provider.VkDirectMedia.isSafeUrl(item.downloadUrl)) null
+                else vkPreviewStreams
             RutubeProvider.ID -> rutubePreviewStreams
             else -> null
         }
@@ -470,6 +481,13 @@ class MediaRepository private constructor(context: Context) {
         }
         require(PreviewStreams.httpUrl(item.downloadUrl)) {
             "Источник не предоставил адрес предпросмотра"
+        }
+        if (item.providerId == VkProvider.ID &&
+            com.domenota.medialoader.core.provider.VkDirectMedia.isSafeUrl(item.downloadUrl)) {
+            return PreviewPlayback(PreviewTrack(item.downloadUrl, mapOf(
+                "Referer" to com.domenota.medialoader.core.provider.VkDirectMedia.REFERER,
+                "User-Agent" to com.domenota.medialoader.core.provider.VkDirectMedia.USER_AGENT,
+            )))
         }
         val referer = when (item.providerId) {
             InstagramProvider.ID -> "https://www.instagram.com/"
@@ -525,6 +543,9 @@ class MediaRepository private constructor(context: Context) {
         try {
             sample = if (provider == InstagramProvider.ID) {
                 previewAudioExtractor.recognitionSample(candidate.downloadUrl)
+            } else if (provider == VkProvider.ID &&
+                com.domenota.medialoader.core.provider.VkDirectMedia.isSafeUrl(candidate.downloadUrl)) {
+                vkPreviewAudioExtractor.recognitionSample(candidate.downloadUrl)
             } else {
                 // YouTube/VK/RUTUBE use page URLs and yt-dlp, not Instagram's media HTTP client.
                 val downloader = when (provider) {
@@ -590,7 +611,7 @@ class MediaRepository private constructor(context: Context) {
     /** Uses the same provider extractor without changing saved sessions on a diagnostic failure. */
     suspend fun diagnosticResolve(url: String): List<MediaItem> = resolver.resolve(url)
 
-    /** GAPI first for Instagram; existing extractors and saved sessions remain per-request fallbacks. */
+    /** GAPI first for Instagram and ordinary VK links; existing extractors and saved sessions remain per-request fallbacks. */
     suspend fun resolve(url: String): List<MediaItem> = try {
         val startedAt = android.os.SystemClock.elapsedRealtime()
         val sourceHost = runCatching { android.net.Uri.parse(url).host.orEmpty() }.getOrDefault("")
@@ -613,7 +634,7 @@ class MediaRepository private constructor(context: Context) {
                     ).let { it.copy(originalName = StorageNaming.normalizedMediaName(it.originalName, it.position)) }
                 }
             } }.awaitAll().map { item ->
-                item.copy(sourcePageUrl = if (item.providerId == VkProvider.ID) item.downloadUrl else url)
+                item.copy(sourcePageUrl = item.sourcePageUrl ?: if (item.providerId == VkProvider.ID) item.downloadUrl else url)
             }
         }.let { PreferredVideoQuality.apply(it, videoPreferences.preferredHeight) }.also { results ->
             AppLog.verbose(

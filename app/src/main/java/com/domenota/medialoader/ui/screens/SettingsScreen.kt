@@ -948,7 +948,7 @@ fun SettingsScreen(
                 grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
                 onClick = { instagramModeDialog = true })
             GroupDivider()
-            SettingRow(Icons.Rounded.Key, "Ключи GAPI для Instagram",
+            SettingRow(Icons.Rounded.Key, "Ключи GAPI для Instagram и VK",
                 "Ключи, приоритет и резерв через аккаунт",
                 grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM,
                 onClick = { gapiKeysDialog = true })

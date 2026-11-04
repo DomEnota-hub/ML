@@ -24,7 +24,7 @@ enum class GapiFailureKind {
 class GapiException(
     val kind: GapiFailureKind,
     val retryAfterMillis: Long? = null,
-) : Exception("GAPI Instagram: ${kind.name}")
+) : Exception("GAPI: ${kind.name}")
 
 data class GapiResponse(val status: Int, val body: String, val retryAfterMillis: Long? = null) {
     override fun toString(): String = "GapiResponse(status=$status, retryAfterMillis=$retryAfterMillis)"
@@ -148,40 +148,43 @@ class GapiInstagramClient(
     private fun imageVersions(url: String): JSONObject =
         JSONObject().put("candidates", JSONArray().put(JSONObject().put("url", url)))
 
-    private fun failureKind(response: GapiResponse): GapiFailureKind {
-        if (response.status == 401) return GapiFailureKind.INVALID_KEY
-        if (response.status in setOf(402, 429)) {
-            val error = try { JSONObject(response.body) } catch (_: Exception) { null }
-            // Balance/usage metadata does not describe why this request failed.
-            val descriptions = listOf(error?.opt("detail"), error?.opt("message"))
-                .filterIsInstance<String>()
-            val exhausted = Regex("exhaust|exceed|deplet|insufficient|out of|no (?:remaining )?tokens|reached|used up|zero|\\b0\\b")
-            if (descriptions.any { description ->
-                val detail = description.lowercase(Locale.ROOT)
-                val monthlyQuota = detail.contains("month") && (detail.contains("quota") || detail.contains("limit") || detail.contains("token"))
-                val tokenBalance = detail.contains("token") && (detail.contains("balance") || detail.contains("insufficient") || detail.contains("out of") || detail.contains("no tokens"))
-                (monthlyQuota || tokenBalance) && exhausted.containsMatchIn(detail)
-            }) return GapiFailureKind.QUOTA_EXHAUSTED
-        }
-        return when (response.status) {
-            429 -> GapiFailureKind.RATE_LIMITED
-            400, 422 -> GapiFailureKind.UNSUPPORTED
-            404 -> GapiFailureKind.NOT_FOUND
-            408, 425 -> GapiFailureKind.TEMPORARY
-            in 500..599 -> GapiFailureKind.TEMPORARY
-            else -> GapiFailureKind.UNKNOWN
-        }
-    }
-
-    private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+    private fun failureKind(response: GapiResponse): GapiFailureKind = gapiFailureKind(response)
 }
 
-private const val MAX_GAPI_BODY_BYTES = 1_048_576
+internal fun gapiFailureKind(response: GapiResponse): GapiFailureKind {
+    if (response.status == 401) return GapiFailureKind.INVALID_KEY
+    if (response.status in setOf(402, 429)) {
+        val error = try { JSONObject(response.body) } catch (_: Exception) { null }
+        // Balance/usage metadata does not describe why this request failed.
+        val descriptions = listOf(error?.opt("detail"), error?.opt("message"))
+            .filterIsInstance<String>()
+        val exhausted = Regex("exhaust|exceed|deplet|insufficient|out of|no (?:remaining )?tokens|reached|used up|zero|\\b0\\b")
+        if (descriptions.any { description ->
+            val detail = description.lowercase(Locale.ROOT)
+            val monthlyQuota = detail.contains("month") && (detail.contains("quota") || detail.contains("limit") || detail.contains("token"))
+            val tokenBalance = detail.contains("token") && (detail.contains("balance") || detail.contains("insufficient") || detail.contains("out of") || detail.contains("no tokens"))
+            (monthlyQuota || tokenBalance) && exhausted.containsMatchIn(detail)
+        }) return GapiFailureKind.QUOTA_EXHAUSTED
+    }
+    return when (response.status) {
+        429 -> GapiFailureKind.RATE_LIMITED
+        400, 422 -> GapiFailureKind.UNSUPPORTED
+        404 -> GapiFailureKind.NOT_FOUND
+        408, 425 -> GapiFailureKind.TEMPORARY
+        in 500..599 -> GapiFailureKind.TEMPORARY
+        else -> GapiFailureKind.UNKNOWN
+    }
+}
+
+private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+internal const val MAX_GAPI_BODY_BYTES = 1_048_576
 private const val MAX_GAPI_MEDIA = 1000
 
 /** Only relative API routes are accepted and redirects never receive the API key. */
-private suspend fun fetchGapi(path: String, key: String): GapiResponse = withContext(Dispatchers.IO) {
-    if (!path.startsWith("/v2/instagram/media?url=") && !path.startsWith("/v2/instagram/stories?username=")) {
+internal suspend fun fetchGapi(path: String, key: String): GapiResponse = withContext(Dispatchers.IO) {
+    if (!path.startsWith("/v2/instagram/media?url=") && !path.startsWith("/v2/instagram/stories?username=") &&
+        !path.startsWith("/v2/vk?url=")) {
         throw GapiException(GapiFailureKind.UNSUPPORTED)
     }
     val connection = URI("https://api.gapi.dev$path").toURL().openConnection() as HttpURLConnection
