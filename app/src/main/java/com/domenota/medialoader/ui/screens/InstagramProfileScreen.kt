@@ -349,12 +349,11 @@ private fun InstagramProfilePreview(post: InstagramStoredPost, onDismiss: () -> 
     var excluded by remember(post.post.code) { mutableStateOf(post.excludedIds) }
     LaunchedEffect(post.post.code) {
         try {
-            val session = MediaRepository.get(context).sessions.cookies()
-                ?: throw IllegalStateException("Войдите в Instagram")
-            visuals = InstagramProvider.parseApiResponse(
-                InstagramApiClient().mediaInfo(InstagramProvider.mediaId(post.post.code), session),
-                post.post.code).filter { it.type != MediaType.AUDIO }
+            visuals = MediaRepository.get(context).resolve(post.post.pageUrl)
+                .filter { it.type != MediaType.AUDIO }
             if (!post.selected) excluded = visuals.map { it.id }.toSet()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             error = "Не удалось открыть файлы публикации. Попробуйте позже."
         } finally { loading = false }

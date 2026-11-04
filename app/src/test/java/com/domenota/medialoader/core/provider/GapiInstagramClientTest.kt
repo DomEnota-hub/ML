@@ -178,6 +178,16 @@ class GapiInstagramClientTest {
         GapiInstagramClient { _, _ -> response }.resolve(page, "test-key")
     }
 
+    @Test fun savedProfileExclusionsStillSelectSameAlbumFilesAfterGapiSwitch() = runBlocking {
+        val old = InstagramProvider.parseApiResponse("""{"items":[{"carousel_media":[{"image_versions2":{"candidates":[{"url":"https://scontent.fbcdn.net/a.jpg"}]}},{"video_versions":[{"url":"https://video.fbcdn.net/b.mp4"}]}]}]}""", "Ab_12-z")
+        val fresh = GapiInstagramClient { _, _ -> GapiResponse(200,
+            """{"platform":"instagram","type":"album","media":[{"type":"image","url":"https://scontent.fbcdn.net/a.jpg"},{"type":"video","url":"https://video.fbcdn.net/b.mp4"}]}""")
+        }.resolve(page, "test-key")
+        assertEquals(old.map { it.id }, fresh.map { it.id })
+        val selected = com.domenota.medialoader.data.instagramprofile.InstagramProfileScanPolicy.selectedVisuals(fresh, setOf(old.first().id))
+        assertEquals(old.drop(1).map { it.id }, selected.map { it.id })
+    }
+
     private suspend fun expectFailure(block: suspend () -> Unit): GapiException {
         try { block() } catch (error: GapiException) { return error }
         throw AssertionError("Expected GAPI failure")

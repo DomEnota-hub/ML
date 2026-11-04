@@ -107,10 +107,6 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
 
     private suspend fun download(id: String) {
         val job = store.job(id) ?: return
-        val session = repository.sessions.cookies() ?: throw ProviderException(
-            ProviderException.Reason.ACCESS_REQUIRED,
-            "Сессия Instagram недоступна. Войдите снова.", "instagram")
-        val api = InstagramApiClient()
         store.phase(id, InstagramProfilePhase.DOWNLOADING)
         var failures = 0
         for (stored in store.posts(id).filter { it.selected }) {
@@ -118,8 +114,7 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
             stage = "selected_post"
             try {
                 val code = stored.post.code
-                val visuals = InstagramProfileScanPolicy.selectedVisuals(InstagramProvider.parseApiResponse(
-                    api.mediaInfo(InstagramProvider.mediaId(code), session), code)
+                val visuals = InstagramProfileScanPolicy.selectedVisuals(repository.resolve(stored.post.pageUrl)
                     .filter { it.type == MediaType.PHOTO || it.type == MediaType.VIDEO },
                     stored.excludedIds).map { it.copy(sourcePageUrl = stored.post.pageUrl) }
                 val known = mutableListOf<String>()
