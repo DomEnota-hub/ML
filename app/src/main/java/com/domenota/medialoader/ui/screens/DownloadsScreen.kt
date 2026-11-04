@@ -1,5 +1,14 @@
 package com.domenota.medialoader.ui.screens
 
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -574,34 +583,19 @@ fun DownloadsScreen(
           }
         } else {
             if (selectionMode) {
-                items(selectableHistoryItems, key = { "select:${it.id}" }, contentType = { "selected-file" }) { file ->
-                    val checked = file.id in selectedHistoryIds
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(15.dp))
-                            .clickable {
-                                selectedHistoryIds = if (checked) selectedHistoryIds - file.id
-                                    else selectedHistoryIds + file.id
-                            }
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Checkbox(
-                            checked = checked,
-                            onCheckedChange = { value ->
-                                selectedHistoryIds = if (value) selectedHistoryIds + file.id
-                                    else selectedHistoryIds - file.id
-                            },
-                        )
-                        DownloadThumbnail(file.savedUri, file.previewUrl, file.kind, Modifier.size(52.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(file.title, maxLines = 2, style = MaterialTheme.typography.bodyMedium,
-                                overflow = TextOverflow.Ellipsis)
-                            Text(file.subtitle, maxLines = 1,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val selectionRows = if (gridMode) selectableHistoryItems.chunked(4)
+                    else selectableHistoryItems.map { listOf(it) }
+                items(selectionRows, key = { "select:${it.first().id}" }, contentType = { if (gridMode) "selection-grid" else "selected-file" }) { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        row.forEach { file ->
+                            HistorySelectionCard(file, file.id in selectedHistoryIds,
+                                onToggle = { selectedHistoryIds = if (file.id in selectedHistoryIds) selectedHistoryIds - file.id else selectedHistoryIds + file.id },
+                                onPreview = {
+                                    if (onOpenGrid != null) onOpenGrid(file.id,selectableHistoryItems.map { it.id })
+                                    else onOpenDownload(file.id)
+                                }, grid = gridMode, modifier = Modifier.weight(1f))
                         }
+                        if (gridMode) repeat(4-row.size) { Spacer(Modifier.weight(1f)) }
                     }
                     Spacer(Modifier.height(8.dp))
                 }
@@ -764,5 +758,36 @@ private fun SourceChip(label: String, source: String?, active: Boolean, onClick:
         Text(label, color = if (active) MaterialTheme.colorScheme.onPrimary else
             MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+@Composable
+private fun HistorySelectionCard(file: DownloadUiItem, checked: Boolean, onToggle: () -> Unit,
+    onPreview: () -> Unit, grid: Boolean, modifier: Modifier = Modifier) {
+    val marker: @Composable () -> Unit = {
+        Box(Modifier.size(42.dp).semantics { contentDescription = "Выбрать ${file.title}" }
+            .toggleable(checked, role = Role.Checkbox, onValueChange = { onToggle() }), contentAlignment = Alignment.Center) {
+            val color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            Box(Modifier.size(24.dp).background(if (checked) color else Color.Black.copy(alpha=.25f), CircleShape)
+                .border(2.dp,color,CircleShape),contentAlignment=Alignment.Center) {
+                if (checked) Icon(Icons.Rounded.Check,null,Modifier.size(17.dp),tint=MaterialTheme.colorScheme.onPrimary)
+            }
+        }
+    }
+    if (grid) Box(modifier.aspectRatio(1f).clip(RoundedCornerShape(10.dp))
+        .semantics { contentDescription = file.title }.clickable(onClick=onPreview)) {
+        DownloadThumbnail(file.savedUri,file.previewUrl,file.kind,Modifier.fillMaxSize())
+        Box(Modifier.align(Alignment.TopStart)) { marker() }
+    } else Row(modifier.background(MaterialTheme.colorScheme.surfaceVariant,RoundedCornerShape(15.dp))
+        .padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+        marker()
+        Row(Modifier.weight(1f).semantics { contentDescription=file.title }.clickable(onClick=onPreview),
+            verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+            DownloadThumbnail(file.savedUri,file.previewUrl,file.kind,Modifier.size(52.dp))
+            Column(Modifier.weight(1f)) {
+                Text(file.title,maxLines=2,style=MaterialTheme.typography.bodyMedium,overflow=TextOverflow.Ellipsis)
+                Text(file.subtitle,maxLines=1,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }

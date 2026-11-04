@@ -243,6 +243,7 @@ fun MediaLoaderApp(
         try { libraryModel.audioPreview.observe() }
         catch (e: CancellationException) { throw e } catch (_: Exception) { /* A later play request can reconnect. */ }
     }
+    var editorLibraryMode by remember { mutableStateOf<AppMode?>(null) }
     val phoneRows = remember(phoneGallery.items, phoneMusic.items) { phoneGallery.items + phoneMusic.items }
     var permissionMode by rememberSaveable { mutableStateOf(AppMode.GALLERY) }
     val libraryPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -272,6 +273,7 @@ fun MediaLoaderApp(
     val phoneViewingId = backStackEntry?.arguments?.getString("downloadId")
     fun refreshPhoneLibraries(force: Boolean = false) {
         val needed = mutableSetOf<AppMode>()
+        editorLibraryMode?.let { needed += it }
         if (appMode == AppMode.GALLERY && (librarySource == LibrarySource.PHONE ||
                 externalCatalog.any { it.ref.item.mediaType != MediaType.AUDIO })) needed += AppMode.GALLERY
         if (appMode == AppMode.MUSIC) needed += AppMode.MUSIC
@@ -1240,18 +1242,41 @@ fun MediaLoaderApp(
                     hiddenItems = remember(hiddenItems) { hiddenItems.map { entry ->
                         entry.toUi().copy(savedUri = viewModel.trashedUri(entry.id))
                     } },
+                    onEditorPickerChange = { kind ->
+                        val mode = when (kind) {
+                            com.domenota.medialoader.ui.model.MediaKind.AUDIO -> AppMode.MUSIC
+                            null -> null
+                            else -> AppMode.GALLERY
+                        }
+                        editorLibraryMode = mode
+                        if (mode != null) {
+                            if (!hasPhoneLibraryAccess(context,mode)) requestLibraryAccess(mode)
+                            else libraryModel.refresh(mode)
+                        }
+                    },
+                    editorLoading = when (editorLibraryMode) {
+                        AppMode.MUSIC -> phoneMusic.loading
+                        AppMode.GALLERY -> phoneGallery.loading
+                        else -> false
+                    },
+                    editorMessage = when (editorLibraryMode) {
+                        AppMode.MUSIC -> phoneMusic.message
+                        AppMode.GALLERY -> phoneGallery.message
+                        else -> null
+                    },
                     editorItems = com.domenota.medialoader.ui.components.rememberEditorItems(accessibleDownloads, libraryAliases),
                     editorAlbumsById = remember(
-                        accessibleDownloads, libraryRefsByAlias, libraryCatalogAssignments, catalogFolders
+                        accessibleDownloads, libraryRefsByAlias, libraryCatalogAssignments, catalogFolders, phoneRows
                     ) {
                         val folderNames = catalogFolders.associate { it.id to it.name }
+                        val deviceFolders = phoneRows.mapNotNull { row -> row.savedUri?.let { it to row.groupId } }.toMap()
                         val assigned = libraryCatalogAssignments.associateBy { it.downloadId }
                         accessibleDownloads.associate { file ->
                             val ref = libraryRefsByAlias[file.id]
                             val assignment = assigned[file.id] ?: ref?.let { assigned[it.key] }
                             val names = listOfNotNull(
                                 assignment?.folderId?.let(folderNames::get),
-                                ref?.deviceAlbumName?.takeIf { it.isNotBlank() },
+                                (ref?.deviceAlbumName ?: deviceFolders[file.savedUri])?.takeIf { it.isNotBlank() },
                             ).distinct()
                             file.id to names
                         }

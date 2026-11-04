@@ -157,6 +157,9 @@ fun SettingsScreen(
     hiddenCount: Int,
     hiddenItems: List<DownloadUiItem>,
     editorItems: List<DownloadUiItem> = emptyList(),
+    onEditorPickerChange: (MediaKind?) -> Unit = {},
+    editorLoading: Boolean = false,
+    editorMessage: String? = null,
     onEditFile: (String) -> Unit = {},
     onOpenEqualizer: () -> Unit = {},
     onChangeFolder: (String) -> Unit,
@@ -208,6 +211,8 @@ fun SettingsScreen(
     val needsGalleryAccess = permissionRevision.let { lacksFullPermission(AppMode.GALLERY) }
     val needsMusicAccess = permissionRevision.let { lacksFullPermission(AppMode.MUSIC) }
     var editorKind by remember { mutableStateOf<MediaKind?>(null) }
+    LaunchedEffect(editorKind) { onEditorPickerChange(editorKind) }
+    DisposableEffect(Unit) { onDispose { onEditorPickerChange(null) } }
     var accountsExpanded by rememberSaveable { mutableStateOf(false) }
     var downloadExpanded by rememberSaveable { mutableStateOf(false) }
     var musicOptionsExpanded by rememberSaveable { mutableStateOf(false) }
@@ -784,6 +789,8 @@ fun SettingsScreen(
     editorKind?.let { kind ->
         EditorFilePickerDialog(
             kind = kind,
+            loading = editorLoading,
+            message = editorMessage,
             files = editorItems,
             albumsById = editorAlbumsById,
             onSelect = { id ->
