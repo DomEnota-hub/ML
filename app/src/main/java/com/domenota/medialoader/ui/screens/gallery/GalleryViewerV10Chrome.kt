@@ -97,7 +97,7 @@ private val v10PhotoRows = listOf(
 )
 private val v10VideoRows = listOf(
     V10MenuRow("album", "В альбом", "album"),
-    V10MenuRow("wallpaper", "Кадр как обои", "wallpaper"),
+    V10MenuRow("wallpaper", "Установить как обои", "wallpaper"),
     V10MenuRow("info", "Сведения", "info"),
     V10MenuRow("divider1", "", ""),
     V10MenuRow("cast", "Транслировать", "cast"),
