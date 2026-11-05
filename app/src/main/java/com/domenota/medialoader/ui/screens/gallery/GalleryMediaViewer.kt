@@ -3,6 +3,8 @@ package com.domenota.medialoader.ui.screens.gallery
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.content.pm.ActivityInfo
+import java.util.Locale
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -70,11 +72,9 @@ internal fun GalleryMediaViewer(
     var locked by rememberSaveable(current.id) { mutableStateOf(false) }
     var landscape by rememberSaveable(current.id) { mutableStateOf(false) }
     var menu by remember(current.id) { mutableStateOf(false) }
-    var extractExpanded by remember(current.id) { mutableStateOf(false) }
     var photoTool by remember(current.id) { mutableStateOf<String?>(null) }
     var loopVideo by rememberSaveable(current.id) { mutableStateOf(false) }
     var videoSpeed by rememberSaveable(current.id) { mutableStateOf(1f) }
-    var speedMenu by remember(current.id) { mutableStateOf(false) }
     var songSearch by remember(current.id) { mutableStateOf(false) }
     var info by remember(current.id) { mutableStateOf(false) }
     var chooseFolder by remember(current.id) { mutableStateOf(false) }
@@ -109,32 +109,33 @@ internal fun GalleryMediaViewer(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Scaffold(containerColor = Color.Black, contentColor = Color.White, contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                if (chrome && !fullscreen && !locked) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", tint = Color.White) }
-                    val date = Instant.ofEpochMilli(current.createdAtEpochMillis).atZone(ZoneId.systemDefault())
-                    Column(Modifier.weight(1f).padding(start = 5.dp)) {
-                        Text(date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.LONG)), fontSize = 15.sp, fontWeight = FontWeight.Medium,
-                            color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(date.format(DateTimeFormatter.ofPattern("HH:mm")), fontSize = 11.sp, color = Color(0xFFAAAAAA))
-                    }
-                    Box {
-                        IconButton({ mutate { copyGalleryFile(context, current) } }) { Icon(Icons.Outlined.ContentCopy, "Копировать", tint = Color.White) }
-                    }
+                if (chrome && !fullscreen && !locked) {
+                    val created = Instant.ofEpochMilli(current.createdAtEpochMillis).atZone(ZoneId.systemDefault())
+                    GalleryV10Header(
+                        date = created.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))),
+                        time = created.format(DateTimeFormatter.ofPattern("HH:mm")),
+                        onBack = onBack,
+                        onRotate = {
+                            activity?.let { host ->
+                                host.requestedOrientation =
+                                    if (host.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
+                                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                    else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                            }
+                        },
+                    )
                 }
             }, bottomBar = {
-                if (chrome && !fullscreen && !locked) Row(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 18.dp),
-                    horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton({ onShare(current) }) { Icon(Icons.Outlined.IosShare, "Поделиться", tint = Color.White) }
-                    IconButton({ onEdit(current) }) { Icon(if (current.mediaType == MediaType.VIDEO) Icons.Outlined.ContentCut else Icons.Outlined.Edit, "Редактировать", tint = Color.White) }
-                    IconButton({ mutate { onFavorite(current.id, current.id !in favoriteIds) } }) {
-                        Icon(if (current.id in favoriteIds) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, "Избранное",
-                            tint = if (current.id in favoriteIds) MaterialTheme.colorScheme.primary else Color.White)
-                    }
-                    IconButton({ onDelete(current) }) { Icon(Icons.Outlined.DeleteOutline, "Удалить", tint = MaterialTheme.colorScheme.error) }
-                    IconButton({ menu = true }) { Icon(Icons.Outlined.MoreHoriz, "Действия с файлом", tint = Color.White) }
-                }
-            }) { padding ->
+                if (chrome && !fullscreen && !locked) GalleryV10Bottom(
+                    isPhoto = current.mediaType == MediaType.PHOTO,
+                    isFavorite = current.id in favoriteIds,
+                    onShare = { onShare(current) },
+                    onEdit = { onEdit(current) },
+                    onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
+                    onDelete = { onDelete(current) },
+                    onMenu = { menu = true },
+                )
+            }}) { padding ->
             // Pager may ask its previous key provider for one new index during a size update.
             HorizontalPager(state = pager, key = { page -> queue.getOrNull(page)?.id ?: "pending-gallery-page:$page" }, beyondViewportPageCount = 1,
                 userScrollEnabled = !zoomed && !fullscreen && !locked,
@@ -156,43 +157,38 @@ internal fun GalleryMediaViewer(
                 }
             }
         }
+        if (menu) GalleryV10Popup(
+            isPhoto = current.mediaType == MediaType.PHOTO,
+            repeatOne = loopVideo,
+            speed = videoSpeed,
+            allowPrivate = current.providerId != "device",
+            onDismiss = { menu = false },
+            onSpeed = { selected -> videoSpeed = selected; menu = false },
+            onAction = { action ->
+                if (action == "loop") {
+                    loopVideo = !loopVideo
+                } else {
+                    menu = false
+                    when (action) {
+                        "album" -> chooseFolder = true
+                        "wallpaper" -> mutate { galleryWallpaper(context, current) }
+                        "info" -> info = true
+                        "ocr", "cutout", "watermark" -> photoTool = action
+                        "edit" -> onEdit(current)
+                        "cast" -> mutate { galleryCast(context, current) }
+                        "song" -> songSearch = true
+                        "copy" -> mutate { copyGalleryFile(context, current) }
+                        "open" -> onOpenExternal(current)
+                        "private" -> if (current.providerId != "device") onMoveToPrivate(current)
+                    }
+                }
+            },
+        )
         error?.let { message -> Snackbar(Modifier.align(Alignment.BottomCenter).padding(12.dp),
             action = { TextButton({ error = null }) { Text("Закрыть") } }) { Text(message) } }
     }
     photoTool?.let { mode -> PhotoToolsDialog(current, mode) { photoTool = null } }
-    if (speedMenu) AlertDialog(onDismissRequest = { speedMenu = false }, title = { Text("Скорость воспроизведения") },
-        text = { Column { listOf(.25f, .5f, .75f, 1f, 1.25f, 1.5f, 2f).forEach { speed ->
-            TextButton({ videoSpeed = speed; speedMenu = false }) { Text("$speed×") }
-        } } }, confirmButton = { TextButton({ speedMenu = false }) { Text("Закрыть") } })
     if (songSearch) VideoSongSearchDialog(current.savedUri.orEmpty()) { songSearch = false }
-    if (menu) ModalBottomSheet(onDismissRequest = { menu = false }) {
-        com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
-        Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()).padding(horizontal = 17.dp).padding(bottom = 24.dp)) {
-            Text("Действия с файлом", fontSize = 18.sp, modifier = Modifier.padding(bottom = 12.dp))
-            TextButton({ menu = false; chooseFolder = true }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.AddCircleOutline, null); Spacer(Modifier.width(12.dp)); Text("В альбом") }
-            TextButton({ menu = false; mutate { galleryWallpaper(context, current) } }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Wallpaper, null); Spacer(Modifier.width(12.dp)); Text(if (current.mediaType == MediaType.VIDEO) "Кадр как обои" else "Установить как обои") }
-            TextButton({ menu = false; info = true }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Info, null); Spacer(Modifier.width(12.dp)); Text("Сведения") }
-            HorizontalDivider()
-            if (current.mediaType == MediaType.PHOTO) {
-                TextButton({ extractExpanded = !extractExpanded }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.TextFields, null); Spacer(Modifier.width(12.dp)); Text("Извлечь"); Icon(if (extractExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null) }
-                if (extractExpanded) TextButton({ menu = false; photoTool = "ocr" }, Modifier.fillMaxWidth().padding(start = 24.dp)) { Text("Распознать текст") }
-                TextButton({ menu = false; photoTool = "cutout" }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.PersonOutline, null); Spacer(Modifier.width(12.dp)); Text("Вырезка фото") }
-                TextButton({ menu = false; onEdit(current) }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Edit, null); Spacer(Modifier.width(12.dp)); Text("Изменить") }
-                TextButton({ menu = false; photoTool = "watermark" }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Shield, null); Spacer(Modifier.width(12.dp)); Text("Защитный водяной знак") }
-            } else {
-                TextButton({ menu = false; loopVideo = !loopVideo }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.RepeatOne, null); Spacer(Modifier.width(12.dp)); Text(if (loopVideo) "Отключить повтор видео" else "Зациклить одно видео") }
-                TextButton({ menu = false; speedMenu = true }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Speed, null); Spacer(Modifier.width(12.dp)); Text("Скорость воспроизведения · $videoSpeed×") }
-                TextButton({ menu = false; songSearch = true }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.MusicNote, null); Spacer(Modifier.width(12.dp)); Text("Найти трек") }
-            }
-            TextButton({ menu = false; mutate { galleryCast(context, current) } }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Cast, null); Spacer(Modifier.width(12.dp)); Text("Транслировать через приложение") }
-            HorizontalDivider()
-            TextButton({ menu = false; mutate { copyGalleryFile(context, current) } }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.ContentCopy, null); Spacer(Modifier.width(12.dp)); Text("Копировать") }
-            TextButton({ menu = false; onOpenExternal(current) }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.OpenInNew, null); Spacer(Modifier.width(12.dp)); Text("Открыть другим приложением") }
-            if (current.providerId != "device") TextButton({ menu = false; onMoveToPrivate(current) }, Modifier.fillMaxWidth()) {
-                Icon(Icons.Rounded.Lock, null); Spacer(Modifier.width(12.dp)); Text("Переместить в личное")
-            }
-        }
-    }
     if (chooseFolder) AlertDialog(onDismissRequest = { chooseFolder = false }, title = { Text("Добавить в альбом") },
         text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             TextButton({ mutate { onSetFolder(current.id, null); chooseFolder = false } }) { Text("Без папки") }
