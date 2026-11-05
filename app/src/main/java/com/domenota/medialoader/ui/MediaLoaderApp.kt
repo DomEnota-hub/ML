@@ -190,6 +190,7 @@ fun MediaLoaderApp(
     val libraryPreferences = remember(context) { LibraryPreferences(context) }
     var appMode by rememberSaveable { mutableStateOf(libraryPreferences.mode) }
     var privateNavigation by remember { mutableStateOf(false) }
+    var galleryDateRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryTab by rememberSaveable { mutableIntStateOf(0) }
     var galleryTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDetailOpen by remember { mutableStateOf(false) }
@@ -304,6 +305,7 @@ fun MediaLoaderApp(
             onTrash = { navController.navigate("trash") },
             onSettings = { navController.navigate(AppDestination.Settings.route) },
             onSearch = { librarySearchVisible = !librarySearchVisible },
+            onCalendar = if (appMode == AppMode.GALLERY && galleryTab == 0) ({ galleryDateRequest++ }) else null,
             onHiddenTracks = if (appMode == AppMode.MUSIC) ({ hiddenMusicTracksOpen = true }) else null,
             onPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) })
     }
@@ -804,7 +806,7 @@ fun MediaLoaderApp(
             }
         }
         LibraryMediaDeleteHost(targets, onDismiss = ::finishDeletion,
-            onDeleteApp = viewModel::hideLibraryFile, onDeleted = ::finishDeletion)
+            onDeleteApp = viewModel::hideLibraryFile, onDeleteAppPermanently = viewModel::deleteLibraryFilePermanently, onDeleted = ::finishDeletion)
     }
     val previewLibraryAudio: (String, List<String>) -> Unit = { id, ids ->
         libraryPreviewJob?.cancel()
@@ -1084,7 +1086,7 @@ fun MediaLoaderApp(
                     }, onShare = shareLibraryFile,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles, onRename = viewModel::renameDownload,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
-                    searchVisible = librarySearchVisible, tabOverride = galleryTab,
+                    searchVisible = librarySearchVisible, tabOverride = galleryTab, datePickerRequest = galleryDateRequest,
                      scrollToTopRequest = galleryTopRequest, onTabChange = {
                          if (galleryTab == 0 && it == 0) galleryTopRequest++
                          galleryTab = it

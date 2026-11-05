@@ -16,6 +16,16 @@ internal data class TextReadResult(val text: String, val confidence: Int)
 /** Both language models ship in the APK; images and text never leave the device. */
 internal object LocalTextOcr {
     private val gate = Mutex()
+
+    /** Recognizes the entire photograph, preserving paragraphs and reading order. */
+    suspend fun readPage(context: Context, image: Bitmap): TextReadResult = withEngine(context) { api ->
+        api.pageSegMode = TessBaseAPI.PageSegMode.PSM_AUTO
+        api.setImage(image)
+        val text = api.getUTF8Text().orEmpty().trim()
+        currentCoroutineContext().ensureActive()
+        TextReadResult(text, api.meanConfidence())
+    }
+
     suspend fun readLine(context: Context, image: Bitmap): TextReadResult = withEngine(context) { api ->
         api.pageSegMode = TessBaseAPI.PageSegMode.PSM_SINGLE_LINE
         val mask = TextSampleRaster.read(image).tight()

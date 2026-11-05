@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.widget.NumberPicker
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -91,6 +92,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -347,6 +349,10 @@ internal fun LocalVideoPlayer(
     allowExternal: Boolean = true,
     modifier: Modifier = Modifier,
     galleryPagingEnabled: Boolean = false,
+    initialPoster: VideoViewerPosterState? = null,
+    repeatOne: Boolean = false,
+    requestedSpeed: Float? = null,
+    onPlaybackSpeedChanged: (Float) -> Unit = {},
 ) {
     val context = LocalContext.current
     val gestureThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
@@ -385,11 +391,15 @@ internal fun LocalVideoPlayer(
     var playableDurationMs by remember(uri) { mutableStateOf(0L) }
     var isPlaying by remember(uri) { mutableStateOf(false) }
     var playbackSpeed by remember(uri) { mutableStateOf(1f) }
+    val notifySpeedChanged by rememberUpdatedState(onPlaybackSpeedChanged)
     var playbackEnded by remember(uri) { mutableStateOf(false) }
     var scrubPositionMs by remember(uri) { mutableStateOf<Long?>(null) }
     var chromeVisible by remember(uri) { mutableStateOf(true) }
     var unlockVisible by remember(uri) { mutableStateOf(false) }
     var playerView by remember(uri, retryGeneration) { mutableStateOf<PlayerView?>(null) }
+    var posterView by remember(uri, retryGeneration) { mutableStateOf<ImageView?>(null) }
+    val poster = initialPoster ?: rememberVideoViewerPoster(itemId, uri)
+    val initialPositionMs = remember(itemId, uri, retryGeneration) { poster.positionMs }
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -403,7 +413,6 @@ internal fun LocalVideoPlayer(
     }
 
     val player = remember(uri, retryGeneration) {
-        val savedPosition = com.domenota.medialoader.data.playback.VideoWatchProgress.resumePosition(prefs, itemId)
         ExoPlayer.Builder(context)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -416,9 +425,16 @@ internal fun LocalVideoPlayer(
             .build()
             .apply {
             setMediaItem(MediaItem.fromUri(uri))
-            if (savedPosition > 0L) seekTo(savedPosition)
+            if (initialPositionMs > 0L) seekTo(initialPositionMs)
             prepare()
         }
+    }
+    var renderedFirstFrame by remember(player) { mutableStateOf(false) }
+    LaunchedEffect(player, repeatOne) {
+        player.repeatMode = if (repeatOne) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+    }
+    LaunchedEffect(player, requestedSpeed) {
+        requestedSpeed?.takeIf { it > 0f }?.let { player.setPlaybackSpeed(it) }
     }
     fun launchFloatingVideo() {
         if (!allowExternal) return
@@ -440,12 +456,18 @@ internal fun LocalVideoPlayer(
 
     DisposableEffect(player, lifecycleOwner, itemId) {
         val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                renderedFirstFrame = true
+                posterView?.visibility = android.view.View.GONE
+            }
+
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
             }
 
             override fun onPlaybackParametersChanged(parameters: androidx.media3.common.PlaybackParameters) {
                 playbackSpeed = parameters.speed
+                notifySpeedChanged(parameters.speed)
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -654,6 +676,18 @@ internal fun LocalVideoPlayer(
                     }
                     setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                     setBackgroundColor(android.graphics.Color.BLACK)
+                    // Keep a matching frame above the video surface until a real frame is drawn.
+                    // PlayerView's overlay is below its controller, so controls remain usable.
+                    overlayFrameLayout?.addView(ImageView(viewContext).apply {
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        setBackgroundColor(android.graphics.Color.BLACK)
+                        setImageBitmap(poster.bitmap)
+                        visibility = if (renderedFirstFrame) android.view.View.GONE else android.view.View.VISIBLE
+                        posterView = this
+                    }, android.widget.FrameLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    ))
                 }
             },
             update = {
@@ -663,6 +697,10 @@ internal fun LocalVideoPlayer(
                     ?.setAspectRatio(forcedAspectRatio ?: sourceAspectRatio)
                 it.useController = !controlsLocked
                 it.setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
+                posterView?.apply {
+                    setImageBitmap(poster.bitmap)
+                    visibility = if (renderedFirstFrame) android.view.View.GONE else android.view.View.VISIBLE
+                }
             },
             modifier = Modifier.fillMaxSize(),
         )

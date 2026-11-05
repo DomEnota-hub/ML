@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
+import androidx.compose.foundation.border
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -60,6 +62,7 @@ fun GalleryModeScreen(
     onDetailChange: (Boolean) -> Unit = {}, onTrash: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
     onDeleteFolder: suspend (String) -> Unit = {},
+    datePickerRequest: Int = 0,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -82,6 +85,10 @@ fun GalleryModeScreen(
     var creating by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var handledDateRequest by rememberSaveable { mutableStateOf(datePickerRequest) }
+    LaunchedEffect(datePickerRequest) {
+        if (handledDateRequest != datePickerRequest) { handledDateRequest = datePickerRequest; showDatePicker = true }
+    }
     var selectedJumpDate by remember { mutableStateOf<LocalDate?>(null) }
     val detailOpen = selectionTitle.isNotEmpty()
     LaunchedEffect(detailOpen) { onDetailChange(detailOpen) }
@@ -330,16 +337,6 @@ fun GalleryModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
                         leadingIcon = { Icon(Icons.Rounded.Search, null) })
-                    if (tab == 0 && !detailOpen) Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 17.dp),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(onClick = { showDatePicker = true }, enabled = visibleDisplayed.isNotEmpty()) {
-                            Icon(Icons.Rounded.CalendarMonth, null)
-                            Spacer(Modifier.width(7.dp))
-                            Text("Перейти к дате")
-                        }
-                    }
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading, message, settingsError ?: error,
                         tab == 0 && visibleDisplayed.isEmpty(), "Нет фото и видео") }
                 }
@@ -652,14 +649,14 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
         .semantics { contentDescription = item.originalName }
         .combinedClickable(onClick = onOpen, onLongClick = onLongSelect, onLongClickLabel = "Выбрать файл")) {
         DownloadThumbnail(item.savedUri, item.previewUrl, item.toUi().kind, Modifier.fillMaxSize(), progressive = true)
-        if (selected) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = .25f)))
-        if (selecting) IconButton(onClick = onSelect, modifier = Modifier.align(Alignment.TopEnd).size(40.dp)) {
-            Icon(
-                if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                if (selected) "Снять выделение" else "Выбрать файл",
-                Modifier.size(25.dp),
-                tint = if (selected) MaterialTheme.colorScheme.primary else Color.White,
-            )
+        if (selecting) Box(Modifier.align(Alignment.TopEnd).size(40.dp)) {
+            IconButton(onClick = onSelect, modifier = Modifier.fillMaxSize()) {
+                Box(Modifier.align(Alignment.TopEnd).padding(2.dp).size(23.dp)
+                    .background(if (selected) Color(0xFF4285F4) else Color.Transparent, androidx.compose.foundation.shape.CircleShape)
+                    .then(Modifier.border(2.dp, Color.White, androidx.compose.foundation.shape.CircleShape)), contentAlignment = Alignment.Center) {
+                    if (selected) Icon(Icons.Rounded.Check, "Снять выделение", Modifier.size(18.dp), tint = Color.White)
+                }
+            }
         }
         else IconButton({ menu = true }, Modifier.align(Alignment.TopEnd).size(32.dp)) {
             Icon(Icons.Rounded.MoreVert, "Действия: ${item.originalName}", tint = Color.White,

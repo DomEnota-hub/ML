@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.IOException
@@ -102,6 +103,25 @@ class StorageManager(
             temporary.delete()
             target.delete()
             throw error
+        }
+    }
+
+    /** Removes only the saved file selected by the caller; no private trash copy is made. */
+    suspend fun deleteDownloadPermanently(savedUri: String): Boolean = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(savedUri)
+        when {
+            uri.scheme == "file" -> {
+                val file = File(uri.path ?: return@withContext false)
+                file.isFile && file.delete()
+            }
+            uri.scheme != "content" -> false
+            DocumentsContract.isDocumentUri(context, uri) -> DocumentsContract.deleteDocument(context.contentResolver, uri)
+            uri.authority == "downloads" -> {
+                val systemId = uri.lastPathSegment?.toLongOrNull() ?: return@withContext false
+                val system = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                system.remove(systemId) > 0
+            }
+            else -> context.contentResolver.delete(uri, null, null) > 0
         }
     }
 

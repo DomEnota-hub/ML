@@ -1007,6 +1007,21 @@ class MediaRepository private constructor(context: Context) {
         AppLog.i("Trash", "Move completed · id=$id")
     }
 
+    /** Gallery-only deletion: never stage bytes or metadata in either trash. */
+    suspend fun deleteLibraryFilePermanently(id: String) = musicPostProcessGate.withPermit {
+        val item = history.byId(id) ?: return@withPermit
+        requireMediaAccess(item)
+        require(!item.isPrivate && !item.hidden && item.state == DownloadState.COMPLETED) {
+            "Действие доступно только для завершённых файлов галереи"
+        }
+        permanentlyDeleteSavedMedia(
+            status = withContext(Dispatchers.IO) { savedFileStatus(item.savedUri) },
+            deleteFile = { storage.deleteDownloadPermanently(requireNotNull(item.savedUri)) },
+            deleteRecord = { history.deleteMissingHistoryRow(id) },
+        )
+        AppLog.i("Gallery", "Permanently deleted · id=$id")
+    }
+
     suspend fun restoreHidden(ids: Set<String>) {
         AppLog.i("Trash", "Restore requested · count=${ids.size}")
         history.all().filter { !it.isPrivate && it.hidden && it.id in ids }.forEach { item ->

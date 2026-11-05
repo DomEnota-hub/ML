@@ -48,7 +48,7 @@ internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
 @Composable
 internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource, onMode: (AppMode) -> Unit,
     onSource: (LibrarySource) -> Unit, onTrash: () -> Unit, onSettings: () -> Unit,
-    onSearch: () -> Unit = {}, onPrivate: () -> Unit = {}, onHiddenTracks: (() -> Unit)? = null) {
+    onSearch: () -> Unit = {}, onPrivate: () -> Unit = {}, onHiddenTracks: (() -> Unit)? = null, onCalendar: (() -> Unit)? = null) {
     Column(Modifier.fillMaxWidth().padding(start = 17.dp, end = 17.dp, top = 9.dp, bottom = 15.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { AppModeTitle(mode, onMode) }
@@ -58,6 +58,9 @@ internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource, onMode: (Ap
                         tint = MaterialTheme.colorScheme.onSurface)
                 }
             }
+            onCalendar?.let { action -> IconButton(action) {
+                Icon(Icons.Rounded.CalendarMonth, "Перейти к дате", Modifier.size(23.dp), tint = androidx.compose.ui.graphics.Color.White)
+            } }
             IconButton(onSearch) { Icon(Icons.Rounded.Search, "Поиск", Modifier.size(23.dp)) }
             IconButton(onPrivate) { Icon(Icons.Rounded.Lock, "Личное", Modifier.size(23.dp)) }
             if (mode == AppMode.GALLERY) {
