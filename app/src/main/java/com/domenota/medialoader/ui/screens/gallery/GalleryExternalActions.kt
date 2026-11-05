@@ -49,12 +49,91 @@ internal suspend fun copyGalleryFile(context: Context, item: DownloadEntity) {
     }
 }
 
+/**
+ * WallpaperManager requires a URI whose ContentProvider reports image/*.
+ * Downloads may expose application/octet-stream, so use a dedicated PNG copy.
+ * Never modify the original image or hand the wallpaper app an ungranted URI.
+ */
+internal suspend fun prepareGalleryWallpaperUri(context: Context, item: DownloadEntity): Uri =
+    withContext(Dispatchers.IO) {
+        val directory = File(context.cacheDir, "photo-tools").apply { check(isDirectory || mkdirs()) }
+        val file = File.createTempFile("wallpaper-", ".png", directory)
+        try {
+            val source = Uri.parse(requireNotNull(item.savedUri))
+            val bitmap = if (item.mediaType == MediaType.VIDEO) {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, source)
+                    checkNotNull(retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)) {
+                        "Не удалось получить кадр видео для обоев"
+                    }
+                } finally { retriever.release() }
+            } else {
+                GalleryPhotoTools.decode(context, source, maxEdge = 2560)
+            }
+            try {
+                file.outputStream().use { output ->
+                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                        "Не удалось подготовить изображение для обоев"
+                    }
+                }
+            } finally { bitmap.recycle() }
+            check(file.length() > 0) { "Изображение для обоев пустое" }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.photo-tools", file)
+            val mime = context.contentResolver.getType(uri)
+            check(mime?.startsWith("image/") == true) {
+                "Система не распознаёт изображение для обоев: тип ${mime ?: "не определён"}"
+            }
+            check(context.contentResolver.openInputStream(uri)?.use { it.read() >= 0 } == true) {
+                "Система не может открыть изображение для обоев"
+            }
+            com.domenota.medialoader.core.logging.AppLog.i(
+                "GalleryWallpaper", "Wallpaper prepared · source=${item.mediaType} · mime=$mime · bytes=${file.length()}"
+            )
+            uri
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            file.delete()
+            throw cancelled
+        } catch (failure: Exception) {
+            file.delete()
+            com.domenota.medialoader.core.logging.AppLog.w("GalleryWallpaper", "Wallpaper preparation failed", failure)
+            throw failure
+        }
+    }
+
 internal suspend fun galleryWallpaper(context: Context, item: DownloadEntity) {
-    val uri = exportedUri(context, item, item.mediaType == MediaType.VIDEO)
+    val uri = prepareGalleryWallpaperUri(context, item)
     withContext(Dispatchers.Main) {
-        val intent = WallpaperManager.getInstance(context).getCropAndSetWallpaperIntent(uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(intent)
+        val resolver = context.contentResolver
+        // ClipData grants access on Android 13+ and Xiaomi's wallpaper-picker process.
+        val grant = ClipData.newUri(resolver, "Изображение для обоев", uri)
+        val intent = try {
+            WallpaperManager.getInstance(context).getCropAndSetWallpaperIntent(uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .also { it.clipData = grant }
+        } catch (failure: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.w(
+                "GalleryWallpaper", "System crop intent unavailable, using ACTION_ATTACH_DATA", failure
+            )
+            Intent(Intent.ACTION_ATTACH_DATA).apply {
+                setDataAndType(uri, "image/png")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = grant
+            }
+        }
+        try {
+            context.startActivity(intent)
+        } catch (failure: android.content.ActivityNotFoundException) {
+            com.domenota.medialoader.core.logging.AppLog.w(
+                "GalleryWallpaper", "Wallpaper crop activity unavailable; opening image chooser", failure
+            )
+            val fallback = Intent(Intent.ACTION_ATTACH_DATA).apply {
+                setDataAndType(uri, "image/png")
+                clipData = grant
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(fallback, "Установить как обои"))
+        }
     }
 }
 
