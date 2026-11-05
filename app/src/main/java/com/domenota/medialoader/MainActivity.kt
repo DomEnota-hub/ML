@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.domenota.medialoader.core.logging.AppLog
+import com.domenota.medialoader.core.logging.ProcessExitDiagnostics
 import com.domenota.medialoader.data.instagramprofile.InstagramProfileController
 import com.domenota.medialoader.ui.MediaLoaderApp
 import com.domenota.medialoader.data.playback.AudioWaveformPrecompute
@@ -30,6 +31,7 @@ class MainActivity : ComponentActivity() {
         AppLog.init(applicationContext)
         com.domenota.medialoader.core.logging.PerformanceLog.begin("activity_create")
         super.onCreate(savedInstanceState)
+        lifecycleScope.launch(Dispatchers.IO) { ProcessExitDiagnostics.recordPreviousExits(applicationContext) }
         if (savedInstanceState == null && forwardAutomaticShare(intent, false)) {
             finish()
             return

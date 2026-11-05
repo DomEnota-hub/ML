@@ -1464,10 +1464,10 @@ fun MediaLoaderApp(
                         emptyList()
                     }
                     viewerState.SaveableStateProvider("content") {
-                    if (galleryPresentation && item.mediaType != MediaType.AUDIO) GalleryMediaViewer(
+                    if ((galleryPresentation || !item.isPrivate) && item.mediaType != MediaType.AUDIO) GalleryMediaViewer(
                         item = item,
                         media = com.domenota.medialoader.data.playback.GridMediaQueue.resolve(snapshot, viewerRows, false, fileStatuses)
-                            .ifEmpty { listOf(item) },
+                            .ifEmpty { if (item.mediaType == MediaType.PHOTO && photoQueue.isNotEmpty()) photoQueue else listOf(item) },
                         onBack = { navController.popBackStack() }, onShare = { shareSavedFile(context, it) },
                         onEdit = { selected -> navController.navigate(if (selected.mediaType == MediaType.VIDEO)
                             "video-editor/${selected.id}" else "photo-editor/${selected.id}") },

@@ -59,6 +59,7 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
     var watermark by remember(photo.id) { mutableStateOf("") }
     var selectedSubject by remember(photo.id) { mutableIntStateOf(-1) }
     var loading by remember(photo.id, mode) { mutableStateOf(true) }
+    var preparingModel by remember(photo.id, mode) { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var error by remember(photo.id, mode) { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
@@ -94,6 +95,13 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
         cutout = null
         text = ""
         try {
+            // Do not decode a potentially large bitmap until Google Play confirms
+            // the optional ML Kit subject-segmentation module is installed.
+            if (mode == "cutout") {
+                preparingModel = true
+                withTimeout(100_000L) { GalleryPhotoTools.prepareCutoutModel(context) }
+                preparingModel = false
+            }
             val image = GalleryPhotoTools.decode(context, Uri.parse(requireNotNull(photo.savedUri)), if (mode == "ocr") 4000 else 2560)
             source = image
             when (mode) {
@@ -108,7 +116,7 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
         catch (failure: Exception) {
             error = if (mode == "cutout") "${failure.message ?: "Не удалось выделить объект"}\nДля загрузки модели нужны интернет и обновлённые Google Play сервисы."
                 else failure.message ?: "Не удалось обработать фотографию"
-        } finally { loading = false }
+        } finally { preparingModel = false; loading = false }
     }
     LaunchedEffect(source, watermark) {
         watermarkImage = null
@@ -153,9 +161,10 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                             else CircularProgressIndicator()
                         }
                     }
-                    if (loading) Text(if (mode == "cutout")
-                        "Выделяем объекты на устройстве… При первом запуске Google Play сервисы загружают модель. Нужен интернет."
-                        else "Распознаём текст на устройстве…", style = MaterialTheme.typography.bodySmall)
+                    if (loading) Text(if (mode == "cutout") {
+                        if (preparingModel) "Проверяем модуль Google Play. При необходимости загружаем модель, нужен интернет…"
+                        else "Выделяем объекты на устройстве…"
+                    } else "Распознаём текст на устройстве…", style = MaterialTheme.typography.bodySmall)
                     if (mode == "watermark") {
                         OutlinedTextField(value = watermark, onValueChange = { watermark = it.take(160) },
                             label = { Text("Текст водяного знака") }, singleLine = true, modifier = Modifier.fillMaxWidth())
