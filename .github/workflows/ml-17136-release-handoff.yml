@@ -5,6 +5,8 @@ on:
       - build/ml-17136-arm64-gallery-qa-v4-20261106
     paths:
       - .github/workflows/ml-17136-release-handoff.yml
+      - app/src/main/java/com/domenota/medialoader/ui/screens/gallery/**
+      - app/src/main/java/com/domenota/medialoader/data/editor/LocalTextOcr.kt
   workflow_dispatch:
 permissions:
   contents: read
