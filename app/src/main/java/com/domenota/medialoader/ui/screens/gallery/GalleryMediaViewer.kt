@@ -135,7 +135,7 @@ internal fun GalleryMediaViewer(
                     onDelete = { onDelete(current) },
                     onMenu = { menu = true },
                 )
-            }}) { padding ->
+            }) { padding ->
             // Pager may ask its previous key provider for one new index during a size update.
             HorizontalPager(state = pager, key = { page -> queue.getOrNull(page)?.id ?: "pending-gallery-page:$page" }, beyondViewportPageCount = 1,
                 userScrollEnabled = !zoomed && !fullscreen && !locked,
