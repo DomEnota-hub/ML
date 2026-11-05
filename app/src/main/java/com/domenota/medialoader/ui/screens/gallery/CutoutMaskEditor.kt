@@ -76,6 +76,8 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
 
     fun snapshot(): Bitmap = preview.copy(Bitmap.Config.ARGB_8888, false)
 
+    fun release() { if (!preview.isRecycled) preview.recycle() }
+
     private fun dab(x: Float, y: Float, radius: Float, restore: Boolean) {
         if (!x.isFinite() || !y.isFinite()) return
         val r = radius.coerceIn(1f, min(width, height).toFloat())
