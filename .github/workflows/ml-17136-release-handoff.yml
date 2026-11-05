@@ -13,7 +13,7 @@ permissions:
   contents: read
 concurrency:
   group: ml-17136-release-handoff
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   assemble-release:
     runs-on: ubuntu-24.04
