@@ -403,8 +403,10 @@ fun MediaLoaderApp(
         }
     }
     fun requestPrivateMove(ids: List<String>) {
-        if (privateMoveBusy || ids.isEmpty()) return
-        if (privateState.mode == com.domenota.medialoader.data.privatevault.PrivateAccessMode.UNCONFIGURED) {
+        // Navigation can retain this callback across recompositions. Read live owner
+        // state: a captured busy=true would silently block every later batch.
+        if (viewModel.privateMoveState.value.busy || ids.isEmpty()) return
+        if (viewModel.privateAccess.state.value.mode == com.domenota.medialoader.data.privatevault.PrivateAccessMode.UNCONFIGURED) {
             pendingPrivateMoves = ids
             returnAfterPrivateSetup = true
             privateNavigation = true
