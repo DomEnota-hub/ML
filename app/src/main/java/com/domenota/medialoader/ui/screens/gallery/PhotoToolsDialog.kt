@@ -20,6 +20,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -43,6 +44,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.DisposableEffect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -63,9 +65,18 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
     var exporting by remember { mutableStateOf(false) }
     var error by remember(photo.id, mode) { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
-    val result = if (mode == "watermark") watermarkImage else cutout?.let { cut ->
-        cut.subjects.getOrNull(selectedSubject) ?: cut.foreground
+    var brushRestore by remember(photo.id, mode) { mutableStateOf(false) }
+    var brushRadius by remember(photo.id, mode) { mutableFloatStateOf(32f) }
+    var maskRevision by remember(photo.id, mode) { mutableIntStateOf(0) }
+    val selectedMask = cutout?.let { item -> item.subjects.getOrNull(selectedSubject) ?: item.foreground }
+    val currentSource = source
+    val maskEditor = remember(currentSource, selectedMask, mode) {
+        if (mode == "cutout" && currentSource != null && selectedMask != null)
+            CutoutMaskEditor(currentSource, selectedMask) else null
     }
+    DisposableEffect(maskEditor) { onDispose { maskEditor?.release() } }
+    val result = if (mode == "watermark") watermarkImage else maskEditor?.preview ?: selectedMask
+    @Suppress("UNUSED_VARIABLE") val maskChange = maskRevision
     fun notify(message: String) { Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
     fun perform(action: suspend () -> Unit) {
         scope.launch {
@@ -86,6 +97,8 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                     check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) { "Не удалось сохранить PNG" }
                 }
             }
+            if (bitmap !== source && bitmap !== watermarkImage && bitmap !== cutout?.foreground)
+                bitmap.recycle()
             notify("Копия PNG сохранена")
         }
     }
@@ -177,7 +190,12 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                     Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF252525)), contentAlignment = Alignment.Center) {
                         val preview = if (mode == "watermark") watermarkImage ?: source else result ?: source
                         if (result != null) TransparencyGrid(Modifier.fillMaxSize())
-                        preview?.let { Image(it.asImageBitmap(), "Предпросмотр", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                        if (mode == "cutout" && maskEditor != null && !loading) {
+                            CutoutRetouchCanvas(maskEditor, brushRestore, brushRadius,
+                                onStrokeDone = { maskRevision++ }, modifier = Modifier.fillMaxSize())
+                        } else {
+                            preview?.let { Image(it.asImageBitmap(), "Предпросмотр", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                        }
                         if (loading) {
                             if (mode == "cutout") ScanningDots(Modifier.fillMaxSize())
                             else CircularProgressIndicator()
@@ -190,6 +208,29 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                             "Проверяем модуль Google Play. При необходимости загружаем модель, нужен интернет…"
                         else "Выделяем объекты на устройстве…"
                     } else "Распознаём текст на устройстве…", style = MaterialTheme.typography.bodySmall)
+                    if (mode == "cutout" && maskEditor != null && !loading) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            FilterChip(selected = !brushRestore, onClick = { brushRestore = false },
+                                label = { Text("Ластик") })
+                            FilterChip(selected = brushRestore, onClick = { brushRestore = true },
+                                label = { Text("Вернуть") })
+                            TextButton(onClick = {
+                                if (maskEditor.undo()) maskRevision++
+                            }, enabled = maskEditor.canUndo) { Text("Отменить") }
+                            TextButton(onClick = {
+                                maskEditor.reset()
+                                maskRevision++
+                            }) { Text("Сброс") }
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Кисть", style = MaterialTheme.typography.labelMedium)
+                            Slider(value = brushRadius, onValueChange = { brushRadius = it },
+                                valueRange = 8f..100f, modifier = Modifier.weight(1f))
+                            Text(brushRadius.toInt().toString(), style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
                     if (mode == "watermark") {
                         OutlinedTextField(value = watermark, onValueChange = { watermark = it.take(160) },
                             label = { Text("Текст водяного знака") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -205,23 +246,42 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                     if (mode != "ocr" && !loading) {
                         result?.let { Text("${it.width} × ${it.height} · PNG · отдельная копия", style = MaterialTheme.typography.bodySmall) }
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton(enabled = result != null && !exporting, onClick = { result?.let { image -> perform {
-                                val uri = GalleryPhotoTools.export(context, image)
-                                clipboard(context).setPrimaryClip(ClipData.newUri(context.contentResolver, "PNG", uri))
-                                notify("PNG скопирован")
-                            } } }) { Text("Копировать") }
                             TextButton(enabled = result != null && !exporting, onClick = { result?.let { image ->
-                                if (Build.VERSION.SDK_INT >= 29) perform { GalleryPhotoTools.save(context, image); notify("Копия сохранена в Pictures/MediaLoader") }
-                                else { documentBitmap = image; saveDocument.launch("Photo-${System.currentTimeMillis()}.png") }
+                                val snapshot = if (mode == "cutout") maskEditor?.snapshot() else null
+                                perform {
+                                    try {
+                                        val uri = GalleryPhotoTools.export(context, snapshot ?: image)
+                                        clipboard(context).setPrimaryClip(ClipData.newUri(context.contentResolver, "PNG", uri))
+                                        notify("PNG скопирован")
+                                    } finally { snapshot?.recycle() }
+                                }
+                            } }) { Text("Копировать") }
+                            TextButton(enabled = result != null && !exporting, onClick = { result?.let { image ->
+                                val snapshot = if (mode == "cutout") maskEditor?.snapshot() else null
+                                if (Build.VERSION.SDK_INT >= 29) perform {
+                                    try {
+                                        GalleryPhotoTools.save(context, snapshot ?: image)
+                                        notify("Копия сохранена в Pictures/MediaLoader")
+                                    } finally { snapshot?.recycle() }
+                                }
+                                else {
+                                    documentBitmap = snapshot ?: image
+                                    saveDocument.launch("Photo-${System.currentTimeMillis()}.png")
+                                }
                             } }) { Text("Сохранить") }
-                            TextButton(enabled = result != null && !exporting, onClick = { result?.let { image -> perform {
-                                val uri = GalleryPhotoTools.export(context, image)
-                                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                                    type = "image/png"; putExtra(Intent.EXTRA_STREAM, uri)
-                                    clipData = ClipData.newUri(context.contentResolver, "PNG", uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }, "Поделиться PNG"))
-                            } } }) { Text("Поделиться") }
+                            TextButton(enabled = result != null && !exporting, onClick = { result?.let { image ->
+                                val snapshot = if (mode == "cutout") maskEditor?.snapshot() else null
+                                perform {
+                                    try {
+                                        val uri = GalleryPhotoTools.export(context, snapshot ?: image)
+                                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                                            type = "image/png"; putExtra(Intent.EXTRA_STREAM, uri)
+                                            clipData = ClipData.newUri(context.contentResolver, "PNG", uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }, "Поделиться PNG"))
+                                    } finally { snapshot?.recycle() }
+                                }
+                            } }) { Text("Поделиться") }
                         }
                     }
                 }
