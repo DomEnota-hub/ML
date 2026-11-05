@@ -21,8 +21,13 @@ internal object LocalTextOcr {
 
     internal data class OcrAttempt(val text: String, val confidence: Int, val stage: String) {
         val letterCount: Int get() = text.count { it.isLetter() }
-        val usable: Boolean get() = letterCount >= 2 && confidence >= 22
-        val score: Float get() = if (!usable) -1f else confidence + letterCount.coerceAtMost(40) * .35f
+        val longestWord: Int get() = Regex("""[\\p{L}]{2,}""").findAll(text)
+            .maxOfOrNull { it.value.length } ?: 0
+        val usable: Boolean get() = (longestWord >= 3 && confidence >= 32) ||
+            (longestWord >= 2 && confidence >= 75)
+        val score: Float get() = if (!usable) -1f
+            else confidence + longestWord.coerceAtMost(12) * 1.6f +
+                if (text.any { it in 'А'..'я' || it == 'ё' || it == 'Ё' }) 5f else 0f
     }
 
     /** Excludes low-confidence OCR noise from photos that contain no text. */
@@ -58,12 +63,12 @@ internal object LocalTextOcr {
         }
         recognize(image, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK, "block")
         currentCoroutineContext().ensureActive()
-        if (attempts.none { it.usable && it.confidence >= 45 }) {
+        if (attempts.none { it.usable && it.confidence >= 78 }) {
             val contrast = enhanceTextForOcr(image)
             try {
                 recognize(contrast, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT, "contrast-sparse")
                 currentCoroutineContext().ensureActive()
-                if (attempts.none { it.usable && it.confidence >= 45 }) {
+                if (attempts.none { it.usable && it.confidence >= 78 }) {
                     val bandHeight = (contrast.height / 2).coerceAtLeast(1)
                     val bandTops = listOf(0, (contrast.height - bandHeight) / 2, contrast.height - bandHeight).distinct()
                     for ((index, top) in bandTops.withIndex()) {
@@ -74,7 +79,25 @@ internal object LocalTextOcr {
                         } finally {
                             if (band !== contrast) band.recycle()
                         }
-                        if (attempts.any { it.usable && it.confidence >= 55 }) break
+                        if (attempts.any { it.usable && it.confidence >= 78 }) break
+                    }
+                }
+                // Captions and memes usually have one outlined phrase in a narrow
+                // horizontal strip; a full-page PSM can treat its letters as artwork.
+                if (attempts.none { it.usable && it.confidence >= 78 }) {
+                    val lineHeight = (contrast.height * .24f).toInt().coerceAtLeast(1)
+                    val fractions = listOf(0.06f, .27f, .49f, .67f, .76f)
+                    for ((index, fraction) in fractions.withIndex()) {
+                        currentCoroutineContext().ensureActive()
+                        val top = (contrast.height * fraction).toInt()
+                            .coerceIn(0, contrast.height - lineHeight)
+                        val strip = Bitmap.createBitmap(contrast, 0, top, contrast.width, lineHeight)
+                        try {
+                            recognize(strip, TessBaseAPI.PageSegMode.PSM_SINGLE_LINE, "caption-$index")
+                        } finally {
+                            if (strip !== contrast) strip.recycle()
+                        }
+                        if (attempts.any { it.usable && it.confidence >= 78 }) break
                     }
                 }
             } finally { if (contrast !== image) contrast.recycle() }
