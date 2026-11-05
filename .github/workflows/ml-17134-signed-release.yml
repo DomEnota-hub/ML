@@ -5,6 +5,7 @@ on:
       - release/ml-1.7.134-v10-signed-arm64-20261105
     paths:
       - .github/workflows/ml-17134-signed-release.yml
+      - gradle.properties
   workflow_dispatch:
 permissions:
   contents: write
