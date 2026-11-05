@@ -28,6 +28,29 @@ class GapiKeyStoreTest {
         context.getSharedPreferences("ui-test", 0), listOf(builtin), { now },
     )
 
+    @Test fun `known balances persist per key and never expose request URLs`() {
+        val prefs = context.getSharedPreferences("gapi-test", 0)
+        val ui = context.getSharedPreferences("ui-test", 0)
+        val second = builtin.copy(id = "builtin-two", token = "second-secret")
+        fun reopen() = GapiKeyStore(prefs, ui, listOf(builtin, second), { now })
+        val store = reopen()
+        assertEquals(listOf(156, 200), store.snapshot().map { it.remaining })
+        store.recordResponse("/v2/vk?url=private-url", builtin.token, 200)
+        store.recordResponse("/v2/instagram/media?url=private-url", second.token, 404)
+        assertEquals(listOf(155, 199), reopen().snapshot().map { it.remaining })
+        assertFalse(prefs.all.toString().contains("private-url"))
+        store.recordResponse("/v2/vk?url=private-url", builtin.token, 429)
+        store.recordResponse("/v2/vk?url=private-url", builtin.token, 502)
+        store.recordResponse("/v2/vk?url=private-url", builtin.token, null)
+        assertEquals(155, reopen().snapshot().first().remaining)
+        store.move(second.id, -1)
+        assertEquals(199, reopen().snapshot().first().remaining)
+        store.markExhausted(second.id)
+        assertEquals(0, reopen().snapshot().first().remaining)
+        now = Instant.parse("2026-12-01T00:00:00Z").toEpochMilli()
+        assertEquals(listOf(200, 200), reopen().snapshot().map { it.remaining })
+    }
+
     @Test fun `builtins follow developer mode independently of extended logging`() {
         val store = store()
         assertTrue(store.add("Мой ключ", "custom-secret"))

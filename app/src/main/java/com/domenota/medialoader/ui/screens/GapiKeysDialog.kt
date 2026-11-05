@@ -50,6 +50,8 @@ fun GapiKeysDialog(
     var keys by remember(store) { mutableStateOf(store.snapshot()) }
     var builtinAllowed by remember(store) { mutableStateOf(store.builtinAllowed()) }
     var fallback by remember(store) { mutableStateOf(store.fallbackEnabled) }
+    var help by remember { mutableStateOf(false) }
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<GapiKey?>(null) }
     var name by remember { mutableStateOf("") }
@@ -65,7 +67,19 @@ fun GapiKeysDialog(
         error = if (action()) null else "Не удалось сохранить изменение. Проверьте данные и повторите."
         refresh()
     }
-    LaunchedEffect(gateRevision) { refresh() }
+    LaunchedEffect(store, gateRevision) {
+        while (true) { refresh(); kotlinx.coroutines.delay(1000) }
+    }
+    if (help) AlertDialog(onDismissRequest = { help = false }, title = { Text("GAPI: как подключить") },
+        text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("1. Откройте gapi.dev и нажмите «Войти». Войдите через Google или GitHub.")
+            Text("2. В личном кабинете откройте «Ключи API» и создайте ключ. Скопируйте его целиком.")
+            Text("3. Вернитесь сюда, нажмите «Добавить ключ», задайте название и вставьте ключ. Поднимите его выше, если хотите использовать первым.")
+            Text("Баланс здесь расчётный: первый встроенный ключ — 156/200, второй — 200/200 на ноябрь 2026. Успешные запросы Instagram и VK стоят 1 токен; HTTP 404 также учитывается как 1 по заданному правилу. YouTube: информация — 1, файл — 8. YouTube сейчас использует прежний способ загрузки.")
+            Text("В расчёт входят обращения с этого устройства. Расход на другом телефоне или сайте здесь не виден. Точный баланс проверяйте в кабинете GAPI. У ключей одного аккаунта общий баланс; разные аккаунты имеют отдельные балансы. Счётчик обновляется с нового месяца по UTC.")
+            Text("429 может означать месячный лимит или ограничение частоты. При временном ограничении приложение делает паузу, при подтверждённом месячном — выбирает следующий ключ.")
+            NeutralTextButton(onClick = { uriHandler.openUri("https://gapi.dev/ru/docs") }) { Text("Открыть GAPI") }
+        } }, confirmButton = { NeutralTextButton(onClick = { help = false }) { Text("Понятно") } })
     val visibleKeys = keys.filter { !it.builtIn || builtinAllowed }
 
     AlertDialog(
@@ -78,6 +92,8 @@ fun GapiKeysDialog(
                 Spacer(Modifier.height(8.dp))
                 Text("Сначала используется верхний доступный ключ. Когда его месячный лимит исчерпан, приложение переключается на следующий.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                NeutralTextButton(onClick = { help = true }) { Text("Как получить ключ · FAQ") }
+                Text("Расчётный баланс обновляется по запросам с этого устройства.", style = MaterialTheme.typography.bodySmall)
                 if (!store.storageAvailable) Text(
                     "Защищённое хранилище ключей недоступно. GAPI отключён. Перезапустите приложение и попробуйте снова.",
                     color = MaterialTheme.colorScheme.error,
@@ -108,6 +124,8 @@ fun GapiKeysDialog(
                                 Text("${if (key.builtIn) "Встроенный" else "Свой"} · ••••",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Расчётный остаток: ${key.remaining?.toString() ?: "неизвестен"}${key.monthlyLimit?.let { " из $it" } ?: ""}", style = MaterialTheme.typography.bodySmall)
+                                key.lastUsage?.let { Text("Последний запрос: $it", style = MaterialTheme.typography.bodySmall) }
                                 Text(keyStatus(key, store.currentMonth()),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = if (key.invalid) MaterialTheme.colorScheme.error
@@ -201,5 +219,5 @@ private fun keyStatus(key: GapiKey, currentMonth: String): String = when {
     key.exhaustedMonth == currentMonth -> "Месячный лимит исчерпан · восстановится в следующем месяце (UTC)"
     key.pauseUntilMillis > System.currentTimeMillis() ->
         "Пауза до ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(key.pauseUntilMillis))}"
-    else -> "Готов к запросам · остаток лимита неизвестен"
+    else -> "Готов к запросам"
 }

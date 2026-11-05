@@ -7,7 +7,7 @@ import kotlinx.coroutines.delay
 class GapiVkProvider(
     legacy: MediaProvider,
     keys: GapiKeyStore,
-    client: GapiVkClient = GapiVkClient(),
+    client: GapiVkClient = GapiVkClient(transport = keys::request),
     networkAvailable: () -> Boolean = { true },
     wait: suspend (Long) -> Unit = { delay(it) },
     now: () -> Long = System::currentTimeMillis,

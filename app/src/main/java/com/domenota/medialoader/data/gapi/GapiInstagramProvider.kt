@@ -7,7 +7,7 @@ import kotlinx.coroutines.delay
 class GapiInstagramProvider(
     legacy: MediaProvider,
     keys: GapiKeyStore,
-    client: GapiInstagramClient = GapiInstagramClient(),
+    client: GapiInstagramClient = GapiInstagramClient(transport = keys::request),
     networkAvailable: () -> Boolean = { true },
     wait: suspend (Long) -> Unit = { delay(it) },
     now: () -> Long = System::currentTimeMillis,

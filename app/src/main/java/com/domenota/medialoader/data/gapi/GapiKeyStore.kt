@@ -22,6 +22,9 @@ data class GapiKey(
     val exhaustedMonth: String? = null,
     val invalid: Boolean = false,
     val pauseUntilMillis: Long = 0,
+    val remaining: Int? = null,
+    val monthlyLimit: Int? = null,
+    val lastUsage: String? = null,
 ) {
     override fun toString(): String = "GapiKey(id=$id, name=$name, token=••••, enabled=$enabled, " +
         "builtIn=$builtIn, exhaustedMonth=$exhaustedMonth, invalid=$invalid, pauseUntilMillis=$pauseUntilMillis)"
@@ -77,7 +80,18 @@ class GapiKeyStore internal constructor(
         }
         availableBuiltins.values.filterNot { builtin -> keys.any { it.id == builtin.id } }
             .forEach(keys::add)
-        keys.distinctBy { it.id }.distinctBy { it.token }
+        keys.distinctBy { it.id }.distinctBy { it.token }.map { key ->
+            val usage = runCatching { JSONObject(preferences?.getString("usage:${key.id}", "{}") ?: "{}") }.getOrDefault(JSONObject())
+            val builtinIndex = builtins.indexOfFirst { it.id == key.id }
+            val limit = if (builtinIndex in 0..1) 200 else null
+            val seed = if (currentMonth() == "2026-11") {
+                when (builtinIndex) { 0 -> 156; 1 -> 200; else -> null }
+            } else limit
+            val remaining = if (usage.optString("month") == currentMonth() && usage.has("remaining"))
+                usage.optInt("remaining").takeIf { it >= 0 } else seed
+            key.copy(remaining = if (key.exhaustedMonth == currentMonth()) 0 else remaining,
+                monthlyLimit = limit, lastUsage = usage.optString("last").takeIf { it.isNotBlank() })
+        }
     }
 
     fun eligible(): List<GapiKey> {
@@ -147,12 +161,56 @@ class GapiKeyStore internal constructor(
         it.copy(invalid = false, exhaustedMonth = null, pauseUntilMillis = 0L)
     }
 
-    fun markExhausted(id: String) { update(id) { it.copy(exhaustedMonth = currentMonth()) } }
+    fun markExhausted(id: String) = synchronized(lock) {
+        update(id) { it.copy(exhaustedMonth = currentMonth()) }
+        val usage = runCatching { JSONObject(preferences?.getString("usage:$id", "{}") ?: "{}") }.getOrDefault(JSONObject())
+        usage.put("month", currentMonth()).put("remaining", 0)
+        preferences?.edit()?.putString("usage:$id", usage.toString())?.commit()
+        Unit
+    }
     fun markInvalid(id: String) { update(id) { it.copy(invalid = true) } }
     fun pause(id: String, untilMillis: Long) {
         update(id) { it.copy(pauseUntilMillis = maxOf(it.pauseUntilMillis, untilMillis)) }
     }
     fun markSuccess(id: String) { update(id) { it.copy(pauseUntilMillis = 0L) } }
+
+    /** All actual HTTP calls pass here, including retries and successful-but-unparseable replies. */
+    internal suspend fun request(path: String, token: String): com.domenota.medialoader.core.provider.GapiResponse {
+        val response = try {
+            com.domenota.medialoader.core.provider.fetchGapi(path, token)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            recordResponse(path, token, null)
+            throw e
+        } catch (e: Exception) {
+            recordResponse(path, token, null)
+            throw e
+        }
+        recordResponse(path, token, response.status)
+        return response
+    }
+
+    internal fun recordResponse(path: String, token: String, status: Int?) {
+        synchronized(lock) {
+            val key = snapshot().firstOrNull { it.token == token }
+            if (key != null) {
+                val endpoint = path.substringBefore('?')
+                val cost = GapiUsagePolicy.cost(path, status ?: 0)
+                val remaining = key.remaining?.let { (it - cost).coerceAtLeast(0) }
+                val source = when {
+                    endpoint.contains("instagram") -> "Instagram"
+                    endpoint.contains("youtube") -> "YouTube"
+                    endpoint.endsWith("/vk") -> "VK"
+                    else -> "GAPI"
+                }
+                val last = "${java.time.Instant.ofEpochMilli(now())} · $source · ${status?.let { "HTTP $it · расход $cost" } ?: "Ответ не получен · расход неизвестен"}"
+                val usage = JSONObject().put("month", currentMonth()).put("last", last)
+                if (remaining != null) usage.put("remaining", remaining)
+                val saved = preferences?.edit()?.putString("usage:${key.id}", usage.toString())?.commit() == true
+                com.domenota.medialoader.core.logging.AppLog.i("GapiUsage",
+                    "method=gapi · keyId=${key.id} · endpoint=$endpoint · status=${status ?: "unconfirmed"} · cost=$cost · remaining=${remaining ?: "unknown"} · saved=$saved")
+            }
+        }
+    }
 
     private fun update(id: String, transform: (GapiKey) -> GapiKey): Boolean = synchronized(lock) {
         val keys = snapshot()
