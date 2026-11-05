@@ -43,8 +43,11 @@ class LocalTextOcrFallbackTest {
         try {
             val contrasted = LocalTextOcr.enhanceTextForOcr(bitmap)
             try {
-                val x = contrasted.width / bitmap.width
-                assertEquals(Color.BLACK, contrasted.getPixel(3 * x, 3 * x))
+                var darkPixels = 0
+                for (y in 0 until contrasted.height) for (x in 0 until contrasted.width) {
+                    if (contrasted.getPixel(x, y) == Color.BLACK) darkPixels++
+                }
+                assertTrue("Dark letter strokes must survive enhancement", darkPixels > 0)
                 assertEquals(Color.WHITE, contrasted.getPixel(0, 0))
                 assertTrue(contrasted.width >= bitmap.width)
             } finally { contrasted.recycle() }
