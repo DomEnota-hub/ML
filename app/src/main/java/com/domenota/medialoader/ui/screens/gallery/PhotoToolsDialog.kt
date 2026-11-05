@@ -16,6 +16,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -36,6 +37,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.domenota.medialoader.core.database.DownloadEntity
@@ -166,7 +169,7 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
     val title = when (mode) { "ocr" -> "Текст с фото"; "cutout" -> "Выделить объект"; else -> "Водяной знак" }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth().fillMaxHeight(0.95f), shape = MaterialTheme.shapes.large) {
-            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                     TextButton(onClick = onDismiss) { Text(if (loading) "Отмена" else "Закрыть") }
@@ -245,8 +248,11 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                     }
                     if (mode != "ocr" && !loading) {
                         result?.let { Text("${it.width} × ${it.height} · PNG · отдельная копия", style = MaterialTheme.typography.bodySmall) }
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton(enabled = result != null && !exporting, onClick = { result?.let { image ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(enabled = result != null && !exporting, modifier = Modifier.weight(1f).height(44.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = .6f)),
+                                contentPadding = PaddingValues(horizontal = 3.dp), onClick = { result?.let { image ->
                                 val snapshot = if (mode == "cutout") maskEditor?.snapshot() else null
                                 perform {
                                     try {
@@ -255,8 +261,11 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                                         notify("PNG скопирован")
                                     } finally { snapshot?.recycle() }
                                 }
-                            } }) { Text("Копировать") }
-                            TextButton(enabled = result != null && !exporting, onClick = { result?.let { image ->
+                            } }) { Text("Копировать", color = Color.White, fontSize = 12.sp, maxLines = 1) }
+                            OutlinedButton(enabled = result != null && !exporting, modifier = Modifier.weight(1f).height(44.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = .6f)),
+                                contentPadding = PaddingValues(horizontal = 3.dp), onClick = { result?.let { image ->
                                 val snapshot = if (mode == "cutout") maskEditor?.snapshot() else null
                                 if (Build.VERSION.SDK_INT >= 29) perform {
                                     try {
@@ -268,8 +277,11 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                                     documentBitmap = snapshot ?: image
                                     saveDocument.launch("Photo-${System.currentTimeMillis()}.png")
                                 }
-                            } }) { Text("Сохранить") }
-                            TextButton(enabled = result != null && !exporting, onClick = { result?.let { image ->
+                            } }) { Text("Сохранить", color = Color.White, fontSize = 12.sp, maxLines = 1) }
+                            OutlinedButton(enabled = result != null && !exporting, modifier = Modifier.weight(1f).height(44.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = .6f)),
+                                contentPadding = PaddingValues(horizontal = 3.dp), onClick = { result?.let { image ->
                                 val snapshot = if (mode == "cutout") maskEditor?.snapshot() else null
                                 perform {
                                     try {
@@ -281,7 +293,7 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                                         }, "Поделиться PNG"))
                                     } finally { snapshot?.recycle() }
                                 }
-                            } }) { Text("Поделиться") }
+                            } }) { Text("Поделиться", color = Color.White, fontSize = 12.sp, maxLines = 1) }
                         }
                     }
                 }
