@@ -25,8 +25,14 @@ jobs:
       - name: Ensure Android 35 dependencies
         run: |
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Unit tests
-        run: gradle :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Viewer and preview regression tests
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*GalleryViewerPhotoUiTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*GalleryV10ActionContractTest' \
+            --tests '*PhotoPreviewCacheTest' \
+            --tests '*PhotoPreviewFailureTest' --stacktrace
       - name: Android lint
         if: success() || failure()
         run: gradle :app:lintDebug -Parm64Release=true --stacktrace
