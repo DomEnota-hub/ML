@@ -34,6 +34,13 @@ class LocalTextOcrFallbackTest {
         assertEquals(79, chosen.confidence)
     }
 
+    @Test fun splitLettersAndPunctuationDoNotCountAsRecognizedText() {
+        val wrong = LocalTextOcr.OcrAttempt("= à \\n o = 4 \\\\n p .", 80, "auto")
+        assertTrue("The suspicious OCR output must be rejected", !wrong.usable)
+        assertEquals("", LocalTextOcr.bestAttempt(listOf(wrong)).text)
+        assertTrue(LocalTextOcr.OcrAttempt("приветика", 58, "caption").usable)
+    }
+
     @Test fun highContrastFallbackFlattensWhiteAndDarkOutlinedLetters() {
         val bitmap = Bitmap.createBitmap(12, 8, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(Color.WHITE)

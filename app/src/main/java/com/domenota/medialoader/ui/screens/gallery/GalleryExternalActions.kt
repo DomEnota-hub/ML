@@ -137,6 +137,59 @@ internal suspend fun galleryWallpaper(context: Context, item: DownloadEntity) {
     }
 }
 
+/**
+ * On Xiaomi/Android 16 the OEM crop activity may need a second confirmation,
+ * or may not resolve our FileProvider at all. Use Android's wallpaper service
+ * directly after one explicit user choice (lock/home/both).
+ *
+ * This sets a STATIC bitmap: for a video the first sync frame is extracted.
+ */
+internal fun galleryWallpaperTarget(which: Int): Int {
+    require(which == WallpaperManager.FLAG_SYSTEM ||
+        which == WallpaperManager.FLAG_LOCK ||
+        which == (WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK))
+    return which
+}
+
+internal suspend fun galleryApplyWallpaper(context: Context, item: DownloadEntity, which: Int) {
+    val flag = galleryWallpaperTarget(which)
+    withContext(Dispatchers.IO) {
+        val original = Uri.parse(requireNotNull(item.savedUri) { "Исходный файл не найден" })
+        val bitmap = if (item.mediaType == MediaType.VIDEO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context, original)
+                checkNotNull(retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)) {
+                    "Не удалось извлечь кадр видео"
+                }
+            } finally { retriever.release() }
+        } else {
+            GalleryPhotoTools.decode(context, original, maxEdge = 2560)
+        }
+        try {
+            val wallpaper = WallpaperManager.getInstance(context)
+            check(wallpaper.isWallpaperSupported && wallpaper.isSetWallpaperAllowed) {
+                "Система запрещает изменять обои"
+            }
+            val id = wallpaper.setBitmap(bitmap, null, false, flag)
+            check(id != 0) { "Система не подтвердила установку обоев" }
+            com.domenota.medialoader.core.logging.AppLog.i(
+                "GalleryWallpaper", "Applied directly · source=${item.mediaType} · which=$flag · wallpaperId=$id"
+            )
+        } catch (error: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.e(
+                "GalleryWallpaper", "Direct wallpaper apply failed · which=$flag", error
+            )
+            throw error
+        } finally {
+            bitmap.recycle()
+        }
+    }
+    withContext(Dispatchers.Main) {
+        android.widget.Toast.makeText(context, "Обои установлены", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
 internal suspend fun galleryCast(context: Context, item: DownloadEntity) {
     val uri = exportedUri(context, item, false)
     withContext(Dispatchers.Main) {

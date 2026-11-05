@@ -3,10 +3,13 @@ package com.domenota.medialoader.ui.screens.gallery
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.app.WallpaperManager
 import android.content.pm.ActivityInfo
 import java.util.Locale
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.rememberScrollState
@@ -29,8 +32,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.domenota.medialoader.core.database.*
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.ui.screens.LocalVideoPlayer
@@ -72,6 +77,7 @@ internal fun GalleryMediaViewer(
     var locked by rememberSaveable(current.id) { mutableStateOf(false) }
     var landscape by rememberSaveable(current.id) { mutableStateOf(false) }
     var menu by remember(current.id) { mutableStateOf(false) }
+    var wallpaperChoice by remember(current.id) { mutableStateOf(false) }
     var photoTool by remember(current.id) { mutableStateOf<String?>(null) }
     var loopVideo by rememberSaveable(current.id) { mutableStateOf(false) }
     var videoSpeed by rememberSaveable(current.id) { mutableStateOf(1f) }
@@ -171,7 +177,7 @@ internal fun GalleryMediaViewer(
                     menu = false
                     when (action) {
                         "album" -> chooseFolder = true
-                        "wallpaper" -> mutate { galleryWallpaper(context, current) }
+                        "wallpaper" -> wallpaperChoice = true
                         "info" -> info = true
                         "ocr", "cutout", "watermark" -> photoTool = action
                         "edit" -> onEdit(current)
@@ -186,6 +192,45 @@ internal fun GalleryMediaViewer(
         )
         error?.let { message -> Snackbar(Modifier.align(Alignment.BottomCenter).padding(12.dp),
             action = { TextButton({ error = null }) { Text("Закрыть") } }) { Text(message) } }
+    }
+    if (wallpaperChoice) {
+        val wallpaperItem = current
+        Dialog(onDismissRequest = { wallpaperChoice = false }) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = Color(0xFF262626),
+                shape = RoundedCornerShape(28.dp),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Применить обои к", color = Color(0xFFAAAAAA),
+                        fontSize = 15.sp, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(10.dp))
+                    listOf(
+                        "Экран блокировки" to WallpaperManager.FLAG_LOCK,
+                        "Рабочий стол" to WallpaperManager.FLAG_SYSTEM,
+                        "Оба" to (WallpaperManager.FLAG_LOCK or WallpaperManager.FLAG_SYSTEM),
+                    ).forEach { (label, flag) ->
+                        Box(
+                            Modifier.fillMaxWidth().height(64.dp)
+                                .clickable {
+                                    wallpaperChoice = false
+                                    mutate { galleryApplyWallpaper(context, wallpaperItem, flag) }
+                                }, contentAlignment = Alignment.Center,
+                        ) {
+                            Text(label, color = Color.White, fontSize = 17.sp,
+                                fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = { wallpaperChoice = false },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A4A4A)),
+                    ) { Text("Отмена", color = Color.White) }
+                }
+            }
+        }
     }
     photoTool?.let { mode -> PhotoToolsDialog(current, mode) { photoTool = null } }
     if (songSearch) VideoSongSearchDialog(current.savedUri.orEmpty()) { songSearch = false }
