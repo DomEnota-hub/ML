@@ -16,12 +16,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -74,7 +78,7 @@ internal fun GalleryV10Bottom(
             Triple("more", "Действия с файлом", onMenu),
         ).forEach { (key, label, click) ->
             IconButton(onClick = click, modifier = Modifier.size(width = 59.dp, height = 58.dp).semantics { contentDescription = label }) {
-                GalleryV10Icon(key, Modifier.size(40.dp))
+                GalleryV10Icon(key, Modifier.size(30.dp))
             }
         }
     }
@@ -119,6 +123,12 @@ internal fun galleryV10ActionLabels(isPhoto: Boolean): List<String> =
         .filterNot { it.id.startsWith("divider") }
         .map { it.title }
 
+/** Keep nested action surfaces adjacent to their selected parent row, respecting short screens. */
+internal fun galleryV10SubmenuTop(anchor: androidx.compose.ui.unit.Dp, viewport: androidx.compose.ui.unit.Dp, panel: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp {
+    val freeEnd = (viewport - panel - 8.dp).coerceAtLeast(8.dp)
+    return (anchor - 8.dp).coerceIn(8.dp, freeEnd)
+}
+
 /** Actual actions are supplied by the hosting screen; this popup never silently simulates them. */
 @Composable
 internal fun GalleryV10Popup(
@@ -131,9 +141,12 @@ internal fun GalleryV10Popup(
     onSpeed: (Float) -> Unit,
 ) {
     var secondary by remember(isPhoto) { mutableStateOf<String?>(null) }
+    val anchorPositions = remember(isPhoto) { mutableStateMapOf<String, Float>() }
+    var rootTopPx by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
     BackHandler(secondary != null) { secondary = null }
     BackHandler(secondary == null) { onDismiss() }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { rootTopPx = it.positionInRoot().y }) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .55f)).clickable(onClick = onDismiss))
         val menuWidth = minOf(287.dp, maxWidth - 32.dp)
         val bodyHeight = maxHeight * .65f
@@ -152,6 +165,9 @@ internal fun GalleryV10Popup(
                 } else {
                     Row(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 55.dp)
+                            .onGloballyPositioned { coordinates ->
+                                if (row.hasSub) anchorPositions[row.id] = coordinates.positionInRoot().y - rootTopPx
+                            }
                             .clickable {
                                 when (row.id) {
                                     "extract", "speed" -> secondary = row.id
@@ -181,11 +197,19 @@ internal fun GalleryV10Popup(
                 }
             }
         }
-        if (secondary != null) {
+        val activeSubmenu = secondary
+        if (activeSubmenu != null) {
+            val maxPanelHeight = maxHeight * .54f
+            val expectedPanelHeight = if (secondary == "extract") 124.dp else 398.dp
+            val panelHeight = minOf(maxPanelHeight, expectedPanelHeight)
+            val anchorDp = with(density) {
+                (anchorPositions[activeSubmenu] ?: (maxHeight * .23f).toPx()).toDp()
+            }
+            val popupY = galleryV10SubmenuTop(anchorDp, maxHeight, panelHeight)
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .53f)).clickable { secondary = null })
             Column(
-                modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-16).dp, y = (-22).dp)
-                    .width(menuWidth).heightIn(max = maxHeight * .54f)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-16).dp, y = popupY)
+                    .width(menuWidth).heightIn(max = maxPanelHeight)
                     .clip(RoundedCornerShape(17.dp)).background(v10MenuSurface)
                     .verticalScroll(rememberScrollState()),
             ) {

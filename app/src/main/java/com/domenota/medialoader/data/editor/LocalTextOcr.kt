@@ -2,6 +2,8 @@ package com.domenota.medialoader.data.editor
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
+import com.domenota.medialoader.core.logging.AppLog
 import com.googlecode.tesseract.android.TessBaseAPI
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -17,13 +19,99 @@ internal data class TextReadResult(val text: String, val confidence: Int)
 internal object LocalTextOcr {
     private val gate = Mutex()
 
-    /** Recognizes the entire photograph, preserving paragraphs and reading order. */
+    internal data class OcrAttempt(val text: String, val confidence: Int, val stage: String) {
+        val letterCount: Int get() = text.count { it.isLetter() }
+        val usable: Boolean get() = letterCount >= 2 && confidence >= 22
+        val score: Float get() = if (!usable) -1f else confidence + letterCount.coerceAtMost(40) * .35f
+    }
+
+    /** Excludes low-confidence OCR noise from photos that contain no text. */
+    internal fun bestAttempt(attempts: List<OcrAttempt>): TextReadResult {
+        val result = attempts.filter { it.usable }.maxByOrNull { it.score }
+        return if (result == null) TextReadResult("", 0) else TextReadResult(result.text, result.confidence)
+    }
+
+    /**
+     * PSM_AUTO often misses a single decorative caption surrounded by a large photo.
+     * Try sparse and block layouts on the full image, then a contrast-boosted version
+     * and overlapping vertical bands. No OCR text is written into diagnostics.
+     */
     suspend fun readPage(context: Context, image: Bitmap): TextReadResult = withEngine(context) { api ->
-        api.pageSegMode = TessBaseAPI.PageSegMode.PSM_AUTO
-        api.setImage(image)
-        val text = api.getUTF8Text().orEmpty().trim()
+        val attempts = mutableListOf<OcrAttempt>()
+        fun recognize(bitmap: Bitmap, mode: Int, stage: String): OcrAttempt {
+            api.pageSegMode = mode
+            api.setImage(bitmap)
+            val candidate = OcrAttempt(api.getUTF8Text().orEmpty().trim(), api.meanConfidence(), stage)
+            attempts.add(candidate)
+            AppLog.i("PhotoOCR", "stage=$stage · width=${bitmap.width} · height=${bitmap.height} · letters=${candidate.letterCount} · confidence=${candidate.confidence}")
+            return candidate
+        }
+        val automatic = recognize(image, TessBaseAPI.PageSegMode.PSM_AUTO, "auto")
         currentCoroutineContext().ensureActive()
-        TextReadResult(text, api.meanConfidence())
+        if (automatic.usable && automatic.confidence >= 65) {
+            return@withEngine TextReadResult(automatic.text, automatic.confidence)
+        }
+        recognize(image, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT, "sparse")
+        currentCoroutineContext().ensureActive()
+        if (attempts.any { it.usable && it.confidence >= 65 }) {
+            return@withEngine bestAttempt(attempts)
+        }
+        recognize(image, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK, "block")
+        currentCoroutineContext().ensureActive()
+        if (attempts.none { it.usable && it.confidence >= 45 }) {
+            val contrast = enhanceTextForOcr(image)
+            try {
+                recognize(contrast, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT, "contrast-sparse")
+                currentCoroutineContext().ensureActive()
+                if (attempts.none { it.usable && it.confidence >= 45 }) {
+                    val bandHeight = (contrast.height / 2).coerceAtLeast(1)
+                    val bandTops = listOf(0, (contrast.height - bandHeight) / 2, contrast.height - bandHeight).distinct()
+                    for ((index, top) in bandTops.withIndex()) {
+                        currentCoroutineContext().ensureActive()
+                        val band = Bitmap.createBitmap(contrast, 0, top, contrast.width, bandHeight)
+                        try {
+                            recognize(band, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK, "band-$index")
+                        } finally {
+                            if (band !== contrast) band.recycle()
+                        }
+                        if (attempts.any { it.usable && it.confidence >= 55 }) break
+                    }
+                }
+            } finally { if (contrast !== image) contrast.recycle() }
+        }
+        val selected = bestAttempt(attempts)
+        AppLog.i("PhotoOCR", "result · found=${selected.text.isNotBlank()} · confidence=${selected.confidence} · passes=${attempts.size}")
+        selected
+    }
+
+    /**
+     * High-contrast second attempt: white background, dark outlines, bounded memory.
+     * Keep the original color image for the first three OCR attempts.
+     */
+    internal fun enhanceTextForOcr(image: Bitmap): Bitmap {
+        val maxEdge = maxOf(image.width, image.height)
+        val scale = (2048f / maxEdge).coerceAtMost(1.5f)
+        val width = (image.width * scale).toInt().coerceAtLeast(1)
+        val height = (image.height * scale).toInt().coerceAtLeast(1)
+        val resized = Bitmap.createScaledBitmap(image, width, height, true)
+        try {
+            val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val pixels = IntArray(width)
+            for (y in 0 until height) {
+                resized.getPixels(pixels, 0, width, 0, y, width, 1)
+                for (x in pixels.indices) {
+                    val p = pixels[x]
+                    val a = (p ushr 24) and 255
+                    val r = (p ushr 16) and 255
+                    val g = (p ushr 8) and 255
+                    val b = p and 255
+                    val luma = ((r * 299 + g * 587 + b * 114) / 1000 * a + 255 * (255 - a)) / 255
+                    pixels[x] = if (luma < 174) Color.BLACK else Color.WHITE
+                }
+                out.setPixels(pixels, 0, width, 0, y, width, 1)
+            }
+            return out
+        } finally { if (resized !== image) resized.recycle() }
     }
 
     suspend fun readLine(context: Context, image: Bitmap): TextReadResult = withEngine(context) { api ->
