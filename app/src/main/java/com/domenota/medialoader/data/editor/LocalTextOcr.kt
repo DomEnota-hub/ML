@@ -21,13 +21,13 @@ internal object LocalTextOcr {
 
     internal data class OcrAttempt(val text: String, val confidence: Int, val stage: String) {
         val letterCount: Int get() = text.count { it.isLetter() }
-        val longestWord: Int get() = Regex("""[\\p{L}]{2,}""").findAll(text)
+        val longestWord: Int get() = Regex("""[\p{L}]{2,}""").findAll(text)
             .maxOfOrNull { it.value.length } ?: 0
         val usable: Boolean get() = (longestWord >= 3 && confidence >= 32) ||
             (longestWord >= 2 && confidence >= 75)
         val score: Float get() = if (!usable) -1f
             else confidence + longestWord.coerceAtMost(12) * 1.6f +
-                if (text.any { it in 'А'..'я' || it == 'ё' || it == 'Ё' }) 5f else 0f
+                (if (text.any { it in 'А'..'я' || it == 'ё' || it == 'Ё' }) 5f else 0f)
     }
 
     /** Excludes low-confidence OCR noise from photos that contain no text. */
