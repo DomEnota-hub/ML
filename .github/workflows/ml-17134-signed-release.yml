@@ -1,0 +1,138 @@
+name: MediaLoader 1.7.134 signed ARM64 Release candidate
+on:
+  push:
+    branches:
+      - release/ml-1.7.134-v10-signed-arm64-20261105
+    paths:
+      - .github/workflows/ml-17134-signed-release.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: ml-17134-signed-release
+  cancel-in-progress: false
+jobs:
+  signed-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: rc-ml-1.7.134-v10-arm64-20261105
+      RELEASE_ASSET: ML_1.7.134_ARM64_DomEnota_SIGNED.apk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android 35 tools
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Verify viewer v10 tests
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*GalleryViewerPhotoUiTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*GalleryV10ActionContractTest' \
+            --tests '*PhotoPreviewCacheTest' \
+            --tests '*PhotoPreviewFailureTest' --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Assemble genuine ARM64 Release variant
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify, align and sign with original DomEnota release identity
+        shell: bash
+        env:
+          ML_RELEASE_KEYSTORE_BASE64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
+          ML_RELEASE_STORE_PASSWORD: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
+          ML_RELEASE_KEY_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
+          ML_RELEASE_KEY_PASSWORD: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
+          ML_RELEASE_SIGNER_SHA256: ${{ secrets.ML_RELEASE_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          for name in ML_RELEASE_KEYSTORE_BASE64 ML_RELEASE_STORE_PASSWORD ML_RELEASE_KEY_ALIAS ML_RELEASE_KEY_PASSWORD ML_RELEASE_SIGNER_SHA256; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing protected release signing secret: $name"
+              exit 1
+            fi
+          done
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          unsigned=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$unsigned"
+          "$bt/aapt" dump badging "$unsigned" | grep -F "package: name='com.domenota.medialoader' versionCode='195' versionName='1.7.134'"
+          libs="$(unzip -Z1 "$unsigned" | awk -F/ '$1=="lib" {print $2}' | sort -u)"
+          test "$libs" = arm64-v8a || { echo "::error::Unexpected ABI: $libs"; exit 1; }
+          mkdir -p out
+          key="$RUNNER_TEMP/ml-release-key.jks"
+          aligned="$RUNNER_TEMP/ml-aligned-release.apk"
+          signed="out/$RELEASE_ASSET"
+          trap 'rm -f "$key" "$aligned"' EXIT
+          printf '%s' "$ML_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          "$bt/zipalign" -p -f 4 "$unsigned" "$aligned"
+          "$bt/apksigner" sign --min-sdk-version 26 --ks "$key" \
+            --ks-key-alias "$ML_RELEASE_KEY_ALIAS" \
+            --ks-pass env:ML_RELEASE_STORE_PASSWORD \
+            --key-pass env:ML_RELEASE_KEY_PASSWORD --out "$signed" "$aligned"
+          "$bt/apksigner" verify --verbose "$signed"
+          cert="$("$bt/apksigner" verify --print-certs "$signed" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          expected="$(printf '%s' "$ML_RELEASE_SIGNER_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ': ')"
+          test -n "$cert" && test "$cert" = "$expected" || {
+            echo "::error::Release signer mismatch. Refusing publication"
+            exit 1
+          }
+          "$bt/aapt" dump badging "$signed" | grep -F "package: name='com.domenota.medialoader' versionCode='195' versionName='1.7.134'"
+          libs="$(unzip -Z1 "$signed" | awk -F/ '$1=="lib" {print $2}' | sort -u)"
+          test "$libs" = arm64-v8a || { echo "::error::Signed APK wrong ABI"; exit 1; }
+          sha256sum "$signed" | tee out/SHA256.txt
+      - name: Publish signed Release APK to GitHub prerelease without touching existing production
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="out/$RELEASE_ASSET"
+          test -s "$asset"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release tag already exists. Will not overwrite any release."
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          ## MediaLoader 1.7.134 · ARM64 signed Release APK
+
+          - Genuine Android Release build of approved photo/video viewer v10.
+          - Production package identity: com.domenota.medialoader (no debug or test suffix).
+          - Signed with existing protected DomEnota release key; certificate SHA-256 verified.
+          - Viewer regression tests, Android lint and ARM64 Release assembly passed.
+          - Google Play segmentation module preflight and lifecycle protection included.
+          - Existing production releases are not overwritten or deleted.
+          - This Release APK is published as a **prerelease candidate** pending physical-device visual and crash verification.
+          - Source commit: $GITHUB_SHA
+          EOF
+          gh release create "$RELEASE_TAG" "$asset" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "MediaLoader 1.7.134 · Signed ARM64 Release · v10" \
+            --notes-file "$RUNNER_TEMP/notes.md" --prerelease
+          mkdir -p "$RUNNER_TEMP/verify-download"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$RELEASE_ASSET" --dir "$RUNNER_TEMP/verify-download"
+          local_sha="$(sha256sum "$asset" | awk '{print $1}')"
+          remote_sha="$(sha256sum "$RUNNER_TEMP/verify-download/$RELEASE_ASSET" | awk '{print $1}')"
+          test "$local_sha" = "$remote_sha" || {
+            echo "::error::Downloaded GitHub Release APK bytes mismatch"
+            exit 1
+          }
+          echo "Verified signed release asset: $RELEASE_ASSET" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256: $remote_sha" >> "$GITHUB_STEP_SUMMARY"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
+      - name: Keep signed APK and checksums as CI artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17134-release-sign-verification
+          path: |
+            out/
+            app/build/reports/lint-results-debug.html
+          retention-days: 7
+          if-no-files-found: warn
