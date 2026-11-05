@@ -16,14 +16,20 @@ import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import com.google.mlkit.vision.common.InputImage
+import com.google.android.gms.common.moduleinstall.ModuleInstall
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
+import com.google.android.gms.tasks.Task
+import com.domenota.medialoader.core.logging.AppLog
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmentation
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmenterOptions
 import java.io.File
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -85,39 +91,99 @@ internal object GalleryPhotoTools {
         image
     }
 
-    suspend fun cutout(image: Bitmap): Cutout = suspendCancellableCoroutine { continuation ->
-        val options = SubjectSegmenterOptions.Builder()
-            .enableForegroundBitmap()
-            .enableMultipleSubjects(SubjectSegmenterOptions.SubjectResultOptions.Builder().enableSubjectBitmap().build())
-            .build()
-        val segmenter = SubjectSegmentation.getClient(options)
-        val closed = AtomicBoolean(false)
-        fun close() { if (closed.compareAndSet(false, true)) segmenter.close() }
-        continuation.invokeOnCancellation { close() }
+    /**
+     * The Subject Segmenter is an OptionalModuleApi. Its first process() may otherwise
+     * return "Waiting for the subject segmentation optional module to be downloaded".
+     * This gate completes before bitmap decoding, so network and module failures are
+     * reported to the UI instead of entering native image processing.
+     */
+    suspend fun prepareCutoutModel(context: Context) {
+        val probe = SubjectSegmentation.getClient(subjectOptions())
         try {
-            segmenter.process(InputImage.fromBitmap(image, 0))
-                .addOnSuccessListener { result ->
-                    close()
-                    if (continuation.isActive) {
-                        val foreground = result.foregroundBitmap
-                        if (foreground == null || result.subjects.isEmpty()) {
-                            continuation.resumeWithException(IllegalStateException("Объекты не найдены. Попробуйте фото с чётким передним планом."))
-                        } else continuation.resume(Cutout(foreground, result.subjects.mapNotNull { it.bitmap }))
+            val installer = ModuleInstall.getClient(context.applicationContext)
+            val available = awaitGmsTask(installer.areModulesAvailable(probe)).areModulesAvailable()
+            if (!available) {
+                AppLog.i("PhotoCutout", "Module missing; requesting subject segmentation module")
+                val request = ModuleInstallRequest.newBuilder().addApi(probe).build()
+                // Installation request accepted != installed; poll real availability.
+                awaitGmsTask(installer.installModules(request))
+                withTimeout(90_000L) {
+                    while (!awaitGmsTask(installer.areModulesAvailable(probe)).areModulesAvailable()) {
+                        delay(1_000L)
                     }
                 }
-                .addOnFailureListener { error ->
-                    close()
-                    if (continuation.isActive) continuation.resumeWithException(error)
-                }
-                .addOnCanceledListener {
-                    close()
-                    continuation.cancel()
-                }
-        } catch (error: Exception) {
-            close()
-            if (continuation.isActive) continuation.resumeWithException(error)
+            }
+            AppLog.i("PhotoCutout", "Subject segmentation module ready")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            AppLog.w("PhotoCutout", "Module preparation failed: ${failure.javaClass.simpleName}", failure)
+            throw failure
+        } finally {
+            // Creating an optional-module API may start asynchronous initialization.
+            // Never close a detector while its init task is still using native resources.
+            val init = probe.initTask
+            if (init.isComplete) probe.close() else init.addOnCompleteListener { probe.close() }
         }
     }
+
+    /** Decoding and segmentation are separate, so on-screen Cancel cannot tear down an active native task. */
+    suspend fun cutout(image: Bitmap): Cutout {
+        val segmenter = SubjectSegmentation.getClient(subjectOptions())
+        var processing = false
+        val init = segmenter.initTask
+        try {
+            awaitGmsTask(init)
+            currentCoroutineContext().ensureActive()
+            return suspendCancellableCoroutine { continuation ->
+                try {
+                    val task = segmenter.process(InputImage.fromBitmap(image, 0))
+                    processing = true
+                    task.addOnCompleteListener { completed ->
+                        try {
+                            if (continuation.isActive) {
+                                when {
+                                    completed.isSuccessful -> {
+                                        val result = completed.result
+                                        val foreground = result.foregroundBitmap
+                                        if (foreground == null || result.subjects.isEmpty()) {
+                                            continuation.resumeWithException(IllegalStateException(
+                                                "Объекты не найдены. Попробуйте фото с чётким передним планом."))
+                                        } else continuation.resume(Cutout(foreground, result.subjects.mapNotNull { it.bitmap }))
+                                    }
+                                    completed.isCanceled -> continuation.cancel()
+                                    else -> continuation.resumeWithException(
+                                        completed.exception ?: IllegalStateException("Сегментация не завершилась"))
+                                }
+                            }
+                        } catch (failure: Exception) {
+                            if (continuation.isActive) continuation.resumeWithException(failure)
+                        } finally {
+                            // ML Kit may outlive the dialog, activity or coroutine cancellation.
+                            // The native client is closed only AFTER its processing task finishes.
+                            segmenter.close()
+                        }
+                    }
+                    continuation.invokeOnCancellation {
+                        AppLog.i("PhotoCutout", "Cancellation requested; native task remains alive until completion")
+                    }
+                } catch (failure: Exception) {
+                    if (continuation.isActive) continuation.resumeWithException(failure)
+                }
+            }
+        } finally {
+            if (!processing) {
+                if (init.isComplete) segmenter.close()
+                else init.addOnCompleteListener { segmenter.close() }
+            }
+        }
+    }
+
+    private fun subjectOptions(): SubjectSegmenterOptions =
+        SubjectSegmenterOptions.Builder().enableForegroundBitmap()
+            .enableMultipleSubjects(SubjectSegmenterOptions.SubjectResultOptions.Builder()
+                .enableSubjectBitmap().build())
+            .build()
 
     suspend fun watermark(source: Bitmap, text: String): Bitmap = withContext(Dispatchers.Default) {
         require(text.isNotBlank()) { "Введите текст водяного знака" }
@@ -160,6 +226,20 @@ internal object GalleryPhotoTools {
             resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
             uri
         } catch (error: Throwable) { resolver.delete(uri, null, null); throw error }
+    }
+}
+
+
+/** Cancellation stops waiting, not the underlying Google Play services Task. */
+private suspend fun <T> awaitGmsTask(task: Task<T>): T = suspendCancellableCoroutine { continuation ->
+    task.addOnCompleteListener { completed ->
+        if (!continuation.isActive) return@addOnCompleteListener
+        when {
+            completed.isSuccessful -> continuation.resume(completed.result)
+            completed.isCanceled -> continuation.cancel()
+            else -> continuation.resumeWithException(
+                completed.exception ?: IllegalStateException("Google Play services не завершили операцию"))
+        }
     }
 }
 
