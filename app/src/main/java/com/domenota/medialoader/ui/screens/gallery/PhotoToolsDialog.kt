@@ -95,27 +95,49 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
         cutout = null
         text = ""
         try {
-            // Do not decode a potentially large bitmap until Google Play confirms
-            // the optional ML Kit subject-segmentation module is installed.
+            // ML Kit 16.0.0-beta1 may SIGSEGV during inference on Android 16.
+            // No Java exception handler can catch that native crash. Never invoke it
+            // on API 36+: use the existing ONNX CPU runtime instead.
+            val onnxCutout = mode == "cutout" && U2NetPhotoCutout.usesOnnx(Build.VERSION.SDK_INT)
             if (mode == "cutout") {
                 preparingModel = true
-                withTimeout(100_000L) { GalleryPhotoTools.prepareCutoutModel(context) }
+                withTimeout(100_000L) {
+                    if (onnxCutout) U2NetPhotoCutout.prepare(context)
+                    else GalleryPhotoTools.prepareCutoutModel(context)
+                }
                 preparingModel = false
             }
-            val image = GalleryPhotoTools.decode(context, Uri.parse(requireNotNull(photo.savedUri)), if (mode == "ocr") 4000 else 2560)
+            val edge = when {
+                onnxCutout -> U2NetPhotoCutout.MAX_IMAGE_EDGE
+                mode == "ocr" -> 4000
+                else -> 2560
+            }
+            val image = GalleryPhotoTools.decode(context, Uri.parse(requireNotNull(photo.savedUri)), edge)
             source = image
             when (mode) {
                 "ocr" -> text = LocalTextOcr.readPage(context, image).text
-                "cutout" -> cutout = withTimeout(120_000) { GalleryPhotoTools.cutout(image) }
+                "cutout" -> cutout = withTimeout(120_000) {
+                    if (onnxCutout) U2NetPhotoCutout.segment(context, image)
+                    else GalleryPhotoTools.cutout(image)
+                }
                 "watermark" -> Unit
                 else -> error = "Неизвестный инструмент"
             }
         } catch (timeout: TimeoutCancellationException) {
-            error = "Модель ещё не готова. Проверьте интернет и Google Play сервисы, затем повторите."
+            error = if (mode == "cutout" && U2NetPhotoCutout.usesOnnx(Build.VERSION.SDK_INT))
+                "Локальная модель не успела завершить обработку. Повторите операцию."
+            else "Модель ещё не готова. Проверьте интернет и Google Play сервисы, затем повторите."
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) {
-            error = if (mode == "cutout") "${failure.message ?: "Не удалось выделить объект"}\nДля загрузки модели нужны интернет и обновлённые Google Play сервисы."
-                else failure.message ?: "Не удалось обработать фотографию"
+            error = when {
+                mode == "cutout" && U2NetPhotoCutout.usesOnnx(Build.VERSION.SDK_INT) ->
+                    (failure.message ?: "Не удалось выделить объект") +
+                        "\nПри первом использовании необходим интернет для загрузки локальной модели."
+                mode == "cutout" ->
+                    (failure.message ?: "Не удалось выделить объект") +
+                        "\nДля загрузки модели нужны интернет и обновлённые Google Play сервисы."
+                else -> failure.message ?: "Не удалось обработать фотографию"
+            }
         } finally { preparingModel = false; loading = false }
     }
     LaunchedEffect(source, watermark) {
@@ -162,7 +184,10 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                         }
                     }
                     if (loading) Text(if (mode == "cutout") {
-                        if (preparingModel) "Проверяем модуль Google Play. При необходимости загружаем модель, нужен интернет…"
+                        if (preparingModel && U2NetPhotoCutout.usesOnnx(Build.VERSION.SDK_INT))
+                            "Проверяем локальную модель. При первом запуске загрузка ~4,6 МБ, нужен интернет…"
+                        else if (preparingModel)
+                            "Проверяем модуль Google Play. При необходимости загружаем модель, нужен интернет…"
                         else "Выделяем объекты на устройстве…"
                     } else "Распознаём текст на устройстве…", style = MaterialTheme.typography.bodySmall)
                     if (mode == "watermark") {
