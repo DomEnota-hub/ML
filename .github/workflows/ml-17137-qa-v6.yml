@@ -1,0 +1,54 @@
+name: MediaLoader QA v6 cutout retouch OCR wallpaper
+on:
+  push:
+    branches:
+      - fix/ml-17137-cutout-retouch-ocr-wallpaper-20261106
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17137-qa-v6
+  cancel-in-progress: true
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Run cutout editor, OCR, wallpaper and approved viewer regression tests
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*CutoutMaskEditorTest' \
+            --tests '*GalleryWallpaperChoiceTest' \
+            --tests '*GalleryWallpaperExportTest' \
+            --tests '*LocalTextOcrFallbackTest' \
+            --tests '*U2NetPhotoCutoutTest' \
+            --tests '*GalleryV10ActionContractTest' \
+            --tests '*GalleryViewerPhotoUiTest' \
+            --tests '*GalleryViewerStateTest' --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Assemble genuine ARM64 Release candidate
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Store reports (not a production release)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML-17137-QA-v6-${{ github.sha }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+            app/build/outputs/apk/release/
+          if-no-files-found: warn
+          retention-days: 7
