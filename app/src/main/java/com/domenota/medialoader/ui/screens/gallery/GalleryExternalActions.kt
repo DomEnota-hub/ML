@@ -50,7 +50,7 @@ internal suspend fun copyGalleryFile(context: Context, item: DownloadEntity) {
 }
 
 /**
- * WallpaperManager requires a URI whose ContentProvider reports image/*.
+ * WallpaperManager requires a URI whose ContentProvider reports a valid image MIME type.
  * Downloads may expose application/octet-stream, so use a dedicated PNG copy.
  * Never modify the original image or hand the wallpaper app an ungranted URI.
  */
