@@ -33,8 +33,8 @@ android {
         minSdk 26
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 194
-        versionName '1.7.133'
+        versionCode 195
+        versionName '1.7.134'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
         // Package only ARM64 native libraries without changing the release app ID.
         if (project.hasProperty('arm64Release')) {
