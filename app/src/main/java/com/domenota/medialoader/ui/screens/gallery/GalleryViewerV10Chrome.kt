@@ -111,6 +111,12 @@ private val v10VideoRows = listOf(
     V10MenuRow("private", "Переместить в личное", "lock"),
 )
 
+/** Stable labels are verified against the approved photo/video action lists. */
+internal fun galleryV10ActionLabels(isPhoto: Boolean): List<String> =
+    (if (isPhoto) v10PhotoRows else v10VideoRows)
+        .filterNot { it.id.startsWith("divider") }
+        .map { it.title }
+
 /** Actual actions are supplied by the hosting screen; this popup never silently simulates them. */
 @Composable
 internal fun GalleryV10Popup(
