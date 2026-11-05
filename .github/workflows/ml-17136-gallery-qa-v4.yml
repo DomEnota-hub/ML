@@ -39,7 +39,7 @@ jobs:
         if: success() || failure()
         run: gradle :app:lintDebug -Parm64Release=true --stacktrace
       - name: Assemble ARM64 Debug and Release
-        if: success() || failure()
+        if: success()
         run: gradle :app:assembleDebug :app:assembleRelease -Parm64Release=true --stacktrace
       - name: Save QA reports
         if: always()
