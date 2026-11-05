@@ -197,12 +197,13 @@ internal fun GalleryV10Popup(
                 }
             }
         }
-        if (secondary != null) {
+        val activeSubmenu = secondary
+        if (activeSubmenu != null) {
             val maxPanelHeight = maxHeight * .54f
             val expectedPanelHeight = if (secondary == "extract") 124.dp else 398.dp
             val panelHeight = minOf(maxPanelHeight, expectedPanelHeight)
             val anchorDp = with(density) {
-                (anchorPositions[secondary] ?: (maxHeight * .23f).toPx()).toDp()
+                (anchorPositions[activeSubmenu] ?: (maxHeight * .23f).toPx()).toDp()
             }
             val popupY = galleryV10SubmenuTop(anchorDp, maxHeight, panelHeight)
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .53f)).clickable { secondary = null })
