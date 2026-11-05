@@ -74,7 +74,8 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
     val selectedMask = cutout?.let { item -> item.subjects.getOrNull(selectedSubject) ?: item.foreground }
     val currentSource = source
     val maskEditor = remember(currentSource, selectedMask, mode) {
-        if (mode == "cutout" && currentSource != null && selectedMask != null)
+        if (mode == "cutout" && currentSource != null && selectedMask != null &&
+            currentSource.width == selectedMask.width && currentSource.height == selectedMask.height)
             CutoutMaskEditor(currentSource, selectedMask) else null
     }
     DisposableEffect(maskEditor) { onDispose { maskEditor?.release() } }
