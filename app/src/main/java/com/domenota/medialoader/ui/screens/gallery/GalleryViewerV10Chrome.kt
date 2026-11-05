@@ -23,6 +23,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,7 +50,7 @@ internal fun GalleryV10Header(date: String, time: String, onBack: () -> Unit, on
             Spacer(Modifier.height(3.dp))
             Text(time, color = v10Muted, fontSize = 12.sp, maxLines = 1)
         }
-        IconButton(onClick = onRotate, modifier = Modifier.size(38.dp)) {
+        IconButton(onClick = onRotate, modifier = Modifier.size(38.dp).semantics { contentDescription = "Повернуть" }) {
             GalleryV10Icon("rotate", Modifier.size(27.dp))
         }
     }
@@ -71,7 +73,7 @@ internal fun GalleryV10Bottom(
             Triple("trash", "Удалить", onDelete),
             Triple("more", "Действия с файлом", onMenu),
         ).forEach { (key, label, click) ->
-            IconButton(onClick = click, modifier = Modifier.size(width = 59.dp, height = 58.dp)) {
+            IconButton(onClick = click, modifier = Modifier.size(width = 59.dp, height = 58.dp).semantics { contentDescription = label }) {
                 GalleryV10Icon(key, Modifier.size(40.dp))
             }
         }
