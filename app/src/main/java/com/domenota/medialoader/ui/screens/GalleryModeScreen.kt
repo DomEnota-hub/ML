@@ -531,6 +531,7 @@ fun GalleryModeScreen(
             selected = snapshot,
             albums = albums,
             deviceAlbums = buckets,
+            source = source,
             onCreateFolder = onCreateFolder,
             onSetFolder = onSetFolder,
             onDismiss = { moveSnapshot = null },
