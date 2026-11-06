@@ -22,8 +22,6 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -475,12 +473,12 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         Text("Притяжение", color = v3Text, fontSize = 11.sp)
-                        Slider(
-                            value = attraction, onValueChange = { attraction = it },
+                        // Material3's default vertical-bar thumb violates our approved
+                        // circular-slider style. Use the same circle as the brush slider.
+                        CutoutBrushSlider(
+                            value = attraction,
+                            onValueChange = { attraction = it },
                             valueRange = 0f..100f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = v3Accent, activeTrackColor = v3Accent,
-                                inactiveTrackColor = Color(0xFF666666)),
                             modifier = Modifier.weight(1f),
                         )
                         Text("${attraction.roundToInt()}%", color = v3Text, fontSize = 11.sp)
