@@ -39,6 +39,7 @@ import androidx.compose.ui.window.Dialog
 import com.domenota.medialoader.core.database.*
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.ui.screens.LocalVideoPlayer
+import com.domenota.medialoader.ui.screens.VideoPlayerUiPolicy
 import com.domenota.medialoader.ui.screens.ZoomablePhoto
 import com.domenota.medialoader.ui.screens.applyFullscreen
 import com.domenota.medialoader.ui.screens.findActivity
@@ -73,7 +74,8 @@ internal fun GalleryMediaViewer(
     var chrome by rememberSaveable { mutableStateOf(true) }
     var zoomed by remember { mutableStateOf(false) }
     val current = queue.getOrNull(pager.currentPage) ?: queue.first()
-    var fullscreen by rememberSaveable(current.id) { mutableStateOf(false) }
+    // Keep fullscreen when navigating episodes through the player arrows.
+    var fullscreen by rememberSaveable { mutableStateOf(false) }
     var locked by rememberSaveable(current.id) { mutableStateOf(false) }
     var landscape by rememberSaveable(current.id) { mutableStateOf(false) }
     var menu by remember(current.id) { mutableStateOf(false) }
@@ -86,6 +88,14 @@ internal fun GalleryMediaViewer(
     var chooseFolder by remember(current.id) { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val videoTypes = remember(queue) { queue.map { it.mediaType } }
+    val showEpisodeArrows = remember(videoTypes) { videoTypes.count { it == MediaType.VIDEO } > 1 }
+    var episodeNavigation by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    fun navigateVideo(targetIndex: Int, keepPlaying: Boolean) {
+        val target = queue.getOrNull(targetIndex) ?: return
+        episodeNavigation = target.id to keepPlaying
+        scope.launch { pager.animateScrollToPage(targetIndex) }
+    }
     fun mutate(action: suspend () -> Unit) { scope.launch {
         try { action(); error = null } catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = e.message ?: "Не удалось выполнить действие" }
@@ -101,6 +111,7 @@ internal fun GalleryMediaViewer(
     }
     LaunchedEffect(pager.settledPage, pager.isScrollInProgress) {
         if (!pager.isScrollInProgress) queue.getOrNull(pager.settledPage)?.let {
+            if (episodeNavigation?.first != it.id) episodeNavigation = null
             currentId = it.id; zoomed = false; onCurrentItemChanged(it)
         }
     }
@@ -154,9 +165,23 @@ internal fun GalleryMediaViewer(
                         onZoomedChanged = { if (page == pager.currentPage) zoomed = it }, modifier = Modifier.fillMaxSize(),
                         showMetadata = false, onTap = { chrome = !chrome }, photoCache = photoCache, active = page == pager.settledPage)
                 } else if (GalleryViewerState.canCreateVideo(page, pager.settledPage, pager.isScrollInProgress)) key(row.id) {
-                    // ExoPlayer starts with playWhenReady=false; only its play button starts playback.
+                    val previousVideo = VideoPlayerUiPolicy.adjacentVideoIndex(videoTypes, page, -1)
+                    val nextVideo = VideoPlayerUiPolicy.adjacentVideoIndex(videoTypes, page, 1)
+                    val fromSkipButton = episodeNavigation?.first == row.id
+                    // Manual swipes stay paused as before; the arrows preserve play/pause intent.
                     LocalVideoPlayer(row.id, uri, fullscreen, locked, { locked = it }, { fullscreen = it }, { landscape = it },
-                        { onOpenExternal(row) }, allowExternal = true, modifier = Modifier.fillMaxSize(), galleryPagingEnabled = true, initialPoster = poster, repeatOne = loopVideo, requestedSpeed = videoSpeed, onPlaybackSpeedChanged = { videoSpeed = it })
+                        { onOpenExternal(row) }, allowExternal = true, modifier = Modifier.fillMaxSize(),
+                        galleryPagingEnabled = true, initialPoster = poster, repeatOne = loopVideo,
+                        requestedSpeed = videoSpeed, onPlaybackSpeedChanged = { videoSpeed = it },
+                        showAlbumSkipButton = showEpisodeArrows,
+                        onPreviousVideo = previousVideo?.let { target ->
+                            { playing: Boolean -> navigateVideo(target, playing) }
+                        },
+                        onNextVideo = nextVideo?.let { target ->
+                            { playing: Boolean -> navigateVideo(target, playing) }
+                        },
+                        startAtBeginning = fromSkipButton,
+                        autoplayOnNavigation = fromSkipButton && episodeNavigation?.second == true)
                 } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (poster != null) VideoViewerPoster(poster, Modifier.fillMaxSize())
                     Icon(Icons.Rounded.PlayArrow, null, Modifier.size(48.dp), Color.White)
