@@ -65,6 +65,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Settings as SettingsIcon
@@ -169,7 +170,9 @@ fun MediaViewerScreen(
     var selectedId by rememberSaveable(item.id) { mutableStateOf(item.id) }
     val selectedItem = mediaQueue.firstOrNull { it.id == selectedId } ?: item
     val selectedIndex = mediaQueue.indexOfFirst { it.id == selectedItem.id }
-    var videoFullscreen by rememberSaveable(selectedItem.id) { mutableStateOf(false) }
+    // Fullscreen belongs to the viewer, not an individual episode. Preserve it
+    // when SkipNext/SkipPrevious advances to another item in the same queue.
+    var videoFullscreen by rememberSaveable { mutableStateOf(false) }
     var videoControlsLocked by rememberSaveable(selectedItem.id) { mutableStateOf(false) }
     var landscapeVideo by rememberSaveable(selectedItem.id) { mutableStateOf(false) }
     var displayedItem by remember(selectedItem.id) { mutableStateOf(selectedItem) }
@@ -353,6 +356,11 @@ internal fun LocalVideoPlayer(
     repeatOne: Boolean = false,
     requestedSpeed: Float? = null,
     onPlaybackSpeedChanged: (Float) -> Unit = {},
+    onPreviousVideo: ((Boolean) -> Unit)? = null,
+    onNextVideo: ((Boolean) -> Unit)? = null,
+    showAlbumSkipButton: Boolean = false,
+    startAtBeginning: Boolean = false,
+    autoplayOnNavigation: Boolean = false,
 ) {
     val context = LocalContext.current
     val gestureThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
@@ -383,6 +391,7 @@ internal fun LocalVideoPlayer(
     var playbackError by remember(uri) { mutableStateOf<PlaybackException?>(null) }
     var retryGeneration by remember(uri) { mutableStateOf(0) }
     var nativePreviousCenter by remember(uri, retryGeneration) { mutableStateOf<Offset?>(null) }
+    var nativeNextCenter by remember(uri, retryGeneration) { mutableStateOf<Offset?>(null) }
     var seekFeedback by remember(uri) { mutableStateOf(SeekFeedbackState()) }
     var adjustmentFeedback by remember(uri) { mutableStateOf<String?>(null) }
     var adjustmentActive by remember(uri) { mutableStateOf(false) }
@@ -399,7 +408,9 @@ internal fun LocalVideoPlayer(
     var playerView by remember(uri, retryGeneration) { mutableStateOf<PlayerView?>(null) }
     var posterView by remember(uri, retryGeneration) { mutableStateOf<ImageView?>(null) }
     val poster = initialPoster ?: rememberVideoViewerPoster(itemId, uri)
-    val initialPositionMs = remember(itemId, uri, retryGeneration) { poster.positionMs }
+    val initialPositionMs = remember(itemId, uri, retryGeneration, startAtBeginning) {
+        if (startAtBeginning) 0L else poster.positionMs
+    }
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -426,6 +437,7 @@ internal fun LocalVideoPlayer(
             .apply {
             setMediaItem(MediaItem.fromUri(uri))
             if (initialPositionMs > 0L) seekTo(initialPositionMs)
+            playWhenReady = autoplayOnNavigation
             prepare()
         }
     }
@@ -625,10 +637,13 @@ internal fun LocalVideoPlayer(
                     setShowRewindButton(false)
                     setShowFastForwardButton(false)
                     setShowPreviousButton(true)
+                    setShowNextButton(showAlbumSkipButton)
                     // A one-item Media3 queue may DISABLE its previous button.
                     // Keep the existing native slot but provide our own active
                     // Compose control aligned over it.
                     findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
+                        ?.apply { scaleX = 0f; scaleY = 0f }
+                    if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
                         ?.apply { scaleX = 0f; scaleY = 0f }
                     // Media3 restores the native button's alpha when playback state changes.
                     // Keep its layout slot for adjacent buttons, but draw only our Compose icon.
@@ -660,6 +675,10 @@ internal fun LocalVideoPlayer(
                         findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
                             ?.takeIf { it.width > 0 && it.height > 0 }?.let {
                                 nativePreviousCenter = centerInPlayer(it)
+                            }
+                        if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
+                            ?.takeIf { it.width > 0 && it.height > 0 }?.let {
+                                nativeNextCenter = centerInPlayer(it)
                             }
                         val button = findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
                         if (button != null && button.width > 0) {
@@ -873,15 +892,21 @@ internal fun LocalVideoPlayer(
                     )
                 })
         }
-        // This arrow is always actionable, even if Media3 would disable its
-        // native "previous media item" action for a one-video queue.
+        // Previous follows the usual music-player rule: >3s restarts the episode;
+        // pressing again near the beginning opens the preceding video in the album.
         if (!controlsLocked && chromeVisible && nativePreviousCenter != null) IconButton(
             onClick = {
-                if (player.playbackState == Player.STATE_ENDED) player.pause()
-                player.seekTo(0L)
-                playbackEnded = false
-                com.domenota.medialoader.data.playback.VideoWatchProgress.saveResume(prefs, itemId, null)
-                com.domenota.medialoader.data.playback.VideoWatchProgress.record(prefs, itemId, 0L, playableDurationMs)
+                when (VideoPlayerUiPolicy.previousAction(player.currentPosition, onPreviousVideo != null)) {
+                    VideoPlayerUiPolicy.PreviousAction.OPEN_PREVIOUS ->
+                        onPreviousVideo?.invoke(player.playWhenReady)
+                    VideoPlayerUiPolicy.PreviousAction.RESTART -> {
+                        if (player.playbackState == Player.STATE_ENDED) player.pause()
+                        player.seekTo(0L)
+                        playbackEnded = false
+                        com.domenota.medialoader.data.playback.VideoWatchProgress.saveResume(prefs, itemId, null)
+                        com.domenota.medialoader.data.playback.VideoWatchProgress.record(prefs, itemId, 0L, playableDurationMs)
+                    }
+                }
             },
             modifier = Modifier.align(Alignment.TopStart)
                 .offset { IntOffset(
@@ -889,8 +914,27 @@ internal fun LocalVideoPlayer(
                     (nativePreviousCenter!!.y - previousButtonHalfPx).toInt(),
                 ) }.size(48.dp),
         ) {
-            Icon(Icons.Rounded.SkipPrevious, contentDescription = "К началу видео",
+            Icon(Icons.Rounded.SkipPrevious,
+                contentDescription = if (onPreviousVideo == null) "К началу видео"
+                    else "К началу или предыдущему видео",
                 tint = androidx.compose.ui.graphics.Color.White,
+                modifier = Modifier.size(30.dp))
+        }
+        val nextControlCenter = nativeNextCenter ?: nativePlayCenter?.let {
+            Offset(it.x + with(LocalDensity.current) { 48.dp.toPx() }, it.y)
+        }
+        if (!controlsLocked && chromeVisible && showAlbumSkipButton && nextControlCenter != null) IconButton(
+            onClick = { onNextVideo?.invoke(player.playWhenReady) },
+            enabled = onNextVideo != null,
+            modifier = Modifier.align(Alignment.TopStart)
+                .offset { IntOffset(
+                    (nextControlCenter.x - previousButtonHalfPx).toInt(),
+                    (nextControlCenter.y - previousButtonHalfPx).toInt(),
+                ) }.size(48.dp),
+        ) {
+            Icon(Icons.Rounded.SkipNext, contentDescription = "Следующее видео",
+                tint = androidx.compose.ui.graphics.Color.White.copy(
+                    alpha = if (onNextVideo != null) 1f else .4f),
                 modifier = Modifier.size(30.dp))
         }
         if (!controlsLocked && chromeVisible) IconButton(

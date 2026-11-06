@@ -1,0 +1,52 @@
+name: MediaLoader album episode skip controls QA
+on:
+  push:
+    branches:
+      - feature/ml-album-video-prev-next-20261107
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-album-video-episode-controls
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Episode buttons, gallery paging, playback and GAPI regressions
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*VideoPlayerUiPolicyTest' \
+            --tests '*MediaSwipePagesTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*GalleryAlbumFileSortTest' \
+            --tests '*FloatingVideoControlPlacementTest' \
+            --tests '*FloatingVideoSeekBarTest' \
+            --tests '*GapiKeyStoreTest' --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Compile ARM64 release without secrets or publication
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Save diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-album-video-skip-controls-diagnostics
+          path: |
+            app/build/test-results
+            app/build/reports/tests
+            app/build/reports/lint-results-debug.html
+          retention-days: 7
+          if-no-files-found: warn
