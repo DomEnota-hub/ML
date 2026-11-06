@@ -1,0 +1,53 @@
+name: MediaLoader 1.7.139 ARM64 Release exact-cutout-v3
+on:
+  push:
+    branches:
+      - build/ml-17139-arm64-cutout-v3-qa-20261106
+    paths:
+      - .github/workflows/ml-17139-arm64-handoff.yml
+      - app/src/main/java/com/domenota/medialoader/ui/screens/gallery/**
+      - app/build.gradle
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17139-arm64-release-handoff
+  cancel-in-progress: true
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Android 35 build tools
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: ARM64 genuine Release
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Confirm version, package, ABI and SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" |
+            grep -F "package: name='com.domenota.medialoader' versionCode='200' versionName='1.7.139'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          mkdir -p handoff
+          cp "$apk" handoff/ML_1.7.139_ARM64_UNSIGNED.apk
+          sha256sum handoff/ML_1.7.139_ARM64_UNSIGNED.apk | tee handoff/SHA256.txt
+      - name: Upload unsigned ARM64 Release for offline DomEnota signature
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17139-arm64-unsigned-offline-sign
+          path: handoff/
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
