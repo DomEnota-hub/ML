@@ -93,12 +93,15 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
     DisposableEffect(editor) {
         onDispose { editor?.release() }
     }
+    val latestSource by rememberUpdatedState(source)
+    val latestCutout by rememberUpdatedState(cutout)
+    val latestLegacy by rememberUpdatedState(legacySnapshot)
     DisposableEffect(photo.id) {
         onDispose {
-            legacySnapshot?.recycle()
-            source?.recycle()
-            cutout?.foreground?.recycle()
-            cutout?.subjects?.forEach { if (it !== cutout?.foreground) it.recycle() }
+            latestLegacy?.recycle()
+            latestSource?.recycle()
+            latestCutout?.foreground?.recycle()
+            latestCutout?.subjects?.forEach { if (it !== latestCutout?.foreground) it.recycle() }
         }
     }
 
@@ -116,9 +119,11 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
             decoded = GalleryPhotoTools.decode(context,
                 Uri.parse(requireNotNull(photo.savedUri) { "Файл отсутствует" }),
                 if (U2NetPhotoCutout.usesOnnx(Build.VERSION.SDK_INT)) 1600 else 2560)
+            val decodedImage = requireNotNull(decoded)
             computed = withTimeout(120_000L) {
-                if (U2NetPhotoCutout.usesOnnx(Build.VERSION.SDK_INT)) U2NetPhotoCutout.segment(context, decoded)
-                else GalleryPhotoTools.cutout(decoded)
+                if (U2NetPhotoCutout.usesOnnx(Build.VERSION.SDK_INT))
+                    U2NetPhotoCutout.segment(context, decodedImage)
+                else GalleryPhotoTools.cutout(decodedImage)
             }
             source = decoded
             cutout = computed
