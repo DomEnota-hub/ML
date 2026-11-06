@@ -17,6 +17,8 @@ import kotlin.math.roundToInt
 internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
     val width = cutout.width
     val height = cutout.height
+    /** Borrowed read-only original; never export this orientation aid as PNG. */
+    val sourceReference: Bitmap = source
     private val sourcePixels = IntArray(width * height)
     private val initialPixels = IntArray(width * height)
     private val workingPixels = IntArray(width * height)
@@ -57,6 +59,13 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
             if (history.size >= 15) history.removeFirst()
             history.addLast(snapshot)
         }
+    }
+
+    /** Aborts a stroke when a second finger appears; multi-touch must never edit alpha. */
+    fun cancelStroke() {
+        current?.forEach { (index, oldPixel) -> workingPixels[index] = oldPixel }
+        current = null
+        syncFull()
     }
 
     fun undo(): Boolean {
