@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.border
 
 import androidx.activity.compose.BackHandler
@@ -62,6 +63,7 @@ fun GalleryModeScreen(
     onDetailChange: (Boolean) -> Unit = {}, onTrash: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
     onDeleteFolder: suspend (String) -> Unit = {},
+    onDeviceAlbumsChanged: () -> Unit = {},
     datePickerRequest: Int = 0,
 ) {
     val context = LocalContext.current
@@ -102,6 +104,7 @@ fun GalleryModeScreen(
     // Multi-select can include the entire phone library. Keep large IDs in
     // transient screen state instead of serializing them into Android Bundles.
     var selectedIds by remember(source.name, selection, search, tab) { mutableStateOf(arrayListOf<String>()) }
+    var moveSnapshot by remember { mutableStateOf<List<DownloadEntity>?>(null) }
     val selecting = selectedIds.isNotEmpty()
     fun toggle(id: String) { selectedIds = ArrayList(if (id in selectedIds) selectedIds - id else selectedIds + id) }
     BackHandler(selecting) { selectedIds = arrayListOf() }
@@ -231,6 +234,9 @@ fun GalleryModeScreen(
             Text("Выбрано: ${selectedIds.size}", Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             IconButton({ selectedIds = if (selectedIds.size == queue.size) arrayListOf() else ArrayList(queue) }) {
                 Icon(Icons.Rounded.SelectAll, "Выбрать все")
+            }
+            IconButton({ moveSnapshot = visibleDisplayed.filter { it.id in selectedSet } }) {
+                Icon(Icons.Rounded.DriveFileMove, "Переместить выбранные в альбом")
             }
             IconButton({ onDeleteSelected?.invoke(queue.filter { it in selectedSet }) }, enabled = onDeleteSelected != null) {
                 Icon(Icons.Rounded.Delete, "Удалить выбранное", tint = MaterialTheme.colorScheme.error)
@@ -519,6 +525,23 @@ fun GalleryModeScreen(
             if (!detailOpen) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
         }
         }
+    }
+    moveSnapshot?.let { snapshot ->
+        GalleryBulkAlbumMoveSheet(
+            selected = snapshot,
+            albums = albums,
+            deviceAlbums = buckets,
+            onCreateFolder = onCreateFolder,
+            onSetFolder = onSetFolder,
+            onDismiss = { moveSnapshot = null },
+            onDeviceMoveCompleted = onDeviceAlbumsChanged,
+            onFinished = { done, message ->
+                selectedIds = ArrayList(GalleryAlbumMovePolicy.remainingSelection(selectedIds, done))
+                moveSnapshot = null
+                error = if (done.size == snapshot.size) null else message
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            },
+        )
     }
     deletingAlbum?.let { album ->
         val appFolder = album.key.startsWith("folder:")
