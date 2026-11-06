@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens.gallery
 
 import android.graphics.Bitmap
+import androidx.compose.ui.geometry.Offset
 import android.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -157,6 +158,68 @@ class CutoutMaskEditorTest {
             editor.release()
             source.recycle()
             mask.recycle()
+        }
+    }
+
+    @Test fun magneticThinLineCommitsOnceAndUndoRedoPreservesOriginal() {
+        val source = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+        val mask = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.CYAN)
+        mask.eraseColor(Color.CYAN)
+        val editor = CutoutMaskEditor(source, mask)
+        try {
+            val line = (10..70 step 2).map { x -> Offset(x.toFloat(), 43f) }
+            assertTrue(editor.applyPolyline(line, 3f, restore = false))
+            assertEquals(0, Color.alpha(editor.preview.getPixel(40, 43)))
+            assertEquals(255, Color.alpha(editor.preview.getPixel(40, 34)))
+            assertEquals(255, Color.alpha(source.getPixel(40, 43)))
+            assertTrue(editor.undo())
+            assertEquals(255, Color.alpha(editor.preview.getPixel(40, 43)))
+            assertTrue(editor.redo())
+            assertEquals(0, Color.alpha(editor.preview.getPixel(40, 43)))
+        } finally {
+            editor.release(); source.recycle(); mask.recycle()
+        }
+    }
+
+    @Test fun closedAreaErasesOnlyInsideAndRestoresWithOneUndoStep() {
+        val source = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        val mask = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.MAGENTA)
+        mask.eraseColor(Color.MAGENTA)
+        val editor = CutoutMaskEditor(source, mask)
+        val area = listOf(Offset(12f, 12f), Offset(52f, 12f),
+            Offset(52f, 52f), Offset(12f, 52f))
+        try {
+            assertTrue(editor.applyPolygon(area, restore = false))
+            assertEquals(0, Color.alpha(editor.preview.getPixel(32, 32)))
+            assertEquals(255, Color.alpha(editor.preview.getPixel(6, 32)))
+            assertTrue(editor.undo())
+            assertEquals(255, Color.alpha(editor.preview.getPixel(32, 32)))
+            assertTrue(editor.redo())
+            assertEquals(0, Color.alpha(editor.preview.getPixel(32, 32)))
+            assertTrue(editor.applyPolygon(area, restore = true))
+            assertEquals(255, Color.alpha(editor.preview.getPixel(32, 32)))
+            assertTrue(editor.undo())
+            assertEquals(0, Color.alpha(editor.preview.getPixel(32, 32)))
+            assertEquals(255, Color.alpha(source.getPixel(32, 32)))
+        } finally {
+            editor.release(); source.recycle(); mask.recycle()
+        }
+    }
+
+    @Test fun invalidClosedAreaNeverModifiesMaskOrHistory() {
+        val src = Bitmap.createBitmap(36, 36, Bitmap.Config.ARGB_8888)
+        val cut = Bitmap.createBitmap(36, 36, Bitmap.Config.ARGB_8888)
+        src.eraseColor(Color.RED); cut.eraseColor(Color.RED)
+        val editor = CutoutMaskEditor(src, cut)
+        try {
+            assertFalse(editor.applyPolygon(listOf(
+                Offset(2f, 2f), Offset(8f, 8f), Offset(13f, 13f)), false))
+            assertFalse(editor.applyPolyline(listOf(Offset(3f, 3f)), 3f, false))
+            assertFalse(editor.canUndo)
+        } finally {
+            editor.release(); src.recycle(); cut.recycle()
         }
     }
 
