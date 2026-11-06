@@ -110,4 +110,78 @@ class CutoutMaskEditorTest {
         }
     }
 
+    @Test fun undoRedoRestoreExactBrushPixelsAndInvalidateRedoOnNewPaint() {
+        val source = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        val mask = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.GREEN)
+        mask.eraseColor(Color.GREEN)
+        val editor = CutoutMaskEditor(source, mask)
+        try {
+            editor.startStroke(12f, 12f, 5f, restore = false)
+            editor.endStroke()
+            editor.startStroke(46f, 46f, 5f, restore = false)
+            editor.endStroke()
+            assertTrue(editor.canUndo)
+            assertFalse(editor.canRedo)
+            assertEquals(0, Color.alpha(editor.preview.getPixel(12, 12)))
+            assertEquals(0, Color.alpha(editor.preview.getPixel(46, 46)))
+
+            assertTrue(editor.undo())
+            assertEquals(0, Color.alpha(editor.preview.getPixel(12, 12)))
+            assertEquals(255, Color.alpha(editor.preview.getPixel(46, 46)))
+            assertTrue(editor.canRedo)
+
+            assertTrue(editor.undo())
+            assertEquals(255, Color.alpha(editor.preview.getPixel(12, 12)))
+            assertTrue(editor.redo())
+            assertEquals(0, Color.alpha(editor.preview.getPixel(12, 12)))
+            assertEquals(255, Color.alpha(editor.preview.getPixel(46, 46)))
+            assertTrue(editor.redo())
+            assertEquals(0, Color.alpha(editor.preview.getPixel(46, 46)))
+            assertFalse(editor.redo())
+            assertFalse(editor.canRedo)
+
+            assertTrue(editor.undo())
+            assertTrue(editor.canRedo)
+            editor.startStroke(30f, 30f, 5f, restore = false)
+            editor.endStroke()
+            assertFalse(editor.canRedo)
+            assertFalse(editor.redo())
+            editor.reset()
+            assertFalse(editor.canUndo)
+            assertFalse(editor.canRedo)
+            assertEquals(255, Color.alpha(editor.preview.getPixel(12, 12)))
+            assertEquals(255, Color.alpha(editor.preview.getPixel(30, 30)))
+            assertEquals(255, Color.alpha(editor.preview.getPixel(46, 46)))
+        } finally {
+            editor.release()
+            source.recycle()
+            mask.recycle()
+        }
+    }
+
+    @Test fun cancelPinchDoesNotClearAvailableRedo() {
+        val source = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+        val mask = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.RED)
+        mask.eraseColor(Color.RED)
+        val editor = CutoutMaskEditor(source, mask)
+        try {
+            editor.startStroke(8f, 8f, 5f, restore = false)
+            editor.endStroke()
+            assertTrue(editor.undo())
+            assertTrue(editor.canRedo)
+            editor.startStroke(20f, 20f, 5f, restore = false)
+            editor.cancelStroke()
+            assertTrue(editor.canRedo)
+            assertTrue(editor.redo())
+            assertEquals(0, Color.alpha(editor.preview.getPixel(8, 8)))
+            assertEquals(255, Color.alpha(editor.preview.getPixel(20, 20)))
+        } finally {
+            editor.release()
+            source.recycle()
+            mask.recycle()
+        }
+    }
+
 }
