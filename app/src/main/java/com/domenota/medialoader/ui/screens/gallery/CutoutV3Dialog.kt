@@ -481,7 +481,9 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                             valueRange = 0f..100f,
                             modifier = Modifier.weight(1f),
                         )
-                        Text("${attraction.roundToInt()}%", color = v3Text, fontSize = 11.sp)
+                        Text("${attraction.roundToInt()}%", color = v3Text, fontSize = 11.sp,
+                            modifier = Modifier.widthIn(min = 48.dp), maxLines = 1,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.End)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         V3OutlinedAction("Точка назад", enabled = lineStops.isNotEmpty() && !saving,
