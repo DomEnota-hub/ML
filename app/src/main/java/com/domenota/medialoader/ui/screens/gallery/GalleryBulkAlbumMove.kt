@@ -59,6 +59,7 @@ internal fun GalleryBulkAlbumMoveSheet(
     onCreateFolder: suspend (String) -> String,
     onSetFolder: suspend (String, String?) -> Unit,
     onDismiss: () -> Unit,
+    onDeviceMoveCompleted: () -> Unit,
     onFinished: (Set<String>, String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -76,6 +77,7 @@ internal fun GalleryBulkAlbumMoveSheet(
         GalleryPhoneAlbumMoveHost(
             selected = selected, target = target, deviceAlbums = deviceAlbums,
             onFinished = { completed, note ->
+                if (completed.isNotEmpty()) onDeviceMoveCompleted()
                 onFinished(completed, note ?: GalleryAlbumMovePolicy.summary(
                     selected.size, completed.size, selected.size - completed.size))
             },
@@ -251,6 +253,7 @@ private fun GalleryPhoneAlbumMoveHost(
     }
     LaunchedEffect(target.key) {
         try {
+            require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { "Альбомы телефона требуют Android 10 или новее" }
             val cover = target.cover?.savedUri?.takeIf(GalleryAlbumMovePolicy::isPhoneMedia)
                 ?: error("Не удалось определить папку альбома телефона")
             val path = withContext(Dispatchers.IO) {
