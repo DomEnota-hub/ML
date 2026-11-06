@@ -1084,7 +1084,9 @@ fun MediaLoaderApp(
                         viewModel.deleteCatalogFolder(folderId)
                         libraryModel.externalCatalog.removeFolder(folderId)
                     }, onShare = shareLibraryFile,
-                    onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles, onRename = viewModel::renameDownload,
+                    onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
+                    onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY) },
+                    onRename = viewModel::renameDownload,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
                     searchVisible = librarySearchVisible, tabOverride = galleryTab, datePickerRequest = galleryDateRequest,
                      scrollToTopRequest = galleryTopRequest, onTabChange = {
