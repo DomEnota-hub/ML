@@ -71,9 +71,12 @@ class FloatingVideoControlPlacementTest {
         assertEquals(1, opens)
         assertEquals(0, scrubTouches)
 
-        tap(100f, 190f)
-        assertEquals(1, opens)
-        assertEquals(1, scrubTouches)
+        // The seekbar still occupies the full lower edge; its independent
+        // touch/seek behavior is exercised by FloatingVideoSeekBarTest.
+        assertEquals(0, seek.left)
+        assertEquals(300, seek.width)
+        assertEquals(FloatingVideoControlPlacement.SEEK_TOUCH_HEIGHT_DP, seek.height)
+        assertTrue(expand.left > 100)
         activity.finish()
     }
 
