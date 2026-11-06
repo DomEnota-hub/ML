@@ -75,6 +75,8 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
     var selectedTool by remember(photo.id) { mutableStateOf("erase") }
     var originalVisible by remember(photo.id) { mutableStateOf(false) }
     var brushRadius by remember(photo.id) { mutableFloatStateOf(32f) }
+    var magneticEnabled by remember(photo.id) { mutableStateOf(false) }
+    var magneticStrength by remember(photo.id) { mutableFloatStateOf(.65f) }
     var brushPreview by remember(photo.id) { mutableStateOf(false) }
     var zoom by remember(photo.id) { mutableFloatStateOf(1f) }
     var zoomReset by remember(photo.id) { mutableIntStateOf(0) }
@@ -286,6 +288,8 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                                 panMode = selectedTool == "pan",
                                 showOriginal = originalVisible,
                                 radius = brushRadius,
+                                magnetic = magneticEnabled && selectedTool != "pan",
+                                magneticStrength = magneticStrength,
                                 resetZoomRevision = zoomReset,
                                 onZoomChanged = { zoom = it },
                                 onStrokeDone = { maskRevision++ },
@@ -378,6 +382,27 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                     V3Tool("Двигать", selectedTool == "pan", enabled = editor != null && !saving,
                         icon = { tint -> Icon(Icons.Rounded.PanTool, null, Modifier.size(21.dp), tint = tint) },
                         onClick = { selectedTool = "pan" }, modifier = Modifier.weight(1f))
+                }
+
+                if (selectedTool != "pan") {
+                    Row(Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.FilterChip(
+                            selected = magneticEnabled,
+                            onClick = { magneticEnabled = !magneticEnabled },
+                            label = { Text("Линии", color = v3Text) },
+                        )
+                        if (magneticEnabled) {
+                            Text("Притяжение", color = v3Text, fontSize = 11.sp)
+                            androidx.compose.material3.Slider(
+                                value = magneticStrength,
+                                onValueChange = { magneticStrength = it },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
 
                 if (selectedTool != "pan") {
