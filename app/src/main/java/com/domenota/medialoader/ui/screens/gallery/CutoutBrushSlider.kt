@@ -38,19 +38,19 @@ internal fun CutoutBrushSlider(
             .semantics { progressBarRangeInfo = ProgressBarRangeInfo(value, lower..upper) }
             .pointerInput(lower, upper) {
                 detectTapGestures { point ->
-                    val v = (point.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    val v = cutoutSliderTouchFraction(point.x, size.width.toFloat(), 11.dp.toPx())
                     callback(lower + (upper - lower) * v)
                 }
             }
             .pointerInput(lower, upper) {
                 detectDragGestures(
                     onDragStart = { point ->
-                        val v = (point.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        val v = cutoutSliderTouchFraction(point.x, size.width.toFloat(), 11.dp.toPx())
                         callback(lower + (upper - lower) * v)
                     },
                     onDrag = { change, _ ->
                         change.consume()
-                        val v = (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        val v = cutoutSliderTouchFraction(change.position.x, size.width.toFloat(), 11.dp.toPx())
                         callback(lower + (upper - lower) * v)
                     },
                 )
@@ -59,11 +59,27 @@ internal fun CutoutBrushSlider(
         val middle = size.height / 2f
         val thickness = 6.dp.toPx()
         val fraction = ((value - lower) / (upper - lower)).coerceIn(0f, 1f)
+        val thumbRadius = 11.dp.toPx().coerceAtMost(size.width / 2f)
+        val (trackStart, trackEnd) = cutoutSliderTrackBounds(size.width, thumbRadius)
+        val trackWidth = trackEnd - trackStart
         val corner = CornerRadius(thickness / 2f)
-        drawRoundRect(neutral, topLeft = Offset(0f, middle - thickness / 2f),
-            size = Size(size.width, thickness), cornerRadius = corner)
-        drawRoundRect(accent, topLeft = Offset(0f, middle - thickness / 2f),
-            size = Size(size.width * fraction, thickness), cornerRadius = corner)
-        drawCircle(accent, radius = 11.dp.toPx(), center = Offset(size.width * fraction, middle))
+        drawRoundRect(neutral, topLeft = Offset(trackStart, middle - thickness / 2f),
+            size = Size(trackWidth, thickness), cornerRadius = corner)
+        drawRoundRect(accent, topLeft = Offset(trackStart, middle - thickness / 2f),
+            size = Size(trackWidth * fraction, thickness), cornerRadius = corner)
+        drawCircle(accent, radius = thumbRadius,
+            center = Offset(trackStart + trackWidth * fraction, middle))
     }
+}
+
+// Keep the entire circular thumb inside the slider's bounds, including at 0% and 100%.
+internal fun cutoutSliderTrackBounds(width: Float, radius: Float): Pair<Float, Float> {
+    val safeWidth = width.coerceAtLeast(0f)
+    val inset = radius.coerceAtLeast(0f).coerceAtMost(safeWidth / 2f)
+    return inset to (safeWidth - inset)
+}
+
+internal fun cutoutSliderTouchFraction(x: Float, width: Float, radius: Float): Float {
+    val (start, end) = cutoutSliderTrackBounds(width, radius)
+    return ((x - start) / (end - start).coerceAtLeast(1f)).coerceIn(0f, 1f)
 }
