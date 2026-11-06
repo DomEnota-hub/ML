@@ -107,6 +107,8 @@ import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.rememberCoroutineScope
 import com.domenota.medialoader.data.storage.SavedFileStatusCache
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
 import com.domenota.medialoader.ui.model.AnalysisUiState
 import com.domenota.medialoader.ui.model.BatchFileNames
 import com.domenota.medialoader.ui.model.VkDownloadGroup
@@ -479,12 +481,18 @@ fun MediaLoaderApp(
     val setLibraryFolder: suspend (String, String?) -> Unit = { id, folder ->
         val ref = publicLibraryRefs.firstOrNull { it.key == id || id in it.aliases }
         requireNotNull(ref) { "Файл недоступен" }
-        require(folder == null || catalogFolders.any { it.id == folder }) { "Папка не найдена" }
-        if (ref.appDownloadId != null) {
-            libraryModel.externalCatalog.setExistingFolder(ref, folder)
-            viewModel.setCatalogFolder(ref.appDownloadId, folder)
+        // Room has committed a newly created folder before Compose necessarily
+        // observes it. Check the live flow, not the stale composition snapshot.
+        if (folder != null && viewModel.catalogFolders.value.none { it.id == folder }) {
+            val found = withTimeoutOrNull(1500L) {
+                viewModel.catalogFolders.first { rows -> rows.any { it.id == folder } }
+            }
+            require(found != null) { "Папка не найдена" }
         }
-        else libraryModel.externalCatalog.setFolder(ref, folder)
+        if (ref.appDownloadId != null) {
+            viewModel.setCatalogFolder(ref.appDownloadId, folder)
+            libraryModel.externalCatalog.setExistingFolder(ref, folder)
+        } else libraryModel.externalCatalog.setFolder(ref, folder)
     }
     val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
     val instagramSessionRevision by viewModel.instagramSessionRevision.collectAsStateWithLifecycle()
@@ -1084,7 +1092,9 @@ fun MediaLoaderApp(
                         viewModel.deleteCatalogFolder(folderId)
                         libraryModel.externalCatalog.removeFolder(folderId)
                     }, onShare = shareLibraryFile,
-                    onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles, onRename = viewModel::renameDownload,
+                    onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
+                    onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY) },
+                    onRename = viewModel::renameDownload,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
                     searchVisible = librarySearchVisible, tabOverride = galleryTab, datePickerRequest = galleryDateRequest,
                      scrollToTopRequest = galleryTopRequest, onTabChange = {
