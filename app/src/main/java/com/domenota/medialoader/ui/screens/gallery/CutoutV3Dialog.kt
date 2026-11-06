@@ -15,7 +15,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -384,7 +383,7 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                                     else -> "Ластик"
                                 }, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = v3Text)
                             }
-                            if (brushPreview && selectedTool != "pan" && selectedTool != "lines") {
+                            if (brushPreview && selectedTool != "pan" && selectedTool != "lines" && !originalVisible) {
                                 val base = min(availableWidthDp / editor.width,
                                     availableHeightDp / editor.height)
                                 val diameter = (brushRadius * 2 * base * zoom).coerceIn(16f, 170f).dp
@@ -443,17 +442,13 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                     V3Tool("Линии", selectedTool == "lines", enabled = editor != null && !saving,
                         icon = { tint -> Icon(Icons.Rounded.Timeline, null, Modifier.size(21.dp), tint = tint) },
                         onClick = { selectedTool = "lines" }, modifier = Modifier.weight(1f))
+                    // Tap to show the source photograph at full opacity; tap again
+                    // to compare against the current cutout at the same zoom/pan.
+                    // Avoid conflicting pointerInput and clickable gesture handlers.
                     V3Tool("Оригинал", originalVisible, enabled = editor != null && !saving,
                         icon = { tint -> Icon(Icons.Rounded.Visibility, null, Modifier.size(21.dp), tint = tint) },
-                        onClick = {},
-                        modifier = Modifier.weight(1f)
-                            .pointerInput(editor) {
-                                detectTapGestures(onPress = {
-                                    originalVisible = true
-                                    tryAwaitRelease()
-                                    originalVisible = false
-                                })
-                            })
+                        onClick = { originalVisible = !originalVisible },
+                        modifier = Modifier.weight(1f))
                     V3Tool("Двигать", selectedTool == "pan", enabled = editor != null && !saving,
                         icon = { tint -> Icon(Icons.Rounded.PanTool, null, Modifier.size(21.dp), tint = tint) },
                         onClick = { selectedTool = "pan" }, modifier = Modifier.weight(1f))

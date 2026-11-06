@@ -241,7 +241,8 @@ internal fun CutoutRetouchCanvas(
             native.restoreToCount(saved)
         }
 
-        if (magnetic && draft.isNotEmpty()) {
+        // Comparison view is deliberately clean: no draft contour or control points.
+        if (!showOriginal && magnetic && draft.isNotEmpty()) {
             drawIntoCanvas { canvas ->
                 val native = canvas.nativeCanvas
                 val saved = native.save()
