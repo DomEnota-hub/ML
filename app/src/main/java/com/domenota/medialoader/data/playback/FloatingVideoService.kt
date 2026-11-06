@@ -209,8 +209,8 @@ class FloatingVideoService : Service() {
         }, FrameLayout.LayoutParams(-1, dp(32), Gravity.BOTTOM))
         // The button is topmost, so its tap area works even where it overlaps the
         // seekbar's 32dp touch zone. The seekbar remains interactive everywhere else.
-        root.addView(expand, FrameLayout.LayoutParams(dp(44), dp(44),
-            Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(10)) })
+        root.addView(expand,
+            FloatingVideoControlPlacement.expandLayoutParams(resources.displayMetrics.density))
 
         val detector = object : GestureDetector.SimpleOnGestureListener() {
             private var downRawX = 0f
