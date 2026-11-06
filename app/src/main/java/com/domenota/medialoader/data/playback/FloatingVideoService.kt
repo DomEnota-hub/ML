@@ -73,6 +73,7 @@ class FloatingVideoService : Service() {
     private var itemId: String? = null
     private var controls: FrameLayout? = null
     private var playButton: ImageButton? = null
+    private var expandButton: ImageButton? = null
     private var expanded = false
     private val controlsHandler = Handler(Looper.getMainLooper())
     private val hideControls = Runnable { setControls(false) }
@@ -187,11 +188,13 @@ class FloatingVideoService : Service() {
         }
         playButton = center
         layer.addView(center, FrameLayout.LayoutParams(dp(54), dp(54), Gravity.CENTER))
+        // Expand is placed above the seekbar in root z-order below.
+        // Keeping it in the controls layer left it floating high above the lower-right corner.
         val expand = imageButton(R.drawable.ic_floating_expand, "Развернуть плеер") {
             expandToApp()
         }
-        layer.addView(expand, FrameLayout.LayoutParams(dp(44), dp(44),
-            Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(32)) })
+        expand.visibility = View.GONE
+        expandButton = expand
         val close = imageButton(R.drawable.ic_floating_close, "Закрыть плеер") {
             video.pause()
             stopSelf()
@@ -204,6 +207,10 @@ class FloatingVideoService : Service() {
             controlsHandler.removeCallbacks(hideControls)
             if (!scrubbing && expanded) controlsHandler.postDelayed(hideControls, 3_000L)
         }, FrameLayout.LayoutParams(-1, dp(32), Gravity.BOTTOM))
+        // The button is topmost, so its tap area works even where it overlaps the
+        // seekbar's 32dp touch zone. The seekbar remains interactive everywhere else.
+        root.addView(expand, FrameLayout.LayoutParams(dp(44), dp(44),
+            Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(10)) })
 
         val detector = object : GestureDetector.SimpleOnGestureListener() {
             private var downRawX = 0f
@@ -297,6 +304,7 @@ class FloatingVideoService : Service() {
         controlsHandler.removeCallbacks(hideControls)
         expanded = show
         controls?.visibility = if (show) View.VISIBLE else View.GONE
+        expandButton?.visibility = if (show) View.VISIBLE else View.GONE
         if (show) controlsHandler.postDelayed(hideControls, 3_000L)
     }
 
@@ -326,6 +334,7 @@ class FloatingVideoService : Service() {
         window = null
         controls = null
         playButton = null
+        expandButton = null
         player?.release()
         player = null
         BackgroundMediaWork.setBusy("floating-playback", false)
