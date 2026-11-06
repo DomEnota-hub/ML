@@ -47,10 +47,10 @@ class GapiKeyStore internal constructor(
 
     fun currentMonth(): String = YearMonth.from(Instant.ofEpochMilli(now()).atZone(ZoneOffset.UTC)).toString()
 
-    // Read the current developer setting each time; verbose logging is independent.
-    fun builtinAllowed(): Boolean = uiPreferences.getBoolean(
-        "developer_visible", uiPreferences.getBoolean("logs_unlocked", false),
-    )
+    // Public setting and private credentials are unrelated: developer mode must
+    // never disable bundled keys or hide the user's selected download method.
+    // Kept for callers migrated from the old developer-only settings UI.
+    fun builtinAllowed(): Boolean = true
 
     var fallbackEnabled: Boolean
         get() = preferences?.getBoolean("account_fallback", true) ?: true
@@ -96,27 +96,28 @@ class GapiKeyStore internal constructor(
 
     fun eligible(): List<GapiKey> {
         if (!storageAvailable) return emptyList()
-        val allowBuiltin = builtinAllowed()
         val month = currentMonth()
         val time = now()
+        // A locally exhausted balance is a definitive no-go for this month.
+        // The list preserves the user's priority, so key #1 precedes key #2.
         return snapshot().filter {
             it.enabled && !it.invalid && it.exhaustedMonth != month &&
-                it.pauseUntilMillis <= time && (!it.builtIn || allowBuiltin)
+                it.pauseUntilMillis <= time && (it.remaining == null || it.remaining > 0)
         }
     }
 
     /** Earliest scheduled recovery for a currently enabled key, including monthly quota reset. */
     fun nextAvailableAtMillis(): Long? {
         if (!storageAvailable) return null
-        val allowBuiltin = builtinAllowed()
         val time = now()
         val month = currentMonth()
         val nextMonth = YearMonth.parse(month).plusMonths(1).atDay(1)
             .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
         return snapshot().asSequence().filter {
-            it.enabled && !it.invalid && (!it.builtIn || allowBuiltin)
+            it.enabled && !it.invalid
         }.map {
-            maxOf(it.pauseUntilMillis, if (it.exhaustedMonth == month) nextMonth else 0L)
+            maxOf(it.pauseUntilMillis,
+                if (it.exhaustedMonth == month || it.remaining == 0) nextMonth else 0L)
         }.filter { it > time }.minOrNull()
     }
 
