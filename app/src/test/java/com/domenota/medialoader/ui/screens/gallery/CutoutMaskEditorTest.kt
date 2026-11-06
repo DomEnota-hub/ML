@@ -67,4 +67,45 @@ class CutoutMaskEditorTest {
             cutout.recycle()
         }
     }
+    @Test fun secondFingerCancelsPartialBrushStrokeWithoutTouchingUndoHistory() {
+        val source = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
+        val mask = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.RED)
+        mask.eraseColor(Color.RED)
+        val editor = CutoutMaskEditor(source, mask)
+        try {
+            editor.startStroke(12f, 12f, 7f, restore = false)
+            assertEquals(0, Color.alpha(editor.preview.getPixel(12, 12)))
+            editor.cancelStroke()
+            assertEquals(255, Color.alpha(editor.preview.getPixel(12, 12)))
+            assertFalse(editor.canUndo)
+        } finally {
+            editor.release()
+            source.recycle()
+            mask.recycle()
+        }
+    }
+
+    @Test fun ghostOriginalIsNeverIncludedInSnapshot() {
+        val source = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
+        val empty = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.BLUE)
+        empty.eraseColor(Color.TRANSPARENT)
+        val editor = CutoutMaskEditor(source, empty)
+        try {
+            val snapshot = editor.snapshot()
+            try {
+                assertEquals(255, Color.alpha(editor.sourceReference.getPixel(12, 12)))
+                assertEquals(0, Color.alpha(snapshot.getPixel(12, 12)))
+                editor.startStroke(12f, 12f, 6f, restore = true)
+                editor.endStroke()
+                assertEquals(255, Color.alpha(editor.snapshot().getPixel(12, 12)))
+            } finally { snapshot.recycle() }
+        } finally {
+            editor.release()
+            source.recycle()
+            empty.recycle()
+        }
+    }
+
 }
