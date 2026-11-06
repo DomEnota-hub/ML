@@ -469,6 +469,15 @@ fun MediaLoaderApp(
         }
         (catalogAssignments + externalAssignments).distinctBy { it.downloadId }
     }.value
+    // Folder metadata is shared between Gallery and Downloads, but external
+    // phone media must not appear as missing download-history rows.
+    val galleryOnlyFolderIds = remember(libraryCatalogAssignments, catalogAssignments) {
+        val historyIds = catalogAssignments.mapTo(mutableSetOf()) { it.downloadId }
+        libraryCatalogAssignments.asSequence()
+            .filter { it.downloadId !in historyIds }
+            .mapNotNull { it.folderId }
+            .toSet()
+    }
     val setLibraryFavorite: suspend (String, Boolean) -> Unit = { id, favorite ->
         val ref = libraryRefsByAlias[id] ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let(libraryRefsByAlias::get)
         requireNotNull(ref) { "Файл недоступен" }
@@ -1209,6 +1218,7 @@ fun MediaLoaderApp(
                     scrollToTopRequest = downloadsScrollToTopRequest,
                     catalogFolders = catalogFolders,
                     catalogAssignments = catalogAssignments,
+                    galleryOnlyFolderIds = galleryOnlyFolderIds,
                     onCreateFolder = viewModel::createCatalogFolder,
                     onRenameFolder = viewModel::renameCatalogFolder,
                     onDeleteFolder = viewModel::deleteCatalogFolder,

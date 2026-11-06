@@ -68,6 +68,7 @@ fun GalleryModeScreen(
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
+    val albumFileSortStore = remember(context) { GalleryAlbumFileSortStore(context) }
     var albumSettings by remember(source) { mutableStateOf(albumStore.load(source.name)) }
     var settingsError by remember(source) { mutableStateOf<String?>(null) }
     fun saveSettings(next: GalleryAlbumSettings) {
@@ -82,6 +83,10 @@ fun GalleryModeScreen(
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var selection by rememberSaveable(source.name) { mutableStateOf("all") }
     var selectionTitle by rememberSaveable(source.name) { mutableStateOf("") }
+    var albumFileSort by remember(source.name, selection) {
+        mutableStateOf(albumFileSortStore.read(source.name, selection))
+    }
+    var albumSortMenuExpanded by remember { mutableStateOf(false) }
     var folderTarget by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<DownloadEntity?>(null) }
     var creating by remember { mutableStateOf(false) }
@@ -135,7 +140,10 @@ fun GalleryModeScreen(
             visibleInGalleryMedia(row, catalog[row.id], buckets[row.id], albumSettings.excludedFromMedia)
         } else displayed
     }
-    val queue = remember(visibleDisplayed) { visibleDisplayed.map { it.id } }
+    val orderedDisplayed = remember(visibleDisplayed, detailOpen, albumFileSort) {
+        if (detailOpen) GalleryAlbumFileOrder.sorted(visibleDisplayed, albumFileSort) else visibleDisplayed
+    }
+    val queue = remember(orderedDisplayed) { orderedDisplayed.map { it.id } }
     LaunchedEffect(queue) { val visible = queue.toHashSet(); selectedIds = ArrayList(selectedIds.filter { it in visible }) }
     val selectedSet = remember(selectedIds) { selectedIds.toHashSet() }
     val queueSet = remember(queue) { queue.toHashSet() }
@@ -164,8 +172,8 @@ fun GalleryModeScreen(
     val selectableDateRange = remember(visibleDisplayed, currentCalendarDay) {
         galleryDateRange(visibleDisplayed.map { it.createdAtEpochMillis }, currentCalendarDay)
     }
-    val dateSections = remember(visibleDisplayed) {
-        visibleDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
+    val dateSections = remember(orderedDisplayed) {
+        orderedDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
             .atZone(ZoneId.systemDefault()).toLocalDate() }
     }
     // Keep the long-press drag detector on the grid, not a recycled cell:
@@ -218,8 +226,8 @@ fun GalleryModeScreen(
             mediaGridState.scrollToItem(0)
         }
     }
-    LaunchedEffect(selectedJumpDate, dateSections, tab) {
-        if (tab == 0) {
+    LaunchedEffect(selectedJumpDate, dateSections, tab, albumFileSort, detailOpen) {
+        if (tab == 0 && (!detailOpen || GalleryAlbumFileOrder.groupedByDate(albumFileSort))) {
             selectedJumpDate?.let { chosen ->
                 galleryDateSectionIndex(dateSections.mapValues { it.value.size }, chosen)?.let {
                     mediaGridState.animateScrollToItem(it)
@@ -235,7 +243,7 @@ fun GalleryModeScreen(
             IconButton({ selectedIds = if (selectedIds.size == queue.size) arrayListOf() else ArrayList(queue) }) {
                 Icon(Icons.Rounded.SelectAll, "Выбрать все")
             }
-            IconButton({ moveSnapshot = visibleDisplayed.filter { it.id in selectedSet } }) {
+            IconButton({ moveSnapshot = orderedDisplayed.filter { it.id in selectedSet } }) {
                 Icon(Icons.Rounded.DriveFileMove, "Переместить выбранные в альбом")
             }
             IconButton({ onDeleteSelected?.invoke(queue.filter { it in selectedSet }) }, enabled = onDeleteSelected != null) {
@@ -335,6 +343,34 @@ fun GalleryModeScreen(
                     if (!detailOpen) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(::closeAlbum) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Все альбомы") }
                         Text(selectionTitle, Modifier.weight(1f), fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Box {
+                            IconButton(
+                                onClick = { albumSortMenuExpanded = true },
+                                modifier = Modifier.testTag("album-file-sort"),
+                            ) {
+                                Icon(Icons.Rounded.Sort, "Сортировка файлов альбома", tint = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = albumSortMenuExpanded,
+                                onDismissRequest = { albumSortMenuExpanded = false },
+                            ) {
+                                GalleryAlbumFileSort.entries.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option.label, color = Color.White) },
+                                        onClick = {
+                                            albumSortMenuExpanded = false
+                                            albumFileSortStore.save(source.name, selection, option)
+                                            albumFileSort = option
+                                            selectedJumpDate = null
+                                        },
+                                        leadingIcon = {
+                                            if (albumFileSort == option)
+                                                Icon(Icons.Rounded.Check, null, tint = Color.White)
+                                        },
+                                    )
+                                }
+                            }
+                        }
                         if (onTrash != null) IconButton(onTrash) {
                             Icon(Icons.Rounded.DeleteOutline, "Корзина")
                         }
@@ -448,7 +484,19 @@ fun GalleryModeScreen(
                     }
                 }
             } else {
-                dateSections.forEach { (date, rows) ->
+                if (detailOpen && !GalleryAlbumFileOrder.groupedByDate(albumFileSort)) {
+                    items(orderedDisplayed, key = { it.id }) { row ->
+                        GalleryMediaCell(row, catalog[row.id]?.isFavorite == true,
+                            { if (selecting) toggle(row.id) else onOpen(row.id, queue) },
+                            { mutate { onFavorite(row.id, catalog[row.id]?.isFavorite != true) } },
+                            { folderTarget = row.id }, { onShare(row.id) }, { onDelete(row.id) },
+                            { renameTarget = row }, { onMoveToPrivate(row.id) },
+                            selecting = selecting, selected = row.id in selectedSet,
+                            onSelect = { toggle(row.id) },
+                            onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) },
+                            showFileName = true)
+                    }
+                } else dateSections.forEach { (date, rows) ->
                         item(key = "date:$date", span = { GridItemSpan(maxLineSpan) }) {
                             val dayIds = remember(rows) { rows.map { it.id } }
                             val selectedInDay = dayIds.count { it in selectedSet }
@@ -487,7 +535,8 @@ fun GalleryModeScreen(
                                 { onShare(row.id) }, { onDelete(row.id) }, { renameTarget = row }, { onMoveToPrivate(row.id) },
                                 selecting = selecting, selected = row.id in selectedSet,
                                 onSelect = { toggle(row.id) },
-                                onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) })
+                                onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) },
+                                showFileName = detailOpen)
                         }
                     }
             }
@@ -667,7 +716,8 @@ private fun GallerySectionTitle(text: String) { Text(text, Modifier.padding(hori
 @Composable
 private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: () -> Unit, onFavorite: () -> Unit,
                              onFolder: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit, onRename: () -> Unit, onPrivate: () -> Unit,
-                             selecting: Boolean, selected: Boolean, onSelect: () -> Unit, onLongSelect: () -> Unit) {
+                             selecting: Boolean, selected: Boolean, onSelect: () -> Unit,
+                             onLongSelect: () -> Unit, showFileName: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
         .semantics { contentDescription = item.originalName }
@@ -685,6 +735,14 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
         else IconButton({ menu = true }, Modifier.align(Alignment.TopEnd).size(32.dp)) {
             Icon(Icons.Rounded.MoreVert, "Действия: ${item.originalName}", tint = Color.White,
                 modifier = Modifier.background(Color.Black.copy(alpha = .3f), RoundedCornerShape(8.dp)).size(22.dp))
+        }
+        if (showFileName && item.mediaType == MediaType.VIDEO) {
+            Text(item.originalName.substringBeforeLast('.', item.originalName),
+                Modifier.align(Alignment.BottomStart).padding(start = 3.dp, end = 43.dp, bottom = 4.dp)
+                    .background(Color.Black.copy(alpha = 0.70f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                color = Color.White, fontSize = 9.sp, lineHeight = 10.sp,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (item.mediaType == MediaType.VIDEO) Row(Modifier.align(Alignment.BottomEnd).padding(4.dp)
             .background(Color.Black.copy(alpha = .45f), RoundedCornerShape(4.dp)).padding(3.dp), verticalAlignment = Alignment.CenterVertically) {
