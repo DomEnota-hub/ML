@@ -78,7 +78,8 @@ fun GapiKeysDialog(
             Text("Баланс расчётный и учитывает запросы только с этого устройства. Точный остаток доступен в личном кабинете GAPI.")
             NeutralTextButton(onClick = { uriHandler.openUri("https://gapi.dev/ru/docs") }) { Text("Открыть GAPI") }
         } }, confirmButton = { NeutralTextButton(onClick = { help = false }) { Text("Понятно") } })
-    val visibleKeys = keys.filter { !it.builtIn || builtinAllowed }
+    // Always show masked built-in keys; developer settings must not control API availability.
+    val visibleKeys = keys
 
     AlertDialog(
         onDismissRequest = onDismissRequest,
@@ -109,7 +110,8 @@ fun GapiKeysDialog(
                         if (fallback != it) error = "Не удалось сохранить настройку"
                     })
                 }
-                if (visibleKeys.isEmpty()) Text("Добавьте свой ключ GAPI.",
+                if (visibleKeys.isEmpty()) Text(
+                    "Ключей GAPI в этой сборке нет. Добавьте свой ключ или установите сборку со встроенными ключами.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 visibleKeys.forEachIndexed { index, key ->
                     Spacer(Modifier.height(12.dp))
