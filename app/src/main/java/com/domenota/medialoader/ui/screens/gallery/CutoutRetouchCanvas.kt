@@ -41,6 +41,8 @@ internal fun CutoutRetouchCanvas(
     editor: CutoutMaskEditor,
     restore: Boolean,
     radius: Float,
+    magnetic: Boolean = false,
+    magneticStrength: Float = .65f,
     panMode: Boolean = false,
     showOriginal: Boolean = false,
     refreshToken: Int = 0,
@@ -54,6 +56,7 @@ internal fun CutoutRetouchCanvas(
     var viewport by remember(editor) { mutableStateOf(CutoutViewport()) }
     var cursor by remember(editor) { mutableStateOf<Offset?>(null) }
     val referenceSize = remember(editor) { IntSize(editor.width, editor.height) }
+    val magnet = remember(editor) { CutoutMagneticLine(editor.sourceReference) }
     val imagePaint = remember { Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG) }
     val ghostPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG).apply { alpha = 76 } }
     val darkPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(30, 30, 35) } }
@@ -76,7 +79,7 @@ internal fun CutoutRetouchCanvas(
 
     Canvas(
         modifier.onSizeChanged { canvasSize = it }
-            .pointerInput(editor, restore, radius, panMode, showOriginal, canvasSize) {
+            .pointerInput(editor, restore, radius, magnetic, magneticStrength, panMode, showOriginal, canvasSize) {
                 if (canvasSize.width == 0 || canvasSize.height == 0) return@pointerInput
                 awaitEachGesture {
                     val first = awaitFirstDown(requireUnconsumed = false)
@@ -85,9 +88,11 @@ internal fun CutoutRetouchCanvas(
                     var painting = !panMode && !showOriginal && start.x in 0f..editor.width.toFloat() &&
                         start.y in 0f..editor.height.toFloat()
                     var multiTouch = false
-                    var previous = start
+                    val initial = if (magnetic) magnet.snap(start.x, start.y, null, magneticStrength)
+                        else CutoutMagneticLine.Point(start.x, start.y)
+                    var previous = Offset(initial.x, initial.y)
                     if (painting) {
-                        editor.startStroke(start.x, start.y, radius, restore)
+                        editor.startStroke(previous.x, previous.y, if (magnetic) 2.5f else radius, restore)
                         cursor = first.position
                         revision++
                         first.consume()
@@ -132,9 +137,12 @@ internal fun CutoutRetouchCanvas(
                                     val mapped = transform.toImage(active.position)
                                     val next = Offset(mapped.x.coerceIn(0f, editor.width - 1f),
                                         mapped.y.coerceIn(0f, editor.height - 1f))
-                                    editor.dragStroke(previous.x, previous.y, next.x, next.y,
-                                        radius, restore)
-                                    previous = next
+                                    val snapped = if (magnetic) magnet.snap(next.x, next.y,
+                                        CutoutMagneticLine.Point(previous.x, previous.y), magneticStrength)
+                                        else CutoutMagneticLine.Point(next.x, next.y)
+                                    editor.dragStroke(previous.x, previous.y, snapped.x, snapped.y,
+                                        if (magnetic) 2.5f else radius, restore)
+                                    previous = Offset(snapped.x, snapped.y)
                                     cursor = active.position
                                     active.consume()
                                     revision++
