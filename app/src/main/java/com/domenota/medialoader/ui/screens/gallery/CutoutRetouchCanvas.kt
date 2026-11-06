@@ -41,6 +41,8 @@ internal fun CutoutRetouchCanvas(
     editor: CutoutMaskEditor,
     restore: Boolean,
     radius: Float,
+    panMode: Boolean = false,
+    showOriginal: Boolean = false,
     resetZoomRevision: Int,
     onZoomChanged: (Float) -> Unit,
     onStrokeDone: () -> Unit,
@@ -73,13 +75,13 @@ internal fun CutoutRetouchCanvas(
 
     Canvas(
         modifier.onSizeChanged { canvasSize = it }
-            .pointerInput(editor, restore, radius, canvasSize) {
+            .pointerInput(editor, restore, radius, panMode, showOriginal, canvasSize) {
                 if (canvasSize.width == 0 || canvasSize.height == 0) return@pointerInput
                 awaitEachGesture {
                     val first = awaitFirstDown(requireUnconsumed = false)
                     var transform = viewport.transform(canvasSize, referenceSize)
                     val start = transform.toImage(first.position)
-                    var painting = start.x in 0f..editor.width.toFloat() &&
+                    var painting = !panMode && !showOriginal && start.x in 0f..editor.width.toFloat() &&
                         start.y in 0f..editor.height.toFloat()
                     var multiTouch = false
                     var previous = start
@@ -112,6 +114,16 @@ internal fun CutoutRetouchCanvas(
                                     revision++
                                 }
                                 event.changes.forEach { if (it.pressed) it.consume() }
+                            } else if (panMode && !multiTouch && pressed.isNotEmpty()) {
+                                val active = pressed.firstOrNull { it.id == first.id }
+                                if (active != null) {
+                                    val delta = active.position - active.previousPosition
+                                    viewport = viewport.gesture(canvasSize, referenceSize,
+                                        active.position, delta, 1f)
+                                    onZoomChanged(viewport.zoom)
+                                    active.consume()
+                                    revision++
+                                }
                             } else if (!multiTouch && pressed.isNotEmpty() && painting) {
                                 val active = pressed.firstOrNull { it.id == first.id }
                                 if (active != null) {
@@ -151,11 +163,14 @@ internal fun CutoutRetouchCanvas(
             val native = composeCanvas.nativeCanvas
             val saved = native.save()
             native.clipRect(0f, 0f, size.width, size.height)
-            if (restore) {
-                // Only a translucent guide, never part of editor.snapshot() or exported PNG.
+            if (restore || showOriginal) {
+                // Never part of editor.snapshot() or exported PNG.
+                val oldAlpha = ghostPaint.alpha
+                ghostPaint.alpha = if (showOriginal) 255 else 76
                 native.drawBitmap(editor.sourceReference, null, rect, ghostPaint)
+                ghostPaint.alpha = oldAlpha
             }
-            native.drawBitmap(editor.preview, null, rect, imagePaint)
+            if (!showOriginal) native.drawBitmap(editor.preview, null, rect, imagePaint)
             native.restoreToCount(saved)
         }
 
