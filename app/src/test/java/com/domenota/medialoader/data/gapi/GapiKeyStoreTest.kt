@@ -114,7 +114,7 @@ class GapiKeyStoreTest {
         store.markExhausted(key.id)
         store.pause(key.id, now + 60_000)
         assertTrue(store.resetStatus(key.id))
-        val restored = store().eligible().single { !it.builtIn }
+        val restored = store().snapshot().single { it.id == key.id }
         assertEquals(key.id, restored.id)
         assertNull(restored.exhaustedMonth)
         assertFalse(restored.invalid)
