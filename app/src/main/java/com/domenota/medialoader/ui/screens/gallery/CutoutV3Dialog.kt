@@ -15,7 +15,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -312,7 +311,7 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                                     else -> "Ластик"
                                 }, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = v3Text)
                             }
-                            if (brushPreview && selectedTool != "pan") {
+                            if (brushPreview && selectedTool != "pan" && !originalVisible) {
                                 val base = min(availableWidthDp / editor.width,
                                     availableHeightDp / editor.height)
                                 val diameter = (brushRadius * 2 * base * zoom).coerceIn(16f, 170f).dp
