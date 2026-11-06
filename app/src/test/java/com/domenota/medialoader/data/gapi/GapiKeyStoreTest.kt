@@ -55,7 +55,7 @@ class GapiKeyStoreTest {
         val store = store()
         assertTrue(store.add("Мой ключ", "custom-secret"))
         val ui = context.getSharedPreferences("ui-test", 0)
-        assertEquals(listOf("Мой ключ"), store.eligible().map { it.name })
+        assertEquals(listOf("Встроенный", "Мой ключ"), store.eligible().map { it.name })
         ui.edit().putBoolean("developer_visible", true).commit()
         assertTrue(store.builtinAllowed())
         assertEquals(2, store.eligible().size)
@@ -64,18 +64,18 @@ class GapiKeyStoreTest {
         assertTrue(store.builtinAllowed())
         assertEquals(2, store.eligible().size)
         ui.edit().putBoolean("developer_visible", false).commit()
-        assertFalse(store.builtinAllowed())
-        assertEquals(1, store.eligible().size)
+        assertTrue(store.builtinAllowed())
+        assertEquals(2, store.eligible().size)
     }
 
     @Test fun `exhaustion persists and expires at the next UTC month`() {
         val store = store()
         store.add("Мой ключ", "custom-secret")
-        val id = store.eligible().single().id
+        val id = store.eligible().single { !it.builtIn }.id
         store.markExhausted(id)
-        assertTrue(store().eligible().isEmpty())
+        assertTrue(store().eligible().none { !it.builtIn })
         now = Instant.parse("2026-12-01T00:00:00Z").toEpochMilli()
-        assertEquals(id, store().eligible().single().id)
+        assertEquals(id, store().eligible().single { !it.builtIn }.id)
     }
 
     @Test fun `priority and builtin removal persist while duplicate tokens are refused`() {
@@ -95,26 +95,26 @@ class GapiKeyStoreTest {
     @Test fun `pause and invalid status persist without exposing tokens`() {
         val store = store()
         store.add("Ключ", "custom-secret")
-        val key = store.eligible().single()
+        val key = store.eligible().single { !it.builtIn }
         store.pause(key.id, now + 10_000)
-        assertTrue(store().eligible().isEmpty())
+        assertTrue(store().eligible().none { !it.builtIn })
         assertEquals(now + 10_000, store.nextAvailableAtMillis())
         now += 10_001
-        assertEquals(key.id, store().eligible().single().id)
+        assertEquals(key.id, store().eligible().single { !it.builtIn }.id)
         store.markInvalid(key.id)
-        assertTrue(store().eligible().isEmpty())
+        assertTrue(store().eligible().none { !it.builtIn })
         assertFalse(key.toString().contains("custom-secret"))
     }
 
     @Test fun `reset status clears all persisted blocks without changing priority or enabled state`() {
         val store = store()
         store.add("Ключ", "custom-secret")
-        val key = store.eligible().single()
+        val key = store.eligible().single { !it.builtIn }
         store.markInvalid(key.id)
         store.markExhausted(key.id)
         store.pause(key.id, now + 60_000)
         assertTrue(store.resetStatus(key.id))
-        val restored = store().eligible().single()
+        val restored = store().eligible().single { !it.builtIn }
         assertEquals(key.id, restored.id)
         assertNull(restored.exhaustedMonth)
         assertFalse(restored.invalid)
