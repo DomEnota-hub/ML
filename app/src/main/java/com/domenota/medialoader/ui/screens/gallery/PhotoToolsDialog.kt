@@ -70,6 +70,8 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
     var retry by remember { mutableIntStateOf(0) }
     var brushRestore by remember(photo.id, mode) { mutableStateOf(false) }
     var brushRadius by remember(photo.id, mode) { mutableFloatStateOf(32f) }
+    var editorZoom by remember(photo.id, mode) { mutableFloatStateOf(1f) }
+    var resetZoomRevision by remember(photo.id, mode) { mutableIntStateOf(0) }
     var maskRevision by remember(photo.id, mode) { mutableIntStateOf(0) }
     val selectedMask = cutout?.let { item -> item.subjects.getOrNull(selectedSubject) ?: item.foreground }
     val currentSource = source
@@ -196,6 +198,8 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                         if (result != null) TransparencyGrid(Modifier.fillMaxSize())
                         if (mode == "cutout" && maskEditor != null && !loading) {
                             CutoutRetouchCanvas(maskEditor, brushRestore, brushRadius,
+                                resetZoomRevision = resetZoomRevision,
+                                onZoomChanged = { editorZoom = it },
                                 onStrokeDone = { maskRevision++ }, modifier = Modifier.fillMaxSize())
                         } else {
                             preview?.let { Image(it.asImageBitmap(), "Предпросмотр", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
@@ -224,14 +228,22 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                                 if (maskEditor.undo()) maskRevision++
                             }, enabled = maskEditor.canUndo) { Text("Отменить") }
                             TextButton(onClick = {
+                                if (maskEditor.redo()) maskRevision++
+                            }, enabled = maskEditor.canRedo) { Text("Повторить") }
+                            TextButton(onClick = {
                                 maskEditor.reset()
                                 maskRevision++
                             }) { Text("Сброс") }
+                            TextButton(
+                                onClick = { resetZoomRevision++ },
+                                enabled = editorZoom > 1.001f,
+                            ) { Text(if (editorZoom > 1.001f) "${(editorZoom * 100).toInt()}% · 1×" else "1×") }
                         }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Кисть", style = MaterialTheme.typography.labelMedium)
-                            Slider(value = brushRadius, onValueChange = { brushRadius = it },
-                                valueRange = 8f..100f, modifier = Modifier.weight(1f))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Размер", style = MaterialTheme.typography.labelMedium)
+                            CutoutBrushSlider(value = brushRadius,
+                                onValueChange = { brushRadius = it }, modifier = Modifier.weight(1f))
                             Text(brushRadius.toInt().toString(), style = MaterialTheme.typography.labelMedium)
                         }
                     }
@@ -248,7 +260,6 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                         }
                     }
                     if (mode != "ocr" && !loading) {
-                        result?.let { Text("${it.width} × ${it.height} · PNG · отдельная копия", style = MaterialTheme.typography.bodySmall) }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(enabled = result != null && !exporting, modifier = Modifier.weight(1f).height(44.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),

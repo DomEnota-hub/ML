@@ -1,0 +1,52 @@
+name: MediaLoader 1.7.138 Cutout Editor QA v7
+on:
+  push:
+    branches:
+      - feature/ml-17138-cutout-editor-qa-v7-20261106
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17138-cutout-editor
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Ensure Android 35 SDK and Build Tools
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Cutout v7, alpha safety and viewer regression tests
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*CutoutViewportTest' \
+            --tests '*CutoutMaskEditorTest' \
+            --tests '*U2NetPhotoCutoutTest' \
+            --tests '*GalleryV10ActionContractTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*GalleryViewerPhotoUiTest' --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Genuine ARM64 Release compile
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Save report and unsigned QA package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17138-cutout-v7-reports-${{ github.sha }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+            app/build/outputs/apk/release/
+          if-no-files-found: warn
+          retention-days: 7
