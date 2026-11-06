@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -47,6 +48,14 @@ internal fun CutoutRetouchCanvas(
     resetZoomRevision: Int,
     onZoomChanged: (Float) -> Unit,
     onStrokeDone: () -> Unit,
+    magnetic: Boolean = false,
+    tracer: MagneticContourTracer? = null,
+    attraction: Float = 65f,
+    contourArea: Boolean = false,
+    draft: List<Offset> = emptyList(),
+    draftStops: List<Int> = emptyList(),
+    onDraftChanged: (List<Offset>) -> Unit = {},
+    onSegmentFinished: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var canvasSize by remember(editor) { mutableStateOf(IntSize.Zero) }
@@ -54,6 +63,9 @@ internal fun CutoutRetouchCanvas(
     var viewport by remember(editor) { mutableStateOf(CutoutViewport()) }
     var cursor by remember(editor) { mutableStateOf<Offset?>(null) }
     val referenceSize = remember(editor) { IntSize(editor.width, editor.height) }
+    val latestDraft by rememberUpdatedState(draft)
+    val latestOnDraft by rememberUpdatedState(onDraftChanged)
+    val latestOnSegment by rememberUpdatedState(onSegmentFinished)
     val imagePaint = remember { Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG) }
     val ghostPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG).apply { alpha = 76 } }
     val darkPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(30, 30, 35) } }
@@ -67,6 +79,24 @@ internal fun CutoutRetouchCanvas(
         style = Paint.Style.STROKE
         strokeWidth = 2f
     } }
+    val contourPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(255, 211, 79)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    } }
+    val contourFill = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.argb(34, 255, 211, 79)
+        style = Paint.Style.FILL
+    } }
+    val contourClosing = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        alpha = 155
+        style = Paint.Style.STROKE
+        strokeWidth = 1.7f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 8f), 0f)
+    } }
 
     LaunchedEffect(editor, resetZoomRevision) {
         viewport = CutoutViewport()
@@ -76,17 +106,32 @@ internal fun CutoutRetouchCanvas(
 
     Canvas(
         modifier.onSizeChanged { canvasSize = it }
-            .pointerInput(editor, restore, radius, panMode, showOriginal, canvasSize) {
+            .pointerInput(editor, restore, radius, panMode, showOriginal, canvasSize,
+                magnetic, tracer, attraction) {
                 if (canvasSize.width == 0 || canvasSize.height == 0) return@pointerInput
                 awaitEachGesture {
                     val first = awaitFirstDown(requireUnconsumed = false)
                     var transform = viewport.transform(canvasSize, referenceSize)
                     val start = transform.toImage(first.position)
-                    var painting = !panMode && !showOriginal && start.x in 0f..editor.width.toFloat() &&
-                        start.y in 0f..editor.height.toFloat()
+                    val inBounds = start.x >= 0f && start.y >= 0f &&
+                        start.x < editor.width && start.y < editor.height
+                    var painting = !magnetic && !panMode && !showOriginal && inBounds
+                    var tracing = magnetic && tracer != null && !panMode && !showOriginal && inBounds
                     var multiTouch = false
                     var previous = start
-                    if (painting) {
+                    val startingDraft = latestDraft
+                    var currentDraft = startingDraft
+                    if (tracing) {
+                        val initial = tracer!!
+                        val firstPieces = if (startingDraft.isEmpty())
+                            listOf(initial.snap(start, null, attraction))
+                        else initial.follow(startingDraft.last(), start, attraction)
+                        currentDraft = (startingDraft + firstPieces).take(12_000)
+                        latestOnDraft(currentDraft)
+                        cursor = first.position
+                        revision++
+                        first.consume()
+                    } else if (painting) {
                         editor.startStroke(start.x, start.y, radius, restore)
                         cursor = first.position
                         revision++
@@ -100,7 +145,9 @@ internal fun CutoutRetouchCanvas(
                                 if (!multiTouch) {
                                     // Undo the dot/partial stroke before any pinch manipulation.
                                     if (painting) editor.cancelStroke()
+                                    if (tracing) latestOnDraft(startingDraft)
                                     painting = false
+                                    tracing = false
                                     multiTouch = true
                                     cursor = null
                                     revision++
@@ -122,6 +169,23 @@ internal fun CutoutRetouchCanvas(
                                     viewport = viewport.gesture(canvasSize, referenceSize,
                                         active.position, delta, 1f)
                                     onZoomChanged(viewport.zoom)
+                                    active.consume()
+                                    revision++
+                                }
+                            } else if (!multiTouch && pressed.isNotEmpty() && tracing) {
+                                val active = pressed.firstOrNull { it.id == first.id }
+                                if (active != null) {
+                                    transform = viewport.transform(canvasSize, referenceSize)
+                                    val mapped = transform.toImage(active.position)
+                                    val next = Offset(mapped.x.coerceIn(0f, editor.width - 1f),
+                                        mapped.y.coerceIn(0f, editor.height - 1f))
+                                    val added = tracer!!.follow(previous, next, attraction)
+                                    if (added.isNotEmpty() && currentDraft.size < 12_000) {
+                                        currentDraft = (currentDraft + added).take(12_000)
+                                        latestOnDraft(currentDraft)
+                                    }
+                                    previous = next
+                                    cursor = active.position
                                     active.consume()
                                     revision++
                                 }
@@ -147,6 +211,8 @@ internal fun CutoutRetouchCanvas(
                             editor.endStroke()
                             onStrokeDone()
                         } else if (painting) editor.cancelStroke()
+                        if (tracing && !multiTouch && currentDraft.size > startingDraft.size)
+                            latestOnSegment(startingDraft.size)
                         cursor = null
                         revision++
                     }
@@ -175,12 +241,51 @@ internal fun CutoutRetouchCanvas(
             native.restoreToCount(saved)
         }
 
+        if (magnetic && draft.isNotEmpty()) {
+            drawIntoCanvas { canvas ->
+                val native = canvas.nativeCanvas
+                val saved = native.save()
+                native.clipRect(0f, 0f, size.width, size.height)
+                val trace = Path().apply {
+                    val start = transform.toScreen(draft[0])
+                    moveTo(start.x, start.y)
+                    for (i in 1 until draft.size) {
+                        val p = transform.toScreen(draft[i])
+                        lineTo(p.x, p.y)
+                    }
+                }
+                if (contourArea && draft.size >= 3) {
+                    val closed = Path(trace).apply { close() }
+                    native.drawPath(closed, contourFill)
+                    val first = transform.toScreen(draft.first())
+                    val last = transform.toScreen(draft.last())
+                    native.drawLine(last.x, last.y, first.x, first.y, contourClosing)
+                }
+                native.drawPath(trace, contourPaint)
+                // Each finished gesture creates an editable control point.
+                for (stop in draftStops) {
+                    if (stop > 0 && stop <= draft.size) {
+                        val anchor = transform.toScreen(draft[stop - 1])
+                        native.drawCircle(anchor.x, anchor.y, 4.dp.toPx(), darkPaint)
+                        native.drawCircle(anchor.x, anchor.y, 2.5.dp.toPx(), contourPaint)
+                    }
+                }
+                native.restoreToCount(saved)
+            }
+        }
+
         cursor?.let { pointer ->
-            val pointOnBitmap = transform.toImage(pointer)
+            val pointOnBitmap = if (magnetic && draft.isNotEmpty())
+                draft.last() else transform.toImage(pointer)
             if (pointOnBitmap.x < 0f || pointOnBitmap.x >= editor.width ||
                 pointOnBitmap.y < 0f || pointOnBitmap.y >= editor.height) return@let
-            drawCircle(Color(0xFFFFD854), radius * transform.scale, pointer,
-                style = Stroke(width = 1.7.dp.toPx()))
+            if (magnetic) {
+                drawCircle(Color(0xFFFFD854), 4.dp.toPx(), transform.toScreen(pointOnBitmap),
+                    style = Stroke(width = 1.7.dp.toPx()))
+            } else {
+                drawCircle(Color(0xFFFFD854), radius * transform.scale, pointer,
+                    style = Stroke(width = 1.7.dp.toPx()))
+            }
 
             // Floating 116dp magnifier lives away from the finger, mirrors zoom/pan
             // mapping, and moves to the opposite side near view edges.
@@ -218,7 +323,9 @@ internal fun CutoutRetouchCanvas(
                 val actualY = destination.top + (pointOnBitmap.y - top) *
                     (bubbleRadius * 2f) / max(1, bottom - top)
                 native.drawCircle(actualX, actualY,
-                    (radius * pixelSizeOnLoupe).coerceAtMost(bubbleRadius - 4.dp.toPx()), brushPaint)
+                    if (magnetic) 5.dp.toPx()
+                    else (radius * pixelSizeOnLoupe).coerceAtMost(bubbleRadius - 4.dp.toPx()),
+                    brushPaint)
                 native.drawLine(actualX - 4.dp.toPx(), actualY,
                     actualX + 4.dp.toPx(), actualY, brushPaint)
                 native.drawLine(actualX, actualY - 4.dp.toPx(),

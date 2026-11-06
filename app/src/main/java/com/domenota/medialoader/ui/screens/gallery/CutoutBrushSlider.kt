@@ -29,8 +29,8 @@ internal fun CutoutBrushSlider(
     val callback by rememberUpdatedState(onValueChange)
     val lower = 8f
     val upper = 100f
-    val accent = Color(0xFF8150FF)
-    val neutral = Color(0xFF494854)
+    val accent = Color(0xFFFFD34F)
+    val neutral = Color(0xFF646464)
     Canvas(
         modifier.fillMaxWidth().height(42.dp)
             .semantics { progressBarRangeInfo = ProgressBarRangeInfo(value, lower..upper) }
