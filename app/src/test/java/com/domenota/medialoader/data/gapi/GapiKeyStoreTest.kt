@@ -122,6 +122,24 @@ class GapiKeyStoreTest {
         assertFalse(store.resetStatus("missing"))
     }
 
+    @Test fun `balance exhaustion selects next built-in key`() {
+        val prefs = context.getSharedPreferences("gapi-test", 0)
+        val ui = context.getSharedPreferences("ui-test", 0)
+        val second = builtin.copy(id = "builtin-two", token = "second-test-token")
+        fun keys() = GapiKeyStore(prefs, ui, listOf(builtin, second), { now })
+        assertEquals(listOf(156, 200), keys().snapshot().map { it.remaining })
+        repeat(156) {
+            keys().recordResponse("/v2/vk?url=redacted", builtin.token, 200)
+        }
+        assertEquals(listOf(0, 200), keys().snapshot().map { it.remaining })
+        assertEquals(listOf("builtin-two"), keys().eligible().map { it.id })
+        assertEquals(Instant.parse("2026-12-01T00:00:00Z").toEpochMilli(),
+            keys().nextAvailableAtMillis())
+        now = Instant.parse("2026-12-01T00:00:00Z").toEpochMilli()
+        assertEquals(listOf(200, 200), keys().snapshot().map { it.remaining })
+        assertEquals(listOf("builtin-one", "builtin-two"), keys().eligible().map { it.id })
+    }
+
     @Test fun `unavailable encrypted storage never makes builtin credentials eligible`() {
         val ui = context.getSharedPreferences("ui-test", 0)
         ui.edit().putBoolean("developer_visible", true).putBoolean("extended_app_log", true).commit()
