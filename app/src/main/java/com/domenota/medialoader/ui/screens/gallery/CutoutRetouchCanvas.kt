@@ -105,7 +105,7 @@ internal fun CutoutRetouchCanvas(
                                 val zoomChange = event.calculateZoom()
                                 val panChange = event.calculatePan()
                                 val centroid = event.calculateCentroid(useCurrent = true)
-                                if (centroid.isSpecified) {
+                                if (centroid.x.isFinite() && centroid.y.isFinite()) {
                                     viewport = viewport.gesture(canvasSize, referenceSize,
                                         centroid, panChange, zoomChange)
                                     onZoomChanged(viewport.zoom)
