@@ -479,12 +479,13 @@ fun MediaLoaderApp(
     val setLibraryFolder: suspend (String, String?) -> Unit = { id, folder ->
         val ref = publicLibraryRefs.firstOrNull { it.key == id || id in it.aliases }
         requireNotNull(ref) { "Файл недоступен" }
-        require(folder == null || catalogFolders.any { it.id == folder }) { "Папка не найдена" }
+        // A newly created folder is already committed to Room but its observed
+        // catalogFolders snapshot may not have recomposed yet. Let the database
+        // validate app-download assignments instead of rejecting fresh folders.
         if (ref.appDownloadId != null) {
-            libraryModel.externalCatalog.setExistingFolder(ref, folder)
             viewModel.setCatalogFolder(ref.appDownloadId, folder)
-        }
-        else libraryModel.externalCatalog.setFolder(ref, folder)
+            libraryModel.externalCatalog.setExistingFolder(ref, folder)
+        } else libraryModel.externalCatalog.setFolder(ref, folder)
     }
     val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
     val instagramSessionRevision by viewModel.instagramSessionRevision.collectAsStateWithLifecycle()
