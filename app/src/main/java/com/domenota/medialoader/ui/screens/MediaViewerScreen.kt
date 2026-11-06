@@ -1256,7 +1256,8 @@ internal fun applyFullscreen(
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller.hide(WindowInsetsCompat.Type.systemBars())
     } else {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        // Returning to the gallery must not leave the Activity in landscape.
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         com.domenota.medialoader.ui.theme.edgeToEdgeWindow(window,
             dark = com.domenota.medialoader.ui.theme.appThemeIsDark(activity))
         controller.show(WindowInsetsCompat.Type.systemBars())
