@@ -368,17 +368,13 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                     V3Tool("Вернуть", selectedTool == "restore", enabled = editor != null && !saving,
                         icon = { tint -> Icon(Icons.Rounded.AddCircleOutline, null, Modifier.size(21.dp), tint = tint) },
                         onClick = { selectedTool = "restore" }, modifier = Modifier.weight(1f))
+                    // Tap to compare with the unedited source, tap again to return
+                    // to the mask. Do not combine press gestures with V3Tool.clickable:
+                    // nested gesture detectors can consume each other's events.
                     V3Tool("Оригинал", originalVisible, enabled = editor != null && !saving,
                         icon = { tint -> Icon(Icons.Rounded.Visibility, null, Modifier.size(21.dp), tint = tint) },
-                        onClick = {},
-                        modifier = Modifier.weight(1f)
-                            .pointerInput(editor) {
-                                detectTapGestures(onPress = {
-                                    originalVisible = true
-                                    tryAwaitRelease()
-                                    originalVisible = false
-                                })
-                            })
+                        onClick = { originalVisible = !originalVisible },
+                        modifier = Modifier.weight(1f))
                     V3Tool("Двигать", selectedTool == "pan", enabled = editor != null && !saving,
                         icon = { tint -> Icon(Icons.Rounded.PanTool, null, Modifier.size(21.dp), tint = tint) },
                         onClick = { selectedTool = "pan" }, modifier = Modifier.weight(1f))
