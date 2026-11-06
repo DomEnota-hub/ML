@@ -1,0 +1,53 @@
+name: MediaLoader 1.7.138 ARM64 Release QA handoff
+on:
+  push:
+    branches:
+      - build/ml-17138-arm64-cutout-qa-v7-20261106
+    paths:
+      - .github/workflows/ml-17138-release-handoff.yml
+      - app/src/main/java/com/domenota/medialoader/ui/screens/gallery/**
+      - app/build.gradle
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17138-arm64-release-handoff
+  cancel-in-progress: true
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android 35 toolchain
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Assemble genuine ARM64 Release, not Debug
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify package version and ARM64 ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" |
+            grep -F "package: name='com.domenota.medialoader' versionCode='199' versionName='1.7.138'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          mkdir -p handoff
+          cp "$apk" handoff/ML_1.7.138_ARM64_UNSIGNED.apk
+          sha256sum handoff/ML_1.7.138_ARM64_UNSIGNED.apk | tee handoff/SHA256.txt
+      - name: Hand off unsigned Release for original DomEnota offline signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17138-arm64-unsigned-offline-DomEnota-sign
+          path: handoff/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
