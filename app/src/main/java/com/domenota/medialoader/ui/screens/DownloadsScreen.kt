@@ -136,6 +136,7 @@ fun DownloadsScreen(
     scrollToTopRequest: Int = 0,
     catalogFolders: List<CatalogFolderEntity> = emptyList(),
     catalogAssignments: List<CatalogAssignmentEntity> = emptyList(),
+    galleryOnlyFolderIds: Set<String> = emptySet(),
     onCreateFolder: suspend (String) -> String = { "" },
     onRenameFolder: suspend (String, String) -> Unit = { _, _ -> },
     onDeleteFolder: suspend (String) -> Unit = {},
@@ -207,6 +208,16 @@ fun DownloadsScreen(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val assignmentById = remember(catalogAssignments) { catalogAssignments.associateBy { it.downloadId } }
     val folderNames = remember(catalogFolders) { catalogFolders.associate { it.id to it.name } }
+    val navigableFolderIds = remember(catalogFolders, items, assignmentById, galleryOnlyFolderIds) {
+        visibleDownloadFolders(catalogFolders, items, assignmentById, galleryOnlyFolderIds,
+            assigning = false).mapTo(mutableSetOf()) { it.id }
+    }
+    LaunchedEffect(selectedCatalog, navigableFolderIds) {
+        if (selectedCatalog.startsWith("folder:") &&
+            selectedCatalog.removePrefix("folder:") !in navigableFolderIds) {
+            selectedCatalog = CATALOG_ALL
+        }
+    }
 
     fun groupAction(ids: List<String>, operation: suspend (String) -> Unit) {
         if (groupBusy) return
@@ -244,6 +255,7 @@ fun DownloadsScreen(
         folders = catalogFolders,
         assignments = assignmentById,
         items = items,
+        galleryOnlyFolderIds = galleryOnlyFolderIds,
         selectedKey = selectedCatalog,
         targetDownloadId = folderTargetId,
         onDismiss = { folderSheetOpen = false; folderTargetId = null; folderGroupTargets = emptyList() },
