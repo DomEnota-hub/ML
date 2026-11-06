@@ -1,7 +1,9 @@
 package com.domenota.medialoader.ui.screens.gallery
 
 import android.graphics.Bitmap
+import androidx.compose.ui.geometry.Offset
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -22,8 +24,14 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
     private val sourcePixels = IntArray(width * height)
     private val initialPixels = IntArray(width * height)
     private val workingPixels = IntArray(width * height)
-    private val history = ArrayDeque<Map<Int, Int>>()
-    private val redoHistory = ArrayDeque<Map<Int, Int>>()
+    // Full-region deltas avoid per-pixel HashMap allocations when filling a large area.
+    private sealed class Edit {
+        data class Brush(val old: Map<Int, Int>) : Edit()
+        data class Region(val left: Int, val top: Int, val width: Int, val height: Int,
+            val old: IntArray) : Edit()
+    }
+    private val history = ArrayDeque<Edit>()
+    private val redoHistory = ArrayDeque<Edit>()
     private var current: MutableMap<Int, Int>? = null
     val preview: Bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
@@ -60,8 +68,7 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
         if (!snapshot.isNullOrEmpty()) {
             // A new committed paint operation creates a new timeline.
             redoHistory.clear()
-            if (history.size >= 15) history.removeFirst()
-            history.addLast(snapshot)
+            addHistory(Edit.Brush(snapshot))
         }
     }
 
@@ -75,29 +82,126 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
     fun undo(): Boolean {
         endStroke()
         val change = history.removeLastOrNull() ?: return false
-        val redoValues = HashMap<Int, Int>(change.size)
-        change.forEach { (index, oldPixel) ->
-            redoValues[index] = workingPixels[index]
-            workingPixels[index] = oldPixel
-        }
-        if (redoHistory.size >= 15) redoHistory.removeFirst()
-        redoHistory.addLast(redoValues)
+        redoHistory.addLast(swap(change))
+        if (redoHistory.size > 15) redoHistory.removeFirst()
         syncFull()
         return true
     }
 
-    /** Replay the last undone stroke, retaining the ability to Undo again. */
+    /** Both freehand and magnetic edits share one exact Undo/Redo timeline. */
     fun redo(): Boolean {
         endStroke()
         val change = redoHistory.removeLastOrNull() ?: return false
-        val undoValues = HashMap<Int, Int>(change.size)
-        change.forEach { (index, nextPixel) ->
-            undoValues[index] = workingPixels[index]
-            workingPixels[index] = nextPixel
-        }
-        if (history.size >= 15) history.removeFirst()
-        history.addLast(undoValues)
+        history.addLast(swap(change))
+        if (history.size > 15) history.removeFirst()
         syncFull()
+        return true
+    }
+
+    private fun swap(edit: Edit): Edit = when (edit) {
+        is Edit.Brush -> {
+            val opposite = HashMap<Int, Int>(edit.old.size)
+            edit.old.forEach { (index, oldPixel) ->
+                opposite[index] = workingPixels[index]
+                workingPixels[index] = oldPixel
+            }
+            Edit.Brush(opposite)
+        }
+        is Edit.Region -> {
+            val other = IntArray(edit.width * edit.height)
+            for (row in 0 until edit.height) {
+                val index = (edit.top + row) * width + edit.left
+                workingPixels.copyInto(other, row * edit.width, index, index + edit.width)
+                edit.old.copyInto(workingPixels, index, row * edit.width,
+                    (row + 1) * edit.width)
+            }
+            edit.copy(old = other)
+        }
+    }
+
+    private fun addHistory(edit: Edit) {
+        redoHistory.clear()
+        history.addLast(edit)
+        // Bound Undo memory: one full-image polygon edit is about 10 MB at 1600px.
+        fun bytes(value: Edit): Long = when (value) {
+            is Edit.Brush -> value.old.size * 24L
+            is Edit.Region -> value.old.size * 4L
+        }
+        var used = history.sumOf(::bytes)
+        while (history.size > 1 && (history.size > 15 || used > 48L * 1024 * 1024)) {
+            used -= bytes(history.removeFirst())
+        }
+    }
+
+    /** A narrow, contour-following correction instead of circular hand painting. */
+    fun applyPolyline(points: List<Offset>, lineWidth: Float, restore: Boolean): Boolean {
+        if (points.size < 2 || points.any { !it.x.isFinite() || !it.y.isFinite() }) return false
+        endStroke()
+        val before = history.size
+        val radius = (lineWidth / 2f).coerceIn(1f, 16f)
+        startStroke(points.first().x, points.first().y, radius, restore)
+        for (i in 1 until points.size) {
+            dragStroke(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y, radius, restore)
+        }
+        endStroke()
+        return history.size > before
+    }
+
+    /** Closed magnetic selection. Scanline fill in one compact, undoable transaction. */
+    fun applyPolygon(points: List<Offset>, restore: Boolean): Boolean {
+        if (points.size < 3 || points.any { !it.x.isFinite() || !it.y.isFinite() }) return false
+        val twiceArea = points.indices.sumOf { index ->
+            val p = points[index]
+            val q = points[(index + 1) % points.size]
+            (p.x.toDouble() * q.y - q.x.toDouble() * p.y)
+        }
+        if (kotlin.math.abs(twiceArea) < 8.0) return false
+        endStroke()
+        val x0 = floor(points.minOf { it.x }).toInt().coerceIn(0, width - 1)
+        val x1 = ceil(points.maxOf { it.x }).toInt().coerceIn(0, width - 1)
+        val y0 = floor(points.minOf { it.y }).toInt().coerceIn(0, height - 1)
+        val y1 = ceil(points.maxOf { it.y }).toInt().coerceIn(0, height - 1)
+        if (x0 >= x1 || y0 >= y1) return false
+        val rectWidth = x1 - x0 + 1
+        val rectHeight = y1 - y0 + 1
+        val before = IntArray(rectWidth * rectHeight)
+        for (row in 0 until rectHeight) {
+            val base = (y0 + row) * width + x0
+            workingPixels.copyInto(before, row * rectWidth, base, base + rectWidth)
+        }
+        var changed = false
+        val intersections = ArrayList<Float>(min(points.size, 64))
+        for (y in y0..y1) {
+            intersections.clear()
+            val scan = y + .5f
+            for (i in points.indices) {
+                val a = points[i]; val b = points[(i + 1) % points.size]
+                if ((a.y <= scan && b.y > scan) || (b.y <= scan && a.y > scan)) {
+                    val fraction = (scan - a.y) / (b.y - a.y)
+                    intersections += a.x + fraction * (b.x - a.x)
+                }
+            }
+            intersections.sort()
+            for (j in 0 until intersections.size - 1 step 2) {
+                val from = ceil(intersections[j] - .5f).toInt().coerceIn(x0, x1 + 1)
+                val to = floor(intersections[j + 1] - .5f).toInt().coerceIn(x0 - 1, x1)
+                if (from > to) continue
+                for (x in from..to) {
+                    val idx = y * width + x
+                    val old = workingPixels[idx]
+                    val targetAlpha = if (restore) sourcePixels[idx] ushr 24 else 0
+                    val next = (targetAlpha shl 24) or (sourcePixels[idx] and 0x00ffffff)
+                    if (old != next) {
+                        workingPixels[idx] = next
+                        changed = true
+                    }
+                }
+            }
+        }
+        if (!changed) return false
+        preview.setPixels(workingPixels, y0 * width + x0, width,
+            x0, y0, rectWidth, rectHeight)
+        addHistory(Edit.Region(x0, y0, rectWidth, rectHeight, before))
         return true
     }
 
