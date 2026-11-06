@@ -1,0 +1,31 @@
+name: ML 1.7.146 offline Android signing tools only
+on:
+  push:
+    branches:
+      - tool/ml-17146-signing-tools-only-20261107
+permissions:
+  contents: read
+jobs:
+  tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Install official Android build tools
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+      - name: Stage signer and verification tools without keys
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          mkdir -p signing-tools
+          cp "$bt/lib/apksigner.jar" signing-tools/
+          cp "$bt/zipalign" signing-tools/
+          cp -a "$bt/lib64" signing-tools/
+          (cd signing-tools && sha256sum apksigner.jar zipalign > TOOL_SHA256.txt)
+      - name: Export offline signing tools artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17146-offline-signing-tools-no-secrets
+          path: signing-tools/
+          retention-days: 7
+          if-no-files-found: error
