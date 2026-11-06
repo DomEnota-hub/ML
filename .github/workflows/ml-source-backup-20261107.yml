@@ -1,0 +1,43 @@
+name: ML source backup 1.7.146
+on:
+  push:
+    branches:
+      - backup/ml-sources-20261107
+permissions:
+  contents: read
+jobs:
+  package-sources:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact MediaLoader source revision
+        uses: actions/checkout@v4
+        with:
+          ref: 42bf94d6c4410ea4a4112e616cde7af60ce8d893
+          persist-credentials: false
+      - name: Prepare tracked project source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          git archive --format=tar HEAD | tar -xf - -C source
+          test -f source/settings.gradle
+          test -d source/app
+          printf '%s\n' \
+            'Project: DomEnota-hub/ML' \
+            'Version: 1.7.146' \
+            'Source branch: fix/ml-17146-cutout-orientation-20261107' \
+            'Source commit: 42bf94d6c4410ea4a4112e616cde7af60ce8d893' \
+            'Snapshot date: 2026-11-07 (Moscow)' \
+            'Archive contains tracked source files only; no Git history, CI secrets or APK build products.' \
+            'GitHub Actions artifact ZIP may not preserve executable modes: run chmod +x gradlew after extracting on Linux/macOS.' \
+            > source/SNAPSHOT_INFO.txt
+          find source -type f | wc -l
+          du -sh source
+      - name: Upload source ZIP artifact for Google Drive handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.146_sources_2026-11-07
+          path: source/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
