@@ -200,7 +200,7 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                 try {
                     context.contentResolver.openOutputStream(uri)?.use {
                         check(captured.compress(Bitmap.CompressFormat.PNG, 100, it))
-                    } ?: error("Не удалось открыть документ")
+                    } ?: throw IllegalStateException("Не удалось открыть документ")
                     toast("Копия PNG сохранена")
                 } catch (failure: Exception) { toast(failure.message ?: "Не удалось сохранить PNG") }
                 finally { captured.recycle() }
@@ -210,7 +210,7 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
 
     BackHandler(enabled = true, onBack = onClose)
     Dialog(onDismissRequest = onClose,
-        properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(
             Modifier.fillMaxSize()
                 .background(v3Surface)
