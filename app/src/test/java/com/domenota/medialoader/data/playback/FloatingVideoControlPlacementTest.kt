@@ -26,6 +26,9 @@ class FloatingVideoControlPlacementTest {
         val container = FrameLayout(activity)
         var scrubTouches = 0
         val seek = View(activity).apply {
+            // A plain View is non-clickable by default; emulate the real seekbar's
+            // touch ownership instead of letting parent hit testing drop its events.
+            isClickable = true
             setOnTouchListener { _, event ->
                 if (event.actionMasked == MotionEvent.ACTION_UP) scrubTouches++
                 true
