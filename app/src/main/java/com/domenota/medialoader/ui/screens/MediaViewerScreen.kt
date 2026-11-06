@@ -890,15 +890,21 @@ internal fun LocalVideoPlayer(
                     )
                 })
         }
-        // This arrow is always actionable, even if Media3 would disable its
-        // native "previous media item" action for a one-video queue.
+        // Previous follows the usual music-player rule: >3s restarts the episode;
+        // pressing again near the beginning opens the preceding video in the album.
         if (!controlsLocked && chromeVisible && nativePreviousCenter != null) IconButton(
             onClick = {
-                if (player.playbackState == Player.STATE_ENDED) player.pause()
-                player.seekTo(0L)
-                playbackEnded = false
-                com.domenota.medialoader.data.playback.VideoWatchProgress.saveResume(prefs, itemId, null)
-                com.domenota.medialoader.data.playback.VideoWatchProgress.record(prefs, itemId, 0L, playableDurationMs)
+                when (VideoPlayerUiPolicy.previousAction(player.currentPosition, onPreviousVideo != null)) {
+                    VideoPlayerUiPolicy.PreviousAction.OPEN_PREVIOUS ->
+                        onPreviousVideo?.invoke(player.playWhenReady)
+                    VideoPlayerUiPolicy.PreviousAction.RESTART -> {
+                        if (player.playbackState == Player.STATE_ENDED) player.pause()
+                        player.seekTo(0L)
+                        playbackEnded = false
+                        com.domenota.medialoader.data.playback.VideoWatchProgress.saveResume(prefs, itemId, null)
+                        com.domenota.medialoader.data.playback.VideoWatchProgress.record(prefs, itemId, 0L, playableDurationMs)
+                    }
+                }
             },
             modifier = Modifier.align(Alignment.TopStart)
                 .offset { IntOffset(
@@ -906,8 +912,27 @@ internal fun LocalVideoPlayer(
                     (nativePreviousCenter!!.y - previousButtonHalfPx).toInt(),
                 ) }.size(48.dp),
         ) {
-            Icon(Icons.Rounded.SkipPrevious, contentDescription = "К началу видео",
+            Icon(Icons.Rounded.SkipPrevious,
+                contentDescription = if (onPreviousVideo == null) "К началу видео"
+                    else "К началу или предыдущему видео",
                 tint = androidx.compose.ui.graphics.Color.White,
+                modifier = Modifier.size(30.dp))
+        }
+        val nextControlCenter = nativeNextCenter ?: nativePlayCenter?.let {
+            Offset(it.x + with(LocalDensity.current) { 48.dp.toPx() }, it.y)
+        }
+        if (!controlsLocked && chromeVisible && showAlbumSkipButton && nextControlCenter != null) IconButton(
+            onClick = { onNextVideo?.invoke(player.playWhenReady) },
+            enabled = onNextVideo != null,
+            modifier = Modifier.align(Alignment.TopStart)
+                .offset { IntOffset(
+                    (nextControlCenter.x - previousButtonHalfPx).toInt(),
+                    (nextControlCenter.y - previousButtonHalfPx).toInt(),
+                ) }.size(48.dp),
+        ) {
+            Icon(Icons.Rounded.SkipNext, contentDescription = "Следующее видео",
+                tint = androidx.compose.ui.graphics.Color.White.copy(
+                    alpha = if (onNextVideo != null) 1f else .4f),
                 modifier = Modifier.size(30.dp))
         }
         if (!controlsLocked && chromeVisible) IconButton(
