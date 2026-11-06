@@ -137,14 +137,14 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
     fun applyPolyline(points: List<Offset>, lineWidth: Float, restore: Boolean): Boolean {
         if (points.size < 2 || points.any { !it.x.isFinite() || !it.y.isFinite() }) return false
         endStroke()
-        val before = history.size
         val radius = (lineWidth / 2f).coerceIn(1f, 16f)
         startStroke(points.first().x, points.first().y, radius, restore)
         for (i in 1 until points.size) {
             dragStroke(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y, radius, restore)
         }
+        val changed = !current.isNullOrEmpty()
         endStroke()
-        return history.size > before
+        return changed
     }
 
     /** Closed magnetic selection. Scanline fill in one compact, undoable transaction. */
