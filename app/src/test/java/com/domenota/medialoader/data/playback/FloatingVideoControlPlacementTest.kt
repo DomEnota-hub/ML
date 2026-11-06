@@ -1,6 +1,7 @@
 package com.domenota.medialoader.data.playback
 
 import android.app.Activity
+import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -10,11 +11,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@LooperMode(LooperMode.Mode.PAUSED)
 class FloatingVideoControlPlacementTest {
     @Test fun expandButtonAnchorsToBottomEndAndReceivesTapsAboveSeekbar() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
@@ -55,6 +59,8 @@ class FloatingVideoControlPlacementTest {
             val up = MotionEvent.obtain(1L, 15L, MotionEvent.ACTION_UP, x, y, 0)
             container.dispatchTouchEvent(down)
             container.dispatchTouchEvent(up)
+            // Android schedules click delivery on the UI looper after ACTION_UP.
+            shadowOf(Looper.getMainLooper()).idle()
             down.recycle()
             up.recycle()
         }
