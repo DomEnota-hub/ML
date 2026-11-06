@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -60,7 +61,6 @@ private val v3ActiveCard = Color(0xFF423C29)
 private val v3Text = Color(0xFFF6F6F6)
 private val v3Muted = Color(0xFFA8A8A8)
 private val v3Hairline = Color(0xFF494949)
-private val v3ToolCorner = RoundedCornerShape(13.dp)
 
 @Composable
 internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
@@ -219,7 +219,7 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().height(60.dp)
-                    .background(Color(0xFF2B2B2B))
+                    .background(Brush.verticalGradient(listOf(Color(0xFF2D2D2D), Color(0xFF272727))))
                     .padding(horizontal = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -337,7 +337,13 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                                 .padding(horizontal = 10.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text("${(zoom * 100f).roundToInt()}%", color = Color(0xFFDEDEDE), fontSize = 11.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Rounded.CenterFocusStrong, null, Modifier.size(14.dp),
+                                    tint = Color(0xFFDEDEDE))
+                                Text("${(zoom * 100f).roundToInt()}%",
+                                    color = Color(0xFFDEDEDE), fontSize = 11.sp)
+                            }
                         }
                         // No gesture help caption. The approved layout stays uncluttered.
                     }
@@ -346,7 +352,7 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
 
             Column(
                 modifier = Modifier.fillMaxWidth()
-                    .background(v3Bottom)
+                    .background(Brush.verticalGradient(listOf(v3Bottom, Color(0xFF262626))))
                     .border(width = 1.dp, color = Color(0xFF424242))
                     .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
