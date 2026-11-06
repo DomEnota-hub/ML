@@ -228,6 +228,9 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
                                 if (maskEditor.undo()) maskRevision++
                             }, enabled = maskEditor.canUndo) { Text("Отменить") }
                             TextButton(onClick = {
+                                if (maskEditor.redo()) maskRevision++
+                            }, enabled = maskEditor.canRedo) { Text("Повторить") }
+                            TextButton(onClick = {
                                 maskEditor.reset()
                                 maskRevision++
                             }) { Text("Сброс") }
