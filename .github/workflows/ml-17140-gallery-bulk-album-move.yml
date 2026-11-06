@@ -81,12 +81,19 @@ jobs:
           retention-days: 7
           compression-level: 0
           if-no-files-found: error
-      - name: Preserve multipart archive for Google Drive fallback
+      - name: Preserve part 1 for Google Drive fallback (under 100 MB)
         uses: actions/upload-artifact@v4
         with:
-          name: ml-17140-arm64-dom-enota-archive-parts
+          name: ml-17140-arm64-dom-enota-z01
+          path: handoff/ML_1.7.140_ARM64_DomEnota_SIGNED.z01
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+      - name: Preserve final part and hashes for Google Drive fallback
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17140-arm64-dom-enota-zip
           path: |
-            handoff/ML_1.7.140_ARM64_DomEnota_SIGNED.z01
             handoff/ML_1.7.140_ARM64_DomEnota_SIGNED.zip
             handoff/SHA256.txt
           retention-days: 7
