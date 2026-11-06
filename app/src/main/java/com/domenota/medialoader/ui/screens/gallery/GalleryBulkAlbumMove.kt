@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.database.DownloadEntity
+import com.domenota.medialoader.data.library.LibrarySource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,6 +43,17 @@ internal object GalleryAlbumMovePolicy {
         parsed.scheme == "content" && parsed.authority == MediaStore.AUTHORITY
     }.getOrDefault(false)
 
+    fun newPhoneAlbumName(raw: String): String {
+        val name = raw.trim().replace(Regex("\\s+"), " ")
+        require(name.isNotEmpty() && name.length <= 48 &&
+            !name.contains("..") &&
+            name.all { it.isLetterOrDigit() || it == ' ' || it == '-' ||
+                it == '_' || it == '(' || it == ')' || it == '.' }) {
+            "Название альбома: до 48 символов, без специальных знаков и разделителей пути"
+        }
+        return name
+    }
+
     fun remainingSelection(all: List<String>, completed: Set<String>): List<String> =
         all.filterNot(completed::contains)
 
@@ -56,6 +68,7 @@ internal fun GalleryBulkAlbumMoveSheet(
     selected: List<DownloadEntity>,
     albums: List<GalleryAlbum>,
     deviceAlbums: Map<String, DeviceAlbum>,
+    source: LibrarySource,
     onCreateFolder: suspend (String) -> String,
     onSetFolder: suspend (String, String?) -> Unit,
     onDismiss: () -> Unit,
@@ -66,6 +79,7 @@ internal fun GalleryBulkAlbumMoveSheet(
     var search by remember { mutableStateOf("") }
     var chosen by remember { mutableStateOf<String?>(null) }
     var creating by remember { mutableStateOf(false) }
+    var creatingPhone by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
@@ -130,6 +144,7 @@ internal fun GalleryBulkAlbumMoveSheet(
                         Modifier.fillMaxWidth().clickable(enabled = !busy) {
                             chosen = album.key
                             creating = false
+                            creatingPhone = false
                             problem = null
                         }.padding(vertical = 11.dp, horizontal = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -150,10 +165,27 @@ internal fun GalleryBulkAlbumMoveSheet(
                         }
                     }
                 }
+                if (source == LibrarySource.PHONE) item(key = "new-phone-album") {
+                    Row(
+                        Modifier.fillMaxWidth().clickable(enabled = !busy) {
+                            creating = true
+                            creatingPhone = true
+                            chosen = null
+                            problem = null
+                        }.padding(vertical = 14.dp, horizontal = 5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.CreateNewFolder, null,
+                            tint = MaterialTheme.colorScheme.primary)
+                        Text("Создать альбом телефона")
+                    }
+                }
                 item(key = "new-folder") {
                     Row(
                         Modifier.fillMaxWidth().clickable(enabled = !busy) {
                             creating = true
+                            creatingPhone = false
                             chosen = null
                             problem = null
                         }.padding(vertical = 14.dp, horizontal = 5.dp),
@@ -172,7 +204,7 @@ internal fun GalleryBulkAlbumMoveSheet(
                     enabled = !busy)
             }
             Text(
-                if (chosen?.startsWith("device:") == true)
+                if (creatingPhone || chosen?.startsWith("device:") == true)
                     "Альбом телефона: оригиналы будут физически перенесены. Android запросит разрешение."
                 else "Папка MediaLoader: файлы попадут в коллекцию без изменения расположения оригиналов.",
                 style = MaterialTheme.typography.bodySmall,
@@ -188,7 +220,14 @@ internal fun GalleryBulkAlbumMoveSheet(
                 TextButton({ onDismiss() }, enabled = !busy) { Text("Отмена") }
                 Button(
                     onClick = {
-                        if (creating) {
+                        if (creating && creatingPhone) {
+                            try {
+                                val name = GalleryAlbumMovePolicy.newPhoneAlbumName(newName)
+                                phoneTarget = GalleryAlbum("newdevice:$name", name, "Телефон", 0, null)
+                            } catch (failure: IllegalArgumentException) {
+                                problem = failure.message
+                            }
+                        } else if (creating) {
                             busy = true
                             scope.launch {
                                 try {
@@ -254,23 +293,28 @@ private fun GalleryPhoneAlbumMoveHost(
     LaunchedEffect(target.key) {
         try {
             require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { "Альбомы телефона требуют Android 10 или новее" }
-            val cover = target.cover?.savedUri?.takeIf(GalleryAlbumMovePolicy::isPhoneMedia)
-                ?: error("Не удалось определить папку альбома телефона")
-            val path = withContext(Dispatchers.IO) {
-                context.contentResolver.query(
-                    Uri.parse(cover),
-                    arrayOf(MediaStore.MediaColumns.RELATIVE_PATH),
-                    null, null, null,
-                )?.use { cursor ->
-                    if (!cursor.moveToFirst()) null
-                    else cursor.getString(cursor.getColumnIndexOrThrow(
-                        MediaStore.MediaColumns.RELATIVE_PATH))
-                }
-            }?.trim()?.trimStart('/')
-            require(!path.isNullOrBlank() && !path.contains("..")) {
-                "Не удалось определить безопасный путь альбома"
+            val path = if (target.key.startsWith("newdevice:")) {
+                // DCIM accepts both photos and videos; MediaStore creates the directory
+                // on the first successful RELATIVE_PATH update.
+                "DCIM/MediaLoader/${GalleryAlbumMovePolicy.newPhoneAlbumName(target.name)}/"
+            } else {
+                val cover = target.cover?.savedUri?.takeIf(GalleryAlbumMovePolicy::isPhoneMedia)
+                    ?: error("Не удалось определить папку альбома телефона")
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.query(
+                        Uri.parse(cover),
+                        arrayOf(MediaStore.MediaColumns.RELATIVE_PATH),
+                        null, null, null,
+                    )?.use { cursor ->
+                        if (!cursor.moveToFirst()) null
+                        else cursor.getString(cursor.getColumnIndexOrThrow(
+                            MediaStore.MediaColumns.RELATIVE_PATH))
+                    }
+                }?.trim()?.trimStart('/')
             }
-            targetPath = path.trimEnd('/') + "/"
+            val safe = path?.takeIf { it.isNotBlank() && !it.contains("..") }
+                ?: error("Не удалось определить безопасный путь альбома")
+            targetPath = safe.trimEnd('/') + "/"
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) {
             fatal = failure.message ?: "Альбом телефона недоступен"
