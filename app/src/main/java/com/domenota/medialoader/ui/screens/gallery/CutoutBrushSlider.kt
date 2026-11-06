@@ -25,22 +25,24 @@ internal fun CutoutBrushSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    valueRange: ClosedFloatingPointRange<Float> = 8f..100f,
 ) {
     val callback by rememberUpdatedState(onValueChange)
-    val lower = 8f
-    val upper = 100f
+    val lower = valueRange.start
+    val upper = valueRange.endInclusive
+    require(lower < upper) { "Slider range must have a positive width" }
     val accent = Color(0xFFFFD34F)
     val neutral = Color(0xFF646464)
     Canvas(
         modifier.fillMaxWidth().height(42.dp)
             .semantics { progressBarRangeInfo = ProgressBarRangeInfo(value, lower..upper) }
-            .pointerInput(Unit) {
+            .pointerInput(lower, upper) {
                 detectTapGestures { point ->
                     val v = (point.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
                     callback(lower + (upper - lower) * v)
                 }
             }
-            .pointerInput(Unit) {
+            .pointerInput(lower, upper) {
                 detectDragGestures(
                     onDragStart = { point ->
                         val v = (point.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
