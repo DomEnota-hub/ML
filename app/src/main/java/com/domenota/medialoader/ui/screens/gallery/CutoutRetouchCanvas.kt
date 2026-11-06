@@ -43,6 +43,7 @@ internal fun CutoutRetouchCanvas(
     radius: Float,
     panMode: Boolean = false,
     showOriginal: Boolean = false,
+    refreshToken: Int = 0,
     resetZoomRevision: Int,
     onZoomChanged: (Float) -> Unit,
     onStrokeDone: () -> Unit,
@@ -153,7 +154,7 @@ internal fun CutoutRetouchCanvas(
             }
     ) {
         @Suppress("UNUSED_VARIABLE")
-        val redraw = revision
+        val redraw = revision + refreshToken
         val transform = viewport.transform(IntSize(size.width.roundToInt(), size.height.roundToInt()), referenceSize)
         val rect = RectF(transform.left, transform.top,
             transform.left + editor.width * transform.scale,
