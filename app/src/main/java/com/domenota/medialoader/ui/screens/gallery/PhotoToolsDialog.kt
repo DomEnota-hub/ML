@@ -55,6 +55,11 @@ import kotlinx.coroutines.withTimeout
 /** Tools always export a separate PNG. The original savedUri is opened for reading only. */
 @Composable
 internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: () -> Unit) {
+    // Cutout is routed to the approved HTML v3 layout. OCR and watermark remain untouched.
+    if (mode == "cutout") {
+        CutoutV3Dialog(photo, onDismiss)
+        return
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var source by remember(photo.id, mode) { mutableStateOf<Bitmap?>(null) }

@@ -1,0 +1,52 @@
+name: MediaLoader Cutout approved v3 exact QA
+on:
+  push:
+    branches:
+      - feature/ml-17139-cutout-v3-exact-20261106
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-cutout-v3-exact
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Android SDK setup
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Approved cutout v3 and gallery regressions
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*CutoutViewportTest' \
+            --tests '*CutoutMaskEditorTest' \
+            --tests '*U2NetPhotoCutoutTest' \
+            --tests '*GalleryV10ActionContractTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*GalleryViewerPhotoUiTest' --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Build genuine ARM64 Release
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Save tests and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-v3-exact-qa-${{ github.sha }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+            app/build/outputs/apk/release/
+          if-no-files-found: warn
+          retention-days: 7
