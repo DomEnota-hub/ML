@@ -99,7 +99,9 @@ class CutoutMaskEditorTest {
                 assertEquals(0, Color.alpha(snapshot.getPixel(12, 12)))
                 editor.startStroke(12f, 12f, 6f, restore = true)
                 editor.endStroke()
-                assertEquals(255, Color.alpha(editor.snapshot().getPixel(12, 12)))
+                val restored = editor.snapshot()
+                try { assertEquals(255, Color.alpha(restored.getPixel(12, 12))) }
+                finally { restored.recycle() }
             } finally { snapshot.recycle() }
         } finally {
             editor.release()
