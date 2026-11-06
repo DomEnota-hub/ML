@@ -23,6 +23,8 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +44,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.domenota.medialoader.core.database.DownloadEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlin.math.min
@@ -80,6 +84,12 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
     var zoomReset by remember(photo.id) { mutableIntStateOf(0) }
     var maskRevision by remember(photo.id) { mutableIntStateOf(0) }
     var legacySnapshot by remember(photo.id) { mutableStateOf<Bitmap?>(null) }
+    var linePoints by remember(photo.id) { mutableStateOf<List<Offset>>(emptyList()) }
+    var lineStops by remember(photo.id) { mutableStateOf<List<Int>>(emptyList()) }
+    var lineArea by remember(photo.id) { mutableStateOf(false) }
+    var lineRestore by remember(photo.id) { mutableStateOf(false) }
+    var attraction by remember(photo.id) { mutableFloatStateOf(65f) }
+    var tracer by remember(photo.id) { mutableStateOf<MagneticContourTracer?>(null) }
 
     val editor = remember(source, cutout) {
         val src = source
@@ -92,6 +102,21 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
 
     DisposableEffect(editor) {
         onDispose { editor?.release() }
+    }
+    LaunchedEffect(editor, selectedTool == "lines") {
+        if (editor != null && selectedTool == "lines" && tracer == null) {
+            try {
+                val originalMask = cutout?.foreground
+                if (originalMask != null)
+                    tracer = withContext(Dispatchers.Default) {
+                        MagneticContourTracer(editor.sourceReference, originalMask)
+                    }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                // The editor remains usable with its original brush tools.
+                tracer = null
+            }
+        }
     }
     val latestSource by rememberUpdatedState(source)
     val latestCutout by rememberUpdatedState(cutout)
@@ -152,6 +177,10 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
 
     fun startExport(action: String, closeOnSuccess: Boolean = false) {
         if (saving) return
+        if (linePoints.isNotEmpty()) {
+            toast("Сначала примени или очисти контур")
+            return
+        }
         val currentEditor = editor ?: return
         val snapshot = currentEditor.snapshot()
         saving = true
@@ -208,6 +237,33 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
         } else captured?.recycle()
     }
 
+    fun undoContourPoint() {
+        if (lineStops.isNotEmpty()) {
+            val previousEnd = lineStops.getOrNull(lineStops.lastIndex - 1) ?: 0
+            linePoints = linePoints.take(previousEnd)
+            lineStops = lineStops.dropLast(1)
+        }
+    }
+
+    fun clearContour() {
+        linePoints = emptyList()
+        lineStops = emptyList()
+    }
+
+    fun applyContour() {
+        val working = editor ?: return
+        if (linePoints.size < if (lineArea) 3 else 2) {
+            toast(if (lineArea) "Обведи замкнутую область" else "Добавь хотя бы два узла")
+            return
+        }
+        val applied = if (lineArea) working.applyPolygon(linePoints, lineRestore)
+            else working.applyPolyline(linePoints, 3f, lineRestore)
+        if (applied) {
+            maskRevision++
+            clearContour()
+        } else toast("Контур не изменил маску")
+    }
+
     BackHandler(enabled = true, onBack = onClose)
     Dialog(onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -232,10 +288,15 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                         color = v3Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("Ручная коррекция", fontSize = 10.sp, color = v3Muted)
                 }
-                V3HeaderButton("Отменить", enabled = editor?.canUndo == true && !saving,
-                    onClick = { if (editor?.undo() == true) maskRevision++ }) {
+                V3HeaderButton("Отменить",
+                    enabled = (editor?.canUndo == true || lineStops.isNotEmpty()) && !saving,
+                    onClick = {
+                        if (selectedTool == "lines" && lineStops.isNotEmpty()) undoContourPoint()
+                        else if (editor?.undo() == true) maskRevision++
+                    }) {
                     Icon(Icons.Rounded.Undo, null, Modifier.size(24.dp),
-                        tint = if (editor?.canUndo == true) v3Text else Color(0xFF797979))
+                        tint = if (editor?.canUndo == true || lineStops.isNotEmpty()) v3Text
+                            else Color(0xFF797979))
                 }
                 V3HeaderButton("Повторить", enabled = editor?.canRedo == true && !saving,
                     onClick = { if (editor?.redo() == true) maskRevision++ }) {
@@ -244,7 +305,9 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                 }
                 V3HeaderButton("Готово", enabled = editor != null && !saving,
                     active = true, onClick = {
-                        if (Build.VERSION.SDK_INT >= 29) startExport("save", closeOnSuccess = true)
+                        if (linePoints.isNotEmpty()) {
+                            toast("Сначала примени или очисти контур")
+                        } else if (Build.VERSION.SDK_INT >= 29) startExport("save", closeOnSuccess = true)
                         else {
                             legacySnapshot?.recycle()
                             legacySnapshot = editor?.snapshot()
@@ -282,13 +345,25 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                             CutoutChecker(Modifier.fillMaxSize())
                             CutoutRetouchCanvas(
                                 editor = editor,
-                                restore = selectedTool == "restore",
+                                restore = if (selectedTool == "lines") lineRestore else selectedTool == "restore",
                                 panMode = selectedTool == "pan",
                                 showOriginal = originalVisible,
-                                radius = brushRadius,
+                                radius = if (selectedTool == "lines") 2.5f else brushRadius,
                                 resetZoomRevision = zoomReset,
                                 onZoomChanged = { zoom = it },
                                 onStrokeDone = { maskRevision++ },
+                                magnetic = selectedTool == "lines",
+                                tracer = tracer,
+                                attraction = attraction,
+                                contourArea = lineArea,
+                                draft = linePoints,
+                                draftStops = lineStops,
+                                onDraftChanged = { linePoints = it },
+                                onSegmentFinished = { previous ->
+                                    if (linePoints.size > previous) {
+                                        lineStops = lineStops + linePoints.size
+                                    }
+                                },
                                 refreshToken = maskRevision,
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -305,10 +380,11 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                                 Text(if (originalVisible) "Оригинал" else when (selectedTool) {
                                     "restore" -> "Вернуть"
                                     "pan" -> "Двигать"
+                                    "lines" -> if (tracer == null) "Ищем границы…" else "Линии"
                                     else -> "Ластик"
                                 }, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = v3Text)
                             }
-                            if (brushPreview && selectedTool != "pan") {
+                            if (brushPreview && selectedTool != "pan" && selectedTool != "lines") {
                                 val base = min(availableWidthDp / editor.width,
                                     availableHeightDp / editor.height)
                                 val diameter = (brushRadius * 2 * base * zoom).coerceIn(16f, 170f).dp
@@ -364,6 +440,9 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                     V3Tool("Вернуть", selectedTool == "restore", enabled = editor != null && !saving,
                         icon = { tint -> Icon(Icons.Rounded.AddCircleOutline, null, Modifier.size(21.dp), tint = tint) },
                         onClick = { selectedTool = "restore" }, modifier = Modifier.weight(1f))
+                    V3Tool("Линии", selectedTool == "lines", enabled = editor != null && !saving,
+                        icon = { tint -> Icon(Icons.Rounded.Timeline, null, Modifier.size(21.dp), tint = tint) },
+                        onClick = { selectedTool = "lines" }, modifier = Modifier.weight(1f))
                     V3Tool("Оригинал", originalVisible, enabled = editor != null && !saving,
                         icon = { tint -> Icon(Icons.Rounded.Visibility, null, Modifier.size(21.dp), tint = tint) },
                         onClick = {},
@@ -380,7 +459,49 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                         onClick = { selectedTool = "pan" }, modifier = Modifier.weight(1f))
                 }
 
-                if (selectedTool != "pan") {
+                if (selectedTool == "lines") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        V3LineOption("По краю", !lineArea, enabled = !saving,
+                            onClick = { lineArea = false }, modifier = Modifier.weight(1f))
+                        V3LineOption("Область", lineArea, enabled = !saving,
+                            onClick = { lineArea = true }, modifier = Modifier.weight(1f))
+                        V3LineOption("Удалить", !lineRestore, enabled = !saving,
+                            onClick = { lineRestore = false }, modifier = Modifier.weight(1f))
+                        V3LineOption("Вернуть", lineRestore, enabled = !saving,
+                            onClick = { lineRestore = true }, modifier = Modifier.weight(1f))
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().height(43.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(v3Card)
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        Text("Притяжение", color = v3Text, fontSize = 11.sp)
+                        Slider(
+                            value = attraction, onValueChange = { attraction = it },
+                            valueRange = 0f..100f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = v3Accent, activeTrackColor = v3Accent,
+                                inactiveTrackColor = Color(0xFF666666)),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text("${attraction.roundToInt()}%", color = v3Text, fontSize = 11.sp)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        V3OutlinedAction("Точка назад", enabled = lineStops.isNotEmpty() && !saving,
+                            onClick = ::undoContourPoint, modifier = Modifier.weight(1f))
+                        V3OutlinedAction("Очистить", enabled = linePoints.isNotEmpty() && !saving,
+                            onClick = ::clearContour, modifier = Modifier.weight(.8f))
+                        V3OutlinedAction("Применить",
+                            enabled = tracer != null && !saving &&
+                                linePoints.size >= if (lineArea) 3 else 2,
+                            onClick = ::applyContour, modifier = Modifier.weight(1f),
+                            icon = { Icon(Icons.Rounded.Check, null, Modifier.size(15.dp), tint = v3Accent) })
+                    }
+                } else if (selectedTool != "pan") {
                     Row(
                         modifier = Modifier.fillMaxWidth().height(48.dp)
                             .clip(RoundedCornerShape(11.dp))
@@ -458,6 +579,22 @@ private fun V3Tool(label: String, active: Boolean, enabled: Boolean,
         icon(if (active) Color(0xFFFFE284) else Color(0xFFBFBFBF))
         Text(label, color = if (active) Color(0xFFFFF0BF) else v3Text,
             fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+    }
+}
+
+@Composable
+private fun V3LineOption(label: String, active: Boolean, enabled: Boolean,
+    onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(10.dp)
+    Box(
+        modifier.height(37.dp).clip(shape)
+            .background(if (active) v3ActiveCard else v3Card)
+            .border(1.dp, if (active) v3Accent else v3Hairline, shape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, fontSize = 10.sp, color = v3Text, fontWeight = FontWeight.Medium,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
