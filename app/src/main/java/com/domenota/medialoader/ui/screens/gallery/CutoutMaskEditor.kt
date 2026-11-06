@@ -23,6 +23,7 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
     private val initialPixels = IntArray(width * height)
     private val workingPixels = IntArray(width * height)
     private val history = ArrayDeque<Map<Int, Int>>()
+    private val redoHistory = ArrayDeque<Map<Int, Int>>()
     private var current: MutableMap<Int, Int>? = null
     val preview: Bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
@@ -35,6 +36,7 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
     }
 
     val canUndo: Boolean get() = history.isNotEmpty() || !current.isNullOrEmpty()
+    val canRedo: Boolean get() = redoHistory.isNotEmpty()
 
     fun startStroke(x: Float, y: Float, radius: Float, restore: Boolean) {
         endStroke()
@@ -56,6 +58,8 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
         val snapshot = current
         current = null
         if (!snapshot.isNullOrEmpty()) {
+            // A new committed paint operation creates a new timeline.
+            redoHistory.clear()
             if (history.size >= 15) history.removeFirst()
             history.addLast(snapshot)
         }
@@ -71,7 +75,28 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
     fun undo(): Boolean {
         endStroke()
         val change = history.removeLastOrNull() ?: return false
-        change.forEach { (index, oldPixel) -> workingPixels[index] = oldPixel }
+        val redoValues = HashMap<Int, Int>(change.size)
+        change.forEach { (index, oldPixel) ->
+            redoValues[index] = workingPixels[index]
+            workingPixels[index] = oldPixel
+        }
+        if (redoHistory.size >= 15) redoHistory.removeFirst()
+        redoHistory.addLast(redoValues)
+        syncFull()
+        return true
+    }
+
+    /** Replay the last undone stroke, retaining the ability to Undo again. */
+    fun redo(): Boolean {
+        endStroke()
+        val change = redoHistory.removeLastOrNull() ?: return false
+        val undoValues = HashMap<Int, Int>(change.size)
+        change.forEach { (index, nextPixel) ->
+            undoValues[index] = workingPixels[index]
+            workingPixels[index] = nextPixel
+        }
+        if (history.size >= 15) history.removeFirst()
+        history.addLast(undoValues)
         syncFull()
         return true
     }
@@ -79,6 +104,7 @@ internal class CutoutMaskEditor(source: Bitmap, cutout: Bitmap) {
     fun reset() {
         current = null
         history.clear()
+        redoHistory.clear()
         initialPixels.copyInto(workingPixels)
         syncFull()
     }
