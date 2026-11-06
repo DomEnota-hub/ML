@@ -272,6 +272,8 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                     }
                 } else if (editor != null) {
                     BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val availableWidthDp = maxWidth.value
+                        val availableHeightDp = maxHeight.value
                         val imageModifier = Modifier.fillMaxSize()
                             .padding(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 42.dp)
                             .clip(RoundedCornerShape(11.dp))
@@ -307,8 +309,8 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
                                 }, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = v3Text)
                             }
                             if (brushPreview && selectedTool != "pan") {
-                                val base = min(maxWidth.value / editor.width,
-                                    maxHeight.value / editor.height)
+                                val base = min(availableWidthDp / editor.width,
+                                    availableHeightDp / editor.height)
                                 val diameter = (brushRadius * 2 * base * zoom).coerceIn(16f, 170f).dp
                                 Column(Modifier.align(Alignment.Center),
                                     horizontalAlignment = Alignment.CenterHorizontally,
