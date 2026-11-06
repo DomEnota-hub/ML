@@ -170,7 +170,9 @@ fun MediaViewerScreen(
     var selectedId by rememberSaveable(item.id) { mutableStateOf(item.id) }
     val selectedItem = mediaQueue.firstOrNull { it.id == selectedId } ?: item
     val selectedIndex = mediaQueue.indexOfFirst { it.id == selectedItem.id }
-    var videoFullscreen by rememberSaveable(selectedItem.id) { mutableStateOf(false) }
+    // Fullscreen belongs to the viewer, not an individual episode. Preserve it
+    // when SkipNext/SkipPrevious advances to another item in the same queue.
+    var videoFullscreen by rememberSaveable { mutableStateOf(false) }
     var videoControlsLocked by rememberSaveable(selectedItem.id) { mutableStateOf(false) }
     var landscapeVideo by rememberSaveable(selectedItem.id) { mutableStateOf(false) }
     var displayedItem by remember(selectedItem.id) { mutableStateOf(selectedItem) }
