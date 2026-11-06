@@ -40,7 +40,7 @@ class GapiKeyStore internal constructor(
     constructor(context: Context) : this(
         encryptedPreferences(context.applicationContext),
         context.applicationContext.getSharedPreferences("ui", Context.MODE_PRIVATE),
-        parseBuiltins(BuildConfig.GAPI_BUILTIN_KEYS_JSON),
+        parseBuiltins(readBundledKeys(context.applicationContext)),
     )
 
     val storageAvailable: Boolean get() = preferences != null
@@ -249,6 +249,20 @@ class GapiKeyStore internal constructor(
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
         }.getOrNull()
+
+        /**
+         * The final QA APK receives a private asset immediately before local signing.
+         * Source control and public CI artifacts contain no API credentials.
+         * A locally configured developer build may still use BuildConfig as before.
+         */
+        private fun readBundledKeys(context: Context): String {
+            val assetJson = runCatching {
+                context.assets.open("gapi-builtin-keys.json").bufferedReader(Charsets.UTF_8).use {
+                    it.readText().takeIf { json -> json.length in 2..16_384 }
+                }
+            }.getOrNull()
+            return assetJson ?: BuildConfig.GAPI_BUILTIN_KEYS_JSON
+        }
 
         fun parseBuiltins(raw: String): List<GapiKey> = runCatching {
             val array = JSONArray(raw)
