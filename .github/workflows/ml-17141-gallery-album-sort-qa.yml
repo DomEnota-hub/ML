@@ -28,6 +28,8 @@ jobs:
       - name: Album natural sort and Downloads folder consistency regressions
         run: |
           gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*GapiKeyStoreTest' \
+            --tests '*GapiInstagramProviderTest' \
             --tests '*GalleryAlbumFileSortTest' \
             --tests '*DownloadsGalleryOnlyFoldersTest' \
             --tests '*GalleryAlbumNavigationTest' \
