@@ -1,0 +1,76 @@
+name: MediaLoader 1.7.145 QA ARM64 unsigned handoff
+on:
+  push:
+    branches:
+      - release/ml-17145-album-video-controls-20261107
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17145-qa-arm64
+  cancel-in-progress: true
+jobs:
+  verify-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Player controls, album navigation, cutout and GAPI regression tests
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*VideoPlayerUiPolicyTest' \
+            --tests '*MediaSwipePagesTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*GalleryAlbumFileSortTest' \
+            --tests '*FloatingVideoControlPlacementTest' \
+            --tests '*FloatingVideoSeekBarTest' \
+            --tests '*MagneticContourTracerTest' \
+            --tests '*CutoutMaskEditorTest' \
+            --tests '*GapiKeyStoreTest' \
+            --tests '*GapiInstagramProviderTest' --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Compile ARM64 1.7.145 Release
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Align and verify exact ARM64 package, version 206
+        shell: bash
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
+          mkdir -p handoff
+          test -s "$unsigned"
+          "$bt/aapt" dump badging "$unsigned" | grep -F "package: name='com.domenota.medialoader' versionCode='206' versionName='1.7.145'"
+          test "$(unzip -Z1 "$unsigned" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          "$bt/zipalign" -p -f 4 "$unsigned" "handoff/ML_1.7.145_ARM64_ALIGNED_UNSIGNED.apk"
+          "$bt/zipalign" -c -v 4 "handoff/ML_1.7.145_ARM64_ALIGNED_UNSIGNED.apk"
+          sha256sum handoff/ML_1.7.145_ARM64_ALIGNED_UNSIGNED.apk > handoff/ALIGNED_UNSIGNED_SHA256.txt
+      - name: Preserve unsigned aligned ARM64 APK for offline DomEnota signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17145-arm64-unsigned-private-signing
+          path: handoff/
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+      - name: Preserve tests and lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17145-qa-diagnostics
+          path: |
+            app/build/test-results
+            app/build/reports/tests
+            app/build/reports/lint-results-debug.html
+          retention-days: 7
+          if-no-files-found: warn
