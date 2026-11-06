@@ -70,6 +70,16 @@ class GalleryBulkAlbumMoveTest {
         compose.onNodeWithContentDescription("Переместить выбранные в альбом").assertDoesNotExist()
     }
 
+    @Test fun newPhoneAlbumNamesCannotEscapeThePhotoDirectory() {
+        assertEquals("Отпуск 2026", GalleryAlbumMovePolicy.newPhoneAlbumName(" Отпуск   2026 "))
+        for (name in listOf("../private", "DCIM/photos", "a\\\\b", " ", "..")) {
+            try {
+                GalleryAlbumMovePolicy.newPhoneAlbumName(name)
+                org.junit.Assert.fail("Unsafe folder name accepted: $name")
+            } catch (_: IllegalArgumentException) { /* Expected. */ }
+        }
+    }
+
     @Test fun completedItemsAreRemovedFromSelectionButFailuresRemain() {
         assertEquals(listOf("b", "c"), GalleryAlbumMovePolicy.remainingSelection(
             listOf("a", "b", "c"), setOf("a")))
