@@ -53,12 +53,29 @@ internal const val CATALOG_FAVORITES = DownloadCatalogSelection.FAVORITES
 internal const val CATALOG_UNFILED = DownloadCatalogSelection.UNFILED
 internal fun folderKey(id: String) = DownloadCatalogSelection.folder(id)
 
+/** Externally imported Gallery items are not part of the download history. */
+internal fun visibleDownloadFolders(
+    folders: List<CatalogFolderEntity>,
+    items: List<DownloadUiItem>,
+    assignments: Map<String, CatalogAssignmentEntity>,
+    galleryOnlyFolderIds: Set<String>,
+    assigning: Boolean,
+): List<CatalogFolderEntity> {
+    if (assigning) return folders
+    val withDownloads = items.asSequence()
+        .filter { it.state == DownloadUiState.COMPLETED }
+        .mapNotNull { assignments[it.id]?.folderId }
+        .toSet()
+    return folders.filter { it.id !in galleryOnlyFolderIds || it.id in withDownloads }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DownloadFolderSheet(
     folders: List<CatalogFolderEntity>,
     assignments: Map<String, CatalogAssignmentEntity>,
     items: List<DownloadUiItem>,
+    galleryOnlyFolderIds: Set<String> = emptySet(),
     selectedKey: String,
     targetDownloadId: String?,
     onDismiss: () -> Unit,
@@ -76,6 +93,9 @@ internal fun DownloadFolderSheet(
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val completed = items.filter { it.state == DownloadUiState.COMPLETED }
+    val shownFolders = visibleDownloadFolders(
+        folders, items, assignments, galleryOnlyFolderIds, assigning = targetDownloadId != null)
+    val hiddenGalleryFolders = folders.size - shownFolders.size
     val currentFolderId = targetDownloadId?.let { assignments[it]?.folderId }
     val favoriteCount = completed.count { assignments[it.id]?.isFavorite == true }
     val unfiledCount = completed.count { assignments[it.id]?.folderId == null }
@@ -124,8 +144,13 @@ internal fun DownloadFolderSheet(
             }
             Text("Мои папки", style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (folders.isEmpty()) Text("Пока нет папок", modifier = Modifier.padding(12.dp),
+            if (shownFolders.isEmpty()) Text("Пока нет папок загрузок", modifier = Modifier.padding(12.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (hiddenGalleryFolders > 0 && targetDownloadId == null) {
+                Text("Папки с файлами только из галереи доступны в разделе «Галерея».",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (targetDownloadId != null) {
                 androidx.compose.material3.OutlinedButton(
                     onClick = { creating = true; name = ""; error = null },
@@ -135,7 +160,7 @@ internal fun DownloadFolderSheet(
                     Text("Новая папка", modifier = Modifier.padding(start = 8.dp))
                 }
             }
-            folders.forEach { folder ->
+            shownFolders.forEach { folder ->
                 val count = completed.count { assignments[it.id]?.folderId == folder.id }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CatalogSheetRow(Icons.Rounded.Folder, folder.name, count,
