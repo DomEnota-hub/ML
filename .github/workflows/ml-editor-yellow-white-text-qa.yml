@@ -1,0 +1,58 @@
+name: MediaLoader photo/video editor yellow sliders and white text QA
+on:
+  push:
+    branches:
+      - fix/ml-editor-yellow-sliders-white-text-20261107
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-editor-yellow-white-text-qa
+  cancel-in-progress: true
+jobs:
+  editor-colors:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Editor palette, text UI and edit regression tests
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*EditorPaletteTest' \
+            --tests '*EditorTextDialogLayoutTest' \
+            --tests '*PhotoEditorStageOneUiTest' \
+            --tests '*PhotoEditorIntegratedRegressionTest' \
+            --tests '*PhotoGeometryInteractionTest' \
+            --tests '*PhotoDrawingTest' \
+            --tests '*PhotoLocalEffectsTest' \
+            --tests '*VideoOverlayUnifiedTextTest' \
+            --tests '*VideoReferenceAdjustmentsTest' \
+            --tests '*VideoTextDraftTest' \
+            --tests '*VideoTextLaneEditTest' \
+            --tests '*TextLayerStyleRenderingTest' \
+            --tests '*TextTimingTest' --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Compile ARM64 Release, no credentials or publication
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Retain only diagnostics (never publish QA APK)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-editor-palette-qa-diagnostics
+          path: |
+            app/build/test-results
+            app/build/reports/tests
+            app/build/reports/lint-results-debug.html
+          retention-days: 7
+          if-no-files-found: warn
