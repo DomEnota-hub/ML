@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -166,8 +167,9 @@ internal fun AudioWaveform(
     peaks: FloatArray,
     progress: Float,
     onSeekFraction: (Float) -> Unit,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
 ) {
-    val active = MaterialTheme.colorScheme.primary
+    val active = accentColor
     val inactive = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
     Canvas(Modifier.fillMaxWidth().height(62.dp)
         .pointerInput(onSeekFraction) {
