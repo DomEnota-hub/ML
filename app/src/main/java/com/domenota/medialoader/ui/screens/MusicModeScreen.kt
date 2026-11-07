@@ -204,7 +204,9 @@ fun MusicModeScreen(
                     }
                 }
                 item(key = "playlist-create") {
-                    OutlinedButton({ creating = true }, Modifier.fillMaxWidth().padding(horizontal = 17.dp), shape = RoundedCornerShape(18.dp)) {
+                    OutlinedButton({ creating = true }, Modifier.fillMaxWidth().padding(horizontal = 17.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) {
                         Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Создать плейлист")
                     }
                     if (playlists.isEmpty()) Text("Пока нет плейлистов", Modifier.padding(17.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -244,7 +246,9 @@ fun MusicModeScreen(
                         }
                     }
                     OutlinedButton({ if (onAddPlaylistTracks != null) onAddPlaylistTracks(playlist.id) else addingPlaylist = playlist.id },
-                        Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp), shape = RoundedCornerShape(15.dp)) {
+                        Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp),
+                        shape = RoundedCornerShape(15.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) {
                         Icon(Icons.Rounded.Add, "Добавить треки"); Spacer(Modifier.width(8.dp)); Text("Добавить треки")
                     }
                     val missing = playlist.trackIds.count { it !in available }
