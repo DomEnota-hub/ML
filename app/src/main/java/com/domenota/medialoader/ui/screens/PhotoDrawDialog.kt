@@ -65,7 +65,7 @@ private enum class DrawingTool(val label: String, val kind: PhotoMarkKind?) {
     ARROW("Стрелка", PhotoMarkKind.ARROW),
 }
 
-private val editorYellow = Color(0xFFFFBD19)
+private val editorYellow = com.domenota.medialoader.ui.components.editorSliderYellow
 private val quickColors = listOf(
     AndroidColor.WHITE, AndroidColor.GRAY, AndroidColor.BLACK,
     0xFFFF313C.toInt(), 0xFFFF9818.toInt(), AndroidColor.YELLOW,
