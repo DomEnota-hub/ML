@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.data.editor.*
-import com.domenota.medialoader.ui.components.AppSlider
+import com.domenota.medialoader.ui.components.EditorSlider
 import com.domenota.medialoader.ui.components.EditorWindow
 import kotlin.math.min
 
@@ -317,7 +317,7 @@ internal fun PhotoDrawDialog(
                             color = Color.White, fontSize = 12.sp, modifier = Modifier.width(106.dp))
                         val maximumThickness = if (tool == DrawingTool.ERASER)
                             PhotoDrawing.MAX_ERASER_THICKNESS else PhotoDrawing.MAX_BRUSH_THICKNESS
-                        AppSlider(thickness.coerceIn(PhotoDrawing.MIN_BRUSH_THICKNESS,
+                        EditorSlider(thickness.coerceIn(PhotoDrawing.MIN_BRUSH_THICKNESS,
                             maximumThickness), { next ->
                             thickness = next
                             sizes[tool] = next
