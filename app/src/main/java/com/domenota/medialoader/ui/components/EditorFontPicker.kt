@@ -59,7 +59,7 @@ internal fun EditorFontPicker(selectedId: String, onSelect: (String) -> Unit) {
                                 fontFamily = FontFamily(EditorFonts.face(context, item.id)),
                                 modifier = Modifier.fillMaxWidth().clickable { onSelect(item.id) }
                                     .padding(horizontal = 11.dp, vertical = 7.dp),
-                                color = if (item.id == selectedId) accent
+                                color = if (item.id == selectedId) Color.White
                                     else MaterialTheme.colorScheme.onSurface,
                                 style = MaterialTheme.typography.bodySmall)
                         }
