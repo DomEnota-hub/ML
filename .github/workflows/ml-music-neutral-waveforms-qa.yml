@@ -1,0 +1,57 @@
+name: MediaLoader music neutral themes and persistent waveforms QA
+on:
+  push:
+    branches:
+      - feature/ml-17149-music-neutral-waveforms-20261108
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-music-neutral-waveform-qa
+  cancel-in-progress: true
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Music, cache and theme regression tests
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*MusicSpeedActionTest' \
+            --tests '*WaveformWorkPolicyTest' \
+            --tests '*WaveformBackgroundRenderingTest' \
+            --tests '*AudioWaveformCacheTest' \
+            --tests '*WaveformDecodeGateTest' \
+            --tests '*AudioWaveformShapeTest' \
+            --tests '*MusicLibrarySortTest' \
+            --tests '*AudioPlaybackMetadataTest' \
+            --tests '*GalleryNavigationPlacementTest' \
+            --tests '*GalleryQuickAccessTest' \
+            --tests '*EditorPaletteTest' \
+            --tests '*GapiKeyStoreTest' --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Compile ARM64 Release without signing keys or publication
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Retain diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-music-waveform-qa-reports
+          path: |
+            app/build/test-results
+            app/build/reports/tests
+            app/build/reports/lint-results-debug.html
+          retention-days: 7
+          if-no-files-found: warn

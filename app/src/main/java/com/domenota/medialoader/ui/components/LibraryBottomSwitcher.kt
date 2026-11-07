@@ -23,52 +23,43 @@ import com.domenota.medialoader.data.library.AppMode
 
 @Composable
 internal fun LibraryBottomSwitcher(mode: AppMode, selected: Int, onSelect: (Int) -> Unit) {
-    val gallery = mode == AppMode.GALLERY
     val isDark = MaterialTheme.colorScheme.background.luminance() < .5f
-    val labels = if (gallery) listOf("Медиа", "Альбомы") else listOf("Треки", "Плейлисты")
-    val galleryBackground = if (isDark) Color(0xFF2A2A2E) else Color(0xFFE1E1E4)
-    val gallerySelection = if (isDark) Color(0xFF49494E) else Color(0xFFBFC0C4)
-    val galleryActiveIcon = if (isDark) Color(0xFFF0F0F1) else Color(0xFF222226)
-    val galleryInactiveIcon = if (isDark) Color(0xFF99999F) else Color(0xFF6B6B73)
+    val labels = if (mode == AppMode.GALLERY) listOf("Медиа", "Альбомы") else listOf("Треки", "Плейлисты")
+    val switchBackground = if (isDark) Color(0xFF2A2A2E) else Color(0xFFE1E1E4)
+    val switchSelection = if (isDark) Color(0xFF49494E) else Color(0xFFBFC0C4)
+    val activeIcon = if (isDark) Color(0xFFF0F0F1) else Color(0xFF222226)
+    val inactiveIcon = if (isDark) Color(0xFF99999F) else Color(0xFF6B6B73)
 
     Box(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 10.dp),
         contentAlignment = Alignment.Center) {
         Surface(shape = RoundedCornerShape(40.dp),
-            color = if (gallery) galleryBackground.copy(alpha = .9f)
-                else MaterialTheme.colorScheme.surfaceContainer) {
+            color = switchBackground.copy(alpha = .9f)) {
             Row(Modifier.padding(5.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 labels.forEachIndexed { index, label ->
                     val active = selected == index
-                    val background = if (gallery) {
-                        if (active) gallerySelection else Color.Transparent
-                    } else if (active) MaterialTheme.colorScheme.primary.copy(alpha = .12f)
-                        else Color.Transparent
-                    val tint = if (gallery) {
-                        if (active) galleryActiveIcon else galleryInactiveIcon
-                    } else if (active) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    val tint = if (active) activeIcon else inactiveIcon
                     Row(
                         Modifier.clip(RoundedCornerShape(30.dp))
-                            .background(background)
+                            .background(if (active) switchSelection else Color.Transparent)
                             .semantics {
                                 this.selected = active
                                 contentDescription = label
                             }
                             .clickable(role = Role.Tab) { onSelect(index) }
-                            .heightIn(min = 48.dp)
-                            .then(if (gallery) Modifier.width(76.dp)
-                                else Modifier.padding(horizontal = 19.dp)),
+                            .heightIn(min = 48.dp).width(76.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
                     ) {
-                        Icon(if (index == 1) {
-                            if (mode == AppMode.MUSIC) Icons.Rounded.QueueMusic else Icons.Rounded.PhotoLibrary
-                        } else if (gallery) Icons.Rounded.Image else Icons.Rounded.MusicNote,
-                            null, Modifier.size(if (gallery) 23.dp else 20.dp), tint)
-                        if (!gallery) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(label, color = tint, fontSize = 12.sp)
-                        }
+                        Icon(
+                            if (index == 1) {
+                                if (mode == AppMode.MUSIC) Icons.Rounded.QueueMusic
+                                else Icons.Rounded.PhotoLibrary
+                            } else if (mode == AppMode.GALLERY) Icons.Rounded.Image
+                            else Icons.Rounded.MusicNote,
+                            contentDescription = null,
+                            modifier = Modifier.size(23.dp),
+                            tint = tint,
+                        )
                     }
                 }
             }

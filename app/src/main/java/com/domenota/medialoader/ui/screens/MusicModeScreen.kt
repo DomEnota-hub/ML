@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.withStyle
@@ -203,7 +204,9 @@ fun MusicModeScreen(
                     }
                 }
                 item(key = "playlist-create") {
-                    OutlinedButton({ creating = true }, Modifier.fillMaxWidth().padding(horizontal = 17.dp), shape = RoundedCornerShape(18.dp)) {
+                    OutlinedButton({ creating = true }, Modifier.fillMaxWidth().padding(horizontal = 17.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) {
                         Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Создать плейлист")
                     }
                     if (playlists.isEmpty()) Text("Пока нет плейлистов", Modifier.padding(17.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -243,7 +246,9 @@ fun MusicModeScreen(
                         }
                     }
                     OutlinedButton({ if (onAddPlaylistTracks != null) onAddPlaylistTracks(playlist.id) else addingPlaylist = playlist.id },
-                        Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp), shape = RoundedCornerShape(15.dp)) {
+                        Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp),
+                        shape = RoundedCornerShape(15.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) {
                         Icon(Icons.Rounded.Add, "Добавить треки"); Spacer(Modifier.width(8.dp)); Text("Добавить треки")
                     }
                     val missing = playlist.trackIds.count { it !in available }
@@ -254,7 +259,7 @@ fun MusicModeScreen(
                     sections.forEach { (letter, records) ->
                         item(key = "music-letter:$letter") {
                             Text(letter, Modifier.fillMaxWidth().padding(start = 17.dp, top = 15.dp, bottom = 7.dp),
-                                color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
                         items(records, key = { it.id }) { track ->
                             val id = track.id
@@ -308,7 +313,7 @@ private fun PlaylistCover(playlist: MediaPlaylist, available: Map<String, Downlo
         val cover = playlist.trackIds.firstNotNullOfOrNull(available::get)
         if (cover != null) DownloadThumbnail(cover.savedUri, cover.recognitionArtworkUrl ?: cover.sourceAudioArtworkUrl ?: cover.previewUrl,
             cover.toUi().kind, Modifier.fillMaxSize())
-        else Icon(Icons.Rounded.LibraryMusic, null, Modifier.size(32.dp), MaterialTheme.colorScheme.primary)
+        else Icon(Icons.Rounded.LibraryMusic, null, Modifier.size(32.dp), MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -368,7 +373,7 @@ private fun musicSortCaption(sort: MusicLibrarySort): androidx.compose.ui.text.A
     withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.onSurface)) {
         append(if (dated) "По дате · " else sort.label)
     }
-    if (dated) withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.primary)) {
+    if (dated) withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.onSurface)) {
         append(if (sort == MusicLibrarySort.DATE) "новые" else "старые")
     }
 }

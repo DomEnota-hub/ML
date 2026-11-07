@@ -68,6 +68,8 @@ import androidx.media3.session.SessionToken
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.data.playback.AudioPlaybackService
 import com.domenota.medialoader.ui.components.AudioPlaybackModes
+import com.domenota.medialoader.ui.components.MusicSpeedAction
+import com.domenota.medialoader.ui.components.editorSliderYellow
 import com.domenota.medialoader.ui.components.AudioWaveform
 import com.domenota.medialoader.ui.components.loadAudioWaveform
 import com.domenota.medialoader.ui.components.peekAudioWaveform
@@ -110,7 +112,6 @@ fun BackgroundAudioPlayer(
     var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var shuffleEnabled by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
-    var speedMenuOpen by remember { mutableStateOf(false) }
     var currentIndex by remember { mutableIntStateOf(0) }
     var artwork by remember { mutableStateOf<Bitmap?>(null) }
     var waveform by remember { mutableStateOf<FloatArray?>(null) }
@@ -263,8 +264,35 @@ fun BackgroundAudioPlayer(
         artwork = withContext(Dispatchers.IO) { embeddedArtwork(context, currentUri) }
     }
     if (!libraryLayout) LaunchedEffect(currentUri) {
-        waveform = peekAudioWaveform(context, currentUri)
-        waveform = withContext(Dispatchers.IO) { loadAudioWaveform(context, currentUri) }
+        // The player and editor consume the same persistent v6 waveform cache.
+        // Avoid decoding a track that WorkManager already analyzed offline.
+        // Keep the legacy v3 waveform visible during one-time migration to the
+        // shared v6 editor cache, instead of showing an empty player on upgrade.
+        waveform = withContext(Dispatchers.IO) { peekAudioWaveform(context, currentUri) }
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        waveform = withContext(Dispatchers.IO) {
+            val metadataDuration = runCatching {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, currentUri)
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull() ?: 0L
+                } finally { retriever.release() }
+            }.getOrDefault(0L)
+            val actualDuration = metadataDuration.takeIf { it > 0L }
+                ?: currentItem.durationMs?.takeIf { it > 0L } ?: durationMs
+            if (actualDuration > 0L) {
+                val cached = com.domenota.medialoader.ui.components.readCachedAudioWaveform(
+                    context, currentUri, actualDuration)
+                val peaks = cached ?: com.domenota.medialoader.ui.components.loadAudioWaveform(
+                    context, currentUri, actualDuration, isCancelled = { job?.isActive == false })
+                if (peaks.isNotEmpty()) com.domenota.medialoader.ui.components.waveformColumnPeaks(
+                    peaks, 256) else null
+            } else {
+                // A malformed provider without duration retains the legacy fallback.
+                loadAudioWaveform(context, currentUri)
+            }
+        }
     }
 
     if (libraryLayout) {
@@ -316,7 +344,7 @@ fun BackgroundAudioPlayer(
                 Text(
                     "♪",
                     style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
@@ -351,6 +379,7 @@ fun BackgroundAudioPlayer(
         if (waveform != null) {
             AudioWaveform(
                 peaks = waveform!!,
+                accentColor = editorSliderYellow,
                 progress = (positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f),
                 onSeekFraction = { fraction ->
                     if (durationMs > 0) controller?.seekTo((durationMs * fraction).toLong())
@@ -415,35 +444,14 @@ fun BackgroundAudioPlayer(
             }
 
             Spacer(Modifier.height(6.dp))
-            controller?.let { AudioPlaybackModes(it, repeatMode, shuffleEnabled) }
-            Spacer(Modifier.height(10.dp))
-            Box {
-                FilledTonalButton(
-                    onClick = { speedMenuOpen = true },
-                    enabled = controller != null,
-                    modifier = Modifier.height(48.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ),
-                ) {
-                    Text(
-                        "Скорость · ${if (playbackSpeed == 1f) "1" else playbackSpeed.toString()}×",
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-                DropdownMenu(expanded = speedMenuOpen, onDismissRequest = { speedMenuOpen = false }) {
-                    listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { choice ->
-                        DropdownMenuItem(
-                            text = { Text("${if (choice == 1f) "1" else choice.toString()}×") },
-                            onClick = {
-                                controller?.setPlaybackSpeed(choice)
-                                playbackSpeed = choice
-                                speedMenuOpen = false
-                            },
-                        )
-                    }
-                }
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                controller?.let { AudioPlaybackModes(it, repeatMode, shuffleEnabled) }
+                MusicSpeedAction(currentSpeed = playbackSpeed, enabled = controller != null,
+                    onSpeedChange = { next ->
+                        controller?.setPlaybackSpeed(next)
+                        playbackSpeed = next
+                    })
             }
         }
         Spacer(Modifier.height(8.dp))

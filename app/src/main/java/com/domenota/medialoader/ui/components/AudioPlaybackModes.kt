@@ -36,12 +36,12 @@ internal fun AudioPlaybackModes(player: Player, repeatMode: Int, shuffleEnabled:
                 Icon(if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                     contentDescription = repeatDescription(repeatMode),
                     tint = if (repeatMode == Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.primary)
+                        else editorSliderYellow)
             }
             IconToggleButton(checked = shuffleEnabled,
                 onCheckedChange = { player.shuffleModeEnabled = it }) {
                 Icon(Icons.Rounded.Shuffle, contentDescription = "Перемешать",
-                    tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary
+                    tint = if (shuffleEnabled) editorSliderYellow
                         else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

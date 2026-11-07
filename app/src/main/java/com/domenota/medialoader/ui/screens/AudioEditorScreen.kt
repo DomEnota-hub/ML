@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
 import com.domenota.medialoader.ui.components.NeutralOutlinedButton as OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -56,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.data.editor.AudioEditSpec
 import com.domenota.medialoader.data.editor.EditorExportState
+import com.domenota.medialoader.ui.components.editorSliderYellow
 import com.domenota.medialoader.ui.components.AudioWaveformTimeline
 import com.domenota.medialoader.ui.components.MediaTrimControls
 import com.domenota.medialoader.ui.components.formatPreciseMediaTime
@@ -172,6 +174,11 @@ fun AudioEditorScreen(
         trimEnd = info?.durationMs ?: 0L
     }
 
+    // Scope yellow actions and trim handles to the audio editor only.
+    // All titles use onSurface, so light mode stays dark-on-light.
+    MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(
+        primary = editorSliderYellow, onPrimary = Color.Black,
+        secondary = editorSliderYellow)) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -266,6 +273,13 @@ fun AudioEditorScreen(
                 onValueChange = { title = it.take(200) },
                 label = { Text("Название") },
                 singleLine = true,
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedLabelColor = MaterialTheme.colorScheme.onSurface,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = editorSliderYellow,
+                    cursorColor = editorSliderYellow,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
@@ -274,6 +288,13 @@ fun AudioEditorScreen(
                 onValueChange = { artist = it.take(200) },
                 label = { Text("Исполнитель") },
                 singleLine = true,
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedLabelColor = MaterialTheme.colorScheme.onSurface,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = editorSliderYellow,
+                    cursorColor = editorSliderYellow,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
@@ -282,6 +303,13 @@ fun AudioEditorScreen(
                 onValueChange = { album = it.take(200) },
                 label = { Text("Альбом") },
                 singleLine = true,
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedLabelColor = MaterialTheme.colorScheme.onSurface,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = editorSliderYellow,
+                    cursorColor = editorSliderYellow,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -385,6 +413,7 @@ fun AudioEditorScreen(
                 }
             Spacer(Modifier.height(24.dp))
         }
+    }
     }
 }
 

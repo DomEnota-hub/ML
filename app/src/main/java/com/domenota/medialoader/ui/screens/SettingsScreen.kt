@@ -474,6 +474,14 @@ fun SettingsScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     isError = sessionInvalid,
                     singleLine = true,
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedLabelColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        cursorColor = MaterialTheme.colorScheme.onSurface,
+                    ),
                 )
                 if (sessionInvalid) Text("Проверь формат sessionid", color = MaterialTheme.colorScheme.error)
             }
@@ -507,6 +515,14 @@ fun SettingsScreen(
                     onValueChange = { folderName = it },
                     label = { Text("Папка внутри Загрузок") },
                     singleLine = true,
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedLabelColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        cursorColor = MaterialTheme.colorScheme.onSurface,
+                    ),
                 )
             }
         },
