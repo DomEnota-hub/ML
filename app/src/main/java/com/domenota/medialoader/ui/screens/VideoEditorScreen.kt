@@ -192,7 +192,7 @@ fun VideoEditorScreen(
         }
     }
     MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme(
-        primary = Color(0xFFFFBD19), onPrimary = Color.Black,
+        primary = com.domenota.medialoader.ui.components.editorSliderYellow, onPrimary = Color.Black,
         background = Color(0xFF101010), onBackground = Color(0xFFECECEC),
         surface = Color(0xFF242424), onSurface = Color(0xFFECECEC),
         surfaceVariant = Color(0xFF303030), onSurfaceVariant = Color(0xFFBDBDBD),
