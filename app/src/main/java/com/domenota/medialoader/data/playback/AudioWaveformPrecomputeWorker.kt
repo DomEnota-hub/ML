@@ -48,7 +48,10 @@ class AudioWaveformPrecomputeWorker(
                 val uri = Uri.parse(requested)
                 val duration = readDurationMs(app, uri).takeIf { it > 0L }
                     ?: inputData.getLong("durationMs", 0L)
-                if (duration > 0L) loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
+                if (duration > 0L) {
+                    BackgroundMediaWork.awaitIdle()
+                    loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
+                }
                 Result.success()
             }.getOrElse {
                 if (it is java.util.concurrent.CancellationException) throw it
@@ -102,6 +105,9 @@ class AudioWaveformPrecomputeWorker(
                 // Use the same metadata retriever as the editor: MediaStore durations can differ by rounding.
                 val duration = readDurationMs(app, uri).takeIf { it > 0L } ?: knownDuration
                 if (duration > 0L && !hasCachedAudioWaveform(app, uri, duration)) {
+                    // Give priority to playback and visible editing before PCM decoding.
+                    BackgroundMediaWork.awaitIdle()
+                    if (isStopped) throw java.util.concurrent.CancellationException("Stopped before waveform")
                     loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
                 }
             }.onFailure { if (it is java.util.concurrent.CancellationException) throw it }
@@ -128,17 +134,19 @@ class AudioWaveformPrecomputeWorker(
 }
 
 object AudioWaveformPrecompute {
-    private const val ONCE = "waveform-idle-once-v2"
-    private const val PERIODIC = "waveform-idle-periodic-v2"
+    private const val ONCE = "waveform-background-once-v3"
+    private const val PERIODIC = "waveform-background-periodic-v3"
 
-    /** Scheduled even if the audio editor is never opened. Android may defer on low battery. */
+    /** Starts without waiting for device idle; OS may delay on battery restrictions. */
     fun schedule(context: Context) {
         val manager = WorkManager.getInstance(context.applicationContext)
         val prefs = context.getSharedPreferences("waveform_precompute_v1", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("idle_policy_v2", false)) {
+        if (!prefs.getBoolean("background_policy_v3", false)) {
             manager.cancelUniqueWork("waveform-once-v1")
             manager.cancelUniqueWork("waveform-periodic-v1")
-            prefs.edit().putBoolean("idle_policy_v2", true).apply()
+            manager.cancelUniqueWork("waveform-idle-once-v2")
+            manager.cancelUniqueWork("waveform-idle-periodic-v2")
+            prefs.edit().putBoolean("background_policy_v3", true).apply()
         }
         val constraints = WaveformWorkPolicy.bulkConstraints()
         manager.enqueueUniquePeriodicWork(
