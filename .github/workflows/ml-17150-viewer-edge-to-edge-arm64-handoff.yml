@@ -1,0 +1,80 @@
+name: MediaLoader 1.7.150 viewer full bleed ARM64 private handoff
+on:
+  push:
+    branches:
+      - release/ml-17150-viewer-edge-to-edge-20261108
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17150-viewer-full-bleed-qa
+  cancel-in-progress: true
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Photo and video full bleed viewer and gallery regression tests
+        run: |
+          gradle :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*GalleryViewerPhotoUiTest' \
+            --tests '*GalleryViewerOverlayPolicyTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*GalleryV10ActionContractTest' \
+            --tests '*GalleryV10SubmenuPlacementTest' \
+            --tests '*GridViewerUiTest' \
+            --tests '*GalleryNavigationPlacementTest' \
+            --tests '*PhotoViewportMathTest' \
+            --tests '*VideoPreviewFitTest' \
+            --tests '*VideoPlayerUiPolicyTest' \
+            --tests '*VideoPreviewSurfaceTest' \
+            --tests '*VideoGesturePolicyTest' \
+            --tests '*FullscreenOrientationTest' \
+            --tests '*GapiKeyStoreTest' --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Build unsigned ARM64 Release APK
+        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify version architecture and alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -s "$apk"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='211' versionName='1.7.150'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          mkdir -p handoff
+          "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.150_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -c -v 4 handoff/ML_1.7.150_ARM64_ALIGNED_UNSIGNED.apk
+          sha256sum handoff/ML_1.7.150_ARM64_ALIGNED_UNSIGNED.apk > handoff/ALIGNED_UNSIGNED_SHA256.txt
+      - name: Private offline signing handoff, not a GitHub Release
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17150-arm64-unsigned-private-signing
+          path: handoff/
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+      - name: Retain test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-17150-viewer-qa-diagnostics
+          path: |
+            app/build/test-results
+            app/build/reports/tests
+            app/build/reports/lint-results-debug.html
+          retention-days: 7
+          if-no-files-found: warn
