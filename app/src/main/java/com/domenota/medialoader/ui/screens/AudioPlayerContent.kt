@@ -264,8 +264,33 @@ fun BackgroundAudioPlayer(
         artwork = withContext(Dispatchers.IO) { embeddedArtwork(context, currentUri) }
     }
     if (!libraryLayout) LaunchedEffect(currentUri) {
-        waveform = peekAudioWaveform(context, currentUri)
-        waveform = withContext(Dispatchers.IO) { loadAudioWaveform(context, currentUri) }
+        // The player and editor consume the same persistent v6 waveform cache.
+        // Avoid decoding a track that WorkManager already analyzed offline.
+        waveform = null
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        waveform = withContext(Dispatchers.IO) {
+            val metadataDuration = runCatching {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, currentUri)
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull() ?: 0L
+                } finally { retriever.release() }
+            }.getOrDefault(0L)
+            val actualDuration = metadataDuration.takeIf { it > 0L }
+                ?: currentItem.durationMs?.takeIf { it > 0L } ?: durationMs
+            if (actualDuration > 0L) {
+                val cached = com.domenota.medialoader.ui.components.readCachedAudioWaveform(
+                    context, currentUri, actualDuration)
+                val peaks = cached ?: com.domenota.medialoader.ui.components.loadAudioWaveform(
+                    context, currentUri, actualDuration, isCancelled = { job?.isActive == false })
+                if (peaks.isNotEmpty()) com.domenota.medialoader.ui.components.waveformColumnPeaks(
+                    peaks, 256) else null
+            } else {
+                // A malformed provider without duration retains the legacy fallback.
+                loadAudioWaveform(context, currentUri)
+            }
+        }
     }
 
     if (libraryLayout) {
