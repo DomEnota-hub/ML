@@ -37,7 +37,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private val mosaicAccent = Color(0xFFFFBD19)
+private val mosaicAccent = com.domenota.medialoader.ui.components.editorSliderYellow
 
 /** Brush, rectangle or oval masks with a common renderer for preview/export. */
 @Composable
