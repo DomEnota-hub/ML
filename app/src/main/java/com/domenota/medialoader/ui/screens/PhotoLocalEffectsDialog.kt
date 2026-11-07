@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.data.editor.*
-import com.domenota.medialoader.ui.components.AppSlider
+import com.domenota.medialoader.ui.components.EditorSlider
 import com.domenota.medialoader.ui.components.EditorWindow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -180,7 +180,7 @@ internal fun PhotoLocalEffectsDialog(
                     .padding(horizontal = 13.dp, vertical = 9.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("Размер выделения", color = Color.LightGray, fontSize = 11.sp)
-                    AppSlider(brushFraction, { brushFraction = it },
+                    EditorSlider(brushFraction, { brushFraction = it },
                         valueRange = .01f..0.25f, modifier = Modifier.fillMaxWidth())
                     if (selection == PhotoLocalSelection.BRUSH) {
                         val imageRect = if (viewport.width > 0 && viewport.height > 0)
@@ -194,7 +194,7 @@ internal fun PhotoLocalEffectsDialog(
                         }
                     }
                     Text("Размер пикселя / сила размытия", color = Color.LightGray, fontSize = 11.sp)
-                    AppSlider(intensity, { intensity = it },
+                    EditorSlider(intensity, { intensity = it },
                         valueRange = .005f..0.08f, modifier = Modifier.fillMaxWidth())
                 }
             }
