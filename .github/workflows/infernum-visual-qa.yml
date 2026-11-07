@@ -1,0 +1,33 @@
+name: INFERNUM visual QA
+on:
+  workflow_dispatch:
+  push:
+    branches: [test/infernum-visual-qa]
+    paths:
+      - 'qa/infernum/**'
+      - '.github/workflows/infernum-visual-qa.yml'
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser tooling
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Capture mobile screenshots
+        run: node qa/infernum/capture.cjs
+      - name: Upload visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: infernum-visual-qa
+          path: qa/infernum/results/
+          if-no-files-found: warn
+          retention-days: 14
