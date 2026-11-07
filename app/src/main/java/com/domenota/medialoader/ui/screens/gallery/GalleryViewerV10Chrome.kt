@@ -41,7 +41,7 @@ private val v10Muted = Color(0xFF8F8F90)
 @Composable
 internal fun GalleryV10Header(date: String, time: String, onBack: () -> Unit, onRotate: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(77.dp).background(Color.Black).padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth().height(77.dp).background(Color(0x99000000)).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -66,7 +66,7 @@ internal fun GalleryV10Bottom(
     onFavorite: () -> Unit, onDelete: () -> Unit, onMenu: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(80.dp).background(Color(0xDB000000)).padding(horizontal = 6.dp),
+        modifier = Modifier.fillMaxWidth().height(80.dp).background(Color(0x88000000)).padding(horizontal = 6.dp),
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
     ) {
