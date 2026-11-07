@@ -132,9 +132,32 @@ fun GalleryModeScreen(
     }
     val orderedAlbums = remember(albums, albumSettings.order) { orderedGalleryAlbums(albums, albumSettings) }
     val visibleAlbums = orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
-    val quickAlbums = visibleAlbums.filter { it.key in albumSettings.quickAlbums }
-    val regularAlbums = visibleAlbums.filter { it.key !in albumSettings.quickAlbums }
+    val standardQuickKeys = remember(visibleAlbums) {
+        galleryStandardAlbums(visibleAlbums).map { it.key }.toSet()
+    }
+    // The five fixed shortcuts come first; device Camera/Screenshots never duplicate pinned cards.
+    val quickAlbums = visibleAlbums.filter {
+        it.key in albumSettings.quickAlbums && it.key !in standardQuickKeys
+    }
+    val regularAlbums = visibleAlbums.filter {
+        it.key !in albumSettings.quickAlbums && it.key !in standardQuickKeys
+    }
     val otherAlbums = orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
+    val shortcutAllMedia = remember(media, catalog, buckets, albumSettings.excludedFromMedia) {
+        media.filter { row ->
+            visibleInGalleryMedia(row, catalog[row.id], buckets[row.id],
+                albumSettings.excludedFromMedia)
+        }
+    }
+    val shortcutVideos = remember(media, assignments, buckets) {
+        GalleryLibraryState.filter(media, assignments, "videos", "", buckets)
+    }
+    val shortcutFavorites = remember(media, assignments, buckets) {
+        GalleryLibraryState.filter(media, assignments, "favorites", "", buckets)
+    }
+    val defaultQuickItems = remember(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites) {
+        galleryDefaultQuickItems(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites)
+    }
     val visibleDisplayed = remember(displayed, selection, detailOpen, tab, albumSettings.excludedFromMedia, assignments, buckets) {
         if (tab == 0 && selection == "all") displayed.filter { row ->
             visibleInGalleryMedia(row, catalog[row.id], buckets[row.id], albumSettings.excludedFromMedia)
@@ -385,29 +408,33 @@ fun GalleryModeScreen(
             }
             if (tab == 1) {
                 item(key = "quick-title", span = { GridItemSpan(maxLineSpan) }) { GallerySectionTitle("Быстрый доступ") }
-                val quick = listOf("all" to "Все медиа", "favorites" to "Избранное", "videos" to "Видео")
-                itemsIndexed(quick, key = { _, pair -> "quick:${pair.first}" }, span = { _, _ -> GridItemSpan(3) }) { index, (key, title) ->
-                    val count = if (key == "all") media.count { row ->
-                        visibleInGalleryMedia(row, catalog[row.id], buckets[row.id], albumSettings.excludedFromMedia)
-                    } else GalleryLibraryState.filter(media, assignments, key, "", buckets).size
-                    Surface(modifier = Modifier.padding(start = if (index % 2 == 0) 17.dp else 5.dp,
-                        end = if (index % 2 == 0) 4.dp else 17.dp, top = 4.dp, bottom = 4.dp),
-                        shape = RoundedCornerShape(15.dp), color = MaterialTheme.colorScheme.surfaceContainer,
-                        onClick = { openAlbum(key, title) }) {
-                        Row(Modifier.padding(12.dp).heightIn(min = 42.dp), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Icon(when(key) { "favorites" -> Icons.Rounded.FavoriteBorder; "videos" -> Icons.Rounded.PlayArrow; else -> Icons.Rounded.Image },
-                                null, Modifier.size(22.dp), MaterialTheme.colorScheme.primary)
-                            Column { Text(title, fontSize = 12.sp); Text("$count файлов", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        }
-                    }
+                itemsIndexed(defaultQuickItems, key = { _, shortcut -> "quick:${shortcut.key}" },
+                    span = { _, _ -> GridItemSpan(3) }) { index, shortcut ->
+                    GalleryQuickAccessCell(
+                        shortcut = shortcut,
+                        index = index,
+                        onOpen = { openAlbum(shortcut.key, shortcut.title) },
+                    )
                 }
-                itemsIndexed(quickAlbums, key = { _, album -> "album:${album.key}" }, span = { _, _ -> GridItemSpan(3) }) { index, album ->
-                    GalleryAlbumCell(album, index + 3, false, album.key in albumSettings.excludedFromMedia,
-                        draggingAlbumKey == album.key, { openAlbum(album.key, album.name) },
-                        { saveSettings(albumSettings.copy(quickAlbums = albumSettings.quickAlbums - album.key)) },
-                        { val next = if (album.key in albumSettings.excludedFromMedia) albumSettings.excludedFromMedia - album.key else albumSettings.excludedFromMedia + album.key
-                            saveSettings(albumSettings.copy(excludedFromMedia = next)) }, { deletingAlbum = album }, pinned = true)
+                itemsIndexed(quickAlbums, key = { _, album -> "album:${album.key}" },
+                    span = { _, _ -> GridItemSpan(3) }) { index, album ->
+                    GalleryQuickAccessCell(
+                        shortcut = GalleryQuickItem(album.key, album.name, GalleryQuickKind.ALBUM,
+                            album.count, album.cover),
+                        index = index + defaultQuickItems.size,
+                        dragged = draggingAlbumKey == album.key,
+                        mediaExcluded = album.key in albumSettings.excludedFromMedia,
+                        onOpen = { openAlbum(album.key, album.name) },
+                        onUnpin = { saveSettings(albumSettings.copy(
+                            quickAlbums = albumSettings.quickAlbums - album.key)) },
+                        onToggleMedia = {
+                            val next = if (album.key in albumSettings.excludedFromMedia)
+                                albumSettings.excludedFromMedia - album.key
+                            else albumSettings.excludedFromMedia + album.key
+                            saveSettings(albumSettings.copy(excludedFromMedia = next))
+                        },
+                        onDelete = { deletingAlbum = album },
+                    )
                 }
                 item(key = "albums-title", span = { GridItemSpan(maxLineSpan) }) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
