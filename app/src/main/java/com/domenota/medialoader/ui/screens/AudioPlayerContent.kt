@@ -266,7 +266,9 @@ fun BackgroundAudioPlayer(
     if (!libraryLayout) LaunchedEffect(currentUri) {
         // The player and editor consume the same persistent v6 waveform cache.
         // Avoid decoding a track that WorkManager already analyzed offline.
-        waveform = null
+        // Keep the legacy v3 waveform visible during one-time migration to the
+        // shared v6 editor cache, instead of showing an empty player on upgrade.
+        waveform = withContext(Dispatchers.IO) { peekAudioWaveform(context, currentUri) }
         val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
         waveform = withContext(Dispatchers.IO) {
             val metadataDuration = runCatching {
