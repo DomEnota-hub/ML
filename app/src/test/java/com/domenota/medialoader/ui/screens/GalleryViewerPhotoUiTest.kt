@@ -44,6 +44,35 @@ class GalleryViewerPhotoUiTest {
         assertEquals("Last", current)
     }
 
+    @Test fun photoViewportDoesNotShrinkWhenOverlayPanelsAreVisibleOrHidden() {
+        val item = photo("Viewport")
+        compose.setContent { MaterialTheme { Viewer(item, listOf(item)) {} } }
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithContentDescription("Viewport").fetchSemanticsNodes().isNotEmpty()
+        }
+        val image = compose.onNodeWithContentDescription("Viewport")
+        val withPanels = image.fetchSemanticsNode().boundsInRoot
+        val header = compose.onNodeWithContentDescription("Назад").fetchSemanticsNode().boundsInRoot
+        val toolbar = compose.onNodeWithContentDescription("Поделиться").fetchSemanticsNode().boundsInRoot
+        // The image, for both photo and video pager pages, fills the same root
+        // while the two control strips float above it instead of reserving space.
+        org.junit.Assert.assertTrue("Header must overlay the image", withPanels.top <= header.top + 1f)
+        org.junit.Assert.assertTrue("Toolbar must overlay the image", withPanels.bottom >= toolbar.bottom - 1f)
+        image.performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(400)
+        compose.onNodeWithContentDescription("Поделиться").assertDoesNotExist()
+        val withoutPanels = image.fetchSemanticsNode().boundsInRoot
+        assertEquals(withPanels.width, withoutPanels.width, 1f)
+        assertEquals(withPanels.height, withoutPanels.height, 1f)
+        assertEquals(withPanels.top, withoutPanels.top, 1f)
+        assertEquals(withPanels.bottom, withoutPanels.bottom, 1f)
+        image.performTouchInput { advanceEventTime(400); click() }
+        compose.mainClock.advanceTimeBy(400)
+        compose.onNodeWithContentDescription("Поделиться").assertExists()
+        val restored = image.fetchSemanticsNode().boundsInRoot
+        assertEquals(withPanels.height, restored.height, 1f)
+    }
+
     @Test fun photoTapHidesAndRestoresPanelsAndSwipeChangesFileWithoutArrows() {
         val first = photo("First")
         val last = photo("Last")
