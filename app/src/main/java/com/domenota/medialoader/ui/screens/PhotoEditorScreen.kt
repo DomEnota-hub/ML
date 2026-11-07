@@ -1091,7 +1091,7 @@ private fun PhotoNoiseParameterRow(
     }
 }
 
-private val PhotoEditorGold = Color(0xFFFFBD19)
+private val PhotoEditorGold = com.domenota.medialoader.ui.components.editorSliderYellow
 
 @Composable
 internal fun PhotoCategoryTab(
