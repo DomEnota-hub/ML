@@ -30,7 +30,7 @@ import com.domenota.medialoader.data.editor.TextLayerAlignment
 import com.domenota.medialoader.data.editor.TextLayer
 
 /** The same text component on the photo editor and video overlay editor. */
-internal val textEditorAccent = Color(0xFFFFBD19)
+internal val textEditorAccent = editorSliderYellow
 
 internal enum class UnifiedTextTab(val title: String) {
     KEYBOARD("Клавиатура"), STYLE("Стиль"), FONT("Шрифт")
