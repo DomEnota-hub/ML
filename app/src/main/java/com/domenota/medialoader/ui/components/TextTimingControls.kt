@@ -21,7 +21,7 @@ internal fun TextTimingControls(layer: TextLayer, position: Long, duration: Long
             enabled = position < end) { Text("Начало здесь") }
         OutlinedButton(onClick = { onSeek(layer.startMs) }) { Text("К началу") }
     }
-    AppSlider(layer.startMs.toFloat(), { value ->
+    EditorSlider(layer.startMs.toFloat(), { value ->
         val next = TextTiming.startAt(layer, value.toLong(), duration)
         onChange(next); onSeek(next.startMs)
     }, valueRange = 0f..(end - 1).toFloat())
@@ -31,7 +31,7 @@ internal fun TextTimingControls(layer: TextLayer, position: Long, duration: Long
             enabled = position > layer.startMs) { Text("Конец здесь") }
         OutlinedButton(onClick = { onSeek(end) }) { Text("К концу") }
     }
-    AppSlider(end.toFloat(), { value ->
+    EditorSlider(end.toFloat(), { value ->
         val next = TextTiming.endAt(layer, value.toLong(), duration)
         onChange(next); onSeek(next.endMs!!)
     }, valueRange = (layer.startMs + 1).toFloat()..duration.toFloat())
