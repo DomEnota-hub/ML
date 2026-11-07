@@ -37,11 +37,14 @@ import androidx.compose.ui.unit.sp
 /** Approved MediaLoader photo/video viewer v10. Geometries follow the HTML reference exactly. */
 private val v10MenuSurface = Color(0xFF2C2C2D)
 private val v10Muted = Color(0xFF8F8F90)
+/** Both control strips float over media instead of occupying the media viewport. */
+internal val viewerHeaderOverlayColor = Color(0x99000000)
+internal val viewerBottomOverlayColor = Color(0x88000000)
 
 @Composable
 internal fun GalleryV10Header(date: String, time: String, onBack: () -> Unit, onRotate: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(77.dp).background(Color(0x99000000)).padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth().height(77.dp).background(viewerHeaderOverlayColor).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -66,7 +69,7 @@ internal fun GalleryV10Bottom(
     onFavorite: () -> Unit, onDelete: () -> Unit, onMenu: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(80.dp).background(Color(0x88000000)).padding(horizontal = 6.dp),
+        modifier = Modifier.fillMaxWidth().height(80.dp).background(viewerBottomOverlayColor).padding(horizontal = 6.dp),
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
     ) {
