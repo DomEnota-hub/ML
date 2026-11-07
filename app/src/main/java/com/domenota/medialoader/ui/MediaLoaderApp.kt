@@ -961,12 +961,19 @@ fun MediaLoaderApp(
         currentRoute == AppDestination.Home.route && !checkingPhoneAccess)
     LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
     val galleryHomeOverlay = galleryBottomSwitcherIsOverlay(appMode, currentRoute)
+    // Gallery media is drawn behind both transparent system bars. Do not remove
+    // the insets of the private/audio fallback viewer or the other app routes.
+    val fullBleedGalleryViewer = currentRoute == MEDIA_VIEWER_ROUTE &&
+        navController.currentBackStackEntry?.savedStateHandle
+            ?.get<Boolean>("gallery_presentation") == true
     Scaffold(
         containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
             else MaterialTheme.colorScheme.background,
-        // The gallery controls must be an overlay, not a reserved Scaffold bar.
-        contentWindowInsets = if (galleryHomeOverlay) WindowInsets.statusBars
-            else ScaffoldDefaults.contentWindowInsets,
+        contentWindowInsets = when {
+            fullBleedGalleryViewer -> WindowInsets(0, 0, 0, 0)
+            galleryHomeOverlay -> WindowInsets.statusBars
+            else -> ScaffoldDefaults.contentWindowInsets
+        },
         bottomBar = {
             if (!galleryHomeOverlay && currentRoute != PRIVATE_ROUTE && currentRoute != PREVIEW_ROUTE && currentRoute != BROWSER_ROUTE &&
                 currentRoute != BULK_ROUTE && currentRoute != MEDIA_VIEWER_ROUTE &&
