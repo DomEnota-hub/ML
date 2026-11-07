@@ -24,7 +24,7 @@ import com.domenota.medialoader.data.library.AppMode
 @Composable
 internal fun LibraryBottomSwitcher(mode: AppMode, selected: Int, onSelect: (Int) -> Unit) {
     val isDark = MaterialTheme.colorScheme.background.luminance() < .5f
-    val labels = if (gallery) listOf("Медиа", "Альбомы") else listOf("Треки", "Плейлисты")
+    val labels = if (mode == AppMode.GALLERY) listOf("Медиа", "Альбомы") else listOf("Треки", "Плейлисты")
     val switchBackground = if (isDark) Color(0xFF2A2A2E) else Color(0xFFE1E1E4)
     val switchSelection = if (isDark) Color(0xFF49494E) else Color(0xFFBFC0C4)
     val activeIcon = if (isDark) Color(0xFFF0F0F1) else Color(0xFF222226)
