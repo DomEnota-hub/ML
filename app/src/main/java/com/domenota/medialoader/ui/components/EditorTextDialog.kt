@@ -177,6 +177,10 @@ internal fun EditorTextDialog(
     }
 
     EditorWindow(onDismissRequest = ::close) {
+        // Editor text controls are neutral white; slider/thumb accents stay yellow.
+        MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(
+            primary = Color.White, onPrimary = Color.Black,
+            onSurface = Color.White, onSurfaceVariant = Color.LightGray)) {
         Surface(Modifier.fillMaxSize(), color = Color(0xFF08090D)) {
             BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
                 val compact = maxHeight < 560.dp
@@ -188,7 +192,6 @@ internal fun EditorTextDialog(
                     else -> (maxHeight * .39f).coerceIn(244.dp, 338.dp)
                 }
                 val panelBg = Color(0xFF202127)
-                val accent = textEditorAccent
                 Column(Modifier.fillMaxSize()) {
                     // Editing is an image-first workspace, not a second settings screen.
                     Row(Modifier.fillMaxWidth().height(62.dp).padding(horizontal = 12.dp),
@@ -203,7 +206,7 @@ internal fun EditorTextDialog(
                                 if (durationMs == null) it else it.within(durationMs)
                             })
                         }, enabled = !matching) {
-                            Text("Готово", color = if (matching) Color.Gray else accent,
+                            Text("Готово", color = if (matching) Color.Gray else Color.White,
                                 style = MaterialTheme.typography.titleMedium)
                         }
                     }
@@ -534,6 +537,7 @@ internal fun EditorTextDialog(
             title = { Text("Отменить изменения текста?") },
             confirmButton = { OutlinedButton(onClick = onDismiss) { Text("Отменить изменения") } },
             dismissButton = { OutlinedButton(onClick = { confirmExit = false }) { Text("Продолжить") } })
+        }
     }
 }
 
