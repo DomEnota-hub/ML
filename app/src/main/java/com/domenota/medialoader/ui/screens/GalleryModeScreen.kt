@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -476,7 +477,7 @@ fun GalleryModeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 Icon(Icons.Rounded.FolderOpen, null,
-                                    tint = MaterialTheme.colorScheme.primary)
+                                    tint = MaterialTheme.colorScheme.onSurface)
                                 Text("Другие альбомы", modifier = Modifier.weight(1f),
                                     fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                                 Text("${otherAlbums.size}",
