@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -123,40 +124,13 @@ internal fun GalleryMediaViewer(
         onDispose { if (activity != null && fullscreen) applyFullscreen(activity, view, false, landscape) }
     }
     BackHandler(fullscreen) { fullscreen = false }
+    // Photo and video share one edge-to-edge viewport. Chrome is drawn on top,
+    // never as Scaffold bars that reduce the image size or leave blank bands.
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        Scaffold(containerColor = Color.Black, contentColor = Color.White, contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            topBar = {
-                if (chrome && !fullscreen && !locked) {
-                    val created = Instant.ofEpochMilli(current.createdAtEpochMillis).atZone(ZoneId.systemDefault())
-                    GalleryV10Header(
-                        date = created.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))),
-                        time = created.format(DateTimeFormatter.ofPattern("HH:mm")),
-                        onBack = onBack,
-                        onRotate = {
-                            activity?.let { host ->
-                                host.requestedOrientation =
-                                    if (host.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
-                                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                    else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                            }
-                        },
-                    )
-                }
-            }, bottomBar = {
-                if (chrome && !fullscreen && !locked) GalleryV10Bottom(
-                    isPhoto = current.mediaType == MediaType.PHOTO,
-                    isFavorite = current.id in favoriteIds,
-                    onShare = { onShare(current) },
-                    onEdit = { onEdit(current) },
-                    onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
-                    onDelete = { onDelete(current) },
-                    onMenu = { menu = true },
-                )
-            }) { padding ->
             // Pager may ask its previous key provider for one new index during a size update.
             HorizontalPager(state = pager, key = { page -> queue.getOrNull(page)?.id ?: "pending-gallery-page:$page" }, beyondViewportPageCount = 1,
                 userScrollEnabled = !zoomed && !fullscreen && !locked,
-                modifier = Modifier.fillMaxSize().padding(padding)) { page ->
+                modifier = Modifier.fillMaxSize()) { page ->
                 val row = queue.getOrNull(page) ?: return@HorizontalPager
                 val uri = Uri.parse(requireNotNull(row.savedUri))
                 val poster = if (row.mediaType == MediaType.VIDEO) rememberVideoViewerPoster(row.id, uri) else null
@@ -186,6 +160,47 @@ internal fun GalleryMediaViewer(
                     if (poster != null) VideoViewerPoster(poster, Modifier.fillMaxSize())
                     Icon(Icons.Rounded.PlayArrow, null, Modifier.size(48.dp), Color.White)
                 }
+            }
+        // Draw translucent overlays AFTER the pager, so the artwork occupies
+        // the same full-screen rectangle whether controls are visible or hidden.
+        if (chrome && !fullscreen && !locked) {
+            val created = Instant.ofEpochMilli(current.createdAtEpochMillis)
+                .atZone(ZoneId.systemDefault())
+            Box(
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .68f),
+                        Color.Black.copy(alpha = .18f), Color.Transparent)))
+                    .statusBarsPadding(),
+            ) {
+                GalleryV10Header(
+                    date = created.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))),
+                    time = created.format(DateTimeFormatter.ofPattern("HH:mm")),
+                    onBack = onBack,
+                    onRotate = {
+                        activity?.let { host ->
+                            host.requestedOrientation =
+                                if (host.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
+                                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        }
+                    },
+                )
+            }
+            Box(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent,
+                        Color.Black.copy(alpha = .32f), Color.Black.copy(alpha = .7f))))
+                    .navigationBarsPadding(),
+            ) {
+                GalleryV10Bottom(
+                    isPhoto = current.mediaType == MediaType.PHOTO,
+                    isFavorite = current.id in favoriteIds,
+                    onShare = { onShare(current) },
+                    onEdit = { onEdit(current) },
+                    onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
+                    onDelete = { onDelete(current) },
+                    onMenu = { menu = true },
+                )
             }
         }
         if (menu) GalleryV10Popup(
