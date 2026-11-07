@@ -48,10 +48,7 @@ class AudioWaveformPrecomputeWorker(
                 val uri = Uri.parse(requested)
                 val duration = readDurationMs(app, uri).takeIf { it > 0L }
                     ?: inputData.getLong("durationMs", 0L)
-                if (duration > 0L) {
-                    BackgroundMediaWork.awaitIdle()
-                    loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
-                }
+                if (duration > 0L) loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
                 Result.success()
             }.getOrElse {
                 if (it is java.util.concurrent.CancellationException) throw it
