@@ -20,7 +20,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Colorize
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.ZoomOut
-import com.domenota.medialoader.ui.components.AppSlider as Slider
+import com.domenota.medialoader.ui.components.EditorSlider as Slider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
