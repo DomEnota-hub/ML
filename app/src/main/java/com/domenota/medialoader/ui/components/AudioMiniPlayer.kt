@@ -191,7 +191,7 @@ fun AudioMiniPlayer(
                 }
                 val progress = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
                 Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = .08f))) {
-                    Box(Modifier.fillMaxWidth(progress).height(3.dp).background(MaterialTheme.colorScheme.primary))
+                    Box(Modifier.fillMaxWidth(progress).height(3.dp).background(editorSliderYellow))
                 }
             }
         }
