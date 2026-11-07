@@ -8,6 +8,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -37,12 +38,17 @@ internal fun VideoTextControls(layer: TextLayer?, count: Int, enabled: Boolean,
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Надписи", style = MaterialTheme.typography.titleSmall)
-            TextButton(onClick = onAdd, enabled = enabled && count < 8) { Text("+ Текст") }
+            TextButton(onClick = onAdd, enabled = enabled && count < 8,
+                colors = ButtonDefaults.textButtonColors(contentColor = Color.White,
+                    disabledContentColor = Color.Gray)) { Text("+ Текст") }
         }
         if (layer != null && tab == UnifiedTextTab.KEYBOARD) {
             OutlinedTextField(layer.text, { onChange(layer.copy(text = it.take(500))) },
                 enabled = enabled, maxLines = 3, placeholder = { Text("Введите текст") },
                 modifier = Modifier.fillMaxWidth().focusRequester(requester),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                    disabledTextColor = Color.LightGray, cursorColor = Color.White),
                 trailingIcon = {
                     IconButton(onClick = { keyboard?.hide(); focus.clearFocus(); onConfirm() }, enabled = enabled) {
                         Icon(Icons.Rounded.Check, "Готово: надпись")
@@ -74,7 +80,9 @@ internal fun VideoTextActions(enabled: Boolean, canCopy: Boolean, onBack: () -> 
             Triple("Копировать", VideoV8Icons.copy, onCopy),
             Triple("Удалить", VideoV8Icons.trash, onDelete)).forEach { (label, icon, action) ->
             TextButton(onClick = action, enabled = enabled && (label != "Копировать" || canCopy),
-                modifier = Modifier.weight(1f), contentPadding = PaddingValues(2.dp)) {
+                modifier = Modifier.weight(1f), contentPadding = PaddingValues(2.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = Color.White,
+                    disabledContentColor = Color.Gray)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(icon, null, Modifier.size(26.dp))
                     Spacer(Modifier.height(7.dp))

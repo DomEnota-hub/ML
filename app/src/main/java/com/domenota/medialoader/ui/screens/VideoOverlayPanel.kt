@@ -6,7 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
-import com.domenota.medialoader.ui.components.AppSlider as Slider
+import com.domenota.medialoader.ui.components.EditorSlider as Slider
 import com.domenota.medialoader.ui.components.UnifiedTextTab
 import com.domenota.medialoader.ui.components.UnifiedTextTabs
 import com.domenota.medialoader.ui.components.UnifiedTextStyle

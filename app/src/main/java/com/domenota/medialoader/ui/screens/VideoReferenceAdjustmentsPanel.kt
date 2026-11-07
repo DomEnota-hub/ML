@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.data.editor.VideoReferenceAdjustment
 import com.domenota.medialoader.data.editor.VideoReferenceAdjustments
-import com.domenota.medialoader.ui.components.AppSlider
+import com.domenota.medialoader.ui.components.EditorSlider
 import kotlin.math.roundToInt
 
 /** One slider and thirteen original SVG tiles, matching HTML v8's adjust-panel. */
@@ -31,7 +31,7 @@ internal fun VideoReferenceAdjustmentsPanel(settings: VideoReferenceAdjustments,
             Text(selected.label, color = Color(0xFFECECEC), fontSize = 12.sp)
             Text(current.roundToInt().toString(), color = videoToolYellow, fontSize = 12.sp)
         }
-        AppSlider(value = current, onValueChange = { onChange(settings.changed(selected, it)) },
+        EditorSlider(value = current, onValueChange = { onChange(settings.changed(selected, it)) },
             valueRange = selected.minimum..100f, enabled = enabled,
             modifier = Modifier.fillMaxWidth().height(34.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {

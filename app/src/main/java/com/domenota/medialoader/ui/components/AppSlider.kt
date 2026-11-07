@@ -13,6 +13,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
 
@@ -21,8 +22,10 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
-    onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0) {
-    val color = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f)
+    onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0,
+    accentColor: Color? = null) {
+    val color = (accentColor ?: MaterialTheme.colorScheme.primary)
+        .copy(alpha = if (enabled) 1f else 0.4f)
     val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
     val zeroColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .95f)
     Slider(value = value, onValueChange = onValueChange, modifier = modifier, enabled = enabled,
@@ -47,4 +50,15 @@ fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier =
                 }
             }
         })
+}
+
+/** Editor sliders use the existing photo-editor yellow, independent of the app's purple theme. */
+internal val editorSliderYellow = Color(0xFFFFBD19)
+
+@Composable
+fun EditorSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier = Modifier,
+    enabled: Boolean = true, valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0) {
+    AppSlider(value, onValueChange, modifier, enabled, valueRange,
+        onValueChangeFinished, steps, accentColor = editorSliderYellow)
 }
