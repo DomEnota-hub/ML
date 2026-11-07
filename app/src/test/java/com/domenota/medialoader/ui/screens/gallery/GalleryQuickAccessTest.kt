@@ -14,6 +14,36 @@ class GalleryQuickAccessTest {
         val before = GalleryAlbumSettings()
         for (key in listOf("all", "favorites", "videos")) assertEquals(before, dropGalleryAlbum(before, albums, key, "device:a", true))
     }
+    @Test fun fixedCategoriesAreOrderedBeforeCustomPinnedAlbums() {
+        val device = listOf(
+            GalleryAlbum("device:screenshots", "Screenshots", "Телефон", 7, null),
+            GalleryAlbum("folder:camera", "Camera", "Приложение", 3, null),
+            GalleryAlbum("device:camera", "Camera", "Телефон", 9, null),
+        )
+        val builtIns = galleryDefaultQuickItems(device, emptyList(), emptyList(), emptyList())
+        assertEquals(listOf(GalleryQuickKind.ALL, GalleryQuickKind.CAMERA,
+            GalleryQuickKind.SCREENSHOTS, GalleryQuickKind.VIDEO, GalleryQuickKind.FAVORITES),
+            builtIns.map { it.kind })
+        assertEquals(listOf("all", "device:camera", "device:screenshots", "videos", "favorites"),
+            builtIns.map { it.key })
+    }
+
+    @Test fun russianScreenshotNamesAndCustomAlbumsAreNotConfused() {
+        assertEquals(GalleryQuickKind.SCREENSHOTS,
+            galleryStandardAlbumKind(GalleryAlbum("device:screen", "Снимки и записи экрана",
+                "Телефон", 15, null)))
+        assertNull(galleryStandardAlbumKind(GalleryAlbum("folder:mine", "Камера",
+            "Приложение", 5, null)))
+        assertEquals(GalleryQuickKind.CAMERA,
+            galleryStandardAlbumKind(GalleryAlbum("device:cam", "КАМЕРА",
+                "Телефон", 19, null)))
+    }
+
+    @Test fun missingSystemAlbumsHaveNoUnopenableShortcut() {
+        assertEquals(listOf("all", "videos", "favorites"),
+            galleryDefaultQuickItems(albums, emptyList(), emptyList(), emptyList()).map { it.key })
+    }
+
     @Test fun draggingHiddenAlbumToQuickAccessRestoresItsAlbumVisibility() {
         val pinned=dropGalleryAlbum(GalleryAlbumSettings(hiddenAlbums=setOf("device:a")), albums, "device:a", null, true)
         assertFalse("device:a" in pinned.hiddenAlbums)
