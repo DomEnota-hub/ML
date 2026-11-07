@@ -196,7 +196,7 @@ fun VideoEditorScreen(
         background = Color(0xFF101010), onBackground = Color(0xFFECECEC),
         surface = Color(0xFF242424), onSurface = Color(0xFFECECEC),
         surfaceVariant = Color(0xFF303030), onSurfaceVariant = Color(0xFFBDBDBD),
-        outline = Color(0xFF606060), secondary = Color(0xFFFFBD19),
+        outline = Color(0xFF606060), secondary = com.domenota.medialoader.ui.components.editorSliderYellow,
         primaryContainer = Color(0xFF4D4100), onPrimaryContainer = Color(0xFFFFE58A),
     )) {
         VideoEditorContent(item, exportState, onBack, onExport, onSaveFrame,
