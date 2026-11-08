@@ -85,7 +85,8 @@ internal fun GalleryVideoHeader(
     onMenu: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val expanded = landscape && maxWidth >= 670.dp
+        // Keep primary actions accessible even on narrow landscape displays.
+        val compactLandscape = landscape && maxWidth < 610.dp
         Row(
             Modifier.fillMaxWidth().height(75.dp)
                 .padding(horizontal = if (landscape) 12.dp else 16.dp),
@@ -96,24 +97,24 @@ internal fun GalleryVideoHeader(
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад",
                     tint = Color.White, modifier = Modifier.size(28.dp))
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+            if (compactLandscape && maxWidth < 520.dp) Spacer(Modifier.weight(1f)) else Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                 Text(date, color = Color.White, fontWeight = FontWeight.SemiBold,
                     fontSize = if (landscape) 16.sp else 17.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(3.dp))
                 Text(time, color = v10Muted, fontSize = 12.sp, maxLines = 1)
             }
-            if (expanded) {
+            if (landscape) {
                 listOf(
                     Triple("share", "Поделиться", onShare),
                     Triple("cut", "Обрезать", onEdit),
                     Triple("heart", "Избранное", onFavorite),
                     Triple("trash", "Удалить", onDelete),
                 ).forEach { (asset, label, action) ->
-                    IconButton(onClick = action, modifier = Modifier.size(43.dp)
+                    IconButton(onClick = action, modifier = Modifier.size(if (compactLandscape) 36.dp else 43.dp)
                         .semantics { contentDescription = label }) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            GalleryV10Icon(asset, Modifier.size(28.dp))
+                            GalleryV10Icon(asset, Modifier.size(if (compactLandscape) 24.dp else 28.dp))
                         }
                     }
                 }
@@ -183,10 +184,6 @@ private val v10VideoRows = listOf(
     V10MenuRow("wallpaper", "Установить как обои", "wallpaper"),
     V10MenuRow("info", "Сведения", "info"),
     V10MenuRow("divider1", "", ""),
-    V10MenuRow("share", "Поделиться", "share"),
-    V10MenuRow("edit", "Обрезать", "cut"),
-    V10MenuRow("favorite", "Избранное", "heart"),
-    V10MenuRow("delete", "Удалить", "trash"),
     V10MenuRow("cast", "Транслировать", "cast"),
     V10MenuRow("loop", "Зациклить одно видео", "loop"),
     V10MenuRow("speed", "Скорость воспроизведения", "speed", true),
@@ -230,7 +227,9 @@ internal fun GalleryV10Popup(
     val density = LocalDensity.current
     BackHandler(secondary != null) { secondary = null }
     BackHandler(secondary == null) { onDismiss() }
-    BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { rootTopPx = it.positionInRoot().y }) {
+    // Honor Android 3-button navigation (on the RIGHT in landscape) and cutouts.
+    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()
+        .onGloballyPositioned { rootTopPx = it.positionInRoot().y }) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .55f)).clickable(onClick = onDismiss))
         val menuWidth = minOf(287.dp, maxWidth - 32.dp)
         val bodyHeight = maxHeight * .65f
