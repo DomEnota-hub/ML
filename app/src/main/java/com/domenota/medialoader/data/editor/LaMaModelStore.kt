@@ -81,6 +81,17 @@ class LaMaModelStore(context: Context) {
         }
     }
 
+    /** Both model types use the same optional-model lifecycle in settings. */
+    suspend fun verifyInstalled(): Boolean = withContext(Dispatchers.IO) {
+        installed() && sha256(model) == SHA256
+    }
+
+    suspend fun uninstall() = withContext(Dispatchers.IO) {
+        if (model.exists() && !model.delete()) {
+            throw IOException("Не удалось удалить модель LaMa.")
+        }
+    }
+
     companion object {
         const val MODEL_NAME = "LaMa (ONNX, 512 × 512)"
         const val SHA256 = "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6"
