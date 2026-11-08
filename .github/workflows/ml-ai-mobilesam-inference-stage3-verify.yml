@@ -5,10 +5,12 @@ on:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
       - feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109
       - feature/ml-ai-eraser-qa156-stage1-controls-20261109
+      - feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
       - feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109
+      - feature/ml-ai-eraser-qa156-stage1-controls-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -159,8 +161,17 @@ jobs:
           assert "strokes.addAll(selection)" in eraser
           assert "onAuto =" in eraser and "onManual =" in eraser
           assert "selectedMode == AiEraserMode.OBJECTS && autoMode" in eraser
-          assert "autoCandidate = false" in eraser, "Auto tap must reject drag/multi-touch"
-          assert "if (autoCandidate && autoPoint != null)" in eraser
+          # QA 1.5/1.6/1.7: MobileSAM must be prompted on drag release,
+          # not silently triggered by a tap; trace is not a fake selected mask.
+          assert "AutoDragSelectionPolicy.releasePrompt(" in eraser
+          assert "maxTravelPx" in eraser and "14.dp.toPx()" in eraser
+          assert "autoTrace = autoPoints.toList()" in eraser
+          assert "style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)" in eraser
+          assert "trace = autoTrace" in eraser, "Magnifier must show the live trace"
+          assert "if (segmenting)" in eraser and "SegmentationIndicator()" in eraser
+          assert "segmenting = false" in eraser and "finally {" in eraser
+          assert "Alignment.BottomStart" in eraser and "Alignment.TopStart" in eraser
+          assert "autoCandidate" not in eraser, "Tap-only MobileSAM must not return"
           assert "maskActions.record(selection.size)" in eraser, "Automatic mask undo must be one user action"
           assert "maskActions.record(1)" in eraser, "Manual brush is one action"
           assert "maskActions.undoCount()" in eraser and "maskActions.redoCount()" in eraser
@@ -184,6 +195,7 @@ jobs:
             --tests '*GalleryLandscapeOrientationTest' \
             --tests '*GalleryV10ActionContractTest' \
             --tests '*AiEraserModePolicyTest' \
+            --tests '*AutoDragSelectionPolicyTest' \
             --tests '*MobileSamModelStoreTest' \
             --tests '*MobileSamGeometryTest' \
             --tests '*MaskActionGroupingTest' \
@@ -214,14 +226,6 @@ jobs:
           "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk
           "$bt/zipalign" -c -v 4 handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk
           sha256sum handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk > handoff/ALIGNED_UNSIGNED_SHA256.txt
-      - name: Keep unsigned ARM64 APK for private offline signing
-        uses: actions/upload-artifact@v4
-        with:
-          name: ml-ai-mobilesam-stage3-arm64-unsigned-ci-only
-          path: handoff/
-          retention-days: 7
-          if-no-files-found: error
-          compression-level: 0
       - name: Retain QA test and lint reports
         if: always()
         uses: actions/upload-artifact@v4
