@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -16,6 +17,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.res.vectorResource
@@ -76,11 +81,12 @@ private fun RemovalToolButton(
     val scheme = MaterialTheme.colorScheme
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(48.dp).background(
-            if (selected) scheme.primaryContainer else scheme.surfaceVariant, CircleShape),
+        modifier = Modifier.size(36.dp).background(
+            if (selected) Color(0xFFFFC21C) else Color(0xFF292929),
+            RoundedCornerShape(10.dp)),
     ) {
-        Icon(icon, contentDescription = label,
-            tint = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant)
+        Icon(icon, contentDescription = label, modifier = Modifier.size(19.dp),
+            tint = if (selected) Color(0xFF131313) else Color.White)
     }
 }
 
@@ -194,6 +200,7 @@ internal fun ObjectRemovalPanel(
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
+    var selectedMode by remember { mutableStateOf(AiEraserMode.OBJECTS) }
     val busy = processing || downloading || scanningText
 
     fun undo() {
@@ -243,71 +250,110 @@ internal fun ObjectRemovalPanel(
         dismissButton = { TextButton(onClick = { askDownload = false }) { Text("Отмена") } },
     )
 
-    Column(
-        modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Удаление объектов", style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f))
-            TextButton(onClick = onClose, enabled = !busy) { Text("Назад") }
+    fun scanText() {
+        if (busy) return
+        scanningText = true
+        message = null
+        selectedGlyphs.clear()
+        redoGlyphs.clear()
+        glyphs = emptyList()
+        val source = current.bitmap
+        scope.launch {
+            try {
+                glyphs = glyphDetector.detect(source)
+                if (glyphs.isEmpty()) message = "Не удалось найти отдельные буквы."
+            } catch (error: Exception) {
+                message = error.message ?: "Не удалось распознать текст."
+            } finally {
+                scanningText = false
+            }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = !textMode, onClick = {
-                textMode = false; moveMode = false; eraserMode = false; message = null
-            }, label = { Text("Удалить объект") })
-            FilterChip(selected = textMode, onClick = {
-                textMode = true; moveMode = false; eraserMode = false; message = null
-            }, label = { Text("Удалить текст") })
-        }
-        // Keep the mode selector visible while the tool settings scroll.
-        Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState())
-                .padding(bottom = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-        Text(
-            if (textMode)
-                "Нажми «Найти буквы», затем проведи пальцем только по нужным символам. " +
-                    "LaMa удалит выбранные буквы после подтверждения."
-            else "Закрасьте лишний объект. «Ластик» стирает только выделение. " +
-                "Двумя пальцами можно увеличить фото, кнопкой «Перемещать» — сдвигать его.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall)
-        if (textMode) {
-            OutlinedButton(
-                onClick = {
-                    scanningText = true
-                    message = null
-                    selectedGlyphs.clear()
-                    redoGlyphs.clear()
-                    glyphs = emptyList()
-                    val source = current.bitmap
-                    scope.launch {
-                        try {
-                            val found = glyphDetector.detect(source)
-                            glyphs = found
-                            if (found.isEmpty()) {
-                                message = "Отдельные буквы не найдены. Попробуй увеличить изображение или использовать кисть."
-                            }
-                        } catch (error: Exception) {
-                            message = error.message ?: "Не удалось распознать буквы."
-                        } finally {
-                            scanningText = false
-                        }
-                    }
-                },
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (glyphs.isEmpty()) "Найти буквы" else "Распознать заново") }
-            if (scanningText) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            if (glyphs.isNotEmpty()) Text(
-                "Найдено букв: ${glyphs.size} · выбрано: ${selectedGlyphs.size}. " +
-                    "Контуры — найденные символы, жёлтым — выбранные.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
+    }
 
+    fun processSelection() {
+        if (busy) return
+        if (textMode && glyphs.isEmpty()) {
+            scanText()
+            return
+        }
+        val marked = if (textMode) {
+            TextGlyphMask.toStrokes(
+                glyphs.filter { it.id in selectedGlyphs },
+                current.bitmap.width, current.bitmap.height)
+        } else strokes.toList()
+        if (marked.isEmpty()) return
+        if (!installed) {
+            askDownload = true
+            return
+        }
+        val startStep = current
+        processing = true
+        message = null
+        scope.launch {
+            try {
+                val result = engine.inpaint(startStep.bitmap, marked)
+                // Retain bounded undo/redo image states and existing mask batches.
+                steps = steps.take(index + 1).takeLast(3) +
+                    RemovalStep(result, startStep.maskBatches + listOf(marked))
+                index = steps.lastIndex
+                strokes.clear()
+                redoStrokes.clear()
+                selectedGlyphs.clear()
+                redoGlyphs.clear()
+                glyphs = emptyList()
+            } catch (error: Exception) {
+                message = error.message ?: "Обработка LaMa не удалась."
+            } finally {
+                processing = false
+            }
+        }
+    }
+
+    fun acceptResult() {
+        if (busy || index == 0) return
+        processing = true
+        message = null
+        val accepted = current
+        scope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    val dir = File(context.cacheDir, "inpainting-overlays").apply { mkdirs() }
+                    val output = File(dir, "overlay-${UUID.randomUUID()}.png")
+                    val overlay = LaMaInpaintingEngine.makeOverlay(
+                        accepted.bitmap, accepted.maskBatches)
+                    try {
+                        FileOutputStream(output).use { out ->
+                            check(overlay.compress(Bitmap.CompressFormat.PNG, 100, out))
+                        }
+                        require(output.length() > 0L)
+                        output
+                    } finally {
+                        overlay.recycle()
+                    }
+                }
+                onAccept(accepted.bitmap, accepted.maskBatches, file.absolutePath)
+            } catch (error: Exception) {
+                message = error.message ?: "Не удалось подготовить результат."
+            } finally {
+                processing = false
+            }
+        }
+    }
+
+    // Object/manual share the original LaMa mask engine; text uses the original
+    // on-device glyph detector. Unsupported AI modes remain visibly disabled.
+    Column(modifier.fillMaxSize().background(Color.Black)) {
+        AiEraserTopBar(
+            canUndo = if (textMode) selectedGlyphs.isNotEmpty() || index > 0
+                else strokes.isNotEmpty() || index > 0,
+            canRedo = if (textMode) redoGlyphs.isNotEmpty() || index < steps.lastIndex
+                else redoStrokes.isNotEmpty() || index < steps.lastIndex,
+            canCompare = index > 0,
+            busy = busy,
+            onUndo = ::undo,
+            onRedo = ::redo,
+            onCompareHold = { showBefore = it },
+        )
         val ratio = (working.width.toFloat() / working.height.coerceAtLeast(1)).coerceAtLeast(0.08f)
         // Rebuild at compact preview resolution only when the union of strokes changes.
         // The merged mask is composited exactly ONCE, so crossing lines cannot darken it.
@@ -323,8 +369,14 @@ internal fun ObjectRemovalPanel(
         val unifiedOverlay = remember(previewStrokes, working.width, working.height) {
             UnifiedMaskOverlay.render(previewStrokes, working.width, working.height)
         }
+        BoxWithConstraints(
+            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val previewWidth = minOf(maxWidth, maxHeight * ratio)
+            val previewHeight = previewWidth / ratio
         Box(
-            Modifier.fillMaxWidth().aspectRatio(ratio).clipToBounds()
+            Modifier.width(previewWidth).height(previewHeight).clipToBounds()
                 .background(Color.Black).onSizeChanged { viewport = it }
                 .pointerInput(moveMode, brush, busy, showBefore, textMode, glyphs, eraserMode) {
                     if (busy || showBefore) return@pointerInput
@@ -484,161 +536,92 @@ internal fun ObjectRemovalPanel(
             }
         }
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically) {
-            if (!textMode) {
-                RemovalToolButton(Icons.Rounded.Brush, "Кисть", !moveMode && !eraserMode) {
-                    moveMode = false; eraserMode = false
+        }
+
+        // Context toolbar stays separate from the mode strip, matching Xiaomi.
+        if (selectedMode == AiEraserMode.MANUAL ||
+            selectedMode == AiEraserMode.OBJECTS) {
+            Row(
+                Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                RemovalToolButton(Icons.Rounded.Brush, "Кисть", !eraserMode) {
+                    eraserMode = false
+                    moveMode = false
                 }
-                RemovalToolButton(ImageVector.vectorResource(R.drawable.ic_eraser), "Ластик", !moveMode && eraserMode) {
-                    moveMode = false; eraserMode = true
+                RemovalToolButton(ImageVector.vectorResource(R.drawable.ic_eraser),
+                    "Стереть выделение", eraserMode) {
+                    eraserMode = true
+                    moveMode = false
                 }
+                Slider(
+                    value = brush,
+                    onValueChange = { brush = it; brushSizing = true },
+                    onValueChangeFinished = { brushSizing = false },
+                    valueRange = 8f..100f,
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                )
+                Canvas(Modifier.size(22.dp)) {
+                    drawCircle(Color(0xFFFFC21C), radius =
+                        (brush / 100f * size.minDimension * .42f).coerceAtLeast(2f),
+                        style = Stroke(width = 2.dp.toPx()))
+                }
+                TextButton(
+                    onClick = ::processSelection,
+                    enabled = !busy && strokes.isNotEmpty(),
+                ) { Text("Начать", color = Color.White, fontSize = 13.sp) }
             }
-            RemovalToolButton(Icons.Rounded.PanTool, "Перемещать", moveMode) {
-                moveMode = !moveMode
-            }
-            RemovalToolButton(Icons.Rounded.Compare, "До / После", showBefore) {
-                showBefore = !showBefore
-            }
-            RemovalToolButton(Icons.Rounded.ZoomOutMap, "Масштаб 1×", false) {
-                zoom = 1f; pan = Offset.Zero
+        } else {
+            Box(
+                Modifier.fillMaxWidth().height(68.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                TextButton(
+                    onClick = ::processSelection,
+                    enabled = !busy && (glyphs.isEmpty() || selectedGlyphs.isNotEmpty()),
+                ) {
+                    Text(if (glyphs.isEmpty()) "Найти текст" else "Начать",
+                        color = Color.White, fontSize = 13.sp)
+                }
             }
         }
-        if (!textMode) {
-            Row(verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Canvas(Modifier.size(72.dp)) {
-                    // Magnified sample for human readability. The actual diameter
-                    // always appears on the PHOTO while the slider is moving.
-                    val radius = (brush / 100f * size.minDimension * 0.43f)
-                        .coerceIn(3f, size.minDimension / 2f - 3f)
-                    val sampleColor = if (eraserMode) Color(0xFF86D7FF) else Color(0xFFFFCF22)
-                    drawCircle(sampleColor.copy(alpha = 0.34f), radius)
-                    drawCircle(sampleColor, radius, style = Stroke(width = 2f))
-                }
-                Column {
-                    Text("${if (eraserMode) "Ластик" else "Кисть"}: ${brush.roundToInt()} px",
-                        style = MaterialTheme.typography.titleMedium)
-                    Text("Образец увеличен. Точный размер виден на фото при настройке.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Slider(
-                value = brush,
-                onValueChange = { brush = it; brushSizing = true },
-                onValueChangeFinished = { brushSizing = false },
-                valueRange = 8f..100f,
-                enabled = !busy,
+        // This switch belongs exclusively to OBJECTS, even after future
+        // MobileSAM integration. For now manual selection is the real engine.
+        if (selectedMode == AiEraserMode.OBJECTS) {
+            // Mode switch is overlaid within the context row by the next stage.
+        }
+        AiEraserModeStrip(
+            selected = selectedMode,
+            enabled = !busy,
+            onMode = { mode ->
+                selectedMode = mode
+                textMode = mode == AiEraserMode.TEXT
+                moveMode = false
+                eraserMode = false
+                strokes.clear()
+                redoStrokes.clear()
+                inProgress = emptyList()
+                selectedGlyphs.clear()
+                redoGlyphs.clear()
+                glyphs = emptyList()
+                message = null
+            },
+        )
+        if (downloading || processing) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(3.dp),
             )
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = ::undo,
-                enabled = !busy && (if (textMode) selectedGlyphs.isNotEmpty() || index > 0
-                    else strokes.isNotEmpty() || index > 0)) {
-                Text("Отменить")
-            }
-            OutlinedButton(onClick = ::redo,
-                enabled = !busy && (if (textMode) redoGlyphs.isNotEmpty() || index < steps.lastIndex
-                    else redoStrokes.isNotEmpty() || index < steps.lastIndex)) {
-                Text("Повторить")
-            }
-            TextButton(
-                onClick = {
-                    if (textMode) { selectedGlyphs.clear(); redoGlyphs.clear() }
-                    else { strokes.clear(); redoStrokes.clear(); inProgress = emptyList() }
-                },
-                enabled = !busy && (if (textMode) selectedGlyphs.isNotEmpty()
-                    else strokes.isNotEmpty()),
-            ) { Text(if (textMode) "Снять выделение" else "Очистить маску") }
+        message?.let {
+            Text(it, color = Color(0xFFFFB4AB), fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 12.dp))
         }
-        if (!installed) {
-            OutlinedButton(onClick = { askDownload = true }, enabled = !busy,
-                modifier = Modifier.fillMaxWidth()) {
-                Text("Установить LaMa для удаления объектов")
-            }
-        }
-        if (downloading) {
-            LinearProgressIndicator(progress = { downloadProgress / 100f },
-                modifier = Modifier.fillMaxWidth())
-            Text("Загрузка модели: $downloadProgress%")
-        }
-        if (processing) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Text("LaMa обрабатывает фотографию на устройстве…")
-        }
-        message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Button(
-            onClick = {
-                val marked = if (textMode) {
-                    TextGlyphMask.toStrokes(glyphs.filter { it.id in selectedGlyphs },
-                        current.bitmap.width, current.bitmap.height)
-                } else strokes.toList()
-                if (marked.isEmpty() || (!textMode && unifiedOverlay == null)) return@Button
-                val start = current
-                processing = true
-                message = null
-                scope.launch {
-                    try {
-                        val result = engine.inpaint(start.bitmap, marked)
-                        // Trim forward redo states, retaining a bounded history.
-                        steps = (steps.take(index + 1).takeLast(3) +
-                            RemovalStep(result, start.maskBatches + listOf(marked)))
-                        index = steps.lastIndex
-                        strokes.clear()
-                        redoStrokes.clear()
-                        selectedGlyphs.clear()
-                        redoGlyphs.clear()
-                        glyphs = emptyList()
-                    } catch (error: Exception) {
-                        message = error.message ?: "Обработка LaMa не удалась."
-                    } finally {
-                        processing = false
-                    }
-                }
-            },
-            enabled = installed && !busy && (if (textMode) selectedGlyphs.isNotEmpty()
-                else strokes.isNotEmpty() && unifiedOverlay != null),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (textMode) "Удалить выбранные буквы" else "Удалить объект") }
-
-        Button(
-            onClick = {
-                processing = true
-                message = null
-                val accepted = current
-                scope.launch {
-                    try {
-                        val file = withContext(Dispatchers.IO) {
-                            val dir = File(context.cacheDir, "inpainting-overlays").apply { mkdirs() }
-                            val output = File(dir, "overlay-${UUID.randomUUID()}.png")
-                            val overlay = LaMaInpaintingEngine.makeOverlay(
-                                accepted.bitmap, accepted.maskBatches)
-                            try {
-                                FileOutputStream(output).use { out ->
-                                    check(overlay.compress(Bitmap.CompressFormat.PNG, 100, out))
-                                }
-                                require(output.length() > 0L)
-                                output
-                            } finally {
-                                overlay.recycle()
-                            }
-                        }
-                        onAccept(accepted.bitmap, accepted.maskBatches, file.absolutePath)
-                    } catch (error: Exception) {
-                        message = error.message ?: "Не удалось подготовить копию."
-                    } finally {
-                        processing = false
-                    }
-                }
-            },
-            enabled = !busy && index > 0,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Применить к фото") }
-        Text("Обработка локальная. Исходный файл не изменяется; сохранить результат " +
-            "можно отдельной копией в редакторе.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        AiEraserFooter(
+            canApply = !busy && index > 0,
+            onCancel = onClose,
+            onApply = ::acceptResult,
+        )
     }
 }
