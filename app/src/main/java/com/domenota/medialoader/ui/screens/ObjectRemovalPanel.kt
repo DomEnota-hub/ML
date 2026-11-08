@@ -1,9 +1,12 @@
 package com.domenota.medialoader.ui.screens
-import com.domenota.medialoader.ui.components.AppSlider as Slider
+import com.domenota.medialoader.ui.components.EditorSlider as Slider
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
@@ -35,7 +38,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush as GradientBrush
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
@@ -53,6 +59,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.domenota.medialoader.data.editor.LaMaInpaintingEngine
 import com.domenota.medialoader.data.editor.LaMaModelStore
 import com.domenota.medialoader.data.editor.MobileSamModelStore
@@ -94,6 +101,35 @@ private fun RemovalToolButton(
     }
 }
 
+/**
+ * Fixed-size outlined action: its caller centers it relative to the whole screen,
+ * never to the leftover width beside object mode controls.
+ */
+@Composable
+private fun EraserStartButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+    label: String = "Начать",
+    width: Dp = 104.dp,
+) {
+    val shape = RoundedCornerShape(11.dp)
+    val gradient = if (enabled) {
+        listOf(Color(0xFFFFE075), Color(0xFFFFC21C), Color(0xFFE18C13))
+    } else {
+        listOf(Color(0xFF665B43), Color(0xFF665B43))
+    }
+    Box(
+        Modifier.width(width).height(37.dp)
+            .border(BorderStroke(1.dp, GradientBrush.horizontalGradient(gradient)), shape)
+            .background(Color(0xFF252525), shape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (enabled) Color.White else Color(0xFF999999),
+            fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
 @Composable
 private fun SelectionMagnifier(
     bitmap: ImageBitmap,
@@ -106,11 +142,11 @@ private fun SelectionMagnifier(
     modifier: Modifier = Modifier,
 ) {
     if (viewport.width <= 0 || viewport.height <= 0) return
-    val diameter = with(LocalDensity.current) {
-        minOf(112.dp.toPx(), viewport.height * 0.78f, viewport.width * 0.36f)
-            .coerceAtLeast(48.dp.toPx()).toDp()
+    val lensWidth = with(LocalDensity.current) {
+        minOf(152.dp.toPx(), viewport.width * 0.43f).coerceAtLeast(1f).toDp()
     }
-    Canvas(modifier.size(diameter)) {
+    val lensHeight = lensWidth * 0.72f
+    Canvas(modifier.width(lensWidth).height(lensHeight)) {
         // Sample the source pixels, including the current mask, around the finger.
         val cropWidth = (bitmap.width * size.width / viewport.width / zoom / 2.5f)
             .roundToInt().coerceIn(1, bitmap.width)
@@ -120,7 +156,10 @@ private fun SelectionMagnifier(
             .coerceIn(0, bitmap.width - cropWidth)
         val sourceY = (point.y * bitmap.height - cropHeight / 2f).roundToInt()
             .coerceIn(0, bitmap.height - cropHeight)
-        val window = Path().apply { addOval(Rect(0f, 0f, size.width, size.height)) }
+        val corner = CornerRadius(12.dp.toPx())
+        val window = Path().apply {
+            addRoundRect(RoundRect(Rect(0f, 0f, size.width, size.height), corner))
+        }
         val outputSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
         clipPath(window) {
             drawImage(bitmap, IntOffset(sourceX, sourceY), IntSize(cropWidth, cropHeight),
@@ -144,11 +183,10 @@ private fun SelectionMagnifier(
                 radius = guideRadius.coerceAtLeast(2f), center = Offset(guideX, guideY),
                 style = Stroke(width = 2.dp.toPx()))
         }
-        drawCircle(Color.Black.copy(alpha = 0.8f), radius = size.minDimension / 2f,
+        drawRoundRect(Color.Black.copy(alpha = .85f), cornerRadius = corner,
             style = Stroke(width = 5.dp.toPx()))
-        drawCircle(if (eraser) Color(0xFF86D7FF) else Color(0xFFFFCF22),
-            radius = size.minDimension / 2f - 2.dp.toPx(),
-            style = Stroke(width = 2.dp.toPx()))
+        drawRoundRect(if (eraser) Color(0xFF86D7FF) else Color(0xFFFFC21C),
+            cornerRadius = corner, style = Stroke(width = 2.dp.toPx()))
     }
 }
 
@@ -614,67 +652,75 @@ internal fun ObjectRemovalPanel(
 
         // The object selector is the ONLY mode with the A/hand toggle.
         if (selectedMode == AiEraserMode.OBJECTS) {
-            Row(
+            BoxWithConstraints(
                 Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                contentAlignment = Alignment.Center,
             ) {
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = ::processSelection,
-                    enabled = !busy && strokes.isNotEmpty()) {
-                    Text("Начать", color = Color.White, fontSize = 13.sp)
-                }
-                Spacer(Modifier.weight(1f))
-                AiEraserObjectSwitch(
-                    enabled = !busy,
-                    automatic = autoMode,
-                    autoAvailable = mobileReady,
-                    onAuto = {
-                        if (mobileReady) {
-                            autoMode = true
-                            objectManualTools = false
-                        } else askSamInstall = true
-                    },
-                    onManual = {
-                        autoMode = false
-                        objectManualTools = true
-                    },
+                // Keep the action at the full-width center, even when the switch is present.
+                val actionWidth = minOf(104.dp, (maxWidth - 220.dp).coerceAtLeast(68.dp))
+                EraserStartButton(
+                    enabled = !busy && strokes.isNotEmpty(),
+                    onClick = ::processSelection,
+                    width = actionWidth,
                 )
+                Box(Modifier.align(Alignment.CenterEnd)) {
+                    AiEraserObjectSwitch(
+                        enabled = !busy,
+                        automatic = autoMode,
+                        autoAvailable = mobileReady,
+                        onAuto = {
+                            if (mobileReady) {
+                                autoMode = true
+                                objectManualTools = false
+                            } else askSamInstall = true
+                        },
+                        onManual = {
+                            autoMode = false
+                            objectManualTools = true
+                        },
+                    )
+                }
             }
         }
         if (selectedMode == AiEraserMode.MANUAL ||
             (selectedMode == AiEraserMode.OBJECTS && objectManualTools)) {
-            Row(
-                Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                RemovalToolButton(Icons.Rounded.Brush, "Кисть", !eraserMode) {
-                    eraserMode = false
-                    moveMode = false
-                }
-                RemovalToolButton(ImageVector.vectorResource(R.drawable.ic_eraser),
-                    "Стереть выделение", eraserMode) {
-                    eraserMode = true
-                    moveMode = false
-                }
-                Slider(
-                    value = brush,
-                    onValueChange = { brush = it; brushSizing = true },
-                    onValueChangeFinished = { brushSizing = false },
-                    valueRange = 8f..100f,
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f),
-                )
-                Canvas(Modifier.size(22.dp)) {
-                    drawCircle(Color(0xFFFFC21C), radius =
-                        (brush / 100f * size.minDimension * .42f).coerceAtLeast(2f),
-                        style = Stroke(width = 2.dp.toPx()))
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    RemovalToolButton(Icons.Rounded.Brush, "Кисть", !eraserMode) {
+                        eraserMode = false
+                        moveMode = false
+                    }
+                    RemovalToolButton(ImageVector.vectorResource(R.drawable.ic_eraser),
+                        "Стереть выделение", eraserMode) {
+                        eraserMode = true
+                        moveMode = false
+                    }
+                    Slider(
+                        value = brush,
+                        onValueChange = { brush = it; brushSizing = true },
+                        onValueChangeFinished = { brushSizing = false },
+                        valueRange = 8f..100f,
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Canvas(Modifier.size(22.dp)) {
+                        drawCircle(Color(0xFFFFC21C), radius =
+                            (brush / 100f * size.minDimension * .42f).coerceAtLeast(2f),
+                            style = Stroke(width = 2.dp.toPx()))
+                    }
                 }
                 if (selectedMode == AiEraserMode.MANUAL) {
-                    TextButton(
-                        onClick = ::processSelection,
-                        enabled = !busy && strokes.isNotEmpty(),
-                    ) { Text("Начать", color = Color.White, fontSize = 13.sp) }
+                    Box(Modifier.fillMaxWidth().height(48.dp),
+                        contentAlignment = Alignment.Center) {
+                        EraserStartButton(
+                            enabled = !busy && strokes.isNotEmpty(),
+                            onClick = ::processSelection,
+                        )
+                    }
                 }
             }
         } else if (selectedMode == AiEraserMode.TEXT) {
@@ -682,13 +728,12 @@ internal fun ObjectRemovalPanel(
                 Modifier.fillMaxWidth().height(68.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                TextButton(
-                    onClick = ::processSelection,
+                EraserStartButton(
                     enabled = !busy && (glyphs.isEmpty() || selectedGlyphs.isNotEmpty()),
-                ) {
-                    Text(if (glyphs.isEmpty()) "Найти текст" else "Начать",
-                        color = Color.White, fontSize = 13.sp)
-                }
+                    label = if (glyphs.isEmpty()) "Найти текст" else "Начать",
+                    width = if (glyphs.isEmpty()) 132.dp else 104.dp,
+                    onClick = ::processSelection,
+                )
             }
         }
         AiEraserModeStrip(
