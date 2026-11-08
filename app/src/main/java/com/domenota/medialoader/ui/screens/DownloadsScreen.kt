@@ -49,6 +49,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import com.domenota.medialoader.ui.components.DownloadGroupCard
 import com.domenota.medialoader.data.catalog.runFileBatch
+import com.domenota.medialoader.data.storage.SavedFileStatus
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -647,6 +648,11 @@ fun DownloadsScreen(
                 onChooseFolder = { id -> folderTargetId = id; folderGroupTargets = emptyList(); folderSheetOpen = true },
                 expandedGroups = expandedGroups, groupLimits = groupLimits, onExpand = toggleGroup, onMore = showMore,
                 onMoveToPrivate = onMoveToPrivate, grid = gridMode,
+                // Swipe rights are additive: unlike the overflow menu they
+                // never remove an item that was already in favorites.
+                onSwipeFavorite = { ids ->
+                    groupAction(ids) { id -> onSetFavorite(id, true) }
+                },
                 onGroupFavorite = { group ->
                     val favorite = !group.all { assignmentById[it.id]?.isFavorite == true }
                     groupAction(group.map { it.id }) { onSetFavorite(it, favorite) }
@@ -678,6 +684,7 @@ private fun LazyListScope.DownloadRows(
     onMore: (String) -> Unit,
     onMoveToPrivate: (String) -> Unit,
     grid: Boolean = false,
+    onSwipeFavorite: ((List<String>) -> Unit)? = null,
     onGroupFavorite: (List<DownloadUiItem>) -> Unit,
     onGroupFolder: (List<String>) -> Unit,
     onGroupMove: (List<String>) -> Unit,
@@ -706,20 +713,39 @@ private fun LazyListScope.DownloadRows(
           val expanded = groupKey in expandedGroups
           val visibleCount = groupLimits[groupKey] ?: 24
           item(key = "group:$groupKey", contentType = "group") {
-            DownloadGroupCard(group, expanded, { onExpand(groupKey) }, onOpenDownload,
-                allFavorite = group.all { assignments[it.id]?.isFavorite == true },
-                onFavorite = { onGroupFavorite(group) },
-                onChooseFolder = { onGroupFolder(group.map { it.id }) },
-                onMoveToPrivate = { onGroupMove(group.map { it.id }) },
-                onDelete = { onGroupDelete(group.map { it.id }) }, actionsEnabled = groupActionsEnabled)
+            val groupIds = remember(group) { group.map { it.id } }
+            HistorySwipeRow(
+                enabled = groupActionsEnabled && onSwipeFavorite != null &&
+                    group.all { it.state == DownloadUiState.COMPLETED &&
+                        it.fileStatus != SavedFileStatus.MISSING &&
+                        it.fileStatus != SavedFileStatus.INACCESSIBLE },
+                onFavorite = { onSwipeFavorite?.invoke(groupIds) },
+                onPrivate = { onGroupMove(groupIds) },
+            ) {
+                DownloadGroupCard(group, expanded, { onExpand(groupKey) }, onOpenDownload,
+                    allFavorite = group.all { assignments[it.id]?.isFavorite == true },
+                    onFavorite = { onGroupFavorite(group) },
+                    onChooseFolder = { onGroupFolder(groupIds) },
+                    onMoveToPrivate = { onGroupMove(groupIds) },
+                    onDelete = { onGroupDelete(groupIds) },
+                    actionsEnabled = groupActionsEnabled)
+            }
             Spacer(Modifier.height(8.dp))
           }
             if (expanded) {
                 items(group.take(visibleCount), key = { "child:${it.id}" }, contentType = { "file" }) { item ->
-                    DownloadItemRow(item, onOpenDownload, onCancelDownload, onShareDownload,
-                        onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload,
-                        recognitionEnabled, onRecognizeDownload, assignments, folderNames,
-                        onFavorite, onChooseFolder, onMoveToPrivate)
+                    HistorySwipeRow(
+                        enabled = onSwipeFavorite != null && item.state == DownloadUiState.COMPLETED &&
+                            item.fileStatus != SavedFileStatus.MISSING &&
+                            item.fileStatus != SavedFileStatus.INACCESSIBLE,
+                        onFavorite = { onSwipeFavorite?.invoke(listOf(item.id)) },
+                        onPrivate = { onMoveToPrivate(item.id) },
+                    ) {
+                        DownloadItemRow(item, onOpenDownload, onCancelDownload, onShareDownload,
+                            onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload,
+                            recognitionEnabled, onRecognizeDownload, assignments, folderNames,
+                            onFavorite, onChooseFolder, onMoveToPrivate)
+                    }
                     Spacer(Modifier.height(8.dp))
                 }
                 if (visibleCount < group.size) item(key = "more:$groupKey", contentType = "more") {
@@ -728,10 +754,19 @@ private fun LazyListScope.DownloadRows(
             }
         } else {
           item(key = "file:${group.single().id}", contentType = "file") {
-            DownloadItemRow(group.single(), onOpenDownload, onCancelDownload, onShareDownload,
-                onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload,
-                recognitionEnabled, onRecognizeDownload, assignments, folderNames,
-                onFavorite, onChooseFolder, onMoveToPrivate)
+            val file = group.single()
+            HistorySwipeRow(
+                enabled = onSwipeFavorite != null && file.state == DownloadUiState.COMPLETED &&
+                    file.fileStatus != SavedFileStatus.MISSING &&
+                    file.fileStatus != SavedFileStatus.INACCESSIBLE,
+                onFavorite = { onSwipeFavorite?.invoke(listOf(file.id)) },
+                onPrivate = { onMoveToPrivate(file.id) },
+            ) {
+                DownloadItemRow(file, onOpenDownload, onCancelDownload, onShareDownload,
+                    onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload,
+                    recognitionEnabled, onRecognizeDownload, assignments, folderNames,
+                    onFavorite, onChooseFolder, onMoveToPrivate)
+            }
             Spacer(Modifier.height(10.dp))
           }
         }

@@ -254,7 +254,9 @@ internal fun GalleryMediaViewer(
                 .atZone(ZoneId.systemDefault())
             Box(
                 modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                    .then(if (isLandscape && current.mediaType == MediaType.VIDEO)
+                    // The entire video header, portrait AND landscape, is one
+                    // consistent translucent surface. Photos retain their gradient.
+                    .then(if (current.mediaType == MediaType.VIDEO)
                         Modifier.background(Color.Black.copy(alpha = .42f))
                     else Modifier.background(Brush.verticalGradient(listOf(
                         viewerHeaderOverlayColor, Color.Black.copy(alpha = .28f), Color.Transparent))))
@@ -293,8 +295,11 @@ internal fun GalleryMediaViewer(
             if (current.mediaType != MediaType.VIDEO || !isLandscape) {
                 Box(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent,
-                            Color.Black.copy(alpha = .26f), viewerBottomOverlayColor)))
+                        .then(if (current.mediaType == MediaType.VIDEO)
+                            Modifier.background(Color.Black.copy(alpha = .42f))
+                        else Modifier.background(Brush.verticalGradient(listOf(
+                            Color.Transparent, Color.Black.copy(alpha = .26f),
+                            viewerBottomOverlayColor))))
                         .navigationBarsPadding(),
                 ) {
                     GalleryV10Bottom(
