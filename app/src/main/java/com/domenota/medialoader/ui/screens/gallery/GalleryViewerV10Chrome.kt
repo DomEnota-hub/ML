@@ -87,6 +87,7 @@ internal fun GalleryVideoHeader(
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Keep primary actions accessible even on narrow landscape displays.
         val compactLandscape = landscape && maxWidth < 610.dp
+        val veryCompactLandscape = landscape && maxWidth < 520.dp
         Row(
             Modifier.fillMaxWidth().height(75.dp)
                 .padding(horizontal = if (landscape) 12.dp else 16.dp),
@@ -97,7 +98,7 @@ internal fun GalleryVideoHeader(
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад",
                     tint = Color.White, modifier = Modifier.size(28.dp))
             }
-            if (compactLandscape && maxWidth < 520.dp) Spacer(Modifier.weight(1f)) else Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+            if (veryCompactLandscape) Spacer(Modifier.weight(1f)) else Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                 Text(date, color = Color.White, fontWeight = FontWeight.SemiBold,
                     fontSize = if (landscape) 16.sp else 17.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
