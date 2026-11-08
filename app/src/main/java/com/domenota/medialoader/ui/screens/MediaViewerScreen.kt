@@ -126,6 +126,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -401,6 +402,7 @@ internal fun LocalVideoPlayer(
     var adjustmentActive by remember(uri) { mutableStateOf(false) }
     var showTimePicker by remember(uri) { mutableStateOf(false) }
     var showPlayerSettings by remember(uri) { mutableStateOf(false) }
+    var showGalleryTracks by remember(uri) { mutableStateOf(false) }
     var playableDurationMs by remember(uri) { mutableStateOf(0L) }
     var isPlaying by remember(uri) { mutableStateOf(false) }
     var playbackSpeed by remember(uri) { mutableStateOf(1f) }
@@ -500,7 +502,7 @@ internal fun LocalVideoPlayer(
         when (galleryCommand?.second) {
             "aspect" -> aspectPanelOpen = true
             "time" -> showTimePicker = true
-            "tracks" -> showPlayerSettings = true
+            "tracks" -> showGalleryTracks = true
         }
     }
 
@@ -638,6 +640,51 @@ internal fun LocalVideoPlayer(
         positionMs = player.currentPosition,
         onDismiss = { showTimePicker = false },
         onSeek = { player.seekTo(it); showTimePicker = false },
+    )
+    // Media3 remains the playback engine; its track information is rendered
+    // as Compose options, without bringing back the overlapping native UI.
+    if (showGalleryTracks) AlertDialog(
+        onDismissRequest = { showGalleryTracks = false },
+        title = { Text("Звуковые дорожки") },
+        text = {
+            val groups = player.currentTracks.groups
+                .filter { it.type == C.TRACK_TYPE_AUDIO }
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (groups.isEmpty()) {
+                    Text("В этом видео доступна только встроенная звуковая дорожка")
+                } else {
+                    TextButton(onClick = {
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon().clearOverridesOfType(C.TRACK_TYPE_AUDIO).build()
+                        showGalleryTracks = false
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Автоматический выбор")
+                    }
+                    groups.forEach { group ->
+                        (0 until group.length).forEach { index ->
+                            if (group.isTrackSupported(index)) {
+                                val format = group.getTrackFormat(index)
+                                val language = format.language?.takeUnless { it == "und" }
+                                val title = format.label ?: language ?: "Дорожка ${index + 1}"
+                                val selected = group.isTrackSelected(index)
+                                TextButton(onClick = {
+                                    player.trackSelectionParameters = player.trackSelectionParameters
+                                        .buildUpon().setOverrideForType(
+                                            TrackSelectionOverride(group.mediaTrackGroup, index)
+                                        ).build()
+                                    showGalleryTracks = false
+                                }, modifier = Modifier.fillMaxWidth()) {
+                                    Text(if (selected) "✓ $title" else title)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { showGalleryTracks = false }) { Text("Закрыть") }
+        },
     )
     if (showPlayerSettings) AlertDialog(
         onDismissRequest = { showPlayerSettings = false },
