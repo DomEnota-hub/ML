@@ -16,11 +16,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w390dp-h800dp-xhdpi")
 @LooperMode(LooperMode.Mode.PAUSED)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class GalleryVideoChromeTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     @Test fun clockDisplaysMinutesAndHours() {
