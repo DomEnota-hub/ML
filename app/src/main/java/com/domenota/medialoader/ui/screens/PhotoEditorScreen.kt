@@ -434,7 +434,9 @@ fun PhotoEditorScreen(
         containerColor = Color.Black,
         contentColor = Color.White,
         topBar = {
-            Row(Modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 7.dp, vertical = 8.dp),
+            // The AI eraser has its own back/undo/redo/compare chrome.
+            // Never render the main editor header a second time over it.
+            if (!removeObjects) Row(Modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 7.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { if (removeObjects) removeObjects = false else requestExit() }) {
                     Icon(Icons.Rounded.Close, "Закрыть редактор", tint = Color.White)
