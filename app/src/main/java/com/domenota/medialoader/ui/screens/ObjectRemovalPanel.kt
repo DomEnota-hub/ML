@@ -55,6 +55,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.editor.LaMaInpaintingEngine
 import com.domenota.medialoader.data.editor.LaMaModelStore
+import com.domenota.medialoader.data.editor.MobileSamModelStore
+import com.domenota.medialoader.data.editor.MobileSamSegmenter
 import com.domenota.medialoader.data.editor.MaskPoint
 import com.domenota.medialoader.data.editor.MaskStroke
 import com.domenota.medialoader.data.editor.DetectedGlyph
@@ -65,6 +67,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -164,7 +167,17 @@ internal fun ObjectRemovalPanel(
     val scope = rememberCoroutineScope()
     val modelStore = remember(context) { LaMaModelStore(context) }
     val engine = remember(modelStore) { LaMaInpaintingEngine(modelStore) }
+    val mobileStore = remember(context) { MobileSamModelStore(context.applicationContext) }
+    val segmenter = remember(mobileStore) { MobileSamSegmenter(mobileStore) }
+    DisposableEffect(segmenter) { onDispose { segmenter.clearCache() } }
     val glyphDetector = remember { OnDeviceTextGlyphDetector(context.applicationContext) }
+    var mobileReady by remember { mutableStateOf(false) }
+    var autoMode by remember { mutableStateOf(false) }
+    var askSamInstall by remember { mutableStateOf(false) }
+    LaunchedEffect(mobileStore) {
+        mobileReady = mobileStore.verifyInstalled()
+        autoMode = mobileReady
+    }
     var installed by remember { mutableStateOf(modelStore.installed()) }
     var askDownload by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
@@ -224,6 +237,17 @@ internal fun ObjectRemovalPanel(
         } else if (redoStrokes.isNotEmpty()) strokes.add(redoStrokes.removeAt(redoStrokes.lastIndex))
         else if (index < steps.lastIndex) index++
     }
+
+    if (askSamInstall) AiModelManagerDialog(onDismiss = {
+        askSamInstall = false
+        scope.launch {
+            mobileReady = mobileStore.verifyInstalled()
+            if (mobileReady) {
+                autoMode = true
+                objectManualTools = false
+            }
+        }
+    })
 
     if (askDownload) AlertDialog(
         onDismissRequest = { askDownload = false },
@@ -297,6 +321,7 @@ internal fun ObjectRemovalPanel(
                 steps = steps.take(index + 1).takeLast(3) +
                     RemovalStep(result, startStep.maskBatches + listOf(marked))
                 index = steps.lastIndex
+                segmenter.clearCache()
                 strokes.clear()
                 redoStrokes.clear()
                 selectedGlyphs.clear()
@@ -304,6 +329,32 @@ internal fun ObjectRemovalPanel(
                 glyphs = emptyList()
             } catch (error: Exception) {
                 message = error.message ?: "Обработка LaMa не удалась."
+            } finally {
+                processing = false
+            }
+        }
+    }
+
+    fun selectObject(point: MaskPoint) {
+        if (busy) return
+        if (!mobileReady) {
+            askSamInstall = true
+            return
+        }
+        val source = current.bitmap
+        processing = true
+        message = null
+        scope.launch {
+            try {
+                val selection = segmenter.segment(source, point)
+                // The new strokes use exactly the same normalized coordinates
+                // as the existing manual correction and LaMa inpainting engine.
+                strokes.addAll(selection)
+                redoStrokes.clear()
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                message = error.message ?: "Не удалось выделить объект."
             } finally {
                 processing = false
             }
@@ -379,7 +430,8 @@ internal fun ObjectRemovalPanel(
         Box(
             Modifier.width(previewWidth).height(previewHeight).clipToBounds()
                 .background(Color.Black).onSizeChanged { viewport = it }
-                .pointerInput(moveMode, brush, busy, showBefore, textMode, glyphs, eraserMode) {
+                .pointerInput(moveMode, brush, busy, showBefore, textMode, glyphs, eraserMode,
+                    autoMode, selectedMode, current.bitmap) {
                     if (busy || showBefore) return@pointerInput
                     fun imagePoint(position: Offset): MaskPoint? {
                         if (viewport.width == 0 || viewport.height == 0) return null
@@ -393,7 +445,12 @@ internal fun ObjectRemovalPanel(
                     }
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        var drawing = !moveMode && !textMode
+                        val automaticSelection = !moveMode && !textMode &&
+                            selectedMode == AiEraserMode.OBJECTS && autoMode
+                        var autoCandidate = automaticSelection
+                        val autoPoint = imagePoint(down.position)
+                        val downPosition = down.position
+                        var drawing = !moveMode && !textMode && !automaticSelection
                         var selecting = !moveMode && textMode && glyphs.isNotEmpty()
                         val points = mutableListOf<MaskPoint>()
                         var previousSelectionPoint = imagePoint(down.position)
@@ -417,6 +474,7 @@ internal fun ObjectRemovalPanel(
                             val event = awaitPointerEvent()
                             val pressed = event.changes.filter { it.pressed }
                             if (pressed.size >= 2) {
+                                autoCandidate = false
                                 drawing = false
                                 selecting = false
                                 cursor = null
@@ -427,6 +485,8 @@ internal fun ObjectRemovalPanel(
                                 event.changes.forEach { it.consume() }
                             } else if (pressed.isNotEmpty()) {
                                 val change = pressed.first()
+                                if ((change.position - downPosition).getDistance() > 14f)
+                                    autoCandidate = false
                                 if (moveMode) {
                                     pan += change.position - change.previousPosition
                                 } else if (drawing) {
@@ -452,6 +512,9 @@ internal fun ObjectRemovalPanel(
                                 change.consume()
                             }
                         } while (event.changes.any { it.pressed })
+                        if (autoCandidate && autoPoint != null) {
+                            selectObject(autoPoint)
+                        }
                         if (drawing && points.isNotEmpty()) {
                             strokes.add(MaskStroke(points.toList(),
                                 (brush / minOf(working.width, working.height)).coerceIn(0.001f, 0.5f),
@@ -553,7 +616,18 @@ internal fun ObjectRemovalPanel(
                 Spacer(Modifier.weight(1f))
                 AiEraserObjectSwitch(
                     enabled = !busy,
-                    onManual = { objectManualTools = !objectManualTools },
+                    automatic = autoMode,
+                    autoAvailable = mobileReady,
+                    onAuto = {
+                        if (mobileReady) {
+                            autoMode = true
+                            objectManualTools = false
+                        } else askSamInstall = true
+                    },
+                    onManual = {
+                        autoMode = false
+                        objectManualTools = true
+                    },
                 )
             }
         }
@@ -613,6 +687,7 @@ internal fun ObjectRemovalPanel(
             onMode = { mode ->
                 selectedMode = mode
                 objectManualTools = false
+                if (mode == AiEraserMode.OBJECTS) autoMode = mobileReady
                 textMode = mode == AiEraserMode.TEXT
                 moveMode = false
                 eraserMode = false
