@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -112,16 +114,22 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         }
     }
 
+    // Explicit white action colours: do not inherit the app-wide purple Material accent.
+    val whiteActionColors = ButtonDefaults.textButtonColors(
+        contentColor = Color.White,
+        disabledContentColor = Color.White.copy(alpha = 0.38f),
+    )
+
     if (pendingDelete != null) {
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Удалить AI-модель?") },
             text = { Text("Фотографии сохранятся. Для повторного использования модель нужно будет скачать заново.") },
-            confirmButton = { TextButton(onClick = {
+            confirmButton = { TextButton(colors = whiteActionColors, onClick = {
                 val kind = pendingDelete
                 if (kind != null) delete(kind)
             }) { Text("Удалить") } },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
+            dismissButton = { TextButton(colors = whiteActionColors, onClick = { pendingDelete = null }) { Text("Отмена") } },
         )
     }
 
@@ -160,11 +168,11 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                         progress = { progress.toFloat() / 100f },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    TextButton(onClick = { job?.cancel() }) { Text("Отменить загрузку") }
+                    TextButton(colors = whiteActionColors, onClick = { job?.cancel() }) { Text("Отменить загрузку") }
                 }
                 error?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFFFB4AB)) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss, enabled = active == null) {
+                    TextButton(colors = whiteActionColors, onClick = onDismiss, enabled = active == null) {
                         Text("Закрыть")
                     }
                 }
