@@ -19,15 +19,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+      - name: Bootstrap Gradle 8.9 from direct distribution mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          # Avoid Gradle provisioning API (currently returning intermittent 504).
+          sed -i 's#services.gradle.org/distributions#downloads.gradle.org/distributions#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for attempt in 1 2 3 4; do
+            if ./gradlew --version --no-daemon; then
+              break
+            fi
+            if [ "$attempt" = 4 ]; then exit 1; fi
+            sleep 10
+          done
       - name: Install Android SDK
         run: |
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Deletion, system bars, photo and video viewer regression tests
         run: |
-          gradle :app:testDebugUnitTest -Parm64Release=true \
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
             --tests '*LibraryMediaDeleteSheetTest' \
             --tests '*MediaDeletionPolicyTest' \
             --tests '*DeleteConfirmationTest' \
@@ -43,9 +55,9 @@ jobs:
             --tests '*VideoGesturePolicyTest' \
             --tests '*GapiKeyStoreTest' --stacktrace
       - name: Android lint
-        run: gradle :app:lintDebug -Parm64Release=true --stacktrace
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Build unsigned ARM64 Release APK
-        run: gradle :app:assembleRelease -Parm64Release=true --stacktrace
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
       - name: Verify version, ARM64 and zipalign
         shell: bash
         run: |
