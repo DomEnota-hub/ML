@@ -1,6 +1,5 @@
 package com.domenota.medialoader.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -55,13 +54,11 @@ internal fun deleteMediaCountLabel(count: Int): String {
 
 internal fun deleteMediaPrompt(count: Int, permanently: Boolean): String {
     val amount = deleteMediaCountLabel(count)
-    val singular = count == 1
+    val pronoun = if (count == 1) "Его" else "Их"
     return if (permanently) {
-        "Удалить $amount навсегда? " +
-            if (singular) "Восстановить его не получится." else "Восстановить их не получится."
+        "Удалить $amount навсегда? $pronoun восстановить не получится."
     } else {
-        "Переместить $amount в корзину? " +
-            if (singular) "Его можно будет восстановить." else "Их можно будет восстановить."
+        "Переместить $amount в корзину? $pronoun можно будет восстановить."
     }
 }
 
@@ -90,7 +87,7 @@ internal fun LibraryMediaDeleteSheet(
                 .padding(horizontal = 14.dp, vertical = 16.dp),
             contentAlignment = Alignment.BottomCenter) {
             Surface(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 540.dp),
+                modifier = Modifier.widthIn(max = 540.dp).fillMaxWidth(),
                 shape = RoundedCornerShape(30.dp),
                 color = surface,
                 shadowElevation = 10.dp,
