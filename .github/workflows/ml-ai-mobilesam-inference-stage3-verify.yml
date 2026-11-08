@@ -1,0 +1,211 @@
+name: ML AI MobileSAM inference stage 3 - tests, lint, ARM64
+on:
+  push:
+    branches:
+      - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-ai-mobilesam-stage3
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Bootstrap Gradle 8.9 from direct distribution mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          # Avoid Gradle provisioning API (currently returning intermittent 504).
+          # Third-party Gradle binary mirror serves the exact 8.9 archive
+          # without the blocked GitHub releases redirect. The wrapper verifies
+          # distributionSha256Sum from the checked-in properties.
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for attempt in 1 2 3 4; do
+            if ./gradlew --version --no-daemon; then
+              break
+            fi
+            if [ "$attempt" = 4 ]; then exit 1; fi
+            sleep 10
+          done
+      - name: Use alternate Maven mirrors for this run if Maven Central gateway times out
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("settings.gradle")
+          s=p.read_text()
+          # CI-only fallback. Keep tracked project repository configuration intact.
+          needle="repositories {\n        google()"
+          mirrors="repositories {\n        maven { url 'https://maven.aliyun.com/repository/public' }\n        maven { url 'https://maven.aliyun.com/repository/google' }\n        google()"
+          assert s.count(needle)==2
+          p.write_text(s.replace(needle,mirrors))
+          PY
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Fail CI if vertical timeline thumb or unsafe landscape menu returns
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          video = Path("app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryVideoChrome.kt").read_text()
+          popup = Path("app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryViewerV10Chrome.kt").read_text()
+          viewer = Path("app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryMediaViewer.kt").read_text()
+          # The seek thumb and the white progress line MUST share the same Canvas.
+          assert "Slider(" not in video, "Material3 Slider must never return to gallery"
+          assert "drawCircle(Color.White, radius = radius, center = Offset(thumbX, centerY))" in video, "Centered round thumb missing"
+          assert "Offset(startX, centerY), Offset(thumbX, centerY)" in video, "Progress line and thumb don't share a center"
+          assert "strokeWidth = 4.dp.toPx()" in video, "Visual seek stroke must stay 4dp"
+          assert "RoundedCornerShape(14.dp)" not in video, "Thick playback pill prohibited"
+          screen = Path("app/src/main/java/com/domenota/medialoader/ui/screens/DownloadsScreen.kt").read_text()
+          swipes = Path("app/src/main/java/com/domenota/medialoader/ui/screens/HistorySwipeRow.kt").read_text()
+          assert screen.count("HistorySwipeRow(") == 3, "List must support group, group child, single-file swipes"
+          assert "onSwipeFavorite = { ids ->" in screen and "onSetFavorite(id, true)" in screen, "Swipe must only ADD favorites"
+          assert "onGroupMove(groupIds)" in screen, "Left group swipe must move the entire group"
+          assert "HistorySwipeAction.PRIVATE" in swipes and "HistorySwipeAction.FAVORITE" in swipes
+          assert "detectHorizontalDragGestures" in swipes, "Swipe should not steal vertical scrolling"
+          assert 'Modifier.background(Color.Black.copy(alpha = .42f))' in viewer, "Portrait and landscape top/bottom strips must match"
+          assert video.count(".navigationBarsPadding().displayCutoutPadding().padding(end = 16.dp)") == 2, "Lock must be inset from three-button navigation in both states"
+          orientation = Path("app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryLandscapeOrientation.kt").read_text()
+          assert "SCREEN_ORIENTATION_SENSOR_LANDSCAPE" in orientation, "Both landscape sides must be supported"
+          assert "galleryViewerRequestedOrientation(isLandscape)" in viewer, "Gallery rotate must use sensor policy"
+          assert "Modifier.background(Color.Black.copy(alpha = .42f))" in viewer, "Landscape toolbar requires ONE translucent background"
+          assert "navigationBarsPadding().displayCutoutPadding()" in popup, "Header must avoid the landscape navigation rail"
+          menu = popup.split("private val v10VideoRows = listOf(", 1)[1].split("\\n)",1)[0]
+          for action in ['"share"', '"edit"', '"favorite"', '"delete"']:
+              assert "V10MenuRow(" + action not in menu, f"Video More duplicates top bar: {action}"
+          assert "safeDrawingPadding()" in popup, "The More overlay must respect Android navigation insets"
+          assert "bars.hide(WindowInsetsCompat.Type.statusBars())" in viewer, "Landscape status bar must stay hidden with chrome visible"
+          assert "bars.show(WindowInsetsCompat.Type.navigationBars())" in viewer, "Landscape three-button navigation must stay usable"
+          eraser = Path("app/src/main/java/com/domenota/medialoader/ui/screens/ObjectRemovalPanel.kt").read_text()
+          chrome = Path("app/src/main/java/com/domenota/medialoader/ui/screens/AiEraserChrome.kt").read_text()
+          editor = Path("app/src/main/java/com/domenota/medialoader/ui/screens/PhotoEditorScreen.kt").read_text()
+          assert "if (!removeObjects) Row(" in editor, "Old toolbar must not overlap AI eraser"
+          assert "AiEraserModeStrip(" in eraser and "AiEraserTopBar(" in eraser
+          assert "AiEraserFooter(" in eraser and "onApply = ::acceptResult" in eraser
+          assert "if (selectedMode == AiEraserMode.OBJECTS)" in eraser and "AiEraserObjectSwitch(" in eraser
+          assert "canCompare = index > 0" in eraser, "Comparison remains disabled without an edit"
+          assert "onCompareHold = { showBefore = it }" in eraser
+          assert "tryAwaitRelease()" in chrome and "onCompareHold(false)" in chrome
+          assert "AiEraserMode.entries.forEach" in chrome
+          assert "Modifier.width(74.dp).height(68.dp)" in chrome
+          assert "modifier = Modifier.align(Alignment.End).size(23.dp)" in chrome, "Approved icon size from v0.2"
+          for ref in ("ic_ai_eraser_hand.xml", "ic_ai_eraser_manual.xml"):
+              assert Path("app/src/main/res/drawable",ref).exists()
+          import xml.etree.ElementTree as ET
+          def paths(name):
+              root=ET.parse("app/src/main/res/drawable/"+name).getroot()
+              android="{http://schemas.android.com/apk/res/android}"
+              return [x.get(android+"pathData") for x in root if x.get(android+"pathData")]
+          assert paths("ic_ai_eraser_hand.xml")[0] in paths("ic_ai_eraser_manual.xml"), "Toggle hand must come from manual mode exactly"
+          models = Path("app/src/main/java/com/domenota/medialoader/data/editor/MobileSamModelStore.kt").read_text()
+          dialog = Path("app/src/main/java/com/domenota/medialoader/ui/screens/AiModelManagerDialog.kt").read_text()
+          settings = Path("app/src/main/java/com/domenota/medialoader/ui/screens/SettingsScreen.kt").read_text()
+          assert 'MobileSAM/resolve/$REVISION/$filename?download=true' in models
+          assert "28_157_093L" in models and "16_501_323L" in models
+          assert '580f5fb648ea1062c0aabc26217aed56921985f03f0cbbd852bba81d760cc749' in models
+          assert '93915fc7c993ab9d59ab8c9ccd3bce37f7509c81ab4150a74abd4d2abbd8570d' in models
+          assert 'sha256' in models.lower() and 'partial.delete()' in models and 'ensureActive()' in models
+          assert 'onProgress(100)' in models and 'suspend fun uninstall()' in models
+          assert 'AiModelManagerDialog(onDismiss' in settings
+          assert 'if (aiModelsDialog)' in settings and 'active == null' in dialog
+          assert 'job?.cancel()' in dialog and 'mobile.verifyInstalled()' in dialog
+          assert 'MobileSamModelStore(context.applicationContext)' in dialog
+          # We do NOT include the large downloaded ONNX files in versioned app assets.
+          assert not list(Path("app/src/main").rglob("mobile_sam_*.onnx"))
+          assert not list(Path("app/src/main").rglob("sam_mask_decoder_*.onnx"))
+          runner = Path("app/src/main/java/com/domenota/medialoader/data/editor/MobileSamSegmenter.kt").read_text()
+          geom = Path("app/src/main/java/com/domenota/medialoader/data/editor/MobileSamGeometry.kt").read_text()
+          assert 'encoder.inputInfo["input_image"]' in runner
+          assert 'longArrayOf(frame.height.toLong(), frame.width.toLong(), 3)' in runner, "Encoder is HWC RGB, not NCHW"
+          assert "Color.red(argb).toFloat()" in runner and "Color.blue(argb).toFloat()" in runner
+          assert '"image_embeddings"' in runner and '"point_coords"' in runner and '"point_labels"' in runner
+          assert '"mask_input"' in runner and '"has_mask_input"' in runner and '"orig_im_size"' in runner
+          assert "floatArrayOf(frame.height.toFloat(), frame.width.toFloat())" in runner
+          assert "MobileSamGeometry.strokesFromLogits" in runner, "LaMa needs normalized mask strokes"
+          assert "val foreground = BooleanArray(pixels) { logits[it] > 0f }" in geom
+          assert "if (last > pixels * 0.80f)" in geom
+          assert "mobileStore.verifyInstalled()" in eraser
+          assert "segmenter.segment(source, point)" in eraser
+          assert "strokes.addAll(selection)" in eraser
+          assert "onAuto =" in eraser and "onManual =" in eraser
+          assert "selectedMode == AiEraserMode.OBJECTS && autoMode" in eraser
+          assert "autoCandidate = false" in eraser, "Auto tap must reject drag/multi-touch"
+          assert "if (autoCandidate && autoPoint != null)" in eraser
+          PY
+      - name: Unified Compose video player, fullscreen, gallery, deletion and gesture tests
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*LibraryMediaDeleteSheetTest' \
+            --tests '*MediaDeletionPolicyTest' \
+            --tests '*DeleteConfirmationTest' \
+            --tests '*PermanentMediaDeletionTest' \
+            --tests '*PhoneMediaTrashTest' \
+            --tests '*GalleryMultipleSelectionTest' \
+            --tests '*GalleryViewerPhotoUiTest' \
+            --tests '*GalleryVideoChromeTest' \
+            --tests '*GalleryTimelineGeometryTest' \
+            --tests '*HistorySwipeActionTest' \
+            --tests '*DownloadsGroupActionsUiTest' \
+            --tests '*DownloadsGridUiTest' \
+            --tests '*GalleryLandscapeOrientationTest' \
+            --tests '*GalleryV10ActionContractTest' \
+            --tests '*AiEraserModePolicyTest' \
+            --tests '*MobileSamModelStoreTest' \
+            --tests '*MobileSamGeometryTest' \
+            --tests '*GalleryV10SubmenuPlacementTest' \
+            --tests '*VideoPlayerUiPolicyTest' \
+            --tests '*VideoPreviewFitTest' \
+            --tests '*GalleryViewerOverlayPolicyTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*GalleryQuickAccessTest' \
+            --tests '*GalleryNavigationPlacementTest' \
+            --tests '*FullscreenOrientationTest' \
+            --tests '*VideoGesturePolicyTest' \
+            --tests '*GapiKeyStoreTest' --stacktrace
+      - name: Android lint
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Build unsigned ARM64 Release APK
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify version, ARM64 and zipalign
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -s "$apk"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='216' versionName='1.7.155'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          mkdir -p handoff
+          "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -c -v 4 handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk
+          sha256sum handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk > handoff/ALIGNED_UNSIGNED_SHA256.txt
+      - name: Keep unsigned ARM64 APK for private offline signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-ai-mobilesam-stage3-arm64-unsigned-ci-only
+          path: handoff/
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+      - name: Retain QA test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-ai-mobilesam-stage3-qa-diagnostics
+          path: |
+            app/build/test-results
+            app/build/reports/tests
+            app/build/reports/lint-results-debug.html
+          retention-days: 7
+          if-no-files-found: warn
