@@ -1,4 +1,4 @@
-name: ML 1.7.156 signed ARM64 MobileSAM device review
+name: ML 1.7.156 unsigned ARM64 for offline DomEnota signing
 on:
   push:
     branches:
@@ -195,99 +195,11 @@ jobs:
           "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.156_ARM64_ALIGNED_UNSIGNED.apk
           "$bt/zipalign" -c -v 4 handoff/ML_1.7.156_ARM64_ALIGNED_UNSIGNED.apk
           sha256sum handoff/ML_1.7.156_ARM64_ALIGNED_UNSIGNED.apk > handoff/ALIGNED_UNSIGNED_SHA256.txt
-      - name: Sign ARM64 using protected DomEnota key, no GitHub Release
-        shell: bash
-        env:
-          ML_RELEASE_KEYSTORE_BASE64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
-          ML_RELEASE_STORE_PASSWORD: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
-          ML_RELEASE_KEY_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
-          ML_RELEASE_KEY_PASSWORD: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
-          ML_RELEASE_SIGNER_SHA256: ${{ secrets.ML_RELEASE_SIGNER_SHA256 }}
-        run: |
-          set -euo pipefail
-          for name in ML_RELEASE_KEYSTORE_BASE64 ML_RELEASE_STORE_PASSWORD ML_RELEASE_KEY_ALIAS ML_RELEASE_KEY_PASSWORD ML_RELEASE_SIGNER_SHA256; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Required protected signing secret missing: $name"
-              exit 1
-            fi
-          done
-          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
-          key="$RUNNER_TEMP/ml-17156-release.jks"
-          aligned="handoff/ML_1.7.156_ARM64_ALIGNED_UNSIGNED.apk"
-          apk="handoff/ML_1.7.156_ARM64_DomEnota_SIGNED.apk"
-          trap 'rm -f "$key"' EXIT
-          printf '%s' "$ML_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$key"
-          chmod 600 "$key"
-          "$bt/apksigner" sign --min-sdk-version 26 --ks "$key" \
-            --ks-key-alias "$ML_RELEASE_KEY_ALIAS" \
-            --ks-pass env:ML_RELEASE_STORE_PASSWORD \
-            --key-pass env:ML_RELEASE_KEY_PASSWORD --out "$apk" "$aligned"
-          "$bt/apksigner" verify --verbose "$apk"
-          digest="$("$bt/apksigner" verify --print-certs "$apk" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
-          expected="$(printf '%s' "$ML_RELEASE_SIGNER_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ': ')"
-          test -n "$digest" && test "$digest" = "$expected" || { echo "::error::Signing certificate mismatch"; exit 1; }
-          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='217' versionName='1.7.156'"
-          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
-          sha256sum "$apk" | tee handoff/SIGNED_SHA256.txt
-          echo "SIGNED_SHA256=$(sha256sum "$apk" | cut -d' ' -f1)" >> "$GITHUB_ENV"
-      - name: Split signed APK into exactly two installable-file archive parts
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          from hashlib import sha256
-          import shutil
-          signed=Path('handoff/ML_1.7.156_ARM64_DomEnota_SIGNED.apk')
-          total=signed.stat().st_size
-          mid=total//2
-          assert 0<mid<100_000_000 and 0<total-mid<100_000_000, "Each part must be <=100MB"
-          p1=Path('handoff/part1'); p2=Path('handoff/part2')
-          p1.mkdir(); p2.mkdir()
-          a=p1/'ML_1.7.156_ARM64_DomEnota_SIGNED.apk.001'
-          b=p2/'ML_1.7.156_ARM64_DomEnota_SIGNED.apk.002'
-          with signed.open('rb') as inp, a.open('wb') as one:
-              remaining=mid
-              while remaining:
-                  chunk=inp.read(min(1024*1024,remaining))
-                  assert chunk
-                  one.write(chunk)
-                  remaining-=len(chunk)
-              with b.open('wb') as two:
-                  shutil.copyfileobj(inp,two,1024*1024)
-          original=sha256(signed.read_bytes()).hexdigest()
-          reconstructed=sha256()
-          for p in (a,b):
-              with p.open('rb') as h:
-                  for part in iter(lambda:h.read(1024*1024),b''):
-                      reconstructed.update(part)
-          assert original==reconstructed.hexdigest(), "Parts do not reconstruct original signed APK"
-          instructions=(
-              "ML 1.7.156 (217), ARM64, signed DomEnota, package com.domenota.medialoader\n"
-              "Download BOTH ZIP archives. Extract .apk.001 and .apk.002 to one folder,\n"
-              "then concatenate in order to ML_1.7.156_ARM64_DomEnota_SIGNED.apk.\n"
-              "Android file managers such as ZArchiver can join split files; on Windows:\n"
-              "copy /b ML_1.7.156_ARM64_DomEnota_SIGNED.apk.001+ML_1.7.156_ARM64_DomEnota_SIGNED.apk.002 ML_1.7.156_ARM64_DomEnota_SIGNED.apk\n"
-              f"Full signed APK SHA-256: {original}\n"
-              f"APK size: {total} bytes\n"
-          )
-          (p1/'INSTALL_AND_SHA256.txt').write_text(instructions,encoding='utf-8')
-          (p2/'INSTALL_AND_SHA256.txt').write_text(instructions,encoding='utf-8')
-          print(f"Verified signed APK split: {a.stat().st_size} + {b.stat().st_size} = {total} bytes")
-          PY
-      - name: Upload signed ARM64 part 1 for direct Google Drive transfer
+      - name: Keep aligned unsigned Release APK for offline DomEnota signing
         uses: actions/upload-artifact@v4
         with:
-          name: ML_1.7.156_ARM64_DomEnota_SIGNED_Part1
-          path: handoff/part1/
-          retention-days: 7
-          if-no-files-found: error
-          compression-level: 0
-      - name: Upload signed ARM64 part 2 for direct Google Drive transfer
-        uses: actions/upload-artifact@v4
-        with:
-          name: ML_1.7.156_ARM64_DomEnota_SIGNED_Part2
-          path: handoff/part2/
+          name: ML_1.7.156_ARM64_ALIGNED_UNSIGNED_OFFLINE_SIGNING
+          path: handoff/ML_1.7.156_ARM64_ALIGNED_UNSIGNED.apk
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
