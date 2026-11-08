@@ -65,11 +65,7 @@ internal fun GalleryV10Header(date: String, time: String, onBack: () -> Unit, on
     }
 }
 
-/**
- * Shared overlay for video only. Existing gallery icons are reused unchanged.
- * In narrow landscape only More/rotate/PiP stay in the header, so buttons
- * never crowd the player. All other actions remain accessible via More.
- */
+/** Full-width video action bar. Landscape actions stay in this single surface. */
 @Composable
 internal fun GalleryVideoHeader(
     date: String,
@@ -84,12 +80,13 @@ internal fun GalleryVideoHeader(
     onDelete: () -> Unit,
     onMenu: () -> Unit,
 ) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        // Keep primary actions accessible even on narrow landscape displays.
+    BoxWithConstraints(Modifier.fillMaxWidth()
+        .then(if (landscape) Modifier.navigationBarsPadding().displayCutoutPadding() else Modifier)) {
+        // Keep primary actions accessible inside the landscape navigation/cutout insets.
         val compactLandscape = landscape && maxWidth < 610.dp
         val veryCompactLandscape = landscape && maxWidth < 520.dp
         Row(
-            Modifier.fillMaxWidth().height(75.dp)
+            Modifier.fillMaxWidth().height(if (landscape) 68.dp else 75.dp)
                 .padding(horizontal = if (landscape) 12.dp else 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(3.dp),
