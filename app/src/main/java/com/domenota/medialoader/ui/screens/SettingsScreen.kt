@@ -243,6 +243,7 @@ fun SettingsScreen(
     var preferredHeight by remember { mutableStateOf(videoPreferences.preferredHeight) }
     var qualityExpanded by rememberSaveable { mutableStateOf(false) }
     var videoThumbnailDialog by remember { mutableStateOf(false) }
+    var aiModelsDialog by remember { mutableStateOf(false) }
     // Controlled by MediaLoaderApp. No separate local preference copy can go stale.
     var advancedDownloadToolsVisible by remember {
         mutableStateOf(prefs.getBoolean("bulk_visible", false))
@@ -768,6 +769,8 @@ fun SettingsScreen(
         confirmButton = { TextButton(onClick = { recognitionDialog = false }) { Text("Закрыть") } },
     )
 
+    if (aiModelsDialog) AiModelManagerDialog(onDismiss = { aiModelsDialog = false })
+
     if (videoThumbnailDialog) AlertDialog(
         onDismissRequest = { videoThumbnailDialog = false },
         title = { Text("Миниатюра видео") },
@@ -1105,6 +1108,10 @@ fun SettingsScreen(
             SettingRow(Icons.Rounded.DeleteSweep, "Очистить историю",
                 "Удалить список загрузок", grouped = true,
                 iconTone = SettingIconTone.CLEAR_HISTORY, onClick = { confirmClear = true })
+            GroupDivider()
+            SettingRow(Icons.Rounded.Tune, "AI-модели",
+                "LaMa и MobileSAM · загрузка и удаление", grouped = true,
+                iconTone = SettingIconTone.YTDLP, onClick = { aiModelsDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.SystemUpdate,
                 if (ytDlpUpdating) "Обновляем yt-dlp…" else "Обновить yt-dlp",
