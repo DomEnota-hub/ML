@@ -142,6 +142,10 @@ jobs:
           assert "selectedMode == AiEraserMode.OBJECTS && autoMode" in eraser
           assert "autoCandidate = false" in eraser, "Auto tap must reject drag/multi-touch"
           assert "if (autoCandidate && autoPoint != null)" in eraser
+          assert "maskActions.record(selection.size)" in eraser, "Automatic mask undo must be one user action"
+          assert "maskActions.record(1)" in eraser, "Manual brush is one action"
+          assert "maskActions.undoCount()" in eraser and "maskActions.redoCount()" in eraser
+          assert "maskActions.clear()" in eraser, "Mask history must reset between image steps"
           PY
       - name: Unified Compose video player, fullscreen, gallery, deletion and gesture tests
         run: |
@@ -163,6 +167,7 @@ jobs:
             --tests '*AiEraserModePolicyTest' \
             --tests '*MobileSamModelStoreTest' \
             --tests '*MobileSamGeometryTest' \
+            --tests '*MaskActionGroupingTest' \
             --tests '*GalleryV10SubmenuPlacementTest' \
             --tests '*VideoPlayerUiPolicyTest' \
             --tests '*VideoPreviewFitTest' \
