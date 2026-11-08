@@ -25,7 +25,10 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
           # Avoid Gradle provisioning API (currently returning intermittent 504).
-          sed -i 's#services.gradle.org/distributions#downloads.gradle.org/distributions#' gradle/wrapper/gradle-wrapper.properties
+          # Third-party Gradle binary mirror serves the exact 8.9 archive
+          # without the blocked GitHub releases redirect. The wrapper verifies
+          # distributionSha256Sum from the checked-in properties.
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
           sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
           for attempt in 1 2 3 4; do
             if ./gradlew --version --no-daemon; then
