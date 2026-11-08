@@ -26,6 +26,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.runtime.SideEffect
+import android.view.Gravity
+import android.view.WindowManager
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -83,8 +88,18 @@ internal fun LibraryMediaDeleteSheet(
 
     Dialog(onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize().navigationBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 16.dp),
+        // Compose Dialog is centered by default. Explicitly anchor its window
+        // at the bottom, while keeping the regular Android dim/back handling.
+        val dialogView = LocalView.current
+        SideEffect {
+            (dialogView.parent as? DialogWindowProvider)?.window?.apply {
+                setGravity(Gravity.BOTTOM)
+                setLayout(WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT)
+            }
+        }
+        Box(Modifier.fillMaxWidth().navigationBarsPadding()
+                .padding(horizontal = 14.dp, vertical = 14.dp),
             contentAlignment = Alignment.BottomCenter) {
             Surface(
                 modifier = Modifier.widthIn(max = 540.dp).fillMaxWidth(),
