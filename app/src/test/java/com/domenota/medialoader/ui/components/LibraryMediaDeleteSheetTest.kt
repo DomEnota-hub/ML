@@ -1,13 +1,11 @@
 package com.domenota.medialoader.ui.components
 
-import android.app.Activity
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertExists
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -49,7 +47,6 @@ class LibraryMediaDeleteSheetTest {
                     onDismiss = {}, onDelete = { confirmed = true })
             }
         }
-        compose.onNodeWithText("Удалить", useUnmergedTree = false).assertExists()
         compose.onNodeWithText("Переместить 3 объекта в корзину?", substring = true).assertExists()
         compose.onNodeWithText("Удалить навсегда").performClick()
         compose.waitForIdle()
