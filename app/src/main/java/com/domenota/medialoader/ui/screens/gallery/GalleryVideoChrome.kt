@@ -33,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,7 +110,7 @@ internal fun GalleryVideoChrome(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val length = durationMs.coerceAtLeast(1L)
-                Text(videoClock(scrubbing?.toLong() ?: positionMs), color = Color.White,
+                Text(galleryVideoClock(scrubbing?.toLong() ?: positionMs), color = Color.White,
                     fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 Slider(
                     value = (scrubbing ?: positionMs.toFloat()).coerceIn(0f, length.toFloat()),
@@ -118,7 +120,8 @@ internal fun GalleryVideoChrome(
                         scrubbing = null
                     },
                     valueRange = 0f..length.toFloat(),
-                    modifier = Modifier.weight(1f).height(40.dp),
+                    modifier = Modifier.weight(1f).height(40.dp)
+                        .semantics { contentDescription = "Положение воспроизведения" },
                     colors = SliderDefaults.colors(
                         thumbColor = Color.White,
                         activeTrackColor = Color.White,
@@ -139,7 +142,7 @@ internal fun GalleryVideoChrome(
     }
 }
 
-private fun videoClock(ms: Long): String {
+internal fun galleryVideoClock(ms: Long): String {
     val seconds = ms.coerceAtLeast(0L) / 1000
     return if (seconds >= 3600) "%d:%02d:%02d".format(
         seconds / 3600, (seconds / 60) % 60, seconds % 60
