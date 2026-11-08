@@ -102,10 +102,13 @@ internal fun AiEraserModeStrip(
     }
 }
 
-/** Only OBJECTS owns this switch. Auto is locked until MobileSAM arrives. */
+/** Only OBJECTS owns the automatic/manual switch. A disabled model may be installed by tapping A. */
 @Composable
 internal fun AiEraserObjectSwitch(
     enabled: Boolean,
+    automatic: Boolean,
+    autoAvailable: Boolean,
+    onAuto: () -> Unit,
     onManual: () -> Unit,
 ) {
     Row(
@@ -115,25 +118,32 @@ internal fun AiEraserObjectSwitch(
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Box(
-            Modifier.width(46.dp).height(29.dp).semantics {
-                contentDescription = "Автоматическое выделение: модель не установлена"
-                disabled()
-            },
+            Modifier.width(46.dp).height(29.dp)
+                .background(if (automatic) eraserYellow else Color.Transparent,
+                    RoundedCornerShape(18.dp))
+                .clickable(enabled = enabled, onClick = onAuto)
+                .semantics { contentDescription =
+                    if (autoAvailable) "Автоматическое выделение объектов"
+                    else "Установить MobileSAM для выделения объектов"
+                },
             contentAlignment = Alignment.Center,
         ) {
             Icon(painterResource(R.drawable.ic_ai_eraser_auto), null,
-                modifier = Modifier.size(18.dp), tint = Color(0xFF888888))
+                modifier = Modifier.size(18.dp),
+                tint = if (automatic) Color(0xFF191919) else Color(0xFFB7B7B7))
         }
         Box(
             Modifier.width(46.dp).height(29.dp)
-                .background(eraserYellow, RoundedCornerShape(18.dp))
+                .background(if (!automatic) eraserYellow else Color.Transparent,
+                    RoundedCornerShape(18.dp))
                 .clickable(enabled = enabled, onClick = onManual)
                 .semantics { contentDescription = "Ручное выделение объектов" },
             contentAlignment = Alignment.Center,
         ) {
-            // Deliberately the SAME hand path as the manual mode, minus its frame.
+            // Same SVG hand as the MANUAL mode, without its rectangular outline.
             Icon(painterResource(R.drawable.ic_ai_eraser_hand), null,
-                modifier = Modifier.size(18.dp), tint = Color(0xFF191919))
+                modifier = Modifier.size(18.dp),
+                tint = if (!automatic) Color(0xFF191919) else Color(0xFFB7B7B7))
         }
     }
 }
