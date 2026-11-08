@@ -254,14 +254,17 @@ internal fun GalleryMediaViewer(
                 .atZone(ZoneId.systemDefault())
             Box(
                 modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(viewerHeaderOverlayColor,
-                        Color.Black.copy(alpha = .28f), Color.Transparent)))
+                    .then(if (isLandscape && current.mediaType == MediaType.VIDEO)
+                        Modifier.background(Color.Black.copy(alpha = .42f))
+                    else Modifier.background(Brush.verticalGradient(listOf(
+                        viewerHeaderOverlayColor, Color.Black.copy(alpha = .28f), Color.Transparent))))
                     .then(if (isLandscape) Modifier else Modifier.statusBarsPadding()),
             ) {
                 val onRotate: () -> Unit = {
-                    activity?.requestedOrientation =
-                        if (isLandscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                        else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    // SENSOR_LANDSCAPE lets the player follow BOTH landscape sides.
+                    // MainActivity already handles orientation|screenSize changes
+                    // without discarding the active player and playback position.
+                    activity?.requestedOrientation = galleryViewerRequestedOrientation(isLandscape)
                 }
                 if (current.mediaType == MediaType.VIDEO) {
                     GalleryVideoHeader(
