@@ -4,9 +4,11 @@ on:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
       - feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109
+      - feature/ml-ai-eraser-qa156-stage1-controls-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
+      - feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -100,6 +102,14 @@ jobs:
           assert 'PhotoToolCard("AI-ластик · LaMa"' not in editor, "Do not expose LaMa engine name in launcher"
           assert "val whiteActionColors = ButtonDefaults.textButtonColors(" in dialog
           assert dialog.count("colors = whiteActionColors") == 4, "All manager actions need white text"
+          # QA 1.10 / 1.11 / 1.13: central start button, fixed yellow editor slider,
+          # and a clipped rectangular selection magnifier (never a round lens).
+          assert 'EditorSlider as Slider' in eraser, "Manual slider must use editor yellow"
+          assert 'val actionWidth = minOf(104.dp, (maxWidth - 220.dp).coerceAtLeast(68.dp))' in eraser, "Center button must be responsive beside object switch"
+          assert 'Box(Modifier.align(Alignment.CenterEnd))' in eraser, "Object switch must be independently anchored"
+          assert 'EraserStartButton(' in eraser and 'BorderStroke(1.dp, GradientBrush.horizontalGradient' in eraser, "Unified outlined button missing"
+          assert 'addRoundRect(RoundRect(' in eraser, "Magnifier must use rounded rectangle"
+          assert 'addOval(Rect(' not in eraser, "Circular magnifier regression"
           assert "AiEraserModeStrip(" in eraser and "AiEraserTopBar(" in eraser
           assert "AiEraserFooter(" in eraser and "onApply = ::acceptResult" in eraser
           assert "if (selectedMode == AiEraserMode.OBJECTS)" in eraser and "AiEraserObjectSwitch(" in eraser
