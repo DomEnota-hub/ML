@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
@@ -122,8 +123,10 @@ internal fun GalleryVideoChrome(
                     valueRange = 0f..length.toFloat(),
                     modifier = Modifier.weight(1f).height(40.dp)
                         .semantics { contentDescription = "Положение воспроизведения" },
+                    // Never use Material3's default vertical-line thumb in the viewer.
+                    // The only allowed handle is this compact circular drawable.
+                    thumb = { Box(Modifier.size(12.dp).background(Color.White, CircleShape)) },
                     colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
                         activeTrackColor = Color.White,
                         inactiveTrackColor = Color.LightGray.copy(alpha = .50f),
                     ),
