@@ -110,7 +110,8 @@ internal fun GalleryVideoHeader(
                     Triple("heart", "Избранное", onFavorite),
                     Triple("trash", "Удалить", onDelete),
                 ).forEach { (asset, label, action) ->
-                    IconButton(onClick = action, modifier = Modifier.size(43.dp)) {
+                    IconButton(onClick = action, modifier = Modifier.size(43.dp)
+                        .semantics { contentDescription = label }) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             GalleryV10Icon(asset, Modifier.size(28.dp))
                         }
@@ -118,11 +119,13 @@ internal fun GalleryVideoHeader(
                 }
             }
             if (landscape) {
-                IconButton(onClick = onMenu, modifier = Modifier.size(43.dp)) {
+                IconButton(onClick = onMenu, modifier = Modifier.size(43.dp)
+                    .semantics { contentDescription = "Действия с файлом" }) {
                     GalleryV10Icon("more", Modifier.size(28.dp))
                 }
             }
-            IconButton(onClick = onRotate, modifier = Modifier.size(43.dp)) {
+            IconButton(onClick = onRotate, modifier = Modifier.size(43.dp)
+                .semantics { contentDescription = "Повернуть экран" }) {
                 GalleryV10Icon("rotate", Modifier.size(27.dp))
             }
             // PiP stays visible at the outer right edge in BOTH orientations.
