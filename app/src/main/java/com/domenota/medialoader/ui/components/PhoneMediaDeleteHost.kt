@@ -8,7 +8,6 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -17,7 +16,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private enum class DeletionPhase { CHOICE, PERMANENT_CONFIRMATION, TRASH, PERMANENT }
+private enum class DeletionPhase { CHOICE, TRASH, PERMANENT }
 private enum class DeletionConsent { NONE, PHONE_BATCH, RETRY_CURRENT }
 
 /** Stable request snapshot: provider notifications cannot remove the pending result handler. */
@@ -31,6 +30,7 @@ internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismis
     val phoneUris = remember(phoneBatches) { phoneBatches.flatten() }
     val appTargets = remember(targets) { targets.filterNot { it.phone } }
     var phase by rememberSaveable(requestKey) { mutableStateOf(DeletionPhase.CHOICE) }
+    var permanently by rememberSaveable(requestKey) { mutableStateOf(false) }
     var batchIndex by rememberSaveable(requestKey) { mutableIntStateOf(0) }
     var phoneIndex by rememberSaveable(requestKey) { mutableIntStateOf(0) }
     var appIndex by rememberSaveable(requestKey) { mutableIntStateOf(0) }
@@ -119,21 +119,17 @@ internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismis
         }
     }
     when {
-        phase == DeletionPhase.CHOICE -> AlertDialog(onDismissRequest = onDismiss,
-            title = { Text(deleteSelectionTitle(targets.size)) },
-            text = { Text("Выбрано объектов: ${targets.size}. Их можно переместить в корзину или удалить навсегда.") },
-            confirmButton = { Column {
-                TextButton({ phase = DeletionPhase.TRASH }) { Text("В корзину") }
-                TextButton({ phase = DeletionPhase.PERMANENT_CONFIRMATION }) {
-                    Text("Удалить навсегда", color = MaterialTheme.colorScheme.error)
-                }
-            } }, dismissButton = { TextButton(onDismiss) { Text("Отмена") } })
-        phase == DeletionPhase.PERMANENT_CONFIRMATION -> AlertDialog(onDismissRequest = onDismiss,
-            title = { Text("Удалить навсегда?") },
-            text = { Text("Выбрано объектов: ${targets.size}. Файлы будут удалены с устройства без переноса в корзину. Восстановить их не получится.") },
-            confirmButton = { TextButton({ phase = DeletionPhase.PERMANENT }) {
-                Text("Удалить навсегда", color = MaterialTheme.colorScheme.error)
-            } }, dismissButton = { TextButton({ phase = DeletionPhase.CHOICE }) { Text("Отмена") } })
+        phase == DeletionPhase.CHOICE -> LibraryMediaDeleteSheet(
+            count = targets.size,
+            permanently = permanently,
+            onPermanentChange = { permanently = it },
+            onDismiss = onDismiss,
+            onDelete = {
+                // One explicit button: default goes to the recoverable trash.
+                // Permanent deletion is possible only with the checkbox selected.
+                phase = if (permanently) DeletionPhase.PERMANENT else DeletionPhase.TRASH
+            },
+        )
         error != null -> AlertDialog(onDismissRequest = onDismiss,
             title = { Text("Действие не завершено") }, text = { Text(error.orEmpty()) },
             confirmButton = { TextButton({ error = null; revision++ }) { Text("Повторить") } },
