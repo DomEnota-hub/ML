@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.sp
  * duplicate toolbar, no measured native button coordinates, no media resizes.
  * The GalleryMediaViewer owns the common top/action bars.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GalleryVideoChrome(
     visible: Boolean,
