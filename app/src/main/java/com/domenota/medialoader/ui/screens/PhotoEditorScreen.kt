@@ -1052,7 +1052,7 @@ private fun PhotoWorkspaceTools(
                     }
                 }
                 PhotoWorkspaceTab.AI ->
-                    PhotoToolCard("AI-ластик · LaMa", Icons.Rounded.AutoFixHigh,
+                    PhotoToolCard("AI-ластик", Icons.Rounded.AutoFixHigh,
                         false, onLaMa, !locked && info != null)
             }
         }

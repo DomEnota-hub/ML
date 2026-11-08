@@ -3,6 +3,10 @@ on:
   push:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
+      - feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109
+  pull_request:
+    branches:
+      - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
   workflow_dispatch:
 permissions:
   contents: read
@@ -90,7 +94,12 @@ jobs:
           eraser = Path("app/src/main/java/com/domenota/medialoader/ui/screens/ObjectRemovalPanel.kt").read_text()
           chrome = Path("app/src/main/java/com/domenota/medialoader/ui/screens/AiEraserChrome.kt").read_text()
           editor = Path("app/src/main/java/com/domenota/medialoader/ui/screens/PhotoEditorScreen.kt").read_text()
+          dialog = Path("app/src/main/java/com/domenota/medialoader/ui/screens/AiModelManagerDialog.kt").read_text()
           assert "if (!removeObjects) Row(" in editor, "Old toolbar must not overlap AI eraser"
+          assert 'PhotoToolCard("AI-ластик", Icons.Rounded.AutoFixHigh' in editor, "AI launcher label must omit engine"
+          assert 'PhotoToolCard("AI-ластик · LaMa"' not in editor, "Do not expose LaMa engine name in launcher"
+          assert "val whiteActionColors = ButtonDefaults.textButtonColors(" in dialog
+          assert dialog.count("colors = whiteActionColors") == 4, "All manager actions need white text"
           assert "AiEraserModeStrip(" in eraser and "AiEraserTopBar(" in eraser
           assert "AiEraserFooter(" in eraser and "onApply = ::acceptResult" in eraser
           assert "if (selectedMode == AiEraserMode.OBJECTS)" in eraser and "AiEraserObjectSwitch(" in eraser
