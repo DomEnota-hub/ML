@@ -73,6 +73,7 @@ import com.domenota.medialoader.data.editor.LaMaModelStore
 import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.MobileSamSegmenter
 import com.domenota.medialoader.data.editor.MaskPoint
+import com.domenota.medialoader.data.editor.AutoDragSelectionPolicy
 import com.domenota.medialoader.data.editor.MaskStroke
 import com.domenota.medialoader.data.editor.MaskActionGrouping
 import com.domenota.medialoader.data.editor.DetectedGlyph
@@ -550,7 +551,7 @@ internal fun ObjectRemovalPanel(
                         val automaticSelection = !moveMode && !textMode &&
                             selectedMode == AiEraserMode.OBJECTS && autoMode
                         var autoDrawing = automaticSelection
-                        var autoMoved = false
+                        var maxTravelPx = 0f
                         val autoPoints = mutableListOf<MaskPoint>()
                         val downPosition = down.position
                         if (autoDrawing) {
@@ -580,6 +581,7 @@ internal fun ObjectRemovalPanel(
                                 }
                             }
                         }
+                        try {
                         do {
                             val event = awaitPointerEvent()
                             val pressed = event.changes.filter { it.pressed }
@@ -600,8 +602,8 @@ internal fun ObjectRemovalPanel(
                                 if (moveMode) {
                                     pan += change.position - change.previousPosition
                                 } else if (autoDrawing) {
-                                    if ((change.position - downPosition).getDistance() > 14f)
-                                        autoMoved = true
+                                    maxTravelPx = maxOf(maxTravelPx,
+                                        (change.position - downPosition).getDistance())
                                     imagePoint(change.position)?.let { position ->
                                         cursor = position
                                         if (autoPoints.size < 20_000) autoPoints.add(position)
@@ -628,12 +630,23 @@ internal fun ObjectRemovalPanel(
                                     }
                                 }
                                 change.consume()
+                            } else if (autoDrawing) {
+                                // Capture the actual release position; the final motion event
+                                // can contain a finger-up without an intermediate pressed move.
+                                event.changes.firstOrNull()?.let { release ->
+                                    maxTravelPx = maxOf(maxTravelPx,
+                                        (release.position - downPosition).getDistance())
+                                    imagePoint(release.position)?.let { point ->
+                                        if (autoPoints.size < 20_000) autoPoints.add(point)
+                                    }
+                                }
                             }
                         } while (event.changes.any { it.pressed })
                         // Tap alone is not an opaque "AI selected something" action.
-                        // The release position of the real drag becomes MobileSAM's prompt.
-                        if (autoDrawing && autoMoved && autoPoints.size >= 2) {
-                            selectObject(autoPoints.last())
+                        val prompt = if (autoDrawing) AutoDragSelectionPolicy.releasePrompt(
+                            autoPoints, maxTravelPx, 14.dp.toPx()) else null
+                        if (prompt != null) {
+                            selectObject(prompt)
                         } else if (autoDrawing) {
                             message = "Проведите линию по объекту, затем отпустите палец."
                         }
@@ -644,9 +657,12 @@ internal fun ObjectRemovalPanel(
                             maskActions.record(1)
                             redoStrokes.clear()
                         }
-                        inProgress = emptyList()
-                        autoTrace = emptyList()
-                        cursor = null
+                        } finally {
+                            // Also runs when Android cancels a pointer gesture.
+                            inProgress = emptyList()
+                            autoTrace = emptyList()
+                            cursor = null
+                        }
                     }
                 },
         ) {
