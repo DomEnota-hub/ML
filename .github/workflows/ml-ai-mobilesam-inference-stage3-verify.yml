@@ -94,6 +94,7 @@ jobs:
           eraser = Path("app/src/main/java/com/domenota/medialoader/ui/screens/ObjectRemovalPanel.kt").read_text()
           chrome = Path("app/src/main/java/com/domenota/medialoader/ui/screens/AiEraserChrome.kt").read_text()
           editor = Path("app/src/main/java/com/domenota/medialoader/ui/screens/PhotoEditorScreen.kt").read_text()
+          dialog = Path("app/src/main/java/com/domenota/medialoader/ui/screens/AiModelManagerDialog.kt").read_text()
           assert "if (!removeObjects) Row(" in editor, "Old toolbar must not overlap AI eraser"
           assert 'PhotoToolCard("AI-ластик", Icons.Rounded.AutoFixHigh' in editor, "AI launcher label must omit engine"
           assert 'PhotoToolCard("AI-ластик · LaMa"' not in editor, "Do not expose LaMa engine name in launcher"
