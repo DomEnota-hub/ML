@@ -3,7 +3,7 @@ package com.domenota.medialoader.ui.screens.gallery
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** Guard approved v10 photo/video menu order from unrequested UX rewrites. */
+/** Keep photo menu unchanged and protect approved unified video menu accessibility. */
 class GalleryV10ActionContractTest {
     @Test fun photoActionsKeepExactReferenceOrder() {
         assertEquals(listOf(
@@ -26,9 +26,16 @@ class GalleryV10ActionContractTest {
             "В альбом",
             "Установить как обои",
             "Сведения",
+            "Поделиться",
+            "Обрезать",
+            "Избранное",
+            "Удалить",
             "Транслировать",
             "Зациклить одно видео",
             "Скорость воспроизведения",
+            "Пропорции видео",
+            "Звуковые дорожки",
+            "Перейти ко времени",
             "Найти трек",
             "Копировать",
             "Открыть другим приложением",
