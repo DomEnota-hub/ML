@@ -99,6 +99,8 @@ internal fun GalleryMediaViewer(
     val scope = rememberCoroutineScope()
     val videoTypes = remember(queue) { queue.map { it.mediaType } }
     val showEpisodeArrows = remember(videoTypes) { videoTypes.count { it == MediaType.VIDEO } > 1 }
+    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+        Configuration.ORIENTATION_LANDSCAPE
     var episodeNavigation by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     fun navigateVideo(targetIndex: Int, keepPlaying: Boolean) {
         val target = queue.getOrNull(targetIndex) ?: return
@@ -179,11 +181,16 @@ internal fun GalleryMediaViewer(
                 window.isNavigationBarContrastEnforced = false
             }
             val bars = WindowInsetsControllerCompat(window, window.decorView)
-            // Transparent is not the same as hidden. The gallery enters
-            // immersive viewing only while its controls are hidden.
+            // Landscape is always status-bar free, including when controls or More are visible.
             bars.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (chrome && !locked) {
+            if (isLandscape) {
+                bars.isAppearanceLightStatusBars = false
+                bars.isAppearanceLightNavigationBars = false
+                bars.hide(WindowInsetsCompat.Type.statusBars())
+                // Keep 3-button navigation visible while popups stay inside its safe inset.
+                bars.show(WindowInsetsCompat.Type.navigationBars())
+            } else if (chrome && !locked) {
                 bars.isAppearanceLightStatusBars = false
                 bars.isAppearanceLightNavigationBars = false
                 bars.show(WindowInsetsCompat.Type.systemBars())
@@ -197,8 +204,6 @@ internal fun GalleryMediaViewer(
         onDispose { if (activity != null && fullscreen) applyFullscreen(activity, view, false, landscape) }
     }
     BackHandler(fullscreen) { fullscreen = false }
-    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
-        Configuration.ORIENTATION_LANDSCAPE
     // Photo and video share one edge-to-edge viewport. Chrome is drawn on top,
     // never as Scaffold bars that reduce the image size or leave blank bands.
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -251,7 +256,7 @@ internal fun GalleryMediaViewer(
                 modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(viewerHeaderOverlayColor,
                         Color.Black.copy(alpha = .28f), Color.Transparent)))
-                    .statusBarsPadding(),
+                    .then(if (isLandscape) Modifier else Modifier.statusBarsPadding()),
             ) {
                 val onRotate: () -> Unit = {
                     activity?.requestedOrientation =

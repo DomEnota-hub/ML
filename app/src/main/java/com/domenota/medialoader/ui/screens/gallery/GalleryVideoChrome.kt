@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -45,6 +47,7 @@ import androidx.compose.ui.unit.sp
  * duplicate toolbar, no measured native button coordinates, no media resizes.
  * The GalleryMediaViewer owns the common top/action bars.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GalleryVideoChrome(
     visible: Boolean,
@@ -122,8 +125,10 @@ internal fun GalleryVideoChrome(
                     valueRange = 0f..length.toFloat(),
                     modifier = Modifier.weight(1f).height(40.dp)
                         .semantics { contentDescription = "Положение воспроизведения" },
+                    // Never use Material3's default vertical-line thumb in the viewer.
+                    // The only allowed handle is this compact circular drawable.
+                    thumb = { Box(Modifier.size(12.dp).background(Color.White, CircleShape)) },
                     colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
                         activeTrackColor = Color.White,
                         inactiveTrackColor = Color.LightGray.copy(alpha = .50f),
                     ),
