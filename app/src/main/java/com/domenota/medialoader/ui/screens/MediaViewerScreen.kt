@@ -138,6 +138,7 @@ import com.domenota.medialoader.data.MediaRepository
 import com.domenota.medialoader.data.search.FullSongSource
 import com.domenota.medialoader.core.recognition.MusicRecognitionResult
 import com.domenota.medialoader.ui.components.FullSongSearchDialog
+import com.domenota.medialoader.ui.screens.gallery.GalleryVideoChrome
 import com.domenota.medialoader.data.editor.VideoScrubPolicy
 import com.domenota.medialoader.data.editor.VideoGestureMode
 import com.domenota.medialoader.data.editor.VideoGesturePolicy
@@ -362,6 +363,8 @@ internal fun LocalVideoPlayer(
     startAtBeginning: Boolean = false,
     autoplayOnNavigation: Boolean = false,
     onControlsVisibilityChanged: ((Boolean) -> Unit)? = null,
+    floatingWindowRequest: Int = 0,
+    galleryCommand: Pair<Int, String>? = null,
 ) {
     val context = LocalContext.current
     val gestureThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
@@ -405,6 +408,8 @@ internal fun LocalVideoPlayer(
     var playbackEnded by remember(uri) { mutableStateOf(false) }
     var scrubPositionMs by remember(uri) { mutableStateOf<Long?>(null) }
     var chromeVisible by remember(uri) { mutableStateOf(true) }
+    var galleryDisplayedPositionMs by remember(uri) { mutableStateOf(0L) }
+    LaunchedEffect(playerKey = uri) { /* initialized below when player exists */ }
     // Gallery's overlay controls follow the native video-controller visibility
     // so a tap never leaves the Gallery header/footer floating above clean video.
     val notifyControlsVisibility by rememberUpdatedState(onControlsVisibilityChanged)
@@ -449,6 +454,16 @@ internal fun LocalVideoPlayer(
         }
     }
     var renderedFirstFrame by remember(player) { mutableStateOf(false) }
+    // The gallery timeline no longer reads geometry or position from the
+    // native Media3 controller. Keep one lightweight playback clock instead.
+    LaunchedEffect(player, galleryPagingEnabled) {
+        if (galleryPagingEnabled) {
+            while (true) {
+                galleryDisplayedPositionMs = player.currentPosition.coerceAtLeast(0L)
+                delay(250L)
+            }
+        }
+    }
     LaunchedEffect(player, repeatOne) {
         player.repeatMode = if (repeatOne) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
     }
@@ -472,6 +487,23 @@ internal fun LocalVideoPlayer(
         else Toast.makeText(context, "Разрешите показ поверх других приложений",
             Toast.LENGTH_LONG).show()
     }
+    // Gallery's always-visible PiP icon delegates to the current player.
+    LaunchedEffect(floatingWindowRequest) {
+        if (galleryPagingEnabled && floatingWindowRequest > 0) {
+            if (FloatingVideoService.canShow(context)) launchFloatingVideo()
+            else overlayPermissionLauncher.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:${context.packageName}")))
+        }
+    }
+    // Settings in the Gallery menu reuse the existing time/aspect commands.
+    LaunchedEffect(galleryCommand) {
+        when (galleryCommand?.second) {
+            "aspect" -> aspectPanelOpen = true
+            "time" -> showTimePicker = true
+            "tracks" -> showPlayerSettings = true
+        }
+    }
+
 
     DisposableEffect(player, lifecycleOwner, itemId) {
         val listener = object : Player.Listener {
@@ -571,9 +603,9 @@ internal fun LocalVideoPlayer(
         }
     }
 
-    LaunchedEffect(fullscreen, controlsLocked, playerView) {
-        if (controlsLocked) playerView?.hideController()
-        else playerView?.showController()
+    LaunchedEffect(fullscreen, controlsLocked, playerView, galleryPagingEnabled) {
+        if (galleryPagingEnabled || controlsLocked) playerView?.hideController()
+        else if (!galleryPagingEnabled) playerView?.showController()
     }
     LaunchedEffect(controlsLocked) {
         unlockVisible = false
@@ -592,8 +624,12 @@ internal fun LocalVideoPlayer(
     }
 
     fun toggleChrome() {
-        playerView?.let { view ->
-            if (view.isControllerFullyVisible) view.hideController() else view.showController()
+        if (galleryPagingEnabled) {
+            chromeVisible = !chromeVisible
+        } else {
+            playerView?.let { view ->
+                if (view.isControllerFullyVisible) view.hideController() else view.showController()
+            }
         }
     }
 
@@ -635,10 +671,10 @@ internal fun LocalVideoPlayer(
                 PlayerView(viewContext).apply {
                     playerView = this
                     this.player = player
-                    useController = !controlsLocked
+                    useController = !galleryPagingEnabled && !controlsLocked
                     setControllerAnimationEnabled(false)
                     setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
-                        chromeVisible = visibility == android.view.View.VISIBLE
+                        if (!galleryPagingEnabled) chromeVisible = visibility == android.view.View.VISIBLE
                     })
                     setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
                     setShowRewindButton(false)
@@ -721,7 +757,7 @@ internal fun LocalVideoPlayer(
                 it.resizeMode = videoResizeMode
                 it.findViewById<AspectRatioFrameLayout>(androidx.media3.ui.R.id.exo_content_frame)
                     ?.setAspectRatio(forcedAspectRatio ?: sourceAspectRatio)
-                it.useController = !controlsLocked
+                it.useController = !galleryPagingEnabled && !controlsLocked
                 it.setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
                 posterView?.apply {
                     setImageBitmap(poster.bitmap)
@@ -734,7 +770,7 @@ internal fun LocalVideoPlayer(
         // Touches above the timeline control chrome; the timeline remains native and draggable.
         if (!controlsLocked) {
             Box(Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                .fillMaxHeight(if (chromeVisible && videoViewportSize.height > 0)
+                .fillMaxHeight(if (galleryPagingEnabled) 1f else if (chromeVisible && videoViewportSize.height > 0)
                     ((timelineTop ?: (videoViewportSize.height * 0.60f)) /
                         videoViewportSize.height).coerceIn(0f, 1f) else 1f)
                 .pointerInput(Unit) {
@@ -819,7 +855,7 @@ internal fun LocalVideoPlayer(
                                             startPosition = player.currentPosition.coerceAtLeast(0L)
                                             scrubPositionMs = startPosition
                                             horizontalDistance = totalX
-                                            playerView?.showController()
+                                            if (!galleryPagingEnabled) playerView?.showController()
                                         }
                                     }
                                     VideoGestureMode.BRIGHTNESS -> {
@@ -846,7 +882,7 @@ internal fun LocalVideoPlayer(
                                     val target = VideoScrubPolicy.target(startPosition,
                                         horizontalDistance, size.width, playableDurationMs)
                                     scrubPositionMs = target
-                                    playerView?.showController()
+                                    if (!galleryPagingEnabled) playerView?.showController()
                                 }
                                 VideoGestureMode.BRIGHTNESS -> {
                                     verticalDistance = totalY
@@ -901,7 +937,7 @@ internal fun LocalVideoPlayer(
         }
         // Previous follows the usual music-player rule: >3s restarts the episode;
         // pressing again near the beginning opens the preceding video in the album.
-        if (!controlsLocked && chromeVisible && nativePreviousCenter != null) IconButton(
+        if (!galleryPagingEnabled && !controlsLocked && chromeVisible && nativePreviousCenter != null) IconButton(
             onClick = {
                 when (VideoPlayerUiPolicy.previousAction(player.currentPosition, onPreviousVideo != null)) {
                     VideoPlayerUiPolicy.PreviousAction.OPEN_PREVIOUS ->
@@ -930,7 +966,7 @@ internal fun LocalVideoPlayer(
         val nextControlCenter = nativeNextCenter ?: nativePlayCenter?.let {
             Offset(it.x + with(LocalDensity.current) { 48.dp.toPx() }, it.y)
         }
-        if (!controlsLocked && chromeVisible && showAlbumSkipButton && nextControlCenter != null) IconButton(
+        if (!galleryPagingEnabled && !controlsLocked && chromeVisible && showAlbumSkipButton && nextControlCenter != null) IconButton(
             onClick = { onNextVideo?.invoke(player.playWhenReady) },
             enabled = onNextVideo != null,
             modifier = Modifier.align(Alignment.TopStart)
@@ -944,7 +980,7 @@ internal fun LocalVideoPlayer(
                     alpha = if (onNextVideo != null) 1f else .4f),
                 modifier = Modifier.size(30.dp))
         }
-        if (!controlsLocked && chromeVisible) IconButton(
+        if (!galleryPagingEnabled && !controlsLocked && chromeVisible) IconButton(
             onClick = {
                 if (isPlaying) {
                     player.pause()
@@ -989,7 +1025,7 @@ internal fun LocalVideoPlayer(
                     MaterialTheme.shapes.medium).padding(10.dp))
         }
 
-        if (!controlsLocked && chromeVisible) Row(
+        if (!galleryPagingEnabled && !controlsLocked && chromeVisible) Row(
             modifier = Modifier.align(Alignment.TopEnd).offset {
                 IntOffset(0, ((toolbarCenterY ?: toolbarHalfPx) - toolbarHalfPx).toInt())
             }.padding(end = 8.dp).height(40.dp),
@@ -1044,14 +1080,43 @@ internal fun LocalVideoPlayer(
             }
         }
 
+        if (galleryPagingEnabled) {
+            GalleryVideoChrome(
+                visible = chromeVisible,
+                locked = controlsLocked,
+                playing = isPlaying,
+                positionMs = galleryDisplayedPositionMs,
+                durationMs = playableDurationMs,
+                hasPrevious = onPreviousVideo != null,
+                hasNext = onNextVideo != null,
+                onPlayPause = {
+                    if (isPlaying) player.pause() else {
+                        if (VideoPlayerUiPolicy.shouldRestartFromBeginning(playbackEnded)) {
+                            player.seekTo(0L)
+                            playbackEnded = false
+                        }
+                        player.play()
+                    }
+                },
+                onPrevious = {
+                    if (player.currentPosition > 3_000L || onPreviousVideo == null) {
+                        player.seekTo(0L)
+                        playbackEnded = false
+                    } else onPreviousVideo.invoke(player.playWhenReady)
+                },
+                onNext = { onNextVideo?.invoke(player.playWhenReady) },
+                onSeekTo = { position -> player.seekTo(position.coerceIn(0L, playableDurationMs.coerceAtLeast(0L))) },
+                onLockChange = { onControlsLockedChange(it) },
+            )
+        }
         if (!controlsLocked) VideoFormatNotice(aspectFeedback, aspectFeedbackRequest,
             Modifier.align(Alignment.Center).offset(y = (-64).dp))
-        if (!controlsLocked && chromeVisible) IconButton(onClick = { onControlsLockedChange(true) },
+        if (!galleryPagingEnabled && !controlsLocked && chromeVisible) IconButton(onClick = { onControlsLockedChange(true) },
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp).size(48.dp)) {
             Icon(Icons.Rounded.LockOpen, contentDescription = "Заблокировать управление",
                 tint = androidx.compose.ui.graphics.Color.White)
         }
-        if (controlsLocked) {
+        if (!galleryPagingEnabled && controlsLocked) {
             Box(Modifier.fillMaxSize().pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
