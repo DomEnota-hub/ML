@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens.gallery
 
 import android.content.res.Configuration
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,9 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
@@ -24,7 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,6 +34,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -69,12 +72,14 @@ internal fun GalleryVideoChrome(
     Box(modifier.fillMaxSize()) {
         if (locked) {
             // The lock remains reachable at the right-center even in clean mode.
-            IconButton(
-                onClick = { onLockChange(false) },
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).size(48.dp),
-            ) {
-                Icon(Icons.Rounded.Lock, contentDescription = "Разблокировать управление",
-                    modifier = Modifier.size(27.dp), tint = Color.White)
+            // Android's landscape navigation rail can occupy either screen edge.
+            // The locked control must always remain inside the content-safe region.
+            Box(Modifier.align(Alignment.CenterEnd)
+                .navigationBarsPadding().displayCutoutPadding().padding(end = 16.dp)) {
+                IconButton(onClick = { onLockChange(false) }, modifier = Modifier.size(52.dp)) {
+                    Icon(Icons.Rounded.Lock, contentDescription = "Разблокировать управление",
+                        modifier = Modifier.size(27.dp), tint = Color.White)
+                }
             }
         } else if (visible) {
             Row(
@@ -99,22 +104,22 @@ internal fun GalleryVideoChrome(
                 }
             }
 
-            // Time and seek bar are ONE row, above Gallery's actions in
-            // portrait and above gesture/navigation areas in landscape.
+            // One slim, contiguous timeline; no Material3 track gap or thick pill.
+            // Keep a 40dp scrubbing target, independent of its 4dp visual stroke.
             Row(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = if (landscape) 24.dp else 12.dp)
                     .padding(bottom = if (landscape) 8.dp else 86.dp)
+                    .background(Brush.verticalGradient(listOf(
+                        Color.Transparent, Color.Black.copy(alpha = .26f))))
                     .height(48.dp)
-                    .background(Color.Black.copy(alpha = .40f), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    .padding(horizontal = if (landscape) 24.dp else 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val length = durationMs.coerceAtLeast(1L)
-                Text(galleryVideoClock(scrubbing?.toLong() ?: positionMs), color = Color.White,
-                    fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Text(galleryVideoClock(scrubbing?.toLong() ?: positionMs),
+                    color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 Slider(
                     value = (scrubbing ?: positionMs.toFloat()).coerceIn(0f, length.toFloat()),
                     onValueChange = { scrubbing = it },
@@ -125,23 +130,33 @@ internal fun GalleryVideoChrome(
                     valueRange = 0f..length.toFloat(),
                     modifier = Modifier.weight(1f).height(40.dp)
                         .semantics { contentDescription = "Положение воспроизведения" },
-                    // Never use Material3's default vertical-line thumb in the viewer.
-                    // The only allowed handle is this compact circular drawable.
+                    // A round 12dp thumb, never a vertical marker.
                     thumb = { Box(Modifier.size(12.dp).background(Color.White, CircleShape)) },
-                    colors = SliderDefaults.colors(
-                        activeTrackColor = Color.White,
-                        inactiveTrackColor = Color.LightGray.copy(alpha = .50f),
-                    ),
+                    track = { sliderState ->
+                        Canvas(Modifier.fillMaxWidth().height(20.dp)) {
+                            val y = size.height / 2f
+                            val fraction = (sliderState.value / length.toFloat()).coerceIn(0f, 1f)
+                            val stroke = 4.dp.toPx()
+                            drawLine(Color(0xFF858585).copy(alpha = .80f),
+                                Offset(0f, y), Offset(size.width, y),
+                                strokeWidth = stroke, cap = StrokeCap.Round)
+                            if (fraction > 0f) {
+                                drawLine(Color.White,
+                                    Offset(0f, y), Offset(size.width * fraction, y),
+                                    strokeWidth = stroke, cap = StrokeCap.Round)
+                            }
+                        }
+                    },
                 )
                 Text(galleryVideoClock(durationMs), color = Color.White, fontSize = 12.sp,
                     fontWeight = FontWeight.Medium)
             }
-            IconButton(
-                onClick = { onLockChange(true) },
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).size(48.dp),
-            ) {
-                Icon(Icons.Rounded.LockOpen, contentDescription = "Заблокировать управление",
-                    tint = Color.White, modifier = Modifier.size(27.dp))
+            Box(Modifier.align(Alignment.CenterEnd)
+                .navigationBarsPadding().displayCutoutPadding().padding(end = 16.dp)) {
+                IconButton(onClick = { onLockChange(true) }, modifier = Modifier.size(52.dp)) {
+                    Icon(Icons.Rounded.LockOpen, contentDescription = "Заблокировать управление",
+                        tint = Color.White, modifier = Modifier.size(27.dp))
+                }
             }
         }
     }
