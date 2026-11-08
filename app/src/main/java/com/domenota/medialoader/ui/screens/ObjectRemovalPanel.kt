@@ -201,6 +201,7 @@ internal fun ObjectRemovalPanel(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var selectedMode by remember { mutableStateOf(AiEraserMode.OBJECTS) }
+    var objectManualTools by remember { mutableStateOf(false) }
     val busy = processing || downloading || scanningText
 
     fun undo() {
@@ -538,9 +539,26 @@ internal fun ObjectRemovalPanel(
 
         }
 
-        // Context toolbar stays separate from the mode strip, matching Xiaomi.
+        // The object selector is the ONLY mode with the A/hand toggle.
+        if (selectedMode == AiEraserMode.OBJECTS) {
+            Row(
+                Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = ::processSelection,
+                    enabled = !busy && strokes.isNotEmpty()) {
+                    Text("Начать", color = Color.White, fontSize = 13.sp)
+                }
+                Spacer(Modifier.weight(1f))
+                AiEraserObjectSwitch(
+                    enabled = !busy,
+                    onManual = { objectManualTools = !objectManualTools },
+                )
+            }
+        }
         if (selectedMode == AiEraserMode.MANUAL ||
-            selectedMode == AiEraserMode.OBJECTS) {
+            (selectedMode == AiEraserMode.OBJECTS && objectManualTools)) {
             Row(
                 Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -568,12 +586,14 @@ internal fun ObjectRemovalPanel(
                         (brush / 100f * size.minDimension * .42f).coerceAtLeast(2f),
                         style = Stroke(width = 2.dp.toPx()))
                 }
-                TextButton(
-                    onClick = ::processSelection,
-                    enabled = !busy && strokes.isNotEmpty(),
-                ) { Text("Начать", color = Color.White, fontSize = 13.sp) }
+                if (selectedMode == AiEraserMode.MANUAL) {
+                    TextButton(
+                        onClick = ::processSelection,
+                        enabled = !busy && strokes.isNotEmpty(),
+                    ) { Text("Начать", color = Color.White, fontSize = 13.sp) }
+                }
             }
-        } else {
+        } else if (selectedMode == AiEraserMode.TEXT) {
             Box(
                 Modifier.fillMaxWidth().height(68.dp),
                 contentAlignment = Alignment.Center,
@@ -587,16 +607,12 @@ internal fun ObjectRemovalPanel(
                 }
             }
         }
-        // This switch belongs exclusively to OBJECTS, even after future
-        // MobileSAM integration. For now manual selection is the real engine.
-        if (selectedMode == AiEraserMode.OBJECTS) {
-            // Mode switch is overlaid within the context row by the next stage.
-        }
         AiEraserModeStrip(
             selected = selectedMode,
             enabled = !busy,
             onMode = { mode ->
                 selectedMode = mode
+                objectManualTools = false
                 textMode = mode == AiEraserMode.TEXT
                 moveMode = false
                 eraserMode = false
