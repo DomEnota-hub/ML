@@ -200,7 +200,10 @@ internal fun GalleryMediaViewer(
                             { playing: Boolean -> navigateVideo(target, playing) }
                         },
                         startAtBeginning = fromSkipButton,
-                        autoplayOnNavigation = fromSkipButton && episodeNavigation?.second == true)
+                        autoplayOnNavigation = fromSkipButton && episodeNavigation?.second == true,
+                        onControlsVisibilityChanged = { shown ->
+                            if (page == pager.currentPage) chrome = shown
+                        })
                 } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (poster != null) VideoViewerPoster(poster, Modifier.fillMaxSize())
                     Icon(Icons.Rounded.PlayArrow, null, Modifier.size(48.dp), Color.White)
