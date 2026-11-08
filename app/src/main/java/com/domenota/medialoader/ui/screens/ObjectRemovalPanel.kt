@@ -59,6 +59,7 @@ import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.MobileSamSegmenter
 import com.domenota.medialoader.data.editor.MaskPoint
 import com.domenota.medialoader.data.editor.MaskStroke
+import com.domenota.medialoader.data.editor.MaskActionGrouping
 import com.domenota.medialoader.data.editor.DetectedGlyph
 import com.domenota.medialoader.data.editor.OnDeviceTextGlyphDetector
 import com.domenota.medialoader.data.editor.TextGlyphMask
@@ -198,6 +199,7 @@ internal fun ObjectRemovalPanel(
     val current = steps[index]
     val strokes = remember(working) { mutableStateListOf<MaskStroke>() }
     val redoStrokes = remember(working) { mutableStateListOf<MaskStroke>() }
+    val maskActions = remember(working) { MaskActionGrouping() }
     var inProgress by remember { mutableStateOf<List<MaskPoint>>(emptyList()) }
     var brush by remember { mutableFloatStateOf(32f) }
     var eraserMode by remember { mutableStateOf(false) }
@@ -224,7 +226,9 @@ internal fun ObjectRemovalPanel(
                 redoGlyphs.add(selectedGlyphs.removeAt(selectedGlyphs.lastIndex))
             } else if (index > 0) index--
         } else if (strokes.isNotEmpty()) {
-            redoStrokes.add(strokes.removeAt(strokes.lastIndex))
+            repeat(maskActions.undoCount().coerceAtMost(strokes.size)) {
+                redoStrokes.add(strokes.removeAt(strokes.lastIndex))
+            }
         } else if (index > 0) {
             index--
         }
@@ -234,8 +238,11 @@ internal fun ObjectRemovalPanel(
         if (textMode) {
             if (redoGlyphs.isNotEmpty()) selectedGlyphs.add(redoGlyphs.removeAt(redoGlyphs.lastIndex))
             else if (index < steps.lastIndex) index++
-        } else if (redoStrokes.isNotEmpty()) strokes.add(redoStrokes.removeAt(redoStrokes.lastIndex))
-        else if (index < steps.lastIndex) index++
+        } else if (redoStrokes.isNotEmpty()) {
+            repeat(maskActions.redoCount().coerceAtMost(redoStrokes.size)) {
+                strokes.add(redoStrokes.removeAt(redoStrokes.lastIndex))
+            }
+        } else if (index < steps.lastIndex) index++
     }
 
     if (askSamInstall) AiModelManagerDialog(onDismiss = {
@@ -324,6 +331,7 @@ internal fun ObjectRemovalPanel(
                 segmenter.clearCache()
                 strokes.clear()
                 redoStrokes.clear()
+                maskActions.clear()
                 selectedGlyphs.clear()
                 redoGlyphs.clear()
                 glyphs = emptyList()
@@ -350,6 +358,7 @@ internal fun ObjectRemovalPanel(
                 // The new strokes use exactly the same normalized coordinates
                 // as the existing manual correction and LaMa inpainting engine.
                 strokes.addAll(selection)
+                maskActions.record(selection.size)
                 redoStrokes.clear()
             } catch (cancel: CancellationException) {
                 throw cancel
@@ -519,6 +528,7 @@ internal fun ObjectRemovalPanel(
                             strokes.add(MaskStroke(points.toList(),
                                 (brush / minOf(working.width, working.height)).coerceIn(0.001f, 0.5f),
                                 erase = eraserMode))
+                            maskActions.record(1)
                             redoStrokes.clear()
                         }
                         inProgress = emptyList()
@@ -693,6 +703,7 @@ internal fun ObjectRemovalPanel(
                 eraserMode = false
                 strokes.clear()
                 redoStrokes.clear()
+                maskActions.clear()
                 inProgress = emptyList()
                 selectedGlyphs.clear()
                 redoGlyphs.clear()
