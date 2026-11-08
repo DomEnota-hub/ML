@@ -5,6 +5,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
@@ -42,10 +48,12 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush as GradientBrush
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -139,6 +147,7 @@ private fun SelectionMagnifier(
     zoom: Float,
     brush: Float,
     eraser: Boolean,
+    trace: List<MaskPoint> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     if (viewport.width <= 0 || viewport.height <= 0) return
@@ -176,9 +185,21 @@ private fun SelectionMagnifier(
                 drawImage(mask, IntOffset(maskX, maskY), IntSize(maskWidth, maskHeight),
                     IntOffset.Zero, outputSize, filterQuality = FilterQuality.High)
             }
+            // The same normalized source-space trace is drawn inside the lens.
+            if (trace.size >= 2) {
+                val trail = Path()
+                trace.forEachIndexed { index, sample ->
+                    val px = (sample.x * bitmap.width - sourceX) / cropWidth * size.width
+                    val py = (sample.y * bitmap.height - sourceY) / cropHeight * size.height
+                    if (index == 0) trail.moveTo(px, py) else trail.lineTo(px, py)
+                }
+                drawPath(trail, Color(0xFFFFCF22),
+                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+            }
             val guideX = (point.x * bitmap.width - sourceX) / cropWidth * size.width
             val guideY = (point.y * bitmap.height - sourceY) / cropHeight * size.height
-            val guideRadius = brush / 2f / cropWidth * size.width
+            val guideRadius = if (trace.isNotEmpty()) 2.dp.toPx()
+                else brush / 2f / cropWidth * size.width
             drawCircle(if (eraser) Color(0xFF86D7FF) else Color(0xFFFFCF22),
                 radius = guideRadius.coerceAtLeast(2f), center = Offset(guideX, guideY),
                 style = Stroke(width = 2.dp.toPx()))
@@ -187,6 +208,36 @@ private fun SelectionMagnifier(
             style = Stroke(width = 5.dp.toPx()))
         drawRoundRect(if (eraser) Color(0xFF86D7FF) else Color(0xFFFFC21C),
             cornerRadius = corner, style = Stroke(width = 2.dp.toPx()))
+    }
+}
+
+/** Animated only while the MobileSAM inference coroutine is actually active. */
+@Composable
+private fun SegmentationIndicator(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "sam-inference")
+    val rotation by transition.animateFloat(
+        initialValue = 0f, targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart),
+        label = "triangle-turn",
+    )
+    Canvas(modifier.size(50.dp)) {
+        rotate(rotation) {
+            val top = Offset(size.width / 2f, size.height * .08f)
+            val left = Offset(size.width * .08f, size.height * .84f)
+            val right = Offset(size.width * .92f, size.height * .84f)
+            val center = Offset(size.width * .5f, size.height * .62f)
+            val light = Path().apply {
+                moveTo(top.x, top.y); lineTo(left.x, left.y)
+                lineTo(center.x, center.y); close()
+            }
+            val dark = Path().apply {
+                moveTo(top.x, top.y); lineTo(center.x, center.y)
+                lineTo(right.x, right.y); close()
+            }
+            drawPath(light, Color(0xFFFFE6A0))
+            drawPath(dark, Color(0xFF8C6B32))
+        }
     }
 }
 
@@ -239,6 +290,8 @@ internal fun ObjectRemovalPanel(
     val redoStrokes = remember(working) { mutableStateListOf<MaskStroke>() }
     val maskActions = remember(working) { MaskActionGrouping() }
     var inProgress by remember { mutableStateOf<List<MaskPoint>>(emptyList()) }
+    var autoTrace by remember { mutableStateOf<List<MaskPoint>>(emptyList()) }
+    var segmenting by remember { mutableStateOf(false) }
     var brush by remember { mutableFloatStateOf(32f) }
     var eraserMode by remember { mutableStateOf(false) }
     var moveMode by remember { mutableStateOf(false) }
@@ -389,6 +442,7 @@ internal fun ObjectRemovalPanel(
         }
         val source = current.bitmap
         processing = true
+        segmenting = true
         message = null
         scope.launch {
             try {
@@ -403,6 +457,7 @@ internal fun ObjectRemovalPanel(
             } catch (error: Exception) {
                 message = error.message ?: "Не удалось выделить объект."
             } finally {
+                segmenting = false
                 processing = false
             }
         }
@@ -494,9 +549,17 @@ internal fun ObjectRemovalPanel(
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val automaticSelection = !moveMode && !textMode &&
                             selectedMode == AiEraserMode.OBJECTS && autoMode
-                        var autoCandidate = automaticSelection
-                        val autoPoint = imagePoint(down.position)
+                        var autoDrawing = automaticSelection
+                        var autoMoved = false
+                        val autoPoints = mutableListOf<MaskPoint>()
                         val downPosition = down.position
+                        if (autoDrawing) {
+                            imagePoint(down.position)?.let {
+                                autoPoints.add(it)
+                                cursor = it
+                                autoTrace = autoPoints.toList()
+                            }
+                        }
                         var drawing = !moveMode && !textMode && !automaticSelection
                         var selecting = !moveMode && textMode && glyphs.isNotEmpty()
                         val points = mutableListOf<MaskPoint>()
@@ -521,7 +584,9 @@ internal fun ObjectRemovalPanel(
                             val event = awaitPointerEvent()
                             val pressed = event.changes.filter { it.pressed }
                             if (pressed.size >= 2) {
-                                autoCandidate = false
+                                autoDrawing = false
+                                autoPoints.clear()
+                                autoTrace = emptyList()
                                 drawing = false
                                 selecting = false
                                 cursor = null
@@ -532,10 +597,16 @@ internal fun ObjectRemovalPanel(
                                 event.changes.forEach { it.consume() }
                             } else if (pressed.isNotEmpty()) {
                                 val change = pressed.first()
-                                if ((change.position - downPosition).getDistance() > 14f)
-                                    autoCandidate = false
                                 if (moveMode) {
                                     pan += change.position - change.previousPosition
+                                } else if (autoDrawing) {
+                                    if ((change.position - downPosition).getDistance() > 14f)
+                                        autoMoved = true
+                                    imagePoint(change.position)?.let { position ->
+                                        cursor = position
+                                        if (autoPoints.size < 20_000) autoPoints.add(position)
+                                        autoTrace = autoPoints.toList()
+                                    }
                                 } else if (drawing) {
                                     imagePoint(change.position)?.let {
                                         cursor = it
@@ -559,8 +630,12 @@ internal fun ObjectRemovalPanel(
                                 change.consume()
                             }
                         } while (event.changes.any { it.pressed })
-                        if (autoCandidate && autoPoint != null) {
-                            selectObject(autoPoint)
+                        // Tap alone is not an opaque "AI selected something" action.
+                        // The release position of the real drag becomes MobileSAM's prompt.
+                        if (autoDrawing && autoMoved && autoPoints.size >= 2) {
+                            selectObject(autoPoints.last())
+                        } else if (autoDrawing) {
+                            message = "Проведите линию по объекту, затем отпустите палец."
                         }
                         if (drawing && points.isNotEmpty()) {
                             strokes.add(MaskStroke(points.toList(),
@@ -570,6 +645,7 @@ internal fun ObjectRemovalPanel(
                             redoStrokes.clear()
                         }
                         inProgress = emptyList()
+                        autoTrace = emptyList()
                         cursor = null
                     }
                 },
@@ -609,11 +685,24 @@ internal fun ObjectRemovalPanel(
                             )
                         }
                     } else {
+                        // Live yellow drag trace is only a prompt, never a fake SAM mask.
+                        if (autoTrace.size >= 2 &&
+                            selectedMode == AiEraserMode.OBJECTS && autoMode) {
+                            val trail = Path()
+                            autoTrace.forEachIndexed { i, p ->
+                                val x = p.x * size.width
+                                val y = p.y * size.height
+                                if (i == 0) trail.moveTo(x, y) else trail.lineTo(x, y)
+                            }
+                            drawPath(trail, yellow,
+                                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+                        }
                         // The marker follows the same pixel-to-preview transform as the mask.
                         // It is a guide, not a new translucent paint stroke.
                         val previewScale =
                             minOf(size.width / working.width, size.height / working.height)
-                        val radius = (brush * previewScale / 2f).coerceAtLeast(1f)
+                        val radius = if (selectedMode == AiEraserMode.OBJECTS && autoMode)
+                            2.dp.toPx() else (brush * previewScale / 2f).coerceAtLeast(1f)
                         val guide = cursor ?: if (brushSizing) MaskPoint(0.5f, 0.5f) else null
                         guide?.let {
                             val center = Offset(it.x * size.width, it.y * size.height)
@@ -627,22 +716,27 @@ internal fun ObjectRemovalPanel(
                 }
 
             }
+            if (segmenting) {
+                Box(Modifier.align(Alignment.Center).size(64.dp)
+                    .background(Color.Black.copy(alpha = .68f), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center) {
+                    SegmentationIndicator()
+                }
+            }
             if (!showBefore && !textMode && !moveMode && cursor != null) {
                 val position = requireNotNull(cursor)
-                val corner = when {
-                    position.x < 0.5f && position.y < 0.5f -> Alignment.BottomEnd
-                    position.x < 0.5f -> Alignment.TopEnd
-                    position.y < 0.5f -> Alignment.BottomStart
-                    else -> Alignment.TopStart
-                }
+                // Left-hand lens, moved vertically away from the finger on edge touches.
+                val corner = if (position.y < 0.5f) Alignment.BottomStart
+                    else Alignment.TopStart
                 SelectionMagnifier(
                     bitmap = current.bitmap.asImageBitmap(),
                     overlay = unifiedOverlay?.asImageBitmap(),
                     point = position,
                     viewport = viewport,
                     zoom = zoom,
-                    brush = brush,
-                    eraser = eraserMode,
+                    brush = if (selectedMode == AiEraserMode.OBJECTS && autoMode) 4f else brush,
+                    eraser = eraserMode && !autoMode,
+                    trace = autoTrace,
                     modifier = Modifier.align(corner).padding(8.dp),
                 )
             }
@@ -750,6 +844,7 @@ internal fun ObjectRemovalPanel(
                 redoStrokes.clear()
                 maskActions.clear()
                 inProgress = emptyList()
+                autoTrace = emptyList()
                 selectedGlyphs.clear()
                 redoGlyphs.clear()
                 glyphs = emptyList()
