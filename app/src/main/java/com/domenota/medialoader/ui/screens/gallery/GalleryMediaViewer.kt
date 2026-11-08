@@ -132,6 +132,7 @@ internal fun GalleryMediaViewer(
     // dark rectangular bands shown by the previous build on Xiaomi.
     DisposableEffect(activity) {
         val window = activity?.window
+        val initialRequestedOrientation = activity?.requestedOrientation
         val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
         @Suppress("DEPRECATION")
         val oldStatusColor = window?.statusBarColor
@@ -143,6 +144,12 @@ internal fun GalleryMediaViewer(
         val oldStatusContrast = if (Build.VERSION.SDK_INT >= 29) window?.isStatusBarContrastEnforced else null
         val oldNavContrast = if (Build.VERSION.SDK_INT >= 29) window?.isNavigationBarContrastEnforced else null
         onDispose {
+            // The viewer's rotate button must not strand the Gallery in
+            // landscape when the video is closed.
+            if (activity != null && initialRequestedOrientation != null &&
+                activity.requestedOrientation != initialRequestedOrientation) {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
             if (window != null && controller != null) {
                 @Suppress("DEPRECATION")
                 if (oldStatusColor != null) window.statusBarColor = oldStatusColor
