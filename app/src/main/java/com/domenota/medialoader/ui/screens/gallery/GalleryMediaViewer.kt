@@ -1,6 +1,9 @@
 package com.domenota.medialoader.ui.screens.gallery
 
 import android.graphics.BitmapFactory
+import android.graphics.Color as AndroidColor
+import android.os.Build
+import androidx.core.view.WindowInsetsControllerCompat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.app.WallpaperManager
@@ -119,6 +122,48 @@ internal fun GalleryMediaViewer(
     val context = LocalContext.current
     val view = LocalView.current
     val activity = remember(context) { context.findActivity() }
+    // Gallery alone owns transparent system bars while open. The controls'
+    // gradient fills behind the status/navigation indicators, avoiding the
+    // dark rectangular bands shown by the previous build on Xiaomi.
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        @Suppress("DEPRECATION")
+        val oldStatusColor = window?.statusBarColor
+        @Suppress("DEPRECATION")
+        val oldNavColor = window?.navigationBarColor
+        val oldStatusIcons = controller?.isAppearanceLightStatusBars
+        val oldNavIcons = controller?.isAppearanceLightNavigationBars
+        onDispose {
+            if (window != null && controller != null) {
+                @Suppress("DEPRECATION")
+                if (oldStatusColor != null) window.statusBarColor = oldStatusColor
+                @Suppress("DEPRECATION")
+                if (oldNavColor != null) window.navigationBarColor = oldNavColor
+                if (oldStatusIcons != null) controller.isAppearanceLightStatusBars = oldStatusIcons
+                if (oldNavIcons != null) controller.isAppearanceLightNavigationBars = oldNavIcons
+            }
+        }
+    }
+    SideEffect {
+        if (activity != null && !fullscreen) {
+            val window = activity.window
+            @Suppress("DEPRECATION")
+            window.statusBarColor = AndroidColor.TRANSPARENT
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = AndroidColor.TRANSPARENT
+            if (Build.VERSION.SDK_INT >= 29) {
+                window.isStatusBarContrastEnforced = false
+                window.isNavigationBarContrastEnforced = false
+            }
+            val bars = WindowInsetsControllerCompat(window, window.decorView)
+            // On a light screenshot, the hidden-chrome state uses dark system
+            // indicators directly over the photo. Visible controls use white
+            // indicators over their black gradient instead.
+            bars.isAppearanceLightStatusBars = !chrome
+            bars.isAppearanceLightNavigationBars = !chrome
+        }
+    }
     DisposableEffect(fullscreen, landscape, activity, view) {
         if (activity != null && fullscreen) applyFullscreen(activity, view, true, landscape)
         onDispose { if (activity != null && fullscreen) applyFullscreen(activity, view, false, landscape) }
@@ -155,7 +200,10 @@ internal fun GalleryMediaViewer(
                             { playing: Boolean -> navigateVideo(target, playing) }
                         },
                         startAtBeginning = fromSkipButton,
-                        autoplayOnNavigation = fromSkipButton && episodeNavigation?.second == true)
+                        autoplayOnNavigation = fromSkipButton && episodeNavigation?.second == true,
+                        onControlsVisibilityChanged = { shown ->
+                            if (page == pager.currentPage) chrome = shown
+                        })
                 } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (poster != null) VideoViewerPoster(poster, Modifier.fillMaxSize())
                     Icon(Icons.Rounded.PlayArrow, null, Modifier.size(48.dp), Color.White)
@@ -168,8 +216,8 @@ internal fun GalleryMediaViewer(
                 .atZone(ZoneId.systemDefault())
             Box(
                 modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .68f),
-                        Color.Black.copy(alpha = .18f), Color.Transparent)))
+                    .background(Brush.verticalGradient(listOf(viewerHeaderOverlayColor,
+                        Color.Black.copy(alpha = .28f), Color.Transparent)))
                     .statusBarsPadding(),
             ) {
                 GalleryV10Header(
@@ -189,7 +237,7 @@ internal fun GalleryMediaViewer(
             Box(
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Transparent,
-                        Color.Black.copy(alpha = .32f), Color.Black.copy(alpha = .7f))))
+                        Color.Black.copy(alpha = .26f), viewerBottomOverlayColor)))
                     .navigationBarsPadding(),
             ) {
                 GalleryV10Bottom(
