@@ -361,6 +361,7 @@ internal fun LocalVideoPlayer(
     showAlbumSkipButton: Boolean = false,
     startAtBeginning: Boolean = false,
     autoplayOnNavigation: Boolean = false,
+    onControlsVisibilityChanged: ((Boolean) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val gestureThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
@@ -404,6 +405,12 @@ internal fun LocalVideoPlayer(
     var playbackEnded by remember(uri) { mutableStateOf(false) }
     var scrubPositionMs by remember(uri) { mutableStateOf<Long?>(null) }
     var chromeVisible by remember(uri) { mutableStateOf(true) }
+    // Gallery's overlay controls follow the native video-controller visibility
+    // so a tap never leaves the Gallery header/footer floating above clean video.
+    val notifyControlsVisibility by rememberUpdatedState(onControlsVisibilityChanged)
+    LaunchedEffect(chromeVisible, galleryPagingEnabled) {
+        if (galleryPagingEnabled) notifyControlsVisibility?.invoke(chromeVisible)
+    }
     var unlockVisible by remember(uri) { mutableStateOf(false) }
     var playerView by remember(uri, retryGeneration) { mutableStateOf<PlayerView?>(null) }
     var posterView by remember(uri, retryGeneration) { mutableStateOf<ImageView?>(null) }
