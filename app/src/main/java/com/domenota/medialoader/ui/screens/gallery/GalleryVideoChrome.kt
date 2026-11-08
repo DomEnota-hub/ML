@@ -128,7 +128,7 @@ internal fun GalleryVideoChrome(
                         inactiveTrackColor = Color.LightGray.copy(alpha = .50f),
                     ),
                 )
-                Text(videoClock(durationMs), color = Color.White, fontSize = 12.sp,
+                Text(galleryVideoClock(durationMs), color = Color.White, fontSize = 12.sp,
                     fontWeight = FontWeight.Medium)
             }
             IconButton(
