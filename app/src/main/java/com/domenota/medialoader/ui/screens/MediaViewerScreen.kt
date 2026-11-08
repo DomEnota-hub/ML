@@ -411,7 +411,6 @@ internal fun LocalVideoPlayer(
     var scrubPositionMs by remember(uri) { mutableStateOf<Long?>(null) }
     var chromeVisible by remember(uri) { mutableStateOf(true) }
     var galleryDisplayedPositionMs by remember(uri) { mutableStateOf(0L) }
-    LaunchedEffect(playerKey = uri) { /* initialized below when player exists */ }
     // Gallery's overlay controls follow the native video-controller visibility
     // so a tap never leaves the Gallery header/footer floating above clean video.
     val notifyControlsVisibility by rememberUpdatedState(onControlsVisibilityChanged)
