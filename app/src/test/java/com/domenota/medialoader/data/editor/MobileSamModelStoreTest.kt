@@ -4,9 +4,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import kotlinx.coroutines.runBlocking
 
+@RunWith(RobolectricTestRunner::class)
 class MobileSamModelStoreTest {
     @Test fun downloadsExactlyTwoPinnedOnnxParts() {
         assertEquals(28_157_093L, MobileSamModelStore.ENCODER_BYTES)
