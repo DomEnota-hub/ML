@@ -99,7 +99,7 @@ jobs:
           assert "tryAwaitRelease()" in chrome and "onCompareHold(false)" in chrome
           assert "AiEraserMode.entries.forEach" in chrome
           assert "Modifier.width(74.dp).height(68.dp)" in chrome
-          assert "Modifier.size(23.dp)" in chrome, "Approved icon size from v0.2"
+          assert "modifier = Modifier.align(Alignment.End).size(23.dp)" in chrome, "Approved icon size from v0.2"
           for ref in ("ic_ai_eraser_hand.xml", "ic_ai_eraser_manual.xml"):
               assert Path("app/src/main/res/drawable",ref).exists()
           import xml.etree.ElementTree as ET
