@@ -2,6 +2,8 @@ package com.domenota.medialoader.ui.screens.gallery
 
 import android.content.res.Configuration
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,7 +15,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
@@ -22,9 +23,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,6 +36,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -50,7 +53,6 @@ import androidx.compose.ui.unit.sp
  * duplicate toolbar, no measured native button coordinates, no media resizes.
  * The GalleryMediaViewer owns the common top/action bars.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GalleryVideoChrome(
     visible: Boolean,
@@ -120,34 +122,61 @@ internal fun GalleryVideoChrome(
                 val length = durationMs.coerceAtLeast(1L)
                 Text(galleryVideoClock(scrubbing?.toLong() ?: positionMs),
                     color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                Slider(
-                    value = (scrubbing ?: positionMs.toFloat()).coerceIn(0f, length.toFloat()),
-                    onValueChange = { scrubbing = it },
-                    onValueChangeFinished = {
-                        scrubbing?.let { onSeekTo(it.toLong()) }
-                        scrubbing = null
-                    },
-                    valueRange = 0f..length.toFloat(),
-                    modifier = Modifier.weight(1f).height(40.dp)
-                        .semantics { contentDescription = "Положение воспроизведения" },
-                    // A round 12dp thumb, never a vertical marker.
-                    thumb = { Box(Modifier.size(12.dp).background(Color.White, CircleShape)) },
-                    track = { sliderState ->
-                        Canvas(Modifier.fillMaxWidth().height(20.dp)) {
-                            val y = size.height / 2f
-                            val fraction = (sliderState.value / length.toFloat()).coerceIn(0f, 1f)
-                            val stroke = 4.dp.toPx()
-                            drawLine(Color(0xFF858585).copy(alpha = .80f),
-                                Offset(0f, y), Offset(size.width, y),
-                                strokeWidth = stroke, cap = StrokeCap.Round)
-                            if (fraction > 0f) {
-                                drawLine(Color.White,
-                                    Offset(0f, y), Offset(size.width * fraction, y),
-                                    strokeWidth = stroke, cap = StrokeCap.Round)
+                // Render thumb and track in ONE Canvas coordinate system.
+                // This prevents any vertical offset or Material3-specific gap.
+                val visiblePosition = (scrubbing ?: positionMs.toFloat())
+                    .coerceIn(0f, length.toFloat())
+                Canvas(
+                    Modifier.weight(1f).height(40.dp)
+                        .pointerInput(length) {
+                            detectTapGestures { point ->
+                                val fraction = galleryTimelineFraction(
+                                    point.x, size.width.toFloat(), 6.dp.toPx())
+                                onSeekTo((fraction * length).toLong())
                             }
                         }
-                    },
-                )
+                        .pointerInput(length) {
+                            detectDragGestures(
+                                onDragStart = { point ->
+                                    scrubbing = galleryTimelineFraction(
+                                        point.x, size.width.toFloat(), 6.dp.toPx()) * length
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    scrubbing = galleryTimelineFraction(
+                                        change.position.x, size.width.toFloat(), 6.dp.toPx()) * length
+                                },
+                                onDragEnd = {
+                                    scrubbing?.let { onSeekTo(it.toLong()) }
+                                    scrubbing = null
+                                },
+                                onDragCancel = { scrubbing = null },
+                            )
+                        }
+                        .semantics {
+                            contentDescription = "Положение воспроизведения"
+                            progressBarRangeInfo = ProgressBarRangeInfo(
+                                visiblePosition, 0f..length.toFloat())
+                            setProgress { newValue ->
+                                onSeekTo(newValue.toLong().coerceIn(0L, length))
+                                true
+                            }
+                        },
+                ) {
+                    val centerY = size.height / 2f
+                    val radius = 6.dp.toPx()
+                    val startX = radius
+                    val endX = (size.width - radius).coerceAtLeast(radius)
+                    val thumbX = galleryTimelineThumbX(
+                        visiblePosition / length.toFloat(), size.width, radius)
+                    drawLine(Color(0xFF858585).copy(alpha = .80f),
+                        Offset(startX, centerY), Offset(endX, centerY),
+                        strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(Color.White,
+                        Offset(startX, centerY), Offset(thumbX, centerY),
+                        strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+                    drawCircle(Color.White, radius = radius, center = Offset(thumbX, centerY))
+                }
                 Text(galleryVideoClock(durationMs), color = Color.White, fontSize = 12.sp,
                     fontWeight = FontWeight.Medium)
             }
@@ -167,4 +196,17 @@ internal fun galleryVideoClock(ms: Long): String {
     return if (seconds >= 3600) "%d:%02d:%02d".format(
         seconds / 3600, (seconds / 60) % 60, seconds % 60
     ) else "%02d:%02d".format(seconds / 60, seconds % 60)
+}
+
+/** One coordinate system for thumb and track, safe even on narrow viewports. */
+internal fun galleryTimelineThumbX(fraction: Float, width: Float, radius: Float): Float {
+    val start = radius.coerceAtLeast(0f)
+    val length = (width - 2f * start).coerceAtLeast(0f)
+    return start + fraction.coerceIn(0f, 1f) * length
+}
+
+internal fun galleryTimelineFraction(x: Float, width: Float, radius: Float): Float {
+    val start = radius.coerceAtLeast(0f)
+    val travel = (width - 2f * start).coerceAtLeast(1f)
+    return ((x - start) / travel).coerceIn(0f, 1f)
 }
