@@ -11,6 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
+
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -63,6 +65,75 @@ internal fun GalleryV10Header(date: String, time: String, onBack: () -> Unit, on
     }
 }
 
+/**
+ * Shared overlay for video only. Existing gallery icons are reused unchanged.
+ * In narrow landscape only More/rotate/PiP stay in the header, so buttons
+ * never crowd the player. All other actions remain accessible via More.
+ */
+@Composable
+internal fun GalleryVideoHeader(
+    date: String,
+    time: String,
+    landscape: Boolean,
+    onBack: () -> Unit,
+    onRotate: () -> Unit,
+    onFloating: () -> Unit,
+    onShare: () -> Unit,
+    onEdit: () -> Unit,
+    onFavorite: () -> Unit,
+    onDelete: () -> Unit,
+    onMenu: () -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val expanded = landscape && maxWidth >= 670.dp
+        Row(
+            Modifier.fillMaxWidth().height(75.dp)
+                .padding(horizontal = if (landscape) 12.dp else 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(42.dp)) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад",
+                    tint = Color.White, modifier = Modifier.size(28.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text(date, color = Color.White, fontWeight = FontWeight.SemiBold,
+                    fontSize = if (landscape) 16.sp else 17.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(3.dp))
+                Text(time, color = v10Muted, fontSize = 12.sp, maxLines = 1)
+            }
+            if (expanded) {
+                listOf(
+                    Triple("share", "Поделиться", onShare),
+                    Triple("cut", "Обрезать", onEdit),
+                    Triple("heart", "Избранное", onFavorite),
+                    Triple("trash", "Удалить", onDelete),
+                ).forEach { (asset, label, action) ->
+                    IconButton(onClick = action, modifier = Modifier.size(43.dp)) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            GalleryV10Icon(asset, Modifier.size(28.dp))
+                        }
+                    }
+                }
+            }
+            if (landscape) {
+                IconButton(onClick = onMenu, modifier = Modifier.size(43.dp)) {
+                    GalleryV10Icon("more", Modifier.size(28.dp))
+                }
+            }
+            IconButton(onClick = onRotate, modifier = Modifier.size(43.dp)) {
+                GalleryV10Icon("rotate", Modifier.size(27.dp))
+            }
+            // PiP stays visible at the outer right edge in BOTH orientations.
+            IconButton(onClick = onFloating, modifier = Modifier.size(43.dp)) {
+                Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = "В оконный режим",
+                    tint = Color.White, modifier = Modifier.size(27.dp))
+            }
+        }
+    }
+}
+
 @Composable
 internal fun GalleryV10Bottom(
     isPhoto: Boolean, isFavorite: Boolean, onShare: () -> Unit, onEdit: () -> Unit,
@@ -109,9 +180,16 @@ private val v10VideoRows = listOf(
     V10MenuRow("wallpaper", "Установить как обои", "wallpaper"),
     V10MenuRow("info", "Сведения", "info"),
     V10MenuRow("divider1", "", ""),
+    V10MenuRow("share", "Поделиться", "share"),
+    V10MenuRow("edit", "Обрезать", "cut"),
+    V10MenuRow("favorite", "Избранное", "heart"),
+    V10MenuRow("delete", "Удалить", "trash"),
     V10MenuRow("cast", "Транслировать", "cast"),
     V10MenuRow("loop", "Зациклить одно видео", "loop"),
     V10MenuRow("speed", "Скорость воспроизведения", "speed", true),
+    V10MenuRow("aspect", "Пропорции видео", "open"),
+    V10MenuRow("tracks", "Звуковые дорожки", "music"),
+    V10MenuRow("time", "Перейти ко времени", "speed"),
     V10MenuRow("song", "Найти трек", "music"),
     V10MenuRow("divider2", "", ""),
     V10MenuRow("copy", "Копировать", "copy"),
