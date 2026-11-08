@@ -1111,7 +1111,7 @@ fun SettingsScreen(
             GroupDivider()
             SettingRow(Icons.Rounded.Tune, "AI-модели",
                 "LaMa и MobileSAM · загрузка и удаление", grouped = true,
-                iconTone = SettingIconTone.YTDLP, onClick = { aiModelsDialog = true })
+                iconTone = SettingIconTone.AI_MODELS, onClick = { aiModelsDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.SystemUpdate,
                 if (ytDlpUpdating) "Обновляем yt-dlp…" else "Обновить yt-dlp",
