@@ -8,6 +8,8 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.app.WallpaperManager
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import androidx.core.view.WindowInsetsCompat
 import java.util.Locale
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -87,6 +89,9 @@ internal fun GalleryMediaViewer(
     var photoTool by remember(current.id) { mutableStateOf<String?>(null) }
     var loopVideo by rememberSaveable(current.id) { mutableStateOf(false) }
     var videoSpeed by rememberSaveable(current.id) { mutableStateOf(1f) }
+    var floatingRequest by remember(current.id) { mutableIntStateOf(0) }
+    var playerCommand by remember(current.id) { mutableStateOf<Pair<Int, String>?>(null) }
+    var playerCommandSeq by remember(current.id) { mutableIntStateOf(0) }
     var songSearch by remember(current.id) { mutableStateOf(false) }
     var info by remember(current.id) { mutableStateOf(false) }
     var chooseFolder by remember(current.id) { mutableStateOf(false) }
@@ -134,6 +139,9 @@ internal fun GalleryMediaViewer(
         val oldNavColor = window?.navigationBarColor
         val oldStatusIcons = controller?.isAppearanceLightStatusBars
         val oldNavIcons = controller?.isAppearanceLightNavigationBars
+        val oldBarsBehavior = controller?.systemBarsBehavior
+        val oldStatusContrast = if (Build.VERSION.SDK_INT >= 29) window?.isStatusBarContrastEnforced else null
+        val oldNavContrast = if (Build.VERSION.SDK_INT >= 29) window?.isNavigationBarContrastEnforced else null
         onDispose {
             if (window != null && controller != null) {
                 @Suppress("DEPRECATION")
@@ -142,6 +150,13 @@ internal fun GalleryMediaViewer(
                 if (oldNavColor != null) window.navigationBarColor = oldNavColor
                 if (oldStatusIcons != null) controller.isAppearanceLightStatusBars = oldStatusIcons
                 if (oldNavIcons != null) controller.isAppearanceLightNavigationBars = oldNavIcons
+                if (oldBarsBehavior != null) controller.systemBarsBehavior = oldBarsBehavior
+                if (Build.VERSION.SDK_INT >= 29) {
+                    if (oldStatusContrast != null) window.isStatusBarContrastEnforced = oldStatusContrast
+                    if (oldNavContrast != null) window.isNavigationBarContrastEnforced = oldNavContrast
+                }
+                // Never leave Android navigation hidden after exiting gallery.
+                controller.show(WindowInsetsCompat.Type.systemBars())
             }
         }
     }
@@ -157,11 +172,17 @@ internal fun GalleryMediaViewer(
                 window.isNavigationBarContrastEnforced = false
             }
             val bars = WindowInsetsControllerCompat(window, window.decorView)
-            // On a light screenshot, the hidden-chrome state uses dark system
-            // indicators directly over the photo. Visible controls use white
-            // indicators over their black gradient instead.
-            bars.isAppearanceLightStatusBars = !chrome
-            bars.isAppearanceLightNavigationBars = !chrome
+            // Transparent is not the same as hidden. The gallery enters
+            // immersive viewing only while its controls are hidden.
+            bars.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (chrome && !locked) {
+                bars.isAppearanceLightStatusBars = false
+                bars.isAppearanceLightNavigationBars = false
+                bars.show(WindowInsetsCompat.Type.systemBars())
+            } else {
+                bars.hide(WindowInsetsCompat.Type.systemBars())
+            }
         }
     }
     DisposableEffect(fullscreen, landscape, activity, view) {
@@ -169,6 +190,8 @@ internal fun GalleryMediaViewer(
         onDispose { if (activity != null && fullscreen) applyFullscreen(activity, view, false, landscape) }
     }
     BackHandler(fullscreen) { fullscreen = false }
+    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+        Configuration.ORIENTATION_LANDSCAPE
     // Photo and video share one edge-to-edge viewport. Chrome is drawn on top,
     // never as Scaffold bars that reduce the image size or leave blank bands.
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -203,7 +226,10 @@ internal fun GalleryMediaViewer(
                         autoplayOnNavigation = fromSkipButton && episodeNavigation?.second == true,
                         onControlsVisibilityChanged = { shown ->
                             if (page == pager.currentPage) chrome = shown
-                        })
+                        },
+                        floatingWindowRequest = if (page == pager.currentPage) floatingRequest else 0,
+                        galleryCommand = if (page == pager.currentPage) playerCommand else null,
+                    )
                 } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (poster != null) VideoViewerPoster(poster, Modifier.fillMaxSize())
                     Icon(Icons.Rounded.PlayArrow, null, Modifier.size(48.dp), Color.White)
@@ -220,36 +246,54 @@ internal fun GalleryMediaViewer(
                         Color.Black.copy(alpha = .28f), Color.Transparent)))
                     .statusBarsPadding(),
             ) {
-                GalleryV10Header(
-                    date = created.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))),
-                    time = created.format(DateTimeFormatter.ofPattern("HH:mm")),
-                    onBack = onBack,
-                    onRotate = {
-                        activity?.let { host ->
-                            host.requestedOrientation =
-                                if (host.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
-                                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                        }
-                    },
-                )
+                val onRotate: () -> Unit = {
+                    activity?.requestedOrientation =
+                        if (isLandscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                }
+                if (current.mediaType == MediaType.VIDEO) {
+                    GalleryVideoHeader(
+                        date = created.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))),
+                        time = created.format(DateTimeFormatter.ofPattern("HH:mm")),
+                        landscape = isLandscape,
+                        onBack = onBack,
+                        onRotate = onRotate,
+                        onFloating = { floatingRequest++ },
+                        onShare = { onShare(current) },
+                        onEdit = { onEdit(current) },
+                        onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
+                        onDelete = { onDelete(current) },
+                        onMenu = { menu = true },
+                    )
+                } else {
+                    GalleryV10Header(
+                        date = created.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))),
+                        time = created.format(DateTimeFormatter.ofPattern("HH:mm")),
+                        onBack = onBack, onRotate = onRotate,
+                    )
+                }
             }
-            Box(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent,
-                        Color.Black.copy(alpha = .26f), viewerBottomOverlayColor)))
-                    .navigationBarsPadding(),
-            ) {
-                GalleryV10Bottom(
-                    isPhoto = current.mediaType == MediaType.PHOTO,
-                    isFavorite = current.id in favoriteIds,
-                    onShare = { onShare(current) },
-                    onEdit = { onEdit(current) },
-                    onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
-                    onDelete = { onDelete(current) },
-                    onMenu = { menu = true },
-                )
+            // Landscape video uses top-row actions and one timeline in the
+            // player. Portrait photos/videos keep the familiar bottom actions.
+            if (current.mediaType != MediaType.VIDEO || !isLandscape) {
+                Box(
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent,
+                            Color.Black.copy(alpha = .26f), viewerBottomOverlayColor)))
+                        .navigationBarsPadding(),
+                ) {
+                    GalleryV10Bottom(
+                        isPhoto = current.mediaType == MediaType.PHOTO,
+                        isFavorite = current.id in favoriteIds,
+                        onShare = { onShare(current) },
+                        onEdit = { onEdit(current) },
+                        onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
+                        onDelete = { onDelete(current) },
+                        onMenu = { menu = true },
+                    )
+                }
             }
+
         }
         if (menu) GalleryV10Popup(
             isPhoto = current.mediaType == MediaType.PHOTO,
@@ -264,6 +308,14 @@ internal fun GalleryMediaViewer(
                 } else {
                     menu = false
                     when (action) {
+                        "share" -> onShare(current)
+                        "edit" -> onEdit(current)
+                        "favorite" -> mutate { onFavorite(current.id, current.id !in favoriteIds) }
+                        "delete" -> onDelete(current)
+                        "aspect", "time", "tracks" -> {
+                            playerCommandSeq++
+                            playerCommand = playerCommandSeq to action
+                        }
                         "album" -> chooseFolder = true
                         "wallpaper" -> wallpaperChoice = true
                         "info" -> info = true
