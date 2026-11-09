@@ -121,6 +121,8 @@ dependencies {
     implementation 'org.jsoup:jsoup:1.17.2'
     // ARM64 CPU inference; LaMa weights download separately on explicit user approval.
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'
+    // Actual local person detection; detector weights are downloaded separately.
+    implementation 'com.google.mediapipe:tasks-vision:0.10.35'
     // Offline Russian and English OCR with genuine per-character boxes.
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     // Audio-only LGPL build with libmp3lame; actual transcoding, not an extension change.
