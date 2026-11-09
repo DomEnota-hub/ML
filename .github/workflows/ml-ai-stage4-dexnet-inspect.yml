@@ -6,6 +6,12 @@ on:
     paths:
       - scripts/qa/stage4_dexnet_checkpoint_inspect.py
       - .github/workflows/ml-ai-stage4-dexnet-inspect.yml
+  pull_request:
+    branches:
+      - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
+    paths:
+      - scripts/qa/stage4_dexnet_checkpoint_inspect.py
+      - .github/workflows/ml-ai-stage4-dexnet-inspect.yml
   workflow_dispatch:
 permissions:
   contents: read
