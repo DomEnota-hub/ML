@@ -1,9 +1,8 @@
 name: ML stage 3 - Pictures migration and history integrity QA
 
 on:
-  push:
-    branches:
-      - feature/ml-17158-stage3-ocr-animation-release-20261109
+  pull_request:
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
 
 permissions:
@@ -54,6 +53,7 @@ jobs:
             --tests '*GalleryLibraryStateTest' \
             --tests '*LocalTextOcrFallbackTest' \
             --tests '*TextGlyphMaskTest' \
+            --tests '*GlyphContentMaskTest' \
             --tests '*PersonInstancePolicyTest' \
             --tests '*LaMaCompositionTest' \
             --stacktrace
