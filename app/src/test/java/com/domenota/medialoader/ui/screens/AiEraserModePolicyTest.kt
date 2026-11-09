@@ -6,7 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Stage-1 policy: do not pretend the MobileSAM/specialist engines already exist. */
+/** Stage-2: people require a real optional detector + MobileSAM; glare/reflection remain unavailable. */
 class AiEraserModePolicyTest {
     @Test fun nativeUiKeepsAllSixApprovedModeLabels() {
         assertEquals(listOf(
@@ -16,9 +16,10 @@ class AiEraserModePolicyTest {
     }
 
     @Test fun onlyWorkingLocalEnginesAreEnabled() {
-        assertEquals(setOf(AiEraserMode.OBJECTS, AiEraserMode.MANUAL, AiEraserMode.TEXT),
+        assertEquals(setOf(AiEraserMode.OBJECTS, AiEraserMode.PEOPLE,
+            AiEraserMode.MANUAL, AiEraserMode.TEXT),
             AiEraserMode.entries.filter { it.available }.toSet())
-        assertFalse(AiEraserMode.PEOPLE.available)
+        assertTrue(AiEraserMode.PEOPLE.available)
         assertFalse(AiEraserMode.GLARE.available)
         assertFalse(AiEraserMode.REFLECTION.available)
     }
