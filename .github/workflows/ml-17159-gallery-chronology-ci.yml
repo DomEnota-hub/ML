@@ -36,6 +36,46 @@ jobs:
         run: |
           set -euo pipefail
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Verify release identity and no auto-repair
+        run: |
+          grep -Eq 'versionCode 219
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*PhoneLibraryChronologyTest' \
+            --tests '*LegacyRelocationPolicyTest' \
+            --tests '*MediaDateRepairPolicyTest' \
+            --tests '*LegacyMediaMigrationHistoryTest' \
+            --tests '*MediaStoragePolicyTest' \
+            --tests '*GalleryLibraryStateTest' \
+            --tests '*GalleryAlbumFileSortTest' \
+            --tests '*GalleryDateNavigationTest' \
+            --tests '*PhoneMediaLibraryTest' \
+            --stacktrace
+      - name: Android lint
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Compile ARM64 unsigned
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Check ARM64 output and source safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          archs="$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)"
+          test "$archs" = arm64-v8a
+          # Verify this branch never uses the destructive legacy copier.
+          if sed -n '/suspend fun migrate(/,/private fun belongsToLegacyDownloads/p' \
+            app/src/main/java/com/domenota/medialoader/data/storage/LegacyMediaMigration.kt |
+            grep -Eq 'publishVerifiedLegacyCopy|deleteDownloadPermanently|moveSavedUriWhenCurrent'; then
+            echo "::error::Destructive legacy copy, delete or URI swap returned!"
+            exit 1
+          fi
+          echo "In-place only, no destructive migration code in entrypoint."
+ app/build.gradle
+          grep -Fq "versionName '1.7.159'" app/build.gradle
+          ! grep -R 'tryRestoreOneMediaDate()' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
       - name: Chronology, migration, room and gallery regressions
         shell: bash
         run: |
@@ -43,6 +83,7 @@ jobs:
           ./gradlew :app:testDebugUnitTest -Parm64Release=true \
             --tests '*PhoneLibraryChronologyTest' \
             --tests '*LegacyRelocationPolicyTest' \
+            --tests '*MediaDateRepairPolicyTest' \
             --tests '*LegacyMediaMigrationHistoryTest' \
             --tests '*MediaStoragePolicyTest' \
             --tests '*GalleryLibraryStateTest' \
