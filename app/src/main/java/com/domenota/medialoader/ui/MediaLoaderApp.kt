@@ -514,6 +514,15 @@ fun MediaLoaderApp(
     val hiddenCount by viewModel.hiddenCount.collectAsStateWithLifecycle()
     val hiddenItems by viewModel.hiddenItems.collectAsStateWithLifecycle()
     val downloadFolder by viewModel.downloadFolder.collectAsStateWithLifecycle()
+    val storageMigration by viewModel.storageMigration.collectAsStateWithLifecycle()
+    // MediaStore publishes new items under Pictures/Music after a verified
+    // migration; refresh only when the explicit operation finishes.
+    LaunchedEffect(storageMigration.running, storageMigration.processed) {
+        if (!storageMigration.running && storageMigration.processed > 0) {
+            libraryModel.refresh(AppMode.GALLERY, force = true)
+            libraryModel.refresh(AppMode.MUSIC, force = true)
+        }
+    }
     val musicRecognitionMode by viewModel.musicRecognitionMode.collectAsStateWithLifecycle()
     val renameRecognizedTracks by viewModel.renameRecognizedTracks.collectAsStateWithLifecycle()
     val editorExport by viewModel.editorExport.collectAsStateWithLifecycle()
@@ -1345,6 +1354,9 @@ fun MediaLoaderApp(
                     onOpenEqualizer = { navController.navigate("equalizer") },
                     onChangeFolder = viewModel::changeFolder,
                     onSelectFolder = { folderLauncher.launch(null) },
+                    storageMigrationRunning = storageMigration.running,
+                    storageMigrationMessage = storageMigration.message,
+                    onMigrateLegacyMedia = viewModel::migrateLegacyDownloads,
                     onRestore = viewModel::restoreHidden,
                     onEmptyTrash = viewModel::clearHidden,
                     onOpenTrash = { navController.navigate("trash") },
