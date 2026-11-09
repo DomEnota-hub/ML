@@ -66,6 +66,35 @@ jobs:
             echo 'Model weights MUST NOT be committed to Git' >&2; exit 1;
           } || :
           test "$(stat -c%s "$model")" -lt 110000000
+      - name: Bootstrap pinned Gradle 8.9 from checked wrapper SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for i in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$i" != 4
+            sleep 10
+          done
+      - name: Install Android SDK 35 build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-35' 'build-tools;35.0.0'
+      - name: Unit tests with ACTUAL DExNet model (before credential gate)
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*ReflectionRemovalEngineTest' \
+            --tests '*AiEraserAvailabilityTest' \
+            --tests '*AiEraserModePolicyTest' \
+            --tests '*SpecularGlareEngineTest' \
+            --tests '*SpecularOverlayComposerTest' \
+            --tests '*PersonSegmentationPipelineTest' --stacktrace
+      - name: Android lint with real model configuration (before credential gate)
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Provision the two real built-in GAPI credentials without logging them
         env:
           ML_GAPI_BUILTIN_KEYS_JSON_B64: ${{ secrets.ML_GAPI_BUILTIN_KEYS_JSON_B64 }}
@@ -92,35 +121,6 @@ jobs:
               raise SystemExit('Refusing QA: built-in GAPI credentials missing or invalid')
           print('Built-in GAPI configuration validated (credential values not logged)')
           PY
-      - name: Bootstrap pinned Gradle 8.9 from checked wrapper SHA
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew
-          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
-          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
-          for i in 1 2 3 4; do
-            ./gradlew --version --no-daemon && break
-            test "$i" != 4
-            sleep 10
-          done
-      - name: Install Android SDK 35 build tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-            'platforms;android-35' 'build-tools;35.0.0'
-      - name: Unit tests with ACTUAL model bundled in BuildConfig
-        run: |
-          ./gradlew :app:testDebugUnitTest -PofficialQa=true \
-            --tests '*ReflectionRemovalEngineTest' \
-            --tests '*AiEraserAvailabilityTest' \
-            --tests '*AiEraserModePolicyTest' \
-            --tests '*SpecularGlareEngineTest' \
-            --tests '*SpecularOverlayComposerTest' \
-            --tests '*PersonSegmentationPipelineTest' --stacktrace
-      - name: Android lint with real model configuration
-        run: ./gradlew :app:lintDebug -PofficialQa=true --stacktrace
       - name: Load existing persistent QA-only signing identity (no private key in Git)
         env:
           MEDIA_DEBUG_KEYSTORE_B64: ${{ secrets.MEDIA_DEBUG_KEYSTORE_B64 }}
