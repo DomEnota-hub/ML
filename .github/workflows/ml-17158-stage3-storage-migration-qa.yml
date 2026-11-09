@@ -48,6 +48,7 @@ jobs:
           ./gradlew :app:testDebugUnitTest -Parm64Release=true \
             --tests '*MediaStoragePolicyTest' \
             --tests '*StorageSettingsPicturesTest' \
+            --tests '*LegacyMediaMigrationHistoryTest' \
             --tests '*StorageNamingTest' \
             --tests '*DownloadQueueTest' \
             --tests '*GalleryLibraryStateTest' \
