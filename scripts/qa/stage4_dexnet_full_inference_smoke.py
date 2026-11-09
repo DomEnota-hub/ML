@@ -252,15 +252,29 @@ def main():
             raise AssertionError("Full export differs from PyTorch pretrained inference")
         print("PEAK_RSS_KIB", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
               flush=True)
-        # Measure ORT in a fresh process without holding the PyTorch weights,
-        # VGG19 and transient ONNX export graph in memory simultaneously.
-        child = subprocess.run([sys.executable, __file__, "--ort-resource-only",
-                                str(onnxpath)], check=False, capture_output=True,
-                               text=True, timeout=120)
-        print(child.stdout.strip(), flush=True)
-        if child.returncode != 0:
-            print("ORT_STANDALONE_STDERR", child.stderr[-7000:], flush=True)
-            raise RuntimeError("Standalone CPU ONNX resource test returned failure")
+        # Measure ORT in a fresh process without holding PyTorch, VGG19
+        # and the temporary exporter in the memory of the SAME process.
+        # Profile baseline AND safer memory options. No threshold inflation.
+        # Never claim memory suitability if all configurations exceed 781 MiB.
+        usable_memory_modes = []
+        for ort_mode in ("baseline", "noarena", "noarena_basic"):
+            child = subprocess.run(
+                [sys.executable, __file__, "--ort-resource-only",
+                 str(onnxpath), ort_mode],
+                check=False, capture_output=True, text=True, timeout=120)
+            print(child.stdout.strip(), flush=True)
+            if child.returncode == 0:
+                usable_memory_modes.append(ort_mode)
+                print("ORT_MOBILE_RAM_PRELIMINARY_PASS", ort_mode, flush=True)
+            else:
+                print("ORT_MEMORY_MODE_REJECTED", ort_mode,
+                      "exit", child.returncode, flush=True)
+                if child.stderr.strip():
+                    print("ORT_MEMORY_STDERR", child.stderr[-1500:], flush=True)
+        if not usable_memory_modes:
+            raise RuntimeError(
+                "All genuine DExNet+VGG19 ONNX CPU profiles exceed 781 MiB RAM budget; "
+                "Android model cannot be enabled")
 
         # Fail honestly when synthetic benchmark worsens. Do not alter
         # the scene or threshold merely to generate a green result.
@@ -289,11 +303,19 @@ def main():
               "Android/licensing/device QA pending", flush=True)
 
 
-def ort_resource_child(onnxpath: pathlib.Path):
+def ort_resource_child(onnxpath: pathlib.Path, mode: str):
     import numpy as np
     import onnxruntime as ort
+    if mode not in ("baseline", "noarena", "noarena_basic"):
+        raise ValueError("Unexpected ONNX memory profile")
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = 2
+    opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    if mode != "baseline":
+        opts.enable_cpu_mem_arena = False
+        opts.enable_mem_pattern = False
+    if mode == "noarena_basic":
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
     started = time.perf_counter()
     session = ort.InferenceSession(str(onnxpath), opts,
                                    providers=["CPUExecutionProvider"])
@@ -306,11 +328,14 @@ def ort_resource_child(onnxpath: pathlib.Path):
         raise RuntimeError("Standalone ONNX produces malformed output")
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     print("ORT_ONLY_CPU_RESOURCE", json.dumps({
+        "mode": mode,
         "model_bytes": onnxpath.stat().st_size,
         "model_loading_seconds": model_load,
         "model_inference_seconds": duration,
         "peak_rss_kib": peak,
         "peak_rss_mib": round(peak/1024, 1),
+        "cpu_mem_arena": opts.enable_cpu_mem_arena,
+        "mem_pattern": opts.enable_mem_pattern,
         "architecture": "linux_x86_64; Android ARM64 requires separate QA",
     }), flush=True)
     if peak > 800_000:
@@ -318,8 +343,8 @@ def ort_resource_child(onnxpath: pathlib.Path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--ort-resource-only":
-        ort_resource_child(pathlib.Path(sys.argv[2]))
+    if len(sys.argv) == 4 and sys.argv[1] == "--ort-resource-only":
+        ort_resource_child(pathlib.Path(sys.argv[2]), sys.argv[3])
     elif len(sys.argv) == 1:
         main()
     else:
