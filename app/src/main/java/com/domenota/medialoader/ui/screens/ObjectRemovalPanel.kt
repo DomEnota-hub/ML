@@ -74,6 +74,7 @@ import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.MobileSamSegmenter
 import com.domenota.medialoader.data.editor.MaskPoint
 import com.domenota.medialoader.data.editor.AutoDragSelectionPolicy
+import com.domenota.medialoader.data.editor.ObjectManualTracePolicy
 import com.domenota.medialoader.data.editor.MaskStroke
 import com.domenota.medialoader.data.editor.MaskActionGrouping
 import com.domenota.medialoader.data.editor.DetectedGlyph
@@ -292,6 +293,7 @@ internal fun ObjectRemovalPanel(
     val maskActions = remember(working) { MaskActionGrouping() }
     var inProgress by remember { mutableStateOf<List<MaskPoint>>(emptyList()) }
     var autoTrace by remember { mutableStateOf<List<MaskPoint>>(emptyList()) }
+    var objectTrace by remember { mutableStateOf<List<MaskPoint>>(emptyList()) }
     var segmenting by remember { mutableStateOf(false) }
     var brush by remember { mutableFloatStateOf(32f) }
     var eraserMode by remember { mutableStateOf(false) }
@@ -308,7 +310,6 @@ internal fun ObjectRemovalPanel(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var selectedMode by remember { mutableStateOf(AiEraserMode.OBJECTS) }
-    var objectManualTools by remember { mutableStateOf(false) }
     val busy = processing || downloading || scanningText
 
     fun undo() {
@@ -343,7 +344,6 @@ internal fun ObjectRemovalPanel(
             mobileReady = mobileStore.verifyInstalled()
             if (mobileReady) {
                 autoMode = true
-                objectManualTools = false
             }
         }
     })
@@ -561,6 +561,7 @@ internal fun ObjectRemovalPanel(
                                 autoTrace = autoPoints.toList()
                             }
                         }
+                        val manualObject = selectedMode == AiEraserMode.OBJECTS && !autoMode
                         var drawing = !moveMode && !textMode && !automaticSelection
                         var selecting = !moveMode && textMode && glyphs.isNotEmpty()
                         val points = mutableListOf<MaskPoint>()
@@ -569,6 +570,7 @@ internal fun ObjectRemovalPanel(
                             imagePoint(down.position)?.let {
                                 points.add(it)
                                 cursor = it
+                                if (manualObject) objectTrace = points.toList()
                             }
                         }
                         if (selecting) {
@@ -594,6 +596,7 @@ internal fun ObjectRemovalPanel(
                                 cursor = null
                                 points.clear()
                                 inProgress = emptyList()
+                                objectTrace = emptyList()
                                 zoom = (zoom * event.calculateZoom()).coerceIn(1f, 5f)
                                 pan += event.calculatePan()
                                 event.changes.forEach { it.consume() }
@@ -614,7 +617,8 @@ internal fun ObjectRemovalPanel(
                                         cursor = it
                                         if (points.size < 20_000) points.add(it)
                                     }
-                                    inProgress = points.toList()
+                                    if (manualObject) objectTrace = points.toList()
+                                    else inProgress = points.toList()
                                 } else if (selecting) {
                                     imagePoint(change.position)?.let { position ->
                                         val before = previousSelectionPoint ?: position
@@ -630,6 +634,13 @@ internal fun ObjectRemovalPanel(
                                     }
                                 }
                                 change.consume()
+                            } else if (drawing && manualObject) {
+                                // Include the finger-up sample even when no preceding move arrives.
+                                event.changes.firstOrNull()?.let { release ->
+                                    imagePoint(release.position)?.let { point ->
+                                        if (points.size < 20_000) points.add(point)
+                                    }
+                                }
                             } else if (autoDrawing) {
                                 // Capture the actual release position; the final motion event
                                 // can contain a finger-up without an intermediate pressed move.
@@ -651,16 +662,25 @@ internal fun ObjectRemovalPanel(
                             message = "Проведите линию по объекту, затем отпустите палец."
                         }
                         if (drawing && points.isNotEmpty()) {
-                            strokes.add(MaskStroke(points.toList(),
+                            // OBJECTS/hand is a fixed, narrow source-space LaMa mask.
+                            // It NEVER calls MobileSAM and has no adjustable brush/eraser.
+                            val stroke = if (manualObject) {
+                                ObjectManualTracePolicy.toStroke(
+                                    points, working.width, working.height)
+                            } else MaskStroke(points.toList(),
                                 (brush / minOf(working.width, working.height)).coerceIn(0.001f, 0.5f),
-                                erase = eraserMode))
-                            maskActions.record(1)
-                            redoStrokes.clear()
+                                erase = eraserMode)
+                            if (stroke != null) {
+                                strokes.add(stroke)
+                                maskActions.record(1)
+                                redoStrokes.clear()
+                            }
                         }
                         } finally {
                             // Also runs when Android cancels a pointer gesture.
                             inProgress = emptyList()
                             autoTrace = emptyList()
+                            objectTrace = emptyList()
                             cursor = null
                         }
                     }
@@ -701,11 +721,14 @@ internal fun ObjectRemovalPanel(
                             )
                         }
                     } else {
-                        // Live yellow drag trace is only a prompt, never a fake SAM mask.
-                        if (autoTrace.size >= 2 &&
-                            selectedMode == AiEraserMode.OBJECTS && autoMode) {
+                        // Live traces are hints only; the committed manual path becomes
+                        // a real narrow LaMa mask, while auto prompts MobileSAM on release.
+                        val visibleTrace = if (selectedMode == AiEraserMode.OBJECTS && !autoMode)
+                            objectTrace else autoTrace
+                        if (visibleTrace.size >= 2 &&
+                            selectedMode == AiEraserMode.OBJECTS) {
                             val trail = Path()
-                            autoTrace.forEachIndexed { i, p ->
+                            visibleTrace.forEachIndexed { i, p ->
                                 val x = p.x * size.width
                                 val y = p.y * size.height
                                 if (i == 0) trail.moveTo(x, y) else trail.lineTo(x, y)
@@ -717,7 +740,7 @@ internal fun ObjectRemovalPanel(
                         // It is a guide, not a new translucent paint stroke.
                         val previewScale =
                             minOf(size.width / working.width, size.height / working.height)
-                        val radius = if (selectedMode == AiEraserMode.OBJECTS && autoMode)
+                        val radius = if (selectedMode == AiEraserMode.OBJECTS)
                             2.dp.toPx() else (brush * previewScale / 2f).coerceAtLeast(1f)
                         val guide = cursor ?: if (brushSizing) MaskPoint(0.5f, 0.5f) else null
                         guide?.let {
@@ -750,9 +773,10 @@ internal fun ObjectRemovalPanel(
                     point = position,
                     viewport = viewport,
                     zoom = zoom,
-                    brush = if (selectedMode == AiEraserMode.OBJECTS && autoMode) 4f else brush,
-                    eraser = eraserMode && !autoMode,
-                    trace = autoTrace,
+                    brush = if (selectedMode == AiEraserMode.OBJECTS) 4f else brush,
+                    eraser = eraserMode && selectedMode == AiEraserMode.MANUAL,
+                    trace = if (selectedMode == AiEraserMode.OBJECTS && !autoMode)
+                        objectTrace else autoTrace,
                     modifier = Modifier.align(corner).padding(8.dp),
                 )
             }
@@ -781,19 +805,23 @@ internal fun ObjectRemovalPanel(
                         onAuto = {
                             if (mobileReady) {
                                 autoMode = true
-                                objectManualTools = false
+                                objectTrace = emptyList()
                             } else askSamInstall = true
                         },
                         onManual = {
                             autoMode = false
-                            objectManualTools = true
+                            eraserMode = false
+                            brushSizing = false
+                            inProgress = emptyList()
+                            autoTrace = emptyList()
                         },
                     )
                 }
             }
         }
-        if (selectedMode == AiEraserMode.MANUAL ||
-            (selectedMode == AiEraserMode.OBJECTS && objectManualTools)) {
+        // Only the separate MANUAL mode has brush, eraser and width controls.
+        // The hand toggle within OBJECTS draws a fixed thin yellow path.
+        if (selectedMode == AiEraserMode.MANUAL) {
             Column(Modifier.fillMaxWidth()) {
                 Row(
                     Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 12.dp),
@@ -823,14 +851,12 @@ internal fun ObjectRemovalPanel(
                             style = Stroke(width = 2.dp.toPx()))
                     }
                 }
-                if (selectedMode == AiEraserMode.MANUAL) {
-                    Box(Modifier.fillMaxWidth().height(48.dp),
-                        contentAlignment = Alignment.Center) {
-                        EraserStartButton(
-                            enabled = !busy && strokes.isNotEmpty(),
-                            onClick = ::processSelection,
-                        )
-                    }
+                Box(Modifier.fillMaxWidth().height(48.dp),
+                    contentAlignment = Alignment.Center) {
+                    EraserStartButton(
+                        enabled = !busy && strokes.isNotEmpty(),
+                        onClick = ::processSelection,
+                    )
                 }
             }
         } else if (selectedMode == AiEraserMode.TEXT) {
@@ -851,7 +877,6 @@ internal fun ObjectRemovalPanel(
             enabled = !busy,
             onMode = { mode ->
                 selectedMode = mode
-                objectManualTools = false
                 if (mode == AiEraserMode.OBJECTS) autoMode = mobileReady
                 textMode = mode == AiEraserMode.TEXT
                 moveMode = false
@@ -861,6 +886,7 @@ internal fun ObjectRemovalPanel(
                 maskActions.clear()
                 inProgress = emptyList()
                 autoTrace = emptyList()
+                objectTrace = emptyList()
                 selectedGlyphs.clear()
                 redoGlyphs.clear()
                 glyphs = emptyList()
