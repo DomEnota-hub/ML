@@ -1,7 +1,5 @@
 package com.domenota.medialoader.ui.screens
 
-import com.domenota.medialoader.BuildConfig
-
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -15,17 +13,12 @@ class AiEraserAvailabilityTest {
         // A failed detector install must NOT silently reuse point-only MobileSAM as a detector.
     }
 
-    @Test fun glareIsRealLocalSrnetAndReflectionStaysDisabled() {
+    @Test fun glareAndReflectionAreSelectableWithGenuineLocalPipelines() {
         assertTrue(AiEraserMode.GLARE.available)
         assertNull(AiEraserMode.GLARE.unavailableExplanation)
-        assertTrue(AiEraserMode.REFLECTION.available ==
-            BuildConfig.REFLECTION_MODEL_BUNDLED)
-        if (BuildConfig.REFLECTION_MODEL_BUNDLED) {
-            assertNull(AiEraserMode.REFLECTION.unavailableExplanation)
-        } else {
-            assertTrue(requireNotNull(AiEraserMode.REFLECTION.unavailableExplanation)
-                .contains("пока недоступно"))
-        }
+        assertTrue(AiEraserMode.REFLECTION.available)
+        assertNull(AiEraserMode.REFLECTION.unavailableExplanation)
+        // Inference stays fail-closed until the optional file passes SHA-256.
     }
 
     @Test fun ExistingRealModesRemainSelectableWithoutFalseWarnings() {

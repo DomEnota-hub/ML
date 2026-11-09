@@ -567,13 +567,9 @@ internal fun ObjectRemovalPanel(
 
     fun processReflection() {
         if (busy) return
-        if (!reflectionStore.bundled()) {
-            message = "Проверенная модель отражений не включена в эту QA-сборку."
-            return
-        }
         if (!reflectionReady) {
             askReflectionInstall = true
-            message = "Установите DExNet + VGG19 через «AI-модели» (91 МБ, без интернета)."
+            message = "Импортируйте проверенную DExNet + VGG19 через «AI-модели» (91 МБ, без сети)."
             return
         }
         val startStep = current
@@ -1133,7 +1129,7 @@ internal fun ObjectRemovalPanel(
                     fontSize = 10.sp, color = Color.LightGray)
             }
         }
-        if (selectedMode == AiEraserMode.REFLECTION && reflectionStore.bundled()) {
+        if (selectedMode == AiEraserMode.REFLECTION) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {

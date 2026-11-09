@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -81,11 +83,38 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         mobileReady = mobile.verifyInstalled()
         peopleReady = people.verifyInstalled()
         glareReady = glare.verifyInstalled()
-        if (BuildConfig.REFLECTION_MODEL_BUNDLED) reflectionReady = reflection.verifyInstalled()
+        reflectionReady = reflection.verifyInstalled()
         checking = false
     }
+    val reflectionFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null && active == null) {
+            error = null
+            progress = 0
+            active = "reflection"
+            job = scope.launch {
+                try {
+                    reflection.installFromUri(uri) { progress = it }
+                    reflectionReady = reflection.verifyInstalled()
+                } catch (cancel: CancellationException) {
+                    error = "Импорт модели отменён."
+                } catch (failure: Exception) {
+                    error = failure.message ?: "Не удалось проверить файл DExNet."
+                } finally {
+                    active = null
+                    job = null
+                }
+            }
+        }
+    }
+
     fun download(kind: String) {
         if (active != null || checking || updateChecking) return
+        if (kind == "reflection" && !reflection.bundled()) {
+            reflectionFilePicker.launch(arrayOf("*/*"))
+            return
+        }
         updateResults = emptyMap()
         error = null
         progress = 0
@@ -167,8 +196,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 val verifiedPeople = people.verifyInstalled()
                 peopleReady = verifiedPeople
                 glareReady = glare.verifyInstalled()
-                if (BuildConfig.REFLECTION_MODEL_BUNDLED)
-                    reflectionReady = reflection.verifyInstalled()
+                reflectionReady = reflection.verifyInstalled()
                 val lamaResult = AiModelUpdateChecker.check(
                     AiModelUpdateChecker.Kind.LAMA, verifiedLaMa)
                 val mobileResult = AiModelUpdateChecker.check(
@@ -250,17 +278,19 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                     onInstall = { download("glare") },
                     onDelete = { pendingDelete = "glare" },
                 )
-                if (BuildConfig.REFLECTION_MODEL_BUNDLED) {
-                    HorizontalDivider()
-                    ModelRow(
-                        title = "DExNet + VGG19 · отражения",
-                        detail = "Нейросеть 91 МБ · установка из приложения, без сети",
-                        ready = reflectionReady,
-                        enabled = !checking && !updateChecking && active == null,
-                        onInstall = { download("reflection") },
-                        onDelete = { pendingDelete = "reflection" },
-                    )
-                }
+                HorizontalDivider()
+                ModelRow(
+                    title = "DExNet + VGG19 · отражения",
+                    detail = if (BuildConfig.REFLECTION_MODEL_BUNDLED)
+                        "Нейросеть 91 МБ · установка из QA-приложения" else
+                        "Нейросеть 91 МБ · импорт проверенного ONNX-файла",
+                    ready = reflectionReady,
+                    enabled = !checking && !updateChecking && active == null,
+                    installDescription = if (BuildConfig.REFLECTION_MODEL_BUNDLED)
+                        "Установить DExNet" else "Импортировать DExNet из файла",
+                    onInstall = { download("reflection") },
+                    onDelete = { pendingDelete = "reflection" },
+                )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(colors = whiteActionColors, onClick = ::checkUpdates,
                         enabled = !checking && !updateChecking && active == null) {
@@ -323,6 +353,7 @@ private fun ModelRow(
     detail: String,
     ready: Boolean,
     enabled: Boolean,
+    installDescription: String? = null,
     onInstall: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -341,7 +372,7 @@ private fun ModelRow(
             }
         } else {
             IconButton(onClick = onInstall, enabled = enabled) {
-                Icon(Icons.Rounded.Download, "Скачать $title",
+                Icon(Icons.Rounded.Download, installDescription ?: "Скачать $title",
                     tint = androidx.compose.ui.graphics.Color.White)
             }
         }

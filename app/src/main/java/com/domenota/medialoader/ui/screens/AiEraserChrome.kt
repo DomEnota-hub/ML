@@ -40,15 +40,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.R
-import com.domenota.medialoader.BuildConfig
 
 /** People use EfficientDet + MobileSAM + LaMa. Glare/reflection require separate models. */
 internal enum class AiEraserMode(val title: String, val icon: Int, val available: Boolean) {
     OBJECTS("Удаление объектов", R.drawable.ic_ai_eraser_objects, true),
     PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, true),
     GLARE("Убрать блики", R.drawable.ic_ai_eraser_glare, true),
-    REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection,
-        BuildConfig.REFLECTION_MODEL_BUNDLED),
+    REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, true),
     MANUAL("Вручную", R.drawable.ic_ai_eraser_manual, true),
     TEXT("Удалить текст", R.drawable.ic_ai_eraser_text, true),
 }
@@ -62,9 +60,7 @@ internal val AiEraserMode.unavailableExplanation: String?
     get() = when (this) {
         AiEraserMode.PEOPLE -> null
         AiEraserMode.GLARE -> null
-        AiEraserMode.REFLECTION ->
-            if (BuildConfig.REFLECTION_MODEL_BUNDLED) null else
-                "Удаление отражений пока недоступно: проверенная модель не включена в эту QA-сборку."
+        AiEraserMode.REFLECTION -> null
         else -> null
     }
 
