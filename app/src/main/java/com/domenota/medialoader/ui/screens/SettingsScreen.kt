@@ -173,6 +173,9 @@ fun SettingsScreen(
     dateRecoveryBusy: Boolean = false,
     dateRecoveryReady: Boolean = false,
     onDateRecoveryPreview: () -> Unit = {},
+    galleryDateAudit: String = "Проверка даты добавления не запускалась",
+    galleryDateAuditBusy: Boolean = false,
+    onGalleryDateAudit: () -> Unit = {},
     onDateRecoveryTrial: () -> Unit = {},
     dateRecoveryTrialDone: Boolean = false,
     onRestoreRemainingDates: () -> Unit = {},
@@ -1028,6 +1031,17 @@ fun SettingsScreen(
                 onClick = {
                     if (!storageMigrationRunning && activeDownloadCount == 0)
                         migrateLegacyDialog = true
+                },
+            )
+            GroupDivider()
+            SettingRow(
+                Icons.Rounded.Folder, "Проверить даты системной галереи",
+                if (galleryDateAuditBusy) "Читаем MediaStore…" else galleryDateAudit,
+                grouped = true, nested = true,
+                iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                onClick = {
+                    if (!galleryDateAuditBusy && !storageMigrationRunning && activeDownloadCount == 0)
+                        onGalleryDateAudit()
                 },
             )
             GroupDivider()
