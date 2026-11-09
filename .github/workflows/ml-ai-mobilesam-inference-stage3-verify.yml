@@ -6,6 +6,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109
       - feature/ml-ai-eraser-qa156-stage1-controls-20261109
       - feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109
+      - feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
@@ -167,13 +168,23 @@ jobs:
           assert "maxTravelPx" in eraser and "14.dp.toPx()" in eraser
           assert "autoTrace = autoPoints.toList()" in eraser
           assert "style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)" in eraser
-          assert "trace = autoTrace" in eraser, "Magnifier must show the live trace"
+          assert "objectTrace else autoTrace" in eraser, "Magnifier must show both object selection traces"
           assert "if (segmenting)" in eraser and "SegmentationIndicator()" in eraser
           assert "segmenting = false" in eraser and "finally {" in eraser
           assert "Alignment.BottomStart" in eraser and "Alignment.TopStart" in eraser
           assert "autoCandidate" not in eraser, "Tap-only MobileSAM must not return"
           assert "maskActions.record(selection.size)" in eraser, "Automatic mask undo must be one user action"
           assert "maskActions.record(1)" in eraser, "Manual brush is one action"
+          # QA 1.8/1.9: hand toggle within OBJECTS is NOT the full MANUAL brush.
+          assert "ObjectManualTracePolicy.toStroke(" in eraser, "Hand trace must create a real mask"
+          assert "if (selectedMode == AiEraserMode.MANUAL) {" in eraser, "Brush controls belong to separate manual mode"
+          assert "objectManualTools" not in eraser, "Object hand switch must not expose brush settings"
+          assert "objectTrace = points.toList()" in eraser, "Hand trace must follow the finger"
+          assert "eraserMode = false" in eraser, "Hand trace must not erase existing mask"
+          policy = Path("app/src/main/java/com/domenota/medialoader/data/editor/ObjectManualTracePolicy.kt").read_text()
+          assert "TRACE_DIAMETER_PX = 7f" in policy and "erase = false" in policy
+          assert "MobileSamSegmenter" not in policy, "Hand path must not auto-segment"
+
           assert "maskActions.undoCount()" in eraser and "maskActions.redoCount()" in eraser
           assert "maskActions.clear()" in eraser, "Mask history must reset between image steps"
           PY
@@ -196,6 +207,7 @@ jobs:
             --tests '*GalleryV10ActionContractTest' \
             --tests '*AiEraserModePolicyTest' \
             --tests '*AutoDragSelectionPolicyTest' \
+            --tests '*ObjectManualTracePolicyTest' \
             --tests '*MobileSamModelStoreTest' \
             --tests '*MobileSamGeometryTest' \
             --tests '*MaskActionGroupingTest' \
