@@ -169,6 +169,11 @@ fun SettingsScreen(
     storageMigrationRunning: Boolean = false,
     storageMigrationMessage: String = "",
     onMigrateLegacyMedia: () -> Unit = {},
+    dateRecoveryStatus: String = "Не проверялось",
+    dateRecoveryBusy: Boolean = false,
+    dateRecoveryReady: Boolean = false,
+    onDateRecoveryPreview: () -> Unit = {},
+    onDateRecoveryTrial: () -> Unit = {},
     onRestore: (Set<String>) -> Unit,
     onEmptyTrash: () -> Unit,
     onOpenTrash: () -> Unit = {},
@@ -354,6 +359,7 @@ fun SettingsScreen(
     var spareAuthorizationDialog by remember { mutableStateOf(false) }
     var folderDialog by remember { mutableStateOf(false) }
     var migrateLegacyDialog by remember { mutableStateOf(false) }
+    var dateTrialDialog by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("MediaLoader") }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmInstagramSignOut by remember { mutableStateOf(false) }
@@ -538,6 +544,26 @@ fun SettingsScreen(
             }
         },
         dismissButton = { TextButton(onClick = { folderDialog = false }) { Text("Отмена") } },
+    )
+
+    if (dateTrialDialog) AlertDialog(
+        onDismissRequest = { dateTrialDialog = false },
+        title = { Text("Пробное восстановление даты") },
+        text = { Text("Операция изменит только время изменения ОДНОГО " +
+            "сохранённого MediaLoader файла из Pictures/Music. Содержимое и EXIF " +
+            "останутся прежними; старое значение записывается для отката. " +
+            "После операции проверьте его в галерее Xiaomi. " +
+            "Автоматического массового изменения не будет.") },
+        confirmButton = {
+            TextButton(onClick = {
+                dateTrialDialog = false
+                if (!dateRecoveryBusy && dateRecoveryReady && activeDownloadCount == 0)
+                    onDateRecoveryTrial()
+            }) { Text("Проверить на одном файле") }
+        },
+        dismissButton = {
+            TextButton(onClick = { dateTrialDialog = false }) { Text("Отмена") }
+        },
     )
 
     if (migrateLegacyDialog) AlertDialog(
@@ -961,6 +987,26 @@ fun SettingsScreen(
                         migrateLegacyDialog = true
                 },
             )
+            GroupDivider()
+            SettingRow(
+                Icons.Rounded.Restore, "Восстановление исходных дат",
+                if (dateRecoveryBusy) "Проверяем файл…" else dateRecoveryStatus,
+                grouped = true, nested = true,
+                iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                onClick = {
+                    if (!dateRecoveryBusy && activeDownloadCount == 0)
+                        onDateRecoveryPreview()
+                },
+            )
+            if (dateRecoveryReady && !dateRecoveryBusy) {
+                SettingRow(
+                    Icons.Rounded.History, "Проба восстановления одного файла",
+                    "Физическое время файла, без изменения фотографии",
+                    grouped = true, nested = true,
+                    iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                    onClick = { if (activeDownloadCount == 0) dateTrialDialog = true },
+                )
+            }
             GroupDivider()
             SettingRow(Icons.Rounded.HighQuality, "Приоритетное качество", VideoPreferences.qualityLabel(preferredHeight),
                 grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
