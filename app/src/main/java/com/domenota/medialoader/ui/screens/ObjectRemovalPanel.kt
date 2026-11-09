@@ -914,30 +914,7 @@ internal fun ObjectRemovalPanel(
                 }
                 if (!showBefore) Canvas(Modifier.fillMaxSize()) {
                     val yellow = Color(0xFFFFCF22)
-                    if (selectedMode == AiEraserMode.REFLECTION && reflectionStore.bundled()) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Сила удаления отражения: ${(reflectionStrength * 100).roundToInt()}%",
-                    fontSize = 11.sp, color = Color.White)
-                Slider(
-                    value = reflectionStrength,
-                    onValueChange = { reflectionStrength = it },
-                    valueRange = .10f..1f,
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Box(Modifier.fillMaxWidth().height(48.dp),
-                    contentAlignment = Alignment.Center) {
-                    EraserStartButton(enabled = !busy, label = "Начать",
-                        onClick = ::processReflection)
-                }
-                Text("DExNet отделяет отражение от сцены за стеклом. " +
-                        "Сильные отражения и скрытые детали могут восстановиться неточно.",
-                    fontSize = 10.sp, color = Color.LightGray)
-            }
-        }
-        if (selectedMode == AiEraserMode.PEOPLE) {
+                            if (selectedMode == AiEraserMode.PEOPLE) {
                         for (person in detectedPeople) {
                             val box = person.detection.box
                             val id = person.detection.id
@@ -1153,6 +1130,29 @@ internal fun ObjectRemovalPanel(
                 }
                 Text("SRNet определяет блики и корректирует их нейросетью. " +
                         "Полностью потерянные детали восстановить не всегда возможно.",
+                    fontSize = 10.sp, color = Color.LightGray)
+            }
+        }
+        if (selectedMode == AiEraserMode.REFLECTION && reflectionStore.bundled()) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Сила удаления отражения: ${(reflectionStrength * 100).roundToInt()}%",
+                    fontSize = 11.sp, color = Color.White)
+                Slider(
+                    value = reflectionStrength,
+                    onValueChange = { reflectionStrength = it },
+                    valueRange = .10f..1f,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Box(Modifier.fillMaxWidth().height(48.dp),
+                    contentAlignment = Alignment.Center) {
+                    EraserStartButton(enabled = !busy, label = "Начать",
+                        onClick = ::processReflection)
+                }
+                Text("DExNet отделяет отражение от сцены за стеклом. " +
+                        "Сильные отражения и скрытые детали могут восстановиться неточно.",
                     fontSize = 10.sp, color = Color.LightGray)
             }
         }
