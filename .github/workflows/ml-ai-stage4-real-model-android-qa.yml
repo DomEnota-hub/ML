@@ -58,7 +58,7 @@ jobs:
           test -s "$model.sha256"
           # The runtime consumes a single raw 64-hex digest, not the
           # '<digest>  filename' format expected by sha256sum -c.
-          expected=$(tr -d '\\r\\n' < "$model.sha256")
+          expected=$(cat "$model.sha256")
           [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
           actual=$(sha256sum "$model" | cut -d' ' -f1)
           test "$actual" = "$expected"
@@ -78,7 +78,7 @@ jobs:
           fi
           umask 077
           mkdir -p .gapi-local
-          printf '%s' "$ML_GAPI_BUILTIN_KEYS_JSON_B64" | tr -d '\\r\\n ' | base64 --decode > .gapi-local/builtin-keys.json
+          printf '%s' "$ML_GAPI_BUILTIN_KEYS_JSON_B64" | base64 --decode > .gapi-local/builtin-keys.json
           python - <<'PY'
           import json
           from pathlib import Path
