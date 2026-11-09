@@ -228,7 +228,7 @@ jobs:
           assert "autoTrace = autoPoints.toList()" in eraser
           assert "style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)" in eraser
           assert "objectTrace else autoTrace" in eraser, "Magnifier must show both object selection traces"
-          assert "if (segmenting)" in eraser and "SegmentationIndicator()" in eraser
+          assert "if (segmenting || peopleSearching)" in eraser and "SegmentationIndicator()" in eraser
           assert "segmenting = false" in eraser and "finally {" in eraser
           assert "ImageViewportGeometry.placeMagnifier(" in eraser and "clearance = with(density) { 24.dp.toPx() }" in eraser, "Magnifier must stay clear of finger"
           assert "autoCandidate" not in eraser, "Tap-only MobileSAM must not return"
