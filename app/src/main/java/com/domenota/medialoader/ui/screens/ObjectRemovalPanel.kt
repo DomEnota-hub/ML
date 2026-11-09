@@ -262,7 +262,8 @@ internal fun ObjectRemovalPanel(
     modifier: Modifier = Modifier,
     originalWorkingImage: Bitmap,
     earlierMasks: List<List<MaskStroke>>,
-    onAccept: (Bitmap, List<List<MaskStroke>>, String) -> Unit,
+    earlierFullFrameCorrection: Boolean = false,
+    onAccept: (Bitmap, List<List<MaskStroke>>, String, Boolean) -> Unit,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -313,7 +314,8 @@ internal fun ObjectRemovalPanel(
             (originalWorkingImage.width * 1280f / side).roundToInt().coerceAtLeast(1),
             (originalWorkingImage.height * 1280f / side).roundToInt().coerceAtLeast(1), true)
     }
-    var steps by remember(working) { mutableStateOf(listOf(RemovalStep(working, earlierMasks))) }
+    var steps by remember(working) { mutableStateOf(listOf(RemovalStep(working, earlierMasks,
+        fullFrameCorrection = earlierFullFrameCorrection))) }
     var index by remember(working) { mutableIntStateOf(0) }
     val current = steps[index]
     val strokes = remember(working) { mutableStateListOf<MaskStroke>() }
@@ -604,7 +606,8 @@ internal fun ObjectRemovalPanel(
                         overlay.recycle()
                     }
                 }
-                onAccept(accepted.bitmap, accepted.maskBatches, file.absolutePath)
+                onAccept(accepted.bitmap, accepted.maskBatches, file.absolutePath,
+                    accepted.fullFrameCorrection)
             } catch (error: Exception) {
                 message = error.message ?: "Не удалось подготовить результат."
             } finally {
