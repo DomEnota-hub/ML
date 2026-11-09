@@ -205,8 +205,13 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val index = combine(appReferences, gallery, music, privateKeys) { app, pictures, audio, private ->
         if (private == null) LibraryIndex() else withContext(Dispatchers.IO) {
+            // MediaStore's DATE_ADDED changes after a copied legacy download.
+            // The matching app history still has the pre-migration timestamp.
+            // Reconcile only identical URI/type pairs, never by name or size.
+            val phoneRows = PhoneLibraryChronology.reconcile(
+                pictures.items + audio.items, app.orEmpty().map { it.item })
             LibraryIndex(true, UnifiedMediaLibrary.merge(app.orEmpty(),
-                references(pictures.items + audio.items, false, pictures.identities + audio.identities), private),
+                references(phoneRows, false, pictures.identities + audio.identities), private),
                 pictures.revision, audio.revision)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, LibraryIndex())
