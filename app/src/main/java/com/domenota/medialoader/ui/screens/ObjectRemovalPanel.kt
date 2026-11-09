@@ -85,7 +85,6 @@ import com.domenota.medialoader.data.editor.MaskStroke
 import com.domenota.medialoader.data.editor.MaskActionGrouping
 import com.domenota.medialoader.data.editor.DetectedGlyph
 import com.domenota.medialoader.data.editor.OnDeviceTextGlyphDetector
-import com.domenota.medialoader.data.editor.TextGlyphMask
 import com.domenota.medialoader.data.editor.UnifiedMaskOverlay
 import java.io.File
 import java.io.FileOutputStream
@@ -336,6 +335,23 @@ internal fun ObjectRemovalPanel(
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var selectedMode by remember { mutableStateOf(AiEraserMode.OBJECTS) }
     val busy = processing || downloading || scanningText || peopleSearching
+
+    // Preview the exact source-pixel mask BEFORE launching LaMa. This is
+    // calculated away from the Compose drawing thread and is never a rectangle.
+    var safeTextPreview by remember(working) {
+        mutableStateOf<List<MaskStroke>>(emptyList())
+    }
+    val textSelectionSnapshot = selectedGlyphs.toList()
+    LaunchedEffect(textMode, current.bitmap, glyphs, textSelectionSnapshot) {
+        safeTextPreview = emptyList()
+        if (textMode && textSelectionSnapshot.isNotEmpty()) {
+            val selected = glyphs.filter { it.id in textSelectionSnapshot }
+            safeTextPreview = withContext(Dispatchers.Default) {
+                com.domenota.medialoader.data.editor.GlyphContentMask.fromBitmap(
+                    current.bitmap, selected)
+            }
+        }
+    }
 
     fun undo() {
         if (busy) return
@@ -950,12 +966,29 @@ internal fun ObjectRemovalPanel(
                                 (glyph.right - glyph.left) * size.width,
                                 (glyph.bottom - glyph.top) * size.height,
                             )
-                            if (selected) drawRect(Color(0x57FFD500), topLeft, rectSize)
+                            // OCR boxes are just candidate guides; the actual
+                            // removal mask is the pixel trace rendered below.
                             drawRect(
                                 if (selected) yellow else Color(0xBBE9F0FF),
                                 topLeft = topLeft, size = rectSize,
                                 style = Stroke(width = if (selected) 2f else 1.2f),
                             )
+                        }
+                        for (line in safeTextPreview) {
+                            val sizePx = line.diameter * minOf(size.width, size.height)
+                            val points = line.points
+                            if (points.size == 1) {
+                                drawCircle(yellow, sizePx / 2f,
+                                    Offset(points[0].x * size.width, points[0].y * size.height))
+                            } else if (points.size > 1) {
+                                drawLine(yellow,
+                                    Offset(points.first().x * size.width,
+                                        points.first().y * size.height),
+                                    Offset(points.last().x * size.width,
+                                        points.last().y * size.height),
+                                    strokeWidth = sizePx.coerceAtLeast(1f),
+                                    cap = StrokeCap.Round)
+                            }
                         }
                     } else {
                         // Live traces are hints only; the committed manual path becomes
