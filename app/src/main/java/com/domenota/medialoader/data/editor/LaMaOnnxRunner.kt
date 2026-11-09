@@ -2,7 +2,7 @@ package com.domenota.medialoader.data.editor
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
+import java.io.IOException
 import java.nio.FloatBuffer
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -19,21 +19,27 @@ internal class LaMaOnnxRunner(private val models: LaMaModelStore) : InpaintingMo
         val model = models.requireInstalled()
         val env = OrtEnvironment.getEnvironment()
         currentCoroutineContext().ensureActive()
-        OrtSession.SessionOptions().use { options ->
-            options.setIntraOpNumThreads(2)
-            env.createSession(model.absolutePath, options).use { session ->
-                OnnxTensor.createTensor(env, FloatBuffer.wrap(image), longArrayOf(1, 3, size.toLong(), size.toLong())).use { imageInput ->
-                    OnnxTensor.createTensor(env, FloatBuffer.wrap(mask), longArrayOf(1, 1, size.toLong(), size.toLong())).use { maskInput ->
-                        session.run(mapOf("image" to imageInput, "mask" to maskInput)).use { outputs ->
-                            currentCoroutineContext().ensureActive()
-                            @Suppress("UNCHECKED_CAST")
-                            val channels = (outputs[0].value as Array<Array<Array<FloatArray>>>)[0]
-                            val result = FloatArray(3 * size * size)
-                            for (channel in 0..2) for (y in 0 until size) {
-                                channels[channel][y].copyInto(result, channel * size * size + y * size)
-                            }
-                            return result
-                        }
+        return OrtSessions.lama.use(model, LaMaModelStore.SHA256) { session ->
+            OnnxTensor.createTensor(env, FloatBuffer.wrap(image),
+                longArrayOf(1, 3, size.toLong(), size.toLong())).use { imageInput ->
+                OnnxTensor.createTensor(env, FloatBuffer.wrap(mask),
+                    longArrayOf(1, 1, size.toLong(), size.toLong())).use { maskInput ->
+                    session.run(mapOf("image" to imageInput, "mask" to maskInput)).use { outputs ->
+                        currentCoroutineContext().ensureActive()
+                        val tensor = outputs[0] as? OnnxTensor
+                            ?: throw IOException("LaMa: модель не вернула выходной тензор.")
+                        if (!tensor.info.shape.contentEquals(
+                                longArrayOf(1, 3, size.toLong(), size.toLong())))
+                            throw IOException("LaMa: неожиданная форма выходного тензора.")
+                        val result = FloatArray(3 * size * size)
+                        // NCHW output is already contiguous; avoid allocating
+                        // thousands of nested FloatArray rows per inference.
+                        val buffer = tensor.floatBuffer
+                        buffer.rewind()
+                        if (buffer.remaining() != result.size)
+                            throw IOException("LaMa: неверная длина выходного буфера.")
+                        buffer.get(result)
+                        result
                     }
                 }
             }
