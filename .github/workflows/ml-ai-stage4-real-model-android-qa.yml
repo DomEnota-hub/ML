@@ -6,6 +6,11 @@ on:
       - feature/ml-ai-eraser-stage4-reflection-model-gate-20261109
     paths:
       - .github/workflows/ml-ai-stage4-real-model-android-qa.yml
+  pull_request:
+    branches:
+      - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
+    paths:
+      - .github/workflows/ml-ai-stage4-real-model-android-qa.yml
   workflow_dispatch:
 
 permissions:
