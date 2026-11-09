@@ -98,7 +98,7 @@ def benchmark_quality(target, pred):
 def main():
     import gdown
     import numpy as np
-    from PIL import Image
+    from PIL import Image, ImageFilter
     import torch
     from torch import nn
     import torch.nn.functional as F
@@ -169,11 +169,35 @@ def main():
             return pixels
         target = rgb("pose")
         reflected = rgb("burger")
-        scenes = {
-            "clean_no_reflection": target,
-            "reflection_15_percent": np.clip(.85 * target + .15 * reflected, 0, 1),
-            "reflection_35_percent": np.clip(.65 * target + .35 * reflected, 0, 1),
-        }
+        scenes = {"clean_no_reflection": target, "clean_burger": reflected}
+        truth = {"clean_no_reflection": target, "clean_burger": reflected}
+        composites = []
+        for scene_name, background, reflection in (
+            ("pose_scene", target, reflected),
+            ("burger_scene", reflected, target),
+        ):
+            soft_blurred = np.asarray(
+                Image.fromarray((reflection * 255).astype(np.uint8)).filter(
+                    ImageFilter.GaussianBlur(radius=3.0)),
+                dtype=np.float32) / 255
+            shifted = np.roll(soft_blurred, (3, 2), axis=(0, 1))
+            ghost = .65 * soft_blurred + .35 * shifted
+            for reflectance in (.08, .15, .25, .35):
+                name = scene_name + "_sharp_" + str(int(reflectance*100))
+                scenes[name] = np.clip((1-reflectance)*background +
+                                       reflectance*reflection, 0, 1)
+                truth[name] = background
+                composites.append(name)
+            for reflectance in (.15, .35):
+                for kind, physical in (("blur", soft_blurred), ("ghost", ghost)):
+                    name = scene_name + "_" + kind + "_" + str(int(reflectance*100))
+                    scenes[name] = np.clip((1-reflectance)*background +
+                                           reflectance*physical, 0, 1)
+                    truth[name] = background
+                    composites.append(name)
+        # Keep canonical 15% mix for ONNX input, independent of matrix names.
+        scenes["reflection_15_percent"] = scenes["pose_scene_sharp_15"]
+        truth["reflection_15_percent"] = target
         scores = {}
         for name, scene in scenes.items():
             tensor = torch.from_numpy(np.transpose(scene, (2, 0, 1))[None].copy())
@@ -187,8 +211,8 @@ def main():
             if not np.isfinite(predicted).all():
                 raise AssertionError("DExNet yielded nonfinite outputs")
             metrics = {
-                "input": benchmark_quality(target, scene),
-                "transmission": benchmark_quality(target, predicted),
+                "input": benchmark_quality(truth[name], scene),
+                "transmission": benchmark_quality(truth[name], predicted),
                 "cpu_seconds": seconds,
             }
             scores[name] = metrics
@@ -230,13 +254,27 @@ def main():
 
         # Fail honestly when synthetic benchmark worsens. Do not alter
         # the scene or threshold merely to generate a green result.
-        improved = sum(scores[key]["transmission"]["mae"] <
-                       scores[key]["input"]["mae"]
-                       for key in ("reflection_15_percent", "reflection_35_percent"))
-        if improved == 0:
-            raise AssertionError("Pretrained DExNet fails both paired reflection quality tests")
-        if scores["clean_no_reflection"]["transmission"]["mae"] > .20:
-            raise AssertionError("DExNet destroys a reflection-free photo")
+        improved = [key for key in composites
+                    if scores[key]["transmission"]["mae"] <
+                    scores[key]["input"]["mae"]]
+        degraded = sorted(
+            ((key, round(scores[key]["transmission"]["mae"] -
+                         scores[key]["input"]["mae"], 5)) for key in composites),
+            key=lambda x: x[1], reverse=True)
+        summary = {"paired_scenes": len(composites),
+                   "improved_scenes": len(improved),
+                   "improvement_fraction": round(len(improved)/len(composites), 3),
+                   "worst_degradation": degraded[:5],
+                   "clean_pose_mae": scores["clean_no_reflection"]["transmission"]["mae"],
+                   "clean_burger_mae": scores["clean_burger"]["transmission"]["mae"]}
+        print("DEXNET_DIVERSE_QUALITY_MATRIX", json.dumps(summary), flush=True)
+        if len(improved) < .65 * len(composites):
+            raise AssertionError("DExNet does not improve a sufficient majority of paired scene mixes")
+        if scores["clean_no_reflection"]["transmission"]["mae"] > .08 or (
+                scores["clean_burger"]["transmission"]["mae"] > .08):
+            raise AssertionError("DExNet corrupts an originally reflection-free image")
+        if degraded[0][1] > .045:
+            raise AssertionError("DExNet materially degrades difficult reflection composites")
         print("GENUINE_DEXNET_MODEL_AND_ONNX_RESEARCH_PASS; "
               "Android/licensing/device QA pending", flush=True)
 
