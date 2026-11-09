@@ -7,6 +7,12 @@ on:
     paths:
       - scripts/qa/stage3_real_srnet_export_smoke.py
       - .github/workflows/ml-ai-stage3-specular-real-weights-poc.yml
+  pull_request:
+    branches:
+      - feature/ml-ai-eraser-stage2-people-detector-20261109
+    paths:
+      - scripts/qa/stage3_real_srnet_export_smoke.py
+      - .github/workflows/ml-ai-stage3-specular-real-weights-poc.yml
   workflow_dispatch:
 
 permissions:
