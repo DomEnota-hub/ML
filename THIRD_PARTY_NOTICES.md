@@ -76,8 +76,27 @@ Original checkpoint SHA-256: `d20a8b1021cd150cba0fce6738fac997f9283390de134756ec
 Our verified ONNX conversion: `app/src/main/assets/ai/specular_srnet_256.onnx.b64`
 (base64 source of binary with SHA-256 `1538f5800858c329e93576566d40f568fcc07d8fdc674bca454fbfc4771c63e4`,
 230,221 bytes). Conversion CI: https://github.com/DomEnota-hub/ML/actions/runs/42581463302
-The original MIT notice and permission grant apply to the original project
-and derivative model packaging. See original LICENSE for full warranty disclaimer.
+The model and source were published under the MIT License:
+
+Copyright (c) 2021 Huang Zhengzhi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 User explicitly installs the bundled model into private app storage; no photo
 leaves the Android device. This model targets specular highlights, not objects,
 glassy reflections or irrevocably clipped overexposure. Quality is not guaranteed.
