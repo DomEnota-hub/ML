@@ -13,6 +13,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
       - feature/ml-ai-eraser-stage2-people-detector-20261109
       - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
+      - feature/ml-ai-eraser-stage4-reflection-model-gate-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
@@ -26,6 +27,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
       - feature/ml-ai-eraser-stage2-people-detector-20261109
       - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
+      - feature/ml-ai-eraser-stage4-reflection-model-gate-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -215,6 +217,14 @@ jobs:
           assert 'onProgress(100)' in models and 'suspend fun uninstall()' in models
           assert 'AiModelManagerDialog(onDismiss' in settings
           assert 'if (aiModelsDialog)' in settings and 'active == null' in dialog
+          # QA 4 UI: AI models must not reuse the Tune icon from Music settings.
+          assert 'import androidx.compose.material.icons.rounded.Psychology' in settings
+          assert 'SettingRow(Icons.Rounded.Tune, "Настройки музыки",' in settings
+          assert 'SettingRow(Icons.Rounded.Psychology, "AI-модели",' in settings
+          assert 'SettingRow(Icons.Rounded.Tune, "AI-модели",' not in settings, "AI icon must not clone Music settings"
+          assert 'SettingIconTone.AI_MODELS' in settings, "AI distinct color treatment must remain"
+          assert Path("docs/qa/stage4_reflection_model_gate_20261109.md").is_file()
+
           assert 'job?.cancel()' in dialog and 'mobile.verifyInstalled()' in dialog
           assert 'MobileSamModelStore(context.applicationContext)' in dialog
           checker = Path("app/src/main/java/com/domenota/medialoader/data/editor/AiModelUpdateChecker.kt").read_text()
