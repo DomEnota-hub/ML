@@ -90,6 +90,39 @@ internal object PersonInstancePolicy {
         return clipped
     }
 
+    /**
+     * Hit-test the actual segmentation row runs, not the detector's bbox.
+     * A tap on unrelated background inside a large person bbox must not select it.
+     * Radius is defined in source pixels, exactly as in the LaMa stroke rasterizer.
+     */
+    fun containsMask(
+        person: PersonInstance, point: MaskPoint,
+        imageWidth: Int, imageHeight: Int,
+    ): Boolean {
+        if (imageWidth <= 0 || imageHeight <= 0 ||
+            !point.x.isFinite() || !point.y.isFinite() ||
+            point.x !in 0f..1f || point.y !in 0f..1f) return false
+        val x = point.x * imageWidth
+        val y = point.y * imageHeight
+        val shortest = min(imageWidth, imageHeight).toFloat()
+        return person.strokes.any { stroke ->
+            if (stroke.erase || stroke.points.size < 2) return@any false
+            val a = stroke.points.first()
+            val b = stroke.points.last()
+            val ax = a.x * imageWidth
+            val bx = b.x * imageWidth
+            val rowY = a.y * imageHeight
+            val dx = when {
+                x < min(ax, bx) -> min(ax, bx) - x
+                x > max(ax, bx) -> x - max(ax, bx)
+                else -> 0f
+            }
+            val dy = y - rowY
+            val radius = (stroke.diameter * shortest / 2f).coerceAtLeast(.5f)
+            dx * dx + dy * dy <= radius * radius
+        }
+    }
+
     /** Avoid silently applying the same person-shaped mask to two overlapping detections. */
     fun ambiguity(left: PersonInstance, right: PersonInstance): Boolean {
         val a = left.detection.box; val b = right.detection.box
