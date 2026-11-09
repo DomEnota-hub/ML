@@ -236,6 +236,7 @@ def main():
                               export_params=True)
         print("COMPLETE_MODEL_ONNX_BYTES", onnxpath.stat().st_size,
               "seconds", round(time.perf_counter()-started, 2), flush=True)
+        print("COMPLETE_MODEL_ONNX_SHA256", sha256(onnxpath), flush=True)
         if onnxpath.stat().st_size > 700 * 1024 * 1024:
             raise AssertionError("Full VGG19+DExNet model too large for offline Android budget")
         onnx.checker.check_model(str(onnxpath))
@@ -251,6 +252,12 @@ def main():
             raise AssertionError("Full export differs from PyTorch pretrained inference")
         print("PEAK_RSS_KIB", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
               flush=True)
+        # Measure ORT in a fresh process without holding the PyTorch weights,
+        # VGG19 and transient ONNX export graph in memory simultaneously.
+        child = subprocess.run([sys.executable, __file__, "--ort-resource-only",
+                                str(onnxpath)], check=True, capture_output=True,
+                               text=True, timeout=120)
+        print(child.stdout.strip(), flush=True)
 
         # Fail honestly when synthetic benchmark worsens. Do not alter
         # the scene or threshold merely to generate a green result.
@@ -279,5 +286,38 @@ def main():
               "Android/licensing/device QA pending", flush=True)
 
 
+def ort_resource_child(onnxpath: pathlib.Path):
+    import numpy as np
+    import onnxruntime as ort
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 2
+    started = time.perf_counter()
+    session = ort.InferenceSession(str(onnxpath), opts,
+                                   providers=["CPUExecutionProvider"])
+    model_load = round(time.perf_counter() - started, 3)
+    rgb = np.full((1, 3, WIDTH, WIDTH), .4, dtype=np.float32)
+    started = time.perf_counter()
+    output = session.run(None, {session.get_inputs()[0].name: rgb})
+    duration = round(time.perf_counter()-started, 3)
+    if any(not np.isfinite(z).all() for z in output):
+        raise RuntimeError("Standalone ONNX produces malformed output")
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print("ORT_ONLY_CPU_RESOURCE", json.dumps({
+        "model_bytes": onnxpath.stat().st_size,
+        "model_loading_seconds": model_load,
+        "model_inference_seconds": duration,
+        "peak_rss_kib": peak,
+        "peak_rss_mib": round(peak/1024, 1),
+        "architecture": "linux_x86_64; Android ARM64 requires separate QA",
+    }), flush=True)
+    if peak > 800_000:
+        raise RuntimeError("Full pretrained model exceeds 781 MiB ORT-only RAM budget")
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 3 and sys.argv[1] == "--ort-resource-only":
+        ort_resource_child(pathlib.Path(sys.argv[2]))
+    elif len(sys.argv) == 1:
+        main()
+    else:
+        raise SystemExit("Unrecognized QA mode")
