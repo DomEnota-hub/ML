@@ -188,8 +188,9 @@ internal fun GalleryMediaViewer(
                 bars.isAppearanceLightStatusBars = false
                 bars.isAppearanceLightNavigationBars = false
                 bars.hide(WindowInsetsCompat.Type.statusBars())
-                // Keep 3-button navigation visible while popups stay inside its safe inset.
-                bars.show(WindowInsetsCompat.Type.navigationBars())
+                // One gallery window owner: hide the entire system rail in landscape.
+                // Android transient system navigation remains available by swipe.
+                bars.hide(WindowInsetsCompat.Type.navigationBars())
             } else if (chrome && !locked) {
                 bars.isAppearanceLightStatusBars = false
                 bars.isAppearanceLightNavigationBars = false
@@ -200,8 +201,15 @@ internal fun GalleryMediaViewer(
         }
     }
     DisposableEffect(fullscreen, landscape, activity, view) {
-        if (activity != null && fullscreen) applyFullscreen(activity, view, true, landscape)
-        onDispose { if (activity != null && fullscreen) applyFullscreen(activity, view, false, landscape) }
+        if (activity != null && fullscreen) {
+            // Orientation and edge-to-edge only. The SideEffect above is the
+            // sole owner of navigation/status visibility in the gallery viewer.
+            applyFullscreen(activity, view, true, landscape, manageSystemBars = false)
+        }
+        onDispose {
+            if (activity != null && fullscreen)
+                applyFullscreen(activity, view, false, landscape, manageSystemBars = false)
+        }
     }
     BackHandler(fullscreen) { fullscreen = false }
     // Photo and video share one edge-to-edge viewport. Chrome is drawn on top,
