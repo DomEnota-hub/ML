@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
 import com.domenota.medialoader.R
+import com.domenota.medialoader.BuildConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,12 +17,14 @@ class AiEraserModePolicyTest {
     }
 
     @Test fun onlyWorkingLocalEnginesAreEnabled() {
-        assertEquals(setOf(AiEraserMode.OBJECTS, AiEraserMode.PEOPLE,
-            AiEraserMode.GLARE, AiEraserMode.MANUAL, AiEraserMode.TEXT),
-            AiEraserMode.entries.filter { it.available }.toSet())
+        val expected = setOf(AiEraserMode.OBJECTS, AiEraserMode.PEOPLE,
+            AiEraserMode.GLARE, AiEraserMode.MANUAL, AiEraserMode.TEXT) +
+            if (BuildConfig.REFLECTION_MODEL_BUNDLED)
+                setOf(AiEraserMode.REFLECTION) else emptySet()
+        assertEquals(expected, AiEraserMode.entries.filter { it.available }.toSet())
         assertTrue(AiEraserMode.PEOPLE.available)
         assertTrue(AiEraserMode.GLARE.available)
-        assertFalse(AiEraserMode.REFLECTION.available)
+        assertEquals(BuildConfig.REFLECTION_MODEL_BUNDLED, AiEraserMode.REFLECTION.available)
     }
 
     @Test fun manualIconIsDistinctFromToggleHandButComesFromSameAssetFamily() {
