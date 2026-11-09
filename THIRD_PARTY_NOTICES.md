@@ -50,11 +50,14 @@ stay on the device. Model weights are not redistributed in the application APK.
 
 ## EfficientDet-Lite0 (downloaded separately, NOT bundled with APK)
 
-Object detector from LiteRT Community: https://huggingface.co/litert-community/efficientdet
-Revision: 360eea05e7de8f0d0f5602b548b5bbee6f7b65c7
-Exact TFLite binary: efficientdet_lite0_detection.tflite
-Published SHA-256: 33a3b622c7cac0762f96089353cd61495f3e993968d133af7871bfc2d5396704
-Publisher metadata declares Apache-2.0 for the distributed model/weights.
+Official MediaPipe Tasks model (mandatory metadata):
+https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/1/efficientdet_lite0.tflite
+Exact binary size: 13,836,895 bytes.
+SHA-256: 40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58
+Independent original-file mirror (Apache-2.0):
+https://huggingface.co/ketiswp/mediapipe-EfficientDet-Lite0-COCO2017-fp32-onnx
+License of MediaPipe runtime and source: Apache-2.0. Check the official
+model's distribution terms again before final production release.
 Trained on COCO 2017; some data usage rights depend on original COCO images.
 ON-device CPU inference via MediaPipe Tasks Vision (Apache-2.0).
 No photos are uploaded. Binary is fetched only by an explicit installation action.
