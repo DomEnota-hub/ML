@@ -491,7 +491,8 @@ internal fun ObjectRemovalPanel(
                 val result = engine.inpaint(startStep.bitmap, marked)
                 // Retain bounded undo/redo image states and existing mask batches.
                 steps = steps.take(index + 1).takeLast(3) +
-                    RemovalStep(result, startStep.maskBatches + listOf(marked))
+                    RemovalStep(result, startStep.maskBatches + listOf(marked),
+                        fullFrameCorrection = startStep.fullFrameCorrection)
                 index = steps.lastIndex
                 segmenter.clearCache()
                 strokes.clear()
