@@ -170,7 +170,7 @@ internal fun GalleryMediaViewer(
         }
     }
     SideEffect {
-        if (activity != null && !fullscreen) {
+        if (activity != null) {
             val window = activity.window
             @Suppress("DEPRECATION")
             window.statusBarColor = AndroidColor.TRANSPARENT
@@ -184,12 +184,17 @@ internal fun GalleryMediaViewer(
             // Landscape is always status-bar free, including when controls or More are visible.
             bars.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (isLandscape) {
+            if (isLandscape || fullscreen) {
                 bars.isAppearanceLightStatusBars = false
                 bars.isAppearanceLightNavigationBars = false
                 bars.hide(WindowInsetsCompat.Type.statusBars())
-                // Keep 3-button navigation visible while popups stay inside its safe inset.
-                bars.show(WindowInsetsCompat.Type.navigationBars())
+                // Only full-screen VIDEO uses immersive navigation; landscape
+                // photos keep their prior safe 3-button navigation contract.
+                if (fullscreen || current.mediaType == MediaType.VIDEO) {
+                    bars.hide(WindowInsetsCompat.Type.navigationBars())
+                } else {
+                    bars.show(WindowInsetsCompat.Type.navigationBars())
+                }
             } else if (chrome && !locked) {
                 bars.isAppearanceLightStatusBars = false
                 bars.isAppearanceLightNavigationBars = false
@@ -200,8 +205,15 @@ internal fun GalleryMediaViewer(
         }
     }
     DisposableEffect(fullscreen, landscape, activity, view) {
-        if (activity != null && fullscreen) applyFullscreen(activity, view, true, landscape)
-        onDispose { if (activity != null && fullscreen) applyFullscreen(activity, view, false, landscape) }
+        if (activity != null && fullscreen) {
+            // Orientation and edge-to-edge only. The SideEffect above is the
+            // sole owner of navigation/status visibility in the gallery viewer.
+            applyFullscreen(activity, view, true, landscape, manageSystemBars = false)
+        }
+        onDispose {
+            if (activity != null && fullscreen)
+                applyFullscreen(activity, view, false, landscape, manageSystemBars = false)
+        }
     }
     BackHandler(fullscreen) { fullscreen = false }
     // Photo and video share one edge-to-edge viewport. Chrome is drawn on top,

@@ -32,9 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.res.painterResource
 import com.domenota.medialoader.R
-import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.Compare
 import androidx.compose.material.icons.rounded.PanTool
 import androidx.compose.material.icons.rounded.ZoomOutMap
@@ -61,7 +60,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -78,6 +76,8 @@ import com.domenota.medialoader.data.editor.PersonDetector
 import com.domenota.medialoader.data.editor.PersonSegmentationPipeline
 import com.domenota.medialoader.data.editor.PersonScanResult
 import com.domenota.medialoader.data.editor.PersonInstance
+import com.domenota.medialoader.data.editor.PersonInstancePolicy
+import com.domenota.medialoader.data.editor.PersonContourOverlay
 import com.domenota.medialoader.data.editor.SpecularSrNetModelStore
 import com.domenota.medialoader.data.editor.SpecularGlareEngine
 import com.domenota.medialoader.data.editor.SpecularOverlayComposer
@@ -110,19 +110,19 @@ private data class RemovalStep(
 
 @Composable
 private fun RemovalToolButton(
-    icon: ImageVector,
+    iconRes: Int,
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val scheme = MaterialTheme.colorScheme
     IconButton(
         onClick = onClick,
         modifier = Modifier.size(36.dp).background(
             if (selected) Color(0xFFFFC21C) else Color(0xFF292929),
             RoundedCornerShape(10.dp)),
     ) {
-        Icon(icon, contentDescription = label, modifier = Modifier.size(19.dp),
+        Icon(painterResource(iconRes), contentDescription = label,
+            modifier = Modifier.size(22.dp),
             tint = if (selected) Color(0xFF131313) else Color.White)
     }
 }
@@ -365,6 +365,7 @@ internal fun ObjectRemovalPanel(
     val redoGlyphs = remember(working) { mutableStateListOf<Int>() }
     var brushSizing by remember { mutableStateOf(false) }
     var cursor by remember { mutableStateOf<MaskPoint?>(null) }
+    var lastBrushPoint by remember { mutableStateOf<MaskPoint?>(null) }
     var showBefore by remember { mutableStateOf(false) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
@@ -495,6 +496,14 @@ internal fun ObjectRemovalPanel(
                 peopleSearching = false
             }
         }
+    }
+
+    // Automatically detect when opening People mode if both verified models
+    // are available. This effect is keyed to the photo/mode, never to the
+    // result list, so completion cannot restart an infinite search cycle.
+    LaunchedEffect(selectedMode, current.bitmap, peopleReady, mobileReady) {
+        if (selectedMode == AiEraserMode.PEOPLE && peopleReady && mobileReady &&
+            !peopleSearching && !processing) findPeople()
     }
 
     fun processSelection() {
@@ -713,10 +722,17 @@ internal fun ObjectRemovalPanel(
             canRedo = if (textMode) redoGlyphs.isNotEmpty() || index < steps.lastIndex
                 else redoStrokes.isNotEmpty() || index < steps.lastIndex,
             canCompare = index > 0,
+            canResetView = zoom != 1f || pan != Offset.Zero,
             busy = busy,
             onUndo = ::undo,
             onRedo = ::redo,
             onCompareHold = { showBefore = it },
+            onResetView = {
+                zoom = 1f
+                pan = Offset.Zero
+                cursor = null
+                brushSizing = false
+            },
         )
         val ratio = (working.width.toFloat() / working.height.coerceAtLeast(1)).coerceAtLeast(0.08f)
         // Rebuild at compact preview resolution only when the union of strokes changes.
@@ -726,8 +742,10 @@ internal fun ObjectRemovalPanel(
             .flatMap { it.strokes } else strokes.toList()
         val previewStrokes = remember(selectedStrokes, inProgress, brush, textMode, eraserMode,
             selectedMode) {
-            if (textMode) emptyList() else if (selectedMode == AiEraserMode.PEOPLE)
-                selectedStrokes else selectedStrokes +
+            // People are displayed with a true per-person outline below, not
+            // a merged yellow filled rectangle or an unrelated detector box.
+            if (textMode || selectedMode == AiEraserMode.PEOPLE)
+                emptyList() else selectedStrokes +
                 inProgress.takeIf { it.isNotEmpty() }?.let {
                     listOf(MaskStroke(it,
                         (brush / minOf(working.width, working.height)).coerceIn(0.001f, 0.5f),
@@ -736,6 +754,15 @@ internal fun ObjectRemovalPanel(
         }
         val unifiedOverlay = remember(previewStrokes, working.width, working.height) {
             UnifiedMaskOverlay.render(previewStrokes, working.width, working.height)
+        }
+        val selectedIds = selectedPeople.toSet()
+        val peopleContour = remember(detectedPeople, selectedIds, ambiguousPeople,
+            working.width, working.height) {
+            PersonContourOverlay.render(detectedPeople, selectedIds, ambiguousPeople,
+                working.width, working.height)
+        }
+        DisposableEffect(peopleContour) {
+            onDispose { peopleContour?.recycle() }
         }
         BoxWithConstraints(
             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp),
@@ -783,6 +810,7 @@ internal fun ObjectRemovalPanel(
                             imagePoint(down.position)?.let {
                                 points.add(it)
                                 cursor = it
+                                if (selectedMode == AiEraserMode.MANUAL) lastBrushPoint = it
                                 if (manualObject) objectTrace = points.toList()
                             }
                         }
@@ -829,6 +857,7 @@ internal fun ObjectRemovalPanel(
                                 } else if (drawing) {
                                     imagePoint(change.position)?.let {
                                         cursor = it
+                                        if (selectedMode == AiEraserMode.MANUAL) lastBrushPoint = it
                                         if (points.size < 20_000) points.add(it)
                                     }
                                     if (manualObject) objectTrace = points.toList()
@@ -871,7 +900,9 @@ internal fun ObjectRemovalPanel(
                             val tapped = imagePoint(downPosition)
                             val candidate = tapped?.let { point ->
                                 detectedPeople.filter {
-                                    it.detection.id !in ambiguousPeople && it.detection.box.contains(point)
+                                    it.detection.id !in ambiguousPeople &&
+                                        PersonInstancePolicy.containsMask(
+                                            it, point, current.bitmap.width, current.bitmap.height)
                                 }.minByOrNull { it.detection.box.width * it.detection.box.height }
                             }
                             candidate?.detection?.id?.let { id ->
@@ -928,23 +959,15 @@ internal fun ObjectRemovalPanel(
                         contentScale = ContentScale.FillBounds,
                     )
                 }
+                if (!showBefore && selectedMode == AiEraserMode.PEOPLE &&
+                    peopleContour != null) {
+                    Image(peopleContour.asImageBitmap(),
+                        contentDescription = "Контуры найденных людей",
+                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+                }
                 if (!showBefore) Canvas(Modifier.fillMaxSize()) {
                     val yellow = Color(0xFFFFCF22)
-                            if (selectedMode == AiEraserMode.PEOPLE) {
-                        for (person in detectedPeople) {
-                            val box = person.detection.box
-                            val id = person.detection.id
-                            val selected = id in selectedPeople
-                            val uncertain = id in ambiguousPeople
-                            drawRect(
-                                if (uncertain) Color(0xFF999999)
-                                else if (selected) yellow else Color.White.copy(alpha = .7f),
-                                topLeft = Offset(box.left * size.width, box.top * size.height),
-                                size = Size(box.width * size.width, box.height * size.height),
-                                style = Stroke(width = if (selected) 2.5.dp.toPx() else 1.4.dp.toPx()),
-                            )
-                        }
-                    } else if (textMode) {
+                    if (textMode) {
                         for (glyph in glyphs) {
                             val selected = glyph.id in selectedGlyphs
                             val topLeft = Offset(glyph.left * size.width, glyph.top * size.height)
@@ -981,7 +1004,23 @@ internal fun ObjectRemovalPanel(
                             minOf(size.width / working.width, size.height / working.height)
                         val radius = if (selectedMode == AiEraserMode.OBJECTS)
                             2.dp.toPx() else (brush * previewScale / 2f).coerceAtLeast(1f)
-                        val guide = cursor ?: if (brushSizing) MaskPoint(0.5f, 0.5f) else null
+                        // When the slider moves, place the true-size guide at
+                        // the last visible brush location, never behind a zoomed crop.
+                        val guide = cursor ?: if (brushSizing) {
+                            val recent = lastBrushPoint?.takeIf { candidate ->
+                                ImageViewportGeometry.imageToViewport(
+                                    candidate, viewport.width.toFloat(), viewport.height.toFloat(),
+                                    zoom, pan.x, pan.y,
+                                )?.let { preview ->
+                                    preview.x in 0f..viewport.width.toFloat() &&
+                                        preview.y in 0f..viewport.height.toFloat()
+                                } == true
+                            }
+                            recent ?: ImageViewportGeometry.viewportToImage(
+                                viewport.width / 2f, viewport.height / 2f,
+                                viewport.width.toFloat(), viewport.height.toFloat(),
+                                zoom, pan.x, pan.y)
+                        } else null
                         guide?.let {
                             val center = Offset(it.x * size.width, it.y * size.height)
                             val guideColor = if (eraserMode) Color(0xFF86D7FF) else yellow
@@ -1088,11 +1127,11 @@ internal fun ObjectRemovalPanel(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    RemovalToolButton(Icons.Rounded.Brush, "Кисть", !eraserMode) {
+                    RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool, "Кисть", !eraserMode) {
                         eraserMode = false
                         moveMode = false
                     }
-                    RemovalToolButton(ImageVector.vectorResource(R.drawable.ic_eraser),
+                    RemovalToolButton(R.drawable.ic_ai_eraser_erase_tool,
                         "Стереть выделение", eraserMode) {
                         eraserMode = true
                         moveMode = false
@@ -1103,13 +1142,18 @@ internal fun ObjectRemovalPanel(
                         onValueChangeFinished = { brushSizing = false },
                         valueRange = 8f..100f,
                         enabled = !busy,
+                        retainColorWhenDisabled = true,
                         modifier = Modifier.weight(1f),
                     )
-                    Canvas(Modifier.size(22.dp)) {
-                        drawCircle(Color(0xFFFFC21C), radius =
-                            (brush / 100f * size.minDimension * .42f).coerceAtLeast(2f),
-                            style = Stroke(width = 2.dp.toPx()))
-                    }
+                    // A small unrelated circle cannot represent a zoomed
+                    // brush. Show exact source-pixel diameter numerically;
+                    // the real on-photo guide above is scale-aware.
+                    Text("Ø ${brush.roundToInt()} px",
+                        modifier = Modifier.width(56.dp),
+                        fontSize = 10.sp,
+                        color = Color(0xFFFFC21C),
+                        maxLines = 1)
+
                 }
                 Box(Modifier.fillMaxWidth().height(48.dp),
                     contentAlignment = Alignment.Center) {

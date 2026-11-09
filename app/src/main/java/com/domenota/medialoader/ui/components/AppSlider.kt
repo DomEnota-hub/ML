@@ -23,9 +23,9 @@ import androidx.compose.ui.unit.dp
 fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0,
-    accentColor: Color? = null) {
+    accentColor: Color? = null, retainColorWhenDisabled: Boolean = false) {
     val color = (accentColor ?: MaterialTheme.colorScheme.primary)
-        .copy(alpha = if (enabled) 1f else 0.4f)
+        .copy(alpha = if (enabled || retainColorWhenDisabled) 1f else 0.4f)
     val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
     val zeroColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .95f)
     Slider(value = value, onValueChange = onValueChange, modifier = modifier, enabled = enabled,
@@ -58,7 +58,9 @@ internal val editorSliderYellow = Color(0xFFFFBD19)
 @Composable
 fun EditorSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
-    onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0) {
+    onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0,
+    retainColorWhenDisabled: Boolean = false) {
     AppSlider(value, onValueChange, modifier, enabled, valueRange,
-        onValueChangeFinished, steps, accentColor = editorSliderYellow)
+        onValueChangeFinished, steps, accentColor = editorSliderYellow,
+        retainColorWhenDisabled = retainColorWhenDisabled)
 }

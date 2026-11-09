@@ -33,11 +33,13 @@ class GalleryVideoChromeTest {
     }
     @Test fun centerControlsAndRightLockAreInSingleGalleryOverlay() {
         var locked by mutableStateOf(false)
+        var unlockVisible by mutableStateOf(false)
         var started = false
         compose.setContent {
             MaterialTheme {
                 GalleryVideoChrome(
-                    visible = true, locked = locked, playing = false,
+                    visible = true, locked = locked, unlockVisible = unlockVisible,
+                    playing = false,
                     positionMs = 4_000, durationMs = 38_000,
                     hasPrevious = true, hasNext = true,
                     onPlayPause = { started = true },
@@ -52,6 +54,10 @@ class GalleryVideoChromeTest {
         compose.onNodeWithContentDescription("Заблокировать управление").performClick()
         compose.waitForIdle()
         assertTrue(locked)
+        // Clean locked video never keeps the lock icon on screen indefinitely.
+        compose.onNodeWithContentDescription("Разблокировать управление").assertDoesNotExist()
+        unlockVisible = true
+        compose.waitForIdle()
         compose.onNodeWithContentDescription("Разблокировать управление").performClick()
         compose.waitForIdle()
         assertFalse(locked)

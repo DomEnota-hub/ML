@@ -625,6 +625,10 @@ internal fun LocalVideoPlayer(
     }
 
     fun toggleChrome() {
+        if (controlsLocked) {
+            unlockVisible = !unlockVisible
+            return
+        }
         if (galleryPagingEnabled) {
             chromeVisible = !chromeVisible
         } else {
@@ -968,11 +972,12 @@ internal fun LocalVideoPlayer(
                         },
                     )
                 }
-                .pointerInput(player) {
+                .pointerInput(player, controlsLocked) {
                     detectTapGestures(
                         onTap = { toggleChrome() },
                         onDoubleTap = { tap ->
                             when {
+                                controlsLocked -> unlockVisible = !unlockVisible
                                 tap.x < size.width * .42f -> seekBy(-10_000L)
                                 tap.x > size.width * .58f -> seekBy(10_000L)
                                 else -> toggleChrome()
@@ -1130,6 +1135,7 @@ internal fun LocalVideoPlayer(
             GalleryVideoChrome(
                 visible = chromeVisible,
                 locked = controlsLocked,
+                unlockVisible = unlockVisible,
                 playing = isPlaying,
                 positionMs = galleryDisplayedPositionMs,
                 durationMs = playableDurationMs,
@@ -1152,7 +1158,10 @@ internal fun LocalVideoPlayer(
                 },
                 onNext = { onNextVideo?.invoke(player.playWhenReady) },
                 onSeekTo = { position -> player.seekTo(position.coerceIn(0L, playableDurationMs.coerceAtLeast(0L))) },
-                onLockChange = { onControlsLockedChange(it) },
+                onLockChange = { next ->
+                    onControlsLockedChange(next)
+                    unlockVisible = false
+                },
             )
         }
         if (!controlsLocked) VideoFormatNotice(aspectFeedback, aspectFeedbackRequest,
@@ -1360,6 +1369,7 @@ internal fun applyFullscreen(
     decorView: android.view.View,
     fullscreen: Boolean,
     landscapeVideo: Boolean,
+    manageSystemBars: Boolean = true,
 ) {
     val window = activity.window
     val controller = WindowInsetsControllerCompat(window, decorView)
@@ -1372,13 +1382,13 @@ internal fun applyFullscreen(
         com.domenota.medialoader.ui.theme.edgeToEdgeWindow(window, dark = true)
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        controller.hide(WindowInsetsCompat.Type.systemBars())
+        if (manageSystemBars) controller.hide(WindowInsetsCompat.Type.systemBars())
     } else {
         // Returning to the gallery must not leave the Activity in landscape.
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         com.domenota.medialoader.ui.theme.edgeToEdgeWindow(window,
             dark = com.domenota.medialoader.ui.theme.appThemeIsDark(activity))
-        controller.show(WindowInsetsCompat.Type.systemBars())
+        if (manageSystemBars) controller.show(WindowInsetsCompat.Type.systemBars())
     }
 }
 
