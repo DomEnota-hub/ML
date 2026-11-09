@@ -169,7 +169,7 @@ internal class ReflectionDExModelStore(context: Context) {
                 if (copied != EXACT_BYTES || actual != expected) throw IOException(
                     "Неверная DExNet + VGG19: размер или SHA-256 не совпал.")
                 OrtSessions.invalidateDexnet()
-            if (installed.exists() && !installed.delete()) throw IOException(
+                if (installed.exists() && !installed.delete()) throw IOException(
                     "Не удалось заменить прежнюю DExNet.")
                 if (!part.renameTo(installed)) throw IOException(
                     "Не удалось завершить импорт DExNet.")
