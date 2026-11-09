@@ -406,7 +406,12 @@ class StorageManager(
         MediaStoragePolicy.Kind.IMAGE -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         MediaStoragePolicy.Kind.VIDEO -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         MediaStoragePolicy.Kind.AUDIO -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        MediaStoragePolicy.Kind.OTHER -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        MediaStoragePolicy.Kind.OTHER -> if (Build.VERSION.SDK_INT >= 29) {
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        } else {
+            // Old Android releases use the filesystem-based publish path.
+            throw IllegalStateException("MediaStore.Downloads requires Android 10 or newer")
+        }
     }
 
     private companion object {
