@@ -22,14 +22,14 @@ import kotlinx.coroutines.withContext
  * Pictures/ or Music/. Never bulk-rename a filesystem folder, delete database
  * rows or modify virtual catalog_folders/catalog_assignments.
  *
- * Every item:
- *   validate source is under Download/ -> publish to correct MediaStore table
- *   -> compare actual contents/size via SHA-256 -> CAS-update only the savedUri
- *   -> delete old only after the new row is durably saved.
+ * Every eligible item:
+ *   validate it belongs to this app and public Download/
+ *   -> move its existing MediaStore row via RELATIVE_PATH
+ *   -> recheck SAME URI, date-added, date-modified, size and SHA-256.
  *
- * Failures keep the original. A crash after CAS can leave a safe duplicate in
- * Download/, but the history points to the verified replacement. Re-running
- * safely skips already-moved rows.
+ * Never insert a new MediaStore row, rewrite its timestamps, delete original
+ * bytes, or guess a source URI. Unsupported legacy paths are safely skipped.
+ * Existing 1.7.158 migrations are repaired separately in gallery ordering.
  */
 /** User-visible summary of an opt-in and resumable filesystem migration. */
 data class StorageMigrationProgress(
@@ -80,68 +80,38 @@ internal class LegacyMediaMigration(
             for (item in candidates) {
                 currentCoroutineContext().ensureActive()
                 val saved = requireNotNull(item.savedUri)
-                // Another catalog/download/private record may reference the same
-                // bytes. Never delete a shared source behind other history rows.
+                // Only app-owned MediaStore rows can be safely moved without
+                // resetting Android DATE_ADDED. Never copy/delete old bytes.
+                // file://, SAF and DownloadManager URIs are skipped deliberately.
                 if (dao.countSavedUriReferences(saved) != 1 ||
                     !belongsToLegacyDownloads(saved)) {
                     skipped++
                 } else {
-                    var dest: PublishedFile? = null
-                    var committed = false
-                    try {
+                    val migrated = try {
                         val declaredMime = runCatching {
                             context.contentResolver.getType(Uri.parse(saved))
                         }.getOrNull()
                         val mime = MediaStoragePolicy.legacyMime(
-                            item.mediaType, item.originalName, declaredMime,
-                        ) ?: throw IllegalArgumentException(
-                            "Неизвестный или противоречивый MIME-тип старого файла."
-                        )
-                        val published = storage.publishVerifiedLegacyCopy(
+                            item.mediaType, item.originalName, declaredMime)
+                        mime != null && storage.moveLegacyMediaStoreInPlace(
                             saved, item.originalName, mime)
-                        dest = published
-                        currentCoroutineContext().ensureActive()
-                        // No new history entry. Download ID, folder assignment,
-                        // favorite, date and source metadata are untouched.
-                        val changed = dao.moveSavedUriWhenCurrent(item.id, saved,
-                            published.uri.toString(), published.fileName)
-                        if (changed == 1) {
-                            committed = true
-                            moved++
-                            // Old files are removed ONLY after a verified copy
-                            // has replaced the address in persistent Room history.
-                            // Failed deletion retains a backup and never reverts
-                            // a correctly migrated history row.
-                            val deleted = runCatching {
-                                storage.deleteDownloadPermanently(saved)
-                            }.getOrDefault(false)
-                            if (!deleted) backups++
-                        } else {
-                            // The row changed concurrently (renamed/deleted/
-                            // moved). Preserve the original and remove the
-                            // newly copied unused MediaStore entry.
-                            storage.deleteDownloadPermanently(dest.uri.toString())
-                            skipped++
-                        }
                     } catch (cancel: CancellationException) {
-                        if (!committed && dest != null) runCatching {
-                            storage.deleteDownloadPermanently(dest.uri.toString())
-                        }
                         throw cancel
-                    } catch (_: Exception) {
-                        if (!committed && dest != null) runCatching {
-                            storage.deleteDownloadPermanently(dest.uri.toString())
-                        }
-                        skipped++
+                    } catch (error: Exception) {
+                        // Abort on an unverified partial relocation. Its URI
+                        // still points at the bytes and its Room row is intact.
+                        if (error.message?.startsWith("Migration stopped:") == true) throw error
+                        false
                     }
+                    if (migrated) moved++ else skipped++
                 }
                 processed++
                 onProgress(StorageMigrationProgress(total, processed, moved, skipped,
                     backups, true, "Проверено $processed из $total"))
             }
             StorageMigrationProgress(total, processed, moved, skipped, backups, false,
-                "Перенесено: $moved. Пропущено: $skipped. " +
-                    "Сохранено резервных копий: $backups.").also(onProgress)
+                "Перемещено без изменения даты: $moved. " +
+                    "Пропущено ради сохранности: $skipped. Исходники не удалялись.").also(onProgress)
         }
 
     private fun belongsToLegacyDownloads(value: String): Boolean {
