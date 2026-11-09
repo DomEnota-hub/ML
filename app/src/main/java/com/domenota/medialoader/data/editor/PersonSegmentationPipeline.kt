@@ -19,11 +19,16 @@ internal data class PersonScanResult(
  * Never promote a detection box into an unverified person mask.
  */
 internal class PersonSegmentationPipeline(
-    private val detector: PersonDetector,
-    private val mobileSam: MobileSamSegmenter,
+    private val detectPeople: suspend (Bitmap) -> List<PersonDetection>,
+    private val segmentAt: suspend (Bitmap, MaskPoint) -> List<MaskStroke>,
 ) {
+    constructor(detector: PersonDetector, mobileSam: MobileSamSegmenter) : this(
+        detectPeople = { bitmap -> detector.detect(bitmap) },
+        segmentAt = { bitmap, point -> mobileSam.segment(bitmap, point) },
+    )
+
     suspend fun scan(bitmap: Bitmap): PersonScanResult {
-        val detections = detector.detect(bitmap)
+        val detections = detectPeople(bitmap)
         if (detections.isEmpty()) return PersonScanResult(0, emptyList(), emptySet())
         val people = mutableListOf<PersonInstance>()
         for (detection in detections) {
@@ -32,7 +37,7 @@ internal class PersonSegmentationPipeline(
             for (point in PersonInstancePolicy.prompts(detection.box)) {
                 currentCoroutineContext().ensureActive()
                 try {
-                    val raw = mobileSam.segment(bitmap, point)
+                    val raw = segmentAt(bitmap, point)
                     mask = PersonInstancePolicy.constrainToPerson(raw, detection.box)
                     break
                 } catch (_: IOException) {
