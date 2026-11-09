@@ -35,7 +35,7 @@ internal class PersonDetectorModelStore(context: Context) {
         const val MIN_DISK_BYTES = 48L * 1024 * 1024
     }
 
-    fun installed(): Boolean = target.isFile && target.length() in 1_000_001..MAX_BYTES
+    fun installed(): Boolean = target.isFile && target.length() in 1_000_001L..MAX_BYTES
 
     suspend fun verifyInstalled(): Boolean = withContext(Dispatchers.IO) { verified() }
 
