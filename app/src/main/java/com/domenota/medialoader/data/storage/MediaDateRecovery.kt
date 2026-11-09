@@ -107,6 +107,69 @@ internal class MediaDateRecovery(private val context: Context, private val dao: 
         }
     }
 
+    /**
+     * Follow-up to a successful one-file trial, only after explicit user
+     * confirmation that Xiaomi actually reads the restored timestamp.
+     * Neither media bytes nor Room history is rewritten. Every change is
+     * individually journaled *before* mutation and verified afterwards.
+     */
+    suspend fun restoreRemaining(onProgress: (Int, Int) -> Unit): Outcome =
+        withContext(Dispatchers.IO) {
+            val candidates = preview().filter {
+                kotlin.math.abs(File(it.path).lastModified() - it.original) > 2000L
+            }
+            var changed = 0
+            var skipped = 0
+            for (candidate in candidates) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                val current = dao.byId(candidate.id)
+                if (current?.savedUri != candidate.uri || current.isPrivate ||
+                    current.hidden || dao.countSavedUriReferences(candidate.uri) != 1 ||
+                    query(current) != candidate) {
+                    skipped++
+                    onProgress(changed + skipped, candidates.size)
+                    continue
+                }
+                val oldHash = try { digest(candidate.uri) } catch (e: Exception) {
+                    skipped++
+                    onProgress(changed + skipped, candidates.size)
+                    continue
+                }
+                val file = File(candidate.path)
+                try {
+                    logBefore(candidate)
+                    if (!file.setLastModified(candidate.original)) {
+                        skipped++
+                    } else {
+                        val identical = file.length() == candidate.bytes &&
+                            oldHash.contentEquals(digest(candidate.uri)) &&
+                            kotlin.math.abs(file.lastModified() - candidate.original) < 2000L
+                        if (!identical) {
+                            if (!file.setLastModified(candidate.modified))
+                                throw java.io.IOException("Не удалось отменить неуспешную запись даты")
+                            skipped++
+                        } else {
+                            changed++
+                            MediaScannerConnection.scanFile(context,
+                                arrayOf(candidate.path), arrayOf(candidate.mime), null)
+                        }
+                    }
+                } catch (cancel: CancellationException) { throw cancel }
+                catch (ex: Exception) {
+                    // Abort instead of continuing with uncertain filesystem state.
+                    file.setLastModified(candidate.modified)
+                    return@withContext Outcome(candidates.size, changed > 0,
+                        "Остановлено после $changed файлов: " +
+                            (ex.message ?: "неизвестная ошибка") +
+                            ". Журнал прежних дат сохранён.")
+                }
+                onProgress(changed + skipped, candidates.size)
+            }
+            Outcome(candidates.size, changed > 0,
+                "Восстановлено времён файлов: $changed, пропущено: $skipped. " +
+                    "Файлы и история загрузок не удалялись.")
+        }
+
     /** For QA: test the oldest one only; proceed to bulk only after device verification. */
     suspend fun trialOne(): Outcome = withContext(Dispatchers.IO) {
         val candidates = preview()
