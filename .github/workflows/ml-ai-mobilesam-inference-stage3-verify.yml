@@ -8,6 +8,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109
       - feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109
       - feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109
+      - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
@@ -15,6 +16,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-controls-20261109
       - feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109
       - feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109
+      - feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -123,6 +125,19 @@ jobs:
           assert "onCompareHold = { showBefore = it }" in eraser
           assert "tryAwaitRelease()" in chrome and "onCompareHold(false)" in chrome
           assert "AiEraserMode.entries.forEach" in chrome
+          # QA 1.4: unfinished specialist modes explain their status without launching inference.
+          assert 'PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, false)' in chrome
+          assert 'GLARE("Убрать блики", R.drawable.ic_ai_eraser_glare, false)' in chrome
+          assert 'REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, false)' in chrome
+          assert 'MobileSAM выделяет объект по указанию' in chrome
+          assert 'но не находит всех людей' in chrome
+          assert 'onUnavailable: (AiEraserMode) -> Unit' in chrome
+          assert 'if (mode.available) onMode(mode) else onUnavailable(mode)' in chrome
+          assert 'stateDescription = "Пока недоступно"' in chrome
+          assert 'onUnavailable = { mode ->' in eraser and 'featureNotice = mode.unavailableExplanation' in eraser
+          assert 'selectedMode = mode' in eraser and 'featureNotice = null' in eraser
+          assert Path("app/src/test/java/com/domenota/medialoader/ui/screens/AiEraserAvailabilityTest.kt").exists()
+
           assert "Modifier.width(74.dp).height(68.dp)" in chrome
           assert "modifier = Modifier.align(Alignment.End).size(23.dp)" in chrome, "Approved icon size from v0.2"
           for ref in ("ic_ai_eraser_hand.xml", "ic_ai_eraser_manual.xml"):

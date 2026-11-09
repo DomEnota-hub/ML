@@ -32,6 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,6 +51,24 @@ internal enum class AiEraserMode(val title: String, val icon: Int, val available
     TEXT("Удалить текст", R.drawable.ic_ai_eraser_text, true),
 }
 
+/**
+ * Specialist modes stay unavailable until their own on-device pipeline exists.
+ * MobileSAM is a point-prompted object segmenter, not a people detector.
+ * The explanatory card is tappable; it NEVER activates an unfinished mode.
+ */
+internal val AiEraserMode.unavailableExplanation: String?
+    get() = when (this) {
+        AiEraserMode.PEOPLE ->
+            "Автоудаление людей пока недоступно. MobileSAM выделяет объект по указанию, " +
+                "но не находит всех людей и не создаёт отдельные маски для каждого человека. " +
+                "Для этого нужен отдельный проверенный детектор и обработка через LaMa."
+        AiEraserMode.GLARE ->
+            "Удаление бликов пока недоступно: отдельная модель коррекции света ещё не подключена."
+        AiEraserMode.REFLECTION ->
+            "Удаление отражений пока недоступно: отдельная модель обработки отражений ещё не подключена."
+        else -> null
+    }
+
 private val eraserYellow = Color(0xFFFFC21C)
 private val eraserSurface = Color(0xFF282828)
 
@@ -59,6 +78,7 @@ internal fun AiEraserModeStrip(
     selected: AiEraserMode,
     enabled: Boolean,
     onMode: (AiEraserMode) -> Unit,
+    onUnavailable: (AiEraserMode) -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().height(91.dp).horizontalScroll(rememberScrollState())
@@ -73,11 +93,13 @@ internal fun AiEraserModeStrip(
                 Modifier.width(74.dp).height(68.dp)
                     .background(if (active) eraserYellow else eraserSurface,
                         RoundedCornerShape(12.dp))
-                    .clickable(enabled = enabled && mode.available) { onMode(mode) }
+                    .clickable(enabled = enabled) {
+                        if (mode.available) onMode(mode) else onUnavailable(mode)
+                    }
                     .padding(horizontal = 6.dp, vertical = 6.dp)
                     .semantics {
                         contentDescription = mode.title
-                        if (!mode.available) disabled()
+                        if (!mode.available) stateDescription = "Пока недоступно"
                     },
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
