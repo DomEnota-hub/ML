@@ -298,6 +298,11 @@ jobs:
             --tests '*GapiKeyStoreTest' \
             --tests '*GapiInstagramProviderTest' \
             --tests '*GapiUsagePolicyTest' --stacktrace
+      - name: Install headless MediaPipe EGL/GLES shared libraries
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgles2 libegl1 libgl1
       - name: Real EfficientDet-Lite0 model weights and 0/1/2 people smoke
         shell: bash
         run: |
