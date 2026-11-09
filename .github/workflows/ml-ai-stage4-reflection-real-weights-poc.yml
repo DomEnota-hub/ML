@@ -1,18 +1,10 @@
 name: ML AI Stage 4 - genuine reflection removal model research
 
+# The PINTO candidate failed the real paired-scene quality gate (CI 42590331785).
+# Do NOT rerun a known-unsuitable model on every source commit: retain the
+# reproducible failing research check for explicit re-evaluation only.
+# The independent DExNet quality/ONNX pipeline remains mandatory for stage 4.
 on:
-  push:
-    branches:
-      - feature/ml-ai-eraser-stage4-reflection-model-gate-20261109
-    paths:
-      - scripts/qa/stage4_real_reflection_onnx_smoke.py
-      - .github/workflows/ml-ai-stage4-reflection-real-weights-poc.yml
-  pull_request:
-    branches:
-      - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
-    paths:
-      - scripts/qa/stage4_real_reflection_onnx_smoke.py
-      - .github/workflows/ml-ai-stage4-reflection-real-weights-poc.yml
   workflow_dispatch:
 
 permissions:
