@@ -213,7 +213,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 HorizontalDivider()
                 ModelRow(
                     title = "EfficientDet-Lite0",
-                    detail = "Автоматическое обнаружение людей · около 4,6 МБ",
+                    detail = "Автоматическое обнаружение людей · 13,8 МБ",
                     ready = peopleReady, enabled = !checking && !updateChecking && active == null,
                     onInstall = { download("people") },
                     onDelete = { pendingDelete = "people" },
