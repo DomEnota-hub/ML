@@ -418,6 +418,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         if (_dateRecoveryBusy.value || _storageMigration.value.running) return
         _dateRecoveryBusy.value = true
         _dateRecoveryReady.value = false
+        _dateRecoveryTrialDone.value = false
         viewModelScope.launch {
             try {
                 val count = repository.previewRecoverableDates()
@@ -439,11 +440,36 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         _dateRecoveryReady.value = false
         viewModelScope.launch {
             try {
-                _dateRecoveryStatus.value = repository.tryRestoreOneFileDate().message
+                val result = repository.tryRestoreOneFileDate()
+                _dateRecoveryStatus.value = result.message
+                _dateRecoveryTrialDone.value = result.changed
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) {
                 _dateRecoveryStatus.value = error.message ?: "Файл не изменён"
             } finally { _dateRecoveryBusy.value = false }
+        }
+    }
+
+    private val _dateRecoveryTrialDone = MutableStateFlow(false)
+    val dateRecoveryTrialDone: StateFlow<Boolean> = _dateRecoveryTrialDone.asStateFlow()
+
+    fun restoreRemainingMediaDates() {
+        if (_dateRecoveryBusy.value || !_dateRecoveryTrialDone.value ||
+            _storageMigration.value.running) return
+        _dateRecoveryBusy.value = true
+        _dateRecoveryTrialDone.value = false
+        viewModelScope.launch {
+            try {
+                val result = repository.restoreRemainingMediaDates { done, all ->
+                    _dateRecoveryStatus.value = "Восстанавливаем даты: $done из $all"
+                }
+                _dateRecoveryStatus.value = result.message
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _dateRecoveryStatus.value = error.message ?: "Восстановление остановлено"
+            } finally {
+                _dateRecoveryBusy.value = false
+            }
         }
     }
 
