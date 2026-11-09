@@ -276,6 +276,7 @@ internal fun ObjectRemovalPanel(
     var downloadProgress by remember { mutableIntStateOf(0) }
     var processing by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var featureNotice by remember { mutableStateOf<String?>(null) }
 
     // Cap history and decode resolution so several undo states don't exhaust Android RAM.
     val working = remember(originalWorkingImage) {
@@ -875,7 +876,12 @@ internal fun ObjectRemovalPanel(
         AiEraserModeStrip(
             selected = selectedMode,
             enabled = !busy,
+            onUnavailable = { mode ->
+                // Informative tap, not an activation: no model, inference or mask changes.
+                featureNotice = mode.unavailableExplanation
+            },
             onMode = { mode ->
+                featureNotice = null
                 selectedMode = mode
                 if (mode == AiEraserMode.OBJECTS) autoMode = mobileReady
                 textMode = mode == AiEraserMode.TEXT
@@ -897,6 +903,10 @@ internal fun ObjectRemovalPanel(
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth().height(3.dp),
             )
+        }
+        featureNotice?.let {
+            Text(it, color = Color(0xFFFFCF22), fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         }
         message?.let {
             Text(it, color = Color(0xFFFFB4AB), fontSize = 11.sp,
