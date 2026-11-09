@@ -26,6 +26,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install headless MediaPipe EGL/GLES shared libraries
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgles2 libegl1 libgl1
       - name: Install pinned MediaPipe CPU runtime
         run: |
           python -m pip install --disable-pip-version-check --no-input \
