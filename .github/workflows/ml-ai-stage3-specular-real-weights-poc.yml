@@ -37,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check --no-input \
-            "numpy==1.26.4" "onnx==1.17.0" "onnxruntime==1.20.1"
+            "numpy==1.26.4" "onnx==1.17.0" "onnxruntime==1.20.1" "Pillow==11.3.0"
           python -m pip install --disable-pip-version-check --no-input \
             "torch==2.4.1+cpu" --index-url https://download.pytorch.org/whl/cpu
       - name: Actual MIT pretrained weights with ONNX parity and highlight restoration quality
