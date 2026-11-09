@@ -10,6 +10,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109
       - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
       - feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109
+      - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
@@ -19,6 +20,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109
       - feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109
       - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
+      - feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -227,6 +229,20 @@ jobs:
 
           assert "maskActions.undoCount()" in eraser and "maskActions.redoCount()" in eraser
           assert "maskActions.clear()" in eraser, "Mask history must reset between image steps"
+          grouping = Path("app/src/main/java/com/domenota/medialoader/data/editor/MaskActionGrouping.kt").read_text()
+          integration = Path("app/src/test/java/com/domenota/medialoader/data/editor/MobileSamLaMaIntegrationTest.kt").read_text()
+          assert "fun undoCount(): Int = if (undo.isEmpty()) 0" in grouping, "Phantom mask undo regression"
+          assert "fun redoCount(): Int = if (redo.isEmpty()) 0" in grouping, "Phantom mask redo regression"
+          assert "MobileSamGeometry.strokesFromLogits(" in integration, "MobileSAM to LaMa mask adapter integration missing"
+          assert "LaMaInpaintingEngine(runner)" in integration, "LaMa composition contract missing"
+          assert "LaMaInpaintingEngine.makeOverlay(" in integration, "Export overlay contract missing"
+          # QA 1.GAPI: local November estimates, no tokens or credential asset in GitHub.
+          gapi = Path("app/src/main/java/com/domenota/medialoader/data/gapi/GapiKeyStore.kt").read_text()
+          assert "when (builtinIndex) { 0 -> 112; 1 -> 200; else -> null }" in gapi
+          assert "novemberFirstKeyBalance(key.id, usage, recorded)" in gapi
+          assert 'usage.put("seedBaseline", 112)' in gapi
+          assert "if (saved) adjusted else 0" in gapi, "Failed balance migration must fail closed"
+          assert not Path("app/src/main/assets/gapi-builtin-keys.json").exists(), "Never commit real GAPI credentials"
           PY
       - name: Unified Compose video player, fullscreen, gallery, deletion and gesture tests
         run: |
@@ -251,6 +267,9 @@ jobs:
             --tests '*MobileSamModelStoreTest' \
             --tests '*AiModelUpdatePolicyTest' \
             --tests '*MobileSamGeometryTest' \
+            --tests '*MobileSamLaMaIntegrationTest' \
+            --tests '*LaMaCompositionTest' \
+            --tests '*InpaintingPreparationTest' \
             --tests '*MaskActionGroupingTest' \
             --tests '*GalleryV10SubmenuPlacementTest' \
             --tests '*VideoPlayerUiPolicyTest' \
@@ -261,7 +280,9 @@ jobs:
             --tests '*GalleryNavigationPlacementTest' \
             --tests '*FullscreenOrientationTest' \
             --tests '*VideoGesturePolicyTest' \
-            --tests '*GapiKeyStoreTest' --stacktrace
+            --tests '*GapiKeyStoreTest' \
+            --tests '*GapiInstagramProviderTest' \
+            --tests '*GapiUsagePolicyTest' --stacktrace
       - name: Android lint
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Build unsigned ARM64 Release APK

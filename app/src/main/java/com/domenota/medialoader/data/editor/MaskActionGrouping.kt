@@ -15,9 +15,10 @@ internal class MaskActionGrouping {
         redo.clear()
     }
 
-    fun undoCount(): Int = if (undo.isEmpty()) 1 else undo.removeLast().also { redo.addLast(it) }
+    /** No fallback 'one stroke': empty history must be a true no-op. */
+    fun undoCount(): Int = if (undo.isEmpty()) 0 else undo.removeLast().also { redo.addLast(it) }
 
-    fun redoCount(): Int = if (redo.isEmpty()) 1 else redo.removeLast().also { undo.addLast(it) }
+    fun redoCount(): Int = if (redo.isEmpty()) 0 else redo.removeLast().also { undo.addLast(it) }
 
     fun clear() {
         undo.clear()

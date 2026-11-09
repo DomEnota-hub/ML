@@ -83,15 +83,42 @@ class GapiKeyStore internal constructor(
         keys.distinctBy { it.id }.distinctBy { it.token }.map { key ->
             val usage = runCatching { JSONObject(preferences?.getString("usage:${key.id}", "{}") ?: "{}") }.getOrDefault(JSONObject())
             val builtinIndex = builtins.indexOfFirst { it.id == key.id }
+            val month = currentMonth()
             val limit = if (builtinIndex in 0..1) 200 else null
-            val seed = if (currentMonth() == "2026-11") {
-                when (builtinIndex) { 0 -> 156; 1 -> 200; else -> null }
+            // These are the user's November estimated balances, not a change to the
+            // service's 200-credit monthly allowance. Other months reset normally.
+            val seed = if (month == "2026-11") {
+                when (builtinIndex) { 0 -> 112; 1 -> 200; else -> null }
             } else limit
-            val remaining = if (usage.optString("month") == currentMonth() && usage.has("remaining"))
-                usage.optInt("remaining").takeIf { it >= 0 } else seed
-            key.copy(remaining = if (key.exhaustedMonth == currentMonth()) 0 else remaining,
+            val recorded = if (usage.optString("month") == month && usage.has("remaining"))
+                usage.optInt("remaining").takeIf { it >= 0 } else null
+            val remaining = when {
+                builtinIndex == 0 && month == "2026-11" && recorded != null ->
+                    novemberFirstKeyBalance(key.id, usage, recorded)
+                else -> recorded ?: seed
+            }
+            key.copy(remaining = if (key.exhaustedMonth == month) 0 else remaining,
                 monthlyLimit = limit, lastUsage = usage.optString("last").takeIf { it.isNotBlank() })
         }
+    }
+
+    /**
+     * The earlier QA used the last reported November balance of 156. The user's
+     * newer reported balance is 112, and local requests may ALREADY have reduced
+     * the stored 156. Clamp the previous estimate to 112, never subtract 44 again:
+     * that would double-count requests. Match by stable builtin ID, not UI order.
+     *
+     * The marker is written atomically with the adjusted balance. If encrypted
+     * storage cannot persist the correction, fail closed instead of reusing an
+     * overstated allowance. No credential values are read or logged here.
+     */
+    private fun novemberFirstKeyBalance(id: String, usage: JSONObject, recorded: Int): Int {
+        if (usage.optInt("seedBaseline") == 112) return recorded.coerceIn(0, 112)
+        val adjusted = recorded.coerceIn(0, 112)
+        val migrated = JSONObject(usage.toString()).put("remaining", adjusted)
+            .put("seedBaseline", 112)
+        val saved = preferences?.edit()?.putString("usage:$id", migrated.toString())?.commit() == true
+        return if (saved) adjusted else 0
     }
 
     fun eligible(): List<GapiKey> {
@@ -206,6 +233,9 @@ class GapiKeyStore internal constructor(
                 val last = "${java.time.Instant.ofEpochMilli(now())} · $source · ${status?.let { "HTTP $it · расход $cost" } ?: "Ответ не получен · расход неизвестен"}"
                 val usage = JSONObject().put("month", currentMonth()).put("last", last)
                 if (remaining != null) usage.put("remaining", remaining)
+                // New November usage must never be mistaken for a legacy 156 seed.
+                if (builtins.indexOfFirst { it.id == key.id } == 0 &&
+                    currentMonth() == "2026-11") usage.put("seedBaseline", 112)
                 val saved = preferences?.edit()?.putString("usage:${key.id}", usage.toString())?.commit() == true
                 com.domenota.medialoader.core.logging.AppLog.i("GapiUsage",
                     "method=gapi · keyId=${key.id} · endpoint=$endpoint · status=${status ?: "unconfirmed"} · cost=$cost · remaining=${remaining ?: "unknown"} · saved=$saved")
