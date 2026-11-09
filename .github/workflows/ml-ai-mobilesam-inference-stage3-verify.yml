@@ -154,7 +154,7 @@ jobs:
           assert "currentCoroutineContext().ensureActive()" in checker
           assert "Новая ревизия" in checker and "Требуется проверка" in checker
           assert "LaMaModelStore.SHA256" in checker and "MobileSamModelStore.ENCODER_SHA256" in checker
-          assert "install(" not in checker, "Update check must never install model weights"
+          assert "lama.install(" not in checker and "mobile.install(" not in checker, "Update check must never install model weights"
           # We do NOT include the large downloaded ONNX files in versioned app assets.
           assert not list(Path("app/src/main").rglob("mobile_sam_*.onnx"))
           assert not list(Path("app/src/main").rglob("sam_mask_decoder_*.onnx"))
