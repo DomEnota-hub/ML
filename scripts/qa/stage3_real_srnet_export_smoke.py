@@ -117,7 +117,7 @@ def test_real_photo(runtime, name: str, source: str, blob_sha: str):
 
     data, _ = download(BASE + quote(source, safe="/"), 6_000_000)
     git_blob_sha = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") +
-                                b"\\0" + data).hexdigest()
+                                b"\0" + data).hexdigest()
     if git_blob_sha != blob_sha:
         raise AssertionError("Real photo fixture was modified: " + name)
     with Image.open(io.BytesIO(data)) as photo:
