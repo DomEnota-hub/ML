@@ -1,0 +1,85 @@
+name: ML 1.7.157 stage 1 - ONNX cache and inpainting regression QA
+on:
+  push:
+    branches:
+      - feature/ml-17157-stage1-ort-performance-20261109
+    paths:
+      - app/src/main/java/com/domenota/medialoader/data/editor/**
+      - app/src/main/java/com/domenota/medialoader/ui/screens/ObjectRemovalPanel.kt
+      - app/src/test/java/com/domenota/medialoader/data/editor/**
+      - .github/workflows/ml-17157-stage1-ort-performance.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17157-stage1-ort-performance
+  cancel-in-progress: true
+jobs:
+  regression-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Bootstrap pinned Gradle 8.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for i in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$i" != 4
+            sleep 10
+          done
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Model session cache and inpainting test contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('app/src/main/java/com/domenota/medialoader')
+          cache=(root/'data/editor/OrtSessionCache.kt').read_text()
+          lama=(root/'data/editor/LaMaOnnxRunner.kt').read_text()
+          panel=(root/'ui/screens/ObjectRemovalPanel.kt').read_text()
+          assert 'mutex.withLock' in cache and 'OrtSessions.lama.use(model)' in lama
+          assert 'session-init model=' in cache and 'experimentalXnnpack' in cache
+          assert 'editorEntered(context.applicationContext' in panel
+          assert 'OrtSessions.editorExited()' in panel
+          assert 'env.createSession(model.absolutePath, options)' not in lama
+          PY
+      - name: Scoped unit, graph, mask, image and safety regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*InpaintingPreparationTest' \
+            --tests '*InpaintingContractsTest' \
+            --tests '*LaMaCompositionTest' \
+            --tests '*MobileSamLaMaIntegrationTest' \
+            --tests '*MaskActionGroupingTest' \
+            --tests '*AiEraserModePolicyTest' \
+            --tests '*PersonSegmentationPipelineTest' \
+            --tests '*SpecularGlareEngineTest' \
+            --tests '*ReflectionRemovalEngineTest' \
+            --tests '*SpecularOverlayComposerTest' \
+            --tests '*GalleryViewerStateTest' \
+            --stacktrace
+      - name: Android lint
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Compile unsigned ARM64 release only
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify version and ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" |
+            grep -F "name='com.domenota.medialoader' versionCode='217' versionName='1.7.157'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          echo "Stage 1 scoped tests, lint and unsigned release passed. No QA published."
