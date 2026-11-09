@@ -40,7 +40,11 @@ IMAGES = {
         "97c15bbbf3cf3615063b1031c85d669de55839f59262bbe145d15ca75b36ecbf",
     ),
 }
-WIDTH = 128
+# Research model memory/quality tradeoffs without changing any real pretrained weights.
+# 128px baseline is already documented as failing the 781 MiB RAM budget.
+WIDTH = int(os.environ.get("ML_DEXNET_SIDE", "128"))
+if WIDTH not in (80, 96, 128):
+    raise ValueError("Unsupported researcher-selected DExNet image side")
 
 
 def sha256(path: pathlib.Path) -> str:
@@ -106,6 +110,7 @@ def main():
 
     torch.set_num_threads(2)
     torch.set_num_interop_threads(1)
+    print("RESEARCH_REAL_DEXNET_INPUT_SIDE", WIDTH, flush=True)
     with tempfile.TemporaryDirectory(prefix="ml-real-dexnet-") as tmp:
         root = pathlib.Path(tmp)
         source = root / "source"
