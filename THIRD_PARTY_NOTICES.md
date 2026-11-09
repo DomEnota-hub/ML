@@ -46,3 +46,15 @@ License reported by model publisher: Apache-2.0.
 Training dataset: Places2 (CC BY 4.0). Relevant credit belongs to Places2 authors.
 The model is requested only by explicit user action; photographs and paint masks
 stay on the device. Model weights are not redistributed in the application APK.
+
+
+## EfficientDet-Lite0 (downloaded separately, NOT bundled with APK)
+
+Object detector from LiteRT Community: https://huggingface.co/litert-community/efficientdet
+Revision: 360eea05e7de8f0d0f5602b548b5bbee6f7b65c7
+Exact TFLite binary: efficientdet_lite0_detection.tflite
+Published SHA-256: 33a3b622c7cac0762f96089353cd61495f3e993968d133af7871bfc2d5396704
+Publisher metadata declares Apache-2.0 for the distributed model/weights.
+Trained on COCO 2017; some data usage rights depend on original COCO images.
+ON-device CPU inference via MediaPipe Tasks Vision (Apache-2.0).
+No photos are uploaded. Binary is fetched only by an explicit installation action.
