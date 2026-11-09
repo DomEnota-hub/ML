@@ -6,13 +6,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AiEraserAvailabilityTest {
-    @Test fun peopleCannotBeActivatedByMobileSamAlone() {
-        assertFalse(AiEraserMode.PEOPLE.available)
-        val reason = requireNotNull(AiEraserMode.PEOPLE.unavailableExplanation)
-        assertTrue(reason.contains("MobileSAM"))
-        assertTrue(reason.contains("не находит всех людей"))
-        assertTrue(reason.contains("отдельные маски"))
-        assertTrue(reason.contains("LaMa"))
+    @Test fun peopleModeUsesRealDetectorWithFailClosedInstallationChecks() {
+        assertTrue(AiEraserMode.PEOPLE.available)
+        assertNull(AiEraserMode.PEOPLE.unavailableExplanation)
+        // UI launches PersonSegmentationPipeline only after both optional models verify.
+        // A failed detector install must NOT silently reuse point-only MobileSAM as a detector.
     }
 
     @Test fun glareAndReflectionAreNotMisrepresentedAsReady() {
