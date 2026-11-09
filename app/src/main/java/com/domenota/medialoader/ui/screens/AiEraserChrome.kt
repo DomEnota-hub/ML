@@ -41,10 +41,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.R
 
-/** No fake AI modes: auto segmentation and the three specialist engines are not shipped yet. */
+/** People use EfficientDet + MobileSAM + LaMa. Glare/reflection require separate models. */
 internal enum class AiEraserMode(val title: String, val icon: Int, val available: Boolean) {
     OBJECTS("Удаление объектов", R.drawable.ic_ai_eraser_objects, true),
-    PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, false),
+    PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, true),
     GLARE("Убрать блики", R.drawable.ic_ai_eraser_glare, false),
     REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, false),
     MANUAL("Вручную", R.drawable.ic_ai_eraser_manual, true),
@@ -58,10 +58,7 @@ internal enum class AiEraserMode(val title: String, val icon: Int, val available
  */
 internal val AiEraserMode.unavailableExplanation: String?
     get() = when (this) {
-        AiEraserMode.PEOPLE ->
-            "Автоудаление людей пока недоступно. MobileSAM выделяет объект по указанию, " +
-                "но не находит всех людей и не создаёт отдельные маски для каждого человека. " +
-                "Для этого нужен отдельный проверенный детектор и обработка через LaMa."
+        AiEraserMode.PEOPLE -> null
         AiEraserMode.GLARE ->
             "Удаление бликов пока недоступно: отдельная модель коррекции света ещё не подключена."
         AiEraserMode.REFLECTION ->
