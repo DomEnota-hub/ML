@@ -202,7 +202,7 @@ internal object OrtTuning {
                     options.setOptimizedModelFilePath(graph.absolutePath)
                 }
             }
-            val chosen = if (graph?.isFile == true && graph.length() > 0L) graph else model
+            val chosen = graph?.takeIf { it.isFile && it.length() > 0L } ?: model
             return OrtSessionHandle(env.createSession(chosen.absolutePath, options), options)
         } catch (error: Exception) {
             options.close()
