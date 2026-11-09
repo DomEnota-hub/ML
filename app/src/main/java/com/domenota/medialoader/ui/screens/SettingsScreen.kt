@@ -509,13 +509,13 @@ fun SettingsScreen(
         title = { Text("Папка загрузок") },
         text = {
             Column {
-                Text("Выберите папку через проводник или сохраняйте в Загрузки.")
+                Text("Фотографии и видео сохраняются в Pictures; аудиофайлы в Music. Старые загрузки остаются доступны до подтверждённого переноса.")
                 Spacer(Modifier.height(12.dp))
                 TextButton(onClick = { folderDialog = false; onSelectFolder() }) { Text("Выбрать в проводнике") }
                 OutlinedTextField(
                     value = folderName,
                     onValueChange = { folderName = it },
-                    label = { Text("Папка внутри Загрузок") },
+                    label = { Text("Папка внутри Pictures") },
                     singleLine = true,
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                         focusedLabelColor = MaterialTheme.colorScheme.onSurface,
@@ -530,7 +530,7 @@ fun SettingsScreen(
         },
         confirmButton = {
             TextButton(onClick = { onChangeFolder(folderName); folderDialog = false }) {
-                Text("Сохранить в Загрузки")
+                Text("Сохранить в Pictures")
             }
         },
         dismissButton = { TextButton(onClick = { folderDialog = false }) { Text("Отмена") } },
@@ -917,7 +917,7 @@ fun SettingsScreen(
                 SettingRow(Icons.Rounded.Folder, "Папка загрузок", downloadFolder,
                 grouped = true, nested = true, iconTone = SettingIconTone.DOWNLOAD_FOLDER,
                 onClick = {
-                    folderName = downloadFolder.substringAfter("Download/", "MediaLoader")
+                    folderName = downloadFolder.substringAfter("Pictures/", "MediaLoader")
                     folderDialog = true
                 })
             GroupDivider()
