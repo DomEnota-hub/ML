@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 internal fun GalleryVideoChrome(
     visible: Boolean,
     locked: Boolean,
+    unlockVisible: Boolean,
     playing: Boolean,
     positionMs: Long,
     durationMs: Long,
@@ -72,8 +73,8 @@ internal fun GalleryVideoChrome(
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var scrubbing by remember { mutableStateOf<Float?>(null) }
     Box(modifier.fillMaxSize()) {
-        if (locked) {
-            // The lock remains reachable at the right-center even in clean mode.
+        if (locked && unlockVisible) {
+            // Locked video stays clean; a tap reveals the unlock control briefly.
             // Android's landscape navigation rail can occupy either screen edge.
             // The locked control must always remain inside the content-safe region.
             Box(Modifier.align(Alignment.CenterEnd)
