@@ -163,13 +163,16 @@ class StorageManager(
         val file = File(trash, id)
         file.isFile && file.delete()
     }
-    /** For example "Download/MediaLoader/". */
+    /** For example "Pictures/MediaLoader/". Original history URIs remain untouched. */
     var relativeDirectory: String
         get() = settings.relativeDirectory
         set(value) { settings.relativeDirectory = value }
 
-    /** Path below the public Downloads directory, without a trailing slash: "MediaLoader". */
-    val downloadsSubPath: String get() = relativeDirectory.removePrefix("Download/").trimEnd('/')
+    /** The public root depends on the media MIME. Android stores audio in Music/. */
+    fun publicRootFor(mimeType: String): String =
+        MediaStoragePolicy.root(MediaStoragePolicy.route(relativeDirectory, mimeType))
+
+    val downloadsSubPath: String get() = relativeDirectory.substringAfter('/').trimEnd('/')
 
     /** Text for Settings. */
     val displayPath: String get() = settings.treeUri?.let {
@@ -192,13 +195,14 @@ class StorageManager(
         DocumentFile.fromTreeUri(context, Uri.parse(it))
     }
 
-    /** Path handed to DownloadManager for a file name. */
-    fun downloadsRelativePath(fileName: String): String =
-        if (downloadsSubPath.isEmpty()) fileName else "$downloadsSubPath/$fileName"
+    /** Path relative to the chosen public root for the system DownloadManager. */
+    fun downloadsRelativePath(fileName: String, mimeType: String = "image/jpeg"): String =
+        MediaStoragePolicy.subPath(MediaStoragePolicy.route(relativeDirectory, mimeType), fileName)
 
-    private fun publicFolder(): File {
-        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        return if (downloadsSubPath.isEmpty()) downloads else File(downloads, downloadsSubPath)
+    private fun publicFolder(path: String = relativeDirectory): File {
+        val root = Environment.getExternalStoragePublicDirectory(MediaStoragePolicy.root(path))
+        val sub = path.substringAfter('/').trim('/')
+        return if (sub.isEmpty()) root else File(root, sub)
     }
 
     /** Names already present in the target folder (file system and MediaStore). */
@@ -208,14 +212,36 @@ class StorageManager(
             return@withContext folder.listFiles().mapNotNull { it.name }.toSet()
         }
         val names = mutableSetOf<String>()
-        publicFolder().list()?.let(names::addAll)
+        val targets = listOf(
+            relativeDirectory,
+            MediaStoragePolicy.route(relativeDirectory, "audio/mpeg"),
+            MediaStoragePolicy.route(relativeDirectory, "application/octet-stream"),
+        ).distinct()
+        for (path in targets) publicFolder(path).list()?.let(names::addAll)
         if (Build.VERSION.SDK_INT >= 29) {
-            context.contentResolver.query(
+            val resolver = context.contentResolver
+            val collections = listOf(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
-                "${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
-                arrayOf(relativeDirectory), null,
-            )?.use { cursor -> while (cursor.moveToNext()) names.add(cursor.getString(0)) }
+            )
+            for (collection in collections) for (path in targets) {
+                // On Android 13+ a full-library permission is not required for
+                // writing app-owned media, but querying other owners may be denied.
+                try {
+                    resolver.query(collection,
+                        arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                        "${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+                        arrayOf(path), null,
+                    )?.use { cursor ->
+                        while (cursor.moveToNext()) cursor.getString(0)?.let(names::add)
+                    }
+                } catch (_: SecurityException) {
+                    // MediaStore itself handles collisions on insert; do not
+                    // request broad photo permissions merely to list names.
+                }
+            }
         }
         names
     }
@@ -239,18 +265,20 @@ class StorageManager(
                 }
                 return@withContext PublishedFile(document.uri, actualName)
             }
+            val targetPath = MediaStoragePolicy.route(relativeDirectory, mimeType)
             if (Build.VERSION.SDK_INT >= 29) {
                 val resolver = context.contentResolver
+                val collection = collectionFor(mimeType)
                 val rejectedNames = mutableSetOf<String>()
                 repeat(MAX_MEDIASTORE_NAME_ATTEMPTS) {
                     val actualName = StorageNaming.availableName(fileName, initialNames + rejectedNames)
                     val values = ContentValues().apply {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, actualName)
                         put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, relativeDirectory)
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, targetPath)
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
-                    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    val uri = resolver.insert(collection, values)
                         ?: throw IOException("Не удалось создать файл")
                     try {
                         val output = resolver.openOutputStream(uri)
@@ -270,7 +298,7 @@ class StorageManager(
                 }
                 throw IOException("Не удалось подобрать свободное имя файла")
             } else {
-                val folder = publicFolder()
+                val folder = publicFolder(targetPath)
                 if (!folder.exists() && !folder.mkdirs()) throw IOException("Не удалось создать папку")
                 val actualName = StorageNaming.availableName(fileName, initialNames)
                 val target = File(folder, actualName)
@@ -284,6 +312,13 @@ class StorageManager(
             }
         }
 
+    private fun collectionFor(mimeType: String): Uri = when (MediaStoragePolicy.kind(mimeType)) {
+        MediaStoragePolicy.Kind.IMAGE -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        MediaStoragePolicy.Kind.VIDEO -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        MediaStoragePolicy.Kind.AUDIO -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        MediaStoragePolicy.Kind.OTHER -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
+    }
+
     private companion object {
         const val MAX_MEDIASTORE_NAME_ATTEMPTS = 100
     }
@@ -294,11 +329,16 @@ class StorageManager(
         val uri = Uri.parse(savedUri)
         if (uri.scheme != "content" || uri.authority != MediaStore.AUTHORITY) return@withContext false
         runCatching {
-            val folder = context.contentResolver.query(uri,
-                arrayOf(MediaStore.MediaColumns.RELATIVE_PATH), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) else null
+            val location = context.contentResolver.query(uri,
+                arrayOf(MediaStore.MediaColumns.RELATIVE_PATH, MediaStore.MediaColumns.MIME_TYPE),
+                null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) to cursor.getString(1) else null
             } ?: return@runCatching false
-            val collision = context.contentResolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            val folder = location.first
+            val collection = if (folder.startsWith("Download/"))
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            else collectionFor(location.second ?: "application/octet-stream")
+            val collision = context.contentResolver.query(collection,
                 arrayOf(MediaStore.MediaColumns._ID),
                 "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
                 arrayOf(folder, newName), null)?.use { it.moveToFirst() } ?: true
