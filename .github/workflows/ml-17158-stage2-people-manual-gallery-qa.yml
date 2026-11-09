@@ -1,0 +1,97 @@
+name: ML 1.7.158 Stage 2 - people, manual, gallery, fullscreen QA
+
+on:
+  push:
+    branches:
+      - feature/ml-17158-stage2-people-gallery-20261109
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml-17158-stage2-quality
+  cancel-in-progress: true
+
+jobs:
+  stage1-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Bootstrap pinned Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for i in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$i" != 4
+            sleep 10
+          done
+      - name: Install Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-35' 'build-tools;35.0.0'
+      - name: Stage 2 people, geometry, gallery and video regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*InpaintingPreparationTest' \
+            --tests '*ImageViewportGeometryTest' \
+            --tests '*PersonInstancePolicyTest' \
+            --tests '*PersonSegmentationPipelineTest' \
+            --tests '*GalleryVideoChromeTest' \
+            --tests '*GalleryTimelineGeometryTest' \
+            --tests '*GalleryViewerOverlayPolicyTest' \
+            --tests '*GalleryLandscapeOrientationTest' \
+            --tests '*GalleryV10ActionContractTest' \
+            --tests '*VideoPlayerUiPolicyTest' \
+            --tests '*InpaintingContractsTest' \
+            --tests '*LaMaCompositionTest' \
+            --tests '*MobileSamLaMaIntegrationTest' \
+            --tests '*MobileSamGeometryTest' \
+            --tests '*MobileSamModelStoreTest' \
+            --tests '*PersonSegmentationPipelineTest' \
+            --tests '*SpecularGlareEngineTest' \
+            --tests '*ReflectionRemovalEngineTest' \
+            --tests '*SpecularOverlayComposerTest' \
+            --tests '*MaskActionGroupingTest' \
+            --tests '*AiEraserModePolicyTest' --stacktrace
+      - name: Android lint (fatal gate)
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Compile ARM64 Release (unsigned; not production delivery)
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify built package, architecture, and source policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          "$bt/aapt" dump badging "$apk" | grep -F "name='com.domenota.medialoader'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          ! grep -R 'createSession(' app/src/main/java/com/domenota/medialoader/data/editor/LaMaOnnxRunner.kt \
+            app/src/main/java/com/domenota/medialoader/data/editor/MobileSamSegmenter.kt \
+            app/src/main/java/com/domenota/medialoader/data/editor/SpecularGlareEngine.kt \
+            app/src/main/java/com/domenota/medialoader/data/editor/ReflectionRemovalEngine.kt
+          test ! -e app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx
+          sha256sum "$apk"
+      - name: Keep test and lint diagnostics only; no release artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17158-stage2-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 3
