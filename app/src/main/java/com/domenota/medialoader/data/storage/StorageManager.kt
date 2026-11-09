@@ -316,6 +316,104 @@ class StorageManager(
         }
 
     /**
+     * Safe replacement for legacy copy/delete migration. A MediaStore move of
+     * the SAME app-owned row retains its ID and DATE_ADDED: no new gallery item
+     * is created and no old file is removed. Historical file:// and document
+     * URIs are deliberately skipped until they have a verified owner mapping.
+     *
+     * Returns false when the file cannot be proven safe to relocate.
+     */
+    internal suspend fun moveLegacyMediaStoreInPlace(
+        savedUri: String, originalName: String, mimeType: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT < 29 || usesSelectedFolder) return@withContext false
+        val uri = Uri.parse(savedUri)
+        if (uri.scheme != "content" || uri.authority != MediaStore.AUTHORITY) {
+            return@withContext false
+        }
+        val resolver = context.contentResolver
+        data class Metadata(
+            val name: String, val mime: String, val path: String,
+            val owner: String?, val bytes: Long,
+            val addedSeconds: Long, val modifiedSeconds: Long,
+        )
+        fun read(): Metadata? = resolver.query(uri, arrayOf(
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.MIME_TYPE,
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            MediaStore.MediaColumns.OWNER_PACKAGE_NAME,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_ADDED,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+        ), null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            fun str(name: String) = cursor.getString(cursor.getColumnIndexOrThrow(name))
+            fun lng(name: String) = cursor.getLong(cursor.getColumnIndexOrThrow(name))
+            Metadata(str(MediaStore.MediaColumns.DISPLAY_NAME),
+                str(MediaStore.MediaColumns.MIME_TYPE),
+                str(MediaStore.MediaColumns.RELATIVE_PATH),
+                str(MediaStore.MediaColumns.OWNER_PACKAGE_NAME),
+                lng(MediaStore.MediaColumns.SIZE),
+                lng(MediaStore.MediaColumns.DATE_ADDED),
+                lng(MediaStore.MediaColumns.DATE_MODIFIED))
+        }
+        val before = try { read() } catch (_: Exception) { null }
+            ?: return@withContext false
+        val proposed = LegacyRelocationPolicy.targetPath(before.path, before.owner,
+            context.packageName, before.name, originalName,
+            before.mime, mimeType, relativeDirectory,
+            targetNameTaken = originalName in existingNames())
+            ?: return@withContext false
+        if (before.bytes <= 0L || before.addedSeconds <= 0L ||
+            before.modifiedSeconds <= 0L) return@withContext false
+
+        suspend fun sha256(): ByteArray {
+            val digest = MessageDigest.getInstance("SHA-256")
+            resolver.openInputStream(uri)?.use { stream ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            } ?: throw IOException("MediaStore file cannot be read")
+            return digest.digest()
+        }
+        val oldHash = try { sha256() } catch (_: Exception) {
+            return@withContext false
+        }
+        val change = ContentValues().apply {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, proposed)
+        }
+        val updated = try { resolver.update(uri, change, null, null) }
+            catch (_: Exception) { 0 }
+        if (updated != 1) return@withContext false
+
+        // Filesystem/storage changes can be interrupted. Never remove bytes.
+        // Restore the original location if a provider did not retain metadata.
+        val after = try { read() } catch (_: Exception) { null }
+        val preserved = after?.path == proposed &&
+            LegacyRelocationPolicy.unchangedMetadata(
+                before.name, after.name, before.bytes, after.bytes,
+                before.addedSeconds, after.addedSeconds,
+                before.modifiedSeconds, after.modifiedSeconds) &&
+            try { oldHash.contentEquals(sha256()) } catch (_: Exception) { false }
+        if (!preserved) {
+            val restore = ContentValues().apply {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, before.path)
+            }
+            val restored = try { resolver.update(uri, restore, null, null) == 1 &&
+                read()?.path == before.path } catch (_: Exception) { false }
+            if (!restored) throw IOException(
+                "Migration stopped: MediaStore move could not be verified or reversed; " +
+                    "original URI remains in history and no file was deleted.")
+            return@withContext false
+        }
+        true
+    }
+
+    /**
      * Copy ONLY an explicitly approved legacy history URI into a new,
      * proper MediaStore Images/Video/Audio collection. SHA-256 is compared
      * after reopening the new file. The old source is NEVER removed here;
