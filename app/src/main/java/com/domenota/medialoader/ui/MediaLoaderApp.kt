@@ -1368,6 +1368,7 @@ fun MediaLoaderApp(
                     onDateRecoveryTrial = viewModel::tryRestoreOneMediaDate,
                     dateRecoveryTrialDone = dateRecoveryTrialDone,
                     onRestoreRemainingDates = viewModel::restoreRemainingMediaDates,
+                    onUndoMediaDateChanges = viewModel::undoMediaDateChanges,
                     onRestore = viewModel::restoreHidden,
                     onEmptyTrash = viewModel::clearHidden,
                     onOpenTrash = { navController.navigate("trash") },
