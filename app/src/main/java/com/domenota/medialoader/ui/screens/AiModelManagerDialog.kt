@@ -44,6 +44,7 @@ import com.domenota.medialoader.data.editor.ModelUpdateResult
 import com.domenota.medialoader.data.editor.ModelUpdateState
 import com.domenota.medialoader.data.editor.LaMaModelStore
 import com.domenota.medialoader.data.editor.MobileSamModelStore
+import com.domenota.medialoader.data.editor.PersonDetectorModelStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -54,9 +55,11 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val lama = remember(context) { LaMaModelStore(context.applicationContext) }
     val mobile = remember(context) { MobileSamModelStore(context.applicationContext) }
+    val people = remember(context) { PersonDetectorModelStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var lamaReady by remember { mutableStateOf(false) }
     var mobileReady by remember { mutableStateOf(false) }
+    var peopleReady by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(true) }
     var active by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableIntStateOf(0) }
@@ -69,6 +72,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     LaunchedEffect(Unit) {
         lamaReady = lama.verifyInstalled()
         mobileReady = mobile.verifyInstalled()
+        peopleReady = people.verifyInstalled()
         checking = false
     }
     fun download(kind: String) {
@@ -82,9 +86,12 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 if (kind == "lama") {
                     lama.install { progress = it }
                     lamaReady = lama.verifyInstalled()
-                } else {
+                } else if (kind == "mobile") {
                     mobile.install { progress = it }
                     mobileReady = mobile.verifyInstalled()
+                } else if (kind == "people") {
+                    people.install { progress = it }
+                    peopleReady = people.verifyInstalled()
                 }
             } catch (cancel: CancellationException) {
                 error = "Установка отменена."
@@ -108,9 +115,12 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 if (kind == "lama") {
                     lama.uninstall()
                     lamaReady = false
-                } else {
+                } else if (kind == "mobile") {
                     mobile.uninstall()
                     mobileReady = false
+                } else if (kind == "people") {
+                    people.uninstall()
+                    peopleReady = false
                 }
             } catch (failure: Exception) {
                 error = failure.message ?: "Не удалось удалить AI-модель."
@@ -133,11 +143,16 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 val verifiedMobile = mobile.verifyInstalled()
                 lamaReady = verifiedLaMa
                 mobileReady = verifiedMobile
+                val verifiedPeople = people.verifyInstalled()
+                peopleReady = verifiedPeople
                 val lamaResult = AiModelUpdateChecker.check(
                     AiModelUpdateChecker.Kind.LAMA, verifiedLaMa)
                 val mobileResult = AiModelUpdateChecker.check(
                     AiModelUpdateChecker.Kind.MOBILE_SAM, verifiedMobile)
-                updateResults = mapOf("lama" to lamaResult, "mobile" to mobileResult)
+                val peopleResult = AiModelUpdateChecker.check(
+                    AiModelUpdateChecker.Kind.PEOPLE, verifiedPeople)
+                updateResults = mapOf("lama" to lamaResult, "mobile" to mobileResult,
+                    "people" to peopleResult)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {
@@ -195,6 +210,14 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                     onInstall = { download("mobile") },
                     onDelete = { pendingDelete = "mobile" },
                 )
+                HorizontalDivider()
+                ModelRow(
+                    title = "EfficientDet-Lite0",
+                    detail = "Автоматическое обнаружение людей · 13,8 МБ",
+                    ready = peopleReady, enabled = !checking && !updateChecking && active == null,
+                    onInstall = { download("people") },
+                    onDelete = { pendingDelete = "people" },
+                )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(colors = whiteActionColors, onClick = ::checkUpdates,
                         enabled = !checking && !updateChecking && active == null) {
@@ -216,8 +239,17 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                         color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
                             Color(0xFFFFD180) else Color.LightGray)
                 }
+                updateResults["people"]?.let { result ->
+                    Text("EfficientDet: ${result.detail}",
+                        color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
+                            Color(0xFFFFD180) else Color.LightGray)
+                }
                 if (active != null && job?.isActive == true) {
-                    Text(if (active == "lama") "LaMa · $progress%" else "MobileSAM · $progress%",
+                    Text(when (active) {
+                        "lama" -> "LaMa · $progress%"
+                        "mobile" -> "MobileSAM · $progress%"
+                        else -> "EfficientDet · $progress%"
+                    },
                         color = androidx.compose.ui.graphics.Color.White)
                     LinearProgressIndicator(
                         progress = { progress.toFloat() / 100f },

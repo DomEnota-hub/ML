@@ -1,0 +1,45 @@
+name: ML AI People Stage 2 - verified live detector weights
+
+on:
+  push:
+    branches:
+      - feature/ml-ai-eraser-stage2-people-detector-20261109
+    paths:
+      - scripts/qa/stage2_real_detector_smoke.py
+      - .github/workflows/ml-stage2-live-detector-weights.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml-ai-stage2-live-weights
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Real EfficientDet-Lite0 smoke (CPU)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install headless MediaPipe EGL/GLES shared libraries
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgles2 libegl1 libgl1
+      - name: Install pinned MediaPipe CPU runtime
+        run: |
+          python -m pip install --disable-pip-version-check --no-input \
+            "mediapipe==0.10.35" "Pillow>=10,<13"
+      - name: Download real model and run on 0/1/2-person images
+        run: python scripts/qa/stage2_real_detector_smoke.py
+      - name: State test scope
+        if: success()
+        run: |
+          echo 'Confirmed: Linux CPU MediaPipe detector with verified official TFLite bytes.'
+          echo 'NOT confirmed: Android Xiaomi, MobileSAM output quality, LaMa inpainting quality.'
+          echo 'No APK, archive or model weights are retained or published.'

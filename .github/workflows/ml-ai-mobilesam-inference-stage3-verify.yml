@@ -11,6 +11,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
       - feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109
       - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
+      - feature/ml-ai-eraser-stage2-people-detector-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
@@ -21,6 +22,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109
       - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
       - feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109
+      - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -55,19 +57,14 @@ jobs:
             if [ "$attempt" = 4 ]; then exit 1; fi
             sleep 10
           done
-      - name: Use alternate Maven mirrors for this run if Maven Central gateway times out
+      - name: Verify official Maven repos without unstable Aliyun proxy
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path("settings.gradle")
-          s=p.read_text()
-          # CI-only fallback. Keep tracked project repository configuration intact.
-          needle="repositories {\n        google()"
-          mirrors="repositories {\n        maven { url 'https://maven.aliyun.com/repository/public' }\n        maven { url 'https://maven.aliyun.com/repository/google' }\n        google()"
-          assert s.count(needle)==2
-          p.write_text(s.replace(needle,mirrors))
-          PY
+          set -euo pipefail
+          # Aliyun public mirror returned HTTP 502 and Gradle disabled the
+          # repository for all dependencies. Use original tracked settings.
+          grep -q 'google()' settings.gradle
+          grep -q 'mavenCentral()' settings.gradle
       - name: Install Android SDK
         run: |
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
@@ -141,11 +138,27 @@ jobs:
           assert "tryAwaitRelease()" in chrome and "onCompareHold(false)" in chrome
           assert "AiEraserMode.entries.forEach" in chrome
           # QA 1.4: unfinished specialist modes explain their status without launching inference.
-          assert 'PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, false)' in chrome
+          assert 'PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, true)' in chrome
           assert 'GLARE("Убрать блики", R.drawable.ic_ai_eraser_glare, false)' in chrome
           assert 'REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, false)' in chrome
-          assert 'MobileSAM выделяет объект по указанию' in chrome
-          assert 'но не находит всех людей' in chrome
+          assert "PersonSegmentationPipeline(detector, segmenter)" in eraser
+          assert "val found = peoplePipeline.scan(source)" in eraser
+          assert "selectedMode == AiEraserMode.PEOPLE" in eraser
+          assert "selectedPeople" in eraser and "ambiguousPeople" in eraser
+          assert "PersonDetectorModelStore(context.applicationContext)" in eraser
+          assert "peopleReady = peopleStore.verifyInstalled()" in eraser
+          assert 'download("people")' in dialog and 'pendingDelete = "people"' in dialog
+          people_model = Path("app/src/main/java/com/domenota/medialoader/data/editor/PersonDetectorModelStore.kt").read_text()
+          person_policy = Path("app/src/main/java/com/domenota/medialoader/data/editor/PersonInstancePolicy.kt").read_text()
+          person_runner = Path("app/src/main/java/com/domenota/medialoader/data/editor/PersonDetector.kt").read_text()
+          assert "40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58" in people_model
+          assert "13_836_895L" in people_model and "storage.googleapis.com/mediapipe-models/object_detector" in people_model
+          assert 'verified()' in people_model and 'partial.delete()' not in people_model
+          assert "MAX_BYTES" in people_model and "ensureActive()" in people_model
+          assert "setModelAssetBuffer(buffer)" in person_runner and "ObjectDetector.createFromOptions" in person_runner
+          assert 'setCategoryAllowlist(listOf("person"))' in person_runner
+          assert "constrainToPerson" in person_policy and "fun ambiguity(" in person_policy
+          assert not list(Path("app/src/main/assets").glob("*efficientdet*.tflite"))
           assert 'onUnavailable: (AiEraserMode) -> Unit' in chrome
           assert 'if (mode.available) onMode(mode) else onUnavailable(mode)' in chrome
           assert 'stateDescription = "Пока недоступно"' in chrome
@@ -211,7 +224,7 @@ jobs:
           assert "autoTrace = autoPoints.toList()" in eraser
           assert "style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)" in eraser
           assert "objectTrace else autoTrace" in eraser, "Magnifier must show both object selection traces"
-          assert "if (segmenting)" in eraser and "SegmentationIndicator()" in eraser
+          assert "if (segmenting || peopleSearching)" in eraser and "SegmentationIndicator()" in eraser
           assert "segmenting = false" in eraser and "finally {" in eraser
           assert "ImageViewportGeometry.placeMagnifier(" in eraser and "clearance = with(density) { 24.dp.toPx() }" in eraser, "Magnifier must stay clear of finger"
           assert "autoCandidate" not in eraser, "Tap-only MobileSAM must not return"
@@ -244,6 +257,24 @@ jobs:
           assert "if (saved) adjusted else 0" in gapi, "Failed balance migration must fail closed"
           assert not Path("app/src/main/assets/gapi-builtin-keys.json").exists(), "Never commit real GAPI credentials"
           PY
+      - name: Install headless MediaPipe EGL/GLES shared libraries
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgles2 libegl1 libgl1
+      - name: Real EfficientDet-Lite0 model weights and 0/1/2 people smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-input \
+            "mediapipe==0.10.35" "Pillow>=10,<13"
+          python3 scripts/qa/stage2_real_detector_smoke.py
+      - name: Real MobileSAM and LaMa ONNX weight-backed inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-input "onnxruntime==1.20.1"
+          python3 scripts/qa/stage2_real_sam_lama_smoke.py
       - name: Unified Compose video player, fullscreen, gallery, deletion and gesture tests
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true \
@@ -268,6 +299,8 @@ jobs:
             --tests '*AiModelUpdatePolicyTest' \
             --tests '*MobileSamGeometryTest' \
             --tests '*MobileSamLaMaIntegrationTest' \
+            --tests '*PersonInstancePolicyTest' \
+            --tests '*PersonSegmentationPipelineTest' \
             --tests '*LaMaCompositionTest' \
             --tests '*InpaintingPreparationTest' \
             --tests '*MaskActionGroupingTest' \
