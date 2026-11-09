@@ -41,8 +41,6 @@ jobs:
           python -m pip install --disable-pip-version-check --no-input \
             "torch==2.4.1+cpu" --index-url https://download.pytorch.org/whl/cpu
       - name: Actual MIT pretrained weights with ONNX parity and highlight restoration quality
-        env:
-          ML_EXPORT_ONNX_BLOB: '1'
         shell: bash
         run: |
           set -euo pipefail
