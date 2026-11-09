@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,7 +29,7 @@ class MobileSamLaMaIntegrationTest {
         // Two disconnected foreground objects. Only the first was touched.
         for (y in 16..32) for (x in 16..32) logits[y * width + x] = 4f
         for (y in 44..56) for (x in 44..56) logits[y * width + x] = 4f
-        val prompt = assertNotNull(AutoDragSelectionPolicy.releasePrompt(
+        val prompt = requireNotNull(AutoDragSelectionPolicy.releasePrompt(
             listOf(MaskPoint(.18f, .18f), MaskPoint(.4f, .4f)), 46f, 14f))
         val strokes = MobileSamGeometry.strokesFromLogits(logits, width, height, prompt)
         assertTrue(strokes.isNotEmpty())
