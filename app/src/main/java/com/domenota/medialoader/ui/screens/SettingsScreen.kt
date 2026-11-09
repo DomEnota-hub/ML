@@ -1251,7 +1251,7 @@ fun SettingsScreen(
                     })
                 GroupDivider()
             }
-            SettingRow(Icons.Rounded.FolderFromTrash, "Корзина",
+            SettingRow(Icons.Rounded.RestoreFromTrash, "Корзина",
                 "Удалённые файлы · $hiddenCount", grouped = true,
                 iconTone = SettingIconTone.TRASH,
                 onClick = onOpenTrash)
