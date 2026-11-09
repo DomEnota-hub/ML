@@ -17,8 +17,20 @@ MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/object_detector/"
              "efficientdet_lite0/float32/1/efficientdet_lite0.tflite")
 EXPECTED_SHA256 = "40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58"
 EXPECTED_SIZE = 13_836_895
-SOURCE = ("https://raw.githubusercontent.com/google-ai-edge/mediapipe/master/"
-          "mediapipe/tasks/testdata/vision/")
+# The upstream sample images are hosted in MediaPipe's versioned Google bucket,
+# not raw.githubusercontent.com (which returns 404 for Bazel external fixtures).
+SAMPLES = {
+    "pose.jpg": (
+        "https://storage.googleapis.com/mediapipe-assets/tasks/testdata/vision/"
+        "pose.jpg?generation=1782185208547605",
+        "c8a830ed683c0276d713dd5aeda28f415f10cd6291972084a40d0d8b934ed62b",
+    ),
+    "burger.jpg": (
+        "https://storage.googleapis.com/mediapipe-assets/tasks/testdata/vision/"
+        "burger.jpg?generation=1782184424868164",
+        "97c15bbbf3cf3615063b1031c85d669de55839f59262bbe145d15ca75b36ecbf",
+    ),
+}
 
 
 def download(url: str, path: pathlib.Path, maximum_bytes: int) -> dict:
@@ -54,8 +66,12 @@ def main():
 
         pose = root / "pose.jpg"
         burger = root / "burger.jpg"
-        print("IMAGE pose", download(SOURCE + "pose.jpg", pose, 10_000_000), flush=True)
-        print("IMAGE burger", download(SOURCE + "burger.jpg", burger, 10_000_000), flush=True)
+        for filename, output in [("pose.jpg", pose), ("burger.jpg", burger)]:
+            url, expected = SAMPLES[filename]
+            meta = download(url, output, 10_000_000)
+            if meta["sha256"] != expected:
+                raise AssertionError(f"MediaPipe fixture hash mismatch: {filename}")
+            print("IMAGE", filename, json.dumps(meta), flush=True)
         with Image.open(pose) as photo:
             rgb = photo.convert("RGB")
             width, height = rgb.size
