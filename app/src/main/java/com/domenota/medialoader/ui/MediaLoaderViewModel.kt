@@ -406,6 +406,47 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /** Date restoration is opt-in. No filesystem timestamp changes on startup. */
+    private val _dateRecoveryStatus = MutableStateFlow("Проверка не запускалась")
+    val dateRecoveryStatus: StateFlow<String> = _dateRecoveryStatus.asStateFlow()
+    private val _dateRecoveryReady = MutableStateFlow(false)
+    val dateRecoveryReady: StateFlow<Boolean> = _dateRecoveryReady.asStateFlow()
+    private val _dateRecoveryBusy = MutableStateFlow(false)
+    val dateRecoveryBusy: StateFlow<Boolean> = _dateRecoveryBusy.asStateFlow()
+
+    fun previewMediaDates() {
+        if (_dateRecoveryBusy.value || _storageMigration.value.running) return
+        _dateRecoveryBusy.value = true
+        _dateRecoveryReady.value = false
+        viewModelScope.launch {
+            try {
+                val count = repository.previewRecoverableDates()
+                _dateRecoveryReady.value = count > 0
+                _dateRecoveryStatus.value = if (count > 0)
+                    "Подходящих файлов: $count. Для проверки начните с одного."
+                    else "Подходящих файлов не найдено. Ничего не изменено."
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _dateRecoveryStatus.value = error.message ?: "Проверка дат не выполнена"
+            } finally { _dateRecoveryBusy.value = false }
+        }
+    }
+
+    fun tryRestoreOneMediaDate() {
+        if (_dateRecoveryBusy.value || !_dateRecoveryReady.value ||
+            _storageMigration.value.running) return
+        _dateRecoveryBusy.value = true
+        _dateRecoveryReady.value = false
+        viewModelScope.launch {
+            try {
+                _dateRecoveryStatus.value = repository.tryRestoreOneFileDate().message
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _dateRecoveryStatus.value = error.message ?: "Файл не изменён"
+            } finally { _dateRecoveryBusy.value = false }
+        }
+    }
+
     /** Folder text for Settings; comes from StorageManager, not from the UI. */
     private val _downloadFolder = MutableStateFlow(repository.storageDisplayPath)
     val downloadFolder: StateFlow<String> = _downloadFolder.asStateFlow()
