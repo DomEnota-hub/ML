@@ -170,7 +170,7 @@ internal fun GalleryMediaViewer(
         }
     }
     SideEffect {
-        if (activity != null && !fullscreen) {
+        if (activity != null) {
             val window = activity.window
             @Suppress("DEPRECATION")
             window.statusBarColor = AndroidColor.TRANSPARENT
@@ -184,7 +184,7 @@ internal fun GalleryMediaViewer(
             // Landscape is always status-bar free, including when controls or More are visible.
             bars.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (isLandscape) {
+            if (isLandscape || fullscreen) {
                 bars.isAppearanceLightStatusBars = false
                 bars.isAppearanceLightNavigationBars = false
                 bars.hide(WindowInsetsCompat.Type.statusBars())
