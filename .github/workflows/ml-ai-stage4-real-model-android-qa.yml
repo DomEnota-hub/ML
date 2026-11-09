@@ -56,11 +56,42 @@ jobs:
           model=app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx
           test -s "$model"
           test -s "$model.sha256"
-          (cd app/src/main/assets/ai && sha256sum -c dexnet_vgg19_reflection_128.onnx.sha256)
+          # The runtime consumes a single raw 64-hex digest, not the
+          # '<digest>  filename' format expected by sha256sum -c.
+          expected=$(tr -d '\\r\\n' < "$model.sha256")
+          [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
+          actual=$(sha256sum "$model" | cut -d' ' -f1)
+          test "$actual" = "$expected"
           git ls-files --error-unmatch "$model" >/dev/null 2>&1 && {
             echo 'Model weights MUST NOT be committed to Git' >&2; exit 1;
           } || :
           test "$(stat -c%s "$model")" -lt 110000000
+      - name: Provision the two real built-in GAPI credentials without logging them
+        env:
+          ML_GAPI_BUILTIN_KEYS_JSON_B64: ${{ secrets.ML_GAPI_BUILTIN_KEYS_JSON_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${ML_GAPI_BUILTIN_KEYS_JSON_B64:-}" ]; then
+            echo "::error::Missing ML_GAPI_BUILTIN_KEYS_JSON_B64; refuse an APK without built-in GAPI keys." >&2
+            exit 1
+          fi
+          umask 077
+          mkdir -p .gapi-local
+          printf '%s' "$ML_GAPI_BUILTIN_KEYS_JSON_B64" | tr -d '\\r\\n ' | base64 --decode > .gapi-local/builtin-keys.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          try:
+              entries = json.loads(Path('.gapi-local/builtin-keys.json').read_text('utf-8'))
+              assert isinstance(entries, list) and len(entries) >= 2
+              assert all(isinstance(item, dict) and item.get('id') and item.get('key') for item in entries)
+              assert len({item['id'] for item in entries}) == len(entries)
+              assert len({item['key'] for item in entries}) == len(entries)
+          except (AssertionError, OSError, ValueError, KeyError):
+              raise SystemExit('Refusing QA: built-in GAPI credentials missing or invalid')
+          print('Built-in GAPI configuration validated (credential values not logged)')
+          PY
       - name: Bootstrap pinned Gradle 8.9 from checked wrapper SHA
         shell: bash
         run: |
@@ -144,5 +175,5 @@ jobs:
         run: |
           rm -f app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx
           rm -f app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx.sha256
-          rm -rf "$RUNNER_TEMP/ml-qa-handoff"
+          rm -rf "$RUNNER_TEMP/ml-qa-handoff" .gapi-local
           echo "Ephemeral model and QA packages wiped; no GitHub artifact published."
