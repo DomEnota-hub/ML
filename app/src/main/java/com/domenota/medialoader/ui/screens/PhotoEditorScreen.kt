@@ -83,6 +83,8 @@ private data class PhotoEditSnapshot(
     val graphicWatermark: PhotoGraphicWatermark? = null,
     val overlayPath: String? = null,
     val appliedMasks: List<List<MaskStroke>> = emptyList(),
+    /** Opaque neural correction must survive later, separate eraser sessions. */
+    val fullFrameCorrection: Boolean = false,
     val inpaintPreview: Bitmap? = null,
 )
 
@@ -493,9 +495,11 @@ fun PhotoEditorScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 originalWorkingImage = info.preview,
                 earlierMasks = edit.appliedMasks,
-                onAccept = { bitmap, masks, path ->
+                earlierFullFrameCorrection = edit.fullFrameCorrection,
+                onAccept = { bitmap, masks, path, correctedFullFrame ->
                     if (!locked) {
-                        commit(edit.copy(overlayPath = path, appliedMasks = masks, inpaintPreview = bitmap))
+                        commit(edit.copy(overlayPath = path, appliedMasks = masks,
+                            fullFrameCorrection = correctedFullFrame, inpaintPreview = bitmap))
                         removeObjects = false
                     }
                 },
