@@ -10,7 +10,7 @@ permissions:
   contents: read
 concurrency:
   group: ml-17158-private-signed-handoff
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   signed-qa:
     runs-on: ubuntu-24.04
