@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Redo
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -171,10 +172,12 @@ internal fun AiEraserTopBar(
     canUndo: Boolean,
     canRedo: Boolean,
     canCompare: Boolean,
+    canResetView: Boolean,
     busy: Boolean,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onCompareHold: (Boolean) -> Unit,
+    onResetView: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 14.dp),
@@ -215,6 +218,14 @@ internal fun AiEraserTopBar(
             Icon(painterResource(R.drawable.ic_ai_eraser_compare), null,
                 modifier = Modifier.size(26.dp),
                 tint = if (canCompare && !busy) Color.White else Color.DarkGray)
+        }
+        // Viewport-only reset: does not touch the mask, undo history or AI model.
+        Spacer(Modifier.width(2.dp))
+        IconButton(onClick = onResetView, enabled = canResetView && !busy,
+            modifier = Modifier.size(39.dp)) {
+            Icon(Icons.Rounded.Refresh, contentDescription = "Сброс вида",
+                modifier = Modifier.size(23.dp),
+                tint = if (canResetView && !busy) Color.White else Color.DarkGray)
         }
     }
 }
