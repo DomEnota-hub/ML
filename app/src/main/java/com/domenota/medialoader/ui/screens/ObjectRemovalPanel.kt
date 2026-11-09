@@ -77,6 +77,9 @@ import com.domenota.medialoader.data.editor.PersonDetector
 import com.domenota.medialoader.data.editor.PersonSegmentationPipeline
 import com.domenota.medialoader.data.editor.PersonScanResult
 import com.domenota.medialoader.data.editor.PersonInstance
+import com.domenota.medialoader.data.editor.SpecularSrNetModelStore
+import com.domenota.medialoader.data.editor.SpecularGlareEngine
+import com.domenota.medialoader.data.editor.SpecularOverlayComposer
 import com.domenota.medialoader.data.editor.MaskPoint
 import com.domenota.medialoader.data.editor.ImageViewportGeometry
 import com.domenota.medialoader.data.editor.AutoDragSelectionPolicy
@@ -96,7 +99,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-private data class RemovalStep(val bitmap: Bitmap, val maskBatches: List<List<MaskStroke>>)
+private data class RemovalStep(
+    val bitmap: Bitmap,
+    val maskBatches: List<List<MaskStroke>>,
+    val fullFrameCorrection: Boolean = false,
+)
 
 @Composable
 private fun RemovalToolButton(
@@ -256,13 +263,19 @@ internal fun ObjectRemovalPanel(
     modifier: Modifier = Modifier,
     originalWorkingImage: Bitmap,
     earlierMasks: List<List<MaskStroke>>,
-    onAccept: (Bitmap, List<List<MaskStroke>>, String) -> Unit,
+    earlierFullFrameCorrection: Boolean = false,
+    earlierOverlayPath: String? = null,
+    onAccept: (Bitmap, List<List<MaskStroke>>, String, Boolean) -> Unit,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val modelStore = remember(context) { LaMaModelStore(context) }
     val engine = remember(modelStore) { LaMaInpaintingEngine(modelStore) }
+    val glareStore = remember(context) { SpecularSrNetModelStore(context.applicationContext) }
+    val glareEngine = remember(glareStore) { SpecularGlareEngine(glareStore) }
+    var glareReady by remember { mutableStateOf(false) }
+    var askGlareInstall by remember { mutableStateOf(false) }
     val mobileStore = remember(context) { MobileSamModelStore(context.applicationContext) }
     val segmenter = remember(mobileStore) { MobileSamSegmenter(mobileStore) }
     val peopleStore = remember(context) { PersonDetectorModelStore(context.applicationContext) }
@@ -284,6 +297,7 @@ internal fun ObjectRemovalPanel(
     LaunchedEffect(mobileStore) {
         mobileReady = mobileStore.verifyInstalled()
         peopleReady = peopleStore.verifyInstalled()
+        glareReady = glareStore.verifyInstalled()
         autoMode = mobileReady
     }
     var installed by remember { mutableStateOf(modelStore.installed()) }
@@ -302,7 +316,8 @@ internal fun ObjectRemovalPanel(
             (originalWorkingImage.width * 1280f / side).roundToInt().coerceAtLeast(1),
             (originalWorkingImage.height * 1280f / side).roundToInt().coerceAtLeast(1), true)
     }
-    var steps by remember(working) { mutableStateOf(listOf(RemovalStep(working, earlierMasks))) }
+    var steps by remember(working) { mutableStateOf(listOf(RemovalStep(working, earlierMasks,
+        fullFrameCorrection = earlierFullFrameCorrection))) }
     var index by remember(working) { mutableIntStateOf(0) }
     val current = steps[index]
     val strokes = remember(working) { mutableStateListOf<MaskStroke>() }
@@ -355,12 +370,14 @@ internal fun ObjectRemovalPanel(
         } else if (index < steps.lastIndex) index++
     }
 
-    if (askSamInstall || askPeopleInstall) AiModelManagerDialog(onDismiss = {
+    if (askSamInstall || askPeopleInstall || askGlareInstall) AiModelManagerDialog(onDismiss = {
         askSamInstall = false
         askPeopleInstall = false
+        askGlareInstall = false
         scope.launch {
             mobileReady = mobileStore.verifyInstalled()
             peopleReady = peopleStore.verifyInstalled()
+            glareReady = glareStore.verifyInstalled()
             if (mobileReady && selectedMode == AiEraserMode.OBJECTS) {
                 autoMode = true
             }
@@ -478,7 +495,8 @@ internal fun ObjectRemovalPanel(
                 val result = engine.inpaint(startStep.bitmap, marked)
                 // Retain bounded undo/redo image states and existing mask batches.
                 steps = steps.take(index + 1).takeLast(3) +
-                    RemovalStep(result, startStep.maskBatches + listOf(marked))
+                    RemovalStep(result, startStep.maskBatches + listOf(marked),
+                        fullFrameCorrection = startStep.fullFrameCorrection)
                 index = steps.lastIndex
                 segmenter.clearCache()
                 strokes.clear()
@@ -492,6 +510,45 @@ internal fun ObjectRemovalPanel(
                 ambiguousPeople = emptySet()
             } catch (error: Exception) {
                 message = error.message ?: "Обработка LaMa не удалась."
+            } finally {
+                processing = false
+            }
+        }
+    }
+
+    fun processGlare() {
+        if (busy) return
+        if (!glareReady) {
+            askGlareInstall = true
+            message = "Для коррекции бликов установите SRNet через «AI-модели» (230 КБ, без интернета)."
+            return
+        }
+        val startStep = current
+        processing = true
+        message = null
+        scope.launch {
+            try {
+                val result = glareEngine.correct(startStep.bitmap)
+                // Unlike LaMa, this is a FULL-FRAME neural photometric correction.
+                // Export the corrected bitmap with opaque alpha; an empty LaMa mask
+                // would silently drop this result on photo export.
+                steps = steps.take(index + 1).takeLast(3) +
+                    RemovalStep(result, startStep.maskBatches, fullFrameCorrection = true)
+                index = steps.lastIndex
+                segmenter.clearCache()
+                strokes.clear()
+                redoStrokes.clear()
+                maskActions.clear()
+                selectedGlyphs.clear()
+                redoGlyphs.clear()
+                glyphs = emptyList()
+                detectedPeople = emptyList()
+                selectedPeople.clear()
+                ambiguousPeople = emptySet()
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                message = error.message ?: "SRNet не смогла убрать блик."
             } finally {
                 processing = false
             }
@@ -537,7 +594,25 @@ internal fun ObjectRemovalPanel(
                 val file = withContext(Dispatchers.IO) {
                     val dir = File(context.cacheDir, "inpainting-overlays").apply { mkdirs() }
                     val output = File(dir, "overlay-${UUID.randomUUID()}.png")
-                    val overlay = LaMaInpaintingEngine.makeOverlay(
+                    val overlay = if (accepted.fullFrameCorrection) {
+                        // Never export an opaque preview: the full-resolution
+                        // original must survive outside the corrected pixels.
+                        val previous = earlierOverlayPath?.let { oldPath ->
+                            val permitted = File(context.cacheDir, "inpainting-overlays").canonicalFile
+                            val input = File(oldPath).canonicalFile
+                            if (input.parentFile != permitted || !input.isFile ||
+                                !input.name.endsWith(".png"))
+                                throw java.io.IOException("Недопустимый путь предыдущей маски.")
+                            BitmapFactory.decodeFile(input.absolutePath)
+                                ?: throw java.io.IOException("Не удалось прочитать прежнюю маску.")
+                        }
+                        try {
+                            SpecularOverlayComposer.combine(
+                                steps.first().bitmap, accepted.bitmap, previous)
+                        } finally {
+                            previous?.recycle()
+                        }
+                    } else LaMaInpaintingEngine.makeOverlay(
                         accepted.bitmap, accepted.maskBatches)
                     try {
                         FileOutputStream(output).use { out ->
@@ -549,7 +624,8 @@ internal fun ObjectRemovalPanel(
                         overlay.recycle()
                     }
                 }
-                onAccept(accepted.bitmap, accepted.maskBatches, file.absolutePath)
+                onAccept(accepted.bitmap, accepted.maskBatches, file.absolutePath,
+                    accepted.fullFrameCorrection)
             } catch (error: Exception) {
                 message = error.message ?: "Не удалось подготовить результат."
             } finally {
@@ -626,7 +702,8 @@ internal fun ObjectRemovalPanel(
                         }
                         val manualObject = selectedMode == AiEraserMode.OBJECTS && !autoMode
                         var drawing = !moveMode && !textMode && !automaticSelection &&
-                            selectedMode != AiEraserMode.PEOPLE
+                            selectedMode != AiEraserMode.PEOPLE &&
+                            selectedMode != AiEraserMode.GLARE
                         var selecting = !moveMode && textMode && glyphs.isNotEmpty()
                         var personTap = !moveMode && selectedMode == AiEraserMode.PEOPLE
                         val points = mutableListOf<MaskPoint>()
@@ -854,7 +931,8 @@ internal fun ObjectRemovalPanel(
                 }
             }
             if (!showBefore && !textMode && !moveMode && cursor != null &&
-                selectedMode != AiEraserMode.PEOPLE) {
+                selectedMode != AiEraserMode.PEOPLE &&
+                selectedMode != AiEraserMode.GLARE) {
                 val position = requireNotNull(cursor)
                 // Use the exact inverse of the pointer-to-image transform, including
                 // zoom and pan, to place the lens relative to the REAL touch point.
@@ -980,6 +1058,23 @@ internal fun ObjectRemovalPanel(
                     width = if (glyphs.isEmpty()) 132.dp else 104.dp,
                     onClick = ::processSelection,
                 )
+            }
+        }
+        if (selectedMode == AiEraserMode.GLARE) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.fillMaxWidth().height(48.dp),
+                    contentAlignment = Alignment.Center) {
+                    EraserStartButton(
+                        enabled = !busy,
+                        label = "Начать",
+                        onClick = ::processGlare,
+                    )
+                }
+                Text("SRNet определяет блики и корректирует их нейросетью. " +
+                        "Полностью потерянные детали восстановить не всегда возможно.",
+                    fontSize = 10.sp, color = Color.LightGray)
             }
         }
         if (selectedMode == AiEraserMode.PEOPLE) {

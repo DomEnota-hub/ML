@@ -17,10 +17,10 @@ class AiEraserModePolicyTest {
 
     @Test fun onlyWorkingLocalEnginesAreEnabled() {
         assertEquals(setOf(AiEraserMode.OBJECTS, AiEraserMode.PEOPLE,
-            AiEraserMode.MANUAL, AiEraserMode.TEXT),
+            AiEraserMode.GLARE, AiEraserMode.MANUAL, AiEraserMode.TEXT),
             AiEraserMode.entries.filter { it.available }.toSet())
         assertTrue(AiEraserMode.PEOPLE.available)
-        assertFalse(AiEraserMode.GLARE.available)
+        assertTrue(AiEraserMode.GLARE.available)
         assertFalse(AiEraserMode.REFLECTION.available)
     }
 

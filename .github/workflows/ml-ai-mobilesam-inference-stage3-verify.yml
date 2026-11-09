@@ -12,6 +12,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109
       - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
       - feature/ml-ai-eraser-stage2-people-detector-20261109
+      - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
@@ -23,6 +24,8 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
       - feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109
       - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
+      - feature/ml-ai-eraser-stage2-people-detector-20261109
+      - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -139,7 +142,32 @@ jobs:
           assert "AiEraserMode.entries.forEach" in chrome
           # QA 1.4: unfinished specialist modes explain their status without launching inference.
           assert 'PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, true)' in chrome
-          assert 'GLARE("Убрать блики", R.drawable.ic_ai_eraser_glare, false)' in chrome
+          assert 'GLARE("Убрать блики", R.drawable.ic_ai_eraser_glare, true)' in chrome
+          assert "SpecularGlareEngine(glareStore)" in eraser
+          assert "val result = glareEngine.correct(startStep.bitmap)" in eraser
+          assert "if (accepted.fullFrameCorrection)" in eraser, "SRNet must use delta overlay export"
+          assert "SpecularOverlayComposer.combine(" in eraser, "SRNet must retain source-resolution unaffected pixels"
+          assert "earlierOverlayPath = edit.overlayPath" in editor, "Previous session edits must not disappear"
+          assert "earlierFullFrameCorrection = edit.fullFrameCorrection" in editor
+          assert "fullFrameCorrection = correctedFullFrame" in editor
+          assert Path("app/src/main/java/com/domenota/medialoader/data/editor/SpecularOverlayComposer.kt").exists()
+          assert Path("app/src/test/java/com/domenota/medialoader/data/editor/SpecularOverlayComposerTest.kt").exists()
+          assert "fullFrameCorrection = startStep.fullFrameCorrection" in eraser, "Later LaMa edits must retain SRNet output"
+          assert "glareReady = glareStore.verifyInstalled()" in eraser
+          assert 'download("glare")' in dialog and 'pendingDelete = "glare"' in dialog
+          srnet_store = Path("app/src/main/java/com/domenota/medialoader/data/editor/SpecularSrNetModelStore.kt").read_text()
+          srnet_engine = Path("app/src/main/java/com/domenota/medialoader/data/editor/SpecularGlareEngine.kt").read_text()
+          srnet_asset = Path("app/src/main/assets/ai/specular_srnet_256.onnx.b64")
+          assert srnet_asset.is_file(), "Genuine MIT pretrained SRNet weights asset missing"
+          assert "1538f5800858c329e93576566d40f568fcc07d8fdc674bca454fbfc4771c63e4" in srnet_store
+          assert "suspend fun verifyInstalled()" in srnet_store and "suspend fun uninstall()" in srnet_store
+          assert "Base64InputStream(asset, Base64.DEFAULT)" in srnet_store
+          assert "OrtEnvironment.getEnvironment()" in srnet_engine and "session.run(mapOf(" in srnet_engine
+          assert "outputNames.containsAll(setOf(" in srnet_engine
+          assert "currentCoroutineContext().ensureActive()" in srnet_engine
+          assert "SpecularFrame.forImage" in srnet_engine
+          assert "Float.isNaN" not in srnet_engine, "Use finite validation for ALL malformed outputs"
+          assert "sha-256" in Path("THIRD_PARTY_NOTICES.md").read_text().lower()
           assert 'REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, false)' in chrome
           assert "PersonSegmentationPipeline(detector, segmenter)" in eraser
           assert "val found = peoplePipeline.scan(source)" in eraser
@@ -301,6 +329,8 @@ jobs:
             --tests '*MobileSamLaMaIntegrationTest' \
             --tests '*PersonInstancePolicyTest' \
             --tests '*PersonSegmentationPipelineTest' \
+            --tests '*SpecularGlareEngineTest' \
+            --tests '*SpecularOverlayComposerTest' \
             --tests '*LaMaCompositionTest' \
             --tests '*InpaintingPreparationTest' \
             --tests '*MaskActionGroupingTest' \

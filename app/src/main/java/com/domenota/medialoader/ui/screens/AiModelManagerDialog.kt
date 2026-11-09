@@ -45,6 +45,7 @@ import com.domenota.medialoader.data.editor.ModelUpdateState
 import com.domenota.medialoader.data.editor.LaMaModelStore
 import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.PersonDetectorModelStore
+import com.domenota.medialoader.data.editor.SpecularSrNetModelStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -56,10 +57,12 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     val lama = remember(context) { LaMaModelStore(context.applicationContext) }
     val mobile = remember(context) { MobileSamModelStore(context.applicationContext) }
     val people = remember(context) { PersonDetectorModelStore(context.applicationContext) }
+    val glare = remember(context) { SpecularSrNetModelStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var lamaReady by remember { mutableStateOf(false) }
     var mobileReady by remember { mutableStateOf(false) }
     var peopleReady by remember { mutableStateOf(false) }
+    var glareReady by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(true) }
     var active by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableIntStateOf(0) }
@@ -73,6 +76,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         lamaReady = lama.verifyInstalled()
         mobileReady = mobile.verifyInstalled()
         peopleReady = people.verifyInstalled()
+        glareReady = glare.verifyInstalled()
         checking = false
     }
     fun download(kind: String) {
@@ -92,6 +96,9 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 } else if (kind == "people") {
                     people.install { progress = it }
                     peopleReady = people.verifyInstalled()
+                } else if (kind == "glare") {
+                    glare.install { progress = it }
+                    glareReady = glare.verifyInstalled()
                 }
             } catch (cancel: CancellationException) {
                 error = "Установка отменена."
@@ -121,6 +128,9 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 } else if (kind == "people") {
                     people.uninstall()
                     peopleReady = false
+                } else if (kind == "glare") {
+                    glare.uninstall()
+                    glareReady = false
                 }
             } catch (failure: Exception) {
                 error = failure.message ?: "Не удалось удалить AI-модель."
@@ -145,6 +155,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 mobileReady = verifiedMobile
                 val verifiedPeople = people.verifyInstalled()
                 peopleReady = verifiedPeople
+                glareReady = glare.verifyInstalled()
                 val lamaResult = AiModelUpdateChecker.check(
                     AiModelUpdateChecker.Kind.LAMA, verifiedLaMa)
                 val mobileResult = AiModelUpdateChecker.check(
@@ -194,7 +205,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
             ) {
                 Text("AI-модели", fontWeight = FontWeight.Bold,
                     color = androidx.compose.ui.graphics.Color.White)
-                Text("Загружаются отдельно. Фотографии обрабатываются на устройстве.",
+                Text("Модели устанавливаются отдельно. SRNet работает офлайн, фотографии остаются на устройстве.",
                     color = androidx.compose.ui.graphics.Color.LightGray)
                 if (checking) CircularProgressIndicator()
                 ModelRow(
@@ -217,6 +228,14 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                     ready = peopleReady, enabled = !checking && !updateChecking && active == null,
                     onInstall = { download("people") },
                     onDelete = { pendingDelete = "people" },
+                )
+                HorizontalDivider()
+                ModelRow(
+                    title = "SRNet · удаление бликов",
+                    detail = "Нейросеть 230 КБ · установка из приложения, без сети",
+                    ready = glareReady, enabled = !checking && !updateChecking && active == null,
+                    onInstall = { download("glare") },
+                    onDelete = { pendingDelete = "glare" },
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(colors = whiteActionColors, onClick = ::checkUpdates,
@@ -244,11 +263,15 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                         color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
                             Color(0xFFFFD180) else Color.LightGray)
                 }
+                Text("SRNet: модель поставляется с приложением. Новые веса доступны при обновлении версии.",
+                    color = Color.LightGray)
                 if (active != null && job?.isActive == true) {
                     Text(when (active) {
                         "lama" -> "LaMa · $progress%"
                         "mobile" -> "MobileSAM · $progress%"
-                        else -> "EfficientDet · $progress%"
+                        "people" -> "EfficientDet · $progress%"
+                        "glare" -> "SRNet · $progress%"
+                        else -> "AI-модель · $progress%"
                     },
                         color = androidx.compose.ui.graphics.Color.White)
                     LinearProgressIndicator(
