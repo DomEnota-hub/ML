@@ -31,7 +31,7 @@ import kotlinx.coroutines.withContext
  * safely skips already-moved rows.
  */
 /** User-visible summary of an opt-in and resumable filesystem migration. */
-data class StorageMigrationStorageMigrationProgress(
+data class StorageMigrationProgress(
     val total: Int = 0,
     val processed: Int = 0,
     val moved: Int = 0,
@@ -45,8 +45,7 @@ internal class LegacyMediaMigration(
     private val context: Context,
     private val dao: DownloadDao,
     private val storage: StorageManager,
-)
-
+) {
     companion object {
         /** Only the public Download/ root, never Music/Pictures/Private. */
         fun isLegacyPath(path: String?): Boolean =
@@ -75,7 +74,7 @@ internal class LegacyMediaMigration(
             var moved = 0
             var skipped = 0
             var backups = 0
-            onStorageMigrationProgress(StorageMigrationProgress(total, 0, 0, 0, 0, true,
+            onProgress(StorageMigrationProgress(total, 0, 0, 0, 0, true,
                 "Проверяем прежние загрузки…"))
             for (item in candidates) {
                 currentCoroutineContext().ensureActive()
@@ -138,7 +137,7 @@ internal class LegacyMediaMigration(
                     }
                 }
                 processed++
-                onStorageMigrationProgress(StorageMigrationProgress(total, processed, moved, skipped,
+                onProgress(StorageMigrationProgress(total, processed, moved, skipped,
                     backups, true, "Проверено $processed из $total"))
             }
             StorageMigrationProgress(total, processed, moved, skipped, backups, false,
