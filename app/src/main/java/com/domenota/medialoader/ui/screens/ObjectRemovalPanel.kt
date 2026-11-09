@@ -72,6 +72,11 @@ import com.domenota.medialoader.data.editor.LaMaInpaintingEngine
 import com.domenota.medialoader.data.editor.LaMaModelStore
 import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.MobileSamSegmenter
+import com.domenota.medialoader.data.editor.PersonDetectorModelStore
+import com.domenota.medialoader.data.editor.PersonDetector
+import com.domenota.medialoader.data.editor.PersonSegmentationPipeline
+import com.domenota.medialoader.data.editor.PersonScanResult
+import com.domenota.medialoader.data.editor.PersonInstance
 import com.domenota.medialoader.data.editor.MaskPoint
 import com.domenota.medialoader.data.editor.ImageViewportGeometry
 import com.domenota.medialoader.data.editor.AutoDragSelectionPolicy
@@ -260,6 +265,17 @@ internal fun ObjectRemovalPanel(
     val engine = remember(modelStore) { LaMaInpaintingEngine(modelStore) }
     val mobileStore = remember(context) { MobileSamModelStore(context.applicationContext) }
     val segmenter = remember(mobileStore) { MobileSamSegmenter(mobileStore) }
+    val peopleStore = remember(context) { PersonDetectorModelStore(context.applicationContext) }
+    val detector = remember(peopleStore) { PersonDetector(context.applicationContext, peopleStore) }
+    val peoplePipeline = remember(detector, segmenter) {
+        PersonSegmentationPipeline(detector, segmenter)
+    }
+    var peopleReady by remember { mutableStateOf(false) }
+    var peopleSearching by remember { mutableStateOf(false) }
+    var askPeopleInstall by remember { mutableStateOf(false) }
+    var detectedPeople by remember { mutableStateOf<List<PersonInstance>>(emptyList()) }
+    val selectedPeople = remember { mutableStateListOf<Int>() }
+    var ambiguousPeople by remember { mutableStateOf<Set<Int>>(emptySet()) }
     DisposableEffect(segmenter) { onDispose { segmenter.clearCache() } }
     val glyphDetector = remember { OnDeviceTextGlyphDetector(context.applicationContext) }
     var mobileReady by remember { mutableStateOf(false) }
@@ -267,6 +283,7 @@ internal fun ObjectRemovalPanel(
     var askSamInstall by remember { mutableStateOf(false) }
     LaunchedEffect(mobileStore) {
         mobileReady = mobileStore.verifyInstalled()
+        peopleReady = peopleStore.verifyInstalled()
         autoMode = mobileReady
     }
     var installed by remember { mutableStateOf(modelStore.installed()) }
@@ -310,7 +327,7 @@ internal fun ObjectRemovalPanel(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var selectedMode by remember { mutableStateOf(AiEraserMode.OBJECTS) }
-    val busy = processing || downloading || scanningText
+    val busy = processing || downloading || scanningText || peopleSearching
 
     fun undo() {
         if (busy) return
@@ -338,11 +355,13 @@ internal fun ObjectRemovalPanel(
         } else if (index < steps.lastIndex) index++
     }
 
-    if (askSamInstall) AiModelManagerDialog(onDismiss = {
+    if (askSamInstall || askPeopleInstall) AiModelManagerDialog(onDismiss = {
         askSamInstall = false
+        askPeopleInstall = false
         scope.launch {
             mobileReady = mobileStore.verifyInstalled()
-            if (mobileReady) {
+            peopleReady = peopleStore.verifyInstalled()
+            if (mobileReady && selectedMode == AiEraserMode.OBJECTS) {
                 autoMode = true
             }
         }
@@ -394,17 +413,58 @@ internal fun ObjectRemovalPanel(
         }
     }
 
+    fun findPeople() {
+        if (busy) return
+        if (!peopleReady || !mobileReady) {
+            askPeopleInstall = true
+            message = "Для поиска людей установите EfficientDet-Lite0 и MobileSAM в «AI-модели»."
+            return
+        }
+        val source = current.bitmap
+        peopleSearching = true
+        message = null
+        detectedPeople = emptyList()
+        selectedPeople.clear()
+        ambiguousPeople = emptySet()
+        scope.launch {
+            try {
+                val found = peoplePipeline.scan(source)
+                detectedPeople = found.people
+                ambiguousPeople = found.ambiguousIds
+                message = when {
+                    found.detectedCount == 0 -> "Люди не найдены на фотографии."
+                    found.people.isEmpty() -> "Люди обнаружены, но точные маски получить не удалось."
+                    found.ambiguousIds.isNotEmpty() ->
+                        "Некоторые люди перекрываются. Пересекающиеся маски заблокированы для безопасности."
+                    found.unsuccessful > 0 ->
+                        "Некоторые люди найдены, но не все маски получены. Выберите доступные."
+                    else -> "Выберите одного или нескольких людей, затем нажмите «Начать»."
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                message = error.message ?: "Не удалось выполнить поиск людей."
+            } finally {
+                peopleSearching = false
+            }
+        }
+    }
+
     fun processSelection() {
         if (busy) return
         if (textMode && glyphs.isEmpty()) {
             scanText()
             return
         }
-        val marked = if (textMode) {
-            TextGlyphMask.toStrokes(
+        val marked = when {
+            textMode -> TextGlyphMask.toStrokes(
                 glyphs.filter { it.id in selectedGlyphs },
                 current.bitmap.width, current.bitmap.height)
-        } else strokes.toList()
+            selectedMode == AiEraserMode.PEOPLE -> detectedPeople
+                .filter { it.detection.id in selectedPeople && it.detection.id !in ambiguousPeople }
+                .flatMap { it.strokes }
+            else -> strokes.toList()
+        }
         if (marked.isEmpty()) return
         if (!installed) {
             askDownload = true
@@ -427,6 +487,9 @@ internal fun ObjectRemovalPanel(
                 selectedGlyphs.clear()
                 redoGlyphs.clear()
                 glyphs = emptyList()
+                detectedPeople = emptyList()
+                selectedPeople.clear()
+                ambiguousPeople = emptySet()
             } catch (error: Exception) {
                 message = error.message ?: "Обработка LaMa не удалась."
             } finally {
@@ -512,9 +575,13 @@ internal fun ObjectRemovalPanel(
         val ratio = (working.width.toFloat() / working.height.coerceAtLeast(1)).coerceAtLeast(0.08f)
         // Rebuild at compact preview resolution only when the union of strokes changes.
         // The merged mask is composited exactly ONCE, so crossing lines cannot darken it.
-        val selectedStrokes = strokes.toList()
-        val previewStrokes = remember(selectedStrokes, inProgress, brush, textMode, eraserMode) {
-            if (textMode) emptyList() else selectedStrokes +
+        val selectedStrokes = if (selectedMode == AiEraserMode.PEOPLE) detectedPeople
+            .filter { it.detection.id in selectedPeople && it.detection.id !in ambiguousPeople }
+            .flatMap { it.strokes } else strokes.toList()
+        val previewStrokes = remember(selectedStrokes, inProgress, brush, textMode, eraserMode,
+            selectedMode) {
+            if (textMode) emptyList() else if (selectedMode == AiEraserMode.PEOPLE)
+                selectedStrokes else selectedStrokes +
                 inProgress.takeIf { it.isNotEmpty() }?.let {
                     listOf(MaskStroke(it,
                         (brush / minOf(working.width, working.height)).coerceIn(0.001f, 0.5f),
@@ -558,8 +625,10 @@ internal fun ObjectRemovalPanel(
                             }
                         }
                         val manualObject = selectedMode == AiEraserMode.OBJECTS && !autoMode
-                        var drawing = !moveMode && !textMode && !automaticSelection
+                        var drawing = !moveMode && !textMode && !automaticSelection &&
+                            selectedMode != AiEraserMode.PEOPLE
                         var selecting = !moveMode && textMode && glyphs.isNotEmpty()
+                        var personTap = !moveMode && selectedMode == AiEraserMode.PEOPLE
                         val points = mutableListOf<MaskPoint>()
                         var previousSelectionPoint = imagePoint(down.position)
                         if (drawing) {
@@ -585,6 +654,7 @@ internal fun ObjectRemovalPanel(
                             val pressed = event.changes.filter { it.pressed }
                             if (pressed.size >= 2) {
                                 autoDrawing = false
+                                personTap = false
                                 autoPoints.clear()
                                 autoTrace = emptyList()
                                 drawing = false
@@ -649,6 +719,17 @@ internal fun ObjectRemovalPanel(
                                 }
                             }
                         } while (event.changes.any { it.pressed })
+                        if (personTap) {
+                            val tapped = imagePoint(downPosition)
+                            val candidate = tapped?.let { point ->
+                                detectedPeople.filter {
+                                    it.detection.id !in ambiguousPeople && it.detection.box.contains(point)
+                                }.minByOrNull { it.detection.box.width * it.detection.box.height }
+                            }
+                            candidate?.detection?.id?.let { id ->
+                                if (!selectedPeople.remove(id)) selectedPeople.add(id)
+                            }
+                        }
                         // Tap alone is not an opaque "AI selected something" action.
                         val prompt = if (autoDrawing) AutoDragSelectionPolicy.releasePrompt(
                             autoPoints, maxTravelPx, 14.dp.toPx()) else null
@@ -701,7 +782,21 @@ internal fun ObjectRemovalPanel(
                 }
                 if (!showBefore) Canvas(Modifier.fillMaxSize()) {
                     val yellow = Color(0xFFFFCF22)
-                    if (textMode) {
+                    if (selectedMode == AiEraserMode.PEOPLE) {
+                        for (person in detectedPeople) {
+                            val box = person.detection.box
+                            val id = person.detection.id
+                            val selected = id in selectedPeople
+                            val uncertain = id in ambiguousPeople
+                            drawRect(
+                                if (uncertain) Color(0xFF999999)
+                                else if (selected) yellow else Color.White.copy(alpha = .7f),
+                                topLeft = Offset(box.left * size.width, box.top * size.height),
+                                size = Size(box.width * size.width, box.height * size.height),
+                                style = Stroke(width = if (selected) 2.5.dp.toPx() else 1.4.dp.toPx()),
+                            )
+                        }
+                    } else if (textMode) {
                         for (glyph in glyphs) {
                             val selected = glyph.id in selectedGlyphs
                             val topLeft = Offset(glyph.left * size.width, glyph.top * size.height)
@@ -751,14 +846,15 @@ internal fun ObjectRemovalPanel(
                 }
 
             }
-            if (segmenting) {
+            if (segmenting || peopleSearching) {
                 Box(Modifier.align(Alignment.Center).size(64.dp)
                     .background(Color.Black.copy(alpha = .68f), RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center) {
                     SegmentationIndicator()
                 }
             }
-            if (!showBefore && !textMode && !moveMode && cursor != null) {
+            if (!showBefore && !textMode && !moveMode && cursor != null &&
+                selectedMode != AiEraserMode.PEOPLE) {
                 val position = requireNotNull(cursor)
                 // Use the exact inverse of the pointer-to-image transform, including
                 // zoom and pan, to place the lens relative to the REAL touch point.
@@ -886,6 +982,48 @@ internal fun ObjectRemovalPanel(
                 )
             }
         }
+        if (selectedMode == AiEraserMode.PEOPLE) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Box(Modifier.fillMaxWidth().height(48.dp),
+                    contentAlignment = Alignment.Center) {
+                    EraserStartButton(
+                        enabled = !busy && (detectedPeople.isEmpty() ||
+                            selectedPeople.isNotEmpty()),
+                        label = if (detectedPeople.isEmpty()) "Найти людей" else "Начать",
+                        width = if (detectedPeople.isEmpty()) 132.dp else 104.dp,
+                        onClick = if (detectedPeople.isEmpty()) ::findPeople else ::processSelection,
+                    )
+                }
+                if (detectedPeople.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        detectedPeople.forEach { person ->
+                            val id = person.detection.id
+                            val ambiguous = id in ambiguousPeople
+                            val selected = id in selectedPeople
+                            Box(Modifier
+                                .background(
+                                    if (selected) Color(0xFFFFC21C) else Color(0xFF282828),
+                                    RoundedCornerShape(9.dp))
+                                .clickable(enabled = !busy && !ambiguous) {
+                                    if (!selectedPeople.remove(id)) selectedPeople.add(id)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 7.dp)) {
+                                Text("Человек ${id + 1}" + if (ambiguous) " · ?" else "",
+                                    fontSize = 12.sp,
+                                    color = if (selected) Color.Black
+                                        else if (ambiguous) Color.Gray else Color.White)
+                            }
+                        }
+                        Box(Modifier.clickable(enabled = !busy) { findPeople() }
+                            .padding(horizontal = 8.dp, vertical = 7.dp)) {
+                            Text("Повторить поиск", fontSize = 12.sp, color = Color(0xFFFFC21C))
+                        }
+                    }
+                }
+            }
+        }
         AiEraserModeStrip(
             selected = selectedMode,
             enabled = !busy,
@@ -909,6 +1047,9 @@ internal fun ObjectRemovalPanel(
                 selectedGlyphs.clear()
                 redoGlyphs.clear()
                 glyphs = emptyList()
+                detectedPeople = emptyList()
+                selectedPeople.clear()
+                ambiguousPeople = emptySet()
                 message = null
             },
         )
