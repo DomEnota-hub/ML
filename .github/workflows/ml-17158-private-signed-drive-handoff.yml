@@ -108,7 +108,7 @@ jobs:
             --key-pass env:ML_RELEASE_KEY_PASSWORD \
             --out "$signed" "$aligned"
           "$bt/apksigner" verify --verbose "$signed"
-          actual="$("$bt/apksigner" verify --print-certs "$signed" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+).*$/\\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          actual="$("$bt/apksigner" verify --print-certs "$signed" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           expected="$(printf '%s' "$ML_RELEASE_SIGNER_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ': ')"
           reference=4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2
           test -n "$actual" && test "$actual" = "$expected" && test "$actual" = "$reference" || { echo "::error::Wrong upgrade signing certificate"; exit 1; }
