@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.BuildConfig
+
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -16,9 +18,14 @@ class AiEraserAvailabilityTest {
     @Test fun glareIsRealLocalSrnetAndReflectionStaysDisabled() {
         assertTrue(AiEraserMode.GLARE.available)
         assertNull(AiEraserMode.GLARE.unavailableExplanation)
-        assertFalse(AiEraserMode.REFLECTION.available)
-        assertTrue(requireNotNull(AiEraserMode.REFLECTION.unavailableExplanation)
-            .contains("пока недоступно"))
+        assertTrue(AiEraserMode.REFLECTION.available ==
+            BuildConfig.REFLECTION_MODEL_BUNDLED)
+        if (BuildConfig.REFLECTION_MODEL_BUNDLED) {
+            assertNull(AiEraserMode.REFLECTION.unavailableExplanation)
+        } else {
+            assertTrue(requireNotNull(AiEraserMode.REFLECTION.unavailableExplanation)
+                .contains("пока недоступно"))
+        }
     }
 
     @Test fun ExistingRealModesRemainSelectableWithoutFalseWarnings() {
