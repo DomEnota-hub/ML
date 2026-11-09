@@ -269,6 +269,12 @@ jobs:
           python3 -m pip install --disable-pip-version-check --no-input \
             "mediapipe==0.10.35" "Pillow>=10,<13"
           python3 scripts/qa/stage2_real_detector_smoke.py
+      - name: Real MobileSAM and LaMa ONNX weight-backed inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-input "onnxruntime==1.20.1"
+          python3 scripts/qa/stage2_real_sam_lama_smoke.py
       - name: Unified Compose video player, fullscreen, gallery, deletion and gesture tests
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true \
