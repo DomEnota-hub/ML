@@ -32,7 +32,7 @@ class ReflectionRemovalEngineTest {
             }
         }
 
-    @Test fun fullFrameNeuralTransmissionChangesRgbWithoutDestroyingSource() = runBlocking {
+    @Test fun fullFrameNeuralTransmissionRespectsColourResidualCapAndPreservesSource() = runBlocking {
         val source = blue()
         var called = 0
         val result = ReflectionRemovalEngine(ReflectionModelRunner { image ->
@@ -44,7 +44,14 @@ class ReflectionRemovalEngineTest {
         }).remove(source, strength = 1f)
         try {
             assertEquals(1, called)
-            assertEquals(Color.RED, result.getPixel(64, 64))
+            // The production engine deliberately caps each ONNX colour residual
+            // at 0.45 to protect full-resolution detail. A test demanding solid
+            // RED would silently encourage removing that safety cap.
+            val corrected = result.getPixel(64, 64)
+            assertEquals(255, Color.alpha(corrected))
+            assertEquals(115, Color.red(corrected))
+            assertEquals(0, Color.green(corrected))
+            assertEquals(140, Color.blue(corrected))
             assertEquals(Color.BLUE, source.getPixel(64, 64))
         } finally {
             result.recycle()
