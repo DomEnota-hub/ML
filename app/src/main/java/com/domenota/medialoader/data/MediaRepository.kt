@@ -428,12 +428,12 @@ class MediaRepository private constructor(context: Context) {
     val hiddenItems: Flow<List<DownloadEntity>> = history.observeHidden()
     fun trashedUri(id: String): String? = storage.trashedUri(id)
 
-    /** Folder shown in Settings, for example "Download/MediaLoader". */
+    /** Folder for new photos/videos, for example "Pictures/MediaLoader". */
     val storageDisplayPath: String get() = storage.displayPath
     fun setDownloadFolder(name: String) {
         val folder = name.trim().trim('/')
         require(folder.matches(Regex("[\\p{L}\\p{N}_ -]{1,50}")))
-        storage.relativeDirectory = "Download/$folder/"
+        storage.relativeDirectory = "Pictures/$folder/"
     }
     fun selectDownloadFolder(uri: Uri) = storage.selectDirectory(uri)
     val usesSelectedFolder: Boolean get() = storage.usesSelectedFolder
