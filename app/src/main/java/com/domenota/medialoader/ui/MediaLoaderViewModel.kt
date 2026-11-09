@@ -473,6 +473,24 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun undoMediaDateChanges() {
+        if (_dateRecoveryBusy.value || _storageMigration.value.running) return
+        _dateRecoveryBusy.value = true
+        _dateRecoveryTrialDone.value = false
+        _dateRecoveryReady.value = false
+        viewModelScope.launch {
+            try {
+                val result = repository.undoRestoredMediaDates()
+                _dateRecoveryStatus.value = result.message
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _dateRecoveryStatus.value = error.message ?: "Откат дат не выполнен"
+            } finally {
+                _dateRecoveryBusy.value = false
+            }
+        }
+    }
+
     /** Folder text for Settings; comes from StorageManager, not from the UI. */
     private val _downloadFolder = MutableStateFlow(repository.storageDisplayPath)
     val downloadFolder: StateFlow<String> = _downloadFolder.asStateFlow()
