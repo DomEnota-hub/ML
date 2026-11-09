@@ -2,7 +2,6 @@ package com.domenota.medialoader.data.editor
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import android.graphics.Bitmap
 import android.graphics.Color
 import java.io.IOException
@@ -134,35 +133,27 @@ internal class ReflectionOnnxRunner(
         val modelFile = store.requireInstalled()
         currentCoroutineContext().ensureActive()
         val env = OrtEnvironment.getEnvironment()
-        OrtSession.SessionOptions().use { opts ->
-            opts.setIntraOpNumThreads(2)
-            opts.setCPUArenaAllocator(false)
-            opts.setMemoryPatternOptimization(false)
-            opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
-            env.createSession(modelFile.absolutePath, opts).use { session ->
-                if (!session.inputNames.contains("image") ||
-                    !session.outputNames.contains("transmission"))
-                    throw IOException("Формат модели DExNet несовместим с приложением.")
-                OnnxTensor.createTensor(env, FloatBuffer.wrap(rgbChw),
-                    longArrayOf(1, 3,
-                        ReflectionRemovalEngine.SIDE.toLong(),
-                        ReflectionRemovalEngine.SIDE.toLong())).use { input ->
-                    session.run(mapOf("image" to input)).use { outputs ->
-                        currentCoroutineContext().ensureActive()
-                        // Named output, NEVER assume output ordering in an ONNX exporter.
-                        val value = outputs.get("transmission").orElseThrow {
-                            IOException("Модель не вернула transmission.")
-                        }
-                        val tensor = value as? OnnxTensor
-                            ?: throw IOException("Выход transmission не тензор.")
-                        if (!tensor.info.shape.contentEquals(longArrayOf(1, 3, 128, 128)))
-                            throw IOException("Неподдерживаемая форма выхода DExNet.")
-                        val data = FloatArray(ReflectionRemovalEngine.PIXELS * 3)
-                        tensor.floatBuffer.apply { rewind(); get(data) }
-                        if (data.any { !it.isFinite() })
-                            throw IOException("Некорректные значения DExNet.")
-                        return data
+        return OrtSessions.dexnet.use(modelFile, ReflectionDExModelStore.EXPECTED_SHA256) { session ->
+            if (!session.inputNames.contains("image") ||
+                !session.outputNames.contains("transmission"))
+                throw IOException("Формат модели DExNet несовместим с приложением.")
+            OnnxTensor.createTensor(env, FloatBuffer.wrap(rgbChw),
+                longArrayOf(1, 3, ReflectionRemovalEngine.SIDE.toLong(),
+                    ReflectionRemovalEngine.SIDE.toLong())).use { input ->
+                session.run(mapOf("image" to input)).use { outputs ->
+                    currentCoroutineContext().ensureActive()
+                    val value = outputs.get("transmission").orElseThrow {
+                        IOException("Модель не вернула transmission.")
                     }
+                    val tensor = value as? OnnxTensor
+                        ?: throw IOException("Выход transmission не тензор.")
+                    if (!tensor.info.shape.contentEquals(longArrayOf(1, 3, 128, 128)))
+                        throw IOException("Неподдерживаемая форма выхода DExNet.")
+                    val data = FloatArray(ReflectionRemovalEngine.PIXELS * 3)
+                    tensor.floatBuffer.apply { rewind(); get(data) }
+                    if (data.any { !it.isFinite() })
+                        throw IOException("Некорректные значения DExNet.")
+                    data
                 }
             }
         }
