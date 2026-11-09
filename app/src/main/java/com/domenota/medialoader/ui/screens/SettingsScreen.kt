@@ -176,6 +176,7 @@ fun SettingsScreen(
     onDateRecoveryTrial: () -> Unit = {},
     dateRecoveryTrialDone: Boolean = false,
     onRestoreRemainingDates: () -> Unit = {},
+    onUndoMediaDateChanges: () -> Unit = {},
     onRestore: (Set<String>) -> Unit,
     onEmptyTrash: () -> Unit,
     onOpenTrash: () -> Unit = {},
@@ -363,6 +364,7 @@ fun SettingsScreen(
     var migrateLegacyDialog by remember { mutableStateOf(false) }
     var dateTrialDialog by remember { mutableStateOf(false) }
     var dateAllDialog by remember { mutableStateOf(false) }
+    var undoDateDialog by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("MediaLoader") }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmInstagramSignOut by remember { mutableStateOf(false) }
@@ -547,6 +549,24 @@ fun SettingsScreen(
             }
         },
         dismissButton = { TextButton(onClick = { folderDialog = false }) { Text("Отмена") } },
+    )
+
+    if (undoDateDialog) AlertDialog(
+        onDismissRequest = { undoDateDialog = false },
+        title = { Text("Вернуть предыдущие даты файлов?") },
+        text = { Text("Будут отменены только те изменения времени, которые " +
+            "приложение записало в журнал восстановления. Фотографии, " +
+            "видео и история загрузок не удаляются. Изменённые после " +
+            "операции файлы пропускаются ради безопасности.") },
+        confirmButton = {
+            TextButton(onClick = {
+                undoDateDialog = false
+                if (!dateRecoveryBusy && activeDownloadCount == 0) onUndoMediaDateChanges()
+            }) { Text("Отменить восстановление") }
+        },
+        dismissButton = {
+            TextButton(onClick = { undoDateDialog = false }) { Text("Назад") }
+        },
     )
 
     if (dateAllDialog) AlertDialog(
@@ -1039,6 +1059,17 @@ fun SettingsScreen(
                     onClick = { if (activeDownloadCount == 0) dateAllDialog = true },
                 )
             }
+            GroupDivider()
+            SettingRow(
+                Icons.Rounded.Folder, "Отменить восстановление дат",
+                "Вернуть значения из защищённого журнала",
+                grouped = true, nested = true,
+                iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                onClick = {
+                    if (!dateRecoveryBusy && activeDownloadCount == 0)
+                        undoDateDialog = true
+                },
+            )
             GroupDivider()
             SettingRow(Icons.Rounded.HighQuality, "Приоритетное качество", VideoPreferences.qualityLabel(preferredHeight),
                 grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
