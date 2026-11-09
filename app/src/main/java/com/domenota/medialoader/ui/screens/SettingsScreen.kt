@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.Cookie
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.InsertPhoto
@@ -1109,8 +1110,8 @@ fun SettingsScreen(
                 "Удалить список загрузок", grouped = true,
                 iconTone = SettingIconTone.CLEAR_HISTORY, onClick = { confirmClear = true })
             GroupDivider()
-            SettingRow(Icons.Rounded.Tune, "AI-модели",
-                "LaMa и MobileSAM · загрузка и удаление", grouped = true,
+            SettingRow(Icons.Rounded.Psychology, "AI-модели",
+                "Нейросети · установка, проверка и удаление", grouped = true,
                 iconTone = SettingIconTone.AI_MODELS, onClick = { aiModelsDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.SystemUpdate,
