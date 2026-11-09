@@ -351,7 +351,16 @@ def ort_resource_child(onnxpath: pathlib.Path, mode: str):
     memory_phase("after_model_run")
     if any(not np.isfinite(z).all() for z in output):
         raise RuntimeError("Standalone ONNX produces malformed output")
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # Github Actions Linux: ru_maxrss is INHERITED from the huge PyTorch
+    # parent (already ~1.6 GiB BEFORE importing ORT in the child after exec).
+    # /proc/self/status VmHWM is the actual process's high-water RSS; it starts
+    # near 60 MiB and grows with the imported model. Gate on that value only.
+    status_lines = pathlib.Path("/proc/self/status").read_text().splitlines()
+    peak_line = next((line for line in status_lines if line.startswith("VmHWM:")), None)
+    if not peak_line:
+        raise RuntimeError("Linux VmHWM missing: cannot truthfully measure memory")
+    peak = int(peak_line.split()[1])
+    ru_maxrss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     print("ORT_ONLY_CPU_RESOURCE", json.dumps({
         "mode": mode,
         "model_bytes": onnxpath.stat().st_size,
@@ -359,6 +368,8 @@ def ort_resource_child(onnxpath: pathlib.Path, mode: str):
         "model_inference_seconds": duration,
         "peak_rss_kib": peak,
         "peak_rss_mib": round(peak/1024, 1),
+        "measurement": "/proc/self/status VmHWM",
+        "unreliable_inherited_ru_maxrss_kib": ru_maxrss,
         "cpu_mem_arena": opts.enable_cpu_mem_arena,
         "mem_pattern": opts.enable_mem_pattern,
         "architecture": "linux_x86_64; Android ARM64 requires separate QA",
