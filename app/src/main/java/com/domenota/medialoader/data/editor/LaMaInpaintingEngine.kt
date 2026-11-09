@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.os.SystemClock
+import com.domenota.medialoader.core.logging.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -20,6 +22,7 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
             require(mask.isNotEmpty()) { "Сначала закрасьте объект кистью." }
             currentCoroutineContext().ensureActive()
             val width = source.width; val height = source.height
+            val began = SystemClock.elapsedRealtime()
             val prepared = preparedCoverage(mask, width, height)
             val coverage = prepared.data
             val region = InpaintingPreparation.region(
@@ -29,11 +32,19 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
             source.getPixels(pixels, 0, width, 0, 0, width, height)
             val inputs = InpaintingPreparation.inputs(pixels, coverage, width, height, region)
             currentCoroutineContext().ensureActive()
+            val preparationMs = SystemClock.elapsedRealtime() - began
+            val inferenceStarted = SystemClock.elapsedRealtime()
             val prediction = runner.predict(inputs.image, inputs.mask)
+            val inferenceMs = SystemClock.elapsedRealtime() - inferenceStarted
             currentCoroutineContext().ensureActive()
+            val compositeStarted = SystemClock.elapsedRealtime()
             val result = InpaintingPreparation.composite(
                 pixels, coverage, width, height, region, prediction,
                 bounds = prepared.bounds)
+            val compositingMs = SystemClock.elapsedRealtime() - compositeStarted
+            AppLog.i("AiOrtPerf", "model=LAMA size=${width}x$height " +
+                "mask_preparation_ms=$preparationMs inference_ms=$inferenceMs " +
+                "composite_ms=$compositingMs")
             currentCoroutineContext().ensureActive()
             Bitmap.createBitmap(result, width, height, Bitmap.Config.ARGB_8888)
         }
