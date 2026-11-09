@@ -80,6 +80,8 @@ import com.domenota.medialoader.data.editor.PersonInstance
 import com.domenota.medialoader.data.editor.SpecularSrNetModelStore
 import com.domenota.medialoader.data.editor.SpecularGlareEngine
 import com.domenota.medialoader.data.editor.SpecularOverlayComposer
+import com.domenota.medialoader.data.editor.ReflectionDExModelStore
+import com.domenota.medialoader.data.editor.ReflectionRemovalEngine
 import com.domenota.medialoader.data.editor.MaskPoint
 import com.domenota.medialoader.data.editor.ImageViewportGeometry
 import com.domenota.medialoader.data.editor.AutoDragSelectionPolicy
@@ -276,6 +278,11 @@ internal fun ObjectRemovalPanel(
     val glareEngine = remember(glareStore) { SpecularGlareEngine(glareStore) }
     var glareReady by remember { mutableStateOf(false) }
     var askGlareInstall by remember { mutableStateOf(false) }
+    val reflectionStore = remember(context) { ReflectionDExModelStore(context.applicationContext) }
+    val reflectionEngine = remember(reflectionStore) { ReflectionRemovalEngine(reflectionStore) }
+    var reflectionReady by remember { mutableStateOf(false) }
+    var askReflectionInstall by remember { mutableStateOf(false) }
+    var reflectionStrength by remember { mutableFloatStateOf(.75f) }
     val mobileStore = remember(context) { MobileSamModelStore(context.applicationContext) }
     val segmenter = remember(mobileStore) { MobileSamSegmenter(mobileStore) }
     val peopleStore = remember(context) { PersonDetectorModelStore(context.applicationContext) }
@@ -298,6 +305,7 @@ internal fun ObjectRemovalPanel(
         mobileReady = mobileStore.verifyInstalled()
         peopleReady = peopleStore.verifyInstalled()
         glareReady = glareStore.verifyInstalled()
+        reflectionReady = reflectionStore.verifyInstalled()
         autoMode = mobileReady
     }
     var installed by remember { mutableStateOf(modelStore.installed()) }
@@ -370,14 +378,16 @@ internal fun ObjectRemovalPanel(
         } else if (index < steps.lastIndex) index++
     }
 
-    if (askSamInstall || askPeopleInstall || askGlareInstall) AiModelManagerDialog(onDismiss = {
+    if (askSamInstall || askPeopleInstall || askGlareInstall || askReflectionInstall) AiModelManagerDialog(onDismiss = {
         askSamInstall = false
         askPeopleInstall = false
         askGlareInstall = false
+        askReflectionInstall = false
         scope.launch {
             mobileReady = mobileStore.verifyInstalled()
             peopleReady = peopleStore.verifyInstalled()
             glareReady = glareStore.verifyInstalled()
+            reflectionReady = reflectionStore.verifyInstalled()
             if (mobileReady && selectedMode == AiEraserMode.OBJECTS) {
                 autoMode = true
             }
@@ -555,6 +565,50 @@ internal fun ObjectRemovalPanel(
         }
     }
 
+    fun processReflection() {
+        if (busy) return
+        if (!reflectionStore.bundled()) {
+            message = "Проверенная модель отражений не включена в эту QA-сборку."
+            return
+        }
+        if (!reflectionReady) {
+            askReflectionInstall = true
+            message = "Установите DExNet + VGG19 через «AI-модели» (91 МБ, без интернета)."
+            return
+        }
+        val startStep = current
+        val requestedStrength = reflectionStrength
+        processing = true
+        message = null
+        scope.launch {
+            try {
+                val result = reflectionEngine.remove(startStep.bitmap, requestedStrength)
+                // DExNet predicts actual transmitted scene pixels, not an LaMa mask.
+                // Existing transparent overlay compositor preserves original detail
+                // outside the neural correction for export and re-entry.
+                steps = steps.take(index + 1).takeLast(3) +
+                    RemovalStep(result, startStep.maskBatches, fullFrameCorrection = true)
+                index = steps.lastIndex
+                segmenter.clearCache()
+                strokes.clear()
+                redoStrokes.clear()
+                maskActions.clear()
+                selectedGlyphs.clear()
+                redoGlyphs.clear()
+                glyphs = emptyList()
+                detectedPeople = emptyList()
+                selectedPeople.clear()
+                ambiguousPeople = emptySet()
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                message = error.message ?: "DExNet не смогла убрать отражение."
+            } finally {
+                processing = false
+            }
+        }
+    }
+
     fun selectObject(point: MaskPoint) {
         if (busy) return
         if (!mobileReady) {
@@ -703,7 +757,8 @@ internal fun ObjectRemovalPanel(
                         val manualObject = selectedMode == AiEraserMode.OBJECTS && !autoMode
                         var drawing = !moveMode && !textMode && !automaticSelection &&
                             selectedMode != AiEraserMode.PEOPLE &&
-                            selectedMode != AiEraserMode.GLARE
+                            selectedMode != AiEraserMode.GLARE &&
+                            selectedMode != AiEraserMode.REFLECTION
                         var selecting = !moveMode && textMode && glyphs.isNotEmpty()
                         var personTap = !moveMode && selectedMode == AiEraserMode.PEOPLE
                         val points = mutableListOf<MaskPoint>()
@@ -859,7 +914,30 @@ internal fun ObjectRemovalPanel(
                 }
                 if (!showBefore) Canvas(Modifier.fillMaxSize()) {
                     val yellow = Color(0xFFFFCF22)
-                    if (selectedMode == AiEraserMode.PEOPLE) {
+                    if (selectedMode == AiEraserMode.REFLECTION && reflectionStore.bundled()) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Сила удаления отражения: ${(reflectionStrength * 100).roundToInt()}%",
+                    fontSize = 11.sp, color = Color.White)
+                Slider(
+                    value = reflectionStrength,
+                    onValueChange = { reflectionStrength = it },
+                    valueRange = .10f..1f,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Box(Modifier.fillMaxWidth().height(48.dp),
+                    contentAlignment = Alignment.Center) {
+                    EraserStartButton(enabled = !busy, label = "Начать",
+                        onClick = ::processReflection)
+                }
+                Text("DExNet отделяет отражение от сцены за стеклом. " +
+                        "Сильные отражения и скрытые детали могут восстановиться неточно.",
+                    fontSize = 10.sp, color = Color.LightGray)
+            }
+        }
+        if (selectedMode == AiEraserMode.PEOPLE) {
                         for (person in detectedPeople) {
                             val box = person.detection.box
                             val id = person.detection.id
@@ -932,7 +1010,8 @@ internal fun ObjectRemovalPanel(
             }
             if (!showBefore && !textMode && !moveMode && cursor != null &&
                 selectedMode != AiEraserMode.PEOPLE &&
-                selectedMode != AiEraserMode.GLARE) {
+                selectedMode != AiEraserMode.GLARE &&
+                selectedMode != AiEraserMode.REFLECTION) {
                 val position = requireNotNull(cursor)
                 // Use the exact inverse of the pointer-to-image transform, including
                 // zoom and pan, to place the lens relative to the REAL touch point.
