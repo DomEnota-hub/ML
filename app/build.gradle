@@ -30,6 +30,14 @@ android {
     defaultConfig {
         applicationId 'com.domenota.medialoader'
         buildConfigField 'String', 'GAPI_BUILTIN_KEYS_JSON', gapiKeysLiteral
+        // Fail closed: no on-device reflection mode unless the REAL, independently
+        // verified pretrained DExNet+VGG19 ONNX and SHA256 are injected at build.
+        // Neither model weights nor signing secrets are ever committed to Git.
+        def reflectionAsset = file('src/main/assets/ai/dexnet_vgg19_reflection_128.onnx')
+        def reflectionDigest = file('src/main/assets/ai/dexnet_vgg19_reflection_128.onnx.sha256')
+        buildConfigField 'boolean', 'REFLECTION_MODEL_BUNDLED',
+                (reflectionAsset.isFile() && reflectionDigest.isFile()).toString()
+
         minSdk 26
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
