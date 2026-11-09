@@ -174,6 +174,8 @@ fun SettingsScreen(
     dateRecoveryReady: Boolean = false,
     onDateRecoveryPreview: () -> Unit = {},
     onDateRecoveryTrial: () -> Unit = {},
+    dateRecoveryTrialDone: Boolean = false,
+    onRestoreRemainingDates: () -> Unit = {},
     onRestore: (Set<String>) -> Unit,
     onEmptyTrash: () -> Unit,
     onOpenTrash: () -> Unit = {},
@@ -360,6 +362,7 @@ fun SettingsScreen(
     var folderDialog by remember { mutableStateOf(false) }
     var migrateLegacyDialog by remember { mutableStateOf(false) }
     var dateTrialDialog by remember { mutableStateOf(false) }
+    var dateAllDialog by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("MediaLoader") }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmInstagramSignOut by remember { mutableStateOf(false) }
@@ -544,6 +547,26 @@ fun SettingsScreen(
             }
         },
         dismissButton = { TextButton(onClick = { folderDialog = false }) { Text("Отмена") } },
+    )
+
+    if (dateAllDialog) AlertDialog(
+        onDismissRequest = { dateAllDialog = false },
+        title = { Text("Восстановить даты остальных файлов?") },
+        text = { Text("Продолжайте, только если после пробного изменения " +
+            "один файл переместился на ожидаемую дату в системной галерее Xiaomi. " +
+            "Изменяется время существующих файлов, но НЕ их содержимое, EXIF " +
+            "или дата загрузки в истории. Каждая операция записывается в журнал. " +
+            "Это НЕ обратное пересоздание файлов.") },
+        confirmButton = {
+            TextButton(onClick = {
+                dateAllDialog = false
+                if (!dateRecoveryBusy && dateRecoveryTrialDone && activeDownloadCount == 0)
+                    onRestoreRemainingDates()
+            }) { Text("Восстановить остальные даты") }
+        },
+        dismissButton = {
+            TextButton(onClick = { dateAllDialog = false }) { Text("Отмена") }
+        },
     )
 
     if (dateTrialDialog) AlertDialog(
@@ -1005,6 +1028,15 @@ fun SettingsScreen(
                     grouped = true, nested = true,
                     iconTone = SettingIconTone.DOWNLOAD_FOLDER,
                     onClick = { if (activeDownloadCount == 0) dateTrialDialog = true },
+                )
+            }
+            if (dateRecoveryTrialDone && !dateRecoveryBusy) {
+                SettingRow(
+                    Icons.Rounded.Restore, "Восстановить даты остальных",
+                    "Только после проверки пробного файла в Xiaomi",
+                    grouped = true, nested = true,
+                    iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                    onClick = { if (activeDownloadCount == 0) dateAllDialog = true },
                 )
             }
             GroupDivider()
