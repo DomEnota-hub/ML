@@ -73,6 +73,7 @@ import com.domenota.medialoader.data.editor.LaMaModelStore
 import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.MobileSamSegmenter
 import com.domenota.medialoader.data.editor.MaskPoint
+import com.domenota.medialoader.data.editor.ImageViewportGeometry
 import com.domenota.medialoader.data.editor.AutoDragSelectionPolicy
 import com.domenota.medialoader.data.editor.ObjectManualTracePolicy
 import com.domenota.medialoader.data.editor.MaskStroke
@@ -147,15 +148,13 @@ private fun SelectionMagnifier(
     point: MaskPoint,
     viewport: IntSize,
     zoom: Float,
+    lensWidth: Dp,
     brush: Float,
     eraser: Boolean,
     trace: List<MaskPoint> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     if (viewport.width <= 0 || viewport.height <= 0) return
-    val lensWidth = with(LocalDensity.current) {
-        minOf(152.dp.toPx(), viewport.width * 0.43f).coerceAtLeast(1f).toDp()
-    }
     val lensHeight = lensWidth * 0.72f
     Canvas(modifier.width(lensWidth).height(lensHeight)) {
         // Sample the source pixels, including the current mask, around the finger.
@@ -537,16 +536,12 @@ internal fun ObjectRemovalPanel(
                 .pointerInput(moveMode, brush, busy, showBefore, textMode, glyphs, eraserMode,
                     autoMode, selectedMode, current.bitmap) {
                     if (busy || showBefore) return@pointerInput
-                    fun imagePoint(position: Offset): MaskPoint? {
-                        if (viewport.width == 0 || viewport.height == 0) return null
-                        val x = (position.x - pan.x - viewport.width / 2f) / zoom + viewport.width / 2f
-                        val y = (position.y - pan.y - viewport.height / 2f) / zoom + viewport.height / 2f
-                        if (x !in 0f..viewport.width.toFloat() ||
-                            y !in 0f..viewport.height.toFloat()) return null
-                        return MaskPoint(
-                            (x / viewport.width).coerceIn(0f, 1f),
-                            (y / viewport.height).coerceIn(0f, 1f))
-                    }
+                    fun imagePoint(position: Offset): MaskPoint? =
+                        ImageViewportGeometry.viewportToImage(
+                            position.x, position.y,
+                            viewport.width.toFloat(), viewport.height.toFloat(),
+                            zoom, pan.x, pan.y,
+                        )
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val automaticSelection = !moveMode && !textMode &&
@@ -765,21 +760,39 @@ internal fun ObjectRemovalPanel(
             }
             if (!showBefore && !textMode && !moveMode && cursor != null) {
                 val position = requireNotNull(cursor)
-                // Left-hand lens, moved vertically away from the finger on edge touches.
-                val corner = if (position.y < 0.5f) Alignment.BottomStart
-                    else Alignment.TopStart
-                SelectionMagnifier(
-                    bitmap = current.bitmap.asImageBitmap(),
-                    overlay = unifiedOverlay?.asImageBitmap(),
-                    point = position,
-                    viewport = viewport,
-                    zoom = zoom,
-                    brush = if (selectedMode == AiEraserMode.OBJECTS) 4f else brush,
-                    eraser = eraserMode && selectedMode == AiEraserMode.MANUAL,
-                    trace = if (selectedMode == AiEraserMode.OBJECTS && !autoMode)
-                        objectTrace else autoTrace,
-                    modifier = Modifier.align(corner).padding(8.dp),
-                )
+                // Use the exact inverse of the pointer-to-image transform, including
+                // zoom and pan, to place the lens relative to the REAL touch point.
+                val finger = ImageViewportGeometry.imageToViewport(
+                    position, viewport.width.toFloat(), viewport.height.toFloat(),
+                    zoom, pan.x, pan.y)
+                val density = LocalDensity.current
+                val lens = finger?.let {
+                    ImageViewportGeometry.placeMagnifier(
+                        finger = it,
+                        viewportWidth = viewport.width.toFloat(),
+                        viewportHeight = viewport.height.toFloat(),
+                        maxWidth = with(density) { 152.dp.toPx() },
+                        inset = with(density) { 8.dp.toPx() },
+                        clearance = with(density) { 24.dp.toPx() },
+                    )
+                }
+                if (lens != null) {
+                    SelectionMagnifier(
+                        bitmap = current.bitmap.asImageBitmap(),
+                        overlay = unifiedOverlay?.asImageBitmap(),
+                        point = position,
+                        viewport = viewport,
+                        zoom = zoom,
+                        lensWidth = with(density) { lens.width.toDp() },
+                        brush = if (selectedMode == AiEraserMode.OBJECTS) 4f else brush,
+                        eraser = eraserMode && selectedMode == AiEraserMode.MANUAL,
+                        trace = if (selectedMode == AiEraserMode.OBJECTS && !autoMode)
+                            objectTrace else autoTrace,
+                        modifier = Modifier.offset {
+                            IntOffset(lens.left.roundToInt(), lens.top.roundToInt())
+                        },
+                    )
+                }
             }
         }
 
