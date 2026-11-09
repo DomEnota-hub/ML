@@ -188,9 +188,13 @@ internal fun GalleryMediaViewer(
                 bars.isAppearanceLightStatusBars = false
                 bars.isAppearanceLightNavigationBars = false
                 bars.hide(WindowInsetsCompat.Type.statusBars())
-                // One gallery window owner: hide the entire system rail in landscape.
-                // Android transient system navigation remains available by swipe.
-                bars.hide(WindowInsetsCompat.Type.navigationBars())
+                // Only full-screen VIDEO uses immersive navigation; landscape
+                // photos keep their prior safe 3-button navigation contract.
+                if (fullscreen || current.mediaType == MediaType.VIDEO) {
+                    bars.hide(WindowInsetsCompat.Type.navigationBars())
+                } else {
+                    bars.show(WindowInsetsCompat.Type.navigationBars())
+                }
             } else if (chrome && !locked) {
                 bars.isAppearanceLightStatusBars = false
                 bars.isAppearanceLightNavigationBars = false
