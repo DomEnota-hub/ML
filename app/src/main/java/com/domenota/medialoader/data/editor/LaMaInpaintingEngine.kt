@@ -128,6 +128,20 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
             val data = IntArray(width * height)
             if (bounds.width <= 0 || bounds.height <= 0)
                 return PreparedCoverage(data, bounds)
+            // PorterDuff.CLEAR overlaps can have different raster-edge rounding
+            // under a translated crop on native Skia. Preserve the exact old
+            // full-frame raster for eraser batches; still bound ROI/composition.
+            if (strokes.any { it.erase }) {
+                val full = rasterizeMask(strokes, width, height)
+                try {
+                    val pixels = IntArray(data.size)
+                    full.getPixels(pixels, 0, width, 0, 0, width, height)
+                    return PreparedCoverage(InpaintingPreparation.coverage(
+                        IntArray(pixels.size) { Color.alpha(pixels[it]) }, width, height), bounds)
+                } finally {
+                    full.recycle()
+                }
+            }
             val crop = Bitmap.createBitmap(bounds.width, bounds.height, Bitmap.Config.ARGB_8888)
             try {
                 val canvas = Canvas(crop)
