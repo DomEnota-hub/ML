@@ -13,6 +13,9 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import com.domenota.medialoader.core.storage.StorageNaming
 import com.domenota.medialoader.core.storage.AudioThumbnailInvalidation
 import kotlin.coroutines.resume
@@ -311,6 +314,93 @@ class StorageManager(
                 PublishedFile(uri, actualName)
             }
         }
+
+    /**
+     * Copy ONLY an explicitly approved legacy history URI into a new,
+     * proper MediaStore Images/Video/Audio collection. SHA-256 is compared
+     * after reopening the new file. The old source is NEVER removed here;
+     * LegacyMediaMigration commits the exact-URI Room update first.
+     *
+     * No temporary multi-GB cache file is needed for large videos.
+     */
+    internal suspend fun publishVerifiedLegacyCopy(
+        oldSavedUri: String, fileName: String, mimeType: String,
+    ): PublishedFile = withContext(Dispatchers.IO) {
+        require(Build.VERSION.SDK_INT >= 29)
+        require(!usesSelectedFolder)
+        val kind = MediaStoragePolicy.kind(mimeType)
+        require(kind != MediaStoragePolicy.Kind.OTHER)
+        val oldUri = Uri.parse(oldSavedUri)
+        val resolver = context.contentResolver
+        val relativePath = MediaStoragePolicy.route(relativeDirectory, mimeType)
+        val existing = existingNames().toMutableSet()
+        val collisions = mutableSetOf<String>()
+        repeat(MAX_MEDIASTORE_NAME_ATTEMPTS) {
+            currentCoroutineContext().ensureActive()
+            val actual = StorageNaming.availableName(fileName, existing + collisions)
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, actual)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val newUri = resolver.insert(collectionFor(mimeType), values)
+                ?: throw IOException("Не удалось создать файл в новой медиатеке.")
+            try {
+                var copied = 0L
+                val sourceHash = MessageDigest.getInstance("SHA-256")
+                val source = resolver.openInputStream(oldUri)
+                    ?: throw IOException("Исходный файл недоступен.")
+                source.use { input ->
+                    val output = resolver.openOutputStream(newUri, "w")
+                        ?: throw IOException("Новый файл не открылся для записи.")
+                    output.use { target ->
+                        val bytes = ByteArray(64 * 1024)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = input.read(bytes)
+                            if (count < 0) break
+                            target.write(bytes, 0, count)
+                            sourceHash.update(bytes, 0, count)
+                            copied += count
+                        }
+                        target.flush()
+                    }
+                }
+                if (copied <= 0L) throw IOException("Исходный файл пустой.")
+                val verifiedHash = MessageDigest.getInstance("SHA-256")
+                var verifiedSize = 0L
+                val verifiedStream = resolver.openInputStream(newUri)
+                    ?: throw IOException("Невозможно проверить новый файл.")
+                verifiedStream.use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        verifiedHash.update(buffer, 0, read)
+                        verifiedSize += read
+                    }
+                }
+                if (copied != verifiedSize ||
+                    !sourceHash.digest().contentEquals(verifiedHash.digest()))
+                    throw IOException("Контрольная сумма перенесённого файла не совпала.")
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                if (resolver.update(newUri, values, null, null) != 1)
+                    throw IOException("Не удалось опубликовать проверенную копию.")
+                return@withContext PublishedFile(newUri, actual)
+            } catch (error: Exception) {
+                resolver.delete(newUri, null, null)
+                if (error is IllegalStateException &&
+                    error.message?.contains("Failed to build unique file",
+                        ignoreCase = true) == true) {
+                    collisions.add(actual)
+                } else throw error
+            }
+        }
+        throw IOException("Не удалось подобрать свободное имя в новой папке.")
+    }
 
     private fun collectionFor(mimeType: String): Uri = when (MediaStoragePolicy.kind(mimeType)) {
         MediaStoragePolicy.Kind.IMAGE -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
