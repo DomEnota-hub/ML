@@ -1,0 +1,44 @@
+name: ML AI Stage 4 - genuine reflection removal model research
+
+# The PINTO candidate failed the real paired-scene quality gate (CI 42590331785).
+# Do NOT rerun a known-unsuitable model on every source commit: retain the
+# reproducible failing research check for explicit re-evaluation only.
+# The independent DExNet quality/ONNX pipeline remains mandatory for stage 4.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml-stage4-reflection-model-poc
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    name: Real upstream ONNX vs ground truth (CPU-only preflight)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned CPU-only inference dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-input \
+            "numpy==1.26.4" "Pillow==11.3.0" "onnxruntime==1.20.1"
+      - name: Run real pretrained ONNX reflection preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 \
+            python scripts/qa/stage4_real_reflection_onnx_smoke.py
+      - name: Document gate scope
+        if: success()
+        run: |
+          echo 'Genuine third-party ONNX ran on Ubuntu CPU against clean and reflection-blended photographs.'
+          echo 'NOT confirmed: rights to distribute pretrained DINOv3 weights, true paired reflection dataset quality, Android ARM64.'
+          echo 'No model, image, APK, archive or other artifact is stored or published.'

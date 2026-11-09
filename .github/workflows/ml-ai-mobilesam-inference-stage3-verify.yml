@@ -13,6 +13,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
       - feature/ml-ai-eraser-stage2-people-detector-20261109
       - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
+      - feature/ml-ai-eraser-stage4-reflection-model-gate-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
@@ -26,6 +27,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
       - feature/ml-ai-eraser-stage2-people-detector-20261109
       - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
+      - feature/ml-ai-eraser-stage4-reflection-model-gate-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -168,7 +170,27 @@ jobs:
           assert "SpecularFrame.forImage" in srnet_engine
           assert "Float.isNaN" not in srnet_engine, "Use finite validation for ALL malformed outputs"
           assert "sha-256" in Path("THIRD_PARTY_NOTICES.md").read_text().lower()
-          assert 'REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, false)' in chrome
+          assert 'REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection,' in chrome
+          assert "R.drawable.ic_ai_eraser_reflection, true" in chrome
+          gradle = Path("app/build.gradle").read_text()
+          assert "'REFLECTION_MODEL_BUNDLED'" in gradle
+          assert "reflectionAsset.isFile() && reflectionDigest.isFile()" in gradle
+          model = Path("app/src/main/java/com/domenota/medialoader/data/editor/ReflectionDExModelStore.kt").read_text()
+          runtime = Path("app/src/main/java/com/domenota/medialoader/data/editor/ReflectionRemovalEngine.kt").read_text()
+          assert "verifyInstalled()" in model and "SHA_PATH" in model
+          assert "installFromUri(uri: Uri" in model and "EXPECTED_SHA256" in model
+          assert "rememberLauncherForActivityResult" in dialog
+          assert "ReflectionRemovalEngine(reflectionStore)" in eraser
+          assert "reflectionEngine.remove(startStep.bitmap" in eraser
+          assert "fullFrameCorrection = true" in eraser
+          assert "OrtEnvironment.getEnvironment()" in runtime
+          assert 'outputs.get("transmission")' in runtime
+          assert "setCPUArenaAllocator(false)" in runtime
+          assert "Импортировать DExNet из файла" in dialog
+          assert 'download("reflection")' in dialog and 'pendingDelete = "reflection"' in dialog
+          assert Path("app/src/test/java/com/domenota/medialoader/data/editor/ReflectionRemovalEngineTest.kt").exists()
+          assert not Path("app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx").exists(), "NEVER commit weights directly to Git"
+
           assert "PersonSegmentationPipeline(detector, segmenter)" in eraser
           assert "val found = peoplePipeline.scan(source)" in eraser
           assert "selectedMode == AiEraserMode.PEOPLE" in eraser
@@ -215,6 +237,14 @@ jobs:
           assert 'onProgress(100)' in models and 'suspend fun uninstall()' in models
           assert 'AiModelManagerDialog(onDismiss' in settings
           assert 'if (aiModelsDialog)' in settings and 'active == null' in dialog
+          # QA 4 UI: AI models must not reuse the Tune icon from Music settings.
+          assert 'import androidx.compose.material.icons.rounded.Psychology' in settings
+          assert 'SettingRow(Icons.Rounded.Tune, "Настройки музыки",' in settings
+          assert 'SettingRow(Icons.Rounded.Psychology, "AI-модели",' in settings
+          assert 'SettingRow(Icons.Rounded.Tune, "AI-модели",' not in settings, "AI icon must not clone Music settings"
+          assert 'SettingIconTone.AI_MODELS' in settings, "AI distinct color treatment must remain"
+          assert Path("docs/qa/stage4_reflection_model_gate_20261109.md").is_file()
+
           assert 'job?.cancel()' in dialog and 'mobile.verifyInstalled()' in dialog
           assert 'MobileSamModelStore(context.applicationContext)' in dialog
           checker = Path("app/src/main/java/com/domenota/medialoader/data/editor/AiModelUpdateChecker.kt").read_text()
@@ -330,6 +360,7 @@ jobs:
             --tests '*PersonInstancePolicyTest' \
             --tests '*PersonSegmentationPipelineTest' \
             --tests '*SpecularGlareEngineTest' \
+            --tests '*ReflectionRemovalEngineTest' \
             --tests '*SpecularOverlayComposerTest' \
             --tests '*LaMaCompositionTest' \
             --tests '*InpaintingPreparationTest' \
@@ -357,12 +388,12 @@ jobs:
           apk="app/build/outputs/apk/release/app-release-unsigned.apk"
           bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
           test -s "$apk"
-          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='216' versionName='1.7.155'"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='217' versionName='1.7.157'"
           test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
           mkdir -p handoff
-          "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk
-          "$bt/zipalign" -c -v 4 handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk
-          sha256sum handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk > handoff/ALIGNED_UNSIGNED_SHA256.txt
+          "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.157_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -c -v 4 handoff/ML_1.7.157_ARM64_ALIGNED_UNSIGNED.apk
+          sha256sum handoff/ML_1.7.157_ARM64_ALIGNED_UNSIGNED.apk > handoff/ALIGNED_UNSIGNED_SHA256.txt
       - name: Retain QA test and lint reports
         if: always()
         uses: actions/upload-artifact@v4

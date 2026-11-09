@@ -9,6 +9,22 @@ plugins {
 def gapiKeysFile = rootProject.file('.gapi-local/builtin-keys.json')
 def gapiKeysJson = gapiKeysFile.isFile() ? gapiKeysFile.getText('UTF-8') : '[]'
 def gapiKeysLiteral = groovy.json.JsonOutput.toJson(gapiKeysJson)
+// An isolated official QA build must not silently lose its two bundled GAPI
+// credentials. Never print or commit their values; they are CI/local inputs.
+if (project.hasProperty('officialQa')) {
+    def parsed = new groovy.json.JsonSlurper().parseText(gapiKeysJson)
+    def valid = parsed instanceof List && parsed.size() >= 2 &&
+            parsed.every { entry ->
+                entry instanceof Map &&
+                entry.id?.toString()?.trim() &&
+                entry.key?.toString()?.trim()
+            } &&
+            parsed.collect { it.id.toString() }.toSet().size() == parsed.size() &&
+            parsed.collect { it.key.toString() }.toSet().size() == parsed.size()
+    if (!valid) {
+        throw new GradleException('Official QA needs distinct non-empty built-in GAPI credentials supplied locally; refusing credential-free APK.')
+    }
+}
 
 android {
     namespace 'com.domenota.medialoader'
@@ -30,11 +46,19 @@ android {
     defaultConfig {
         applicationId 'com.domenota.medialoader'
         buildConfigField 'String', 'GAPI_BUILTIN_KEYS_JSON', gapiKeysLiteral
+        // Fail closed: no on-device reflection mode unless the REAL, independently
+        // verified pretrained DExNet+VGG19 ONNX and SHA256 are injected at build.
+        // Neither model weights nor signing secrets are ever committed to Git.
+        def reflectionAsset = file('src/main/assets/ai/dexnet_vgg19_reflection_128.onnx')
+        def reflectionDigest = file('src/main/assets/ai/dexnet_vgg19_reflection_128.onnx.sha256')
+        buildConfigField 'boolean', 'REFLECTION_MODEL_BUNDLED',
+                (reflectionAsset.isFile() && reflectionDigest.isFile()).toString()
+
         minSdk 26
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 216
-        versionName '1.7.155'
+        versionCode 217
+        versionName '1.7.157'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
         // Package only ARM64 native libraries without changing the release app ID.
         if (project.hasProperty('arm64Release')) {

@@ -16,12 +16,11 @@ class AiEraserModePolicyTest {
     }
 
     @Test fun onlyWorkingLocalEnginesAreEnabled() {
-        assertEquals(setOf(AiEraserMode.OBJECTS, AiEraserMode.PEOPLE,
-            AiEraserMode.GLARE, AiEraserMode.MANUAL, AiEraserMode.TEXT),
-            AiEraserMode.entries.filter { it.available }.toSet())
+        val expected = AiEraserMode.entries.toSet()
+        assertEquals(expected, AiEraserMode.entries.filter { it.available }.toSet())
         assertTrue(AiEraserMode.PEOPLE.available)
         assertTrue(AiEraserMode.GLARE.available)
-        assertFalse(AiEraserMode.REFLECTION.available)
+        assertTrue(AiEraserMode.REFLECTION.available)
     }
 
     @Test fun manualIconIsDistinctFromToggleHandButComesFromSameAssetFamily() {

@@ -1,0 +1,45 @@
+name: ML Stage 4 - DExNet official checkpoint research gate
+on:
+  push:
+    branches:
+      - feature/ml-ai-eraser-stage4-reflection-model-gate-20261109
+    paths:
+      - scripts/qa/stage4_dexnet_checkpoint_inspect.py
+      - .github/workflows/ml-ai-stage4-dexnet-inspect.yml
+  pull_request:
+    branches:
+      - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
+    paths:
+      - scripts/qa/stage4_dexnet_checkpoint_inspect.py
+      - .github/workflows/ml-ai-stage4-dexnet-inspect.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-stage4-dexnet-readonly
+  cancel-in-progress: true
+jobs:
+  inspect:
+    name: Genuine upstream DExNet weights download and safe load
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install official CPU-only PyTorch and downloader
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-input 'gdown==5.2.0'
+          python -m pip install --disable-pip-version-check --no-input 'torch==2.4.1+cpu' --index-url https://download.pytorch.org/whl/cpu
+      - name: Inspect licensed research weights, no unsafe pickle
+        run: |
+          set -euo pipefail
+          python scripts/qa/stage4_dexnet_checkpoint_inspect.py
+      - name: State scope
+        if: success()
+        run: |
+          echo 'Checkpoint access/size/SHA and safe PyTorch tensor parsing verified.'
+          echo 'NOT confirmed: Android inference, benchmark quality, redistribution rights to checkpoint.'
+          echo 'Do not declare STAGE_04_DONE or publish a model or APK.'

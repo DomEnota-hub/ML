@@ -1,0 +1,58 @@
+name: ML Stage 4 - real DExNet plus pretrained VGG19 on CPU
+on:
+  push:
+    branches:
+      - feature/ml-ai-eraser-stage4-reflection-model-gate-20261109
+    paths:
+      - scripts/qa/stage4_dexnet_full_inference_smoke.py
+      - .github/workflows/ml-ai-stage4-dexnet-full-onnx.yml
+  pull_request:
+    branches:
+      - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
+    paths:
+      - scripts/qa/stage4_dexnet_full_inference_smoke.py
+      - .github/workflows/ml-ai-stage4-dexnet-full-onnx.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-stage4-dexnet-complete-real-inference
+  cancel-in-progress: true
+jobs:
+  model:
+    name: Genuine DExNet plus VGG19 inference/ONNX at ${{ matrix.side }}px
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        side: [80, 96, 128]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned CPU neural toolchain
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-input \
+            'gdown==5.2.0' 'PyWavelets==1.7.0' 'numpy==1.26.4' 'Pillow==11.3.0' \
+            'onnx==1.17.0' 'onnxruntime==1.20.1'
+          python -m pip install --disable-pip-version-check --no-input \
+            'torch==2.4.1+cpu' 'torchvision==0.19.1+cpu' \
+            --index-url https://download.pytorch.org/whl/cpu
+      - name: Real pretrained joint VGG19/DExNet paired-image and ONNX export
+        env:
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+          ML_DEXNET_SIDE: ${{ matrix.side }}
+        run: |
+          set -euo pipefail
+          python scripts/qa/stage4_dexnet_full_inference_smoke.py
+      - name: QA scope
+        if: success()
+        run: |
+          echo 'Real trained DExNet AND pretrained VGG19, not random features.'
+          echo 'Full model export, ONNX numeric parity, paired-image metrics on Linux CPU.'
+          echo 'No tested Android ARM64 inference or redistribution rights yet.'
+          echo 'No pretrained model, APK, archive or artifact published to GitHub.'

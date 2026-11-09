@@ -13,12 +13,12 @@ class AiEraserAvailabilityTest {
         // A failed detector install must NOT silently reuse point-only MobileSAM as a detector.
     }
 
-    @Test fun glareIsRealLocalSrnetAndReflectionStaysDisabled() {
+    @Test fun glareAndReflectionAreSelectableWithGenuineLocalPipelines() {
         assertTrue(AiEraserMode.GLARE.available)
         assertNull(AiEraserMode.GLARE.unavailableExplanation)
-        assertFalse(AiEraserMode.REFLECTION.available)
-        assertTrue(requireNotNull(AiEraserMode.REFLECTION.unavailableExplanation)
-            .contains("пока недоступно"))
+        assertTrue(AiEraserMode.REFLECTION.available)
+        assertNull(AiEraserMode.REFLECTION.unavailableExplanation)
+        // Inference stays fail-closed until the optional file passes SHA-256.
     }
 
     @Test fun ExistingRealModesRemainSelectableWithoutFalseWarnings() {

@@ -1,0 +1,206 @@
+name: ML AI Stage 4 - real model QA ARM64 build and verified handoff (no publishing)
+
+on:
+  push:
+    branches:
+      - feature/ml-ai-eraser-stage4-reflection-model-gate-20261109
+    paths:
+      - .github/workflows/ml-ai-stage4-real-model-android-qa.yml
+  pull_request:
+    branches:
+      - feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109
+    paths:
+      - .github/workflows/ml-ai-stage4-real-model-android-qa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml-ai-stage4-audited-qa-build
+  cancel-in-progress: true
+
+jobs:
+  real-model-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned real model conversion toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-input \
+            'gdown==5.2.0' 'PyWavelets==1.7.0' 'numpy==1.26.4' \
+            'Pillow==11.3.0' 'onnx==1.17.0' 'onnxruntime==1.20.1'
+          python -m pip install --disable-pip-version-check --no-input \
+            'torch==2.4.1+cpu' 'torchvision==0.19.1+cpu' \
+            --index-url https://download.pytorch.org/whl/cpu
+      - name: Generate full pretrained DExNet plus VGG19 only after quality gates
+        env:
+          ML_DEXNET_SIDE: '128'
+          ML_REFLECTION_MODEL_OUTPUT_DIR: ${{ runner.temp }}/ml-reflection-model
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/qa/stage4_dexnet_full_inference_smoke.py
+          model="$RUNNER_TEMP/ml-reflection-model/dexnet_vgg19_reflection_128.onnx"
+          test -s "$model"
+          test -s "$model.sha256"
+          # The runtime consumes a single raw 64-hex digest, not the
+          # '<digest>  filename' format expected by sha256sum -c.
+          expected=$(cat "$model.sha256")
+          [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
+          actual=$(sha256sum "$model" | cut -d' ' -f1)
+          test "$actual" = "$expected"
+          test ! -e app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx
+          test ! -e app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx.sha256
+          test "$(stat -c%s "$model")" -lt 110000000
+      - name: Bootstrap pinned Gradle 8.9 from checked wrapper SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for i in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$i" != 4
+            sleep 10
+          done
+      - name: Install Android SDK 35 build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-35' 'build-tools;35.0.0'
+      - name: Optional ONNX importer and inference tests after real model export
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*ReflectionRemovalEngineTest' \
+            --tests '*AiEraserAvailabilityTest' \
+            --tests '*AiEraserModePolicyTest' \
+            --tests '*SpecularGlareEngineTest' \
+            --tests '*SpecularOverlayComposerTest' \
+            --tests '*PersonSegmentationPipelineTest' --stacktrace
+      - name: Android lint with real model configuration (before credential gate)
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Provision the two real built-in GAPI credentials without logging them
+        env:
+          ML_GAPI_BUILTIN_KEYS_JSON_B64: ${{ secrets.ML_GAPI_BUILTIN_KEYS_JSON_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${ML_GAPI_BUILTIN_KEYS_JSON_B64:-}" ]; then
+            echo "::error::Missing ML_GAPI_BUILTIN_KEYS_JSON_B64; refuse an APK without built-in GAPI keys." >&2
+            exit 1
+          fi
+          umask 077
+          mkdir -p .gapi-local
+          printf '%s' "$ML_GAPI_BUILTIN_KEYS_JSON_B64" | base64 --decode > .gapi-local/builtin-keys.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          try:
+              entries = json.loads(Path('.gapi-local/builtin-keys.json').read_text('utf-8'))
+              assert isinstance(entries, list) and len(entries) >= 2
+              assert all(isinstance(item, dict) and item.get('id') and item.get('key') for item in entries)
+              assert len({item['id'] for item in entries}) == len(entries)
+              assert len({item['key'] for item in entries}) == len(entries)
+          except (AssertionError, OSError, ValueError, KeyError):
+              raise SystemExit('Refusing QA: built-in GAPI credentials missing or invalid')
+          print('Built-in GAPI configuration validated (credential values not logged)')
+          PY
+      - name: Assemble isolated ARM64 unsigned Release QA (production remains untouched)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleRelease -PofficialQa=true -Parm64Release=true --stacktrace
+          unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -s "$unsigned"
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          "$bt/aapt" dump badging "$unsigned" | grep -F "name='com.domenota.medialoader.officialqa'"
+          "$bt/aapt" dump badging "$unsigned" | grep -F "versionName='1.7.157-review'"
+          test "$(unzip -Z1 "$unsigned" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          if unzip -Z1 "$unsigned" | grep -q '^assets/ai/dexnet_vgg19_reflection_128.onnx$'; then
+            echo "::error::Reflection ONNX must not be embedded into base APK" >&2
+            exit 1
+          fi
+      - name: Sign QA only with the existing DomEnota release certificate
+        shell: bash
+        env:
+          ML_RELEASE_KEYSTORE_BASE64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
+          ML_RELEASE_STORE_PASSWORD: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
+          ML_RELEASE_KEY_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
+          ML_RELEASE_KEY_PASSWORD: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
+          ML_RELEASE_SIGNER_SHA256: ${{ secrets.ML_RELEASE_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          for required in ML_RELEASE_KEYSTORE_BASE64 ML_RELEASE_STORE_PASSWORD ML_RELEASE_KEY_ALIAS ML_RELEASE_KEY_PASSWORD ML_RELEASE_SIGNER_SHA256; do
+            if [ -z "${!required:-}" ]; then
+              echo "::error::Missing protected signing input: $required" >&2
+              exit 1
+            fi
+          done
+          umask 077
+          keystore="$RUNNER_TEMP/ml-dom-enota-qa-signing.jks"
+          aligned="$RUNNER_TEMP/ml-stage4-aligned.apk"
+          signed="$RUNNER_TEMP/ml-stage4-signed.apk"
+          trap 'rm -f "$keystore" "$aligned"' EXIT
+          printf '%s' "$ML_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          "$bt/zipalign" -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$aligned"
+          "$bt/apksigner" sign --min-sdk-version 26 \
+            --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
+            --ks "$keystore" --ks-key-alias "$ML_RELEASE_KEY_ALIAS" \
+            --ks-pass env:ML_RELEASE_STORE_PASSWORD \
+            --key-pass env:ML_RELEASE_KEY_PASSWORD --out "$signed" "$aligned"
+          "$bt/apksigner" verify --verbose "$signed" | tee "$RUNNER_TEMP/ml-stage4-apk-verify.txt"
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' "$RUNNER_TEMP/ml-stage4-apk-verify.txt"
+          grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' "$RUNNER_TEMP/ml-stage4-apk-verify.txt"
+          actual=$("$bt/apksigner" verify --print-certs "$signed" | \
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | \
+            tr '[:upper:]' '[:lower:]' | tr -d ': ')
+          expected=$(printf '%s' "$ML_RELEASE_SIGNER_SHA256" | \
+            tr '[:upper:]' '[:lower:]' | tr -d ': ')
+          test -n "$actual" && test "$actual" = "$expected" || {
+            echo "::error::QA certificate differs from original DomEnota signer" >&2
+            exit 1
+          }
+          "$bt/aapt" dump badging "$signed" | grep -F "name='com.domenota.medialoader.officialqa'"
+          "$bt/aapt" dump badging "$signed" | grep -F "versionName='1.7.157-review'"
+          test "$(unzip -Z1 "$signed" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          "$bt/zipalign" -c -v 4 "$signed"
+          sha256sum "$signed"
+      - name: Locally validate two QA ZIP parts and one exact-commit source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/qa/package_stage4_qa.py \
+            --apk "$RUNNER_TEMP/ml-stage4-signed.apk" \
+            --model "$RUNNER_TEMP/ml-reflection-model/dexnet_vgg19_reflection_128.onnx" \
+            --out "$RUNNER_TEMP/ml-qa-handoff" \
+            --version 1.7.157 --commit "$GITHUB_SHA"
+          test "$(find "$RUNNER_TEMP/ml-qa-handoff" -maxdepth 1 -type f -name '*.zip' | wc -l)" = 3
+          echo "::notice::Signed QA and 3 ZIPs validated on this ephemeral runner."
+          echo "::notice::No GitHub artifacts/Releases or production files were published."
+          echo "::warning::Google Drive delivery requires an authorized direct Drive upload connection; this job never publishes the local ZIPs."
+      - name: Never persist model weights or APK in GitHub
+        if: always()
+        shell: bash
+        run: |
+          rm -f app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx
+          rm -f app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx.sha256
+          rm -rf "$RUNNER_TEMP/ml-qa-handoff" "$RUNNER_TEMP/ml-reflection-model" .gapi-local
+          rm -f "$RUNNER_TEMP/ml-stage4-signed.apk" "$RUNNER_TEMP/ml-stage4-aligned.apk" "$RUNNER_TEMP/ml-dom-enota-qa-signing.jks"
+          echo "Ephemeral model and QA packages wiped; no GitHub artifact published."

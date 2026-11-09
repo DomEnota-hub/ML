@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -46,6 +48,8 @@ import com.domenota.medialoader.data.editor.LaMaModelStore
 import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.PersonDetectorModelStore
 import com.domenota.medialoader.data.editor.SpecularSrNetModelStore
+import com.domenota.medialoader.data.editor.ReflectionDExModelStore
+import com.domenota.medialoader.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -58,11 +62,13 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     val mobile = remember(context) { MobileSamModelStore(context.applicationContext) }
     val people = remember(context) { PersonDetectorModelStore(context.applicationContext) }
     val glare = remember(context) { SpecularSrNetModelStore(context.applicationContext) }
+    val reflection = remember(context) { ReflectionDExModelStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var lamaReady by remember { mutableStateOf(false) }
     var mobileReady by remember { mutableStateOf(false) }
     var peopleReady by remember { mutableStateOf(false) }
     var glareReady by remember { mutableStateOf(false) }
+    var reflectionReady by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(true) }
     var active by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableIntStateOf(0) }
@@ -77,10 +83,38 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         mobileReady = mobile.verifyInstalled()
         peopleReady = people.verifyInstalled()
         glareReady = glare.verifyInstalled()
+        reflectionReady = reflection.verifyInstalled()
         checking = false
     }
+    val reflectionFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null && active == null) {
+            error = null
+            progress = 0
+            active = "reflection"
+            job = scope.launch {
+                try {
+                    reflection.installFromUri(uri) { progress = it }
+                    reflectionReady = reflection.verifyInstalled()
+                } catch (cancel: CancellationException) {
+                    error = "Импорт модели отменён."
+                } catch (failure: Exception) {
+                    error = failure.message ?: "Не удалось проверить файл DExNet."
+                } finally {
+                    active = null
+                    job = null
+                }
+            }
+        }
+    }
+
     fun download(kind: String) {
         if (active != null || checking || updateChecking) return
+        if (kind == "reflection" && !reflection.bundled()) {
+            reflectionFilePicker.launch(arrayOf("*/*"))
+            return
+        }
         updateResults = emptyMap()
         error = null
         progress = 0
@@ -99,6 +133,9 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 } else if (kind == "glare") {
                     glare.install { progress = it }
                     glareReady = glare.verifyInstalled()
+                } else if (kind == "reflection" && BuildConfig.REFLECTION_MODEL_BUNDLED) {
+                    reflection.install { progress = it }
+                    reflectionReady = reflection.verifyInstalled()
                 }
             } catch (cancel: CancellationException) {
                 error = "Установка отменена."
@@ -131,6 +168,9 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 } else if (kind == "glare") {
                     glare.uninstall()
                     glareReady = false
+                } else if (kind == "reflection") {
+                    reflection.uninstall()
+                    reflectionReady = false
                 }
             } catch (failure: Exception) {
                 error = failure.message ?: "Не удалось удалить AI-модель."
@@ -156,6 +196,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 val verifiedPeople = people.verifyInstalled()
                 peopleReady = verifiedPeople
                 glareReady = glare.verifyInstalled()
+                reflectionReady = reflection.verifyInstalled()
                 val lamaResult = AiModelUpdateChecker.check(
                     AiModelUpdateChecker.Kind.LAMA, verifiedLaMa)
                 val mobileResult = AiModelUpdateChecker.check(
@@ -237,6 +278,19 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                     onInstall = { download("glare") },
                     onDelete = { pendingDelete = "glare" },
                 )
+                HorizontalDivider()
+                ModelRow(
+                    title = "DExNet + VGG19 · отражения",
+                    detail = if (BuildConfig.REFLECTION_MODEL_BUNDLED)
+                        "Нейросеть 91 МБ · установка из QA-приложения" else
+                        "Нейросеть 91 МБ · импорт проверенного ONNX-файла",
+                    ready = reflectionReady,
+                    enabled = !checking && !updateChecking && active == null,
+                    installDescription = if (BuildConfig.REFLECTION_MODEL_BUNDLED)
+                        "Установить DExNet" else "Импортировать DExNet из файла",
+                    onInstall = { download("reflection") },
+                    onDelete = { pendingDelete = "reflection" },
+                )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(colors = whiteActionColors, onClick = ::checkUpdates,
                         enabled = !checking && !updateChecking && active == null) {
@@ -271,6 +325,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                         "mobile" -> "MobileSAM · $progress%"
                         "people" -> "EfficientDet · $progress%"
                         "glare" -> "SRNet · $progress%"
+                        "reflection" -> "DExNet · $progress%"
                         else -> "AI-модель · $progress%"
                     },
                         color = androidx.compose.ui.graphics.Color.White)
@@ -298,6 +353,7 @@ private fun ModelRow(
     detail: String,
     ready: Boolean,
     enabled: Boolean,
+    installDescription: String? = null,
     onInstall: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -316,7 +372,7 @@ private fun ModelRow(
             }
         } else {
             IconButton(onClick = onInstall, enabled = enabled) {
-                Icon(Icons.Rounded.Download, "Скачать $title",
+                Icon(Icons.Rounded.Download, installDescription ?: "Скачать $title",
                     tint = androidx.compose.ui.graphics.Color.White)
             }
         }

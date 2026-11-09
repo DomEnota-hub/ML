@@ -46,7 +46,7 @@ internal enum class AiEraserMode(val title: String, val icon: Int, val available
     OBJECTS("Удаление объектов", R.drawable.ic_ai_eraser_objects, true),
     PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, true),
     GLARE("Убрать блики", R.drawable.ic_ai_eraser_glare, true),
-    REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, false),
+    REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, true),
     MANUAL("Вручную", R.drawable.ic_ai_eraser_manual, true),
     TEXT("Удалить текст", R.drawable.ic_ai_eraser_text, true),
 }
@@ -60,8 +60,7 @@ internal val AiEraserMode.unavailableExplanation: String?
     get() = when (this) {
         AiEraserMode.PEOPLE -> null
         AiEraserMode.GLARE -> null
-        AiEraserMode.REFLECTION ->
-            "Удаление отражений пока недоступно: отдельная модель обработки отражений ещё не подключена."
+        AiEraserMode.REFLECTION -> null
         else -> null
     }
 
