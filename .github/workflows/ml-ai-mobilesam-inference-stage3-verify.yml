@@ -386,12 +386,12 @@ jobs:
           apk="app/build/outputs/apk/release/app-release-unsigned.apk"
           bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
           test -s "$apk"
-          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='216' versionName='1.7.155'"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='217' versionName='1.7.157'"
           test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
           mkdir -p handoff
-          "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk
-          "$bt/zipalign" -c -v 4 handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk
-          sha256sum handoff/ML_1.7.155_ARM64_ALIGNED_UNSIGNED.apk > handoff/ALIGNED_UNSIGNED_SHA256.txt
+          "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.157_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -c -v 4 handoff/ML_1.7.157_ARM64_ALIGNED_UNSIGNED.apk
+          sha256sum handoff/ML_1.7.157_ARM64_ALIGNED_UNSIGNED.apk > handoff/ALIGNED_UNSIGNED_SHA256.txt
       - name: Retain QA test and lint reports
         if: always()
         uses: actions/upload-artifact@v4
