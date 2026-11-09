@@ -444,6 +444,26 @@ class MediaRepository private constructor(context: Context) {
         StorageMigrationProgress = LegacyMediaMigration(
             appContext, historyDb.downloadDao(), storage
         ).migrate(onProgress)
+    /** Preview and one-file filesystem timestamp trial; no bulk mutations. */
+    internal suspend fun previewRecoverableDates(): Int =
+        com.domenota.medialoader.data.storage.MediaDateRecovery(
+            appContext, historyDb.downloadDao()).preview().size
+
+    internal suspend fun tryRestoreOneFileDate():
+        com.domenota.medialoader.data.storage.MediaDateRecovery.Outcome =
+        com.domenota.medialoader.data.storage.MediaDateRecovery(
+            appContext, historyDb.downloadDao()).trialOne()
+
+    internal suspend fun restoreRemainingMediaDates(onProgress: (Int, Int) -> Unit):
+        com.domenota.medialoader.data.storage.MediaDateRecovery.Outcome =
+        com.domenota.medialoader.data.storage.MediaDateRecovery(
+            appContext, historyDb.downloadDao()).restoreRemaining(onProgress)
+
+    internal suspend fun undoRestoredMediaDates():
+        com.domenota.medialoader.data.storage.MediaDateRecovery.Outcome =
+        com.domenota.medialoader.data.storage.MediaDateRecovery(
+            appContext, historyDb.downloadDao()).undoDateChanges()
+
     val usesSelectedFolder: Boolean get() = storage.usesSelectedFolder
 
     val musicRecognitionMode: MusicRecognitionMode get() = recognitionSettings.mode

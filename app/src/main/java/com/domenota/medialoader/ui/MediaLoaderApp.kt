@@ -515,6 +515,10 @@ fun MediaLoaderApp(
     val hiddenItems by viewModel.hiddenItems.collectAsStateWithLifecycle()
     val downloadFolder by viewModel.downloadFolder.collectAsStateWithLifecycle()
     val storageMigration by viewModel.storageMigration.collectAsStateWithLifecycle()
+    val dateRecoveryStatus by viewModel.dateRecoveryStatus.collectAsStateWithLifecycle()
+    val dateRecoveryBusy by viewModel.dateRecoveryBusy.collectAsStateWithLifecycle()
+    val dateRecoveryReady by viewModel.dateRecoveryReady.collectAsStateWithLifecycle()
+    val dateRecoveryTrialDone by viewModel.dateRecoveryTrialDone.collectAsStateWithLifecycle()
     // MediaStore publishes new items under Pictures/Music after a verified
     // migration; refresh only when the explicit operation finishes.
     LaunchedEffect(storageMigration.running, storageMigration.processed) {
@@ -1357,6 +1361,14 @@ fun MediaLoaderApp(
                     storageMigrationRunning = storageMigration.running,
                     storageMigrationMessage = storageMigration.message,
                     onMigrateLegacyMedia = viewModel::migrateLegacyDownloads,
+                    dateRecoveryStatus = dateRecoveryStatus,
+                    dateRecoveryBusy = dateRecoveryBusy,
+                    dateRecoveryReady = dateRecoveryReady,
+                    onDateRecoveryPreview = viewModel::previewMediaDates,
+                    onDateRecoveryTrial = viewModel::tryRestoreOneMediaDate,
+                    dateRecoveryTrialDone = dateRecoveryTrialDone,
+                    onRestoreRemainingDates = viewModel::restoreRemainingMediaDates,
+                    onUndoMediaDateChanges = viewModel::undoMediaDateChanges,
                     onRestore = viewModel::restoreHidden,
                     onEmptyTrash = viewModel::clearHidden,
                     onOpenTrash = { navController.navigate("trash") },

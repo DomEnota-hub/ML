@@ -169,6 +169,14 @@ fun SettingsScreen(
     storageMigrationRunning: Boolean = false,
     storageMigrationMessage: String = "",
     onMigrateLegacyMedia: () -> Unit = {},
+    dateRecoveryStatus: String = "Не проверялось",
+    dateRecoveryBusy: Boolean = false,
+    dateRecoveryReady: Boolean = false,
+    onDateRecoveryPreview: () -> Unit = {},
+    onDateRecoveryTrial: () -> Unit = {},
+    dateRecoveryTrialDone: Boolean = false,
+    onRestoreRemainingDates: () -> Unit = {},
+    onUndoMediaDateChanges: () -> Unit = {},
     onRestore: (Set<String>) -> Unit,
     onEmptyTrash: () -> Unit,
     onOpenTrash: () -> Unit = {},
@@ -354,6 +362,9 @@ fun SettingsScreen(
     var spareAuthorizationDialog by remember { mutableStateOf(false) }
     var folderDialog by remember { mutableStateOf(false) }
     var migrateLegacyDialog by remember { mutableStateOf(false) }
+    var dateTrialDialog by remember { mutableStateOf(false) }
+    var dateAllDialog by remember { mutableStateOf(false) }
+    var undoDateDialog by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("MediaLoader") }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmInstagramSignOut by remember { mutableStateOf(false) }
@@ -538,6 +549,64 @@ fun SettingsScreen(
             }
         },
         dismissButton = { TextButton(onClick = { folderDialog = false }) { Text("Отмена") } },
+    )
+
+    if (undoDateDialog) AlertDialog(
+        onDismissRequest = { undoDateDialog = false },
+        title = { Text("Вернуть предыдущие даты файлов?") },
+        text = { Text("Будут отменены только те изменения времени, которые " +
+            "приложение записало в журнал восстановления. Фотографии, " +
+            "видео и история загрузок не удаляются. Изменённые после " +
+            "операции файлы пропускаются ради безопасности.") },
+        confirmButton = {
+            TextButton(onClick = {
+                undoDateDialog = false
+                if (!dateRecoveryBusy && activeDownloadCount == 0) onUndoMediaDateChanges()
+            }) { Text("Отменить восстановление") }
+        },
+        dismissButton = {
+            TextButton(onClick = { undoDateDialog = false }) { Text("Назад") }
+        },
+    )
+
+    if (dateAllDialog) AlertDialog(
+        onDismissRequest = { dateAllDialog = false },
+        title = { Text("Восстановить даты остальных файлов?") },
+        text = { Text("Продолжайте, только если после пробного изменения " +
+            "один файл переместился на ожидаемую дату в системной галерее Xiaomi. " +
+            "Изменяется время существующих файлов, но НЕ их содержимое, EXIF " +
+            "или дата загрузки в истории. Каждая операция записывается в журнал. " +
+            "Это НЕ обратное пересоздание файлов.") },
+        confirmButton = {
+            TextButton(onClick = {
+                dateAllDialog = false
+                if (!dateRecoveryBusy && dateRecoveryTrialDone && activeDownloadCount == 0)
+                    onRestoreRemainingDates()
+            }) { Text("Восстановить остальные даты") }
+        },
+        dismissButton = {
+            TextButton(onClick = { dateAllDialog = false }) { Text("Отмена") }
+        },
+    )
+
+    if (dateTrialDialog) AlertDialog(
+        onDismissRequest = { dateTrialDialog = false },
+        title = { Text("Пробное восстановление даты") },
+        text = { Text("Операция изменит только время изменения ОДНОГО " +
+            "сохранённого MediaLoader файла из Pictures/Music. Содержимое и EXIF " +
+            "останутся прежними; старое значение записывается для отката. " +
+            "После операции проверьте его в галерее Xiaomi. " +
+            "Автоматического массового изменения не будет.") },
+        confirmButton = {
+            TextButton(onClick = {
+                dateTrialDialog = false
+                if (!dateRecoveryBusy && dateRecoveryReady && activeDownloadCount == 0)
+                    onDateRecoveryTrial()
+            }) { Text("Проверить на одном файле") }
+        },
+        dismissButton = {
+            TextButton(onClick = { dateTrialDialog = false }) { Text("Отмена") }
+        },
     )
 
     if (migrateLegacyDialog) AlertDialog(
@@ -959,6 +1028,46 @@ fun SettingsScreen(
                 onClick = {
                     if (!storageMigrationRunning && activeDownloadCount == 0)
                         migrateLegacyDialog = true
+                },
+            )
+            GroupDivider()
+            SettingRow(
+                Icons.Rounded.Folder, "Восстановление исходных дат",
+                if (dateRecoveryBusy) "Проверяем файл…" else dateRecoveryStatus,
+                grouped = true, nested = true,
+                iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                onClick = {
+                    if (!dateRecoveryBusy && activeDownloadCount == 0)
+                        onDateRecoveryPreview()
+                },
+            )
+            if (dateRecoveryReady && !dateRecoveryBusy) {
+                SettingRow(
+                    Icons.Rounded.Folder, "Проба восстановления одного файла",
+                    "Физическое время файла, без изменения фотографии",
+                    grouped = true, nested = true,
+                    iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                    onClick = { if (activeDownloadCount == 0) dateTrialDialog = true },
+                )
+            }
+            if (dateRecoveryTrialDone && !dateRecoveryBusy) {
+                SettingRow(
+                    Icons.Rounded.Folder, "Восстановить даты остальных",
+                    "Только после проверки пробного файла в Xiaomi",
+                    grouped = true, nested = true,
+                    iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                    onClick = { if (activeDownloadCount == 0) dateAllDialog = true },
+                )
+            }
+            GroupDivider()
+            SettingRow(
+                Icons.Rounded.Folder, "Отменить восстановление дат",
+                "Вернуть значения из защищённого журнала",
+                grouped = true, nested = true,
+                iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                onClick = {
+                    if (!dateRecoveryBusy && activeDownloadCount == 0)
+                        undoDateDialog = true
                 },
             )
             GroupDivider()
