@@ -76,6 +76,8 @@ import com.domenota.medialoader.data.editor.PersonDetector
 import com.domenota.medialoader.data.editor.PersonSegmentationPipeline
 import com.domenota.medialoader.data.editor.PersonScanResult
 import com.domenota.medialoader.data.editor.PersonInstance
+import com.domenota.medialoader.data.editor.PersonInstancePolicy
+import com.domenota.medialoader.data.editor.PersonContourOverlay
 import com.domenota.medialoader.data.editor.SpecularSrNetModelStore
 import com.domenota.medialoader.data.editor.SpecularGlareEngine
 import com.domenota.medialoader.data.editor.SpecularOverlayComposer
@@ -496,6 +498,14 @@ internal fun ObjectRemovalPanel(
         }
     }
 
+    // Automatically detect when opening People mode if both verified models
+    // are available. This effect is keyed to the photo/mode, never to the
+    // result list, so completion cannot restart an infinite search cycle.
+    LaunchedEffect(selectedMode, current.bitmap, peopleReady, mobileReady) {
+        if (selectedMode == AiEraserMode.PEOPLE && peopleReady && mobileReady &&
+            !peopleSearching && !processing) findPeople()
+    }
+
     fun processSelection() {
         if (busy) return
         if (textMode && glyphs.isEmpty()) {
@@ -732,8 +742,10 @@ internal fun ObjectRemovalPanel(
             .flatMap { it.strokes } else strokes.toList()
         val previewStrokes = remember(selectedStrokes, inProgress, brush, textMode, eraserMode,
             selectedMode) {
-            if (textMode) emptyList() else if (selectedMode == AiEraserMode.PEOPLE)
-                selectedStrokes else selectedStrokes +
+            // People are displayed with a true per-person outline below, not
+            // a merged yellow filled rectangle or an unrelated detector box.
+            if (textMode || selectedMode == AiEraserMode.PEOPLE)
+                emptyList() else selectedStrokes +
                 inProgress.takeIf { it.isNotEmpty() }?.let {
                     listOf(MaskStroke(it,
                         (brush / minOf(working.width, working.height)).coerceIn(0.001f, 0.5f),
@@ -742,6 +754,15 @@ internal fun ObjectRemovalPanel(
         }
         val unifiedOverlay = remember(previewStrokes, working.width, working.height) {
             UnifiedMaskOverlay.render(previewStrokes, working.width, working.height)
+        }
+        val selectedIds = selectedPeople.toSet()
+        val peopleContour = remember(detectedPeople, selectedIds, ambiguousPeople,
+            working.width, working.height) {
+            PersonContourOverlay.render(detectedPeople, selectedIds, ambiguousPeople,
+                working.width, working.height)
+        }
+        DisposableEffect(peopleContour) {
+            onDispose { peopleContour?.recycle() }
         }
         BoxWithConstraints(
             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp),
@@ -879,7 +900,9 @@ internal fun ObjectRemovalPanel(
                             val tapped = imagePoint(downPosition)
                             val candidate = tapped?.let { point ->
                                 detectedPeople.filter {
-                                    it.detection.id !in ambiguousPeople && it.detection.box.contains(point)
+                                    it.detection.id !in ambiguousPeople &&
+                                        PersonInstancePolicy.containsMask(
+                                            it, point, current.bitmap.width, current.bitmap.height)
                                 }.minByOrNull { it.detection.box.width * it.detection.box.height }
                             }
                             candidate?.detection?.id?.let { id ->
@@ -936,23 +959,15 @@ internal fun ObjectRemovalPanel(
                         contentScale = ContentScale.FillBounds,
                     )
                 }
+                if (!showBefore && selectedMode == AiEraserMode.PEOPLE &&
+                    peopleContour != null) {
+                    Image(peopleContour.asImageBitmap(),
+                        contentDescription = "Контуры найденных людей",
+                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+                }
                 if (!showBefore) Canvas(Modifier.fillMaxSize()) {
                     val yellow = Color(0xFFFFCF22)
-                            if (selectedMode == AiEraserMode.PEOPLE) {
-                        for (person in detectedPeople) {
-                            val box = person.detection.box
-                            val id = person.detection.id
-                            val selected = id in selectedPeople
-                            val uncertain = id in ambiguousPeople
-                            drawRect(
-                                if (uncertain) Color(0xFF999999)
-                                else if (selected) yellow else Color.White.copy(alpha = .7f),
-                                topLeft = Offset(box.left * size.width, box.top * size.height),
-                                size = Size(box.width * size.width, box.height * size.height),
-                                style = Stroke(width = if (selected) 2.5.dp.toPx() else 1.4.dp.toPx()),
-                            )
-                        }
-                    } else if (textMode) {
+                    if (textMode) {
                         for (glyph in glyphs) {
                             val selected = glyph.id in selectedGlyphs
                             val topLeft = Offset(glyph.left * size.width, glyph.top * size.height)
