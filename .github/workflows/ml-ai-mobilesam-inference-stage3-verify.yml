@@ -11,6 +11,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
       - feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109
       - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
+      - feature/ml-ai-eraser-stage2-people-detector-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
@@ -21,6 +22,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109
       - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
       - feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109
+      - feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -141,11 +143,26 @@ jobs:
           assert "tryAwaitRelease()" in chrome and "onCompareHold(false)" in chrome
           assert "AiEraserMode.entries.forEach" in chrome
           # QA 1.4: unfinished specialist modes explain their status without launching inference.
-          assert 'PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, false)' in chrome
+          assert 'PEOPLE("Удаление людей", R.drawable.ic_ai_eraser_people, true)' in chrome
           assert 'GLARE("Убрать блики", R.drawable.ic_ai_eraser_glare, false)' in chrome
           assert 'REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, false)' in chrome
-          assert 'MobileSAM выделяет объект по указанию' in chrome
-          assert 'но не находит всех людей' in chrome
+          assert "PersonSegmentationPipeline(detector, segmenter)" in eraser
+          assert "val found = peoplePipeline.scan(source)" in eraser
+          assert "selectedMode == AiEraserMode.PEOPLE" in eraser
+          assert "selectedPeople" in eraser and "ambiguousPeople" in eraser
+          assert "PersonDetectorModelStore(context.applicationContext)" in eraser
+          assert "peopleReady = peopleStore.verifyInstalled()" in eraser
+          assert 'download("people")' in dialog and 'pendingDelete = "people"' in dialog
+          people_model = Path("app/src/main/java/com/domenota/medialoader/data/editor/PersonDetectorModelStore.kt").read_text()
+          person_policy = Path("app/src/main/java/com/domenota/medialoader/data/editor/PersonInstancePolicy.kt").read_text()
+          person_runner = Path("app/src/main/java/com/domenota/medialoader/data/editor/PersonDetector.kt").read_text()
+          assert "33a3b622c7cac0762f96089353cd61495f3e993968d133af7871bfc2d5396704" in people_model
+          assert 'verified()' in people_model and 'partial.delete()' not in people_model
+          assert "MAX_BYTES" in people_model and "ensureActive()" in people_model
+          assert "setModelAssetBuffer(buffer)" in person_runner and "ObjectDetector.createFromOptions" in person_runner
+          assert 'setCategoryAllowlist(listOf("person"))' in person_runner
+          assert "constrainToPerson" in person_policy and "fun ambiguity(" in person_policy
+          assert not list(Path("app/src/main/assets").glob("*efficientdet*.tflite"))
           assert 'onUnavailable: (AiEraserMode) -> Unit' in chrome
           assert 'if (mode.available) onMode(mode) else onUnavailable(mode)' in chrome
           assert 'stateDescription = "Пока недоступно"' in chrome
@@ -268,6 +285,8 @@ jobs:
             --tests '*AiModelUpdatePolicyTest' \
             --tests '*MobileSamGeometryTest' \
             --tests '*MobileSamLaMaIntegrationTest' \
+            --tests '*PersonInstancePolicyTest' \
+            --tests '*PersonSegmentationPipelineTest' \
             --tests '*LaMaCompositionTest' \
             --tests '*InpaintingPreparationTest' \
             --tests '*MaskActionGroupingTest' \
