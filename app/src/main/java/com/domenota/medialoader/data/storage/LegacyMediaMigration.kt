@@ -1,5 +1,6 @@
 package com.domenota.medialoader.data.storage
 
+import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.os.Build
@@ -159,6 +160,29 @@ internal class LegacyMediaMigration(
                 // MediaStore's own content URIs can be verified by RELATIVE_PATH.
                 // External document providers without path ownership evidence
                 // must be left alone, not guessed from filename or media type.
+                if (uri.authority == "downloads") {
+                    // getUriForDownloadedFile() emits content://downloads/...
+                    // for app-owned system transfers. Query only this app's
+                    // DownloadManager row, require a successful transfer and a
+                    // canonical file:// location under public Download/.
+                    val systemId = uri.lastPathSegment?.toLongOrNull()
+                        ?.takeIf { it > 0L } ?: return false
+                    return try {
+                        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE)
+                            as DownloadManager
+                        manager.query(DownloadManager.Query().setFilterById(systemId))
+                            ?.use { cursor ->
+                                if (!cursor.moveToFirst()) return@use false
+                                val status = cursor.getInt(cursor.getColumnIndexOrThrow(
+                                    DownloadManager.COLUMN_STATUS))
+                                if (status != DownloadManager.STATUS_SUCCESSFUL) return@use false
+                                val location = cursor.getString(cursor.getColumnIndexOrThrow(
+                                    DownloadManager.COLUMN_LOCAL_URI))
+                                location != null && Uri.parse(location).scheme == "file" &&
+                                    belongsToLegacyDownloads(location)
+                            } == true
+                    } catch (_: Exception) { false }
+                }
                 if (uri.authority != MediaStore.AUTHORITY) return false
                 return try {
                     context.contentResolver.query(
