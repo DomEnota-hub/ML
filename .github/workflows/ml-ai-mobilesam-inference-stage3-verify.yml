@@ -298,6 +298,13 @@ jobs:
             --tests '*GapiKeyStoreTest' \
             --tests '*GapiInstagramProviderTest' \
             --tests '*GapiUsagePolicyTest' --stacktrace
+      - name: Real EfficientDet-Lite0 model weights and 0/1/2 people smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-input \
+            "mediapipe==0.10.35" "Pillow>=10,<13"
+          python3 scripts/qa/stage2_real_detector_smoke.py
       - name: Android lint
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Build unsigned ARM64 Release APK
