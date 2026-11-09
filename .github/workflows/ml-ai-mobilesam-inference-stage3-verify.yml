@@ -145,7 +145,13 @@ jobs:
           assert 'GLARE("Убрать блики", R.drawable.ic_ai_eraser_glare, true)' in chrome
           assert "SpecularGlareEngine(glareStore)" in eraser
           assert "val result = glareEngine.correct(startStep.bitmap)" in eraser
-          assert "if (accepted.fullFrameCorrection)" in eraser, "SRNet full-frame edits must reach image export"
+          assert "if (accepted.fullFrameCorrection)" in eraser, "SRNet must use delta overlay export"
+          assert "SpecularOverlayComposer.combine(" in eraser, "SRNet must retain source-resolution unaffected pixels"
+          assert "earlierOverlayPath = edit.overlayPath" in editor, "Previous session edits must not disappear"
+          assert "earlierFullFrameCorrection = edit.fullFrameCorrection" in editor
+          assert "fullFrameCorrection = correctedFullFrame" in editor
+          assert Path("app/src/main/java/com/domenota/medialoader/data/editor/SpecularOverlayComposer.kt").exists()
+          assert Path("app/src/test/java/com/domenota/medialoader/data/editor/SpecularOverlayComposerTest.kt").exists()
           assert "fullFrameCorrection = startStep.fullFrameCorrection" in eraser, "Later LaMa edits must retain SRNet output"
           assert "glareReady = glareStore.verifyInstalled()" in eraser
           assert 'download("glare")' in dialog and 'pendingDelete = "glare"' in dialog
@@ -324,6 +330,7 @@ jobs:
             --tests '*PersonInstancePolicyTest' \
             --tests '*PersonSegmentationPipelineTest' \
             --tests '*SpecularGlareEngineTest' \
+            --tests '*SpecularOverlayComposerTest' \
             --tests '*LaMaCompositionTest' \
             --tests '*InpaintingPreparationTest' \
             --tests '*MaskActionGroupingTest' \
