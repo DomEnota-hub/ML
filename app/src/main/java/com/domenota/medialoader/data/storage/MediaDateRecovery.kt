@@ -91,13 +91,14 @@ internal class MediaDateRecovery(private val context: Context, private val dao: 
         return sha.digest()
     }
 
-    private fun logBefore(c: Candidate) {
+    private fun logBefore(c: Candidate, sha: ByteArray) {
         val file = AtomicFile(File(context.noBackupFilesDir, "media-date-recovery-preimages.json"))
         val entries = try { JSONArray(file.openRead().bufferedReader().use { it.readText() }) }
             catch (ex: java.io.FileNotFoundException) { JSONArray() }
         entries.put(JSONObject().put("id", c.id).put("uri", c.uri).put("path", c.path)
             .put("oldModifiedMillis", c.modified).put("newModifiedMillis", c.original)
-            .put("dateAddedBeforeMillis", c.added).put("size", c.bytes))
+            .put("dateAddedBeforeMillis", c.added).put("size", c.bytes)
+            .put("sha256", sha.joinToString("") { byte -> "%02x".format(byte) }))
         val stream = file.startWrite()
         try {
             stream.write(entries.toString().toByteArray(Charsets.UTF_8))
@@ -138,7 +139,7 @@ internal class MediaDateRecovery(private val context: Context, private val dao: 
                 }
                 val file = File(candidate.path)
                 try {
-                    logBefore(candidate)
+                    logBefore(candidate, oldHash)
                     if (!file.setLastModified(candidate.original)) {
                         skipped++
                     } else {
@@ -171,6 +172,62 @@ internal class MediaDateRecovery(private val context: Context, private val dao: 
                     "Файлы и история загрузок не удалялись.")
         }
 
+    /**
+     * Recover prior filesystem mtimes from durable journal, in reverse order.
+     * This is the exact undo of our own metadata changes, not a file rewrite.
+     * Refuse if a file was replaced, modified after trial, or unverified.
+     */
+    suspend fun undoDateChanges(): Outcome = withContext(Dispatchers.IO) {
+        val atomic = AtomicFile(File(context.noBackupFilesDir,
+            "media-date-recovery-preimages.json"))
+        val records = try {
+            JSONArray(atomic.openRead().bufferedReader().use { it.readText() })
+        } catch (missing: java.io.FileNotFoundException) {
+            return@withContext Outcome(0, false, "Журнал восстановления пуст.")
+        }
+        var restored = 0
+        var skipped = 0
+        for (i in records.length() - 1 downTo 0) {
+            val record = records.getJSONObject(i)
+            if (record.optBoolean("undone", false)) continue
+            val id = record.getString("id")
+            val uri = record.getString("uri")
+            val path = File(record.getString("path")).canonicalFile
+            val before = record.getLong("oldModifiedMillis")
+            val changed = record.getLong("newModifiedMillis")
+            val expectedSize = record.getLong("size")
+            val expectedHash = record.getString("sha256")
+            val row = dao.byId(id)
+            val safe = row?.savedUri == uri && !row.isPrivate && !row.hidden &&
+                dao.countSavedUriReferences(uri) == 1 &&
+                Uri.parse(uri).authority == MediaStore.AUTHORITY &&
+                path.isFile && path.length() == expectedSize &&
+                path.canonicalPath.startsWith(android.os.Environment
+                    .getExternalStorageDirectory().canonicalPath.trimEnd('/') + "/") &&
+                kotlin.math.abs(path.lastModified() - changed) < 2000L &&
+                digest(uri).joinToString("") { byte -> "%02x".format(byte) } == expectedHash
+            if (!safe || !path.setLastModified(before) ||
+                kotlin.math.abs(path.lastModified() - before) > 2000L) {
+                skipped++
+                continue
+            }
+            MediaScannerConnection.scanFile(context, arrayOf(path.path),
+                arrayOf(null), null)
+            record.put("undone", true)
+            val output = atomic.startWrite()
+            try {
+                output.write(records.toString().toByteArray(Charsets.UTF_8))
+                atomic.finishWrite(output)
+            } catch (error: Throwable) {
+                atomic.failWrite(output)
+                throw error
+            }
+            restored++
+        }
+        Outcome(records.length(), restored > 0, "Возвращены предыдущие даты: " +
+            restored + "; пропущено как небезопасное: " + skipped + ".")
+    }
+
     /** For QA: test the oldest one only; proceed to bulk only after device verification. */
     suspend fun trialOne(): Outcome = withContext(Dispatchers.IO) {
         val candidates = preview()
@@ -187,7 +244,7 @@ internal class MediaDateRecovery(private val context: Context, private val dao: 
             return@withContext Outcome(candidates.size, false,
                 "Не удалось проверить исходные байты. Запись пропущена.")
         }
-        logBefore(c)
+        logBefore(c, hash)
         if (!file.setLastModified(c.original)) return@withContext Outcome(
             candidates.size, false, "Android запретил изменить время. Файл не перезаписан.")
         val verified = kotlin.math.abs(file.lastModified() - c.original) < 2000L &&
