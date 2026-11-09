@@ -73,5 +73,34 @@ class InpaintingPreparationTest {
         assertEquals(1f, input.mask[1], 0f) // actual source(0,0)
         assertEquals(0f, input.mask[2], 0f)
     }
+ 
+    @Test fun boundedRegionAndCompositeAreBitExactComparedWithFullFrame() {
+        val width = 57
+        val height = 83
+        val mask = IntArray(width * height).also {
+            it[0] = 255
+            it[width * 48 + 9] = 128
+            it[width * 49 + 8] = 255
+        }
+        val bounds = PixelBounds(0, 0, 20, 55)
+        val referenceRegion = requireNotNull(InpaintingPreparation.region(mask, width, height, 1024))
+        val boundedRegion = requireNotNull(InpaintingPreparation.region(mask, width, height, 1024, bounds))
+        assertEquals(referenceRegion, boundedRegion)
+        val source = IntArray(mask.size) { 0x80224466.toInt() xor (it and 255) }
+        val prediction = FloatArray(3 * 16 * 16) { (it * 7 % 256).toFloat() }
+        val expected = InpaintingPreparation.composite(
+            source, mask, width, height, referenceRegion, prediction, side = 16)
+        val actual = InpaintingPreparation.composite(
+            source, mask, width, height, boundedRegion, prediction, side = 16, bounds = bounds)
+        assertArrayEquals(expected, actual)
+    }
 
+    @Test fun pixelBoundsRejectInvalidRanges() {
+        assertThrows(IllegalArgumentException::class.java) {
+            PixelBounds(-1, 0, 4, 4).validate(5, 5)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PixelBounds(0, 0, 6, 4).validate(5, 5)
+        }
+    }
 }

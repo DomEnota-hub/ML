@@ -186,7 +186,11 @@ internal object OrtSessions {
     }
 
     /** Run after deleting or replacing the model; mutex blocks until inference ends. */
-    fun invalidateLaMa() {
-        scope.launch { lama.close() }
+    suspend fun invalidateLaMa() { lama.close() }
+    suspend fun invalidateSam() {
+        samEncoder.close()
+        samDecoder.close()
     }
+    suspend fun invalidateSrnet() { srnet.close() }
+    suspend fun invalidateDexnet() { dexnet.close() }
 }

@@ -2,10 +2,10 @@ package com.domenota.medialoader.data.editor
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import android.graphics.Bitmap
 import android.graphics.Color
+import java.io.File
 import java.io.IOException
 import java.nio.FloatBuffer
 import kotlinx.coroutines.Dispatchers
@@ -74,9 +74,7 @@ internal class MobileSamSegmenter(private val store: MobileSamModelStore) {
                 rgb[i * 3 + 2] = Color.blue(argb).toFloat()
             }
             currentCoroutineContext().ensureActive()
-            OrtSession.SessionOptions().use { opt ->
-                opt.setIntraOpNumThreads(2)
-                env.createSession(path, opt).use { encoder ->
+            return OrtSessions.samEncoder.use(File(path)) { encoder ->
                     val info = (encoder.inputInfo["input_image"]?.info as? TensorInfo)
                         ?: throw IOException("MobileSAM: вход encoder input_image отсутствует.")
                     val shape = info.shape
@@ -94,10 +92,9 @@ internal class MobileSamSegmenter(private val store: MobileSamModelStore) {
                             val buf = output.floatBuffer
                             buf.rewind()
                             buf.get(values)
-                            return values
+                            values
                         }
                     }
-                }
             }
         } finally {
             if (resized !== source) resized.recycle()
@@ -111,9 +108,7 @@ internal class MobileSamSegmenter(private val store: MobileSamModelStore) {
         pointCoords: FloatArray,
     ): FloatArray {
         val env = OrtEnvironment.getEnvironment()
-        OrtSession.SessionOptions().use { opt ->
-            opt.setIntraOpNumThreads(2)
-            env.createSession(path, opt).use { decoder ->
+        return OrtSessions.samDecoder.use(File(path)) { decoder ->
                 val names = setOf("image_embeddings", "point_coords", "point_labels",
                     "mask_input", "has_mask_input", "orig_im_size")
                 if (!decoder.inputNames.containsAll(names))
@@ -144,12 +139,11 @@ internal class MobileSamSegmenter(private val store: MobileSamModelStore) {
                         val buffer = mask.floatBuffer
                         buffer.rewind()
                         buffer.get(values)
-                        return values
+                        values
                     }
                 } finally {
                     tensors.asReversed().forEach { it.close() }
                 }
-            }
         }
     }
 }

@@ -122,6 +122,7 @@ class MobileSamModelStore(context: Context) {
                     if (readTotal != blob.bytes || actual != blob.sha256)
                         throw IOException("Проверка SHA-256 модели MobileSAM не пройдена.")
                     // Never promote a truncated .part file. Only valid bytes reach the final name.
+                    OrtSessions.invalidateSam()
                     if (target.exists() && !target.delete())
                         throw IOException("Не удалось заменить старый файл модели.")
                     if (!partial.renameTo(target))
@@ -142,6 +143,7 @@ class MobileSamModelStore(context: Context) {
     }
 
     suspend fun uninstall() = withContext(Dispatchers.IO) {
+        OrtSessions.invalidateSam()
         for (blob in blobs) {
             for (name in listOf(blob.filename, blob.filename + ".part")) {
                 val f = File(folder, name)

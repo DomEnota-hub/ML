@@ -45,5 +45,38 @@ class LaMaCompositionTest {
             .inpaint(original, listOf(stroke, stroke.copy(erase = true)), InpaintingSettings())
         assertEquals(Color.BLUE, edited.getPixel(50, 100))
         original.recycle(); edited.recycle()
+    } 
+    @Test fun croppedMaskIsBitExactToLegacyFullFrameForEdgesEraserAndDisjointMarks() {
+        val cases = listOf(
+            listOf(MaskStroke(listOf(MaskPoint(0f, 0f), MaskPoint(.18f, .13f)), .09f)),
+            listOf(MaskStroke(listOf(MaskPoint(1f, 1f)), .2f)),
+            listOf(
+                MaskStroke(listOf(MaskPoint(.02f, .94f), MaskPoint(.13f, .97f)), .06f),
+                MaskStroke(listOf(MaskPoint(.9f, .05f), MaskPoint(.98f, .15f)), .07f)
+            ),
+            listOf(
+                MaskStroke(listOf(MaskPoint(.15f, .2f), MaskPoint(.75f, .79f)), .11f),
+                MaskStroke(listOf(MaskPoint(.5f, .5f), MaskPoint(.55f, .55f)), .055f, erase = true)
+            )
+        )
+        for ((width, height) in listOf(72 to 124, 300 to 180)) {
+            for ((index, strokes) in cases.withIndex()) {
+                val originalMask = LaMaInpaintingEngine.rasterizeMask(strokes, width, height)
+                try {
+                    val pixels = IntArray(width * height)
+                    originalMask.getPixels(pixels, 0, width, 0, 0, width, height)
+                    val legacy = InpaintingPreparation.coverage(
+                        IntArray(pixels.size) { Color.alpha(pixels[it]) }, width, height)
+                    val bounded = LaMaInpaintingEngine.preparedCoverage(strokes, width, height)
+                    assertArrayEquals("Coverage differs, case $index / ${width}x$height",
+                        legacy, bounded.data)
+                    assertEquals(
+                        InpaintingPreparation.region(legacy, width, height, 1024),
+                        InpaintingPreparation.region(bounded.data, width, height, 1024, bounded.bounds))
+                } finally {
+                    originalMask.recycle()
+                }
+            }
+        }
     }
 }

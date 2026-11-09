@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.os.SystemClock
+import com.domenota.medialoader.core.logging.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -20,18 +22,34 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
             require(mask.isNotEmpty()) { "Сначала закрасьте объект кистью." }
             currentCoroutineContext().ensureActive()
             val width = source.width; val height = source.height
-            val coverage = preparedCoverage(mask, width, height)
-            val region = InpaintingPreparation.region(coverage, width, height, settings.maxWorkingSide)
+            val startedNs = SystemClock.elapsedRealtimeNanos()
+            val prepared = preparedCoverage(mask, width, height)
+            val maskNs = SystemClock.elapsedRealtimeNanos()
+            val coverage = prepared.data
+            val region = InpaintingPreparation.region(
+                coverage, width, height, settings.maxWorkingSide, prepared.bounds)
                 ?: return@withContext source.copy(Bitmap.Config.ARGB_8888, false)
             val pixels = IntArray(width * height)
             source.getPixels(pixels, 0, width, 0, 0, width, height)
             val inputs = InpaintingPreparation.inputs(pixels, coverage, width, height, region)
+            val inputsNs = SystemClock.elapsedRealtimeNanos()
             currentCoroutineContext().ensureActive()
             val prediction = runner.predict(inputs.image, inputs.mask)
+            val inferenceNs = SystemClock.elapsedRealtimeNanos()
             currentCoroutineContext().ensureActive()
-            val result = InpaintingPreparation.composite(pixels, coverage, width, height, region, prediction)
+            val result = InpaintingPreparation.composite(
+                pixels, coverage, width, height, region, prediction, bounds = prepared.bounds)
+            val compositeNs = SystemClock.elapsedRealtimeNanos()
             currentCoroutineContext().ensureActive()
-            Bitmap.createBitmap(result, width, height, Bitmap.Config.ARGB_8888)
+            val output = Bitmap.createBitmap(result, width, height, Bitmap.Config.ARGB_8888)
+            fun ms(a: Long, b: Long) = (b - a) / 1_000_000
+            AppLog.i("LaMaPerf",
+                "maskMs=${ms(startedNs, maskNs)} inputMs=${ms(maskNs, inputsNs)} " +
+                "inferenceMs=${ms(inputsNs, inferenceNs)} " +
+                "compositeMs=${ms(inferenceNs, compositeNs)} " +
+                "bboxPx=${prepared.bounds.width}x${prepared.bounds.height} " +
+                "photoPx=${width}x$height")
+            output
         }
 
     companion object {
@@ -40,7 +58,11 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
         /** Coordinates are image-relative, independent of pan/zoom/viewport pixels. */
         fun rasterizeMask(strokes: List<MaskStroke>, width: Int, height: Int): Bitmap {
             val mask = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(mask)
+            drawStrokes(Canvas(mask), strokes, width, height)
+            return mask
+        }
+
+        private fun drawStrokes(canvas: Canvas, strokes: List<MaskStroke>, width: Int, height: Int) {
             val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.WHITE
                 strokeJoin = Paint.Join.ROUND
@@ -63,16 +85,56 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
                     last = point
                 }
             }
-            return mask
         }
 
-        private fun preparedCoverage(strokes: List<MaskStroke>, width: Int, height: Int): IntArray {
-            val mask = rasterizeMask(strokes, width, height)
+        /** Source-pixel bounds conservatively include the stroke radius and dilation. */
+        internal data class PreparedCoverage(val data: IntArray, val bounds: PixelBounds)
+
+        internal fun strokeBounds(strokes: List<MaskStroke>, width: Int, height: Int): PixelBounds {
+            require(strokes.isNotEmpty())
+            var left = Float.MAX_VALUE; var top = Float.MAX_VALUE
+            var right = -Float.MAX_VALUE; var bottom = -Float.MAX_VALUE
+            var reach = 0f
+            for (stroke in strokes) {
+                reach = maxOf(reach,
+                    (stroke.diameter * minOf(width, height) + if (stroke.erase) 2f else 0f)
+                        .coerceAtLeast(1f) / 2f)
+                for (point in stroke.points) {
+                    left = minOf(left, point.x * width); right = maxOf(right, point.x * width)
+                    top = minOf(top, point.y * height); bottom = maxOf(bottom, point.y * height)
+                }
+            }
+            // Antialias fringe, up-to-3px dilation, feather ring and a safety pad.
+            val margin = kotlin.math.ceil(reach).toInt() + 8
+            return PixelBounds(
+                (left.toInt() - margin).coerceIn(0, width),
+                (top.toInt() - margin).coerceIn(0, height),
+                (right.toInt() + 1 + margin).coerceIn(0, width),
+                (bottom.toInt() + 1 + margin).coerceIn(0, height))
+        }
+
+        /** Keeps the full-size output for compatibility; only raster/blur work is cropped. */
+        internal fun preparedCoverage(strokes: List<MaskStroke>, width: Int, height: Int): PreparedCoverage {
+            val bounds = strokeBounds(strokes, width, height)
+            val data = IntArray(width * height)
+            if (bounds.width <= 0 || bounds.height <= 0)
+                return PreparedCoverage(data, bounds)
+            val crop = Bitmap.createBitmap(bounds.width, bounds.height, Bitmap.Config.ARGB_8888)
             try {
-                val pixels = IntArray(width * height)
-                mask.getPixels(pixels, 0, width, 0, 0, width, height)
-                return InpaintingPreparation.coverage(IntArray(pixels.size) { Color.alpha(pixels[it]) }, width, height)
-            } finally { mask.recycle() }
+                val canvas = Canvas(crop)
+                canvas.translate(-bounds.left.toFloat(), -bounds.top.toFloat())
+                drawStrokes(canvas, strokes, width, height)
+                val croppedPixels = IntArray(bounds.width * bounds.height)
+                crop.getPixels(croppedPixels, 0, bounds.width, 0, 0, bounds.width, bounds.height)
+                val local = InpaintingPreparation.coverage(
+                    IntArray(croppedPixels.size) { Color.alpha(croppedPixels[it]) },
+                    bounds.width, bounds.height, radiusBasis = minOf(width, height))
+                for (y in 0 until bounds.height) {
+                    local.copyInto(data, (bounds.top + y) * width + bounds.left,
+                        y * bounds.width, (y + 1) * bounds.width)
+                }
+            } finally { crop.recycle() }
+            return PreparedCoverage(data, bounds)
         }
 
         /** The edited pixels already contain feathering: never apply that alpha twice. */
@@ -80,8 +142,12 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
             val width = edited.width; val height = edited.height
             val selected = BooleanArray(width * height)
             for (strokes in batches) {
-                val coverage = preparedCoverage(strokes, width, height)
-                for (i in selected.indices) if (coverage[i] > 0) selected[i] = true
+                val prepared = preparedCoverage(strokes, width, height)
+                val b = prepared.bounds
+                for (y in b.top until b.bottom) for (x in b.left until b.right) {
+                    if (prepared.data[y * width + x] > 0)
+                        selected[y * width + x] = true
+                }
             }
             val pixels = IntArray(width * height)
             edited.getPixels(pixels, 0, width, 0, 0, width, height)

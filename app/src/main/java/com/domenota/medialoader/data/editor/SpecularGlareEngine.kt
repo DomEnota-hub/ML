@@ -157,9 +157,7 @@ internal class SpecularOnnxRunner(private val store: SpecularSrNetModelStore) : 
         val model = store.requireInstalled()
         val env = OrtEnvironment.getEnvironment()
         currentCoroutineContext().ensureActive()
-        OrtSession.SessionOptions().use { options ->
-            options.setIntraOpNumThreads(2)
-            env.createSession(model.absolutePath, options).use { session ->
+        return OrtSessions.srnet.use(model) { session ->
                 if (!session.inputNames.contains("image") ||
                     !session.outputNames.containsAll(setOf("highlight_mask", "diffuse")))
                     throw IOException("SRNet: несовместимые имена входов/выходов ONNX.")
@@ -178,10 +176,9 @@ internal class SpecularOnnxRunner(private val store: SpecularSrNetModelStore) : 
                         val diffuse = FloatArray(3 * SpecularGlareEngine.PIXELS)
                         maskTensor.floatBuffer.apply { rewind(); get(mask) }
                         rgbTensor.floatBuffer.apply { rewind(); get(diffuse) }
-                        return SpecularPrediction(mask, diffuse)
+                        SpecularPrediction(mask, diffuse)
                     }
                 }
-            }
         }
     }
 }

@@ -10,14 +10,28 @@ import kotlin.math.roundToInt
 internal data class InpaintingRegion(val left: Int, val top: Int, val size: Int)
 internal data class InpaintingInputs(val image: FloatArray, val mask: FloatArray)
 
+/** Half-open source-pixel rectangle; all coverage outside must be zero. */
+internal data class PixelBounds(val left: Int, val top: Int, val right: Int, val bottom: Int) {
+    val width: Int get() = right - left
+    val height: Int get() = bottom - top
+    fun validate(width: Int, height: Int) {
+        require(left in 0..width && right in left..width)
+        require(top in 0..height && bottom in top..height)
+    }
+}
+
 internal object InpaintingPreparation {
-    fun region(coverage: IntArray, width: Int, height: Int, maxWorkingSide: Int): InpaintingRegion? {
+    fun region(coverage: IntArray, width: Int, height: Int, maxWorkingSide: Int,
+        bounds: PixelBounds? = null): InpaintingRegion? {
         require(width > 0 && height > 0 && coverage.size == width * height)
+        val scan = bounds ?: PixelBounds(0, 0, width, height)
+        scan.validate(width, height)
         var left = width; var top = height; var right = -1; var bottom = -1
-        for (i in coverage.indices) if (coverage[i] > 0) {
-            val x = i % width; val y = i / width
-            left = min(left, x); right = max(right, x)
-            top = min(top, y); bottom = max(bottom, y)
+        for (y in scan.top until scan.bottom) for (x in scan.left until scan.right) {
+            if (coverage[y * width + x] > 0) {
+                left = min(left, x); right = max(right, x)
+                top = min(top, y); bottom = max(bottom, y)
+            }
         }
         if (right < 0) return null
         val extent = max(right - left + 1, bottom - top + 1)
@@ -30,10 +44,11 @@ internal object InpaintingPreparation {
     }
 
     /** Keep glyph interiors opaque; feather only OUTSIDE the expanded selection. */
-    fun coverage(alpha: IntArray, width: Int, height: Int): IntArray {
+    fun coverage(alpha: IntArray, width: Int, height: Int,
+        radiusBasis: Int = min(width, height)): IntArray {
         require(width > 0 && height > 0 && alpha.size == width * height)
         val binary = IntArray(alpha.size) { if (alpha[it] > 16) 255 else 0 }
-        val core = dilate(binary, width, height, (min(width, height) / 512).coerceIn(1, 3))
+        val core = dilate(binary, width, height, (radiusBasis / 512).coerceIn(1, 3))
         val outer = dilate(core, width, height, 1)
         return IntArray(alpha.size) { if (core[it] > 0) 255 else if (outer[it] > 0) 128 else 0 }
     }
@@ -101,15 +116,19 @@ internal object InpaintingPreparation {
     }
 
     fun composite(source: IntArray, coverage: IntArray, width: Int, height: Int,
-        region: InpaintingRegion, prediction: FloatArray, side: Int = 512): IntArray {
+        region: InpaintingRegion, prediction: FloatArray, side: Int = 512,
+        bounds: PixelBounds? = null): IntArray {
         require(source.size == width * height && coverage.size == source.size && prediction.size == 3 * side * side)
         val output = source.copyOf()
         val plane = side * side
-        for (i in output.indices) {
+        val scan = bounds ?: PixelBounds(0, 0, width, height)
+        scan.validate(width, height)
+        for (py in scan.top until scan.bottom) for (px in scan.left until scan.right) {
+            val i = py * width + px
             val alpha = coverage[i]
             if (alpha == 0) continue
-            val mx = ((i % width - region.left + 0.5f) * side / region.size - 0.5f).coerceIn(0f, side - 1f)
-            val my = ((i / width - region.top + 0.5f) * side / region.size - 0.5f).coerceIn(0f, side - 1f)
+            val mx = ((px - region.left + 0.5f) * side / region.size - 0.5f).coerceIn(0f, side - 1f)
+            val my = ((py - region.top + 0.5f) * side / region.size - 0.5f).coerceIn(0f, side - 1f)
             val x0 = floor(mx).toInt(); val y0 = floor(my).toInt()
             val x1 = min(x0 + 1, side - 1); val y1 = min(y0 + 1, side - 1)
             var color = 0xff000000.toInt()

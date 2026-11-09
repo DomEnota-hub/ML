@@ -134,12 +134,7 @@ internal class ReflectionOnnxRunner(
         val modelFile = store.requireInstalled()
         currentCoroutineContext().ensureActive()
         val env = OrtEnvironment.getEnvironment()
-        OrtSession.SessionOptions().use { opts ->
-            opts.setIntraOpNumThreads(2)
-            opts.setCPUArenaAllocator(false)
-            opts.setMemoryPatternOptimization(false)
-            opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
-            env.createSession(modelFile.absolutePath, opts).use { session ->
+        return OrtSessions.dexnet.use(modelFile) { session ->
                 if (!session.inputNames.contains("image") ||
                     !session.outputNames.contains("transmission"))
                     throw IOException("Формат модели DExNet несовместим с приложением.")
@@ -161,10 +156,9 @@ internal class ReflectionOnnxRunner(
                         tensor.floatBuffer.apply { rewind(); get(data) }
                         if (data.any { !it.isFinite() })
                             throw IOException("Некорректные значения DExNet.")
-                        return data
+                        data
                     }
                 }
-            }
         }
     }
 }
