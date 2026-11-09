@@ -9,6 +9,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109
       - feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109
       - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
+      - feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
@@ -118,6 +119,17 @@ jobs:
           assert 'EraserStartButton(' in eraser and 'BorderStroke(1.dp, GradientBrush.horizontalGradient' in eraser, "Unified outlined button missing"
           assert 'addRoundRect(RoundRect(' in eraser, "Magnifier must use rounded rectangle"
           assert 'addOval(Rect(' not in eraser, "Circular magnifier regression"
+          # QA 1.12: a single invertible transform drives touch and lens placement.
+          geometry = Path("app/src/main/java/com/domenota/medialoader/data/editor/ImageViewportGeometry.kt").read_text()
+          geometry_test = Path("app/src/test/java/com/domenota/medialoader/data/editor/ImageViewportGeometryTest.kt").read_text()
+          assert "ImageViewportGeometry.viewportToImage(" in eraser, "Touch and lens must share one transform"
+          assert "ImageViewportGeometry.imageToViewport(" in eraser, "Lens must track transformed finger position"
+          assert "ImageViewportGeometry.placeMagnifier(" in eraser, "Lens must use safe bounds and clearance"
+          assert "modifier = Modifier.offset {" in eraser, "Magnifier needs pixel placement"
+          assert "fun viewportToImage(" in geometry and "fun imageToViewport(" in geometry
+          assert "fun placeMagnifier(" in geometry and "if (safe.isNotEmpty())" in geometry
+          assert "inverseMappingRespectsZoomAndPan" in geometry_test
+          assert "landscapeFingerAtLeftFallsBackRightWithoutCoveringTouch" in geometry_test
           assert "AiEraserModeStrip(" in eraser and "AiEraserTopBar(" in eraser
           assert "AiEraserFooter(" in eraser and "onApply = ::acceptResult" in eraser
           assert "if (selectedMode == AiEraserMode.OBJECTS)" in eraser and "AiEraserObjectSwitch(" in eraser
