@@ -12,6 +12,7 @@ on:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
       - feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109
       - feature/ml-ai-eraser-qa156-stage1-controls-20261109
+      - feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109
   workflow_dispatch:
 permissions:
   contents: read
