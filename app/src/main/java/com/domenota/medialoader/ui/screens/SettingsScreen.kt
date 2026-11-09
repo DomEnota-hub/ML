@@ -1012,7 +1012,7 @@ fun SettingsScreen(
             )
             GroupDivider()
             SettingRow(
-                Icons.Rounded.Restore, "Восстановление исходных дат",
+                Icons.Rounded.Folder, "Восстановление исходных дат",
                 if (dateRecoveryBusy) "Проверяем файл…" else dateRecoveryStatus,
                 grouped = true, nested = true,
                 iconTone = SettingIconTone.DOWNLOAD_FOLDER,
@@ -1023,7 +1023,7 @@ fun SettingsScreen(
             )
             if (dateRecoveryReady && !dateRecoveryBusy) {
                 SettingRow(
-                    Icons.Rounded.History, "Проба восстановления одного файла",
+                    Icons.Rounded.Folder, "Проба восстановления одного файла",
                     "Физическое время файла, без изменения фотографии",
                     grouped = true, nested = true,
                     iconTone = SettingIconTone.DOWNLOAD_FOLDER,
@@ -1032,7 +1032,7 @@ fun SettingsScreen(
             }
             if (dateRecoveryTrialDone && !dateRecoveryBusy) {
                 SettingRow(
-                    Icons.Rounded.Restore, "Восстановить даты остальных",
+                    Icons.Rounded.Folder, "Восстановить даты остальных",
                     "Только после проверки пробного файла в Xiaomi",
                     grouped = true, nested = true,
                     iconTone = SettingIconTone.DOWNLOAD_FOLDER,
@@ -1220,7 +1220,7 @@ fun SettingsScreen(
                     })
                 GroupDivider()
             }
-            SettingRow(Icons.Rounded.RestoreFromTrash, "Корзина",
+            SettingRow(Icons.Rounded.FolderFromTrash, "Корзина",
                 "Удалённые файлы · $hiddenCount", grouped = true,
                 iconTone = SettingIconTone.TRASH,
                 onClick = onOpenTrash)
