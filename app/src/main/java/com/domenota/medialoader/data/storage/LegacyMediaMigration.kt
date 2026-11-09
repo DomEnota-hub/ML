@@ -88,16 +88,14 @@ internal class LegacyMediaMigration(
                     var dest: PublishedFile? = null
                     var committed = false
                     try {
-                        val mime = when (item.mediaType) {
-                            MediaType.PHOTO -> when {
-                                item.originalName.endsWith(".png", true) -> "image/png"
-                                item.originalName.endsWith(".webp", true) -> "image/webp"
-                                else -> "image/jpeg"
-                            }
-                            MediaType.VIDEO -> "video/mp4"
-                            MediaType.AUDIO -> if (item.originalName.endsWith(".m4a", true))
-                                "audio/mp4" else "audio/mpeg"
-                        }
+                        val declaredMime = runCatching {
+                            context.contentResolver.getType(Uri.parse(saved))
+                        }.getOrNull()
+                        val mime = MediaStoragePolicy.legacyMime(
+                            item.mediaType, item.originalName, declaredMime,
+                        ) ?: throw IllegalArgumentException(
+                            "Неизвестный или противоречивый MIME-тип старого файла."
+                        )
                         val published = storage.publishVerifiedLegacyCopy(
                             saved, item.originalName, mime)
                         dest = published
