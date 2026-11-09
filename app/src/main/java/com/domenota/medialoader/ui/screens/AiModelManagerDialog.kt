@@ -39,6 +39,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.domenota.medialoader.data.editor.AiModelUpdateChecker
+import com.domenota.medialoader.data.editor.ModelUpdateResult
+import com.domenota.medialoader.data.editor.ModelUpdateState
 import com.domenota.medialoader.data.editor.LaMaModelStore
 import com.domenota.medialoader.data.editor.MobileSamModelStore
 import kotlinx.coroutines.CancellationException
@@ -60,6 +63,8 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     var job by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<String?>(null) }
+    var updateChecking by remember { mutableStateOf(false) }
+    var updateResults by remember { mutableStateOf<Map<String, ModelUpdateResult>>(emptyMap()) }
 
     LaunchedEffect(Unit) {
         lamaReady = lama.verifyInstalled()
@@ -67,7 +72,8 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         checking = false
     }
     fun download(kind: String) {
-        if (active != null || checking) return
+        if (active != null || checking || updateChecking) return
+        updateResults = emptyMap()
         error = null
         progress = 0
         active = kind
@@ -92,7 +98,8 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         }
     }
     fun delete(kind: String) {
-        if (active != null) return
+        if (active != null || updateChecking) return
+        updateResults = emptyMap()
         error = null
         active = kind
         pendingDelete = null
@@ -110,6 +117,33 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
             } finally {
                 active = null
                 job = null
+            }
+        }
+    }
+
+    fun checkUpdates() {
+        if (checking || updateChecking || active != null) return
+        error = null
+        updateResults = emptyMap()
+        updateChecking = true
+        scope.launch {
+            try {
+                // Never download weights here. Compare upstream file digests with reviewed pins.
+                val verifiedLaMa = lama.verifyInstalled()
+                val verifiedMobile = mobile.verifyInstalled()
+                lamaReady = verifiedLaMa
+                mobileReady = verifiedMobile
+                val lamaResult = AiModelUpdateChecker.check(
+                    AiModelUpdateChecker.Kind.LAMA, verifiedLaMa)
+                val mobileResult = AiModelUpdateChecker.check(
+                    AiModelUpdateChecker.Kind.MOBILE_SAM, verifiedMobile)
+                updateResults = mapOf("lama" to lamaResult, "mobile" to mobileResult)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                error = "Не удалось проверить обновления моделей."
+            } finally {
+                updateChecking = false
             }
         }
     }
@@ -133,7 +167,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         )
     }
 
-    Dialog(onDismissRequest = { if (active == null) onDismiss() }) {
+    Dialog(onDismissRequest = { if (active == null && !updateChecking) onDismiss() }) {
         Surface(
             shape = RoundedCornerShape(22.dp),
             color = androidx.compose.ui.graphics.Color(0xFF1D1E25),
@@ -150,17 +184,38 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 if (checking) CircularProgressIndicator()
                 ModelRow(
                     title = "LaMa", detail = "Удаление объектов и текста",
-                    ready = lamaReady, enabled = !checking && active == null,
+                    ready = lamaReady, enabled = !checking && !updateChecking && active == null,
                     onInstall = { download("lama") },
                     onDelete = { pendingDelete = "lama" },
                 )
                 HorizontalDivider()
                 ModelRow(
                     title = "MobileSAM", detail = "Выделение касанием · 44,7 МБ",
-                    ready = mobileReady, enabled = !checking && active == null,
+                    ready = mobileReady, enabled = !checking && !updateChecking && active == null,
                     onInstall = { download("mobile") },
                     onDelete = { pendingDelete = "mobile" },
                 )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(colors = whiteActionColors, onClick = ::checkUpdates,
+                        enabled = !checking && !updateChecking && active == null) {
+                        Text("Проверить обновления")
+                    }
+                }
+                if (updateChecking) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text("Проверяем версии и SHA-256 в каталоге разработчиков моделей…",
+                        color = Color.LightGray)
+                }
+                updateResults["lama"]?.let { result ->
+                    Text("LaMa: ${result.detail}",
+                        color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
+                            Color(0xFFFFD180) else Color.LightGray)
+                }
+                updateResults["mobile"]?.let { result ->
+                    Text("MobileSAM: ${result.detail}",
+                        color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
+                            Color(0xFFFFD180) else Color.LightGray)
+                }
                 if (active != null && job?.isActive == true) {
                     Text(if (active == "lama") "LaMa · $progress%" else "MobileSAM · $progress%",
                         color = androidx.compose.ui.graphics.Color.White)
@@ -172,7 +227,8 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 }
                 error?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFFFB4AB)) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(colors = whiteActionColors, onClick = onDismiss, enabled = active == null) {
+                    TextButton(colors = whiteActionColors, onClick = onDismiss,
+                        enabled = active == null && !updateChecking) {
                         Text("Закрыть")
                     }
                 }
