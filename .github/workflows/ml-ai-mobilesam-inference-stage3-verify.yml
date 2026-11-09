@@ -171,20 +171,22 @@ jobs:
           assert "Float.isNaN" not in srnet_engine, "Use finite validation for ALL malformed outputs"
           assert "sha-256" in Path("THIRD_PARTY_NOTICES.md").read_text().lower()
           assert 'REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection,' in chrome
-          assert "BuildConfig.REFLECTION_MODEL_BUNDLED" in chrome
+          assert "R.drawable.ic_ai_eraser_reflection, true" in chrome
           gradle = Path("app/build.gradle").read_text()
           assert "'REFLECTION_MODEL_BUNDLED'" in gradle
           assert "reflectionAsset.isFile() && reflectionDigest.isFile()" in gradle
           model = Path("app/src/main/java/com/domenota/medialoader/data/editor/ReflectionDExModelStore.kt").read_text()
           runtime = Path("app/src/main/java/com/domenota/medialoader/data/editor/ReflectionRemovalEngine.kt").read_text()
           assert "verifyInstalled()" in model and "SHA_PATH" in model
+          assert "installFromUri(uri: Uri" in model and "EXPECTED_SHA256" in model
+          assert "rememberLauncherForActivityResult" in dialog
           assert "ReflectionRemovalEngine(reflectionStore)" in eraser
           assert "reflectionEngine.remove(startStep.bitmap" in eraser
           assert "fullFrameCorrection = true" in eraser
           assert "OrtEnvironment.getEnvironment()" in runtime
           assert 'outputs.get("transmission")' in runtime
           assert "setCPUArenaAllocator(false)" in runtime
-          assert "BuildConfig.REFLECTION_MODEL_BUNDLED" in dialog
+          assert "Импортировать DExNet из файла" in dialog
           assert 'download("reflection")' in dialog and 'pendingDelete = "reflection"' in dialog
           assert Path("app/src/test/java/com/domenota/medialoader/data/editor/ReflectionRemovalEngineTest.kt").exists()
           assert not Path("app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx").exists(), "NEVER commit weights directly to Git"
