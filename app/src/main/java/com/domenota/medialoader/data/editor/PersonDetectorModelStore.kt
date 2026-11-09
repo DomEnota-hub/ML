@@ -67,7 +67,7 @@ internal class PersonDetectorModelStore(context: Context) {
                 val status = connection.responseCode
                 if (status !in 200..299) throw IOException("Ошибка загрузки модели людей: HTTP $status")
                 val length = connection.contentLengthLong
-                if (length > MAX_BYTES || length in 0..MAX_BYTES && length != MODEL_BYTES)
+                if (length > MAX_BYTES || length >= 0L && length != MODEL_BYTES)
                     throw IOException("Неверный размер модели людей.")
                 val digest = MessageDigest.getInstance("SHA-256")
                 var downloaded = 0L
