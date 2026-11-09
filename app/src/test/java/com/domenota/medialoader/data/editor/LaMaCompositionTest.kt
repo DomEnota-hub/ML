@@ -46,4 +46,71 @@ class LaMaCompositionTest {
         assertEquals(Color.BLUE, edited.getPixel(50, 100))
         original.recycle(); edited.recycle()
     }
+    @Test fun bboxCoverageAndCompositeRemainPixelIdenticalToWholeFrame() {
+        val sets = listOf(
+            listOf(MaskStroke(listOf(MaskPoint(.5f, .5f)), .08f)),
+            listOf(MaskStroke(listOf(MaskPoint(.01f, .01f),
+                MaskPoint(.99f, .99f)), .012f)),
+            listOf(MaskStroke(listOf(MaskPoint(0f, .98f),
+                MaskPoint(.22f, 1f)), .16f)),
+            listOf(
+                MaskStroke(listOf(MaskPoint(.03f, .04f),
+                    MaskPoint(.20f, .10f)), .03f),
+                MaskStroke(listOf(MaskPoint(.92f, .85f),
+                    MaskPoint(.99f, .99f)), .02f),
+            ),
+            listOf(
+                MaskStroke(listOf(MaskPoint(.4f, .4f),
+                    MaskPoint(.8f, .8f)), .095f),
+                MaskStroke(listOf(MaskPoint(.5f, .5f)), .07f, erase = true),
+            ),
+            listOf(
+                MaskStroke(listOf(MaskPoint(.5f, .5f)), .13f),
+                MaskStroke(listOf(MaskPoint(.5f, .5f)), .15f, erase = true),
+            ),
+        )
+        val dimensions = listOf(32 to 32, 128 to 250, 320 to 180, 700 to 510)
+        for ((w, h) in dimensions) for ((caseIndex, marks) in sets.withIndex()) {
+            val fullMask = LaMaInpaintingEngine.rasterizeMask(marks, w, h)
+            val image = IntArray(w * h)
+            try {
+                fullMask.getPixels(image, 0, w, 0, 0, w, h)
+            } finally {
+                fullMask.recycle()
+            }
+            val expected = InpaintingPreparation.coverage(
+                IntArray(image.size) { Color.alpha(image[it]) }, w, h)
+            val actual = LaMaInpaintingEngine.preparedCoverage(marks, w, h)
+            assertArrayEquals("mask case $caseIndex ${w}x$h",
+                expected, actual.data)
+            val wholeRegion = InpaintingPreparation.region(expected, w, h, 1024)
+            val limitedRegion = InpaintingPreparation.region(
+                actual.data, w, h, 1024, actual.bounds)
+            assertEquals("ROI case $caseIndex ${w}x$h", wholeRegion, limitedRegion)
+            if (wholeRegion != null) {
+                val plane = 16 * 16
+                val prediction = FloatArray(3 * plane) { (it * 17 % 256).toFloat() }
+                val source = IntArray(w * h) { i ->
+                    0x88000000.toInt() or ((i % 255) shl 16) or (((i / w) % 255) shl 8) or 21
+                }
+                val legacy = InpaintingPreparation.composite(
+                    source, expected, w, h, wholeRegion, prediction, side = 16)
+                val cropped = InpaintingPreparation.composite(
+                    source, actual.data, w, h, limitedRegion!!, prediction, side = 16,
+                    bounds = actual.bounds)
+                assertArrayEquals("composite case $caseIndex ${w}x$h",
+                    legacy, cropped)
+            }
+        }
+    }
+
+    @Test fun bboxValidationRejectsOutOfFrameAndSupportsEmpty() {
+        assertFalse(PixelBounds(-1, 0, 2, 2).validWithin(10, 10))
+        assertFalse(PixelBounds(1, 1, 11, 5).validWithin(10, 10))
+        assertTrue(PixelBounds(0, 0, 0, 0).validWithin(10, 10))
+        val empty = LaMaInpaintingEngine.preparedCoverage(emptyList(), 20, 12)
+        assertTrue(empty.data.all { it == 0 })
+        assertEquals(PixelBounds(0, 0, 0, 0), empty.bounds)
+    }
+
 }

@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import com.domenota.medialoader.data.editor.LaMaInpaintingEngine
 import com.domenota.medialoader.data.editor.LaMaModelStore
+import com.domenota.medialoader.data.editor.OrtSessions
 import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.MobileSamSegmenter
 import com.domenota.medialoader.data.editor.PersonDetectorModelStore
@@ -274,6 +275,25 @@ internal fun ObjectRemovalPanel(
     val scope = rememberCoroutineScope()
     val modelStore = remember(context) { LaMaModelStore(context) }
     val engine = remember(modelStore) { LaMaInpaintingEngine(modelStore) }
+    // The preview owns one editor lease. Preloading happens on this screen's
+    // coroutine scope, not a detached global job, and is cancelled on exit.
+    DisposableEffect(modelStore, context.applicationContext) {
+        OrtSessions.attachEditor(context.applicationContext)
+        val preloading = scope.launch(Dispatchers.IO) {
+            try {
+                if (modelStore.installed()) {
+                    val verified = modelStore.requireInstalled()
+                    OrtSessions.lama.warmUp(verified, LaMaModelStore.SHA256)
+                }
+            } catch (_: Exception) {
+                // Optional warm-up must not block painting or hide real inference errors.
+            }
+        }
+        onDispose {
+            preloading.cancel()
+            OrtSessions.detachEditor()
+        }
+    }
     val glareStore = remember(context) { SpecularSrNetModelStore(context.applicationContext) }
     val glareEngine = remember(glareStore) { SpecularGlareEngine(glareStore) }
     var glareReady by remember { mutableStateOf(false) }

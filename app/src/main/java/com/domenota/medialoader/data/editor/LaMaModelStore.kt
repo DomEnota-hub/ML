@@ -69,6 +69,10 @@ class LaMaModelStore(context: Context) {
                 if (count < 1_000_000L || digest.digest().joinToString("") { "%02x".format(it) } != SHA256) {
                     throw IOException("Не удалось проверить подлинность модели (SHA-256).")
                 }
+                // Model lifecycle and ORT inference are serialized by the cache.
+                // Never keep native weights alive while replacing the model on disk.
+                OrtSessions.lama.release()
+                deleteOptimizedGraphs()
                 if (model.exists() && !model.delete()) throw IOException("Не удалось заменить прежнюю модель.")
                 if (!part.renameTo(model)) throw IOException("Не удалось сохранить модель.")
                 onProgress(100)
@@ -87,8 +91,18 @@ class LaMaModelStore(context: Context) {
     }
 
     suspend fun uninstall() = withContext(Dispatchers.IO) {
+        OrtSessions.lama.release()
         if (model.exists() && !model.delete()) {
             throw IOException("Не удалось удалить модель LaMa.")
+        }
+        deleteOptimizedGraphs()
+    }
+
+    private fun deleteOptimizedGraphs() {
+        folder.listFiles { f ->
+            f.name.startsWith(model.name + ".") && f.name.endsWith(".opt.onnx")
+        }?.forEach { file ->
+            if (!file.delete()) throw IOException("Не удалось очистить кеш графа LaMa.")
         }
     }
 
