@@ -5,12 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
@@ -224,36 +218,6 @@ private fun SelectionMagnifier(
             style = Stroke(width = 5.dp.toPx()))
         drawRoundRect(if (eraser) Color(0xFF86D7FF) else Color(0xFFFFC21C),
             cornerRadius = corner, style = Stroke(width = 2.dp.toPx()))
-    }
-}
-
-/** Animated only while the MobileSAM inference coroutine is actually active. */
-@Composable
-private fun SegmentationIndicator(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "sam-inference")
-    val rotation by transition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart),
-        label = "triangle-turn",
-    )
-    Canvas(modifier.size(50.dp)) {
-        rotate(rotation) {
-            val top = Offset(size.width / 2f, size.height * .08f)
-            val left = Offset(size.width * .08f, size.height * .84f)
-            val right = Offset(size.width * .92f, size.height * .84f)
-            val center = Offset(size.width * .5f, size.height * .62f)
-            val light = Path().apply {
-                moveTo(top.x, top.y); lineTo(left.x, left.y)
-                lineTo(center.x, center.y); close()
-            }
-            val dark = Path().apply {
-                moveTo(top.x, top.y); lineTo(center.x, center.y)
-                lineTo(right.x, right.y); close()
-            }
-            drawPath(light, Color(0xFFFFE6A0))
-            drawPath(dark, Color(0xFF8C6B32))
-        }
     }
 }
 
@@ -1033,11 +997,21 @@ internal fun ObjectRemovalPanel(
                 }
 
             }
-            if (segmenting || peopleSearching) {
-                Box(Modifier.align(Alignment.Center).size(64.dp)
-                    .background(Color.Black.copy(alpha = .68f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center) {
-                    SegmentationIndicator()
+            if (segmenting || peopleSearching || scanningText || processing) {
+                Box(
+                    Modifier.align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = .58f), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AiPrismWorkingIndicator(
+                        label = when {
+                            peopleSearching -> "Ищем людей и уточняем контуры…"
+                            segmenting -> "Уточняем контур…"
+                            scanningText -> "Распознаём текст…"
+                            else -> "Обрабатываем изображение…"
+                        },
+                    )
                 }
             }
             if (!showBefore && !textMode && !moveMode && cursor != null &&
@@ -1287,9 +1261,14 @@ internal fun ObjectRemovalPanel(
                 message = null
             },
         )
-        if (downloading || processing) {
+        if (downloading) {
+            // Real byte-derived download progress only. Never show the
+            // indeterminate purple M3 loading bar during ONNX inference.
             LinearProgressIndicator(
+                progress = { downloadProgress.coerceIn(0, 100) / 100f },
                 modifier = Modifier.fillMaxWidth().height(3.dp),
+                color = Color(0xFFFFC21C),
+                trackColor = Color(0xFF383838),
             )
         }
         featureNotice?.let {
