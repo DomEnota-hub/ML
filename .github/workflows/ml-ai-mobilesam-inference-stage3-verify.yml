@@ -7,12 +7,14 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-controls-20261109
       - feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109
       - feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109
+      - feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109
   pull_request:
     branches:
       - feature/ml-ai-eraser-mobilesam-inference-stage3-20261108
       - feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109
       - feature/ml-ai-eraser-qa156-stage1-controls-20261109
       - feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109
+      - feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109
   workflow_dispatch:
 permissions:
   contents: read
@@ -105,7 +107,7 @@ jobs:
           assert 'PhotoToolCard("AI-ластик", Icons.Rounded.AutoFixHigh' in editor, "AI launcher label must omit engine"
           assert 'PhotoToolCard("AI-ластик · LaMa"' not in editor, "Do not expose LaMa engine name in launcher"
           assert "val whiteActionColors = ButtonDefaults.textButtonColors(" in dialog
-          assert dialog.count("colors = whiteActionColors") == 4, "All manager actions need white text"
+          assert dialog.count("colors = whiteActionColors") == 5, "All manager actions need white text"
           # QA 1.10 / 1.11 / 1.13: central start button, fixed yellow editor slider,
           # and a clipped rectangular selection magnifier (never a round lens).
           assert 'EditorSlider as Slider' in eraser, "Manual slider must use editor yellow"
@@ -144,6 +146,15 @@ jobs:
           assert 'if (aiModelsDialog)' in settings and 'active == null' in dialog
           assert 'job?.cancel()' in dialog and 'mobile.verifyInstalled()' in dialog
           assert 'MobileSamModelStore(context.applicationContext)' in dialog
+          checker = Path("app/src/main/java/com/domenota/medialoader/data/editor/AiModelUpdateChecker.kt").read_text()
+          assert "Проверить обновления" in dialog and "AiModelUpdateChecker.check(" in dialog
+          assert "ModelUpdatePolicy.evaluate(" in checker and "sha256Pattern" in checker
+          assert "https://huggingface.co/api/models/$repo?blobs=true" in checker
+          assert "ModelUpdateState.UNAVAILABLE" in checker and "ModelUpdateState.REVIEW_REQUIRED" in checker
+          assert "currentCoroutineContext().ensureActive()" in checker
+          assert "Новая ревизия" in checker and "Требуется проверка" in checker
+          assert "LaMaModelStore.SHA256" in checker and "MobileSamModelStore.ENCODER_SHA256" in checker
+          assert "install(" not in checker, "Update check must never install model weights"
           # We do NOT include the large downloaded ONNX files in versioned app assets.
           assert not list(Path("app/src/main").rglob("mobile_sam_*.onnx"))
           assert not list(Path("app/src/main").rglob("sam_mask_decoder_*.onnx"))
@@ -210,6 +221,7 @@ jobs:
             --tests '*AutoDragSelectionPolicyTest' \
             --tests '*ObjectManualTracePolicyTest' \
             --tests '*MobileSamModelStoreTest' \
+            --tests '*AiModelUpdatePolicyTest' \
             --tests '*MobileSamGeometryTest' \
             --tests '*MaskActionGroupingTest' \
             --tests '*GalleryV10SubmenuPlacementTest' \
