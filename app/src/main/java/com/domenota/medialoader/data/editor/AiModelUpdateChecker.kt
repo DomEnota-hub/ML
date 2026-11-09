@@ -95,13 +95,17 @@ internal object ModelUpdatePolicy {
  * for manual review; install() keeps using the existing pins and never runs here.
  */
 internal object AiModelUpdateChecker {
-    internal enum class Kind { LAMA, MOBILE_SAM }
+    internal enum class Kind { LAMA, MOBILE_SAM, PEOPLE }
 
     private data class ModelSource(val repo: String, val expected: List<ExpectedModelBlob>)
 
     private fun source(kind: Kind): ModelSource = when (kind) {
         Kind.LAMA -> ModelSource("sapienkit/LaMa-ONNX",
             listOf(ExpectedModelBlob("lama_fp32.onnx", LaMaModelStore.SHA256)))
+        Kind.PEOPLE -> ModelSource("litert-community/efficientdet", listOf(
+            ExpectedModelBlob(PersonDetectorModelStore.FILENAME,
+                PersonDetectorModelStore.SHA256),
+        ))
         Kind.MOBILE_SAM -> ModelSource("Acly/MobileSAM", listOf(
             ExpectedModelBlob("mobile_sam_image_encoder.onnx",
                 MobileSamModelStore.ENCODER_SHA256, MobileSamModelStore.ENCODER_BYTES),
