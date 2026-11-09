@@ -496,6 +496,7 @@ fun PhotoEditorScreen(
                 originalWorkingImage = info.preview,
                 earlierMasks = edit.appliedMasks,
                 earlierFullFrameCorrection = edit.fullFrameCorrection,
+                earlierOverlayPath = edit.overlayPath,
                 onAccept = { bitmap, masks, path, correctedFullFrame ->
                     if (!locked) {
                         commit(edit.copy(overlayPath = path, appliedMasks = masks,
