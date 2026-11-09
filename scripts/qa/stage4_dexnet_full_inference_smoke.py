@@ -306,6 +306,25 @@ def main():
             raise AssertionError("DExNet materially degrades difficult reflection composites")
         print("GENUINE_DEXNET_MODEL_AND_ONNX_RESEARCH_PASS; "
               "Android/licensing/device QA pending", flush=True)
+        # ONLY the dedicated signed QA build may request a temporary real model
+        # asset. Git never receives .onnx or the generated SHA; both are removed
+        # by the job's ephemeral workspace after build and Drive delivery.
+        # A lone research CI run remains model-free and cannot activate the mode.
+        requested_asset_dir = os.environ.get("ML_REFLECTION_MODEL_OUTPUT_DIR")
+        if requested_asset_dir:
+            if WIDTH != 128:
+                raise RuntimeError("QA input is pinned to fully checked 128px DExNet")
+            destination = pathlib.Path(requested_asset_dir)
+            destination.mkdir(parents=True, exist_ok=True)
+            model_asset = destination / "dexnet_vgg19_reflection_128.onnx"
+            model_sha = destination / "dexnet_vgg19_reflection_128.onnx.sha256"
+            import shutil
+            shutil.copyfile(onnxpath, model_asset)
+            model_sha.write_text(sha256(model_asset) + "\\n", encoding="ascii")
+            if model_asset.stat().st_size not in range(88_000_000, 110_000_001):
+                raise RuntimeError("Wrong reflection QA model bytes")
+            print("QA_BUNDLE_LOCAL_ONLY", model_asset.stat().st_size,
+                  sha256(model_asset), flush=True)
 
 
 def ort_resource_child(onnxpath: pathlib.Path, mode: str):
