@@ -166,6 +166,9 @@ fun SettingsScreen(
     onOpenEqualizer: () -> Unit = {},
     onChangeFolder: (String) -> Unit,
     onSelectFolder: () -> Unit,
+    storageMigrationRunning: Boolean = false,
+    storageMigrationMessage: String = "",
+    onMigrateLegacyMedia: () -> Unit = {},
     onRestore: (Set<String>) -> Unit,
     onEmptyTrash: () -> Unit,
     onOpenTrash: () -> Unit = {},
@@ -350,6 +353,7 @@ fun SettingsScreen(
     var gapiKeysDialog by remember { mutableStateOf(false) }
     var spareAuthorizationDialog by remember { mutableStateOf(false) }
     var folderDialog by remember { mutableStateOf(false) }
+    var migrateLegacyDialog by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("MediaLoader") }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmInstagramSignOut by remember { mutableStateOf(false) }
@@ -534,6 +538,27 @@ fun SettingsScreen(
             }
         },
         dismissButton = { TextButton(onClick = { folderDialog = false }) { Text("Отмена") } },
+    )
+
+    if (migrateLegacyDialog) AlertDialog(
+        onDismissRequest = { migrateLegacyDialog = false },
+        title = { Text("Перенести старые загрузки?") },
+        text = {
+            Text("Медиа из Download будут по одному проверены и перенесены: " +
+                "фото и видео в Pictures, аудио в Music. История загрузок, " +
+                "избранное и альбомы сохранятся. Неподтверждённые и чужие " +
+                "файлы останутся на месте. Перенос можно запустить повторно.")
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                migrateLegacyDialog = false
+                if (!storageMigrationRunning && activeDownloadCount == 0)
+                    onMigrateLegacyMedia()
+            }) { Text("Начать перенос") }
+        },
+        dismissButton = {
+            TextButton(onClick = { migrateLegacyDialog = false }) { Text("Отмена") }
+        },
     )
 
     if (confirmClear) AlertDialog(
@@ -920,6 +945,22 @@ fun SettingsScreen(
                     folderName = downloadFolder.substringAfter("Pictures/", "MediaLoader")
                     folderDialog = true
                 })
+            GroupDivider()
+            SettingRow(
+                Icons.Rounded.Folder, "Перенести старые файлы",
+                when {
+                    storageMigrationRunning -> storageMigrationMessage
+                    activeDownloadCount != 0 -> "Дождитесь завершения загрузок"
+                    storageMigrationMessage.isNotBlank() -> storageMigrationMessage
+                    else -> "Download → Pictures / Music, с проверкой файлов"
+                },
+                grouped = true, nested = true,
+                iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                onClick = {
+                    if (!storageMigrationRunning && activeDownloadCount == 0)
+                        migrateLegacyDialog = true
+                },
+            )
             GroupDivider()
             SettingRow(Icons.Rounded.HighQuality, "Приоритетное качество", VideoPreferences.qualityLabel(preferredHeight),
                 grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
