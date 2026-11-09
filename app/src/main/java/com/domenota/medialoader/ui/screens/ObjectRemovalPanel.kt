@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import com.domenota.medialoader.data.editor.LaMaInpaintingEngine
 import com.domenota.medialoader.data.editor.LaMaModelStore
+import com.domenota.medialoader.data.editor.OrtSessions
 import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.MobileSamSegmenter
 import com.domenota.medialoader.data.editor.PersonDetectorModelStore
@@ -274,6 +275,10 @@ internal fun ObjectRemovalPanel(
     val scope = rememberCoroutineScope()
     val modelStore = remember(context) { LaMaModelStore(context) }
     val engine = remember(modelStore) { LaMaInpaintingEngine(modelStore) }
+    DisposableEffect(modelStore) {
+        OrtSessions.editorEntered(context.applicationContext, modelStore)
+        onDispose { OrtSessions.editorExited() }
+    }
     val glareStore = remember(context) { SpecularSrNetModelStore(context.applicationContext) }
     val glareEngine = remember(glareStore) { SpecularGlareEngine(glareStore) }
     var glareReady by remember { mutableStateOf(false) }
