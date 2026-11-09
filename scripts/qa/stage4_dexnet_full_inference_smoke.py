@@ -262,7 +262,7 @@ def main():
         # Profile baseline AND safer memory options. No threshold inflation.
         # Never claim memory suitability if all configurations exceed 781 MiB.
         usable_memory_modes = []
-        for ort_mode in ("baseline", "noarena", "noarena_basic"):
+        for ort_mode in ("baseline", "noarena", "noarena_basic", "no_prepack"):
             child = subprocess.run(
                 [sys.executable, __file__, "--ort-resource-only",
                  str(onnxpath), ort_mode],
@@ -311,8 +311,21 @@ def main():
 def ort_resource_child(onnxpath: pathlib.Path, mode: str):
     import numpy as np
     import onnxruntime as ort
-    if mode not in ("baseline", "noarena", "noarena_basic"):
+    if mode not in ("baseline", "noarena", "noarena_basic", "no_prepack"):
         raise ValueError("Unexpected ONNX memory profile")
+
+    def memory_phase(phase: str):
+        raw = pathlib.Path("/proc/self/status").read_text()
+        fields = {}
+        for item in ("VmRSS", "VmHWM", "VmSize"):
+            hit = next((line for line in raw.splitlines()
+                        if line.startswith(item + ":")), None)
+            fields[item] = hit.split(":")[1].strip() if hit else "unavailable"
+        fields["ru_maxrss_kib"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        print("ORT_MEMORY_PHASE", json.dumps({"mode": mode, "phase": phase,
+                                            **fields}), flush=True)
+
+    memory_phase("after_python_import")
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = 2
     opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
@@ -321,14 +334,21 @@ def ort_resource_child(onnxpath: pathlib.Path, mode: str):
         opts.enable_mem_pattern = False
     if mode == "noarena_basic":
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+    if mode == "no_prepack":
+        opts.enable_cpu_mem_arena = False
+        opts.enable_mem_pattern = False
+        opts.add_session_config_entry("session.disable_prepacking", "1")
+    memory_phase("before_session_load")
     started = time.perf_counter()
     session = ort.InferenceSession(str(onnxpath), opts,
                                    providers=["CPUExecutionProvider"])
     model_load = round(time.perf_counter() - started, 3)
+    memory_phase("after_session_load")
     rgb = np.full((1, 3, WIDTH, WIDTH), .4, dtype=np.float32)
     started = time.perf_counter()
     output = session.run(None, {session.get_inputs()[0].name: rgb})
     duration = round(time.perf_counter()-started, 3)
+    memory_phase("after_model_run")
     if any(not np.isfinite(z).all() for z in output):
         raise RuntimeError("Standalone ONNX produces malformed output")
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
