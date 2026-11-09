@@ -255,9 +255,12 @@ def main():
         # Measure ORT in a fresh process without holding the PyTorch weights,
         # VGG19 and transient ONNX export graph in memory simultaneously.
         child = subprocess.run([sys.executable, __file__, "--ort-resource-only",
-                                str(onnxpath)], check=True, capture_output=True,
+                                str(onnxpath)], check=False, capture_output=True,
                                text=True, timeout=120)
         print(child.stdout.strip(), flush=True)
+        if child.returncode != 0:
+            print("ORT_STANDALONE_STDERR", child.stderr[-7000:], flush=True)
+            raise RuntimeError("Standalone CPU ONNX resource test returned failure")
 
         # Fail honestly when synthetic benchmark worsens. Do not alter
         # the scene or threshold merely to generate a green result.
