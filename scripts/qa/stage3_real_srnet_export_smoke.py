@@ -20,6 +20,7 @@ import pathlib
 import tempfile
 import time
 import urllib.request
+from urllib.parse import quote
 
 SOURCE_COMMIT = "6f44a130d2b20568f1a1b1159e32a4ec6b46ef19"
 BASE = ("https://raw.githubusercontent.com/zhiyiYo/Specular-Removal/"
@@ -30,6 +31,16 @@ SOURCE_BLOB_SHA1 = "a8d945260a4c32354057dc88e77a811a8c878875"
 MAX_WEIGHTS_BYTES = 2 * 1024 * 1024
 PINNED_WEIGHTS_SHA256 = "d20a8b1021cd150cba0fce6738fac997f9283390de134756ecc9710245c2cba8"
 PINNED_NETWORK_SHA256 = "472103bbc1bc6e3ab6839af147e12d3edec1110d3a8da891929c7c571a5b783f"
+BUNDLED_MODEL_BYTES = 230_221
+BUNDLED_MODEL_SHA256 = "1538f5800858c329e93576566d40f568fcc07d8fdc674bca454fbfc4771c63e4"
+REAL_SAMPLES = {
+    "glossy_wood_table": ("resource/images/木桌.png",
+        "878f9f4248dfffbcf4ad882eba0dab3140ef07ea"),
+    "plastic_container": ("resource/images/塑料盒.png",
+        "d5c59b4baf393e61cb6a550d0551e951710e92f5"),
+    "orange_surface": ("resource/images/橙子.png",
+        "6475490831ea2b3de1bc14e26504657f919338e4"),
+}
 
 
 def download(url: str, max_bytes: int) -> tuple[bytes, str]:
@@ -100,6 +111,55 @@ def synthetic_pair(width: int, height: int):
     return base, shiny, affected
 
 
+def test_real_photo(runtime, name: str, source: str, blob_sha: str):
+    import numpy as np
+    from PIL import Image
+
+    data, _ = download(BASE + quote(source, safe="/"), 6_000_000)
+    git_blob_sha = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") +
+                                b"\\0" + data).hexdigest()
+    if git_blob_sha != blob_sha:
+        raise AssertionError("Real photo fixture was modified: " + name)
+    with Image.open(io.BytesIO(data)) as photo:
+        rgb = photo.convert("RGB")
+        w, h = rgb.size
+        scale = 256 / max(w, h)
+        scaled_w = min(256, max(1, round(w * scale)))
+        scaled_h = min(256, max(1, round(h * scale)))
+        arr = np.asarray(rgb.resize((scaled_w, scaled_h), Image.Resampling.BILINEAR),
+                         dtype=np.float32) / 255
+    pad_x = (256 - scaled_w) // 2
+    pad_y = (256 - scaled_h) // 2
+    # Same edge-clamped letterbox as the Android production engine.
+    yy, xx = np.indices((256, 256), dtype=np.int32)
+    yy = np.clip(yy - pad_y, 0, scaled_h - 1)
+    xx = np.clip(xx - pad_x, 0, scaled_w - 1)
+    input_chw = arr[yy, xx].transpose(2, 0, 1).copy()
+    outputs = runtime.run(None, {"image": input_chw[None]})
+    learned_mask = outputs[0][0, 0]
+    diffuse = outputs[2][0]
+    if not np.isfinite(learned_mask).all() or not np.isfinite(diffuse).all():
+        raise AssertionError("Nonfinite real-photo network output")
+    relevant = int((learned_mask >= .4).sum())
+    alpha = np.clip((learned_mask - .1) / .8, 0, 1)
+    restored = np.clip(input_chw + (diffuse-input_chw).clip(-1, 1) * alpha[None],
+                       0, 1)
+    delta = np.abs(restored-input_chw)
+    max_change_outside = float(np.max(delta[:, alpha <= 1e-4], initial=0.))
+    changed = int((np.max(delta, axis=0) > .015).sum())
+    metrics = {"photo": name, "source_pixels": [w, h],
+               "glare_mask_pixels": relevant, "changed_pixels": changed,
+               "changed_ratio": round(changed / 65536, 5),
+               "mean_change_rgb": round(float(delta.mean()), 6),
+               "unmasked_max_error": round(max_change_outside, 8)}
+    print("REAL_PHOTO", json.dumps(metrics), flush=True)
+    if max_change_outside > 1e-6:
+        raise AssertionError("Android residual composition changed unmasked pixels")
+    if relevant > 256*256*.75:
+        raise AssertionError("Glare network selected dangerous full-frame mask")
+    return (relevant >= 12 and changed >= 20)
+
+
 def main():
     import numpy as np
     import onnxruntime as ort
@@ -144,6 +204,15 @@ def main():
         onnx.checker.check_model(str(onnx_file))
         print("ONNX_BYTES", onnx_file.stat().st_size, flush=True)
         print("ONNX_SHA256", hashlib.sha256(onnx_file.read_bytes()).hexdigest(), flush=True)
+        asset = pathlib.Path("app/src/main/assets/ai/specular_srnet_256.onnx.b64")
+        bundle = base64.b64decode(asset.read_text().strip(), validate=True)
+        if len(bundle) != BUNDLED_MODEL_BYTES or (
+            hashlib.sha256(bundle).hexdigest() != BUNDLED_MODEL_SHA256
+        ):
+            raise AssertionError("Bundled Android model differs from the verified ONNX")
+        if bundle != onnx_file.read_bytes():
+            raise AssertionError("Android asset is NOT the same as the tested model export")
+        print("BUNDLED_ANDROID_ONNX_SHA256", BUNDLED_MODEL_SHA256, flush=True)
         # One-time safe transfer into GitHub's binary blob API, no archived artifact,
         # release, or APK published. Normal CI runs do not dump model contents.
         if os.environ.get("ML_EXPORT_ONNX_BLOB") == "1":
@@ -156,6 +225,12 @@ def main():
         start = time.perf_counter()
         results = runtime.run(None, {"image": shiny[None]})
         print("ACTUAL_ONNX_CPU_SECONDS", round(time.perf_counter()-start, 3), flush=True)
+        # Validate the actual app-shipped asset, not only the transient conversion.
+        bundled_runtime = ort.InferenceSession(bundle, providers=["CPUExecutionProvider"])
+        actual_bundle = bundled_runtime.run(None, {"image": shiny[None]})
+        if any(np.max(np.abs(left-right)) > 0.0001
+               for left, right in zip(actual_bundle, results)):
+            raise AssertionError("Android-bundled ONNX produces a different output")
         for pytorch_output, onnx_output in zip(expected, results):
             err = float(np.max(np.abs(pytorch_output.detach().numpy() - onnx_output)))
             print("ONNX_PARITY_MAX_ABS", round(err, 7), flush=True)
@@ -181,6 +256,10 @@ def main():
         # when the glare reconstruction seems visually plausible.
         if clean_mae_after > .22:
             raise AssertionError("Unacceptable damage to unhighlighted image details")
+        actual = [test_real_photo(bundled_runtime, name, filename, blob)
+                  for name, (filename, blob) in REAL_SAMPLES.items()]
+        if sum(actual) < 2:
+            raise AssertionError("SRNet fails to make localized corrections on real photos")
         print("REAL_SRNET_GENUINE_SPECULAR_RESTORATION_PASS (Linux CPU; Android QA pending)",
               flush=True)
 
