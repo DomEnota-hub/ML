@@ -79,6 +79,7 @@ import com.domenota.medialoader.data.editor.PersonScanResult
 import com.domenota.medialoader.data.editor.PersonInstance
 import com.domenota.medialoader.data.editor.SpecularSrNetModelStore
 import com.domenota.medialoader.data.editor.SpecularGlareEngine
+import com.domenota.medialoader.data.editor.SpecularOverlayComposer
 import com.domenota.medialoader.data.editor.MaskPoint
 import com.domenota.medialoader.data.editor.ImageViewportGeometry
 import com.domenota.medialoader.data.editor.AutoDragSelectionPolicy
@@ -263,6 +264,7 @@ internal fun ObjectRemovalPanel(
     originalWorkingImage: Bitmap,
     earlierMasks: List<List<MaskStroke>>,
     earlierFullFrameCorrection: Boolean = false,
+    earlierOverlayPath: String? = null,
     onAccept: (Bitmap, List<List<MaskStroke>>, String, Boolean) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -592,9 +594,25 @@ internal fun ObjectRemovalPanel(
                 val file = withContext(Dispatchers.IO) {
                     val dir = File(context.cacheDir, "inpainting-overlays").apply { mkdirs() }
                     val output = File(dir, "overlay-${UUID.randomUUID()}.png")
-                    val overlay = if (accepted.fullFrameCorrection)
-                        accepted.bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                    else LaMaInpaintingEngine.makeOverlay(
+                    val overlay = if (accepted.fullFrameCorrection) {
+                        // Never export an opaque preview: the full-resolution
+                        // original must survive outside the corrected pixels.
+                        val previous = earlierOverlayPath?.let { oldPath ->
+                            val permitted = File(context.cacheDir, "inpainting-overlays").canonicalFile
+                            val input = File(oldPath).canonicalFile
+                            if (input.parentFile != permitted || !input.isFile ||
+                                !input.name.endsWith(".png"))
+                                throw java.io.IOException("Недопустимый путь предыдущей маски.")
+                            BitmapFactory.decodeFile(input.absolutePath)
+                                ?: throw java.io.IOException("Не удалось прочитать прежнюю маску.")
+                        }
+                        try {
+                            SpecularOverlayComposer.combine(
+                                steps.first().bitmap, accepted.bitmap, previous)
+                        } finally {
+                            previous?.recycle()
+                        }
+                    } else LaMaInpaintingEngine.makeOverlay(
                         accepted.bitmap, accepted.maskBatches)
                     try {
                         FileOutputStream(output).use { out ->
