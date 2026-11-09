@@ -1,5 +1,7 @@
 package com.domenota.medialoader.data.storage
 
+import com.domenota.medialoader.core.model.MediaType
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -51,4 +53,35 @@ class MediaStoragePolicyTest {
         assertFalse(LegacyMediaMigration.isLegacyPath("Download/../private/file"))
         assertFalse(LegacyMediaMigration.isLegacyPath(null))
     }
+
+    @Test fun legacyMigrationPreservesActualFormatRatherThanCallingEverythingJpegMp4Mp3() {
+        assertEquals("image/gif", MediaStoragePolicy.legacyMime(
+            MediaType.PHOTO, "анимация.GIF", "application/octet-stream"))
+        assertEquals("image/heic", MediaStoragePolicy.legacyMime(
+            MediaType.PHOTO, "2026.heic", "image/heic"))
+        assertEquals("image/webp", MediaStoragePolicy.legacyMime(
+            MediaType.PHOTO, "preview.webp", null))
+        assertEquals("video/webm", MediaStoragePolicy.legacyMime(
+            MediaType.VIDEO, "movie.WEBM", "video/webm"))
+        assertEquals("video/quicktime", MediaStoragePolicy.legacyMime(
+            MediaType.VIDEO, "clip.mov", "application/octet-stream"))
+        assertEquals("audio/flac", MediaStoragePolicy.legacyMime(
+            MediaType.AUDIO, "Песня.FLAC", "audio/flac"))
+        assertEquals("audio/mp4", MediaStoragePolicy.legacyMime(
+            MediaType.AUDIO, "track.m4a", null))
+    }
+
+    @Test fun legacyMigrationDoesNotInventTypeForUnknownOrConflictingFiles() {
+        assertEquals(null, MediaStoragePolicy.legacyMime(
+            MediaType.PHOTO, "unidentified.bin", "application/octet-stream"))
+        assertEquals(null, MediaStoragePolicy.legacyMime(
+            MediaType.VIDEO, "clip.mp4", "image/png"))
+        assertEquals(null, MediaStoragePolicy.legacyMime(
+            MediaType.AUDIO, "track.jpg", null))
+        assertEquals(null, MediaStoragePolicy.legacyMime(
+            MediaType.PHOTO, "image", null))
+        assertEquals("image/png", MediaStoragePolicy.legacyMime(
+            MediaType.PHOTO, "image", "image/png; charset=binary"))
+    }
+
 }
