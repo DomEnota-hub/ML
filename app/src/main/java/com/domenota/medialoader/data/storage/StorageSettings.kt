@@ -12,11 +12,11 @@ class StorageSettings(context: Context) {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences("storage", Context.MODE_PRIVATE)
 
-    /** Relative to the storage root, always ends with '/' and starts inside Download/ (MediaStore rule). */
+    /** New photo/video destination is Pictures/. Legacy Download preferences map here without moving files. */
     var relativeDirectory: String
-        get() = prefs.getString(KEY, null)?.takeIf(::isValid) ?: StorageNaming.DEFAULT_RELATIVE_DIRECTORY
+        get() = MediaStoragePolicy.upgradePreference(prefs.getString(KEY, null))
         set(value) {
-            require(isValid(value)) { "Folder must be inside Download/" }
+            require(MediaStoragePolicy.validPictures(value)) { "Папка должна быть внутри Pictures/" }
             prefs.edit().putString(KEY, value).remove(TREE_URI).remove(TREE_NAME).apply()
         }
 
@@ -28,8 +28,6 @@ class StorageSettings(context: Context) {
         get() = prefs.getString(TREE_NAME, null)
         set(value) { prefs.edit().putString(TREE_NAME, value).apply() }
 
-    private fun isValid(value: String): Boolean =
-        value.startsWith("Download/") && value.endsWith("/") && ".." !in value && '\\' !in value
 
     private companion object {
         const val KEY = "relative_directory"

@@ -21,6 +21,7 @@ import com.domenota.medialoader.core.provider.VkLinkParser
 import com.domenota.medialoader.core.provider.YouTubeLinkParser
 import com.domenota.medialoader.core.storage.StorageNaming
 import com.domenota.medialoader.data.MediaRepository
+import com.domenota.medialoader.data.storage.StorageMigrationProgress
 import com.domenota.medialoader.data.bulk.BulkRules
 import com.domenota.medialoader.data.download.ActiveDownloadService
 import com.domenota.medialoader.data.editor.VideoEditSpec
@@ -377,6 +378,33 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     val signedIn: StateFlow<Boolean> = _signedIn.asStateFlow()
     private val _instagramSessionRevision = MutableStateFlow(0L)
     val instagramSessionRevision: StateFlow<Long> = _instagramSessionRevision.asStateFlow()
+
+    // Explicit migration only. Never auto-run a background move on app upgrade:
+    // a crash or missing provider permissions must not damage existing history.
+    private val _storageMigration = MutableStateFlow(StorageMigrationProgress())
+    val storageMigration: StateFlow<StorageMigrationProgress> =
+        _storageMigration.asStateFlow()
+
+    fun migrateLegacyDownloads() {
+        if (_storageMigration.value.running) return
+        _storageMigration.value = StorageMigrationProgress(running = true,
+            message = "Подготавливаем проверенный перенос…")
+        viewModelScope.launch {
+            try {
+                repository.migrateLegacyDownloads { progress ->
+                    _storageMigration.value = progress
+                }
+            } catch (cancel: CancellationException) {
+                _storageMigration.value = _storageMigration.value.copy(
+                    running = false, message = "Перенос остановлен. Непроверенные файлы сохранены.")
+                throw cancel
+            } catch (error: Exception) {
+                _storageMigration.value = _storageMigration.value.copy(
+                    running = false,
+                    message = error.message ?: "Перенос остановлен без удаления исходников.")
+            }
+        }
+    }
 
     /** Folder text for Settings; comes from StorageManager, not from the UI. */
     private val _downloadFolder = MutableStateFlow(repository.storageDisplayPath)

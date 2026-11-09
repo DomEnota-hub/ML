@@ -45,6 +45,22 @@ class DownloadQueueTest {
         } }
         override suspend fun all(): List<DownloadEntity> = rows.value.sortedByDescending { it.createdAtEpochMillis }
         override suspend fun byId(id: String): DownloadEntity? = rows.value.firstOrNull { it.id == id }
+        override suspend fun countSavedUriReferences(uri: String): Int =
+            rows.value.count { it.savedUri == uri || it.privateSourceUri == uri }
+        override suspend fun moveSavedUriWhenCurrent(
+            id: String, fromUri: String, toUri: String, toName: String,
+        ): Int {
+            var changed = 0
+            rows.update { list -> list.map { row ->
+                if (row.id == id && row.savedUri == fromUri &&
+                    !row.isPrivate && !row.hidden &&
+                    row.state == DownloadState.COMPLETED) {
+                    changed++
+                    row.copy(savedUri = toUri, originalName = toName)
+                } else row
+            } }
+            return changed
+        }
         override suspend fun setMuzmoArtworkIfMissing(id: String, artworkUrl: String): Int {
             var updated = 0
             rows.update { list -> list.map { row ->

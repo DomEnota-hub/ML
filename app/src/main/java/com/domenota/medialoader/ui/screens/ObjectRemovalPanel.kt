@@ -5,12 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
@@ -91,7 +85,6 @@ import com.domenota.medialoader.data.editor.MaskStroke
 import com.domenota.medialoader.data.editor.MaskActionGrouping
 import com.domenota.medialoader.data.editor.DetectedGlyph
 import com.domenota.medialoader.data.editor.OnDeviceTextGlyphDetector
-import com.domenota.medialoader.data.editor.TextGlyphMask
 import com.domenota.medialoader.data.editor.UnifiedMaskOverlay
 import java.io.File
 import java.io.FileOutputStream
@@ -227,36 +220,6 @@ private fun SelectionMagnifier(
     }
 }
 
-/** Animated only while the MobileSAM inference coroutine is actually active. */
-@Composable
-private fun SegmentationIndicator(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "sam-inference")
-    val rotation by transition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart),
-        label = "triangle-turn",
-    )
-    Canvas(modifier.size(50.dp)) {
-        rotate(rotation) {
-            val top = Offset(size.width / 2f, size.height * .08f)
-            val left = Offset(size.width * .08f, size.height * .84f)
-            val right = Offset(size.width * .92f, size.height * .84f)
-            val center = Offset(size.width * .5f, size.height * .62f)
-            val light = Path().apply {
-                moveTo(top.x, top.y); lineTo(left.x, left.y)
-                lineTo(center.x, center.y); close()
-            }
-            val dark = Path().apply {
-                moveTo(top.x, top.y); lineTo(center.x, center.y)
-                lineTo(right.x, right.y); close()
-            }
-            drawPath(light, Color(0xFFFFE6A0))
-            drawPath(dark, Color(0xFF8C6B32))
-        }
-    }
-}
-
 /**
  * Independent inpainting workspace. Main crop/rotation screen is deliberately preserved.
  * Image coordinates stay normalized even when the user zooms or pans.
@@ -372,6 +335,23 @@ internal fun ObjectRemovalPanel(
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var selectedMode by remember { mutableStateOf(AiEraserMode.OBJECTS) }
     val busy = processing || downloading || scanningText || peopleSearching
+
+    // Preview the exact source-pixel mask BEFORE launching LaMa. This is
+    // calculated away from the Compose drawing thread and is never a rectangle.
+    var safeTextPreview by remember(working) {
+        mutableStateOf<List<MaskStroke>>(emptyList())
+    }
+    val textSelectionSnapshot = selectedGlyphs.toList()
+    LaunchedEffect(textMode, current.bitmap, glyphs, textSelectionSnapshot) {
+        safeTextPreview = emptyList()
+        if (textMode && textSelectionSnapshot.isNotEmpty()) {
+            val selected = glyphs.filter { it.id in textSelectionSnapshot }
+            safeTextPreview = withContext(Dispatchers.Default) {
+                com.domenota.medialoader.data.editor.GlyphContentMask.fromBitmap(
+                    current.bitmap, selected)
+            }
+        }
+    }
 
     fun undo() {
         if (busy) return
@@ -512,16 +492,16 @@ internal fun ObjectRemovalPanel(
             scanText()
             return
         }
-        val marked = when {
-            textMode -> TextGlyphMask.toStrokes(
-                glyphs.filter { it.id in selectedGlyphs },
-                current.bitmap.width, current.bitmap.height)
+        val chosenGlyphs = if (textMode) glyphs.filter { it.id in selectedGlyphs }
+            else emptyList()
+        val otherMasks = when {
+            textMode -> emptyList()
             selectedMode == AiEraserMode.PEOPLE -> detectedPeople
                 .filter { it.detection.id in selectedPeople && it.detection.id !in ambiguousPeople }
                 .flatMap { it.strokes }
             else -> strokes.toList()
         }
-        if (marked.isEmpty()) return
+        if (if (textMode) chosenGlyphs.isEmpty() else otherMasks.isEmpty()) return
         if (!installed) {
             askDownload = true
             return
@@ -531,6 +511,17 @@ internal fun ObjectRemovalPanel(
         message = null
         scope.launch {
             try {
+                // Never use OCR bounding rectangles as the final LaMa mask.
+                // Pixel refinement is done off the UI thread; uncertain glyphs
+                // fail closed so the user can correct them manually.
+                val marked = if (textMode) withContext(Dispatchers.Default) {
+                    com.domenota.medialoader.data.editor.GlyphContentMask.fromBitmap(
+                        startStep.bitmap, chosenGlyphs)
+                } else otherMasks
+                if (marked.isEmpty()) {
+                    message = "Точный контур текста не подтверждён. Исправьте маску вручную."
+                    return@launch
+                }
                 val result = engine.inpaint(startStep.bitmap, marked)
                 // Retain bounded undo/redo image states and existing mask batches.
                 steps = steps.take(index + 1).takeLast(3) +
@@ -975,12 +966,29 @@ internal fun ObjectRemovalPanel(
                                 (glyph.right - glyph.left) * size.width,
                                 (glyph.bottom - glyph.top) * size.height,
                             )
-                            if (selected) drawRect(Color(0x57FFD500), topLeft, rectSize)
+                            // OCR boxes are just candidate guides; the actual
+                            // removal mask is the pixel trace rendered below.
                             drawRect(
                                 if (selected) yellow else Color(0xBBE9F0FF),
                                 topLeft = topLeft, size = rectSize,
                                 style = Stroke(width = if (selected) 2f else 1.2f),
                             )
+                        }
+                        for (line in safeTextPreview) {
+                            val sizePx = line.diameter * minOf(size.width, size.height)
+                            val points = line.points
+                            if (points.size == 1) {
+                                drawCircle(yellow, sizePx / 2f,
+                                    Offset(points[0].x * size.width, points[0].y * size.height))
+                            } else if (points.size > 1) {
+                                drawLine(yellow,
+                                    Offset(points.first().x * size.width,
+                                        points.first().y * size.height),
+                                    Offset(points.last().x * size.width,
+                                        points.last().y * size.height),
+                                    strokeWidth = sizePx.coerceAtLeast(1f),
+                                    cap = StrokeCap.Round)
+                            }
                         }
                     } else {
                         // Live traces are hints only; the committed manual path becomes
@@ -1033,11 +1041,21 @@ internal fun ObjectRemovalPanel(
                 }
 
             }
-            if (segmenting || peopleSearching) {
-                Box(Modifier.align(Alignment.Center).size(64.dp)
-                    .background(Color.Black.copy(alpha = .68f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center) {
-                    SegmentationIndicator()
+            if (segmenting || peopleSearching || scanningText || processing) {
+                Box(
+                    Modifier.align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = .58f), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AiPrismWorkingIndicator(
+                        label = when {
+                            peopleSearching -> "Ищем людей и уточняем контуры…"
+                            segmenting -> "Уточняем контур…"
+                            scanningText -> "Распознаём текст…"
+                            else -> "Обрабатываем изображение…"
+                        },
+                    )
                 }
             }
             if (!showBefore && !textMode && !moveMode && cursor != null &&
@@ -1287,9 +1305,14 @@ internal fun ObjectRemovalPanel(
                 message = null
             },
         )
-        if (downloading || processing) {
+        if (downloading) {
+            // Real byte-derived download progress only. Never show the
+            // indeterminate purple M3 loading bar during ONNX inference.
             LinearProgressIndicator(
+                progress = { downloadProgress.coerceIn(0, 100) / 100f },
                 modifier = Modifier.fillMaxWidth().height(3.dp),
+                color = Color(0xFFFFC21C),
+                trackColor = Color(0xFF383838),
             )
         }
         featureNotice?.let {

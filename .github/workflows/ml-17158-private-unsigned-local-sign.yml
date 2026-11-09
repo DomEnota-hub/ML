@@ -1,0 +1,85 @@
+name: ML 1.7.158 verified unsigned for local DomEnota signing
+on:
+  push:
+    branches:
+      - feature/ml-17158-stage3-ocr-animation-release-20261109
+    paths:
+      - .github/workflows/ml-17158-private-unsigned-local-sign.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml17158-unsigned-local-sign-handoff
+  cancel-in-progress: true
+jobs:
+  unsigned-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Bootstrap verified Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for i in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$i" != 4
+            sleep 10
+          done
+      - name: Android SDK 35
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Validate exact package and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 218$' app/build.gradle
+          grep -Fq "versionName '1.7.158'" app/build.gradle
+          test "$GITHUB_REF_NAME" = feature/ml-17158-stage3-ocr-animation-release-20261109
+      - name: Targeted OCR and migration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*MediaStoragePolicyTest' \
+            --tests '*LegacyMediaMigrationHistoryTest' \
+            --tests '*StorageSettingsPicturesTest' \
+            --tests '*DownloadQueueTest' \
+            --tests '*LocalTextOcrFallbackTest' \
+            --tests '*GlyphContentMaskTest' \
+            --tests '*TextGlyphMaskTest' --stacktrace
+      - name: Android lint and unsigned ARM64 Release
+        run: ./gradlew :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Package unsigned APK, exact sources and offline signing tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -s "$apk"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='218' versionName='1.7.158'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          mkdir -p handoff/tools/lib handoff/tools/lib64
+          "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.158_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -c -v 4 handoff/ML_1.7.158_ARM64_ALIGNED_UNSIGNED.apk
+          cp "$bt/zipalign" handoff/tools/
+          cp "$bt/lib/apksigner.jar" handoff/tools/lib/
+          cp -a "$bt/lib64/." handoff/tools/lib64/
+          git archive --format=zip -o handoff/ML_1.7.158_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/COMMIT_SHA.txt
+          (cd handoff && sha256sum ML_1.7.158_ARM64_ALIGNED_UNSIGNED.apk ML_1.7.158_SOURCES_EXACT_COMMIT.zip tools/lib/apksigner.jar > VERIFIED_SHA256.txt)
+      - name: Private one-day handoff for local signing only
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.158_unsigned-source-tools-local-sign
+          path: handoff/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error

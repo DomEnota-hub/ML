@@ -28,7 +28,7 @@ object StorageNaming {
     }
 
     /** Default target relative to the public storage root. Read it only through StorageSettings. */
-    const val DEFAULT_RELATIVE_DIRECTORY = "Download/MediaLoader/"
+    const val DEFAULT_RELATIVE_DIRECTORY = "Pictures/MediaLoader/"
 
     /** Base name used when a source gives no meaningful name of its own. */
     const val FALLBACK_STEM = "Instagram"

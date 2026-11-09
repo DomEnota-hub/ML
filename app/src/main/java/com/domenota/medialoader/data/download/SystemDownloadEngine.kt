@@ -3,7 +3,6 @@ package com.domenota.medialoader.data.download
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import com.domenota.medialoader.core.model.DownloadTask
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.storage.StorageManager
@@ -24,16 +23,21 @@ class SystemDownloadEngine(
         task: DownloadTask,
         onProgress: suspend (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
     ): DownloadResult {
+        val mimeType = when (task.item.type) {
+            MediaType.VIDEO -> "video/mp4"
+            MediaType.PHOTO -> "image/jpeg"
+            MediaType.AUDIO -> "audio/mpeg"
+        }
         val request = DownloadManager.Request(Uri.parse(task.item.downloadUrl))
             .setTitle(task.fileName)
             .setDescription("Загрузчик")
-            .setMimeType(if (task.item.type == MediaType.VIDEO) "video/mp4" else "image/jpeg")
+            .setMimeType(mimeType)
             .setNotificationVisibility(if (preferences.getBoolean("notifications", true))
                 DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
                 else DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationInExternalPublicDir(
-                Environment.DIRECTORY_DOWNLOADS,
-                storage.downloadsRelativePath(task.fileName),
+                storage.publicRootFor(mimeType),
+                storage.downloadsRelativePath(task.fileName, mimeType),
             )
         request.addRequestHeader("Referer", "https://www.instagram.com/")
         val systemId = system.enqueue(request)

@@ -120,6 +120,19 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): DownloadEntity?
 
+    /** Also account for private provenance references before deleting an old
+     * public source. A shared URI may be present in more than one history row. */
+    @Query("SELECT COUNT(*) FROM downloads WHERE savedUri = :uri OR privateSourceUri = :uri")
+    suspend fun countSavedUriReferences(uri: String): Int
+
+    /** Exact-match update of one app-owned file only, without touching its
+     * history ID, catalog assignment, favorite or timestamps. */
+    @Query("UPDATE downloads SET savedUri = :toUri, originalName = :toName " +
+        "WHERE id = :id AND savedUri = :fromUri " +
+        "AND isPrivate = 0 AND hidden = 0 AND state = 'COMPLETED'")
+    suspend fun moveSavedUriWhenCurrent(id: String, fromUri: String,
+        toUri: String, toName: String): Int
+
     @Query("UPDATE downloads SET previewUrl = :artworkUrl, sourceAudioArtworkUrl = :artworkUrl " +
         "WHERE id = :id AND providerId = 'muzmo' AND state = 'COMPLETED' AND previewUrl IS NULL")
     suspend fun setMuzmoArtworkIfMissing(id: String, artworkUrl: String): Int

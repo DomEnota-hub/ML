@@ -69,6 +69,8 @@ import com.domenota.medialoader.core.logging.AppLog
 import com.domenota.medialoader.data.storage.SavedFilePresence
 import com.domenota.medialoader.data.storage.SavedFileStatus
 import com.domenota.medialoader.data.storage.StorageManager
+import com.domenota.medialoader.data.storage.LegacyMediaMigration
+import com.domenota.medialoader.data.storage.StorageMigrationProgress
 import com.domenota.medialoader.data.storage.StorageSettings
 import com.domenota.medialoader.ui.components.loadAudioWaveform
 import com.domenota.medialoader.data.playback.BackgroundMediaWork
@@ -428,14 +430,20 @@ class MediaRepository private constructor(context: Context) {
     val hiddenItems: Flow<List<DownloadEntity>> = history.observeHidden()
     fun trashedUri(id: String): String? = storage.trashedUri(id)
 
-    /** Folder shown in Settings, for example "Download/MediaLoader". */
+    /** Folder for new photos/videos, for example "Pictures/MediaLoader". */
     val storageDisplayPath: String get() = storage.displayPath
     fun setDownloadFolder(name: String) {
         val folder = name.trim().trim('/')
         require(folder.matches(Regex("[\\p{L}\\p{N}_ -]{1,50}")))
-        storage.relativeDirectory = "Download/$folder/"
+        storage.relativeDirectory = "Pictures/$folder/"
     }
     fun selectDownloadFolder(uri: Uri) = storage.selectDirectory(uri)
+
+    /** Explicit migration only, no silent move on app upgrade. */
+    suspend fun migrateLegacyDownloads(onProgress: (StorageMigrationProgress) -> Unit):
+        StorageMigrationProgress = LegacyMediaMigration(
+            appContext, historyDb.downloadDao(), storage
+        ).migrate(onProgress)
     val usesSelectedFolder: Boolean get() = storage.usesSelectedFolder
 
     val musicRecognitionMode: MusicRecognitionMode get() = recognitionSettings.mode

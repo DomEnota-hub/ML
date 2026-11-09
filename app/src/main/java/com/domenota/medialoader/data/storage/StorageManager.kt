@@ -13,6 +13,9 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import com.domenota.medialoader.core.storage.StorageNaming
 import com.domenota.medialoader.core.storage.AudioThumbnailInvalidation
 import kotlin.coroutines.resume
@@ -163,13 +166,16 @@ class StorageManager(
         val file = File(trash, id)
         file.isFile && file.delete()
     }
-    /** For example "Download/MediaLoader/". */
+    /** For example "Pictures/MediaLoader/". Original history URIs remain untouched. */
     var relativeDirectory: String
         get() = settings.relativeDirectory
         set(value) { settings.relativeDirectory = value }
 
-    /** Path below the public Downloads directory, without a trailing slash: "MediaLoader". */
-    val downloadsSubPath: String get() = relativeDirectory.removePrefix("Download/").trimEnd('/')
+    /** The public root depends on the media MIME. Android stores audio in Music/. */
+    fun publicRootFor(mimeType: String): String =
+        MediaStoragePolicy.root(MediaStoragePolicy.route(relativeDirectory, mimeType))
+
+    val downloadsSubPath: String get() = relativeDirectory.substringAfter('/').trimEnd('/')
 
     /** Text for Settings. */
     val displayPath: String get() = settings.treeUri?.let {
@@ -192,13 +198,14 @@ class StorageManager(
         DocumentFile.fromTreeUri(context, Uri.parse(it))
     }
 
-    /** Path handed to DownloadManager for a file name. */
-    fun downloadsRelativePath(fileName: String): String =
-        if (downloadsSubPath.isEmpty()) fileName else "$downloadsSubPath/$fileName"
+    /** Path relative to the chosen public root for the system DownloadManager. */
+    fun downloadsRelativePath(fileName: String, mimeType: String = "image/jpeg"): String =
+        MediaStoragePolicy.subPath(MediaStoragePolicy.route(relativeDirectory, mimeType), fileName)
 
-    private fun publicFolder(): File {
-        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        return if (downloadsSubPath.isEmpty()) downloads else File(downloads, downloadsSubPath)
+    private fun publicFolder(path: String = relativeDirectory): File {
+        val root = Environment.getExternalStoragePublicDirectory(MediaStoragePolicy.root(path))
+        val sub = path.substringAfter('/').trim('/')
+        return if (sub.isEmpty()) root else File(root, sub)
     }
 
     /** Names already present in the target folder (file system and MediaStore). */
@@ -208,14 +215,36 @@ class StorageManager(
             return@withContext folder.listFiles().mapNotNull { it.name }.toSet()
         }
         val names = mutableSetOf<String>()
-        publicFolder().list()?.let(names::addAll)
+        val targets = listOf(
+            relativeDirectory,
+            MediaStoragePolicy.route(relativeDirectory, "audio/mpeg"),
+            MediaStoragePolicy.route(relativeDirectory, "application/octet-stream"),
+        ).distinct()
+        for (path in targets) publicFolder(path).list()?.let(names::addAll)
         if (Build.VERSION.SDK_INT >= 29) {
-            context.contentResolver.query(
+            val resolver = context.contentResolver
+            val collections = listOf(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
-                "${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
-                arrayOf(relativeDirectory), null,
-            )?.use { cursor -> while (cursor.moveToNext()) names.add(cursor.getString(0)) }
+            )
+            for (collection in collections) for (path in targets) {
+                // On Android 13+ a full-library permission is not required for
+                // writing app-owned media, but querying other owners may be denied.
+                try {
+                    resolver.query(collection,
+                        arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                        "${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+                        arrayOf(path), null,
+                    )?.use { cursor ->
+                        while (cursor.moveToNext()) cursor.getString(0)?.let(names::add)
+                    }
+                } catch (_: SecurityException) {
+                    // MediaStore itself handles collisions on insert; do not
+                    // request broad photo permissions merely to list names.
+                }
+            }
         }
         names
     }
@@ -239,18 +268,20 @@ class StorageManager(
                 }
                 return@withContext PublishedFile(document.uri, actualName)
             }
+            val targetPath = MediaStoragePolicy.route(relativeDirectory, mimeType)
             if (Build.VERSION.SDK_INT >= 29) {
                 val resolver = context.contentResolver
+                val collection = collectionFor(mimeType)
                 val rejectedNames = mutableSetOf<String>()
                 repeat(MAX_MEDIASTORE_NAME_ATTEMPTS) {
                     val actualName = StorageNaming.availableName(fileName, initialNames + rejectedNames)
                     val values = ContentValues().apply {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, actualName)
                         put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, relativeDirectory)
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, targetPath)
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
-                    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    val uri = resolver.insert(collection, values)
                         ?: throw IOException("Не удалось создать файл")
                     try {
                         val output = resolver.openOutputStream(uri)
@@ -270,7 +301,7 @@ class StorageManager(
                 }
                 throw IOException("Не удалось подобрать свободное имя файла")
             } else {
-                val folder = publicFolder()
+                val folder = publicFolder(targetPath)
                 if (!folder.exists() && !folder.mkdirs()) throw IOException("Не удалось создать папку")
                 val actualName = StorageNaming.availableName(fileName, initialNames)
                 val target = File(folder, actualName)
@@ -284,6 +315,105 @@ class StorageManager(
             }
         }
 
+    /**
+     * Copy ONLY an explicitly approved legacy history URI into a new,
+     * proper MediaStore Images/Video/Audio collection. SHA-256 is compared
+     * after reopening the new file. The old source is NEVER removed here;
+     * LegacyMediaMigration commits the exact-URI Room update first.
+     *
+     * No temporary multi-GB cache file is needed for large videos.
+     */
+    internal suspend fun publishVerifiedLegacyCopy(
+        oldSavedUri: String, fileName: String, mimeType: String,
+    ): PublishedFile = withContext(Dispatchers.IO) {
+        require(Build.VERSION.SDK_INT >= 29)
+        require(!usesSelectedFolder)
+        val kind = MediaStoragePolicy.kind(mimeType)
+        require(kind != MediaStoragePolicy.Kind.OTHER)
+        val oldUri = Uri.parse(oldSavedUri)
+        val resolver = context.contentResolver
+        val relativePath = MediaStoragePolicy.route(relativeDirectory, mimeType)
+        val existing = existingNames().toMutableSet()
+        val collisions = mutableSetOf<String>()
+        repeat(MAX_MEDIASTORE_NAME_ATTEMPTS) {
+            currentCoroutineContext().ensureActive()
+            val actual = StorageNaming.availableName(fileName, existing + collisions)
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, actual)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val newUri = resolver.insert(collectionFor(mimeType), values)
+                ?: throw IOException("Не удалось создать файл в новой медиатеке.")
+            try {
+                var copied = 0L
+                val sourceHash = MessageDigest.getInstance("SHA-256")
+                val source = resolver.openInputStream(oldUri)
+                    ?: throw IOException("Исходный файл недоступен.")
+                source.use { input ->
+                    val output = resolver.openOutputStream(newUri, "w")
+                        ?: throw IOException("Новый файл не открылся для записи.")
+                    output.use { target ->
+                        val bytes = ByteArray(64 * 1024)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = input.read(bytes)
+                            if (count < 0) break
+                            target.write(bytes, 0, count)
+                            sourceHash.update(bytes, 0, count)
+                            copied += count
+                        }
+                        target.flush()
+                    }
+                }
+                if (copied <= 0L) throw IOException("Исходный файл пустой.")
+                val verifiedHash = MessageDigest.getInstance("SHA-256")
+                var verifiedSize = 0L
+                val verifiedStream = resolver.openInputStream(newUri)
+                    ?: throw IOException("Невозможно проверить новый файл.")
+                verifiedStream.use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        verifiedHash.update(buffer, 0, read)
+                        verifiedSize += read
+                    }
+                }
+                if (copied != verifiedSize ||
+                    !sourceHash.digest().contentEquals(verifiedHash.digest()))
+                    throw IOException("Контрольная сумма перенесённого файла не совпала.")
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                if (resolver.update(newUri, values, null, null) != 1)
+                    throw IOException("Не удалось опубликовать проверенную копию.")
+                return@withContext PublishedFile(newUri, actual)
+            } catch (error: Exception) {
+                resolver.delete(newUri, null, null)
+                if (error is IllegalStateException &&
+                    error.message?.contains("Failed to build unique file",
+                        ignoreCase = true) == true) {
+                    collisions.add(actual)
+                } else throw error
+            }
+        }
+        throw IOException("Не удалось подобрать свободное имя в новой папке.")
+    }
+
+    private fun collectionFor(mimeType: String): Uri = when (MediaStoragePolicy.kind(mimeType)) {
+        MediaStoragePolicy.Kind.IMAGE -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        MediaStoragePolicy.Kind.VIDEO -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        MediaStoragePolicy.Kind.AUDIO -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        MediaStoragePolicy.Kind.OTHER -> if (Build.VERSION.SDK_INT >= 29) {
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        } else {
+            // Old Android releases use the filesystem-based publish path.
+            throw IllegalStateException("MediaStore.Downloads requires Android 10 or newer")
+        }
+    }
+
     private companion object {
         const val MAX_MEDIASTORE_NAME_ATTEMPTS = 100
     }
@@ -294,11 +424,16 @@ class StorageManager(
         val uri = Uri.parse(savedUri)
         if (uri.scheme != "content" || uri.authority != MediaStore.AUTHORITY) return@withContext false
         runCatching {
-            val folder = context.contentResolver.query(uri,
-                arrayOf(MediaStore.MediaColumns.RELATIVE_PATH), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) else null
+            val location = context.contentResolver.query(uri,
+                arrayOf(MediaStore.MediaColumns.RELATIVE_PATH, MediaStore.MediaColumns.MIME_TYPE),
+                null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) to cursor.getString(1) else null
             } ?: return@runCatching false
-            val collision = context.contentResolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            val folder = location.first
+            val collection = if (folder.startsWith("Download/"))
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            else collectionFor(location.second ?: "application/octet-stream")
+            val collision = context.contentResolver.query(collection,
                 arrayOf(MediaStore.MediaColumns._ID),
                 "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
                 arrayOf(folder, newName), null)?.use { it.moveToFirst() } ?: true
