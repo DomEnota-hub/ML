@@ -46,14 +46,14 @@ jobs:
       - name: Generate full pretrained DExNet plus VGG19 only after quality gates
         env:
           ML_DEXNET_SIDE: '128'
-          ML_REFLECTION_MODEL_OUTPUT_DIR: app/src/main/assets/ai
+          ML_REFLECTION_MODEL_OUTPUT_DIR: ${{ runner.temp }}/ml-reflection-model
           OMP_NUM_THREADS: '2'
           MKL_NUM_THREADS: '2'
         shell: bash
         run: |
           set -euo pipefail
           python scripts/qa/stage4_dexnet_full_inference_smoke.py
-          model=app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx
+          model="$RUNNER_TEMP/ml-reflection-model/dexnet_vgg19_reflection_128.onnx"
           test -s "$model"
           test -s "$model.sha256"
           # The runtime consumes a single raw 64-hex digest, not the
@@ -62,9 +62,8 @@ jobs:
           [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
           actual=$(sha256sum "$model" | cut -d' ' -f1)
           test "$actual" = "$expected"
-          git ls-files --error-unmatch "$model" >/dev/null 2>&1 && {
-            echo 'Model weights MUST NOT be committed to Git' >&2; exit 1;
-          } || :
+          test ! -e app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx
+          test ! -e app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx.sha256
           test "$(stat -c%s "$model")" -lt 110000000
       - name: Bootstrap pinned Gradle 8.9 from checked wrapper SHA
         shell: bash
@@ -84,7 +83,7 @@ jobs:
           set -euo pipefail
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
             'platforms;android-35' 'build-tools;35.0.0'
-      - name: Unit tests with ACTUAL DExNet model (before credential gate)
+      - name: Optional ONNX importer and inference tests after real model export
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true \
             --tests '*ReflectionRemovalEngineTest' \
@@ -132,7 +131,10 @@ jobs:
           "$bt/aapt" dump badging "$unsigned" | grep -F "name='com.domenota.medialoader.officialqa'"
           "$bt/aapt" dump badging "$unsigned" | grep -F "versionName='1.7.157-review'"
           test "$(unzip -Z1 "$unsigned" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
-          unzip -Z1 "$unsigned" | grep -q '^assets/ai/dexnet_vgg19_reflection_128.onnx$'
+          if unzip -Z1 "$unsigned" | grep -q '^assets/ai/dexnet_vgg19_reflection_128.onnx$'; then
+            echo "::error::Reflection ONNX must not be embedded into base APK" >&2
+            exit 1
+          fi
       - name: Sign QA only with the existing DomEnota release certificate
         shell: bash
         env:
@@ -186,6 +188,7 @@ jobs:
           set -euo pipefail
           python scripts/qa/package_stage4_qa.py \
             --apk "$RUNNER_TEMP/ml-stage4-signed.apk" \
+            --model "$RUNNER_TEMP/ml-reflection-model/dexnet_vgg19_reflection_128.onnx" \
             --out "$RUNNER_TEMP/ml-qa-handoff" \
             --version 1.7.157 --commit "$GITHUB_SHA"
           test "$(find "$RUNNER_TEMP/ml-qa-handoff" -maxdepth 1 -type f -name '*.zip' | wc -l)" = 3
@@ -198,6 +201,6 @@ jobs:
         run: |
           rm -f app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx
           rm -f app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx.sha256
-          rm -rf "$RUNNER_TEMP/ml-qa-handoff" .gapi-local
+          rm -rf "$RUNNER_TEMP/ml-qa-handoff" "$RUNNER_TEMP/ml-reflection-model" .gapi-local
           rm -f "$RUNNER_TEMP/ml-stage4-signed.apk" "$RUNNER_TEMP/ml-stage4-aligned.apk" "$RUNNER_TEMP/ml-dom-enota-qa-signing.jks"
           echo "Ephemeral model and QA packages wiped; no GitHub artifact published."
