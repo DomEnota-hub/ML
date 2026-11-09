@@ -476,16 +476,16 @@ internal fun ObjectRemovalPanel(
             scanText()
             return
         }
-        val marked = when {
-            textMode -> TextGlyphMask.toStrokes(
-                glyphs.filter { it.id in selectedGlyphs },
-                current.bitmap.width, current.bitmap.height)
+        val chosenGlyphs = if (textMode) glyphs.filter { it.id in selectedGlyphs }
+            else emptyList()
+        val otherMasks = when {
+            textMode -> emptyList()
             selectedMode == AiEraserMode.PEOPLE -> detectedPeople
                 .filter { it.detection.id in selectedPeople && it.detection.id !in ambiguousPeople }
                 .flatMap { it.strokes }
             else -> strokes.toList()
         }
-        if (marked.isEmpty()) return
+        if (if (textMode) chosenGlyphs.isEmpty() else otherMasks.isEmpty()) return
         if (!installed) {
             askDownload = true
             return
@@ -495,6 +495,17 @@ internal fun ObjectRemovalPanel(
         message = null
         scope.launch {
             try {
+                // Never use OCR bounding rectangles as the final LaMa mask.
+                // Pixel refinement is done off the UI thread; uncertain glyphs
+                // fail closed so the user can correct them manually.
+                val marked = if (textMode) withContext(Dispatchers.Default) {
+                    com.domenota.medialoader.data.editor.GlyphContentMask.fromBitmap(
+                        startStep.bitmap, chosenGlyphs)
+                } else otherMasks
+                if (marked.isEmpty()) {
+                    message = "Точный контур текста не подтверждён. Исправьте маску вручную."
+                    return@launch
+                }
                 val result = engine.inpaint(startStep.bitmap, marked)
                 // Retain bounded undo/redo image states and existing mask batches.
                 steps = steps.take(index + 1).takeLast(3) +
