@@ -459,6 +459,11 @@ class MediaRepository private constructor(context: Context) {
         com.domenota.medialoader.data.storage.MediaDateRecovery(
             appContext, historyDb.downloadDao()).restoreRemaining(onProgress)
 
+    internal suspend fun undoRestoredMediaDates():
+        com.domenota.medialoader.data.storage.MediaDateRecovery.Outcome =
+        com.domenota.medialoader.data.storage.MediaDateRecovery(
+            appContext, historyDb.downloadDao()).undoDateChanges()
+
     val usesSelectedFolder: Boolean get() = storage.usesSelectedFolder
 
     val musicRecognitionMode: MusicRecognitionMode get() = recognitionSettings.mode
