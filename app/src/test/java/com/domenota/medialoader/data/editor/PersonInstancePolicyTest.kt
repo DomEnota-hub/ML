@@ -63,7 +63,7 @@ class PersonInstancePolicyTest {
         assertTrue(PersonInstancePolicy.containsMask(
             person, MaskPoint(.5f, .5f), 200, 200))
         assertFalse(PersonInstancePolicy.containsMask(
-            person, MaskPoint(-.1f, .5f), 200, 200))
+            person, MaskPoint(.05f, .5f), 200, 200))
     }
 
     @Test fun highlyOverlappingDetectionsCannotBeSelectedIndependently() {
