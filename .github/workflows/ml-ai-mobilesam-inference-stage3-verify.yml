@@ -257,6 +257,18 @@ jobs:
           assert "if (saved) adjusted else 0" in gapi, "Failed balance migration must fail closed"
           assert not Path("app/src/main/assets/gapi-builtin-keys.json").exists(), "Never commit real GAPI credentials"
           PY
+      - name: Install headless MediaPipe EGL/GLES shared libraries
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgles2 libegl1 libgl1
+      - name: Real EfficientDet-Lite0 model weights and 0/1/2 people smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-input \
+            "mediapipe==0.10.35" "Pillow>=10,<13"
+          python3 scripts/qa/stage2_real_detector_smoke.py
       - name: Unified Compose video player, fullscreen, gallery, deletion and gesture tests
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true \
@@ -298,18 +310,6 @@ jobs:
             --tests '*GapiKeyStoreTest' \
             --tests '*GapiInstagramProviderTest' \
             --tests '*GapiUsagePolicyTest' --stacktrace
-      - name: Install headless MediaPipe EGL/GLES shared libraries
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgles2 libegl1 libgl1
-      - name: Real EfficientDet-Lite0 model weights and 0/1/2 people smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m pip install --disable-pip-version-check --no-input \
-            "mediapipe==0.10.35" "Pillow>=10,<13"
-          python3 scripts/qa/stage2_real_detector_smoke.py
       - name: Android lint
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Build unsigned ARM64 Release APK
