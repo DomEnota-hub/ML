@@ -146,21 +146,34 @@ class GapiKeyStoreTest {
         val second = builtin.copy(id = "builtin-two", token = "second-secret")
         fun reopen() = GapiKeyStore(prefs, ui, listOf(builtin, second), { now })
         // Old QA began at 156 and has already spent 56 credits on this device.
+        // The new reported 112 must not charge those same 56 credits again.
         prefs.edit().putString("usage:builtin-one",
             """{"month":"2026-11","remaining":100,"last":"previous-request"}""").commit()
-        assertEquals(listOf(56, 200), reopen().snapshot().map { it.remaining })
-        assertEquals(56, reopen().snapshot().first().remaining)
+        assertEquals(listOf(100, 200), reopen().snapshot().map { it.remaining })
+        assertEquals(100, reopen().snapshot().first().remaining)
         val migrated = org.json.JSONObject(prefs.getString("usage:builtin-one", "{}")!!)
         assertEquals(112, migrated.getInt("seedBaseline"))
-        assertEquals(56, migrated.getInt("remaining"))
+        assertEquals(100, migrated.getInt("remaining"))
         assertEquals("previous-request", migrated.getString("last"))
         reopen().recordResponse("/v2/vk?url=private-url", builtin.token, 200)
-        assertEquals(55, reopen().snapshot().first().remaining)
+        assertEquals(99, reopen().snapshot().first().remaining)
         reopen().move(second.id, -1)
-        assertEquals(listOf(200, 55), reopen().snapshot().map { it.remaining })
+        assertEquals(listOf(200, 99), reopen().snapshot().map { it.remaining })
         assertEquals("builtin-two", reopen().eligible().first().id)
         now = Instant.parse("2026-12-01T00:00:00Z").toEpochMilli()
         assertEquals(listOf(200, 200), reopen().snapshot().map { it.remaining })
+    }
+
+    @Test fun `legacy balance above new report clamps to 112 only once`() {
+        val prefs = context.getSharedPreferences("gapi-test", 0)
+        val ui = context.getSharedPreferences("ui-test", 0)
+        prefs.edit().putString("usage:builtin-one",
+            """{"month":"2026-11","remaining":150}""").commit()
+        fun reopen() = GapiKeyStore(prefs, ui, listOf(builtin), { now })
+        assertEquals(112, reopen().snapshot().single().remaining)
+        assertEquals(112, reopen().snapshot().single().remaining)
+        reopen().recordResponse("/v2/vk?url=private-url", builtin.token, 200)
+        assertEquals(111, reopen().snapshot().single().remaining)
     }
 
     @Test fun `new November usage keeps 112 seed without a second migration`() {
