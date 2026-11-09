@@ -2,7 +2,6 @@ package com.domenota.medialoader.data.editor
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import android.graphics.Bitmap
 import android.graphics.Color
 import java.io.IOException
@@ -157,29 +156,26 @@ internal class SpecularOnnxRunner(private val store: SpecularSrNetModelStore) : 
         val model = store.requireInstalled()
         val env = OrtEnvironment.getEnvironment()
         currentCoroutineContext().ensureActive()
-        OrtSession.SessionOptions().use { options ->
-            options.setIntraOpNumThreads(2)
-            env.createSession(model.absolutePath, options).use { session ->
-                if (!session.inputNames.contains("image") ||
-                    !session.outputNames.containsAll(setOf("highlight_mask", "diffuse")))
-                    throw IOException("SRNet: несовместимые имена входов/выходов ONNX.")
-                OnnxTensor.createTensor(env, FloatBuffer.wrap(image),
-                    longArrayOf(1, 3, size.toLong(), size.toLong())).use { input ->
-                    session.run(mapOf("image" to input)).use { result ->
-                        currentCoroutineContext().ensureActive()
-                        val maskTensor = result[0] as? OnnxTensor
-                            ?: throw IOException("SRNet: выход маски отсутствует.")
-                        val rgbTensor = result[2] as? OnnxTensor
-                            ?: throw IOException("SRNet: выход diffuse отсутствует.")
-                        if (!maskTensor.info.shape.contentEquals(longArrayOf(1, 1, 256, 256)) ||
-                            !rgbTensor.info.shape.contentEquals(longArrayOf(1, 3, 256, 256)))
-                            throw IOException("SRNet: неподдерживаемые формы ONNX.")
-                        val mask = FloatArray(SpecularGlareEngine.PIXELS)
-                        val diffuse = FloatArray(3 * SpecularGlareEngine.PIXELS)
-                        maskTensor.floatBuffer.apply { rewind(); get(mask) }
-                        rgbTensor.floatBuffer.apply { rewind(); get(diffuse) }
-                        return SpecularPrediction(mask, diffuse)
-                    }
+        return OrtSessions.srnet.use(model) { session ->
+            if (!session.inputNames.contains("image") ||
+                !session.outputNames.containsAll(setOf("highlight_mask", "diffuse")))
+                throw IOException("SRNet: несовместимые имена входов/выходов ONNX.")
+            OnnxTensor.createTensor(env, FloatBuffer.wrap(image),
+                longArrayOf(1, 3, size.toLong(), size.toLong())).use { input ->
+                session.run(mapOf("image" to input)).use { result ->
+                    currentCoroutineContext().ensureActive()
+                    val maskTensor = result[0] as? OnnxTensor
+                        ?: throw IOException("SRNet: выход маски отсутствует.")
+                    val rgbTensor = result[2] as? OnnxTensor
+                        ?: throw IOException("SRNet: выход diffuse отсутствует.")
+                    if (!maskTensor.info.shape.contentEquals(longArrayOf(1, 1, 256, 256)) ||
+                        !rgbTensor.info.shape.contentEquals(longArrayOf(1, 3, 256, 256)))
+                        throw IOException("SRNet: неподдерживаемые формы ONNX.")
+                    val mask = FloatArray(SpecularGlareEngine.PIXELS)
+                    val diffuse = FloatArray(3 * SpecularGlareEngine.PIXELS)
+                    maskTensor.floatBuffer.apply { rewind(); get(mask) }
+                    rgbTensor.floatBuffer.apply { rewind(); get(diffuse) }
+                    SpecularPrediction(mask, diffuse)
                 }
             }
         }
