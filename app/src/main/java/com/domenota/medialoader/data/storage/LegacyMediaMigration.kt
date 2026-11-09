@@ -30,20 +30,22 @@ import kotlinx.coroutines.withContext
  * Download/, but the history points to the verified replacement. Re-running
  * safely skips already-moved rows.
  */
+/** User-visible summary of an opt-in and resumable filesystem migration. */
+data class StorageMigrationStorageMigrationProgress(
+    val total: Int = 0,
+    val processed: Int = 0,
+    val moved: Int = 0,
+    val skipped: Int = 0,
+    val retainedBackups: Int = 0,
+    val running: Boolean = false,
+    val message: String = "",
+)
+
 internal class LegacyMediaMigration(
     private val context: Context,
     private val dao: DownloadDao,
     private val storage: StorageManager,
-) {
-    data class Progress(
-        val total: Int,
-        val processed: Int,
-        val moved: Int,
-        val skipped: Int,
-        val retainedBackups: Int,
-        val running: Boolean,
-        val message: String,
-    )
+)
 
     companion object {
         /** Only the public Download/ root, never Music/Pictures/Private. */
@@ -53,7 +55,7 @@ internal class LegacyMediaMigration(
                 path.length > "Download/".length
     }
 
-    suspend fun migrate(onProgress: (Progress) -> Unit): Progress =
+    suspend fun migrate(onProgress: (StorageMigrationProgress) -> Unit): StorageMigrationProgress =
         withContext(Dispatchers.IO) {
             check(Build.VERSION.SDK_INT >= 29) {
                 "Перенос через MediaStore доступен на Android 10 и новее."
@@ -61,7 +63,11 @@ internal class LegacyMediaMigration(
             check(!storage.usesSelectedFolder) {
                 "Выбрана сторонняя папка. Для переноса сначала выберите папку Pictures."
             }
-            val candidates = dao.all().filter { it.state == DownloadState.COMPLETED &&
+            val historyRows = dao.all()
+            check(historyRows.none {
+                it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED
+            }) { "Дождитесь завершения текущих загрузок перед переносом файлов." }
+            val candidates = historyRows.filter { it.state == DownloadState.COMPLETED &&
                 !it.isPrivate && !it.hidden && !it.savedUri.isNullOrBlank() &&
                 it.mediaType in setOf(MediaType.PHOTO, MediaType.VIDEO, MediaType.AUDIO) }
             val total = candidates.size
@@ -69,7 +75,7 @@ internal class LegacyMediaMigration(
             var moved = 0
             var skipped = 0
             var backups = 0
-            onProgress(Progress(total, 0, 0, 0, 0, true,
+            onStorageMigrationProgress(StorageMigrationProgress(total, 0, 0, 0, 0, true,
                 "Проверяем прежние загрузки…"))
             for (item in candidates) {
                 currentCoroutineContext().ensureActive()
@@ -93,12 +99,14 @@ internal class LegacyMediaMigration(
                             MediaType.AUDIO -> if (item.originalName.endsWith(".m4a", true))
                                 "audio/mp4" else "audio/mpeg"
                         }
-                        dest = storage.publishVerifiedLegacyCopy(saved, item.originalName, mime)
+                        val published = storage.publishVerifiedLegacyCopy(
+                            saved, item.originalName, mime)
+                        dest = published
                         currentCoroutineContext().ensureActive()
                         // No new history entry. Download ID, folder assignment,
                         // favorite, date and source metadata are untouched.
                         val changed = dao.moveSavedUriWhenCurrent(item.id, saved,
-                            dest.uri.toString(), dest.fileName)
+                            published.uri.toString(), published.fileName)
                         if (changed == 1) {
                             committed = true
                             moved++
@@ -130,10 +138,10 @@ internal class LegacyMediaMigration(
                     }
                 }
                 processed++
-                onProgress(Progress(total, processed, moved, skipped,
+                onStorageMigrationProgress(StorageMigrationProgress(total, processed, moved, skipped,
                     backups, true, "Проверено $processed из $total"))
             }
-            Progress(total, processed, moved, skipped, backups, false,
+            StorageMigrationProgress(total, processed, moved, skipped, backups, false,
                 "Перенесено: $moved. Пропущено: $skipped. " +
                     "Сохранено резервных копий: $backups.").also(onProgress)
         }
