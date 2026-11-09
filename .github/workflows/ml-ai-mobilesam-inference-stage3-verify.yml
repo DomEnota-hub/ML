@@ -161,7 +161,7 @@ jobs:
           assert "currentCoroutineContext().ensureActive()" in srnet_engine
           assert "SpecularFrame.forImage" in srnet_engine
           assert "Float.isNaN" not in srnet_engine, "Use finite validation for ALL malformed outputs"
-          assert "sha256" in Path("THIRD_PARTY_NOTICES.md").read_text().lower()
+          assert "sha-256" in Path("THIRD_PARTY_NOTICES.md").read_text().lower()
           assert 'REFLECTION("Удалить отражение", R.drawable.ic_ai_eraser_reflection, false)' in chrome
           assert "PersonSegmentationPipeline(detector, segmenter)" in eraser
           assert "val found = peoplePipeline.scan(source)" in eraser
