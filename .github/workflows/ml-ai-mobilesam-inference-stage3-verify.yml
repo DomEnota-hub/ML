@@ -57,19 +57,14 @@ jobs:
             if [ "$attempt" = 4 ]; then exit 1; fi
             sleep 10
           done
-      - name: Use alternate Maven mirrors for this run if Maven Central gateway times out
+      - name: Verify official Maven repos without unstable Aliyun proxy
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path("settings.gradle")
-          s=p.read_text()
-          # CI-only fallback. Keep tracked project repository configuration intact.
-          needle="repositories {\n        google()"
-          mirrors="repositories {\n        maven { url 'https://maven.aliyun.com/repository/public' }\n        maven { url 'https://maven.aliyun.com/repository/google' }\n        google()"
-          assert s.count(needle)==2
-          p.write_text(s.replace(needle,mirrors))
-          PY
+          set -euo pipefail
+          # Aliyun public mirror returned HTTP 502 and Gradle disabled the
+          # repository for all dependencies. Use original tracked settings.
+          grep -q 'google()' settings.gradle
+          grep -q 'mavenCentral()' settings.gradle
       - name: Install Android SDK
         run: |
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
