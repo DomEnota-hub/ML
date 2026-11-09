@@ -102,10 +102,9 @@ internal object AiModelUpdateChecker {
     private fun source(kind: Kind): ModelSource = when (kind) {
         Kind.LAMA -> ModelSource("sapienkit/LaMa-ONNX",
             listOf(ExpectedModelBlob("lama_fp32.onnx", LaMaModelStore.SHA256)))
-        Kind.PEOPLE -> ModelSource("litert-community/efficientdet", listOf(
-            ExpectedModelBlob(PersonDetectorModelStore.FILENAME,
-                PersonDetectorModelStore.SHA256),
-        ))
+        Kind.PEOPLE -> ModelSource("ketiswp/mediapipe-EfficientDet-Lite0-COCO2017-fp32-onnx",
+            listOf(ExpectedModelBlob("source/model.tflite",
+                PersonDetectorModelStore.SHA256, PersonDetectorModelStore.MODEL_BYTES)))
         Kind.MOBILE_SAM -> ModelSource("Acly/MobileSAM", listOf(
             ExpectedModelBlob("mobile_sam_image_encoder.onnx",
                 MobileSamModelStore.ENCODER_SHA256, MobileSamModelStore.ENCODER_BYTES),
