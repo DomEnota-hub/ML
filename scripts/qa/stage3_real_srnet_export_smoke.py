@@ -10,6 +10,8 @@ This script does NOT run on Android, does NOT ship models or APKs.
 from __future__ import annotations
 
 import ast
+import base64
+import os
 import hashlib
 import io
 import json
@@ -26,6 +28,8 @@ NETWORK_FILE = "specular_removal/network.py"
 WEIGHTS_FILE = "model/SRNet_2021-07-23_23-00-22.pth"
 SOURCE_BLOB_SHA1 = "a8d945260a4c32354057dc88e77a811a8c878875"
 MAX_WEIGHTS_BYTES = 2 * 1024 * 1024
+PINNED_WEIGHTS_SHA256 = "d20a8b1021cd150cba0fce6738fac997f9283390de134756ecc9710245c2cba8"
+PINNED_NETWORK_SHA256 = "472103bbc1bc6e3ab6839af147e12d3edec1110d3a8da891929c7c571a5b783f"
 
 
 def download(url: str, max_bytes: int) -> tuple[bytes, str]:
@@ -106,6 +110,9 @@ def main():
     network, network_sha = download(BASE + NETWORK_FILE, 128_000)
     print("UPSTREAM_WEIGHTS", len(weights), weights_sha, flush=True)
     print("UPSTREAM_ARCHITECTURE_SHA256", network_sha, flush=True)
+    if weights_sha != PINNED_WEIGHTS_SHA256 or network_sha != PINNED_NETWORK_SHA256:
+        raise AssertionError("Changed upstream weights/source: refuse model conversion")
+
     if not 30_000 < len(weights) < 1_000_000:
         raise AssertionError("Weights are unexpectedly empty, too large, or a pointer")
     model = build_network_from_licensed_upstream(network.decode("utf-8"))
@@ -136,6 +143,15 @@ def main():
         import onnx
         onnx.checker.check_model(str(onnx_file))
         print("ONNX_BYTES", onnx_file.stat().st_size, flush=True)
+        print("ONNX_SHA256", hashlib.sha256(onnx_file.read_bytes()).hexdigest(), flush=True)
+        # One-time safe transfer into GitHub's binary blob API, no archived artifact,
+        # release, or APK published. Normal CI runs do not dump model contents.
+        if os.environ.get("ML_EXPORT_ONNX_BLOB") == "1":
+            raw = base64.b64encode(onnx_file.read_bytes()).decode("ascii")
+            print("ONNX_BASE64_BEGIN", flush=True)
+            for i in range(0, len(raw), 76):
+                print("ONNX_BASE64 " + raw[i:i+76], flush=True)
+            print("ONNX_BASE64_END", flush=True)
         runtime = ort.InferenceSession(str(onnx_file), providers=["CPUExecutionProvider"])
         start = time.perf_counter()
         results = runtime.run(None, {"image": shiny[None]})
