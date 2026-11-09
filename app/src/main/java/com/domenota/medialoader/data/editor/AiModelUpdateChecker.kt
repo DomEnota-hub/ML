@@ -60,15 +60,21 @@ internal object ModelUpdatePolicy {
                     "В каталоге отсутствует проверяемый файл модели.")
         }
         val total = selected.sumOf { it.bytes }
-        val changed = expected.zip(selected).any { (pin, latest) ->
-            pin.sha256 != latest.sha256 || pin.bytes != null && pin.bytes != latest.bytes
+        val differences = expected.zip(selected).mapNotNull { (pin, latest) ->
+            val fields = mutableListOf<String>()
+            if (pin.sha256 != latest.sha256) fields.add("SHA-256")
+            if (pin.bytes != null && pin.bytes != latest.bytes)
+                fields.add("размер ${pin.bytes} → ${latest.bytes} байт")
+            if (fields.isEmpty()) null else "${pin.filename}: ${fields.joinToString(", ")}"
         }
+        val changed = differences.isNotEmpty()
         val revisionShort = revision.take(12)
         val megabytes = "%.1f".format(java.util.Locale.US, total / 1_000_000.0)
         return when {
             changed -> ModelUpdateResult(ModelUpdateState.REVIEW_REQUIRED,
-                "Новая ревизия $revisionShort ($megabytes МБ): SHA-256/размер отличаются. " +
-                    "Требуется проверка лицензии, совместимости и утверждение перед загрузкой.",
+                "Новая ревизия $revisionShort ($megabytes МБ). Изменения: " +
+                    "${differences.joinToString("; ")}. Требуется проверка лицензии, " +
+                    "совместимости и утверждение перед загрузкой.",
                 revision, total)
             !installedAndVerified -> ModelUpdateResult(ModelUpdateState.NOT_INSTALLED,
                 "Опубликованная версия $revisionShort ($megabytes МБ) совпадает с проверенным каталогом, " +
