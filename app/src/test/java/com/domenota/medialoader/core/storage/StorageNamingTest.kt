@@ -76,7 +76,7 @@ class StorageNamingTest {
         assertEquals("Видео.mp4", StorageNaming.customName("Видео.MP4", "old.mp4"))
     }
 
-    @Test fun defaultFolderStaysDownloadMediaLoader() {
-        assertEquals("Download/MediaLoader/", StorageNaming.DEFAULT_RELATIVE_DIRECTORY)
+    @Test fun defaultFolderIsPicturesMediaLoader() {
+        assertEquals("Pictures/MediaLoader/", StorageNaming.DEFAULT_RELATIVE_DIRECTORY)
     }
 }
