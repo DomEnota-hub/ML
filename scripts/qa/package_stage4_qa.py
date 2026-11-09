@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-release signed QA handoff: 2 part ZIPs for one APK + 1 exact-SHA source ZIP.
+"""No-release QA handoff: 2 ZIP parts for APK + optional ONNX, 1 source ZIP.
 
 Outputs ONLY in runner-local directory; GitHub Artifacts and Releases forbidden.
 The dedicated Drive step must upload these three files and verify their hashes.
@@ -23,6 +23,7 @@ def digest(data: bytes) -> str:
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--apk", type=pathlib.Path, required=True)
+    p.add_argument("--model", type=pathlib.Path, required=True)
     p.add_argument("--out", type=pathlib.Path, required=True)
     p.add_argument("--version", required=True)
     p.add_argument("--commit", required=True)
@@ -39,24 +40,43 @@ def main():
         ):
             raise RuntimeError("Not a compiled ARM64 APK")
         assert z.testzip() is None
-    if len(apk) < 10_000 or len(apk) > 2 * (MAX_FILE - 100_000):
-        raise RuntimeError("Signed APK cannot fit into exactly two 100MB archives")
+    model = args.model.read_bytes()
+    pinned = "0898eefd440b3adfc13b32b49b14c94e1acbf9b5ad5270f4022513b891a90917"
+    if len(model) != 91_341_128 or digest(model) != pinned:
+        raise RuntimeError("ONNX SHA-256 or model length differs from the vetted DExNet")
+    if len(apk) < 10_000:
+        raise RuntimeError("Invalid compiled QA APK")
+    instructions = (
+        "Из двух архивов извлеките ML_*_QA_bundle.zip.001 и .002. "
+        "Соедините по порядку в ML_QA_bundle.zip "
+        "(Linux: cat *.zip.001 *.zip.002 > ML_QA_bundle.zip). "
+        "Распакуйте ZIP. Установите APK. Затем откройте "
+        "Настройки -> AI-модели -> DExNet -> Импортировать и укажите .onnx. "
+        "Проверьте SHA-256; фото не передаются в сеть. "
+        "Оценка качества и тест Xiaomi отдельно."
+    )
+    # Do not embed optional 91 MB weights into the base APK. Both archives
+    # carry an APK and a separate model with a known pinned checksum.
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_STORED) as combined:
+        combined.writestr(f"ML_{args.version}_QA_ARM64.apk", apk)
+        combined.writestr("dexnet_vgg19_reflection_128.onnx", model)
+        combined.writestr("INSTALL_README.txt", instructions.encode("utf-8"))
+    bundle = payload.getvalue()
+    if len(bundle) > 2 * (MAX_FILE - 100_000):
+        raise RuntimeError("Signed APK plus ONNX exceeds 2x100MB; optimize instead of removing model")
     args.out.mkdir(parents=True)
-    halves = [apk[:(len(apk)+1)//2], apk[(len(apk)+1)//2:]]
+    halves = [bundle[:(len(bundle)+1)//2], bundle[(len(bundle)+1)//2:]]
     written = []
     for i, content in enumerate(halves, start=1):
         output = args.out / f"ML_{args.version}_QA_ARM64_part{i}.zip"
-        internal_name = f"ML_{args.version}_QA_ARM64.apk.{i:03d}"
-        instructions = (
-            "Извлеките *.apk.001 и *.apk.002 из ОБОИХ архивов. "
-            "Объедините части по порядку 001 затем 002 в единый APK. "
-            "Проверьте SHA-256 итогового файла перед установкой. "
-            "Пример Linux: cat *.apk.001 *.apk.002 > MediaLoader_QA.apk"
-        )
+        internal_name = f"ML_{args.version}_QA_bundle.zip.{i:03d}"
         meta = {
             "version": args.version,
             "source_commit": args.commit,
             "original_apk_sha256": digest(apk),
+            "model_sha256": digest(model),
+            "qa_bundle_sha256": digest(bundle),
             "part": i,
             "part_sha256": digest(content),
             "instructions": instructions,
@@ -67,12 +87,17 @@ def main():
                        json.dumps(meta, indent=2, ensure_ascii=False),
                        compress_type=zipfile.ZIP_DEFLATED)
         if output.stat().st_size > MAX_FILE:
-            raise RuntimeError("Part exceeds Google Drive limit")
+            raise RuntimeError("QA part exceeds Google Drive size limit")
         written.append(output)
     with zipfile.ZipFile(written[0]) as first, zipfile.ZipFile(written[1]) as second:
         assert first.testzip() is None and second.testzip() is None
-        assert first.read(f"ML_{args.version}_QA_ARM64.apk.001") + second.read(
-            f"ML_{args.version}_QA_ARM64.apk.002") == apk
+        restored_bytes = first.read(f"ML_{args.version}_QA_bundle.zip.001") + second.read(
+            f"ML_{args.version}_QA_bundle.zip.002")
+        assert digest(restored_bytes) == digest(bundle)
+        with zipfile.ZipFile(io.BytesIO(restored_bytes)) as restored:
+            assert restored.testzip() is None
+            assert digest(restored.read(f"ML_{args.version}_QA_ARM64.apk")) == digest(apk)
+            assert digest(restored.read("dexnet_vgg19_reflection_128.onnx")) == digest(model)
 
     archive = args.out / f"ML_{args.version}_sources_{args.commit[:12]}.zip"
     source = subprocess.run(
@@ -88,7 +113,7 @@ def main():
             raise RuntimeError("Private signing key checked into source")
     archive.write_bytes(source)
     output = {
-        "apk_sha256": digest(apk), "source_commit": args.commit,
+        "apk_sha256": digest(apk), "model_sha256": digest(model), "source_commit": args.commit,
         "version": args.version,
         "files": [{ "name": file.name, "bytes": file.stat().st_size,
                     "sha256": digest(file.read_bytes())} for file in written + [archive]],
