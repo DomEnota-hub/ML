@@ -521,8 +521,7 @@ fun GalleryModeScreen(
                             { renameTarget = row }, { onMoveToPrivate(row.id) },
                             selecting = selecting, selected = row.id in selectedSet,
                             onSelect = { toggle(row.id) },
-                            onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) },
-                            showFileName = true)
+                            onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) })
                     }
                 } else dateSections.forEach { (date, rows) ->
                         item(key = "date:$date", span = { GridItemSpan(maxLineSpan) }) {
@@ -563,8 +562,7 @@ fun GalleryModeScreen(
                                 { onShare(row.id) }, { onDelete(row.id) }, { renameTarget = row }, { onMoveToPrivate(row.id) },
                                 selecting = selecting, selected = row.id in selectedSet,
                                 onSelect = { toggle(row.id) },
-                                onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) },
-                                showFileName = detailOpen)
+                                onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) })
                         }
                     }
             }
@@ -745,7 +743,7 @@ private fun GallerySectionTitle(text: String) { Text(text, Modifier.padding(hori
 private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: () -> Unit, onFavorite: () -> Unit,
                              onFolder: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit, onRename: () -> Unit, onPrivate: () -> Unit,
                              selecting: Boolean, selected: Boolean, onSelect: () -> Unit,
-                             onLongSelect: () -> Unit, showFileName: Boolean = false) {
+                             onLongSelect: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
         .semantics { contentDescription = item.originalName }
@@ -763,14 +761,6 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
         else IconButton({ menu = true }, Modifier.align(Alignment.TopEnd).size(32.dp)) {
             Icon(Icons.Rounded.MoreVert, "Действия: ${item.originalName}", tint = Color.White,
                 modifier = Modifier.background(Color.Black.copy(alpha = .3f), RoundedCornerShape(8.dp)).size(22.dp))
-        }
-        if (showFileName && item.mediaType == MediaType.VIDEO) {
-            Text(item.originalName.substringBeforeLast('.', item.originalName),
-                Modifier.align(Alignment.BottomStart).padding(start = 3.dp, end = 43.dp, bottom = 4.dp)
-                    .background(Color.Black.copy(alpha = 0.70f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                color = Color.White, fontSize = 9.sp, lineHeight = 10.sp,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (item.mediaType == MediaType.VIDEO) Row(Modifier.align(Alignment.BottomEnd).padding(4.dp)
             .background(Color.Black.copy(alpha = .45f), RoundedCornerShape(4.dp)).padding(3.dp), verticalAlignment = Alignment.CenterVertically) {
