@@ -320,7 +320,7 @@ def main():
             model_sha = destination / "dexnet_vgg19_reflection_128.onnx.sha256"
             import shutil
             shutil.copyfile(onnxpath, model_asset)
-            model_sha.write_text(sha256(model_asset) + "\\n", encoding="ascii")
+            model_sha.write_text(sha256(model_asset) + "\n", encoding="ascii")
             if model_asset.stat().st_size not in range(88_000_000, 110_000_001):
                 raise RuntimeError("Wrong reflection QA model bytes")
             print("QA_BUNDLE_LOCAL_ONLY", model_asset.stat().st_size,
