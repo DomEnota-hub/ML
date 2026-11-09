@@ -52,6 +52,20 @@ class PersonInstancePolicyTest {
         } catch (_: IOException) { /* expected */ }
     }
 
+    @Test fun tapSelectsActualSilhouetteNotBackgroundInsidePersonBox() {
+        val box = PersonBox(.1f, .1f, .9f, .9f)
+        val strokes = listOf(MaskStroke(listOf(
+            MaskPoint(.35f, .5f), MaskPoint(.58f, .5f)), .05f))
+        val person = PersonInstance(PersonDetection(0, box, .9f), strokes)
+        assertTrue(box.contains(MaskPoint(.84f, .5f)))
+        assertFalse(PersonInstancePolicy.containsMask(
+            person, MaskPoint(.84f, .5f), 200, 200))
+        assertTrue(PersonInstancePolicy.containsMask(
+            person, MaskPoint(.5f, .5f), 200, 200))
+        assertFalse(PersonInstancePolicy.containsMask(
+            person, MaskPoint(-.1f, .5f), 200, 200))
+    }
+
     @Test fun highlyOverlappingDetectionsCannotBeSelectedIndependently() {
         val strokes = (0..30).map {
             MaskStroke(listOf(MaskPoint(.2f, it / 64f),
