@@ -83,6 +83,7 @@ internal class SpecularSrNetModelStore(context: Context) {
             val hash = digest.digest().joinToString("") { "%02x".format(it) }
             if (total != MODEL_BYTES || hash != MODEL_SHA256)
                 throw IOException("Встроенная модель SRNet не прошла SHA-256.")
+            OrtSessions.srnet.release()
             if (model.exists() && !model.delete())
                 throw IOException("Не удалось заменить существующую модель SRNet.")
             if (!part.renameTo(model))
@@ -95,6 +96,7 @@ internal class SpecularSrNetModelStore(context: Context) {
     }
 
     suspend fun uninstall() = withContext(Dispatchers.IO) {
+        OrtSessions.srnet.release()
         for (f in listOf(model, File(folder, "$MODEL_NAME.part"))) {
             if (f.exists() && !f.delete()) throw IOException("Не удалось удалить модель SRNet.")
         }

@@ -113,6 +113,7 @@ internal class ReflectionDExModelStore(context: Context) {
             val actual = digest.digest().joinToString("") { "%02x".format(it) }
             if (copied !in MIN_BYTES..MAX_BYTES || actual != expected)
                 throw IOException("Контрольная сумма DExNet не совпадает.")
+            OrtSessions.dexnet.release()
             if (installed.exists() && !installed.delete())
                 throw IOException("Не удалось заменить прежнюю DExNet.")
             if (!part.renameTo(installed))
@@ -167,7 +168,8 @@ internal class ReflectionDExModelStore(context: Context) {
                 val actual = digest.digest().joinToString("") { "%02x".format(it) }
                 if (copied != EXACT_BYTES || actual != expected) throw IOException(
                     "Неверная DExNet + VGG19: размер или SHA-256 не совпал.")
-                if (installed.exists() && !installed.delete()) throw IOException(
+                OrtSessions.dexnet.release()
+            if (installed.exists() && !installed.delete()) throw IOException(
                     "Не удалось заменить прежнюю DExNet.")
                 if (!part.renameTo(installed)) throw IOException(
                     "Не удалось завершить импорт DExNet.")
@@ -182,6 +184,7 @@ internal class ReflectionDExModelStore(context: Context) {
         }
 
     suspend fun uninstall() = withContext(Dispatchers.IO) {
+        OrtSessions.dexnet.release()
         for (file in listOf(installed, File(folder, "$MODEL_NAME.part"))) {
             if (file.isFile && !file.delete())
                 throw IOException("Не удалось удалить модель отражений.")
