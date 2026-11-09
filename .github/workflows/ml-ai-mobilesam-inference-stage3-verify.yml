@@ -18,6 +18,7 @@ on:
       - feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109
       - feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109
       - feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109
+      - feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109
   workflow_dispatch:
 permissions:
   contents: read
