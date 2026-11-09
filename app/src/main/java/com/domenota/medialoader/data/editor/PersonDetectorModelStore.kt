@@ -17,9 +17,10 @@ import kotlinx.coroutines.withContext
 /**
  * Optional REAL EfficientDet-Lite0 (COCO person detector), run only on device.
  *
- * Published model: https://huggingface.co/litert-community/efficientdet
- * Model publisher's declared license: Apache-2.0, revision pinned below.
- * SHA-256 is published with the binary file in the model repository.
+ * Official MediaPipe Tasks model with required TFLite metadata:
+ * https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/1/efficientdet_lite0.tflite
+ * SHA-256 and byte count independently matched by an Apache-2.0 model mirror:
+ * https://huggingface.co/ketiswp/mediapipe-EfficientDet-Lite0-COCO2017-fp32-onnx
  * Weight is NOT included in the APK and never silently downloaded.
  */
 internal class PersonDetectorModelStore(context: Context) {
@@ -27,15 +28,16 @@ internal class PersonDetectorModelStore(context: Context) {
     private val target = File(folder, FILENAME)
 
     companion object {
-        const val REVISION = "360eea05e7de8f0d0f5602b548b5bbee6f7b65c7"
-        const val FILENAME = "efficientdet_lite0_detection.tflite"
-        const val SHA256 = "33a3b622c7cac0762f96089353cd61495f3e993968d133af7871bfc2d5396704"
-        const val URL_PATH = "https://huggingface.co/litert-community/efficientdet/resolve/$REVISION/$FILENAME?download=true"
+        const val REVISION = "float32/1"
+        const val FILENAME = "efficientdet_lite0.tflite"
+        const val SHA256 = "40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58"
+        const val MODEL_BYTES = 13_836_895L
+        const val URL_PATH = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/$REVISION/$FILENAME"
         const val MAX_BYTES = 16L * 1024 * 1024
         const val MIN_DISK_BYTES = 48L * 1024 * 1024
     }
 
-    fun installed(): Boolean = target.isFile && target.length() in 1_000_001L..MAX_BYTES
+    fun installed(): Boolean = target.isFile && target.length() == MODEL_BYTES
 
     suspend fun verifyInstalled(): Boolean = withContext(Dispatchers.IO) { verified() }
 
@@ -65,7 +67,8 @@ internal class PersonDetectorModelStore(context: Context) {
                 val status = connection.responseCode
                 if (status !in 200..299) throw IOException("Ошибка загрузки модели людей: HTTP $status")
                 val length = connection.contentLengthLong
-                if (length > MAX_BYTES) throw IOException("Размер модели людей превышает допустимый.")
+                if (length > MAX_BYTES || length in 0..MAX_BYTES && length != MODEL_BYTES)
+                    throw IOException("Неверный размер модели людей.")
                 val digest = MessageDigest.getInstance("SHA-256")
                 var downloaded = 0L
                 connection.inputStream.use { input ->
@@ -87,7 +90,7 @@ internal class PersonDetectorModelStore(context: Context) {
                     }
                 }
                 val actual = digest.digest().joinToString("") { "%02x".format(it) }
-                if (downloaded <= 1_000_000L || actual != SHA256)
+                if (downloaded != MODEL_BYTES || actual != SHA256)
                     throw IOException("SHA-256 модели обнаружения людей не совпадает.")
                 if (target.exists() && !target.delete())
                     throw IOException("Не удалось заменить старую модель людей.")
