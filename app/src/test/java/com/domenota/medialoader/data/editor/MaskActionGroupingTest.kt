@@ -29,7 +29,21 @@ class MaskActionGroupingTest {
         history.record(500)
         history.undoCount()
         history.record(1)
-        assertEquals(1, history.redoCount())
+        assertEquals(0, history.redoCount())
+    }
+
+    @Test fun emptyHistoryCannotInventUndoOrRedo() {
+        val history = MaskActionGrouping()
+        assertEquals(0, history.undoCount())
+        assertEquals(0, history.redoCount())
+        history.record(321)
+        assertEquals(321, history.undoCount())
+        assertEquals(0, history.undoCount())
+        assertEquals(321, history.redoCount())
+        assertEquals(0, history.redoCount())
+        history.clear()
+        assertEquals(0, history.undoCount())
+        assertEquals(0, history.redoCount())
     }
 
     @Test fun newImageOrModeStartsFreshHistory() {
