@@ -2,11 +2,11 @@ package com.domenota.medialoader.data.editor
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import android.graphics.Bitmap
 import android.graphics.Color
 import java.io.IOException
+import java.io.File
 import java.nio.FloatBuffer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -74,28 +74,25 @@ internal class MobileSamSegmenter(private val store: MobileSamModelStore) {
                 rgb[i * 3 + 2] = Color.blue(argb).toFloat()
             }
             currentCoroutineContext().ensureActive()
-            OrtSession.SessionOptions().use { opt ->
-                opt.setIntraOpNumThreads(2)
-                env.createSession(path, opt).use { encoder ->
-                    val info = (encoder.inputInfo["input_image"]?.info as? TensorInfo)
-                        ?: throw IOException("MobileSAM: вход encoder input_image отсутствует.")
-                    val shape = info.shape
-                    if (shape.size != 3 || shape[2] != 3L)
-                        throw IOException("MobileSAM: неподдерживаемая форма входа encoder.")
-                    OnnxTensor.createTensor(env, FloatBuffer.wrap(rgb),
-                        longArrayOf(frame.height.toLong(), frame.width.toLong(), 3)).use { input ->
-                        encoder.run(mapOf("input_image" to input)).use { result ->
-                            val output = result[0] as? OnnxTensor
-                                ?: throw IOException("MobileSAM: отсутствует выход encoder.")
-                            val actual = output.info.shape
-                            if (!actual.contentEquals(longArrayOf(1, 256, 64, 64)))
-                                throw IOException("MobileSAM: несовместимый размер image_embeddings.")
-                            val values = FloatArray(MobileSamGeometry.EMBEDDING_ELEMENTS)
-                            val buf = output.floatBuffer
-                            buf.rewind()
-                            buf.get(values)
-                            return values
-                        }
+            return OrtSessions.samEncoder.use(File(path)) { encoder ->
+                val info = (encoder.inputInfo["input_image"]?.info as? TensorInfo)
+                    ?: throw IOException("MobileSAM: вход encoder input_image отсутствует.")
+                val shape = info.shape
+                if (shape.size != 3 || shape[2] != 3L)
+                    throw IOException("MobileSAM: неподдерживаемая форма входа encoder.")
+                OnnxTensor.createTensor(env, FloatBuffer.wrap(rgb),
+                    longArrayOf(frame.height.toLong(), frame.width.toLong(), 3)).use { input ->
+                    encoder.run(mapOf("input_image" to input)).use { result ->
+                        currentCoroutineContext().ensureActive()
+                        val output = result[0] as? OnnxTensor
+                            ?: throw IOException("MobileSAM: отсутствует выход encoder.")
+                        if (!output.info.shape.contentEquals(longArrayOf(1, 256, 64, 64)))
+                            throw IOException("MobileSAM: несовместимый размер image_embeddings.")
+                        val values = FloatArray(MobileSamGeometry.EMBEDDING_ELEMENTS)
+                        val buf = output.floatBuffer
+                        buf.rewind()
+                        buf.get(values)
+                        values
                     }
                 }
             }
@@ -111,44 +108,41 @@ internal class MobileSamSegmenter(private val store: MobileSamModelStore) {
         pointCoords: FloatArray,
     ): FloatArray {
         val env = OrtEnvironment.getEnvironment()
-        OrtSession.SessionOptions().use { opt ->
-            opt.setIntraOpNumThreads(2)
-            env.createSession(path, opt).use { decoder ->
-                val names = setOf("image_embeddings", "point_coords", "point_labels",
-                    "mask_input", "has_mask_input", "orig_im_size")
-                if (!decoder.inputNames.containsAll(names))
-                    throw IOException("MobileSAM: несовместимые входы decoder.")
-                val tensors = mutableListOf<OnnxTensor>()
-                try {
-                    fun tensor(values: FloatArray, dims: LongArray): OnnxTensor =
-                        OnnxTensor.createTensor(env, FloatBuffer.wrap(values), dims).also { tensors.add(it) }
-                    val inputs = mapOf(
-                        "image_embeddings" to tensor(features, longArrayOf(1, 256, 64, 64)),
-                        "point_coords" to tensor(pointCoords, longArrayOf(1, 1, 2)),
-                        "point_labels" to tensor(floatArrayOf(1f), longArrayOf(1, 1)),
-                        "mask_input" to tensor(FloatArray(256 * 256), longArrayOf(1, 1, 256, 256)),
-                        "has_mask_input" to tensor(floatArrayOf(0f), longArrayOf(1)),
-                        "orig_im_size" to tensor(
-                            floatArrayOf(frame.height.toFloat(), frame.width.toFloat()),
-                            longArrayOf(2)),
-                    )
+        return OrtSessions.samDecoder.use(File(path)) { decoder ->
+            val names = setOf("image_embeddings", "point_coords", "point_labels",
+                "mask_input", "has_mask_input", "orig_im_size")
+            if (!decoder.inputNames.containsAll(names))
+                throw IOException("MobileSAM: несовместимые входы decoder.")
+            val tensors = mutableListOf<OnnxTensor>()
+            try {
+                fun tensor(values: FloatArray, dims: LongArray): OnnxTensor =
+                    OnnxTensor.createTensor(env, FloatBuffer.wrap(values), dims).also { tensors.add(it) }
+                val inputs = mapOf(
+                    "image_embeddings" to tensor(features, longArrayOf(1, 256, 64, 64)),
+                    "point_coords" to tensor(pointCoords, longArrayOf(1, 1, 2)),
+                    "point_labels" to tensor(floatArrayOf(1f), longArrayOf(1, 1)),
+                    "mask_input" to tensor(FloatArray(256 * 256), longArrayOf(1, 1, 256, 256)),
+                    "has_mask_input" to tensor(floatArrayOf(0f), longArrayOf(1)),
+                    "orig_im_size" to tensor(
+                        floatArrayOf(frame.height.toFloat(), frame.width.toFloat()),
+                        longArrayOf(2)),
+                )
+                currentCoroutineContext().ensureActive()
+                decoder.run(inputs).use { result ->
                     currentCoroutineContext().ensureActive()
-                    decoder.run(inputs).use { result ->
-                        val mask = result[0] as? OnnxTensor
-                            ?: throw IOException("MobileSAM: decoder не вернул маску.")
-                        val shape = mask.info.shape
-                        if (!shape.contentEquals(longArrayOf(1, 1,
-                                frame.height.toLong(), frame.width.toLong())))
-                            throw IOException("MobileSAM: неверный размер выходной маски.")
-                        val values = FloatArray(frame.width * frame.height)
-                        val buffer = mask.floatBuffer
-                        buffer.rewind()
-                        buffer.get(values)
-                        return values
-                    }
-                } finally {
-                    tensors.asReversed().forEach { it.close() }
+                    val mask = result[0] as? OnnxTensor
+                        ?: throw IOException("MobileSAM: decoder не вернул маску.")
+                    if (!mask.info.shape.contentEquals(longArrayOf(1, 1,
+                            frame.height.toLong(), frame.width.toLong())))
+                        throw IOException("MobileSAM: неверный размер выходной маски.")
+                    val values = FloatArray(frame.width * frame.height)
+                    val buffer = mask.floatBuffer
+                    buffer.rewind()
+                    buffer.get(values)
+                    values
                 }
+            } finally {
+                tensors.asReversed().forEach { it.close() }
             }
         }
     }
