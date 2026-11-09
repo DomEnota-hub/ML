@@ -151,7 +151,8 @@ jobs:
           people_model = Path("app/src/main/java/com/domenota/medialoader/data/editor/PersonDetectorModelStore.kt").read_text()
           person_policy = Path("app/src/main/java/com/domenota/medialoader/data/editor/PersonInstancePolicy.kt").read_text()
           person_runner = Path("app/src/main/java/com/domenota/medialoader/data/editor/PersonDetector.kt").read_text()
-          assert "33a3b622c7cac0762f96089353cd61495f3e993968d133af7871bfc2d5396704" in people_model
+          assert "40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58" in people_model
+          assert "13_836_895L" in people_model and "storage.googleapis.com/mediapipe-models/object_detector" in people_model
           assert 'verified()' in people_model and 'partial.delete()' not in people_model
           assert "MAX_BYTES" in people_model and "ensureActive()" in people_model
           assert "setModelAssetBuffer(buffer)" in person_runner and "ObjectDetector.createFromOptions" in person_runner
