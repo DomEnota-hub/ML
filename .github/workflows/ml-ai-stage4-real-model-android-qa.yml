@@ -121,48 +121,71 @@ jobs:
               raise SystemExit('Refusing QA: built-in GAPI credentials missing or invalid')
           print('Built-in GAPI configuration validated (credential values not logged)')
           PY
-      - name: Load existing persistent QA-only signing identity (no private key in Git)
-        env:
-          MEDIA_DEBUG_KEYSTORE_B64: ${{ secrets.MEDIA_DEBUG_KEYSTORE_B64 }}
+      - name: Assemble isolated ARM64 unsigned Release QA (production remains untouched)
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${MEDIA_DEBUG_KEYSTORE_B64:-}" ]; then
-            echo "::error::Missing existing persistent MEDIA_DEBUG_KEYSTORE_B64 in GitHub Actions secrets."
-            echo "::error::No APK or handoff created; never invent a signing identity."
-            exit 1
-          fi
-          key="$RUNNER_TEMP/medialoader-qa-test-key.keystore"
-          printf '%s' "$MEDIA_DEBUG_KEYSTORE_B64" | tr -d '\r\n ' | base64 --decode > "$key"
-          chmod 600 "$key"
-          keytool -list -keystore "$key" -storepass android -alias androiddebugkey >/dev/null
-          echo "MEDIA_DEBUG_KEYSTORE_PATH=$key" >> "$GITHUB_ENV"
-      - name: Assemble signed and isolated ARM64 review APK (NOT production)
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew :app:assembleDebug -PofficialQa=true -Parm64Release=true --stacktrace
-          apk="app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$apk"
+          ./gradlew :app:assembleRelease -PofficialQa=true -Parm64Release=true --stacktrace
+          unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -s "$unsigned"
           bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
-          "$bt/apksigner" verify --verbose "$apk"
-          expected=$(keytool -exportcert -keystore "$MEDIA_DEBUG_KEYSTORE_PATH" -storepass android \
-            -alias androiddebugkey | sha256sum | cut -d' ' -f1)
-          actual=$("$bt/apksigner" verify --print-certs "$apk" | \
-            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
-          test -n "$actual" && test "$actual" = "$expected"
-          "$bt/aapt" dump badging "$apk" | grep -F "name='com.domenota.medialoader.officialqa'"
-          "$bt/aapt" dump badging "$apk" | grep -F "versionName='1.7.157-review'"
-          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
-          unzip -Z1 "$apk" | grep -q '^assets/ai/dexnet_vgg19_reflection_128.onnx$'
-          "$bt/zipalign" -c -v 4 "$apk"
-          sha256sum "$apk"
+          "$bt/aapt" dump badging "$unsigned" | grep -F "name='com.domenota.medialoader.officialqa'"
+          "$bt/aapt" dump badging "$unsigned" | grep -F "versionName='1.7.157-review'"
+          test "$(unzip -Z1 "$unsigned" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          unzip -Z1 "$unsigned" | grep -q '^assets/ai/dexnet_vgg19_reflection_128.onnx$'
+      - name: Sign QA only with the existing DomEnota release certificate
+        shell: bash
+        env:
+          ML_RELEASE_KEYSTORE_BASE64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
+          ML_RELEASE_STORE_PASSWORD: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
+          ML_RELEASE_KEY_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
+          ML_RELEASE_KEY_PASSWORD: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
+          ML_RELEASE_SIGNER_SHA256: ${{ secrets.ML_RELEASE_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          for required in ML_RELEASE_KEYSTORE_BASE64 ML_RELEASE_STORE_PASSWORD ML_RELEASE_KEY_ALIAS ML_RELEASE_KEY_PASSWORD ML_RELEASE_SIGNER_SHA256; do
+            if [ -z "${!required:-}" ]; then
+              echo "::error::Missing protected signing input: $required" >&2
+              exit 1
+            fi
+          done
+          umask 077
+          keystore="$RUNNER_TEMP/ml-dom-enota-qa-signing.jks"
+          aligned="$RUNNER_TEMP/ml-stage4-aligned.apk"
+          signed="$RUNNER_TEMP/ml-stage4-signed.apk"
+          trap 'rm -f "$keystore" "$aligned"' EXIT
+          printf '%s' "$ML_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          "$bt/zipalign" -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$aligned"
+          "$bt/apksigner" sign --min-sdk-version 26 \
+            --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
+            --ks "$keystore" --ks-key-alias "$ML_RELEASE_KEY_ALIAS" \
+            --ks-pass env:ML_RELEASE_STORE_PASSWORD \
+            --key-pass env:ML_RELEASE_KEY_PASSWORD --out "$signed" "$aligned"
+          "$bt/apksigner" verify --verbose "$signed" | tee "$RUNNER_TEMP/ml-stage4-apk-verify.txt"
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' "$RUNNER_TEMP/ml-stage4-apk-verify.txt"
+          grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' "$RUNNER_TEMP/ml-stage4-apk-verify.txt"
+          actual=$("$bt/apksigner" verify --print-certs "$signed" | \
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | \
+            tr '[:upper:]' '[:lower:]' | tr -d ': ')
+          expected=$(printf '%s' "$ML_RELEASE_SIGNER_SHA256" | \
+            tr '[:upper:]' '[:lower:]' | tr -d ': ')
+          test -n "$actual" && test "$actual" = "$expected" || {
+            echo "::error::QA certificate differs from original DomEnota signer" >&2
+            exit 1
+          }
+          "$bt/aapt" dump badging "$signed" | grep -F "name='com.domenota.medialoader.officialqa'"
+          "$bt/aapt" dump badging "$signed" | grep -F "versionName='1.7.157-review'"
+          test "$(unzip -Z1 "$signed" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          "$bt/zipalign" -c -v 4 "$signed"
+          sha256sum "$signed"
       - name: Locally validate two QA ZIP parts and one exact-commit source ZIP
         shell: bash
         run: |
           set -euo pipefail
           python scripts/qa/package_stage4_qa.py \
-            --apk app/build/outputs/apk/debug/app-debug.apk \
+            --apk "$RUNNER_TEMP/ml-stage4-signed.apk" \
             --out "$RUNNER_TEMP/ml-qa-handoff" \
             --version 1.7.157 --commit "$GITHUB_SHA"
           test "$(find "$RUNNER_TEMP/ml-qa-handoff" -maxdepth 1 -type f -name '*.zip' | wc -l)" = 3
@@ -176,4 +199,5 @@ jobs:
           rm -f app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx
           rm -f app/src/main/assets/ai/dexnet_vgg19_reflection_128.onnx.sha256
           rm -rf "$RUNNER_TEMP/ml-qa-handoff" .gapi-local
+          rm -f "$RUNNER_TEMP/ml-stage4-signed.apk" "$RUNNER_TEMP/ml-stage4-aligned.apk" "$RUNNER_TEMP/ml-dom-enota-qa-signing.jks"
           echo "Ephemeral model and QA packages wiped; no GitHub artifact published."
