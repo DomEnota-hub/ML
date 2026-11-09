@@ -103,10 +103,10 @@ class GapiKeyStore internal constructor(
     }
 
     /**
-     * A previously signed QA build seeded the first builtin with 156 remaining in
-     * November. Lowering the new seed to 112 must preserve requests already spent
-     * on this device. Subtract the 44-credit correction once, keyed by the stable
-     * builtin ID (never by the user's movable display priority).
+     * The earlier QA used the last reported November balance of 156. The user's
+     * newer reported balance is 112, and local requests may ALREADY have reduced
+     * the stored 156. Clamp the previous estimate to 112, never subtract 44 again:
+     * that would double-count requests. Match by stable builtin ID, not UI order.
      *
      * The marker is written atomically with the adjusted balance. If encrypted
      * storage cannot persist the correction, fail closed instead of reusing an
@@ -114,7 +114,7 @@ class GapiKeyStore internal constructor(
      */
     private fun novemberFirstKeyBalance(id: String, usage: JSONObject, recorded: Int): Int {
         if (usage.optInt("seedBaseline") == 112) return recorded.coerceIn(0, 112)
-        val adjusted = (recorded - (156 - 112)).coerceIn(0, 112)
+        val adjusted = recorded.coerceIn(0, 112)
         val migrated = JSONObject(usage.toString()).put("remaining", adjusted)
             .put("seedBaseline", 112)
         val saved = preferences?.edit()?.putString("usage:$id", migrated.toString())?.commit() == true
