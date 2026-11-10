@@ -176,6 +176,10 @@ fun SettingsScreen(
     galleryDateAudit: String = "Проверка даты добавления не запускалась",
     galleryDateAuditBusy: Boolean = false,
     onGalleryDateAudit: () -> Unit = {},
+    republishTrialStatus: String = "",
+    republishTrialBusy: Boolean = false,
+    onRunGalleryRepublishTrial: () -> Unit = {},
+    onRemoveGalleryRepublishTestCopies: () -> Unit = {},
     onDateRecoveryTrial: () -> Unit = {},
     dateRecoveryTrialDone: Boolean = false,
     onRestoreRemainingDates: () -> Unit = {},
@@ -366,6 +370,8 @@ fun SettingsScreen(
     var folderDialog by remember { mutableStateOf(false) }
     var migrateLegacyDialog by remember { mutableStateOf(false) }
     var dateTrialDialog by remember { mutableStateOf(false) }
+    var republishTrialDialog by remember { mutableStateOf(false) }
+    var removeRepublishTrialDialog by remember { mutableStateOf(false) }
     var dateAllDialog by remember { mutableStateOf(false) }
     var undoDateDialog by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("MediaLoader") }
@@ -589,6 +595,50 @@ fun SettingsScreen(
         },
         dismissButton = {
             TextButton(onClick = { dateAllDialog = false }) { Text("Отмена") }
+        },
+    )
+
+    if (republishTrialDialog) AlertDialog(
+        onDismissRequest = { republishTrialDialog = false },
+        title = { Text("Проверить обратный порядок создания?") },
+        text = { Text("Это проба на ТРЁХ отдельных копиях фотографий. " +
+            "MediaLoader создаст их от самой старой загрузки к новой в отдельном " +
+            "альбоме MediaLoader_QA_Order_Test. Оригиналы, альбомы и история " +
+            "останутся нетронутыми. Копии получат сегодняшнюю дату добавления, " +
+            "а НЕ настоящие исторические даты. После проверьте в Xiaomi Gallery " +
+            "порядок 03_NEW, 02_MIDDLE, 01_OLD. Пробные копии можно удалить.") },
+        confirmButton = {
+            TextButton(onClick = {
+                republishTrialDialog = false
+                if (!republishTrialBusy && !storageMigrationRunning &&
+                    !dateRecoveryBusy && activeDownloadCount == 0)
+                    onRunGalleryRepublishTrial()
+            }) { Text("Создать 3 проверенные копии") }
+        },
+        dismissButton = {
+            TextButton(onClick = { republishTrialDialog = false }) { Text("Отмена") }
+        },
+    )
+
+    if (removeRepublishTrialDialog) AlertDialog(
+        onDismissRequest = { removeRepublishTrialDialog = false },
+        title = { Text("Удалить только пробные копии?") },
+        text = { Text("Будут удалены лишь MediaStore-записи, созданные пробой, " +
+            "после проверки владельца, папки и содержимого. Исходники, " +
+            "скачанные файлы и история не затрагиваются. " +
+            "Изменённые или неидентифицированные копии будут пропущены.") },
+        confirmButton = {
+            TextButton(onClick = {
+                removeRepublishTrialDialog = false
+                if (!republishTrialBusy && !storageMigrationRunning &&
+                    !dateRecoveryBusy && activeDownloadCount == 0)
+                    onRemoveGalleryRepublishTestCopies()
+            }) { Text("Удалить пробные копии") }
+        },
+        dismissButton = {
+            TextButton(onClick = { removeRepublishTrialDialog = false }) {
+                Text("Отмена")
+            }
         },
     )
 
@@ -1042,6 +1092,29 @@ fun SettingsScreen(
                 onClick = {
                     if (!galleryDateAuditBusy && !storageMigrationRunning && activeDownloadCount == 0)
                         onGalleryDateAudit()
+                },
+            )
+            GroupDivider()
+            SettingRow(
+                Icons.Rounded.Folder, "Проба обратного создания файлов",
+                if (republishTrialBusy) "Проверяем копии…" else republishTrialStatus,
+                grouped = true, nested = true,
+                iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                onClick = {
+                    if (!republishTrialBusy && !dateRecoveryBusy &&
+                        !storageMigrationRunning && activeDownloadCount == 0)
+                        republishTrialDialog = true
+                },
+            )
+            SettingRow(
+                Icons.Rounded.Folder, "Удалить пробные копии",
+                "Только отдельный тестовый альбом, с проверкой SHA-256",
+                grouped = true, nested = true,
+                iconTone = SettingIconTone.DOWNLOAD_FOLDER,
+                onClick = {
+                    if (!republishTrialBusy && !dateRecoveryBusy &&
+                        !storageMigrationRunning && activeDownloadCount == 0)
+                        removeRepublishTrialDialog = true
                 },
             )
             GroupDivider()
