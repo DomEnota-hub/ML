@@ -111,6 +111,7 @@ internal fun MediaRecoveryLabSection(
             onClick = { expanded = !expanded },
         )
         ExpandableSettingsBody(expanded) {
+            RecoverySandboxSection()
             GroupDivider()
             Text("Этап 1/5 · инвентаризация перед миграцией. " +
                 "Оригиналы, URI и базы не меняются. Дата истории ML = время постановки загрузки в очередь.",

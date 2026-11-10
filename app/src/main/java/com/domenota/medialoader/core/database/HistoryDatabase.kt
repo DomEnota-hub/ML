@@ -133,6 +133,13 @@ interface DownloadDao {
     suspend fun moveSavedUriWhenCurrent(id: String, fromUri: String,
         toUri: String, toName: String): Int
 
+    /** Recovery CAS. Callers must hold their operation lock and validate the full row snapshot. */
+    @Query("UPDATE downloads SET savedUri = :toUri, originalName = :toName, sizeBytes = :toBytes " +
+        "WHERE id = :id AND savedUri = :fromUri AND originalName = :fromName AND sizeBytes = :fromBytes " +
+        "AND isPrivate = 0 AND hidden = 0 AND state = 'COMPLETED'")
+    suspend fun rebindSavedFileWhenCurrent(id: String, fromUri: String, fromName: String, fromBytes: Long,
+        toUri: String, toName: String, toBytes: Long): Int
+
     @Query("UPDATE downloads SET previewUrl = :artworkUrl, sourceAudioArtworkUrl = :artworkUrl " +
         "WHERE id = :id AND providerId = 'muzmo' AND state = 'COMPLETED' AND previewUrl IS NULL")
     suspend fun setMuzmoArtworkIfMissing(id: String, artworkUrl: String): Int
