@@ -79,7 +79,6 @@ internal class MediaOrderRepublishTrial(
         resolver.openInputStream(uri)?.use { input ->
             val bytes = ByteArray(64 * 1024)
             while (true) {
-                currentCoroutineContext().ensureActive()
                 val n = input.read(bytes)
                 if (n < 0) break
                 sha.update(bytes, 0, n)
