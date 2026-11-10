@@ -1,4 +1,4 @@
-name: ML EXIF single-copy and media recovery lab QA
+name: ML 1.7.162 EXIF one-copy and recovery lab QA
 on:
   push:
     branches:
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 80
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -32,10 +32,13 @@ jobs:
             sleep 10
           done
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Verify EXIF trial and temporary section isolation
+      - name: Verify 1.7.162 and isolated EXIF trial
         shell: bash
         run: |
           set -euo pipefail
+          grep -Eq 'versionCode 222$' app/build.gradle
+          grep -Fq "versionName '1.7.162'" app/build.gradle
+          grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
           trial=app/src/main/java/com/domenota/medialoader/data/storage/MediaExifChronologyTrial.kt
           settings=app/src/main/java/com/domenota/medialoader/ui/screens/SettingsScreen.kt
           lab=app/src/main/java/com/domenota/medialoader/ui/screens/MediaRecoveryLabSection.kt
@@ -43,15 +46,15 @@ jobs:
           grep -Fq 'Pictures/MediaLoader_QA_EXIF_Test/' "$trial"
           grep -Fq 'MediaRecoveryLabSection(' "$settings"
           grep -Fq 'Восстановление медиатеки' "$lab"
-          if grep -Eq 'resolver\.delete\(source|resolver\.update\(source|dao\.(delete|update)|moveSavedUriWhenCurrent|put\\([^)]*DATE_ADDED' "$trial"; then
-            echo "::error::EXIF one-copy trial must never change originals or real insertion timestamps"
+          if grep -Eq 'resolver\.delete\(source|resolver\.update\(source|dao\.(delete|update)|moveSavedUriWhenCurrent|put\([^)]*DATE_ADDED' "$trial"; then
+            echo "::error::EXIF trial must never mutate originals or write DATE_ADDED"
             exit 1
           fi
           if sed -n '/SettingRow(Icons.Rounded.Download, "Загрузка"/,/Text("Музыка"/p' "$settings" | grep -Eq 'Проба обратного создания файлов|Восстановление исходных дат|Проверить даты системной галереи'; then
-            echo "::error::Temporary lab controls must not be in Download settings"
+            echo "::error::Temporary recovery controls must be outside Download settings"
             exit 1
           fi
-      - name: EXIF fail-closed, chronology and old migration regression tests
+      - name: EXIF and chronology regression tests
         shell: bash
         run: |
           set -euo pipefail
@@ -63,23 +66,22 @@ jobs:
             --tests '*MediaDateRepairPolicyTest' \
             --tests '*LegacyRelocationPolicyTest' \
             --tests '*MediaStoragePolicyTest' \
-            --tests '*GalleryLibraryStateTest' --stacktrace
+            --tests '*GalleryLibraryStateTest' \
+            --tests '*GalleryAlbumFileSortTest' \
+            --tests '*GalleryDateNavigationTest' \
+            --tests '*PhoneMediaLibraryTest' --stacktrace
       - name: Android lint
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
-      - name: ARM64 unsigned release compile
+      - name: ARM64 unsigned release
         run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
-      - name: Verify version 1.7.162
-        shell: bash
-        run: |
-          set -euo pipefail
-          grep -Eq 'versionCode 222
+      - name: Verify ARM64 and create signing handoff
         shell: bash
         run: |
           set -euo pipefail
           apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
           test -s "$apk"
           test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
-          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
           "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='222' versionName='1.7.162'"
           mkdir -p handoff/tools/lib handoff/tools/lib64
           "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.162_ARM64_ALIGNED_UNSIGNED.apk
@@ -90,7 +92,7 @@ jobs:
           git archive --format=zip -o handoff/ML_1.7.162_SOURCES_EXACT_COMMIT.zip HEAD
           git rev-parse HEAD > handoff/COMMIT_SHA.txt
           (cd handoff && sha256sum ML_1.7.162_ARM64_ALIGNED_UNSIGNED.apk ML_1.7.162_SOURCES_EXACT_COMMIT.zip tools/lib/apksigner.jar > VERIFIED_SHA256.txt)
-      - name: One-day private signing handoff only, no release
+      - name: One-day private local signing artifact
         uses: actions/upload-artifact@v4
         with:
           name: ML_1.7.162_verified_unsigned_sources_local_signing
@@ -98,13 +100,3 @@ jobs:
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
- app/build.gradle
-          grep -Fq "versionName '1.7.162'" app/build.gradle
-          grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
-      - name: Verify ARM64 package
-        shell: bash
-        run: |
-          set -euo pipefail
-          apk=app/build/outputs/apk/release/app-release-unsigned.apk
-          test -s "$apk"
-          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
