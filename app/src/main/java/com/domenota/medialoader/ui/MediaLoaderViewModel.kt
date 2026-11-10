@@ -406,6 +406,46 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private val _republishTrialBusy = MutableStateFlow(false)
+    val republishTrialBusy: StateFlow<Boolean> = _republishTrialBusy.asStateFlow()
+    private val _republishTrialStatus = MutableStateFlow(
+        "Три пробные копии: старый → средний → новый, без удаления оригиналов")
+    val republishTrialStatus: StateFlow<String> = _republishTrialStatus.asStateFlow()
+
+    fun runGalleryRepublishTrial() {
+        if (_republishTrialBusy.value || _storageMigration.value.running ||
+            _dateRecoveryBusy.value) return
+        _republishTrialBusy.value = true
+        viewModelScope.launch {
+            try {
+                val result = repository.trialGalleryRepublish { done, total ->
+                    _republishTrialStatus.value = "Пробная копия: $done из $total"
+                }
+                _republishTrialStatus.value = result.message
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _republishTrialStatus.value =
+                    error.message ?: "Проба не выполнена. Оригиналы не изменены."
+            } finally { _republishTrialBusy.value = false }
+        }
+    }
+
+    fun removeGalleryRepublishTrialCopies() {
+        if (_republishTrialBusy.value || _storageMigration.value.running ||
+            _dateRecoveryBusy.value) return
+        _republishTrialBusy.value = true
+        viewModelScope.launch {
+            try {
+                _republishTrialStatus.value =
+                    repository.removeGalleryRepublishTestCopies().message
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _republishTrialStatus.value =
+                    error.message ?: "Не удалось удалить пробные копии."
+            } finally { _republishTrialBusy.value = false }
+        }
+    }
+
     private val _galleryDateAudit = MutableStateFlow("Проверка даты добавления не запускалась")
     val galleryDateAudit: StateFlow<String> = _galleryDateAudit.asStateFlow()
     private val _galleryDateAuditBusy = MutableStateFlow(false)
