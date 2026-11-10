@@ -423,8 +423,26 @@ internal class MediaInPlaceChronologyTrial(private val context: Context, private
         } catch (e: Exception) { Result(false, "Откат ${k.label}: ${e.message}") }
     }
     suspend fun removeTrial(k: Kind): Result = withContext(Dispatchers.IO) {
-        val j = journalRead(k) ?: return@withContext Result(true, "QA-копии ${k.label} нет")
+        val j = journalRead(k)
+        if (j == null) {
+            // The app can die after saving its private backup but before the
+            // journal is created. Remove only this app-private orphan backup.
+            if (backup(k).exists()) {
+                check(backup(k).delete()) { "Не удалось очистить незавершённый резерв" }
+                return@withContext Result(true, "Убран незавершённый QA-резерв ${k.label}")
+            }
+            return@withContext Result(true, "QA-копии ${k.label} нет")
+        }
         try {
+            if (j.optString("phase") == "PREPARED" && locateJournalUri(j, k) == null) {
+                // No MediaStore copy was ever committed. Both items are strictly
+                // internal to the QA experiment: never touch a downloaded file.
+                check(!backup(k).exists() || backup(k).delete()) {
+                    "Не удалось удалить незавершённый QA-резерв"
+                }
+                journal(k).delete()
+                return@withContext Result(true, "Незавершённая QA-проба ${k.label} очищена")
+            }
             val (uri, item) = safeJournalCopy(k, j)
             val current = checksum(uri)
             val baseline = j.getString("baselineHash") to j.getLong("baselineSize")
