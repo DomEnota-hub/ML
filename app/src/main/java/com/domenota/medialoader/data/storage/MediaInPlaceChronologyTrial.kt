@@ -55,6 +55,7 @@ internal class MediaInPlaceChronologyTrial(private val context: Context, private
     private data class Candidate(val row: DownloadEntity, val sourceUri: Uri, val size: Long)
     private data class Item(val owner: String?, val path: String?, val name: String?,
         val mime: String?, val size: Long, val id: Long, val taken: Long, val added: Long,
+        val modified: Long,
         val data: String?)
     private val resolver get() = context.contentResolver
     private fun journal(k: Kind) = AtomicFile(File(context.noBackupFilesDir,
@@ -84,6 +85,7 @@ internal class MediaInPlaceChronologyTrial(private val context: Context, private
         MediaStore.MediaColumns._ID,
         MediaStore.MediaColumns.DATE_TAKEN,
         MediaStore.MediaColumns.DATE_ADDED,
+        MediaStore.MediaColumns.DATE_MODIFIED,
         MediaStore.MediaColumns.DATA,
     ), null, null, null)?.use { c ->
         if (!c.moveToFirst()) null else {
@@ -97,6 +99,7 @@ internal class MediaInPlaceChronologyTrial(private val context: Context, private
                 num(MediaStore.MediaColumns.SIZE), num(MediaStore.MediaColumns._ID),
                 num(MediaStore.MediaColumns.DATE_TAKEN),
                 num(MediaStore.MediaColumns.DATE_ADDED) * 1000L,
+                num(MediaStore.MediaColumns.DATE_MODIFIED) * 1000L,
                 str(MediaStore.MediaColumns.DATA))
         }
     }
@@ -251,6 +254,83 @@ internal class MediaInPlaceChronologyTrial(private val context: Context, private
         return scanned?.toString() ?: "MediaScanner не вернул URI"
     }
 
+    /** Only change filesystem mtime of a VERIFIED app-owned disposable QA copy.
+     * DATE_MODIFIED is read-only in MediaStore and must be refreshed by scan.
+     * This does NOT create another MediaStore row, move a file, or rewrite bytes.
+     */
+    private fun setQaFileMtime(item: Item, historicalMillis: Long): Long {
+        check(item.owner == context.packageName && item.path == TRIAL_PATH &&
+            item.name?.startsWith("ML_SAME_URI_") == true) {
+            "Запрещено менять дату файла вне однокопийной QA-лаборатории"
+        }
+        check(MediaDateRepairPolicy.validTime(historicalMillis, System.currentTimeMillis())) {
+            "Недопустимая историческая дата"
+        }
+        val data = item.data ?: error("Android не предоставляет путь тестового файла")
+        val file = File(data).canonicalFile
+        val root = Environment.getExternalStorageDirectory().canonicalPath.trimEnd('/') + "/"
+        check(file.path.startsWith(root + TRIAL_PATH) && file.isFile) {
+            "Путь не принадлежит тестовой директории"
+        }
+        check(file.setLastModified(historicalMillis)) {
+            "Android запретил восстановить время изменения QA-файла"
+        }
+        val actual = file.lastModified()
+        check(abs(actual - historicalMillis) <= 2000L) {
+            "Время изменения файла не сохранилось: $actual"
+        }
+        return actual
+    }
+
+    /** Rerun lastModified-only on the existing 1.7.164 QA sample: stable URI. */
+    suspend fun repairExistingTrialMtime(k: Kind): Result = withContext(Dispatchers.IO) {
+        val j = journalRead(k) ?: return@withContext Result(false,
+            "Нет прежней ${k.label} QA-копии. Создайте её через 'изменение без нового URI'.")
+        try {
+            check(j.optString("phase") in setOf("VERIFIED", "MTIME_VERIFIED")) {
+                "QA-проба ещё не проверена или уже откатана. Не меняем её."
+            }
+            val (uri, before) = safeJournalCopy(k, j)
+            val expectedHash = j.getString("expectedHash") to j.getLong("expectedSize")
+            check(checksum(uri) == expectedHash) { "Тестовые байты отличаются от ожидаемых" }
+            val sourceUri = Uri.parse(j.getString("sourceUri"))
+            val sourceHash = j.getString("sourceHash") to j.getLong("sourceSize")
+            check(checksum(sourceUri) == sourceHash) {
+                "Оригинал изменён или недоступен, опыт остановлен"
+            }
+            val historic = j.getLong("historical")
+            val originalModified = before.modified
+            val fileMtime = setQaFileMtime(before, historic)
+            val scanUri = scanOwnedTestFile(before, k)
+            val after = assertTrialIdentity(uri, j.getString("name"), before.id, k)
+            assertOnlyOneTrial(after, k)
+            check(checksum(uri) == expectedHash && checksum(sourceUri) == sourceHash &&
+                dao.countSavedUriReferences(uri.toString()) == 0) {
+                "Нарушена проверка неизменности тестовой копии, оригинала или ссылок"
+            }
+            val modifiedMatches = abs(after.modified - historic) <= 2000L
+            val takenMatches = abs(after.taken - historic) <= 60_000L
+            j.put("phase", "MTIME_VERIFIED")
+                .put("beforeMtimeRepair", originalModified)
+                .put("afterMtimeRepair", after.modified)
+                .put("scannerUriMtimeRepair", scanUri)
+            journalWrite(k, j)
+            Result(modifiedMatches && takenMatches,
+                "${k.label}: повторная проверка БЕЗ пересоздания файла. " +
+                "MediaStore ID: ${before.id} -> ${after.id}, URI прежний. " +
+                "DATE_TAKEN: ${before.taken} -> ${after.taken} " +
+                "(${if (takenMatches) "совпадает" else "НЕ совпадает"}). " +
+                "DATE_MODIFIED: $originalModified -> ${after.modified} " +
+                "(${if (modifiedMatches) "совпадает" else "НЕ совпадает"}). " +
+                "DATE_ADDED: ${before.added} -> ${after.added}. " +
+                "file.lastModified=$fileMtime. Сканер: $scanUri. " +
+                "Проверьте 'Сегодня' и историческую ленту Xiaomi, не удаляя пробу " +
+                "до проверки. Дата файлов ML и их ссылки не менялись.")
+        } catch (error: CancellationException) { throw error }
+        catch (error: Exception) { Result(false, "${k.label}: ${error.message}. " +
+            "Реальные файлы ML не изменялись.") }
+    }
+
     /** The only write target is a NEW, owned, uniquely named QA copy. */
     suspend fun runTrial(k: Kind): Result = withContext(Dispatchers.IO) {
         check(Build.VERSION.SDK_INT >= 29) { "Для опыта нужен Android 10+" }
@@ -312,7 +392,8 @@ internal class MediaInPlaceChronologyTrial(private val context: Context, private
             val before = assertTrialIdentity(testUri, name, initialId, k)
             assertOnlyOneTrial(before, k)
             j.put("testId", initialId).put("beforeTaken", before.taken)
-                .put("beforeAdded", before.added).put("phase", "BASELINE")
+                .put("beforeAdded", before.added).put("beforeModified", before.modified)
+                .put("phase", "BASELINE")
             journalWrite(k, j)
             transformed = File.createTempFile("qa-dated-", ".${k.extension}", context.cacheDir)
             when (k) {
@@ -341,6 +422,10 @@ internal class MediaInPlaceChronologyTrial(private val context: Context, private
             check(checksum(testUri) == finalHash) { "Ошибка SHA-256 после записи в тот же URI" }
             markPending(testUri, false)
             j.put("phase", "PUBLISHED").also { journalWrite(k, j) }
+            // Regression fix: earlier successful QA 1.7.162/163 set filesystem mtime
+            // to the historical value before rescanning. 1.7.164 omitted it.
+            setQaFileMtime(assertTrialIdentity(testUri, name, initialId, k),
+                selected.row.createdAtEpochMillis)
             val scanUri = scanOwnedTestFile(assertTrialIdentity(testUri, name, initialId, k), k)
             // After scanner, a new MediaStore _ID or duplicate makes this lab FAIL,
             // even when a Xiaomi thumbnail seems to have the right date.
@@ -352,13 +437,17 @@ internal class MediaInPlaceChronologyTrial(private val context: Context, private
                 "Файл, исходник или запись ML изменились при сканировании"
             }
             j.put("phase", "VERIFIED").put("afterTaken", after.taken)
-                .put("afterAdded", after.added).put("scannerUri", scanUri)
+                .put("afterAdded", after.added).put("afterModified", after.modified)
+                .put("scannerUri", scanUri)
             journalWrite(k, j)
             val match = abs(after.taken - selected.row.createdAtEpochMillis) <= 60_000L
-            Result(true, "${k.label}: QA-копия перезаписана через прежний URI (ID=$initialId). " +
+            val mtimeMatch = abs(after.modified - selected.row.createdAtEpochMillis) <= 2000L
+            Result(match && mtimeMatch, "${k.label}: QA-копия перезаписана через прежний URI (ID=$initialId). " +
                 "Дата из истории ML: ${Instant.ofEpochMilli(selected.row.createdAtEpochMillis).atZone(ZoneId.systemDefault())}. " +
                 "DATE_TAKEN ДО: ${before.taken}; ПОСЛЕ: ${after.taken} " +
                 "(${if (match) "совпадает" else "не совпадает"}). " +
+                "DATE_MODIFIED ДО: ${before.modified}; ПОСЛЕ: ${after.modified} " +
+                "(${if (mtimeMatch) "совпадает" else "НЕ совпадает"}). " +
                 "DATE_ADDED ДО: ${before.added}; ПОСЛЕ: ${after.added}. " +
                 "Сканер: $scanUri. Исходник и ссылки ML не менялись. " +
                 "Проверьте позицию в Xiaomi, затем 'Откатить' и 'Удалить QA-копию'.")
@@ -413,6 +502,10 @@ internal class MediaInPlaceChronologyTrial(private val context: Context, private
                 check(checksum(uri) == baseline) { "Откат SHA-256 не прошёл" }
                 markPending(uri, false)
             }
+            // The QA rollback returns both baseline BYTES and its former mtime.
+            // For 1.7.164 journals without beforeModified use original DATE_ADDED.
+            setQaFileMtime(assertTrialIdentity(uri, j.getString("name"), item.id, k),
+                j.optLong("beforeModified", j.optLong("beforeAdded")))
             scanOwnedTestFile(item, k)
             val after = assertTrialIdentity(uri, j.getString("name"), item.id, k)
             check(checksum(uri) == baseline) { "Резервный файл не восстановлен" }
