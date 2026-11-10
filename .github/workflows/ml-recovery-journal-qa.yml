@@ -15,11 +15,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Use the Android SDK already installed on the hosted runner
+        run: '"$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
       - name: Recovery and existing history regression gate
         run: >-
           gradle :app:testDebugUnitTest --tests '*Recovery*' --tests '*LegacyMediaMigrationHistoryTest'
