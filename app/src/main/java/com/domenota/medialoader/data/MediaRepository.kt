@@ -444,6 +444,17 @@ class MediaRepository private constructor(context: Context) {
         StorageMigrationProgress = LegacyMediaMigration(
             appContext, historyDb.downloadDao(), storage
         ).migrate(onProgress)
+    /** Three physical test copies only; no Room or original-media mutation. */
+    internal suspend fun trialGalleryRepublish(onProgress: (Int, Int) -> Unit):
+        com.domenota.medialoader.data.storage.MediaOrderRepublishTrial.Outcome =
+        com.domenota.medialoader.data.storage.MediaOrderRepublishTrial(
+            appContext, historyDb.downloadDao()).runTrial(onProgress)
+
+    internal suspend fun removeGalleryRepublishTestCopies():
+        com.domenota.medialoader.data.storage.MediaOrderRepublishTrial.Outcome =
+        com.domenota.medialoader.data.storage.MediaOrderRepublishTrial(
+            appContext, historyDb.downloadDao()).removeTrialCopies()
+
     /** Read-only audit of the date Android's Xiaomi Gallery may prefer. */
     internal suspend fun auditGalleryDates():
         com.domenota.medialoader.data.storage.GalleryMediaDateAudit.Summary =
