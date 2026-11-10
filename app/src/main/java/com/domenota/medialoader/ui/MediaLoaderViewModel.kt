@@ -551,6 +551,34 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private val _migrationInventoryStatus = MutableStateFlow(
+        "Инвентаризация 600+ файлов ещё не запускалась. Только чтение, никаких переносов.")
+    val migrationInventoryStatus: StateFlow<String> = _migrationInventoryStatus.asStateFlow()
+    private val _migrationInventoryBusy = MutableStateFlow(false)
+    val migrationInventoryBusy: StateFlow<Boolean> = _migrationInventoryBusy.asStateFlow()
+    private val _migrationInventoryJson = MutableStateFlow("")
+    val migrationInventoryJson: StateFlow<String> = _migrationInventoryJson.asStateFlow()
+
+    fun inspectMigrationReadOnly() {
+        if (_migrationInventoryBusy.value || _storageMigration.value.running ||
+            _sameUriBusy.value || _dateRecoveryBusy.value || _republishTrialBusy.value ||
+            _videoTrialBusy.value || _exifTrialBusy.value) return
+        _migrationInventoryBusy.value = true
+        _migrationInventoryJson.value = "" // Never export a stale report on failure.
+        _migrationInventoryStatus.value = "Проверяем историю, MediaStore, VK и альбомы без изменений…"
+        viewModelScope.launch {
+            try {
+                val snapshot = repository.auditMigrationReadOnly()
+                _migrationInventoryJson.value = snapshot.json
+                _migrationInventoryStatus.value = snapshot.summary
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _migrationInventoryStatus.value =
+                    "Аудит прерван, перенос не выполнялся: ${error.message ?: "неизвестная ошибка"}"
+            } finally { _migrationInventoryBusy.value = false }
+        }
+    }
+
     private val _galleryDateAudit = MutableStateFlow("Проверка даты добавления не запускалась")
     val galleryDateAudit: StateFlow<String> = _galleryDateAudit.asStateFlow()
     private val _galleryDateAuditBusy = MutableStateFlow(false)
