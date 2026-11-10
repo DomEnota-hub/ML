@@ -99,23 +99,27 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
             canCancel = beforePublicMutation(batch))
         links.ensureIdle()
         val rows = dao.all()
+        // Listing is only a preview. Read the history once instead of rescanning
+        // every database and preference document for every candidate (O(N²)).
+        // Count a row once, matching the DAO's savedUri OR privateSourceUri rule.
+        val referenceCounts = rows.flatMap { listOfNotNull(it.savedUri, it.privateSourceUri).distinct() }
+            .groupingBy { it }.eachCount()
         val items = ArrayList<HistoricalRecoveryItem>()
         var skipped = 0
         for (row in rows) {
             coroutineContext.ensureActive()
             if (!basicCandidate(row)) continue
             try {
-                val media = eligible(row)
-                // Reference adapter also rejects blocked sources and unsupported
-                // auxiliary identities before the item is offered for selection.
-                links.snapshot(row)
+                val media = eligible(row, referenceCounts)
+                // Full file/name/reference validation and a fresh durable snapshot
+                // remain in prepare(), before any original can be changed.
                 items += HistoricalRecoveryItem(row.id, row.originalName, media.mime!!,
                     row.createdAtEpochMillis, row.sizeBytes!!)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { skipped++ }
         }
         HistoricalRecoveryState(items, receipt, false,
-            "Подходящих файлов: ${items.size}. Пропущено после проверки: $skipped. " +
+            "Предварительно подходящих файлов: ${items.size}. Пропущено: $skipped. " +
                 if (receipt) "Проба подтверждена; массовый запуск доступен вручную."
                 else "Сначала выполните пробу на одном файле.")
     }
@@ -486,9 +490,11 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
         row.originalName != "." && row.originalName != ".." &&
         row.originalName.none { it == '/' || it == '\\' || it.isISOControl() }
 
-    private suspend fun eligible(row: DownloadEntity): Media {
+    private suspend fun eligible(row: DownloadEntity, previewReferences: Map<String, Int>? = null): Media {
         requireSafe(basicCandidate(row), "Файл не является завершённым обычным публичным фото или видео")
-        requireSafe(dao.countSavedUriReferences(row.savedUri!!) == 1,
+        val references = if (previewReferences == null) dao.countSavedUriReferences(row.savedUri!!)
+            else previewReferences[row.savedUri] ?: 0
+        requireSafe(references == 1,
             "На исходный URI ссылается несколько записей истории")
         val uri = Uri.parse(row.savedUri)
         val current = media(uri) ?: fail("Исходная запись MediaStore отсутствует")
@@ -499,13 +505,15 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
         requireSafe(current.owner == context.packageName && current.path == PATH &&
             current.name == row.originalName && current.bytes == row.sizeBytes && !current.pending && !current.trashed,
             "Владелец, папка, имя, размер или состояние исходного файла не совпали")
-        requireSafe(find(collection(current.mime), row.originalName) == listOf(uri),
-            "Имя исходного файла неоднозначно")
         requireSafe(abs(current.taken - row.createdAtEpochMillis) > 1000L,
             "Историческая дата файла уже подтверждена")
-        resolver.openFileDescriptor(uri, "r")?.use { fd ->
-            requireSafe(fd.statSize == row.sizeBytes, "Фактический размер исходного файла не совпал с историей")
-        } ?: fail("Исходный файл недоступен для чтения")
+        if (previewReferences == null) {
+            requireSafe(find(collection(current.mime), row.originalName) == listOf(uri),
+                "Имя исходного файла неоднозначно")
+            resolver.openFileDescriptor(uri, "r")?.use { fd ->
+                requireSafe(fd.statSize == row.sizeBytes, "Фактический размер исходного файла не совпал с историей")
+            } ?: fail("Исходный файл недоступен для чтения")
+        }
         return current
     }
 
@@ -592,11 +600,20 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
         requireSafe(uri.toString() != op.getString("oldUri"), "Новая запись совпала с исходной")
         val row = identity(op, uri, op.getString("name"))
         requireSafe(row.pending != published, "Состояние публикации новой копии не совпало")
-        requireSafe(row.bytes == op.getLong("newBytes"), "Размер новой копии не совпал")
+        val expectedBytes = op.getLong("newBytes")
+        // Pending MediaStore SIZE can stay zero until publication/scanning. It
+        // is not the file size. Verify the reopened descriptor AND the actual
+        // bytes read below; final commits still require confirmed index data.
+        if (published && verifyDate) requireSafe(row.bytes == expectedBytes,
+            "Индекс размера новой копии ещё не подтверждён: ${row.bytes}, ожидается $expectedBytes")
         resolver.openFileDescriptor(uri, "r")?.use { fd ->
-            requireSafe(fd.statSize == op.getLong("newBytes"), "Повторное открытие показало другой размер копии")
+            val actual = fd.statSize
+            requireSafe(actual == -1L || actual == expectedBytes,
+                "Фактический размер новой копии: $actual, ожидается $expectedBytes")
         } ?: fail("Новая копия не открывается повторно")
-        requireSafe(hash(uri) == op.getString("newHash"), "SHA-256 новой копии не совпал с проверенным файлом")
+        val actualHash = resolver.openInputStream(uri)?.use { hash(it, expectedBytes) }
+            ?: fail("Новая копия не открывается для SHA-256")
+        requireSafe(actualHash == op.getString("newHash"), "SHA-256 новой копии не совпал с проверенным файлом")
         if (verifyDate) requireSafe(abs(row.taken - op.getLong("historical")) <= 1000L,
             "Android не подтвердил историческую дату новой копии")
     }
@@ -606,11 +623,12 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
         verifyNew(op, published = true, verifyDate = false)
         repeat(12) { attempt ->
             val row = identity(op, newUri(op), op.getString("name"))
-            requireSafe(!row.pending && row.bytes == op.getLong("newBytes"), "Публикация копии изменилась")
-            if (abs(row.taken - op.getLong("historical")) <= 1000L) return
+            requireSafe(!row.pending, "Публикация копии изменилась")
+            if (row.bytes == op.getLong("newBytes") &&
+                abs(row.taken - op.getLong("historical")) <= 1000L) return
             if (attempt != 11) delay(400)
         }
-        fail("Android ещё не подтвердил историческую дату; исходный файл сохранён")
+        fail("Android ещё не подтвердил размер и историческую дату копии; исходный файл и журнал сохранены")
     }
 
     @Suppress("DEPRECATION")
@@ -719,15 +737,21 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
     private suspend fun hash(file: File): String = file.inputStream().use { hash(it) }
     private suspend fun hash(uri: Uri): String = resolver.openInputStream(uri)?.use { hash(it) }
         ?: fail("Не удалось открыть файл для SHA-256")
-    private suspend fun hash(input: InputStream): String {
+    private suspend fun hash(input: InputStream, expectedBytes: Long? = null): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(128 * 1024)
+        var bytes = 0L
         while (true) {
             coroutineContext.ensureActive()
             val count = input.read(buffer)
             if (count < 0) break
+            bytes += count
+            requireSafe(expectedBytes == null || bytes <= expectedBytes,
+                "Фактический размер новой копии превысил ожидаемый: $expectedBytes")
             digest.update(buffer, 0, count)
         }
+        requireSafe(expectedBytes == null || bytes == expectedBytes,
+            "Фактический размер новой копии: $bytes, ожидается $expectedBytes")
         return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 

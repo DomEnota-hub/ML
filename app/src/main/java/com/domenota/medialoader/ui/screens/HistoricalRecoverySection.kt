@@ -126,7 +126,9 @@ internal fun HistoricalRecoverySection(activeDownloadCount: Int) {
         Text("Дата берётся из истории загрузок MediaLoader и может отличаться от даты съёмки. " +
             "Восстановление заменяет реальные файлы.", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(if (state == null) "Список файлов ещё не получен" else
+        Text(if (inspecting) "Читаем историю загрузок и метаданные файлов…" else
+            if (pending) "Список можно обновить после завершения операции по журналу" else
+            if (state == null) "Список файлов ещё не получен" else
             "Доступно: ${candidates.size} · фото: ${candidates.count { it.mime.startsWith("image/") }} · " +
                 "видео: ${candidates.count { it.mime.startsWith("video/") }}",
             style = MaterialTheme.typography.bodyMedium)
@@ -145,7 +147,12 @@ internal fun HistoricalRecoverySection(activeDownloadCount: Int) {
                 Text(selected.name, style = MaterialTheme.typography.bodyMedium)
                 Text("Дата из истории: ${date(selected)}", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else Text("Нет файлов для восстановления", style = MaterialTheme.typography.bodySmall)
+            } else Text(when {
+                inspecting -> "Получаем список файлов…"
+                pending -> "Сначала продолжите незавершённую замену по журналу ниже"
+                state == null -> "Список пока недоступен"
+                else -> "Нет файлов для восстановления"
+            }, style = MaterialTheme.typography.bodySmall)
             NeutralTextButton(onClick = { showPicker = true },
                 enabled = available && !pending && candidates.isNotEmpty()) { Text("Выбрать файл") }
             NeutralTextButton(onClick = { trialConfirmation = selected }, enabled = canTrial) {
