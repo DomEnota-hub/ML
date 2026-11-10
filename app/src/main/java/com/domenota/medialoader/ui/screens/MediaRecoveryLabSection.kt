@@ -84,6 +84,7 @@ internal fun MediaRecoveryLabSection(
     onUndoMediaDateChanges: () -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
+    var diagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
     var migrateLegacyDialog by remember { mutableStateOf(false) }
     var dateTrialDialog by remember { mutableStateOf(false) }
     var republishTrialDialog by remember { mutableStateOf(false) }
@@ -106,11 +107,22 @@ internal fun MediaRecoveryLabSection(
     SettingsGroup {
         SettingRow(
             Icons.Rounded.BugReport, "Восстановление медиатеки",
-            "Диагностика, EXIF и безопасные пробы · можно удалить после исправления",
+            "Исторические даты · проверка одного файла и массовое восстановление",
             grouped = true, expanded = expanded, iconTone = SettingIconTone.DIAGNOSTICS,
             onClick = { expanded = !expanded },
         )
         ExpandableSettingsBody(expanded) {
+            HistoricalRecoverySection(activeDownloadCount)
+            GroupDivider()
+            SettingRow(Icons.Rounded.BugReport, "Дополнительная диагностика",
+                "Предыдущие эксперименты, искусственные пробы и отчёты",
+                grouped = true, nested = true, expanded = diagnosticsExpanded,
+                iconTone = SettingIconTone.DIAGNOSTICS,
+                onClick = { diagnosticsExpanded = !diagnosticsExpanded })
+            ExpandableSettingsBody(diagnosticsExpanded) {
+            Text("Искусственный стенд · ограничения ниже относятся только к этому стенду",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             RecoverySandboxSection()
             GroupDivider()
             Text("Этап 1/5 · инвентаризация перед миграцией. " +
@@ -132,7 +144,7 @@ internal fun MediaRecoveryLabSection(
                     onClick = { if (!migrationInventoryBusy) onExportMigrationInventory() })
             }
             Text("Старый перенос Download → Pictures ОТКЛЮЧЁН. " +
-                "Массовое пересоздание и изменение дат не доступны до отдельной приёмки.",
+                "Для восстановления используйте два режима выше.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             GroupDivider()
@@ -269,8 +281,8 @@ internal fun MediaRecoveryLabSection(
                 })
             // Stage 1 audit is read-only. Legacy real-file mtime trial is hidden.
             // Keep rollback available solely for changes made before this QA build.
-            Text("Массовая обработка отключена до тестов сохранения URI " +
-                "и обязательного аудита 600+ файлов.",
+            Text("Этот старый инструмент изменения mtime оставлен для диагностики. " +
+                "Для восстановления используйте два режима выше.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             SettingRow(Icons.Rounded.Info, "Откат изменения mtime",
@@ -280,6 +292,7 @@ internal fun MediaRecoveryLabSection(
                     if (!dateRecoveryBusy && activeDownloadCount == 0)
                         undoDateDialog = true
                 })
+            }
         }
     }
 

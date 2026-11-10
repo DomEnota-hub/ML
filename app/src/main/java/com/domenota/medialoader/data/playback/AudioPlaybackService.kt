@@ -17,6 +17,24 @@ import com.domenota.medialoader.data.privatevault.PrivateAccessManager
 /** Owns audio playback so music can continue after the viewer leaves the foreground. */
 @androidx.annotation.OptIn(UnstableApi::class)
 class AudioPlaybackService : MediaSessionService() {
+    companion object {
+        private var liveSession: MediaSession? = null
+
+        /** Runs against the service player itself; a controller may expose optimistic state. */
+        internal suspend fun clearHistoricalPlayback(): Unit = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+            check(com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value)
+            liveSession?.player?.let { player ->
+                player.pause()
+                player.stop()
+                player.clearMediaItems()
+                check(player.mediaItemCount == 0 && !player.isPlaying && player.playbackState == Player.STATE_IDLE) {
+                    "Не удалось остановить воспроизведение перед восстановлением файлов"
+                }
+            }
+            Unit
+        }
+    }
+
     private var mediaSession: MediaSession? = null
     private val privateScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
@@ -37,6 +55,7 @@ class AudioPlaybackService : MediaSessionService() {
             .build()
 
         mediaSession = MediaSession.Builder(this, player).build()
+        liveSession = mediaSession
         val access = PrivateAccessManager.get(this)
         var privateIds: Set<String> = emptySet()
         var guarding = false
@@ -66,6 +85,7 @@ class AudioPlaybackService : MediaSessionService() {
     override fun onDestroy() {
         privateScope.cancel()
         BackgroundMediaWork.setBusy("audio-playback", false)
+        if (liveSession === mediaSession) liveSession = null
         mediaSession?.let { session ->
             session.player.release()
             session.release()

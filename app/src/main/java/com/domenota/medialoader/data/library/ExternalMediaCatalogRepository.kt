@@ -22,6 +22,64 @@ class ExternalMediaCatalogRepository(context: Context) {
     val entries = state.asStateFlow()
     private val loaded = CoroutineScope(SupervisorJob() + Dispatchers.IO).async { storageMutex.withLock { state.value = read() } }
 
+    /** Exact document snapshots make recovery fail closed on concurrent catalog edits. */
+    internal suspend fun snapshotHistoricalMedia(): String = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock { preferences.getString("catalog", null).orEmpty().also { read() } }
+    }
+
+    internal suspend fun rebindHistoricalMedia(oldUri: String, newUri: String, downloadId: String,
+        newName: String, newBytes: Long, oldAliases: Set<String>, newAliases: Set<String>,
+        expectedSnapshot: String? = null): String = withContext(Dispatchers.IO) {
+        require(newName.isNotBlank() && newBytes > 0L && oldUri != newUri)
+        loaded.await()
+        storageMutex.withLock {
+            val raw = preferences.getString("catalog", null).orEmpty()
+            check(expectedSnapshot == null || raw == expectedSnapshot) { "Каталог изменился во время восстановления" }
+            val current = read()
+            val previousKeys = oldAliases + oldUri + downloadId
+            val allKeys = previousKeys + newAliases + newUri
+            val matches = current.filter { entry ->
+                (entry.ref.aliases + entry.ref.key + entry.ref.item.id).any(previousKeys::contains)
+            }
+            check(matches.size <= 1) { "Неоднозначные ссылки каталога" }
+            check(current.filterNot { it in matches }.none { entry ->
+                (entry.ref.aliases + entry.ref.key + entry.ref.item.id).any((newAliases + newUri)::contains)
+            }) { "Новая копия уже связана с другим файлом каталога" }
+            val updated = current.map { entry ->
+                if (entry !in matches) entry else {
+                    val ref = entry.ref
+                    check(ref.item.savedUri == oldUri || ref.item.savedUri == newUri) { "Файл каталога изменился" }
+                    entry.copy(ref = ref.copy(aliases = ref.aliases + allKeys + ref.key + ref.item.id,
+                        item = ref.item.copy(savedUri = newUri, originalName = newName, sizeBytes = newBytes,
+                            previewUrl = if (ref.item.previewUrl == oldUri) newUri else ref.item.previewUrl)))
+                }
+            }
+            val result = if (updated == current) raw else encode(updated)
+            if (result != raw && !preferences.edit().putString("catalog", result).commit())
+                throw IOException("Не удалось сохранить ссылки каталога")
+            state.value = updated
+            result
+        }
+    }
+
+    /** Never roll a recovery snapshot over a concurrent user edit. */
+    internal suspend fun restoreHistoricalMedia(expectedCurrent: String, previous: String) = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock {
+            check(preferences.getString("catalog", null).orEmpty() == expectedCurrent) { "Каталог изменился после восстановления" }
+            val editor = preferences.edit()
+            if (previous.isEmpty()) editor.remove("catalog") else editor.putString("catalog", previous)
+            if (!editor.commit()) throw IOException("Не удалось вернуть ссылки каталога")
+            state.value = read()
+        }
+    }
+
+    internal suspend fun reloadHistoricalMedia() = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock { state.value = read() }
+    }
+
     suspend fun setFavorite(ref: LibraryMediaRef, favorite: Boolean) = update(ref) { it.copy(isFavorite = favorite) }
     suspend fun setFolder(ref: LibraryMediaRef, folderId: String?) {
         require(folderId == null || folderId.isNotBlank()) { "Папка не найдена" }
@@ -54,6 +112,7 @@ class ExternalMediaCatalogRepository(context: Context) {
     private suspend fun mutate(operation: (List<ExternalMediaEntry>) -> List<ExternalMediaEntry>) = withContext(Dispatchers.IO) {
         loaded.await()
         storageMutex.withLock {
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
             val current = read()
             val updated = operation(current)
             if (updated != current && !preferences.edit().putString("catalog", encode(updated)).commit())

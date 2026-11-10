@@ -38,6 +38,7 @@ internal object AudioQueuePlayback {
     }
     /** play() alone cannot start a stopped/failed ExoPlayer timeline in STATE_IDLE. */
     fun toggle(player: Player) {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         if (player.mediaItemCount == 0) return
         if (player.playbackState == Player.STATE_IDLE || player.playerError != null) {
             player.prepare()
@@ -57,6 +58,7 @@ internal object AudioQueuePlayback {
         return true
     }
     fun enqueue(player: Player, item: MediaItem, next: Boolean): Boolean {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         if (item.mediaMetadata.extras?.getBoolean("private_media") == true ||
             player.currentMediaItem?.mediaMetadata?.extras?.getBoolean("private_media") == true) return false
         val count = player.mediaItemCount
@@ -75,6 +77,7 @@ internal object AudioQueuePlayback {
         return true
     }
     fun open(player: Player, items: List<MediaItem>, requestedId: String): Boolean {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val selected = items.firstOrNull { it.mediaMetadata.extras?.getBoolean("private_media") != true &&
             (it.mediaId == requestedId || it.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS)?.contains(requestedId) == true) }
             ?: return false
@@ -84,6 +87,7 @@ internal object AudioQueuePlayback {
         } else preview(player, items, requestedId)
     }
     fun preview(player: Player, items: List<MediaItem>, requestedId: String): Boolean {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val public = items.filter { it.mediaMetadata.extras?.getBoolean("private_media") != true }.distinctBy { it.mediaId }
         val index = public.indexOfFirst { it.mediaId == requestedId ||
             it.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS)?.contains(requestedId) == true }

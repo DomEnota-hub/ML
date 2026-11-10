@@ -62,6 +62,7 @@ class StorageManager(
 
     /** Replaces bytes of an app-owned download while keeping the same Uri whenever possible. */
     suspend fun replaceDownload(savedUri: String, source: File): Boolean = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val uri = Uri.parse(savedUri)
         runCatching {
             when (uri.scheme) {
@@ -83,6 +84,7 @@ class StorageManager(
 
     /** Copies an owned download into private trash before removing the public copy. */
     suspend fun moveToTrash(id: String, savedUri: String) = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val uri = Uri.parse(savedUri)
         if (!trash.exists() && !trash.mkdirs()) throw IOException("Не удалось создать корзину")
         val target = File(trash, id)
@@ -111,6 +113,7 @@ class StorageManager(
 
     /** Removes only the saved file selected by the caller; no private trash copy is made. */
     suspend fun deleteDownloadPermanently(savedUri: String): Boolean = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val uri = Uri.parse(savedUri)
         when {
             uri.scheme == "file" -> {
@@ -134,6 +137,7 @@ class StorageManager(
         ?.let { Uri.fromFile(it).toString() }
 
     suspend fun renameDownload(savedUri: String, newName: String): String? = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val uri = Uri.parse(savedUri)
         when {
             uri.scheme == "file" -> {
@@ -152,6 +156,7 @@ class StorageManager(
     }
 
     suspend fun restoreFromTrash(id: String, name: String, mimeType: String): Pair<String, String> {
+        HistoricalRecoverySignals.requireIdle()
         val source = File(trash, id)
         if (!source.isFile) throw IOException("Файл в корзине не найден")
         val published = publish(source, name, mimeType)
@@ -163,6 +168,7 @@ class StorageManager(
      * until this returns true. No directory-wide blind deletion.
      */
     suspend fun discardTrashed(id: String): Boolean = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val file = File(trash, id)
         file.isFile && file.delete()
     }
@@ -252,6 +258,7 @@ class StorageManager(
     /** Copies a finished temp file into the download folder and returns the actual saved name. */
     suspend fun publish(source: File, fileName: String, mimeType: String): PublishedFile =
         withContext(Dispatchers.IO) {
+            HistoricalRecoverySignals.requireIdle()
             val initialNames = existingNames().toMutableSet()
             selectedFolder()?.let { folder ->
                 if (!folder.canWrite()) throw IOException("Выбранная папка недоступна")
@@ -518,6 +525,7 @@ class StorageManager(
 
     /** Rename an app-owned MediaStore entry from an older release; keep history unchanged on failure. */
     suspend fun renameOwnedDownload(savedUri: String, newName: String): Boolean = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         if (Build.VERSION.SDK_INT < 29) return@withContext false
         val uri = Uri.parse(savedUri)
         if (uri.scheme != "content" || uri.authority != MediaStore.AUTHORITY) return@withContext false

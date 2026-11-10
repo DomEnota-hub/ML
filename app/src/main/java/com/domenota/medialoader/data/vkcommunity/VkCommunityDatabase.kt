@@ -69,6 +69,7 @@ class VkCommunityDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun createJob(link: String, period: VkDatePeriod, zoneId: String): String {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val id = UUID.randomUUID().toString()
         writableDatabase.insertOrThrow("jobs", null, ContentValues().apply {
             put("id", id); put("link", link); put("start_date", period.start.toString())
@@ -165,10 +166,12 @@ class VkCommunityDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun phase(jobId: String, phase: VkJobPhase, error: String? = null) {
-        writableDatabase.update("jobs", ContentValues().apply {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.normalMutation {
+            writableDatabase.update("jobs", ContentValues().apply {
             put("phase", phase.name); put("error", error)
             if (phase == VkJobPhase.READY) put("scan_complete", 1)
-        }, "id=?", arrayOf(jobId))
+            }, "id=?", arrayOf(jobId))
+        }
     }
 
     fun select(jobId: String, photoKey: String, selected: Boolean) {

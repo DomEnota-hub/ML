@@ -513,6 +513,33 @@ class MediaRepository private constructor(context: Context) {
         com.domenota.medialoader.data.storage.MediaMigrationReadOnlyInventory(
             appContext, historyDb.downloadDao(), historyDb.catalogDao()).inspect()
 
+    internal suspend fun inspectHistoricalReplacement() =
+        com.domenota.medialoader.data.storage.HistoricalMediaRecovery(appContext, historyDb).inspect()
+
+    internal suspend fun cancelHistoricalReplacement(): String = musicPostProcessGate.withPermit {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        com.domenota.medialoader.data.storage.HistoricalMediaRecovery(appContext, historyDb).cancelBeforePublicMutation()
+    }
+
+    internal suspend fun runHistoricalReplacement(ids: List<String>, trial: Boolean,
+        onProgress: (String) -> Unit): String = musicPostProcessGate.withPermit {
+        val signals = com.domenota.medialoader.data.storage.HistoricalRecoverySignals
+        signals.begin()
+        try {
+            com.domenota.medialoader.data.storage.ensureHistoricalPlaybackIdle(appContext)
+            com.domenota.medialoader.data.storage.HistoricalMediaRecovery(appContext, historyDb).run(ids, trial, onProgress)
+        } finally { signals.end() }
+    }
+
+    internal suspend fun resumeHistoricalReplacement(onProgress: (String) -> Unit): String = musicPostProcessGate.withPermit {
+        val signals = com.domenota.medialoader.data.storage.HistoricalRecoverySignals
+        signals.begin()
+        try {
+            com.domenota.medialoader.data.storage.ensureHistoricalPlaybackIdle(appContext)
+            com.domenota.medialoader.data.storage.HistoricalMediaRecovery(appContext, historyDb).resume(onProgress)
+        } finally { signals.end() }
+    }
+
     /** Read-only audit of the date Android's Xiaomi Gallery may prefer. */
     internal suspend fun auditGalleryDates():
         com.domenota.medialoader.data.storage.GalleryMediaDateAudit.Summary =
@@ -855,19 +882,27 @@ class MediaRepository private constructor(context: Context) {
     }
 
     suspend fun enqueue(items: List<MediaItem>): List<DownloadEntity> {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         require(items.all(resolver::canDownload)) { "Недопустимый адрес файла" }
         // Store the stable media identity for ordinary downloads too. This makes duplicate
         // detection independent from expiring Instagram CDN URLs.
         prefetchVideoCovers(items)
-        return queue.enqueue(items, bulkMediaKeys = items.map(BulkIdentity::key))
+        return musicPostProcessGate.withPermit {
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+            queue.enqueue(items, bulkMediaKeys = items.map(BulkIdentity::key))
+        }
     }
 
     /** Stable IDs make restoring a confirmed bulk job safe after a process interruption. */
     suspend fun enqueueBulk(items: List<MediaItem>, stableIds: List<String>, groupIds: List<String>): List<DownloadEntity> {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         require(items.all(resolver::canDownload)) { "Недопустимый адрес файла" }
         require(groupIds.size == items.size)
         prefetchVideoCovers(items)
-        return queue.enqueue(items, stableIds, items.map(BulkIdentity::key), groupIds)
+        return musicPostProcessGate.withPermit {
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+            queue.enqueue(items, stableIds, items.map(BulkIdentity::key), groupIds)
+        }
     }
 
     /** Start before transfer so even headless downloads retain their source cover in the local image cache. */
@@ -915,7 +950,7 @@ class MediaRepository private constructor(context: Context) {
                 id = id, providerId = source.providerId, originalName = name,
                 mediaType = mediaType, state = DownloadState.COMPLETED, savedUri = uri,
                 sizeBytes = file.length(), createdAtEpochMillis = System.currentTimeMillis(),
-                sourcePageUrl = source.sourcePageUrl, previewUrl = source.previewUrl,
+                sourcePageUrl = source.sourcePageUrl, previewUrl = latest?.previewUrl ?: source.previewUrl,
                 groupId = source.groupId, derivedFromId = source.id,
                 durationMs = if (mediaType != MediaType.PHOTO) mediaDurationMs(uri) else null,
                 recognizedTitle = title, recognizedArtist = artist, recognizedAlbum = album,
@@ -1126,6 +1161,7 @@ class MediaRepository private constructor(context: Context) {
     }
 
     suspend fun restoreHidden(ids: Set<String>) {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         AppLog.i("Trash", "Restore requested · count=${ids.size}")
         history.all().filter { !it.isPrivate && it.hidden && it.id in ids }.forEach { item ->
             if (item.state == DownloadState.COMPLETED) {
@@ -1183,11 +1219,13 @@ class MediaRepository private constructor(context: Context) {
     }
 
     suspend fun clearHidden() {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         removeHidden(history.all().filter { !it.isPrivate && it.hidden }.mapTo(mutableSetOf()) { it.id })
     }
 
     /** History cleanup must never remove trash records or physically stored files. */
     suspend fun clearHistory() {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val affected = history.all().count {
             !it.isPrivate && !it.hidden && (it.state == DownloadState.COMPLETED ||
                 it.state == DownloadState.FAILED || it.state == DownloadState.CANCELLED)

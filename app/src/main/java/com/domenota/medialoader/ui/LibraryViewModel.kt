@@ -11,6 +11,7 @@ import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.data.MediaRepository
 import com.domenota.medialoader.data.playback.PublicMediaIdentity
 import com.domenota.medialoader.data.playback.AudioWaveformPrecompute
+import com.domenota.medialoader.data.storage.HistoricalRecoverySignals
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ensureActive
@@ -18,8 +19,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.mapLatest
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.stateIn
@@ -47,8 +46,8 @@ internal data class PhoneLibraryState(
 )
 internal data class LibraryIndex(val ready: Boolean = false, val refs: List<LibraryMediaRef> = emptyList(),
     val galleryRevision: Long = 0, val musicRevision: Long = 0)
-private data class LibraryIndexInput(val app: List<DownloadEntity>, val gallery: PhoneLibraryState,
-    val music: PhoneLibraryState, val privateKeys: Set<String>?)
+private data class LibraryIndexInput(val app: List<LibraryMediaRef>?, val gallery: PhoneLibraryState,
+    val music: PhoneLibraryState, val privateKeys: Set<String>?, val recovering: Boolean)
 
 /** Retained editor references are not validated public display data until this snapshot lands. */
 internal fun phoneValidationPending(index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState): Boolean =
@@ -187,7 +186,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             batch.map { row -> async { reference(row) } }.awaitAll()
         } } else rows.map { reference(it) }
     }
-    private val appReferences = completedDownloads.transformLatest<List<DownloadEntity>, List<LibraryMediaRef>?> { rows ->
+    private val appReferences = combine(completedDownloads, HistoricalRecoverySignals.isRunning,
+        HistoricalRecoverySignals.version) { rows, running, _ -> rows.takeUnless { running } }
+        .transformLatest<List<DownloadEntity>?, List<LibraryMediaRef>?> { rows ->
+        if (rows == null) { emit(null); return@transformLatest }
         // Phone revisions must not restart this work, and a large history must not delay
         // the first visible page until its last provider URI has been resolved.
         val resolved = mutableListOf<LibraryMediaRef>()
@@ -203,8 +205,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         }
         com.domenota.medialoader.core.logging.AppLog.i("Library", "App identity index ready · count=${resolved.size}")
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
-    val index = combine(appReferences, gallery, music, privateKeys) { app, pictures, audio, private ->
-        if (private == null) LibraryIndex() else withContext(Dispatchers.IO) {
+    val index = combine(appReferences, gallery, music, privateKeys,
+        HistoricalRecoverySignals.isRunning) { app, pictures, audio, private, recovering ->
+        LibraryIndexInput(app, pictures, audio, private, recovering)
+    }.mapLatest { (app, pictures, audio, private, recovering) ->
+        if (private == null || recovering) LibraryIndex() else withContext(Dispatchers.IO) {
             // MediaStore's DATE_ADDED changes after a copied legacy download.
             // The matching app history still has the pre-migration timestamp.
             // Reconcile only identical URI/type pairs, never by name or size.
@@ -219,7 +224,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     init {
         // Persistence is downstream maintenance, never a prerequisite for showing known media.
         viewModelScope.launch(Dispatchers.IO) {
-            index.filter { it.ready }.map { it.refs }.distinctUntilChanged().debounce(500L).collectLatest { refs ->
+            combine(index, HistoricalRecoverySignals.isRunning) { current, recovering ->
+                current.refs.takeIf { current.ready && !recovering }
+            }.distinctUntilChanged().collectLatest { refs ->
+                if (refs == null) return@collectLatest
+                kotlinx.coroutines.delay(500L)
         try { playlistRepository.reconcileAliases(refs.flatMap { ref ->
             (ref.aliases + ref.key).map { it to ref.key }
         }.toMap()) }
@@ -245,27 +254,69 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private var mediaChangeJob: Job? = null
     private val pendingMediaChanges = mutableSetOf<AppMode>()
     private var editorHoldsAutomaticIndexing = false
+    private var recoveryRefreshPending = false
+    private var observedRecoveryVersion = HistoricalRecoverySignals.version.value
     fun holdAutomaticMediaIndexing(held: Boolean) {
         if (editorHoldsAutomaticIndexing == held) return
         editorHoldsAutomaticIndexing = held
+        HistoricalRecoverySignals.setEditorHold(this, held)
         if (held) mediaChangeJob?.cancel()
+        else if (recoveryRefreshPending) refreshAfterHistoricalRecovery()
         else if (pendingMediaChanges.isNotEmpty()) scheduleMediaChange(null, addModes = false)
+    }
+
+    private fun refreshAfterHistoricalRecovery() {
+        if (!recoveryRefreshPending || editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
+        recoveryRefreshPending = false
+        pendingMediaChanges.clear()
+        refresh(AppMode.GALLERY, force = true, invalidate = true)
+        refresh(AppMode.MUSIC, force = true, invalidate = true)
+    }
+
+    init {
+        viewModelScope.launch {
+            combine(HistoricalRecoverySignals.isRunning, HistoricalRecoverySignals.version) { running, version ->
+                running to version
+            }.collect { (running, version) ->
+                if (running) {
+                    mediaChangeJob?.cancel()
+                    jobs.values.forEach { it.cancel() }
+                    jobs.clear()
+                    galleryState.value = PhoneLibraryState(revision = galleryState.value.revision + 1)
+                    musicState.value = PhoneLibraryState(revision = musicState.value.revision + 1)
+                } else if (version != observedRecoveryVersion) {
+                    observedRecoveryVersion = version
+                    recoveryRefreshPending = true
+                    // StateFlow may conflate a very short begin/end pair.
+                    galleryState.value = PhoneLibraryState(revision = galleryState.value.revision + 1)
+                    musicState.value = PhoneLibraryState(revision = musicState.value.revision + 1)
+                    identityCache.clear()
+                    storeStamps.clear()
+                    refreshedAt.clear()
+                    externalCatalog.reloadHistoricalMedia()
+                    playlistRepository.reloadHistoricalMedia()
+                    phoneCache.clear(AppMode.GALLERY)
+                    phoneCache.clear(AppMode.MUSIC)
+                    refreshAfterHistoricalRecovery()
+                }
+            }
+        }
     }
     private fun scheduleMediaChange(uri: android.net.Uri?, addModes: Boolean = true) {
         // Only a changed media kind needs rescanning. Preserve unknown URI events
         // conservatively, and coalesce successive callbacks while scans are busy.
         if (addModes) pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
         mediaChangeJob?.cancel()
-        if (editorHoldsAutomaticIndexing) return
+        if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
         if (AppMode.MUSIC in pendingMediaChanges) AudioWaveformPrecompute.request(getApplication())
         mediaChangeJob?.cancel()
         mediaChangeJob = viewModelScope.launch {
             kotlinx.coroutines.delay(500)
-            if (editorHoldsAutomaticIndexing) return@launch
+            if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
             val affected = pendingMediaChanges.toSet()
             // The current scan must finish before the next reconciliation starts.
             affected.forEach { jobs[it]?.join() }
-            if (editorHoldsAutomaticIndexing) return@launch
+            if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
             pendingMediaChanges.removeAll(affected)
             affected.forEach { mode ->
                 val state = if (mode == AppMode.GALLERY) galleryState else musicState
@@ -316,6 +367,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
 
     fun refresh(mode: AppMode, force: Boolean = false, invalidate: Boolean = false) {
         if (mode == AppMode.DOWNLOADER) return
+        if (HistoricalRecoverySignals.isRunning.value) {
+            pendingMediaChanges += mode
+            return
+        }
         val context = getApplication<Application>()
         val permissions = PhoneMediaLibrary.permissions(mode)
         fun currentSignature() = permissions.map { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
@@ -359,7 +414,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             try {
                 val keys = privateKeys.filterNotNull().first()
                 val privacy = PhoneLibraryCache.privacyTag(keys)
-                fun stillAllowed(): Boolean = currentSignature() == signature && privateKeys.value == keys
+                fun stillAllowed(): Boolean = !HistoricalRecoverySignals.isRunning.value &&
+                    currentSignature() == signature && privateKeys.value == keys
                 var stamp = phone.storeStamp()
                 if (!stillAllowed()) { refresh(mode, force = true, invalidate = true); return@launch }
                 if (coldStart && !partial) {
@@ -435,6 +491,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     }
 
     override fun onCleared() {
+        HistoricalRecoverySignals.setEditorHold(this, false)
         getApplication<Application>().contentResolver.unregisterContentObserver(mediaObserver)
         audioPreview.close()
         super.onCleared()

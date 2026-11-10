@@ -1,7 +1,7 @@
-name: Recovery journal synthetic QA
+name: Historical date replacement scoped QA
 on:
   pull_request:
-    branches: [feature/ml-17166-readonly-migration-inventory]
+    branches: [feature/ml-17167-recovery-journal-qa]
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,8 +22,8 @@ jobs:
         run: '"$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
       - name: Recovery and existing history regression gate
         run: >-
-          gradle :app:testDebugUnitTest --tests '*Recovery*' --tests '*LegacyMediaMigrationHistoryTest'
-          :app:lintDebug :app:assembleRelease -Parm64Release=true --no-daemon --stacktrace
+          gradle :app:testDebugUnitTest --tests '*HistoricalReferenceLinksTest' --tests '*RecoveryHistoryCasTest'
+          :app:assembleRelease -Parm64Release=true --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -30,6 +30,54 @@ class PlaylistRepository(context: Context) {
 
     suspend fun awaitLoaded() { loaded.await() }
 
+    internal suspend fun snapshotHistoricalMedia(): String = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock { preferences.getString("playlists", null).orEmpty().also { read() } }
+    }
+
+    internal suspend fun rebindHistoricalMedia(oldUri: String, newUri: String, downloadId: String,
+        newName: String, newBytes: Long, oldAliases: Set<String>, newAliases: Set<String>,
+        expectedSnapshot: String? = null): String = withContext(Dispatchers.IO) {
+        require(newName.isNotBlank() && newBytes > 0L && oldUri != newUri)
+        loaded.await()
+        storageMutex.withLock {
+            val raw = preferences.getString("playlists", null).orEmpty()
+            check(expectedSnapshot == null || raw == expectedSnapshot) { "Плейлисты изменились во время восстановления" }
+            val current = read()
+            val previousKeys = oldAliases + oldUri + downloadId
+            val allKeys = previousKeys + newAliases + newUri
+            val updated = current.map { playlist ->
+                val references = playlist.trackReferences.toMutableMap()
+                playlist.trackIds.forEach { id ->
+                    val known = references[id].orEmpty() + id
+                    if (known.any(previousKeys::contains)) references[id] = known + allKeys
+                }
+                playlist.copy(trackReferences = references)
+            }
+            val result = if (updated == current) raw else encode(updated)
+            if (result != raw && !preferences.edit().putString("playlists", result).commit())
+                throw IOException("Не удалось сохранить ссылки плейлистов")
+            state.value = updated
+            result
+        }
+    }
+
+    internal suspend fun restoreHistoricalMedia(expectedCurrent: String, previous: String) = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock {
+            check(preferences.getString("playlists", null).orEmpty() == expectedCurrent) { "Плейлисты изменились после восстановления" }
+            val editor = preferences.edit()
+            if (previous.isEmpty()) editor.remove("playlists") else editor.putString("playlists", previous)
+            if (!editor.commit()) throw IOException("Не удалось вернуть ссылки плейлистов")
+            state.value = read()
+        }
+    }
+
+    internal suspend fun reloadHistoricalMedia() = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock { state.value = read() }
+    }
+
     suspend fun create(name: String): String {
         val validName = validatedName(name)
         val id = UUID.randomUUID().toString()
@@ -105,19 +153,24 @@ class PlaylistRepository(context: Context) {
     private suspend fun mutate(operation: (List<MediaPlaylist>) -> List<MediaPlaylist>) = withContext(Dispatchers.IO) {
         loaded.await()
         storageMutex.withLock {
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
             val current = read()
             val updated = operation(current)
             if (updated == current) { state.value = updated; return@withLock }
-            val json = JSONArray()
-            updated.forEach { playlist ->
-                val references = JSONObject()
-                playlist.trackReferences.forEach { (id, aliases) -> references.put(id, JSONArray(aliases.toList())) }
-                json.put(JSONObject().put("id", playlist.id).put("name", playlist.name).put("trackIds", JSONArray(playlist.trackIds))
-                    .put("trackReferences", references))
-            }
-            if (!preferences.edit().putString("playlists", json.toString()).commit()) throw IOException("Could not save playlists")
+            if (!preferences.edit().putString("playlists", encode(updated)).commit()) throw IOException("Could not save playlists")
             state.value = updated
         }
+    }
+
+    private fun encode(playlists: List<MediaPlaylist>): String {
+        val json = JSONArray()
+        playlists.forEach { playlist ->
+            val references = JSONObject()
+            playlist.trackReferences.forEach { (id, aliases) -> references.put(id, JSONArray(aliases.toList())) }
+            json.put(JSONObject().put("id", playlist.id).put("name", playlist.name).put("trackIds", JSONArray(playlist.trackIds))
+                .put("trackReferences", references))
+        }
+        return json.toString()
     }
 
     private fun read(): List<MediaPlaylist> {
