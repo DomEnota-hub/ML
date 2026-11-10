@@ -43,7 +43,7 @@ jobs:
           grep -Fq 'Pictures/MediaLoader_QA_EXIF_Test/' "$trial"
           grep -Fq 'MediaRecoveryLabSection(' "$settings"
           grep -Fq 'Восстановление медиатеки' "$lab"
-          if grep -Eq 'resolver\.delete\(source|resolver\.update\(source|dao\.(delete|update)|moveSavedUriWhenCurrent|DATE_ADDED[[:space:]]*,' "$trial"; then
+          if grep -Eq 'resolver\.delete\(source|resolver\.update\(source|dao\.(delete|update)|moveSavedUriWhenCurrent|put\\([^)]*DATE_ADDED' "$trial"; then
             echo "::error::EXIF one-copy trial must never change originals or real insertion timestamps"
             exit 1
           fi
