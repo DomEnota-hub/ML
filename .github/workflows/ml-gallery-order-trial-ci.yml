@@ -1,0 +1,71 @@
+name: ML Xiaomi Gallery order experiment QA
+on:
+  push:
+    branches:
+      - feature/ml-gallery-republish-trial-20261110
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-xiaomi-order-trial-qa
+  cancel-in-progress: true
+jobs:
+  safety-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle wrapper and Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Check no automatic physical rewrite and no edits to originals
+        shell: bash
+        run: |
+          set -euo pipefail
+          src=app/src/main/java/com/domenota/medialoader/data/storage/MediaOrderRepublishTrial.kt
+          test -s "$src"
+          grep -Fq 'TRIAL_PATH = "Pictures/MediaLoader_QA_Order_Test/"' "$src"
+          if grep -Eq 'moveSavedUriWhenCurrent|history\.save|dao\.(delete|update)|resolver\.update\(source|resolver\.delete\(source|File\.setLastModified|DATE_ADDED,[[:space:]]*[0-9]' "$src"; then
+            echo "::error::Test must not rewrite/delete sources or manipulate dates directly"
+            exit 1
+          fi
+          grep -Fq 'sha256' "$src"
+          grep -Fq 'AtomicFile' "$src"
+      - name: Chronology and reverse-republish trial unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*RepublishTrialPolicyTest' \
+            --tests '*MediaStoreDateAuditPolicyTest' \
+            --tests '*PhoneLibraryChronologyTest' \
+            --tests '*MediaDateRepairPolicyTest' \
+            --tests '*LegacyRelocationPolicyTest' \
+            --tests '*MediaStoragePolicyTest' \
+            --tests '*GalleryLibraryStateTest' --stacktrace
+      - name: Android lint
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: ARM64 release compilation
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify package and ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "name='com.domenota.medialoader'"
