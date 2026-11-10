@@ -200,7 +200,7 @@ internal class MediaMigrationReadOnlyInventory(
             }
             val sizeMatches = row.sizeBytes == null || row.sizeBytes <= 0L ||
                 row.sizeBytes == media?.bytes
-            val input = policy.Input(
+            val input = MigrationPreflightPolicy.Input(
                 completed = row.state == DownloadState.COMPLETED,
                 hidden = row.hidden,
                 privateItem = row.isPrivate,
