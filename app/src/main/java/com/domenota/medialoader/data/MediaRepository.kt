@@ -507,6 +507,12 @@ class MediaRepository private constructor(context: Context) {
         com.domenota.medialoader.data.storage.MediaOrderRepublishTrial(
             appContext, historyDb.downloadDao()).removeTrialCopies()
 
+    /** Stage 1: read-only, all-row migration inventory for explicit JSON export. */
+    internal suspend fun auditMigrationReadOnly():
+        com.domenota.medialoader.data.storage.MediaMigrationReadOnlyInventory.Result =
+        com.domenota.medialoader.data.storage.MediaMigrationReadOnlyInventory(
+            appContext, historyDb.downloadDao(), historyDb.catalogDao()).inspect()
+
     /** Read-only audit of the date Android's Xiaomi Gallery may prefer. */
     internal suspend fun auditGalleryDates():
         com.domenota.medialoader.data.storage.GalleryMediaDateAudit.Summary =
