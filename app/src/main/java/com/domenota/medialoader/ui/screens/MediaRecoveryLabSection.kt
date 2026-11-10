@@ -58,6 +58,15 @@ internal fun MediaRecoveryLabSection(
     videoTrialBusy: Boolean,
     onRunVideoTrial: () -> Unit,
     onRemoveVideoTrial: () -> Unit,
+    sameUriBusy: Boolean,
+    sameUriJpegStatus: String,
+    sameUriVideoStatus: String,
+    onRunSameUriJpeg: () -> Unit,
+    onRunSameUriMp4: () -> Unit,
+    onRestoreSameUriJpeg: () -> Unit,
+    onRestoreSameUriMp4: () -> Unit,
+    onRemoveSameUriJpeg: () -> Unit,
+    onRemoveSameUriMp4: () -> Unit,
     dateRecoveryStatus: String,
     dateRecoveryBusy: Boolean,
     dateRecoveryReady: Boolean,
@@ -72,10 +81,13 @@ internal fun MediaRecoveryLabSection(
     var dateTrialDialog by remember { mutableStateOf(false) }
     var republishTrialDialog by remember { mutableStateOf(false) }
     var removeRepublishTrialDialog by remember { mutableStateOf(false) }
-    var dateAllDialog by remember { mutableStateOf(false) }
     var undoDateDialog by remember { mutableStateOf(false) }
     var exifTrialDialog by remember { mutableStateOf(false) }
     var removeExifTrialDialog by remember { mutableStateOf(false) }
+    var sameUriJpegDialog by remember { mutableStateOf(false) }
+    var sameUriMp4Dialog by remember { mutableStateOf(false) }
+    var sameUriRestoreDialog by remember { mutableStateOf<Boolean?>(null) }
+    var sameUriDeleteDialog by remember { mutableStateOf<Boolean?>(null) }
     var videoTrialDialog by remember { mutableStateOf(false) }
     var removeVideoTrialDialog by remember { mutableStateOf(false) }
 
@@ -120,7 +132,7 @@ internal fun MediaRecoveryLabSection(
                 if (exifTrialBusy) "Создаём тестовую EXIF-копию…" else exifTrialStatus,
                 grouped = true, nested = true, iconTone = SettingIconTone.RECOGNITION,
                 onClick = {
-                    if (!exifTrialBusy && !republishTrialBusy && !dateRecoveryBusy &&
+                    if (!sameUriBusy && !exifTrialBusy && !republishTrialBusy && !dateRecoveryBusy &&
                         !storageMigrationRunning && activeDownloadCount == 0)
                         exifTrialDialog = true
                 })
@@ -128,7 +140,7 @@ internal fun MediaRecoveryLabSection(
                 "Проверка имени, владельца и SHA-256; исходник не трогаем",
                 grouped = true, nested = true, iconTone = SettingIconTone.TRASH,
                 onClick = {
-                    if (!exifTrialBusy && !republishTrialBusy && !dateRecoveryBusy &&
+                    if (!sameUriBusy && !exifTrialBusy && !republishTrialBusy && !dateRecoveryBusy &&
                         !storageMigrationRunning && activeDownloadCount == 0)
                         removeExifTrialDialog = true
                 })
@@ -140,7 +152,7 @@ internal fun MediaRecoveryLabSection(
                 if (videoTrialBusy) "Создаём одну MP4-копию…" else videoTrialStatus,
                 grouped = true, nested = true, iconTone = SettingIconTone.MEDIA_MANAGEMENT,
                 onClick = {
-                    if (!videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
+                    if (!sameUriBusy && !videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
                         !dateRecoveryBusy && !storageMigrationRunning && activeDownloadCount == 0)
                         videoTrialDialog = true
                 })
@@ -148,10 +160,49 @@ internal fun MediaRecoveryLabSection(
                 "Удаляем только тестовую копию после проверки владельца и SHA-256",
                 grouped = true, nested = true, iconTone = SettingIconTone.TRASH,
                 onClick = {
-                    if (!videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
+                    if (!sameUriBusy && !videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
                         !dateRecoveryBusy && !storageMigrationRunning && activeDownloadCount == 0)
                         removeVideoTrialDialog = true
                 })
+            GroupDivider()
+            Text("Новый эксперимент · тот же MediaStore URI",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Только ОТДЕЛЬНЫЕ тестовые копии. Никакие реальные загрузки, " +
+                "их URI или база ML не меняются. После записи сверяем ID и даты.",
+                style = MaterialTheme.typography.bodySmall)
+            SettingRow(Icons.Rounded.InsertPhoto, "JPEG: изменение без нового URI",
+                if (sameUriBusy) "Выполняется опыт…" else sameUriJpegStatus,
+                grouped = true, nested = true, iconTone = SettingIconTone.RECOGNITION,
+                onClick = {
+                    if (!sameUriBusy && !videoTrialBusy && !exifTrialBusy &&
+                        !dateRecoveryBusy && !storageMigrationRunning && activeDownloadCount == 0)
+                        sameUriJpegDialog = true
+                })
+            SettingRow(Icons.Rounded.SmartDisplay, "MP4: изменение без нового URI",
+                if (sameUriBusy) "Выполняется опыт…" else sameUriVideoStatus,
+                grouped = true, nested = true, iconTone = SettingIconTone.MEDIA_MANAGEMENT,
+                onClick = {
+                    if (!sameUriBusy && !videoTrialBusy && !exifTrialBusy &&
+                        !dateRecoveryBusy && !storageMigrationRunning && activeDownloadCount == 0)
+                        sameUriMp4Dialog = true
+                })
+            SettingRow(Icons.Rounded.RestoreFromTrash, "Откатить пробу JPEG",
+                "Восстановить байты тестовой копии из резерва в тот же URI",
+                grouped = true, nested = true, iconTone = SettingIconTone.CLEAR_HISTORY,
+                onClick = { if (!sameUriBusy) sameUriRestoreDialog = false })
+            SettingRow(Icons.Rounded.RestoreFromTrash, "Откатить пробу MP4",
+                "Восстановить тестовый MP4 из резерва в тот же URI",
+                grouped = true, nested = true, iconTone = SettingIconTone.CLEAR_HISTORY,
+                onClick = { if (!sameUriBusy) sameUriRestoreDialog = true })
+            SettingRow(Icons.Rounded.DeleteSweep, "Удалить QA-копию JPEG",
+                "Только тестовый альбом после проверки владельца, ID и имени",
+                grouped = true, nested = true, iconTone = SettingIconTone.TRASH,
+                onClick = { if (!sameUriBusy) sameUriDeleteDialog = false })
+            SettingRow(Icons.Rounded.DeleteSweep, "Удалить QA-копию MP4",
+                "Только тестовый альбом после проверки владельца, ID и имени",
+                grouped = true, nested = true, iconTone = SettingIconTone.TRASH,
+                onClick = { if (!sameUriBusy) sameUriDeleteDialog = true })
             GroupDivider()
             Text("Предыдущие эксперименты",
                 style = MaterialTheme.typography.titleSmall,
@@ -186,12 +237,10 @@ internal fun MediaRecoveryLabSection(
                     grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
                     onClick = { if (activeDownloadCount == 0) dateTrialDialog = true })
             }
-            if (dateRecoveryTrialDone && !dateRecoveryBusy) {
-                SettingRow(Icons.Rounded.PlaylistAddCheck, "Восстановить даты остальных",
-                    "При неэффективности метод автоматически блокируется",
-                    grouped = true, nested = true, iconTone = SettingIconTone.AMBER,
-                    onClick = { if (activeDownloadCount == 0) dateAllDialog = true })
-            }
+            Text("Массовая обработка отключена до тестов сохранения URI " +
+                "и обязательного аудита 600+ файлов.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             SettingRow(Icons.Rounded.Info, "Откат изменения mtime",
                 "Вернуть даты из журнала, без удаления файлов",
                 grouped = true, nested = true, iconTone = SettingIconTone.MEDIA_MANAGEMENT,
@@ -200,6 +249,57 @@ internal fun MediaRecoveryLabSection(
                         undoDateDialog = true
                 })
         }
+    }
+
+    if (sameUriJpegDialog || sameUriMp4Dialog) {
+        val video = sameUriMp4Dialog
+        AlertDialog(
+            onDismissRequest = { sameUriJpegDialog = false; sameUriMp4Dialog = false },
+            title = { Text("Опыту с прежним URI быть? (${if (video) "MP4" else "JPEG"})") },
+            text = { Text("Будет создана ОДНА отдельная копия в " +
+                "MediaLoader_QA_SameUri_Test, затем её содержимое будет перезаписано " +
+                "через ТОТ ЖЕ MediaStore URI. Историческое время берём из базы ML. " +
+                "Оригиналы и история загрузок только читаются. " +
+                "Если Android сменит ID или появятся дубли, проба будет остановлена. " +
+                "После неё проверьте Xiaomi Gallery, выполните откат и удаление копии.") },
+            confirmButton = { TextButton(onClick = {
+                sameUriJpegDialog = false; sameUriMp4Dialog = false
+                if (!sameUriBusy && !dateRecoveryBusy && !storageMigrationRunning &&
+                    activeDownloadCount == 0) {
+                    if (video) onRunSameUriMp4() else onRunSameUriJpeg()
+                }
+            }) { Text("Создать и изменить QA-копию") } },
+            dismissButton = { TextButton(onClick = {
+                sameUriJpegDialog = false; sameUriMp4Dialog = false
+            }) { Text("Отмена") } },
+        )
+    }
+    sameUriRestoreDialog?.let { video ->
+        AlertDialog(onDismissRequest = { sameUriRestoreDialog = null },
+            title = { Text("Откатить пробную ${if (video) "MP4" else "JPEG"}-копию?") },
+            text = { Text("Исходные байты пробной копии восстановятся из резервного " +
+                "файла по тому же URI. Реальные загрузки и база ML не изменяются.") },
+            confirmButton = { TextButton(onClick = {
+                sameUriRestoreDialog = null
+                if (!sameUriBusy && activeDownloadCount == 0)
+                    if (video) onRestoreSameUriMp4() else onRestoreSameUriJpeg()
+            }) { Text("Откатить пробу") } },
+            dismissButton = { TextButton(onClick = { sameUriRestoreDialog = null }) {
+                Text("Отмена") } })
+    }
+    sameUriDeleteDialog?.let { video ->
+        AlertDialog(onDismissRequest = { sameUriDeleteDialog = null },
+            title = { Text("Удалить только QA-копию ${if (video) "MP4" else "JPEG"}?") },
+            text = { Text("Android удалит только тестовый файл из " +
+                "MediaLoader_QA_SameUri_Test после проверки владельца, ID и " +
+                "отсутствия ссылок из реальной истории ML.") },
+            confirmButton = { TextButton(onClick = {
+                sameUriDeleteDialog = null
+                if (!sameUriBusy && activeDownloadCount == 0)
+                    if (video) onRemoveSameUriMp4() else onRemoveSameUriJpeg()
+            }) { Text("Удалить QA-копию") } },
+            dismissButton = { TextButton(onClick = { sameUriDeleteDialog = null }) {
+                Text("Отмена") } })
     }
 
     if (undoDateDialog) AlertDialog(
@@ -217,26 +317,6 @@ internal fun MediaRecoveryLabSection(
         },
         dismissButton = {
             TextButton(onClick = { undoDateDialog = false }) { Text("Назад") }
-        },
-    )
-
-    if (dateAllDialog) AlertDialog(
-        onDismissRequest = { dateAllDialog = false },
-        title = { Text("Восстановить даты остальных файлов?") },
-        text = { Text("Продолжайте, только если после пробного изменения " +
-            "один файл переместился на ожидаемую дату в системной галерее Xiaomi. " +
-            "Изменяется время существующих файлов, но НЕ их содержимое, EXIF " +
-            "или дата загрузки в истории. Каждая операция записывается в журнал. " +
-            "Это НЕ обратное пересоздание файлов.") },
-        confirmButton = {
-            TextButton(onClick = {
-                dateAllDialog = false
-                if (!dateRecoveryBusy && dateRecoveryTrialDone && activeDownloadCount == 0)
-                    onRestoreRemainingDates()
-            }) { Text("Восстановить остальные даты") }
-        },
-        dismissButton = {
-            TextButton(onClick = { dateAllDialog = false }) { Text("Отмена") }
         },
     )
 
@@ -337,7 +417,7 @@ internal fun MediaRecoveryLabSection(
             "потом удалите копию отдельной кнопкой.") },
         confirmButton = { TextButton(onClick = {
             videoTrialDialog = false
-            if (!videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
+            if (!sameUriBusy && !videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
                 !storageMigrationRunning && !dateRecoveryBusy && activeDownloadCount == 0)
                 onRunVideoTrial()
         }) { Text("Создать одну пробную MP4-копию") } },
@@ -354,7 +434,7 @@ internal fun MediaRecoveryLabSection(
             "Оригинал и база ML останутся нетронутыми.") },
         confirmButton = { TextButton(onClick = {
             removeVideoTrialDialog = false
-            if (!videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
+            if (!sameUriBusy && !videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
                 !storageMigrationRunning && !dateRecoveryBusy && activeDownloadCount == 0)
                 onRemoveVideoTrial()
         }) { Text("Удалить тестовую копию") } },
@@ -376,7 +456,7 @@ internal fun MediaRecoveryLabSection(
         confirmButton = {
             TextButton(onClick = {
                 exifTrialDialog = false
-                if (!exifTrialBusy && !republishTrialBusy && !dateRecoveryBusy &&
+                if (!sameUriBusy && !exifTrialBusy && !republishTrialBusy && !dateRecoveryBusy &&
                     !storageMigrationRunning && activeDownloadCount == 0) onRunExifTrial()
             }) { Text("Создать одну EXIF-копию") }
         },
@@ -394,7 +474,7 @@ internal fun MediaRecoveryLabSection(
         confirmButton = {
             TextButton(onClick = {
                 removeExifTrialDialog = false
-                if (!exifTrialBusy && !republishTrialBusy && !dateRecoveryBusy &&
+                if (!sameUriBusy && !exifTrialBusy && !republishTrialBusy && !dateRecoveryBusy &&
                     !storageMigrationRunning && activeDownloadCount == 0) onRemoveExifTrial()
             }) { Text("Удалить тестовую копию") }
         },
