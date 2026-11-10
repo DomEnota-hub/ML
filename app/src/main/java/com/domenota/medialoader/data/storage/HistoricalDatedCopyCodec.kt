@@ -76,6 +76,21 @@ internal class HistoricalDatedCopyCodec {
                         "-c", "copy", "-metadata", "creation_time=$instant", "-metadata",
                         "com.apple.quicktime.creationdate=$local", "-movflags", "+faststart",
                         "-f", "mp4", output.absolutePath))
+                    if (videoSignature(source) != videoSignature(output)) {
+                        // Some MP4 muxers round the last AAC packet/edit-list duration.
+                        // Keep the existing strict signature and payload checks: fall
+                        // back to a same-size private copy changing ONLY header dates.
+                        // Reject competing metadata dates that could override mvhd.
+                        val original = probe(source)
+                        val tagSets = listOfNotNull(original.optJSONObject("format")?.optJSONObject("tags")) +
+                            (0 until original.getJSONArray("streams").length()).mapNotNull {
+                                original.getJSONArray("streams").getJSONObject(it).optJSONObject("tags")
+                            }
+                        check(tagSets.none { tags -> tags.keys().asSequence().any { key ->
+                            key != "creation_time" && (key.contains("date", true) || key.contains("time", true))
+                        } }) { "MP4 содержит дополнительные поля даты; точное восстановление заголовков неоднозначно" }
+                        Mp4HeaderDates.copy(source, output, epochMillis)
+                    }
                     val metadata = probe(output).getJSONObject("format").optJSONObject("tags")
                     val actual = metadata?.optString("creation_time")?.let {
                         runCatching { Instant.parse(it).toEpochMilli() }.getOrNull()
