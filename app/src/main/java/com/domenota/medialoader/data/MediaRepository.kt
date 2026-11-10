@@ -444,6 +444,17 @@ class MediaRepository private constructor(context: Context) {
         StorageMigrationProgress = LegacyMediaMigration(
             appContext, historyDb.downloadDao(), storage
         ).migrate(onProgress)
+    /** Safe one-JPEG EXIF lab copy. Original photo and Room history are read-only. */
+    internal suspend fun runExifChronologyTrial():
+        com.domenota.medialoader.data.storage.MediaExifChronologyTrial.Result =
+        com.domenota.medialoader.data.storage.MediaExifChronologyTrial(
+            appContext, historyDb.downloadDao()).runTrial()
+
+    internal suspend fun removeExifChronologyTrial():
+        com.domenota.medialoader.data.storage.MediaExifChronologyTrial.Result =
+        com.domenota.medialoader.data.storage.MediaExifChronologyTrial(
+            appContext, historyDb.downloadDao()).removeTrial()
+
     /** Three physical test copies only; no Room or original-media mutation. */
     internal suspend fun trialGalleryRepublish(onProgress: (Int, Int) -> Unit):
         com.domenota.medialoader.data.storage.MediaOrderRepublishTrial.Outcome =
