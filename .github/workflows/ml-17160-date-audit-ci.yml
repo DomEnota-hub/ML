@@ -1,4 +1,4 @@
-name: ML date audit QA - read-only regression
+name: ML 1.7.160 ARM64 QA verified private local signing handoff
 on:
   push:
     branches:
@@ -7,28 +7,53 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ml17160-date-audit
+  group: ml17160-date-audit-handoff
   cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 65
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Gradle and SDK
+      - name: Bootstrap verified Gradle
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
           sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
           sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
-          ./gradlew --version --no-daemon
+          for attempt in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$attempt" != 4
+            sleep 10
+          done
+      - name: Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Date audit, recovery and safe migration tests
+      - name: Verify version, source restrictions and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 220$' app/build.gradle
+          grep -Fq "versionName '1.7.160'" app/build.gradle
+          grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
+          audit=app/src/main/java/com/domenota/medialoader/data/storage/GalleryMediaDateAudit.kt
+          if grep -Eq 'resolver\.(insert|update|delete)|contentResolver\.(insert|update|delete)|setLastModified|openOutputStream' "$audit"; then
+            echo "::error::MediaStore date inspection must be read-only"
+            exit 1
+          fi
+          migration=app/src/main/java/com/domenota/medialoader/data/storage/LegacyMediaMigration.kt
+          if sed -n '/suspend fun migrate(/,/private fun belongsToLegacyDownloads/p' "$migration" | grep -Eq 'publishVerifiedLegacyCopy|deleteDownloadPermanently|moveSavedUriWhenCurrent'; then
+            echo "::error::Destructive legacy copy/delete migration is not permitted"
+            exit 1
+          fi
+      - name: Chronology, restored mtime, read-only date audit regressions
         shell: bash
         run: |
           set -euo pipefail
@@ -37,17 +62,39 @@ jobs:
             --tests '*PhoneLibraryChronologyTest' \
             --tests '*MediaDateRepairPolicyTest' \
             --tests '*LegacyRelocationPolicyTest' \
-            --tests '*MediaStoragePolicyTest' --stacktrace
+            --tests '*LegacyMediaMigrationHistoryTest' \
+            --tests '*MediaStoragePolicyTest' \
+            --tests '*GalleryLibraryStateTest' \
+            --tests '*GalleryAlbumFileSortTest' \
+            --tests '*GalleryDateNavigationTest' \
+            --tests '*PhoneMediaLibraryTest' --stacktrace
       - name: Android lint
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
-      - name: Compile without publishing release
-        run: ./gradlew :app:compileReleaseKotlin -Parm64Release=true --stacktrace
-      - name: Enforce read-only audit
+      - name: Build ARM64 unsigned APK
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify APK and prepare signing handoff without publishing release
         shell: bash
         run: |
           set -euo pipefail
-          file=app/src/main/java/com/domenota/medialoader/data/storage/GalleryMediaDateAudit.kt
-          if grep -Eq 'resolver\.(insert|update|delete)|contentResolver\.(insert|update|delete)|setLastModified|openOutputStream' "$file"; then
-            echo "::error::Date audit must be read-only"
-            exit 1
-          fi
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -s "$apk"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='220' versionName='1.7.160'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          mkdir -p handoff/tools/lib handoff/tools/lib64
+          "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.160_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -c -v 4 handoff/ML_1.7.160_ARM64_ALIGNED_UNSIGNED.apk
+          cp "$bt/zipalign" handoff/tools/
+          cp "$bt/lib/apksigner.jar" handoff/tools/lib/
+          cp -a "$bt/lib64/." handoff/tools/lib64/
+          git archive --format=zip -o handoff/ML_1.7.160_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/COMMIT_SHA.txt
+          (cd handoff && sha256sum ML_1.7.160_ARM64_ALIGNED_UNSIGNED.apk ML_1.7.160_SOURCES_EXACT_COMMIT.zip tools/lib/apksigner.jar > VERIFIED_SHA256.txt)
+      - name: One-day private artifact for local DomEnota signing only
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.160_verified_unsigned_sources_local_signing
+          path: handoff/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
