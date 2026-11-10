@@ -516,6 +516,8 @@ fun MediaLoaderApp(
     val downloadFolder by viewModel.downloadFolder.collectAsStateWithLifecycle()
     val storageMigration by viewModel.storageMigration.collectAsStateWithLifecycle()
     val dateRecoveryStatus by viewModel.dateRecoveryStatus.collectAsStateWithLifecycle()
+    val galleryDateAudit by viewModel.galleryDateAudit.collectAsStateWithLifecycle()
+    val galleryDateAuditBusy by viewModel.galleryDateAuditBusy.collectAsStateWithLifecycle()
     val dateRecoveryBusy by viewModel.dateRecoveryBusy.collectAsStateWithLifecycle()
     val dateRecoveryReady by viewModel.dateRecoveryReady.collectAsStateWithLifecycle()
     val dateRecoveryTrialDone by viewModel.dateRecoveryTrialDone.collectAsStateWithLifecycle()
@@ -1361,6 +1363,9 @@ fun MediaLoaderApp(
                     storageMigrationRunning = storageMigration.running,
                     storageMigrationMessage = storageMigration.message,
                     onMigrateLegacyMedia = viewModel::migrateLegacyDownloads,
+                    galleryDateAudit = galleryDateAudit,
+                    galleryDateAuditBusy = galleryDateAuditBusy,
+                    onGalleryDateAudit = viewModel::inspectGalleryDateColumns,
                     dateRecoveryStatus = dateRecoveryStatus,
                     dateRecoveryBusy = dateRecoveryBusy,
                     dateRecoveryReady = dateRecoveryReady,

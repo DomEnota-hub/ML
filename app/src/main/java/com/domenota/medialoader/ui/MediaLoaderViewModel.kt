@@ -406,6 +406,24 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private val _galleryDateAudit = MutableStateFlow("Проверка даты добавления не запускалась")
+    val galleryDateAudit: StateFlow<String> = _galleryDateAudit.asStateFlow()
+    private val _galleryDateAuditBusy = MutableStateFlow(false)
+    val galleryDateAuditBusy: StateFlow<Boolean> = _galleryDateAuditBusy.asStateFlow()
+
+    fun inspectGalleryDateColumns() {
+        if (_galleryDateAuditBusy.value || _storageMigration.value.running) return
+        _galleryDateAuditBusy.value = true
+        viewModelScope.launch {
+            try {
+                _galleryDateAudit.value = repository.auditGalleryDates().userMessage()
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _galleryDateAudit.value = error.message ?: "Проверка MediaStore не выполнена."
+            } finally { _galleryDateAuditBusy.value = false }
+        }
+    }
+
     /** Date restoration is opt-in. No filesystem timestamp changes on startup. */
     private val _dateRecoveryStatus = MutableStateFlow("Проверка не запускалась")
     val dateRecoveryStatus: StateFlow<String> = _dateRecoveryStatus.asStateFlow()
@@ -441,8 +459,13 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             try {
                 val result = repository.tryRestoreOneFileDate()
-                _dateRecoveryStatus.value = result.message
-                _dateRecoveryTrialDone.value = result.changed
+                val audit = repository.auditGalleryDates()
+                val didNotUpdateAdded = audit.mtimeRecoveredButAddedNew > 0
+                _dateRecoveryTrialDone.value = result.changed && !didNotUpdateAdded
+                _dateRecoveryStatus.value = if (didNotUpdateAdded)
+                    "Дата файла исправилась, но дата MediaStore осталась новой. " +
+                        "Массовое восстановление этим способом заблокировано."
+                    else result.message
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) {
                 _dateRecoveryStatus.value = error.message ?: "Файл не изменён"
@@ -460,6 +483,13 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         _dateRecoveryTrialDone.value = false
         viewModelScope.launch {
             try {
+                val audit = repository.auditGalleryDates()
+                if (audit.mtimeRecoveredButAddedNew > 0) {
+                    _dateRecoveryStatus.value =
+                        "Массовое изменение дат остановлено: Android сохранил новую " +
+                            "дату добавления, хотя время файла уже исправлено."
+                    return@launch
+                }
                 val result = repository.restoreRemainingMediaDates { done, all ->
                     _dateRecoveryStatus.value = "Восстанавливаем даты: $done из $all"
                 }
