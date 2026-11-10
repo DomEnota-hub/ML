@@ -61,6 +61,18 @@ class DownloadQueueTest {
             } }
             return changed
         }
+        override suspend fun rebindSavedFileWhenCurrent(id: String, fromUri: String, fromName: String,
+            fromBytes: Long, toUri: String, toName: String, toBytes: Long): Int {
+            var changed = 0
+            rows.update { list -> list.map { row ->
+                if (row.id == id && row.savedUri == fromUri && row.originalName == fromName &&
+                    row.sizeBytes == fromBytes && !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED) {
+                    changed++
+                    row.copy(savedUri = toUri, originalName = toName, sizeBytes = toBytes)
+                } else row
+            } }
+            return changed
+        }
         override suspend fun setMuzmoArtworkIfMissing(id: String, artworkUrl: String): Int {
             var updated = 0
             rows.update { list -> list.map { row ->

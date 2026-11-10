@@ -23,4 +23,4 @@ signing.properties
 .env.*
 
 # Local GAPI credentials embedded only by local builds
-/.gapi-local/
+/.gapi-local
