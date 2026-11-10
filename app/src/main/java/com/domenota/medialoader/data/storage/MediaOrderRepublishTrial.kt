@@ -239,6 +239,10 @@ internal class MediaOrderRepublishTrial(
                         "%02x".format(it)
                     }
                     val (actualHash, actualBytes) = sha256(dest)
+                    val (sourceAgain, sizeAgain) = sha256(sourceUri)
+                    check(sourceAgain == expectedHash && sizeAgain == count) {
+                        "Исходник изменился во время копирования"
+                    }
                     check(actualHash == expectedHash && actualBytes == count) {
                         "Контрольная сумма пробной копии не совпала"
                     }
@@ -341,8 +345,7 @@ internal object RepublishTrialPolicy {
         historicalMillis: Long): Boolean {
         if (owner != ourPackage || path != MediaStoragePolicy.DEFAULT_PICTURES_PATH ||
             name != expectedName || mime == null || historicalMillis <= 0L ||
-            !historicalMillis.toDouble().isFinite() ||
-            size !in 1..(24L * 1024 * 1024)) return false
+            size <= 0L || size > 24L * 1024 * 1024) return false
         if (MediaStoragePolicy.kind(mime) != MediaStoragePolicy.Kind.IMAGE) return false
         if (MediaStoragePolicy.legacyMime(MediaType.PHOTO, expectedName, mime)
             ?.equals(mime, ignoreCase = true) != true) return false
