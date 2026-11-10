@@ -36,10 +36,10 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         } }
     }
 
-    suspend fun snapshot(row: DownloadEntity): JSONObject {
+    suspend fun snapshot(row: DownloadEntity, originalAliases: Set<String> = emptySet()): JSONObject {
         ensureIdle()
         val old = requireNotNull(row.savedUri)
-        val aliases = aliases(old) + row.id
+        val aliases = aliases(old) + row.id + originalAliases
         val others = db.downloadDao().all().filter { it.id != row.id }
         check(others.none { other -> listOfNotNull(other.savedUri, other.privateSourceUri).any { uri ->
             (PublicMediaIdentity.uriKeys(uri) intersect aliases).isNotEmpty()
@@ -67,6 +67,10 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
             .put("assignment", if (assignment == null) JSONObject.NULL else JSONObject()
                 .put("folder", assignment.folderId ?: JSONObject.NULL).put("favorite", assignment.isFavorite))
             .put("watchBackup", JSONObject(watch.all))
+        // Validate the exact transformations BEFORE any original is renamed or
+        // published, rather than discovering ambiguous catalog entries at rebind.
+        catalogTarget(result.getString("catalog"), aliases, old, old, row.originalName, row.sizeBytes!!)
+        playlistTarget(result.getString("playlists"), aliases)
         return result
     }
 

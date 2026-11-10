@@ -5,6 +5,7 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -370,14 +371,33 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
                 }
                 Stage.PUBLICATION_INTENT -> {
                     verifyMain(op, false); original(op, allowOriginalName = false)
+                    // A paused operation can outlive legitimate edits/automatic
+                    // alias maintenance. Capture CURRENT links before the main URI
+                    // changes, retaining the original pre-quarantine identities.
+                    val previousLinks = op.getJSONObject("links")
+                    val sourceRow = dao.byId(op.getString("downloadId")) ?: fail("Запись истории исчезла")
+                    requireSafe(previousLinks.getString("id") == sourceRow.id &&
+                        previousLinks.getString("oldUri") == sourceRow.savedUri,
+                        "Снимок связей не принадлежит исходной записи истории")
+                    val aliases = previousLinks.getJSONArray("aliases")
+                    op.put("links", links.snapshot(sourceRow,
+                        (0 until aliases.length()).mapTo(mutableSetOf()) { aliases.getString(it) }))
+                    write(JOURNAL, batch)
                     val media = identity(op, newUri(op), op.getString("name"))
                     if (media.pending) {
                         verifyNew(op, published = false, verifyDate = false)
-                        setHistoricalMtime(op)
                         requireSafe(resolver.update(newUri(op), ContentValues().apply {
                             put(MediaStore.MediaColumns.IS_PENDING, 0)
                         }, null, null) == 1, "Android не опубликовал проверенную копию")
                     }
+                    // Same proven ordering as the JPEG/MP4 copy trials: publish,
+                    // then restore mtime and explicitly rescan. Pending _data can
+                    // contain a hidden .pending-<expiry>-<name>, not DISPLAY_NAME.
+                    // Replay also repairs publication-before-journal interruptions.
+                    verifyNew(op, published = true, verifyDate = false)
+                    val publishedFile = setHistoricalMtime(op)
+                    MediaScannerConnection.scanFile(context, arrayOf(publishedFile.path),
+                        arrayOf(op.getString("mime")), null)
                     verifyPublishedWithRetry(op)
                     checkpoint(batch, op, Stage.PUBLISHED)
                 }
@@ -632,21 +652,25 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
     }
 
     @Suppress("DEPRECATION")
-    private fun setHistoricalMtime(op: JSONObject) {
+    private fun setHistoricalMtime(op: JSONObject): File {
         val uri = newUri(op)
-        requireSafe(identity(op, uri, op.getString("name")).pending,
-            "Изменять дату можно только до первой публикации")
+        requireSafe(!identity(op, uri, op.getString("name")).pending,
+            "Дату новой копии на диске восстанавливаем после публикации")
         val file = resolver.query(queryUri(uri), arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
             ?.use { c ->
-                requireSafe(c.count == 1 && c.moveToFirst() && !c.isNull(0), "Нет пути новой pending-копии")
+                requireSafe(c.count == 1 && c.moveToFirst() && !c.isNull(0), "Нет пути опубликованной копии")
                 File(c.getString(0)).canonicalFile
-            } ?: fail("Не удалось прочитать путь новой pending-копии")
+            } ?: fail("Не удалось прочитать путь опубликованной копии")
         val directory = File(Environment.getExternalStorageDirectory(), PATH).canonicalFile
-        requireSafe(file.parentFile == directory && file.name == op.getString("name") &&
-            file.length() == op.getLong("newBytes"), "Путь на диске не соответствует новой копии")
+        requireSafe(file.parentFile == directory, "Папка опубликованной копии не совпала с Pictures/MediaLoader")
+        requireSafe(file.name == op.getString("name"),
+            "Имя опубликованной копии на диске не совпало: ${file.name}")
+        requireSafe(file.isFile && file.length() == op.getLong("newBytes"),
+            "Размер опубликованной копии на диске: ${file.length()}, ожидается ${op.getLong("newBytes")}")
         requireSafe(file.setLastModified(op.getLong("historical")), "Не удалось задать историческую дату файла")
         requireSafe(abs(file.lastModified() - op.getLong("historical")) <= 1000,
-            "Историческая дата файла не сохранилась перед публикацией")
+            "Историческая дата опубликованного файла не сохранилась")
+        return file
     }
 
     private suspend fun verifyFinalLinks(op: JSONObject) {

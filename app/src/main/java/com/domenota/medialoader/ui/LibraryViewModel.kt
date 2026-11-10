@@ -229,6 +229,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             }.distinctUntilChanged().collectLatest { refs ->
                 if (refs == null) return@collectLatest
                 kotlinx.coroutines.delay(500L)
+                if (HistoricalRecoverySignals.hasPendingJournal(getApplication<Application>())) return@collectLatest
         try { playlistRepository.reconcileAliases(refs.flatMap { ref ->
             (ref.aliases + ref.key).map { it to ref.key }
         }.toMap()) }

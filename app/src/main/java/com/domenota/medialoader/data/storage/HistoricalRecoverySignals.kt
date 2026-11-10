@@ -4,6 +4,8 @@ import android.app.ActivityManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import java.io.File
+import org.json.JSONObject
 import com.domenota.medialoader.data.playback.AudioPlaybackService
 import com.domenota.medialoader.data.playback.BackgroundMediaWork
 import com.domenota.medialoader.data.playback.FloatingVideoService
@@ -22,6 +24,20 @@ internal object HistoricalRecoverySignals {
     private val editorHolds = java.util.WeakHashMap<Any, Boolean>()
     val isRunning: StateFlow<Boolean> = running.asStateFlow()
     val version: StateFlow<Long> = completedVersion.asStateFlow()
+
+    /** Automatic alias maintenance must also pause BETWEEN resume attempts and
+     * after process restarts, when an interrupted cross-store intent still exists. */
+    fun hasPendingJournal(context: Context): Boolean {
+        if (running.value) return true
+        val file = File(context.noBackupFilesDir, "historical-media-recovery-v1/operation.json")
+        if (File(file.path + ".bak").exists()) return true
+        if (!file.exists()) return false
+        return try {
+            // A status read must never invoke AtomicFile recovery while another
+            // writer may be committing a checkpoint.
+            !JSONObject(file.readText()).getBoolean("done")
+        } catch (_: Exception) { true } // Unknown journal: defer automatic writes.
+    }
 
     @Synchronized fun begin() {
         check(!running.value) { "Восстановление файлов уже выполняется" }
