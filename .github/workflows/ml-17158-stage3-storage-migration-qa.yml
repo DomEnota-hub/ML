@@ -72,7 +72,8 @@ jobs:
           test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
           grep -q 'MediaStore.Images.Media.EXTERNAL_CONTENT_URI' app/src/main/java/com/domenota/medialoader/data/storage/StorageManager.kt
           grep -q 'MediaStore.Video.Media.EXTERNAL_CONTENT_URI' app/src/main/java/com/domenota/medialoader/data/storage/StorageManager.kt
-          grep -q 'moveSavedUriWhenCurrent' app/src/main/java/com/domenota/medialoader/data/storage/LegacyMediaMigration.kt
+          grep -q 'moveSavedUriWhenCurrent' app/src/main/java/com/domenota/medialoader/core/database/HistoryDatabase.kt
+          ! grep -q 'moveSavedUriWhenCurrent' app/src/main/java/com/domenota/medialoader/data/storage/LegacyMediaMigration.kt
           grep -q 'storageMigrationRunning' app/src/main/java/com/domenota/medialoader/ui/screens/SettingsScreen.kt
           sha256sum "$apk"
       - name: Save diagnostics only

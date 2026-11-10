@@ -406,13 +406,44 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private val _videoTrialBusy = MutableStateFlow(false)
+    val videoTrialBusy: StateFlow<Boolean> = _videoTrialBusy.asStateFlow()
+    private val _videoTrialStatus = MutableStateFlow("Проверка MP4 ещё не запускалась")
+    val videoTrialStatus: StateFlow<String> = _videoTrialStatus.asStateFlow()
+
+    fun runVideoChronologyTrial() {
+        if (_videoTrialBusy.value || _exifTrialBusy.value || _republishTrialBusy.value ||
+            _dateRecoveryBusy.value || _storageMigration.value.running) return
+        _videoTrialBusy.value = true
+        viewModelScope.launch {
+            try { _videoTrialStatus.value = repository.runVideoChronologyTrial().message }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _videoTrialStatus.value = error.message ?: "Видеопроба не выполнена"
+            } finally { _videoTrialBusy.value = false }
+        }
+    }
+
+    fun removeVideoChronologyTrial() {
+        if (_videoTrialBusy.value || _exifTrialBusy.value || _republishTrialBusy.value ||
+            _dateRecoveryBusy.value || _storageMigration.value.running) return
+        _videoTrialBusy.value = true
+        viewModelScope.launch {
+            try { _videoTrialStatus.value = repository.removeVideoChronologyTrial().message }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _videoTrialStatus.value = error.message ?: "Не удалось удалить видео-пробу"
+            } finally { _videoTrialBusy.value = false }
+        }
+    }
+
     private val _exifTrialBusy = MutableStateFlow(false)
     val exifTrialBusy: StateFlow<Boolean> = _exifTrialBusy.asStateFlow()
     private val _exifTrialStatus = MutableStateFlow("EXIF-проба ещё не запускалась")
     val exifTrialStatus: StateFlow<String> = _exifTrialStatus.asStateFlow()
 
     fun runExifChronologyTrial() {
-        if (_exifTrialBusy.value || _republishTrialBusy.value ||
+        if (_exifTrialBusy.value || _videoTrialBusy.value || _republishTrialBusy.value ||
             _storageMigration.value.running || _dateRecoveryBusy.value) return
         _exifTrialBusy.value = true
         viewModelScope.launch {
@@ -426,7 +457,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun removeExifChronologyTrial() {
-        if (_exifTrialBusy.value || _republishTrialBusy.value ||
+        if (_exifTrialBusy.value || _videoTrialBusy.value || _republishTrialBusy.value ||
             _storageMigration.value.running || _dateRecoveryBusy.value) return
         _exifTrialBusy.value = true
         viewModelScope.launch {

@@ -455,6 +455,17 @@ class MediaRepository private constructor(context: Context) {
         com.domenota.medialoader.data.storage.MediaExifChronologyTrial(
             appContext, historyDb.downloadDao()).removeTrial()
 
+    /** One MP4 stream-copy timestamp lab; never touches an existing download. */
+    internal suspend fun runVideoChronologyTrial():
+        com.domenota.medialoader.data.storage.MediaVideoChronologyTrial.Result =
+        com.domenota.medialoader.data.storage.MediaVideoChronologyTrial(
+            appContext, historyDb.downloadDao()).runTrial()
+
+    internal suspend fun removeVideoChronologyTrial():
+        com.domenota.medialoader.data.storage.MediaVideoChronologyTrial.Result =
+        com.domenota.medialoader.data.storage.MediaVideoChronologyTrial(
+            appContext, historyDb.downloadDao()).removeTrial()
+
     /** Three physical test copies only; no Room or original-media mutation. */
     internal suspend fun trialGalleryRepublish(onProgress: (Int, Int) -> Unit):
         com.domenota.medialoader.data.storage.MediaOrderRepublishTrial.Outcome =

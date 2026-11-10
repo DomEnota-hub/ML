@@ -522,6 +522,8 @@ fun MediaLoaderApp(
     val republishTrialStatus by viewModel.republishTrialStatus.collectAsStateWithLifecycle()
     val exifTrialStatus by viewModel.exifTrialStatus.collectAsStateWithLifecycle()
     val exifTrialBusy by viewModel.exifTrialBusy.collectAsStateWithLifecycle()
+    val videoTrialStatus by viewModel.videoTrialStatus.collectAsStateWithLifecycle()
+    val videoTrialBusy by viewModel.videoTrialBusy.collectAsStateWithLifecycle()
     val dateRecoveryBusy by viewModel.dateRecoveryBusy.collectAsStateWithLifecycle()
     val dateRecoveryReady by viewModel.dateRecoveryReady.collectAsStateWithLifecycle()
     val dateRecoveryTrialDone by viewModel.dateRecoveryTrialDone.collectAsStateWithLifecycle()
@@ -1376,6 +1378,10 @@ fun MediaLoaderApp(
                     exifTrialBusy = exifTrialBusy,
                     onRunExifTrial = viewModel::runExifChronologyTrial,
                     onRemoveExifTrial = viewModel::removeExifChronologyTrial,
+                    videoTrialStatus = videoTrialStatus,
+                    videoTrialBusy = videoTrialBusy,
+                    onRunVideoTrial = viewModel::runVideoChronologyTrial,
+                    onRemoveVideoTrial = viewModel::removeVideoChronologyTrial,
                     onRunGalleryRepublishTrial = viewModel::runGalleryRepublishTrial,
                     onRemoveGalleryRepublishTestCopies =
                         viewModel::removeGalleryRepublishTrialCopies,

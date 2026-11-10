@@ -8,6 +8,7 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Article
 import androidx.compose.material.icons.rounded.InsertPhoto
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -53,6 +54,10 @@ internal fun MediaRecoveryLabSection(
     exifTrialBusy: Boolean,
     onRunExifTrial: () -> Unit,
     onRemoveExifTrial: () -> Unit,
+    videoTrialStatus: String,
+    videoTrialBusy: Boolean,
+    onRunVideoTrial: () -> Unit,
+    onRemoveVideoTrial: () -> Unit,
     dateRecoveryStatus: String,
     dateRecoveryBusy: Boolean,
     dateRecoveryReady: Boolean,
@@ -71,6 +76,8 @@ internal fun MediaRecoveryLabSection(
     var undoDateDialog by remember { mutableStateOf(false) }
     var exifTrialDialog by remember { mutableStateOf(false) }
     var removeExifTrialDialog by remember { mutableStateOf(false) }
+    var videoTrialDialog by remember { mutableStateOf(false) }
+    var removeVideoTrialDialog by remember { mutableStateOf(false) }
 
     Spacer(Modifier.height(26.dp))
     Text("Лаборатория медиатеки · временно",
@@ -124,6 +131,26 @@ internal fun MediaRecoveryLabSection(
                     if (!exifTrialBusy && !republishTrialBusy && !dateRecoveryBusy &&
                         !storageMigrationRunning && activeDownloadCount == 0)
                         removeExifTrialDialog = true
+                })
+            GroupDivider()
+            Text("Новая проба · дата контейнера MP4 на одной копии",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SettingRow(Icons.Rounded.SmartDisplay, "Проверить историческую дату видео",
+                if (videoTrialBusy) "Создаём одну MP4-копию…" else videoTrialStatus,
+                grouped = true, nested = true, iconTone = SettingIconTone.MEDIA_MANAGEMENT,
+                onClick = {
+                    if (!videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
+                        !dateRecoveryBusy && !storageMigrationRunning && activeDownloadCount == 0)
+                        videoTrialDialog = true
+                })
+            SettingRow(Icons.Rounded.DeleteSweep, "Удалить пробу MP4",
+                "Удаляем только тестовую копию после проверки владельца и SHA-256",
+                grouped = true, nested = true, iconTone = SettingIconTone.TRASH,
+                onClick = {
+                    if (!videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
+                        !dateRecoveryBusy && !storageMigrationRunning && activeDownloadCount == 0)
+                        removeVideoTrialDialog = true
                 })
             GroupDivider()
             Text("Предыдущие эксперименты",
@@ -296,6 +323,44 @@ internal fun MediaRecoveryLabSection(
         dismissButton = {
             TextButton(onClick = { migrateLegacyDialog = false }) { Text("Отмена") }
         },
+    )
+
+    if (videoTrialDialog) AlertDialog(
+        onDismissRequest = { videoTrialDialog = false },
+        title = { Text("Проверить дату MP4 на отдельной копии?") },
+        text = { Text("Одно видео до 100 МБ будет скопировано в " +
+            "Pictures/MediaLoader_QA_VIDEO_Date_Test. FFmpeg без перекодирования " +
+            "поставит дату из истории ML как УСЛОВНУЮ дату создания видео. " +
+            "Это не обязательно реальное время съёмки! Сам оригинал, ссылки " +
+            "Загрузок, избранное, альбомы и история не изменяются. " +
+            "Проверьте дату, порядок, звук и воспроизведение в Xiaomi, " +
+            "потом удалите копию отдельной кнопкой.") },
+        confirmButton = { TextButton(onClick = {
+            videoTrialDialog = false
+            if (!videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
+                !storageMigrationRunning && !dateRecoveryBusy && activeDownloadCount == 0)
+                onRunVideoTrial()
+        }) { Text("Создать одну пробную MP4-копию") } },
+        dismissButton = { TextButton(onClick = { videoTrialDialog = false }) {
+            Text("Отмена")
+        } },
+    )
+
+    if (removeVideoTrialDialog) AlertDialog(
+        onDismissRequest = { removeVideoTrialDialog = false },
+        title = { Text("Удалить только пробный MP4?") },
+        text = { Text("Будет удалена только подтверждённая копия из тестового " +
+            "альбома после сверки SHA-256, имени, папки и владельца. " +
+            "Оригинал и база ML останутся нетронутыми.") },
+        confirmButton = { TextButton(onClick = {
+            removeVideoTrialDialog = false
+            if (!videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&
+                !storageMigrationRunning && !dateRecoveryBusy && activeDownloadCount == 0)
+                onRemoveVideoTrial()
+        }) { Text("Удалить тестовую копию") } },
+        dismissButton = { TextButton(onClick = { removeVideoTrialDialog = false }) {
+            Text("Отмена")
+        } },
     )
 
     if (exifTrialDialog) AlertDialog(
