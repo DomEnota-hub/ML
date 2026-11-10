@@ -386,7 +386,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         _storageMigration.asStateFlow()
 
     fun migrateLegacyDownloads() {
-        if (_storageMigration.value.running) return
+        if (_storageMigration.value.running || _sameUriBusy.value) return
         _storageMigration.value = StorageMigrationProgress(running = true,
             message = "Подготавливаем проверенный перенос…")
         viewModelScope.launch {
@@ -412,7 +412,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     val videoTrialStatus: StateFlow<String> = _videoTrialStatus.asStateFlow()
 
     fun runVideoChronologyTrial() {
-        if (_videoTrialBusy.value || _exifTrialBusy.value || _republishTrialBusy.value ||
+        if (_videoTrialBusy.value || _sameUriBusy.value || _exifTrialBusy.value || _republishTrialBusy.value ||
             _dateRecoveryBusy.value || _storageMigration.value.running) return
         _videoTrialBusy.value = true
         viewModelScope.launch {
@@ -425,7 +425,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun removeVideoChronologyTrial() {
-        if (_videoTrialBusy.value || _exifTrialBusy.value || _republishTrialBusy.value ||
+        if (_videoTrialBusy.value || _sameUriBusy.value || _exifTrialBusy.value || _republishTrialBusy.value ||
             _dateRecoveryBusy.value || _storageMigration.value.running) return
         _videoTrialBusy.value = true
         viewModelScope.launch {
@@ -443,7 +443,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     val exifTrialStatus: StateFlow<String> = _exifTrialStatus.asStateFlow()
 
     fun runExifChronologyTrial() {
-        if (_exifTrialBusy.value || _videoTrialBusy.value || _republishTrialBusy.value ||
+        if (_exifTrialBusy.value || _sameUriBusy.value || _videoTrialBusy.value || _republishTrialBusy.value ||
             _storageMigration.value.running || _dateRecoveryBusy.value) return
         _exifTrialBusy.value = true
         viewModelScope.launch {
@@ -457,7 +457,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun removeExifChronologyTrial() {
-        if (_exifTrialBusy.value || _videoTrialBusy.value || _republishTrialBusy.value ||
+        if (_exifTrialBusy.value || _sameUriBusy.value || _videoTrialBusy.value || _republishTrialBusy.value ||
             _storageMigration.value.running || _dateRecoveryBusy.value) return
         _exifTrialBusy.value = true
         viewModelScope.launch {
@@ -469,6 +469,43 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
             } finally { _exifTrialBusy.value = false }
         }
     }
+
+    private val _sameUriBusy = MutableStateFlow(false)
+    val sameUriBusy: StateFlow<Boolean> = _sameUriBusy.asStateFlow()
+    private val _sameUriJpegStatus = MutableStateFlow("Опыт с прежним URI JPEG не проводился")
+    val sameUriJpegStatus: StateFlow<String> = _sameUriJpegStatus.asStateFlow()
+    private val _sameUriVideoStatus = MutableStateFlow("Опыт с прежним URI MP4 не проводился")
+    val sameUriVideoStatus: StateFlow<String> = _sameUriVideoStatus.asStateFlow()
+
+    /** One disposable sample at a time. No existing download is writable. */
+    private fun sameUriAction(video: Boolean, action: Int) {
+        if (_sameUriBusy.value || _exifTrialBusy.value || _videoTrialBusy.value ||
+            _republishTrialBusy.value || _dateRecoveryBusy.value ||
+            _storageMigration.value.running) return
+        _sameUriBusy.value = true
+        viewModelScope.launch {
+            try {
+                val result = when (action) {
+                    0 -> repository.runSameUriTrial(video)
+                    1 -> repository.restoreSameUriTrial(video)
+                    else -> repository.removeSameUriTrial(video)
+                }
+                if (video) _sameUriVideoStatus.value = result.message
+                else _sameUriJpegStatus.value = result.message
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                if (video) _sameUriVideoStatus.value = error.message ?: "Опыт MP4 прерван"
+                else _sameUriJpegStatus.value = error.message ?: "Опыт JPEG прерван"
+            } finally { _sameUriBusy.value = false }
+        }
+    }
+    fun runSameUriJpegTrial() = sameUriAction(false, 0)
+    fun runSameUriMp4Trial() = sameUriAction(true, 0)
+    fun restoreSameUriJpegTrial() = sameUriAction(false, 1)
+    fun restoreSameUriMp4Trial() = sameUriAction(true, 1)
+    fun removeSameUriJpegTrial() = sameUriAction(false, 2)
+    fun removeSameUriMp4Trial() = sameUriAction(true, 2)
 
     private val _republishTrialBusy = MutableStateFlow(false)
     val republishTrialBusy: StateFlow<Boolean> = _republishTrialBusy.asStateFlow()
