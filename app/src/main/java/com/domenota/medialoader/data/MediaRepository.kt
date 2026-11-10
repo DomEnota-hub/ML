@@ -474,6 +474,14 @@ class MediaRepository private constructor(context: Context) {
                 if (video) com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.MP4
                 else com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.JPEG)
 
+    /** Timestamp repair on an already existing, isolated 1.7.164 test URI. */
+    internal suspend fun repairSameUriTrialMtime(video: Boolean):
+        com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Result =
+        com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial(
+            appContext, historyDb.downloadDao()).repairExistingTrialMtime(
+                if (video) com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.MP4
+                else com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.JPEG)
+
     internal suspend fun restoreSameUriTrial(video: Boolean):
         com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Result =
         com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial(
