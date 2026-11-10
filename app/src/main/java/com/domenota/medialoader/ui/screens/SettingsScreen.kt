@@ -176,6 +176,10 @@ fun SettingsScreen(
     galleryDateAudit: String = "Проверка даты добавления не запускалась",
     galleryDateAuditBusy: Boolean = false,
     onGalleryDateAudit: () -> Unit = {},
+    migrationInventoryStatus: String = "Аудит 600+ файлов не запускался",
+    migrationInventoryBusy: Boolean = false,
+    migrationInventoryJson: String = "",
+    onRunMigrationInventory: () -> Unit = {},
     exifTrialStatus: String = "EXIF-проба ещё не запускалась",
     exifTrialBusy: Boolean = false,
     onRunExifTrial: () -> Unit = {},
@@ -346,6 +350,26 @@ fun SettingsScreen(
                     AppLog.e("Logs", "Log export failed: ${error.message}", error)
                     Toast.makeText(context, "Не удалось сохранить лог", Toast.LENGTH_LONG).show()
                 }
+            }
+        }
+    }
+    val migrationAuditExporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            if (migrationInventoryBusy || migrationInventoryJson.isBlank()) {
+                Toast.makeText(context, "Сначала завершите аудит", Toast.LENGTH_SHORT).show()
+            } else gestureScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri, "w")?.use { out ->
+                            out.write(migrationInventoryJson.toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        } ?: error("Нет доступа к файлу отчёта")
+                    }
+                }
+                Toast.makeText(context, if (result.isSuccess)
+                    "Полный JSON-аудит сохранён" else "Не удалось сохранить отчёт",
+                    Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -1041,6 +1065,14 @@ fun SettingsScreen(
             galleryDateAudit = galleryDateAudit,
             galleryDateAuditBusy = galleryDateAuditBusy,
             onGalleryDateAudit = onGalleryDateAudit,
+            migrationInventoryStatus = migrationInventoryStatus,
+            migrationInventoryBusy = migrationInventoryBusy,
+            migrationInventoryReady = migrationInventoryJson.isNotBlank(),
+            onRunMigrationInventory = onRunMigrationInventory,
+            onExportMigrationInventory = {
+                if (migrationInventoryJson.isNotBlank() && !migrationInventoryBusy)
+                    migrationAuditExporter.launch("ML_Migration_Inventory_1.7.166.json")
+            },
             republishTrialStatus = republishTrialStatus,
             republishTrialBusy = republishTrialBusy,
             onRunGalleryRepublishTrial = onRunGalleryRepublishTrial,

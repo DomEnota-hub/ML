@@ -518,6 +518,9 @@ fun MediaLoaderApp(
     val dateRecoveryStatus by viewModel.dateRecoveryStatus.collectAsStateWithLifecycle()
     val galleryDateAudit by viewModel.galleryDateAudit.collectAsStateWithLifecycle()
     val galleryDateAuditBusy by viewModel.galleryDateAuditBusy.collectAsStateWithLifecycle()
+    val migrationInventoryStatus by viewModel.migrationInventoryStatus.collectAsStateWithLifecycle()
+    val migrationInventoryBusy by viewModel.migrationInventoryBusy.collectAsStateWithLifecycle()
+    val migrationInventoryJson by viewModel.migrationInventoryJson.collectAsStateWithLifecycle()
     val republishTrialBusy by viewModel.republishTrialBusy.collectAsStateWithLifecycle()
     val republishTrialStatus by viewModel.republishTrialStatus.collectAsStateWithLifecycle()
     val exifTrialStatus by viewModel.exifTrialStatus.collectAsStateWithLifecycle()
@@ -1375,6 +1378,10 @@ fun MediaLoaderApp(
                     galleryDateAudit = galleryDateAudit,
                     galleryDateAuditBusy = galleryDateAuditBusy,
                     onGalleryDateAudit = viewModel::inspectGalleryDateColumns,
+                    migrationInventoryStatus = migrationInventoryStatus,
+                    migrationInventoryBusy = migrationInventoryBusy,
+                    migrationInventoryJson = migrationInventoryJson,
+                    onRunMigrationInventory = viewModel::inspectMigrationReadOnly,
                     republishTrialBusy = republishTrialBusy,
                     republishTrialStatus = republishTrialStatus,
                     exifTrialStatus = exifTrialStatus,

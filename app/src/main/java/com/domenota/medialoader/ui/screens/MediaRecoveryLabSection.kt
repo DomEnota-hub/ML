@@ -46,6 +46,11 @@ internal fun MediaRecoveryLabSection(
     galleryDateAudit: String,
     galleryDateAuditBusy: Boolean,
     onGalleryDateAudit: () -> Unit,
+    migrationInventoryStatus: String,
+    migrationInventoryBusy: Boolean,
+    migrationInventoryReady: Boolean,
+    onRunMigrationInventory: () -> Unit,
+    onExportMigrationInventory: () -> Unit,
     republishTrialStatus: String,
     republishTrialBusy: Boolean,
     onRunGalleryRepublishTrial: () -> Unit,
@@ -107,17 +112,28 @@ internal fun MediaRecoveryLabSection(
         )
         ExpandableSettingsBody(expanded) {
             GroupDivider()
-            SettingRow(Icons.Rounded.SystemUpdate, "Перенести старые файлы",
-                when {
-                    storageMigrationRunning -> storageMigrationMessage
-                    activeDownloadCount > 0 -> "Дождитесь завершения загрузок"
-                    storageMigrationMessage.isNotBlank() -> storageMigrationMessage
-                    else -> "Download → Pictures / Music, без пересоздания дат"
-                }, grouped = true, nested = true, iconTone = SettingIconTone.FILE_ACCESS,
+            Text("Этап 1/5 · инвентаризация перед миграцией. " +
+                "Оригиналы, URI и базы не меняются. Дата истории ML = время постановки загрузки в очередь.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SettingRow(Icons.Rounded.Article, "Проверить ВСЕ файлы · только чтение",
+                if (migrationInventoryBusy) "Проверяем историю, MediaStore, VK, альбомы…"
+                else migrationInventoryStatus,
+                grouped = true, nested = true, iconTone = SettingIconTone.LOG,
                 onClick = {
-                    if (!storageMigrationRunning && activeDownloadCount == 0)
-                        migrateLegacyDialog = true
+                    if (!migrationInventoryBusy && !storageMigrationRunning &&
+                        !sameUriBusy && activeDownloadCount == 0) onRunMigrationInventory()
                 })
+            if (migrationInventoryReady) {
+                SettingRow(Icons.Rounded.Folder, "Сохранить полный отчёт JSON",
+                    "Все записи, блокировки, связи и оценка памяти. Источники URL скрыты.",
+                    grouped = true, nested = true, iconTone = SettingIconTone.FILE_ACCESS,
+                    onClick = { if (!migrationInventoryBusy) onExportMigrationInventory() })
+            }
+            Text("Старый перенос Download → Pictures ОТКЛЮЧЁН. " +
+                "Массовое пересоздание и изменение дат не доступны до отдельной приёмки.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             GroupDivider()
             SettingRow(Icons.Rounded.Article, "Аудит дат MediaStore",
                 if (galleryDateAuditBusy) "Проверяем записи Android…" else galleryDateAudit,
@@ -250,12 +266,8 @@ internal fun MediaRecoveryLabSection(
                     if (!dateRecoveryBusy && activeDownloadCount == 0)
                         onDateRecoveryPreview()
                 })
-            if (dateRecoveryReady && !dateRecoveryBusy) {
-                SettingRow(Icons.Rounded.Bolt, "Проба изменения mtime",
-                    "Только один файл, сохранён журнал",
-                    grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
-                    onClick = { if (activeDownloadCount == 0) dateTrialDialog = true })
-            }
+            // Stage 1 audit is read-only. Legacy real-file mtime trial is hidden.
+            // Keep rollback available solely for changes made before this QA build.
             Text("Массовая обработка отключена до тестов сохранения URI " +
                 "и обязательного аудита 600+ файлов.",
                 style = MaterialTheme.typography.bodySmall,
