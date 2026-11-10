@@ -406,6 +406,39 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private val _exifTrialBusy = MutableStateFlow(false)
+    val exifTrialBusy: StateFlow<Boolean> = _exifTrialBusy.asStateFlow()
+    private val _exifTrialStatus = MutableStateFlow("EXIF-проба ещё не запускалась")
+    val exifTrialStatus: StateFlow<String> = _exifTrialStatus.asStateFlow()
+
+    fun runExifChronologyTrial() {
+        if (_exifTrialBusy.value || _republishTrialBusy.value ||
+            _storageMigration.value.running || _dateRecoveryBusy.value) return
+        _exifTrialBusy.value = true
+        viewModelScope.launch {
+            try {
+                _exifTrialStatus.value = repository.runExifChronologyTrial().message
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _exifTrialStatus.value = error.message ?: "EXIF-проба не выполнена"
+            } finally { _exifTrialBusy.value = false }
+        }
+    }
+
+    fun removeExifChronologyTrial() {
+        if (_exifTrialBusy.value || _republishTrialBusy.value ||
+            _storageMigration.value.running || _dateRecoveryBusy.value) return
+        _exifTrialBusy.value = true
+        viewModelScope.launch {
+            try {
+                _exifTrialStatus.value = repository.removeExifChronologyTrial().message
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                _exifTrialStatus.value = error.message ?: "Удаление EXIF-пробы не выполнено"
+            } finally { _exifTrialBusy.value = false }
+        }
+    }
+
     private val _republishTrialBusy = MutableStateFlow(false)
     val republishTrialBusy: StateFlow<Boolean> = _republishTrialBusy.asStateFlow()
     private val _republishTrialStatus = MutableStateFlow(
