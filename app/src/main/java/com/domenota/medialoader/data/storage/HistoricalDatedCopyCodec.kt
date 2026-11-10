@@ -29,6 +29,9 @@ import kotlin.math.abs
 
 /** Operates exclusively on caller-owned scratch files. Never resolves or changes a media URI. */
 internal class HistoricalDatedCopyCodec {
+    fun contentMime(source: File, declared: String): String =
+        if (declared == "image/jpeg" && WebpHeaderDates.matches(source)) "image/webp" else declared
+
     suspend fun build(source: File, output: File, mime: String, epochMillis: Long): Unit =
         withContext(Dispatchers.IO) {
             currentCoroutineContext().ensureActive()
@@ -36,7 +39,15 @@ internal class HistoricalDatedCopyCodec {
             check(epochMillis in 946684800000L..System.currentTimeMillis()) {
                 "Дата из истории недопустима для восстановления"
             }
-            when (mime) {
+            when (contentMime(source, mime)) {
+                "image/webp" -> {
+                    WebpHeaderDates.copy(source, output, epochMillis)
+                    val expected = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss"))
+                    check(ExifInterface(output.absolutePath).getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) == expected) {
+                        "Android не прочитал историческую EXIF-дату WebP"
+                    }
+                }
                 "image/jpeg" -> {
                     val before = ExifInterface(source.absolutePath)
                     check(listOf(ExifInterface.TAG_DATETIME, ExifInterface.TAG_DATETIME_ORIGINAL,
@@ -111,7 +122,11 @@ internal class HistoricalDatedCopyCodec {
         currentCoroutineContext().ensureActive()
         distinct(source, output)
         check(output.isFile && output.length() > 0L) { "Временная копия отсутствует или пуста" }
-        when (mime) {
+        when (contentMime(source, mime)) {
+            "image/webp" -> {
+                WebpHeaderDates.verify(source, output, output.lastModified())
+                check(pixelHash(source) == pixelHash(output)) { "Декодированные пиксели WebP не совпали с исходником" }
+            }
             "image/jpeg" -> {
                 check(sameJpegMetadata(source, output)) {
                     "JPEG изменил изображение или метаданные вне разрешённых полей даты"

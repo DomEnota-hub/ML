@@ -286,6 +286,13 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
                 }
                 Stage.BACKUP_VERIFIED -> {
                     verifyMain(op, false); verifyBackup(op, backup)
+                    if (!op.has("newHash")) {
+                        // Legacy downloads may contain WebP bytes under a .jpg
+                        // name and image/jpeg provider label. Persist the verified
+                        // content type so scanner correction does not break replay.
+                        op.put("contentMime", codec.contentMime(backup, op.getString("mime")))
+                        write(JOURNAL, batch)
+                    }
                     original(op, allowOriginalName = true)
                     ensureSpace(op.getLong("oldBytes"), initial = false)
                     if (!op.has("newHash")) {
@@ -497,6 +504,9 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
             op.getString("oldHash").matches(Regex("[0-9a-f]{64}")), "Повреждена идентичность исходного файла")
         if (op.has("newUri")) requireSafe(validUri(newUri(op), collection(op)) &&
             op.getString("newUri") != op.getString("oldUri"), "Повреждён URI новой копии")
+        if (op.has("contentMime")) requireSafe(op.getString("contentMime") == op.getString("mime") ||
+            op.getString("mime") == "image/jpeg" && op.getString("contentMime") == "image/webp",
+            "Неизвестное соответствие фактического формата в журнале")
         if (op.has("newHash")) requireSafe(op.getLong("newBytes") > 0 &&
             op.getString("newHash").matches(Regex("[0-9a-f]{64}")) && op.getBoolean("contentVerified"),
             "Повреждено подтверждение проверки новой копии")
@@ -596,7 +606,7 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
         requireSafe(validUri(uri, collection(op)), "URI файла не соответствует коллекции журнала")
         val row = media(uri) ?: fail("Запись MediaStore исчезла")
         requireSafe(row.owner == context.packageName && row.path == PATH && row.name == name &&
-            row.mime == op.getString("mime") && !row.trashed,
+            row.mime in setOf(op.getString("mime"), op.optString("contentMime", op.getString("mime"))) && !row.trashed,
             "Владелец, путь, имя, MIME или корзина файла изменились")
         requireSafe(find(collection(op), name) == listOf(uri), "Имя файла занято или неоднозначно")
         return row
