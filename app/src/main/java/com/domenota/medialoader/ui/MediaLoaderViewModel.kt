@@ -488,7 +488,9 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                 val result = when (action) {
                     0 -> repository.runSameUriTrial(video)
                     1 -> repository.restoreSameUriTrial(video)
-                    else -> repository.removeSameUriTrial(video)
+                    2 -> repository.removeSameUriTrial(video)
+                    3 -> repository.repairSameUriTrialMtime(video)
+                    else -> error("Неизвестное действие QA")
                 }
                 if (video) _sameUriVideoStatus.value = result.message
                 else _sameUriJpegStatus.value = result.message
@@ -500,6 +502,8 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
             } finally { _sameUriBusy.value = false }
         }
     }
+    fun repairSameUriJpegMtime() = sameUriAction(false, 3)
+    fun repairSameUriMp4Mtime() = sameUriAction(true, 3)
     fun runSameUriJpegTrial() = sameUriAction(false, 0)
     fun runSameUriMp4Trial() = sameUriAction(true, 0)
     fun restoreSameUriJpegTrial() = sameUriAction(false, 1)

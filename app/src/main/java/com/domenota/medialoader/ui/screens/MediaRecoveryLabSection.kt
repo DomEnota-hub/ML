@@ -63,6 +63,8 @@ internal fun MediaRecoveryLabSection(
     sameUriVideoStatus: String,
     onRunSameUriJpeg: () -> Unit,
     onRunSameUriMp4: () -> Unit,
+    onRepairSameUriJpegMtime: () -> Unit,
+    onRepairSameUriMp4Mtime: () -> Unit,
     onRestoreSameUriJpeg: () -> Unit,
     onRestoreSameUriMp4: () -> Unit,
     onRemoveSameUriJpeg: () -> Unit,
@@ -186,6 +188,23 @@ internal fun MediaRecoveryLabSection(
                     if (!sameUriBusy && !videoTrialBusy && !exifTrialBusy &&
                         !dateRecoveryBusy && !storageMigrationRunning && activeDownloadCount == 0)
                         sameUriMp4Dialog = true
+                })
+            Text("Исправление сортировки 1.7.164: меняем только lastModified двух " +
+                "УЖЕ СОЗДАННЫХ QA-копий. Содержимое, MediaStore ID, URI, имя и ссылки не меняются.",
+                style = MaterialTheme.typography.bodySmall)
+            SettingRow(Icons.Rounded.PhotoCamera, "JPEG: исправить сортировку существующей пробы",
+                "Старый URI, дата изменения файла + повторный MediaScanner",
+                grouped = true, nested = true, iconTone = SettingIconTone.RECOGNITION,
+                onClick = {
+                    if (!sameUriBusy && !dateRecoveryBusy && !storageMigrationRunning &&
+                        activeDownloadCount == 0) onRepairSameUriJpegMtime()
+                })
+            SettingRow(Icons.Rounded.SmartDisplay, "MP4: исправить сортировку существующей пробы",
+                "Старый URI, дата изменения файла + повторный MediaScanner",
+                grouped = true, nested = true, iconTone = SettingIconTone.MEDIA_MANAGEMENT,
+                onClick = {
+                    if (!sameUriBusy && !dateRecoveryBusy && !storageMigrationRunning &&
+                        activeDownloadCount == 0) onRepairSameUriMp4Mtime()
                 })
             SettingRow(Icons.Rounded.RestoreFromTrash, "Откатить пробу JPEG",
                 "Восстановить байты тестовой копии из резерва в тот же URI",

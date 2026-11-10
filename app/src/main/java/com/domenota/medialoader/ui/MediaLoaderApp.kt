@@ -1390,6 +1390,8 @@ fun MediaLoaderApp(
                     sameUriVideoStatus = sameUriVideoStatus,
                     onRunSameUriJpeg = viewModel::runSameUriJpegTrial,
                     onRunSameUriMp4 = viewModel::runSameUriMp4Trial,
+                    onRepairSameUriJpegMtime = viewModel::repairSameUriJpegMtime,
+                    onRepairSameUriMp4Mtime = viewModel::repairSameUriMp4Mtime,
                     onRestoreSameUriJpeg = viewModel::restoreSameUriJpegTrial,
                     onRestoreSameUriMp4 = viewModel::restoreSameUriMp4Trial,
                     onRemoveSameUriJpeg = viewModel::removeSameUriJpegTrial,
