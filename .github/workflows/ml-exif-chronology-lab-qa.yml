@@ -68,6 +68,39 @@ jobs:
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: ARM64 unsigned release compile
         run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Verify version 1.7.162
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 222
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='222' versionName='1.7.162'"
+          mkdir -p handoff/tools/lib handoff/tools/lib64
+          "$bt/zipalign" -p -f 4 "$apk" handoff/ML_1.7.162_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -c -v 4 handoff/ML_1.7.162_ARM64_ALIGNED_UNSIGNED.apk
+          cp "$bt/zipalign" handoff/tools/
+          cp "$bt/lib/apksigner.jar" handoff/tools/lib/
+          cp -a "$bt/lib64/." handoff/tools/lib64/
+          git archive --format=zip -o handoff/ML_1.7.162_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/COMMIT_SHA.txt
+          (cd handoff && sha256sum ML_1.7.162_ARM64_ALIGNED_UNSIGNED.apk ML_1.7.162_SOURCES_EXACT_COMMIT.zip tools/lib/apksigner.jar > VERIFIED_SHA256.txt)
+      - name: One-day private signing handoff only, no release
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.162_verified_unsigned_sources_local_signing
+          path: handoff/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+ app/build.gradle
+          grep -Fq "versionName '1.7.162'" app/build.gradle
+          grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
       - name: Verify ARM64 package
         shell: bash
         run: |
