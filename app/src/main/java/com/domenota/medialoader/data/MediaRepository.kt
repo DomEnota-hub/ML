@@ -466,6 +466,28 @@ class MediaRepository private constructor(context: Context) {
         com.domenota.medialoader.data.storage.MediaVideoChronologyTrial(
             appContext, historyDb.downloadDao()).removeTrial()
 
+    /** Two disposable one-copy tests. Never writes to existing downloaded media. */
+    internal suspend fun runSameUriTrial(video: Boolean):
+        com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Result =
+        com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial(
+            appContext, historyDb.downloadDao()).runTrial(
+                if (video) com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.MP4
+                else com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.JPEG)
+
+    internal suspend fun restoreSameUriTrial(video: Boolean):
+        com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Result =
+        com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial(
+            appContext, historyDb.downloadDao()).restoreTrial(
+                if (video) com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.MP4
+                else com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.JPEG)
+
+    internal suspend fun removeSameUriTrial(video: Boolean):
+        com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Result =
+        com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial(
+            appContext, historyDb.downloadDao()).removeTrial(
+                if (video) com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.MP4
+                else com.domenota.medialoader.data.storage.MediaInPlaceChronologyTrial.Kind.JPEG)
+
     /** Three physical test copies only; no Room or original-media mutation. */
     internal suspend fun trialGalleryRepublish(onProgress: (Int, Int) -> Unit):
         com.domenota.medialoader.data.storage.MediaOrderRepublishTrial.Outcome =

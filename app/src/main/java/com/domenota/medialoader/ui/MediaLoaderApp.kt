@@ -524,6 +524,9 @@ fun MediaLoaderApp(
     val exifTrialBusy by viewModel.exifTrialBusy.collectAsStateWithLifecycle()
     val videoTrialStatus by viewModel.videoTrialStatus.collectAsStateWithLifecycle()
     val videoTrialBusy by viewModel.videoTrialBusy.collectAsStateWithLifecycle()
+    val sameUriBusy by viewModel.sameUriBusy.collectAsStateWithLifecycle()
+    val sameUriJpegStatus by viewModel.sameUriJpegStatus.collectAsStateWithLifecycle()
+    val sameUriVideoStatus by viewModel.sameUriVideoStatus.collectAsStateWithLifecycle()
     val dateRecoveryBusy by viewModel.dateRecoveryBusy.collectAsStateWithLifecycle()
     val dateRecoveryReady by viewModel.dateRecoveryReady.collectAsStateWithLifecycle()
     val dateRecoveryTrialDone by viewModel.dateRecoveryTrialDone.collectAsStateWithLifecycle()
@@ -1382,6 +1385,15 @@ fun MediaLoaderApp(
                     videoTrialBusy = videoTrialBusy,
                     onRunVideoTrial = viewModel::runVideoChronologyTrial,
                     onRemoveVideoTrial = viewModel::removeVideoChronologyTrial,
+                    sameUriBusy = sameUriBusy,
+                    sameUriJpegStatus = sameUriJpegStatus,
+                    sameUriVideoStatus = sameUriVideoStatus,
+                    onRunSameUriJpeg = viewModel::runSameUriJpegTrial,
+                    onRunSameUriMp4 = viewModel::runSameUriMp4Trial,
+                    onRestoreSameUriJpeg = viewModel::restoreSameUriJpegTrial,
+                    onRestoreSameUriMp4 = viewModel::restoreSameUriMp4Trial,
+                    onRemoveSameUriJpeg = viewModel::removeSameUriJpegTrial,
+                    onRemoveSameUriMp4 = viewModel::removeSameUriMp4Trial,
                     onRunGalleryRepublishTrial = viewModel::runGalleryRepublishTrial,
                     onRemoveGalleryRepublishTestCopies =
                         viewModel::removeGalleryRepublishTrialCopies,
