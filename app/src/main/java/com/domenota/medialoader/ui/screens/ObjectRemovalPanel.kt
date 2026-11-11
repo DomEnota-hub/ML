@@ -110,13 +110,69 @@ private fun RemovalToolButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(36.dp).background(
+        // 48dp touch target prevents brush and eraser controls from
+        // becoming a pair of crowded 36dp hotspots on narrow phones.
+        modifier = Modifier.size(48.dp).background(
             if (selected) Color(0xFFFFC21C) else Color(0xFF292929),
-            RoundedCornerShape(10.dp)),
+            RoundedCornerShape(12.dp)),
     ) {
         Icon(painterResource(iconRes), contentDescription = label,
             modifier = Modifier.size(22.dp),
             tint = if (selected) Color(0xFF131313) else Color.White)
+    }
+}
+
+/**
+ * Shared manual-brush arrangement for both the standalone manual mode
+ * and person-mask refinement. A separate slider row reserves actual
+ * horizontal touch space, instead of squeezing all four controls together.
+ */
+@Composable
+private fun RemovalBrushControls(
+    brush: Float,
+    eraserMode: Boolean,
+    busy: Boolean,
+    onBrush: () -> Unit,
+    onErase: () -> Unit,
+    onChangeSize: (Float) -> Unit,
+    onFinishedSize: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool,
+                "Кисть", !eraserMode, onBrush)
+            RemovalToolButton(R.drawable.ic_ai_eraser_erase_tool,
+                "Ластик", eraserMode, onErase)
+        }
+        Row(
+            Modifier.fillMaxWidth().height(42.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Размер", fontSize = 11.sp, color = Color.LightGray)
+            Slider(
+                value = brush,
+                onValueChange = onChangeSize,
+                onValueChangeFinished = onFinishedSize,
+                valueRange = 8f..100f,
+                enabled = !busy,
+                retainColorWhenDisabled = true,
+                modifier = Modifier.weight(1f),
+            )
+            Text("Ø ${brush.roundToInt()} px",
+                modifier = Modifier.width(65.dp),
+                fontSize = 10.sp,
+                color = Color(0xFFFFC21C),
+                maxLines = 1)
+        }
     }
 }
 
@@ -1189,39 +1245,13 @@ internal fun ObjectRemovalPanel(
         // The hand toggle within OBJECTS draws a fixed thin yellow path.
         if (selectedMode == AiEraserMode.MANUAL) {
             Column(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool, "Кисть", !eraserMode) {
-                        eraserMode = false
-                        moveMode = false
-                    }
-                    RemovalToolButton(R.drawable.ic_ai_eraser_erase_tool,
-                        "Стереть выделение", eraserMode) {
-                        eraserMode = true
-                        moveMode = false
-                    }
-                    Slider(
-                        value = brush,
-                        onValueChange = { brush = it; brushSizing = true },
-                        onValueChangeFinished = { brushSizing = false },
-                        valueRange = 8f..100f,
-                        enabled = !busy,
-                        retainColorWhenDisabled = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    // A small unrelated circle cannot represent a zoomed
-                    // brush. Show exact source-pixel diameter numerically;
-                    // the real on-photo guide above is scale-aware.
-                    Text("Ø ${brush.roundToInt()} px",
-                        modifier = Modifier.width(56.dp),
-                        fontSize = 10.sp,
-                        color = Color(0xFFFFC21C),
-                        maxLines = 1)
-
-                }
+                RemovalBrushControls(
+                    brush = brush, eraserMode = eraserMode, busy = busy,
+                    onBrush = { eraserMode = false; moveMode = false },
+                    onErase = { eraserMode = true; moveMode = false },
+                    onChangeSize = { brush = it; brushSizing = true },
+                    onFinishedSize = { brushSizing = false },
+                )
                 Box(Modifier.fillMaxWidth().height(48.dp),
                     contentAlignment = Alignment.Center) {
                     EraserStartButton(
@@ -1322,9 +1352,10 @@ internal fun ObjectRemovalPanel(
                     }
                 }
                 if (selectedPeople.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth().height(48.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         androidx.compose.material3.FilterChip(
                             selected = refiningPeople,
                             onClick = {
@@ -1336,23 +1367,12 @@ internal fun ObjectRemovalPanel(
                             label = { Text("Уточнить маску", fontSize = 11.sp) },
                         )
                         if (refiningPeople) {
-                            RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool,
-                                "Добавить к маске", !eraserMode) {
-                                eraserMode = false
-                                moveMode = false
-                            }
-                            RemovalToolButton(R.drawable.ic_ai_eraser_erase_tool,
-                                "Вычесть из маски", eraserMode) {
-                                eraserMode = true
-                                moveMode = false
-                            }
-                            Slider(
-                                value = brush,
-                                onValueChange = { brush = it; brushSizing = true },
-                                onValueChangeFinished = { brushSizing = false },
-                                valueRange = 8f..100f,
-                                enabled = !busy,
-                                modifier = Modifier.weight(1f),
+                            RemovalBrushControls(
+                                brush = brush, eraserMode = eraserMode, busy = busy,
+                                onBrush = { eraserMode = false; moveMode = false },
+                                onErase = { eraserMode = true; moveMode = false },
+                                onChangeSize = { brush = it; brushSizing = true },
+                                onFinishedSize = { brushSizing = false },
                             )
                         }
                     }
