@@ -82,6 +82,7 @@ internal fun GalleryVideoHeader(
     onDelete: () -> Unit,
     onMenu: () -> Unit,
     isFavorite: Boolean = false,
+    showFavorite: Boolean = true,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()
         .then(if (landscape) Modifier.navigationBarsPadding().displayCutoutPadding() else Modifier)) {
@@ -111,7 +112,8 @@ internal fun GalleryVideoHeader(
                     Triple("cut", "Обрезать", onEdit),
                     Triple("heart", "Избранное", onFavorite),
                     Triple("trash", "Удалить", onDelete),
-                ).forEach { (asset, label, action) ->
+                ).filterNot { !showFavorite && it.first == "heart" }
+                    .forEach { (asset, label, action) ->
                     IconButton(onClick = action, modifier = Modifier.size(if (compactLandscape) 36.dp else 43.dp)
                         .semantics { contentDescription = label }) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -150,6 +152,7 @@ internal fun GalleryVideoHeader(
 internal fun GalleryV10Bottom(
     isPhoto: Boolean, isFavorite: Boolean, onShare: () -> Unit, onEdit: () -> Unit,
     onFavorite: () -> Unit, onDelete: () -> Unit, onMenu: () -> Unit,
+    showFavorite: Boolean = true,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().height(80.dp).padding(horizontal = 6.dp),
@@ -162,7 +165,8 @@ internal fun GalleryV10Bottom(
             Triple("heart", "Избранное", onFavorite),
             Triple("trash", "Удалить", onDelete),
             Triple("more", "Действия с файлом", onMenu),
-        ).forEach { (key, label, click) ->
+        ).filterNot { !showFavorite && it.first == "heart" }
+            .forEach { (key, label, click) ->
             IconButton(onClick = click, modifier = Modifier.size(width = 59.dp, height = 58.dp).semantics { contentDescription = label }) {
                 if (key == "heart") {
                     Icon(
