@@ -40,6 +40,11 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
             val prediction = runner.predict(inputs.image, inputs.mask)
             val inferenceMs = SystemClock.elapsedRealtime() - inferenceStarted
             currentCoroutineContext().ensureActive()
+            // Aggregate diagnostics only, no image content or names in logs.
+            // Large area and flat neural prediction can now be distinguished
+            // from a wrong ROI/mask scale in Xiaomi device QA.
+            val diagnostics = InpaintingDiagnosticPolicy.analyze(
+                coverage, width, height, inputs.mask, region.size, prediction)
             val compositeStarted = SystemClock.elapsedRealtime()
             val result = InpaintingPreparation.composite(
                 pixels, coverage, width, height, region, prediction,
@@ -49,6 +54,11 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
                 "mask_ms=$maskMs input_sample_ms=$inputsMs " +
                 "mask_preparation_ms=$preparationMs inference_ms=$inferenceMs " +
                 "composite_ms=$compositingMs " +
+                "mask_fraction=${diagnostics.sourceMaskFraction} " +
+                "model_mask_fraction=${diagnostics.modelMaskFraction} " +
+                "roi_side_fraction=${diagnostics.workingSideFraction} " +
+                "prediction_spread=${diagnostics.modelPredictionSpread} " +
+                "large_area=${diagnostics.largeArea} " +
                 "total_ms=${SystemClock.elapsedRealtime() - began}")
             currentCoroutineContext().ensureActive()
             Bitmap.createBitmap(result, width, height, Bitmap.Config.ARGB_8888)
