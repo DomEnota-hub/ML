@@ -58,7 +58,10 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
         val imageTop = (viewport.height - imageHeight * scale) / 2f
         val center = Offset(imageLeft + value.centerX * imageWidth * scale,
             imageTop + value.centerY * imageHeight * scale)
-        val layout = TextLayerRenderer.layout(context, imageWidth, imageHeight, value)
+        // An empty layer is still selectable and movable. The placeholder
+        // is preview-only and NEVER stored in the layer or exported.
+        val measurement = if (value.text.isBlank()) value.copy(text = "Ваш текст") else value
+        val layout = TextLayerRenderer.layout(context, imageWidth, imageHeight, measurement)
         val left = (0 until layout.lineCount).minOf { layout.getLineLeft(it) }
         val right = (0 until layout.lineCount).maxOf { layout.getLineRight(it) }
         val border = padding + layout.paint.textSize * value.outline * scale
@@ -139,6 +142,24 @@ internal fun TextLayerSelectionOverlay(imageWidth: Int, imageHeight: Int, layer:
         }) {
         if (viewport.width == 0) return@Canvas
         val f = visibleFrame
+        if (layer.text.isBlank()) {
+            val native = drawContext.canvas.nativeCanvas
+            val saved = native.save()
+            try {
+                native.translate(
+                    (viewport.width - imageWidth * f.scale) / 2f,
+                    (viewport.height - imageHeight * f.scale) / 2f,
+                )
+                native.scale(f.scale, f.scale)
+                TextLayerRenderer.draw(
+                    context, native, imageWidth, imageHeight,
+                    listOf(layer.copy(text = "Ваш текст", opacity = .60f)),
+                    includeAll = true,
+                )
+            } finally {
+                native.restoreToCount(saved)
+            }
+        }
         val (copyTarget, deleteTarget) = actionPositions(f, layer.rotation)
         withTransform({ rotate(layer.rotation, f.center) }) {
             drawRect(Color.White, f.bounds.topLeft, f.bounds.size, style = Stroke(1.5.dp.toPx() / displayScale))
