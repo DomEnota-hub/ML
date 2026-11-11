@@ -11,6 +11,8 @@ internal object PersonContourOverlay {
     private val YELLOW = 0xFFFFC21C.toInt()
     private val WHITE = 0xF8FFFFFF.toInt()
     private val UNCERTAIN = 0xFF919191.toInt()
+    // Match the pixels that LaMa will actually remove, not just the perimeter.
+    private val SELECTED_FILL = 0x58FFC21C.toInt()
 
     /** No Android graphics dependency in this function: JVM-testable pixels. */
     fun contour(coverage: IntArray, width: Int, height: Int, argb: Int): IntArray {
@@ -28,6 +30,25 @@ internal object PersonContourOverlay {
             }
         }
         return out
+    }
+
+    /**
+     * A selected person is previewed with a translucent interior in exactly
+     * the rasterized mask, while unselected/uncertain people remain outlines.
+     * This pure pixel pass is covered by JVM tests and never expands the mask.
+     */
+    fun paintCoverage(
+        coverage: IntArray, width: Int, height: Int,
+        selected: Boolean, edgeArgb: Int,
+    ): IntArray {
+        val edges = contour(coverage, width, height, edgeArgb)
+        if (!selected) return edges
+        for (i in edges.indices) {
+            if (edges[i] == 0 && (coverage[i] ushr 24) > 10) {
+                edges[i] = SELECTED_FILL
+            }
+        }
+        return edges
     }
 
     fun render(
@@ -50,8 +71,10 @@ internal object PersonContourOverlay {
                     person.detection.id in selected -> YELLOW
                     else -> WHITE
                 }
-                val edge = contour(coverage, width, height, color)
-                for (i in edge.indices) if (edge[i] != 0) result[i] = edge[i]
+                val pixels = paintCoverage(coverage, width, height,
+                    person.detection.id in selected && person.detection.id !in ambiguous,
+                    color)
+                for (i in pixels.indices) if (pixels[i] != 0) result[i] = pixels[i]
             } finally {
                 mask.recycle()
             }
