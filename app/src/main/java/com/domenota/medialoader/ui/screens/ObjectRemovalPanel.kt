@@ -519,7 +519,20 @@ internal fun ObjectRemovalPanel(
                         startStep.bitmap, chosenGlyphs)
                 } else otherMasks
                 if (marked.isEmpty()) {
-                    message = "Точный контур текста не подтверждён. Исправьте маску вручную."
+                    // No bounding-box fallback: it could remove real scenery.
+                    // Give the user an actionable manual correction path instead
+                    // of leaving "Начать" apparently broken with no way forward.
+                    if (textMode) {
+                        selectedMode = AiEraserMode.MANUAL
+                        textMode = false
+                        selectedGlyphs.clear()
+                        redoGlyphs.clear()
+                        glyphs = emptyList()
+                        message = "Точная маска текста не подтверждена. " +
+                            "Открылся ручной режим: отметьте буквы кистью и нажмите «Начать»."
+                    } else {
+                        message = "Выделите область для удаления."
+                    }
                     return@launch
                 }
                 val result = engine.inpaint(startStep.bitmap, marked)
@@ -968,11 +981,15 @@ internal fun ObjectRemovalPanel(
                             )
                             // OCR boxes are just candidate guides; the actual
                             // removal mask is the pixel trace rendered below.
-                            drawRect(
-                                if (selected) yellow else Color(0xBBE9F0FF),
-                                topLeft = topLeft, size = rectSize,
-                                style = Stroke(width = if (selected) 2f else 1.2f),
-                            )
+                            // When the true pixel mask exists, do not leave
+                            // misleading yellow rectangles on top of letters.
+                            if (!selected || safeTextPreview.isEmpty()) {
+                                drawRect(
+                                    if (selected) yellow else Color(0xBBE9F0FF),
+                                    topLeft = topLeft, size = rectSize,
+                                    style = Stroke(width = if (selected) 2f else 1.2f),
+                                )
+                            }
                         }
                         for (line in safeTextPreview) {
                             val sizePx = line.diameter * minOf(size.width, size.height)
