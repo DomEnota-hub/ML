@@ -58,7 +58,7 @@ class LibraryModeScreensTest {
                 { id, queue -> opened = id to queue }, {}, { id, value -> favorite = id to value }, { _, _ -> }, { "folder" }, {}, { deleted = it }, { _, _ -> }, {})
         } }
         compose.onNodeWithContentDescription("Альбомы").performClick()
-        compose.onNodeWithText("Camera").performClick()
+        compose.onNodeWithText("Камера").performClick()
         compose.onNodeWithContentDescription("Действия: Screen.jpg").assertDoesNotExist()
         compose.onNodeWithContentDescription("Действия: Camera.jpg").performClick()
         compose.onNodeWithText("Переименовать").assertDoesNotExist()
