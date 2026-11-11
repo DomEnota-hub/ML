@@ -85,6 +85,7 @@ import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.components.BulkProgressCard
 import com.domenota.medialoader.data.bulk.BulkState
 import com.domenota.medialoader.core.database.DownloadEntity
+import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.ui.components.EmptyStateCard
 import com.domenota.medialoader.ui.components.SectionTitle
 import com.domenota.medialoader.ui.components.SourceIcon
