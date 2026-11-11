@@ -226,11 +226,26 @@ internal object LocalTextOcr {
             currentCoroutineContext().ensureActive()
             val croppedLine = scan(enlarged, TessBaseAPI.PageSegMode.PSM_SINGLE_LINE,
                 0, top, capW, capH)
-            val candidates = OcrLineCandidatePolicy.best(full,
-                listOf(croppedSparse, croppedLine))
+            val captionCandidates = mutableListOf(croppedSparse, croppedLine)
+            // Tiny pale watermarks can disappear against a pale floor even
+            // after enlargement. Try a local high-contrast crop ONLY when
+            // both normal caption passes failed the coherent-line test.
+            if (captionCandidates.none { OcrLineCandidatePolicy.select(it).size >= 4 }) {
+                currentCoroutineContext().ensureActive()
+                val contrast = enhanceTextForOcr(enlarged)
+                try {
+                    captionCandidates += scan(contrast,
+                        TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+                        0, top, capW, capH)
+                } finally {
+                    if (contrast !== enlarged) contrast.recycle()
+                }
+            }
+            val candidates = OcrLineCandidatePolicy.best(full, captionCandidates)
             AppLog.i("PhotoOCR", "glyphs_full=${full.size} " +
                 "glyphs_caption=${croppedSparse.size} " +
-                "glyphs_line=${croppedLine.size} accepted=${candidates.size}")
+                "glyphs_line=${croppedLine.size} " +
+                "caption_passes=${captionCandidates.size} accepted=${candidates.size}")
             candidates
         } finally {
             if (enlarged !== crop) enlarged.recycle()
