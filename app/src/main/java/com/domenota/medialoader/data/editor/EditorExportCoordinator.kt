@@ -251,7 +251,7 @@ class EditorExportCoordinator private constructor(context: Context) {
 
         _state.value = EditorExportState(
             exporting = true,
-            operation = "Экспорт аудио",
+            operation = if (spec.replaceOriginal) "Замена оригинала" else "Экспорт аудио",
             sourceId = source.id,
         )
         MediaProcessingService.start(appContext)
@@ -264,19 +264,26 @@ class EditorExportCoordinator private constructor(context: Context) {
                         it.copy(exporting = true, progress = progress.coerceIn(0, 100))
                     }
                 }
-                val stem = StorageNaming.editableStem(source.originalName).ifBlank { "Аудио" }
-                val published = repository.publishEditedAudioFile(
-                    source = source,
-                    file = requireNotNull(temp),
-                    preferredName = "${stem}_edit.mp3",
-                    title = spec.title,
-                    artist = spec.artist,
-                    album = spec.album,
-                )
+                val published = if (spec.replaceOriginal) {
+                    repository.replaceEditedAudioFile(
+                        source = source,
+                        file = requireNotNull(temp),
+                        title = spec.title, artist = spec.artist, album = spec.album,
+                    )
+                } else {
+                    val stem = StorageNaming.editableStem(source.originalName).ifBlank { "Аудио" }
+                    repository.publishEditedAudioFile(
+                        source = source,
+                        file = requireNotNull(temp),
+                        preferredName = "${stem}_edit.mp3",
+                        title = spec.title, artist = spec.artist, album = spec.album,
+                    )
+                }
                 _state.value = EditorExportState(
                     exporting = false,
                     progress = 100,
-                    operation = "Экспорт аудио",
+                    operation = if (spec.replaceOriginal)
+                        "Оригинал обновлён" else "Экспорт аудио",
                     sourceId = source.id,
                     completedItemId = published.id,
                 )
