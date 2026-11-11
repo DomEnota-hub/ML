@@ -35,7 +35,7 @@ jobs:
       - name: Validate exact app identity
         run: |
           grep -Fq "versionName '1.7.175'" app/build.gradle
-          grep -Eq 'versionCode 235
+          grep -Eq 'versionCode 235$' app/build.gradle
           grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
       - name: Focused player, private and AI segmentation regressions
         run: |
@@ -61,51 +61,6 @@ jobs:
             --tests '*MusicTrackVisibilityTest' \
             --tests '*EqualizerScreenTest' \
             --tests '*EqualizerSettingsRepositoryTest' \
-            --stacktrace
-      - name: Full JVM suite
-        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
-      - name: Android lint
-        if: always()
-        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
-      - name: ARM64 compile only (never publish this unsigned APK)
-        if: success()
-        run: |
-          ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
-          test -s app/build/outputs/apk/release/app-release-unsigned.apk
-          test "$(unzip -Z1 app/build/outputs/apk/release/app-release-unsigned.apk | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
-      - name: Diagnostic reports only
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ml17174-five-feedback-diagnostics
-          path: |
-            app/build/test-results/testDebugUnitTest/
-            app/build/reports/tests/testDebugUnitTest/
-            app/build/reports/lint-results-debug.html
-          if-no-files-found: ignore
-          retention-days: 4
- app/build.gradle
-          grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
-      - name: Focused player, private and AI segmentation regressions
-        run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
-            --tests '*GalleryVideoChromeTest' \
-            --tests '*PrivateViewerChromeTest' \
-            --tests '*PrivateScreenUiTest' \
-            --tests '*PersonInstancePolicyTest' \
-            --tests '*PersonSegmentationPipelineTest' \
-            --tests '*PersonManualRefinementMaskTest' \
-            --tests '*GalleryV10ActionContractTest' \
-            --tests '*OcrLineCandidatePolicyTest' \
-            --tests '*TextGlyphMaskTest' \
-            --tests '*GlyphContentMaskTest' \
-            --tests '*LocalTextOcrFallbackTest' \
-            --tests '*LaMaInputSamplingEquivalenceTest' \
-            --tests '*InpaintingPreparationTest' \
-            --tests '*LaMaCompositionTest' \
-            --tests '*AudioReplacePolicyTest' \
-            --tests '*EditorTextDialogLayoutTest' \
-            --tests '*PhotoEditorStageOneUiTest' \
             --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
