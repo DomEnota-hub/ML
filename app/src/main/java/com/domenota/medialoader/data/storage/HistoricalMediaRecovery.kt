@@ -560,12 +560,18 @@ internal class HistoricalMediaRecovery(ctx: Context, private val db: HistoryData
     private fun collection(op: JSONObject) = collection(op.getString("mime"))
     private fun newUri(op: JSONObject) = Uri.parse(op.getString("newUri"))
 
-    private fun queryUri(uri: Uri): Uri {
-        if (Build.VERSION.SDK_INT >= 30) return uri
-        @Suppress("DEPRECATION")
-        return MediaStore.setIncludePending(uri)
+    private fun queryUri(uri: Uri): Uri = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> uri
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+            @Suppress("DEPRECATION")
+            MediaStore.setIncludePending(uri)
+        }
+        else -> fail("Для восстановления через MediaStore требуется Android 10 или новее")
     }
 
+    // Called only behind the Android 11+ guard in media() and find().
+    // Annotation also prevents accidental unguarded use from a future call site.
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
     private fun queryArgs(selection: String? = null, args: Array<String>? = null) = Bundle().apply {
         putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
         putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE)
