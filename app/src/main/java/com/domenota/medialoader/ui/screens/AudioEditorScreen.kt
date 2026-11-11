@@ -96,6 +96,9 @@ fun AudioEditorScreen(
     val ownExport = exportState.exporting && exportState.sourceId == item.id
     val busyWithOther = exportState.exporting && exportState.sourceId != null &&
         exportState.sourceId != item.id
+    val replacingOriginal = ownExport && exportState.operation in setOf(
+        "Замена оригинала", "Запись оригинала")
+    val criticalAudioWrite = ownExport && exportState.operation == "Запись оригинала"
     var sourceInfo by remember(uri) { mutableStateOf<AudioSourceInfo?>(null) }
     var title by remember(item.id) {
         mutableStateOf(item.recognizedTitle ?: item.sourceAudioTitle ?: "")
@@ -213,7 +216,11 @@ fun AudioEditorScreen(
             TopAppBar(
                 title = { Text("Редактор аудио") },
                 navigationIcon = {
-                    IconButton(onClick = requestExit) {
+                    IconButton(onClick = {
+                        if (replacingOriginal) {
+                            replaceError = "Завершите замену MP3, прежде чем выходить из редактора."
+                        } else requestExit()
+                    }) {
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
                     }
                 },
@@ -345,7 +352,7 @@ fun AudioEditorScreen(
                     focusedBorderColor = editorSliderYellow,
                     cursorColor = editorSliderYellow,
                 ),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp),
             )
 
             Spacer(Modifier.height(24.dp))
@@ -390,13 +397,16 @@ fun AudioEditorScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Можно выйти из редактора — обработка продолжится в фоне.",
+                    if (replacingOriginal)
+                        "Не закрывайте приложение до окончания замены и проверки MP3."
+                    else "Можно выйти из редактора — обработка продолжится в фоне.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 Spacer(Modifier.height(4.dp))
-                TextButton(onClick = onCancelExport) { Text("Отменить") }
+                if (!criticalAudioWrite)
+                    TextButton(onClick = onCancelExport) { Text("Отменить") }
             } else {
                 if (busyWithOther) {
                     Text(
