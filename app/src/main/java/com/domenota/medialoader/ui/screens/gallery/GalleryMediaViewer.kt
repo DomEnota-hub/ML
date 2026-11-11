@@ -321,7 +321,6 @@ internal fun GalleryMediaViewer(
                         onShare = { onShare(current) },
                         onEdit = { onEdit(current) },
                         onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
-                        isFavorite = current.id in favoriteIds,
                         onDelete = { onDelete(current) },
                         onMenu = { menu = true },
                     )
