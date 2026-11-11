@@ -806,8 +806,8 @@ fun MediaLoaderApp(
                 val token = ViewerQueueCache.store(queueIds)
                 viewerEntry?.savedStateHandle?.set("grid_viewer_token", token)
                 navController.currentBackStackEntry?.savedStateHandle?.set("gallery_presentation",
-                    item.mediaType != MediaType.AUDIO && !item.isPrivate &&
-                        (appMode == AppMode.GALLERY || queueIds.isNotEmpty()))
+                    item.mediaType != MediaType.AUDIO &&
+                        (item.isPrivate || appMode == AppMode.GALLERY || queueIds.isNotEmpty()))
             } else {
                 openSavedFile(context, item)
             }
@@ -1561,18 +1561,36 @@ fun MediaLoaderApp(
                         emptyList()
                     }
                     viewerState.SaveableStateProvider("content") {
-                    if ((galleryPresentation || !item.isPrivate) && item.mediaType != MediaType.AUDIO) GalleryMediaViewer(
+                    if (item.mediaType != MediaType.AUDIO) GalleryMediaViewer(
                         item = item,
                         media = com.domenota.medialoader.data.playback.GridMediaQueue.resolve(snapshot, viewerRows, false, fileStatuses)
                             .ifEmpty { if (item.mediaType == MediaType.PHOTO && photoQueue.isNotEmpty()) photoQueue else listOf(item) },
-                        onBack = { navController.popBackStack() }, onShare = { shareSavedFile(context, it) },
+                        onBack = { navController.popBackStack() },
+                        onShare = { selected ->
+                            // Only an explicit user press while the vault is unlocked
+                            // may share an otherwise private file.
+                            if (!selected.isPrivate || privateState.unlocked)
+                                shareSavedFile(context, selected)
+                        },
                         onEdit = { selected -> navController.navigate(if (selected.mediaType == MediaType.VIDEO)
                             "video-editor/${selected.id}" else "photo-editor/${selected.id}") },
-                        onDelete = { deleteLibraryFile(it.id) },
+                        onDelete = { selected ->
+                            if (selected.isPrivate) {
+                                if (privateState.unlocked) fileActionScope.launch {
+                                    viewModel.deletePrivate(selected.id)
+                                    navController.popBackStack()
+                                }
+                            } else deleteLibraryFile(selected.id)
+                        },
                         favoriteIds = libraryCatalogAssignments.filter { it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId },
                         onFavorite = setLibraryFavorite, folders = catalogFolders, onSetFolder = setLibraryFolder,
-                        onMoveToPrivate = { requestPrivateMove(listOf(it.id)) }, onOpenExternal = { openSavedFile(context, it) },
+                        onMoveToPrivate = { if (!it.isPrivate) requestPrivateMove(listOf(it.id)) },
+                        onOpenExternal = { selected ->
+                            if (!selected.isPrivate || privateState.unlocked)
+                                openSavedFile(context, selected)
+                        },
                         onCurrentItemChanged = { entry.savedStateHandle["gallery_current_id"] = it.id },
+                        privateMode = item.isPrivate,
                     ) else MediaViewerScreen(
                         item = item,
                         onBack = { navController.popBackStack() },
