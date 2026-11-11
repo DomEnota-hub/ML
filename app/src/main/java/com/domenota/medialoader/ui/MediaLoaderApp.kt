@@ -1588,9 +1588,15 @@ fun MediaLoaderApp(
                         modernAudioLayout = !item.isPrivate,
                         onEqualizer = { navController.navigate("equalizer") },
                         audioMetadataRows = publicLibraryRows, audioBlockedIdentities = libraryPrivateKeys.orEmpty(),
-                        audioFavoriteIds = libraryCatalogAssignments.filter { it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId }.also { favorites ->
-                            if (currentLibraryAudioId in favorites) libraryAudioState.currentId?.let(favorites::add)
-                        },
+                        audioFavoriteIds = libraryCatalogAssignments.filter { it.isFavorite }
+                            .mapTo(mutableSetOf()) { it.downloadId }.also { favorites ->
+                                val stableIds = favorites.toSet()
+                                publicLibraryRefs.filter { it.key in stableIds }.forEach { ref ->
+                                    favorites.addAll(ref.aliases)
+                                }
+                                if (currentLibraryAudioId in stableIds)
+                                    libraryAudioState.currentId?.let(favorites::add)
+                            },
                         onAudioFavorite = { selected -> fileActionScope.launch {
                             // Media3 may use an alias rather than the stable
                             // public-library ID. Always toggle the canonical row.
