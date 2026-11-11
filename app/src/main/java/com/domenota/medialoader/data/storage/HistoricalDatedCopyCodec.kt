@@ -29,6 +29,27 @@ import kotlin.math.abs
 
 /** Operates exclusively on caller-owned scratch files. Never resolves or changes a media URI. */
 internal class HistoricalDatedCopyCodec {
+    /** Existing capture metadata determined the file's original gallery position. */
+    fun existingDate(source: File, mime: String): Long? {
+        if (mime.startsWith("image/")) {
+            if (Build.VERSION.SDK_INT < 31) {
+                val compatible = androidx.exifinterface.media.ExifInterface(source.path)
+                return compatible.dateTimeOriginal ?: compatible.dateTime
+            }
+            val exif = ExifInterface(source.path)
+            if (exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) == null &&
+                exif.getAttribute(ExifInterface.TAG_DATETIME) == null) return null
+            // Use the platform's interpretation, including absent offsets and
+            // subsecond tags, exactly as the MediaStore scanner does.
+            val date = exif.getDateTimeOriginal().takeIf { it > 0 } ?: exif.getDateTime().takeIf { it > 0 }
+            return requireNotNull(date) { "Встроенная дата фотографии не читается" }
+        }
+        if (mime == "video/mp4") {
+            val raw = probe(source).getJSONObject("format").optJSONObject("tags")?.optString("creation_time").orEmpty()
+            return raw.takeIf { it.isNotBlank() }?.let { Instant.parse(it).toEpochMilli() }
+        }
+        return null
+    }
     fun contentMime(source: File, declared: String): String =
         if (declared == "image/jpeg" && WebpHeaderDates.matches(source)) "image/webp" else declared
 

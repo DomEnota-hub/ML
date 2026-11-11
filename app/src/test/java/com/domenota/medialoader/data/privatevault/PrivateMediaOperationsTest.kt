@@ -8,6 +8,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PrivateMediaOperationsTest {
+    @Test fun restoreUsesActualPublishedSizeAndKeepsOriginalIdentityAndDate() = runBlocking {
+        val original = row().copy(isPrivate = true, savedUri = "file:///private/id.mp4")
+        var saved = original
+        var deleted = false
+        val ops = PrivateMediaOperations({}, { saved }, { saved = it }, {},
+            { _, _ -> error("unused") }, { deleted = true; true }, { true },
+            { "restored.mp4" to "content://restored/2" }, publishedSize = { 9876L })
+        ops.restore(original.id)
+        assertEquals(original.copy(originalName="restored.mp4", savedUri="content://restored/2",
+            isPrivate=false, sizeBytes=9876L), saved)
+        assertTrue(deleted)
+    }
     private fun row() = DownloadEntity("id", "test", "video.mp4", MediaType.VIDEO,
         DownloadState.COMPLETED, "content://public/1", 4, 1)
 

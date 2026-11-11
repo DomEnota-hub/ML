@@ -18,6 +18,7 @@ class PrivateMediaOperations(
     private val removePublic: suspend (String) -> Boolean,
     private val publish: suspend (DownloadEntity) -> Pair<String, String>,
     private val requireConfigured: () -> Unit = requireUnlocked,
+    private val publishedSize: suspend (String) -> Long? = { null },
 ) {
     suspend fun move(id: String) {
         requireConfigured()
@@ -58,7 +59,8 @@ class PrivateMediaOperations(
         require(row.privateSourceUri == null) { "Сначала завершите перенос: публичная копия ещё существует" }
         withContext(NonCancellable) {
             val (name, uri) = publish(row)
-            try { save(row.copy(originalName = name, savedUri = uri, isPrivate = false, privateSourceUri = null)) }
+            try { save(row.copy(originalName = name, savedUri = uri, isPrivate = false, privateSourceUri = null,
+                sizeBytes = publishedSize(uri) ?: row.sizeBytes)) }
             catch (error: Throwable) { runCatching { removePublic(uri) }; throw error }
             if (!removePrivate(requireNotNull(row.savedUri))) throw IOException("Файл восстановлен; не удалось удалить старую приватную копию")
         }

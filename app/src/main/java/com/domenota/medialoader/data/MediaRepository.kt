@@ -372,10 +372,16 @@ class MediaRepository private constructor(context: Context) {
         }, history::deletePrivate,
         privateFiles::importUri, privateFiles::remove, privateFiles::removePublicSource,
         { row ->
-            val published = storage.publish(privateFiles.file(requireNotNull(row.savedUri)), row.originalName, mimeType(row))
+            val published = storage.publishPrivateWithDate(privateFiles.file(requireNotNull(row.savedUri)),
+                row.originalName, mimeType(row), row.createdAtEpochMillis)
             published.fileName to published.uri.toString()
         },
         requireConfigured = { check(privateAccess.state.value.mode != com.domenota.medialoader.data.privatevault.PrivateAccessMode.UNCONFIGURED) { "Сначала настройте личное" } },
+        publishedSize = { uri ->
+            val fd = appContext.contentResolver.openFileDescriptor(Uri.parse(uri), "r")
+                ?: error("Возвращённый файл не открывается для проверки размера")
+            fd.use { it.statSize.takeIf { bytes -> bytes >= 0 } }
+        },
     ) }
     suspend fun moveToPrivate(id: String) = musicPostProcessGate.withPermit {
         val original = history.byId(id)
