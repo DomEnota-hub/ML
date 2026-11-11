@@ -142,8 +142,7 @@ fun MusicModeScreen(
         } else if (favoritesOnly) {
             // Favorites must include PHONE media even if the library source
             // selector currently shows only app-downloaded tracks.
-            allAudio.filter { availableAudio(it) && it.id in favoriteIds }
-                .distinctBy { it.id }
+            MusicFavoritesPolicy.select(allAudio, favoriteIds)
         } else {
             tracks.filter {
                 MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) &&
