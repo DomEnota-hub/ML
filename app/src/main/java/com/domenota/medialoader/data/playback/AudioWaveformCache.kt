@@ -31,6 +31,14 @@ internal class AudioWaveformCache(private val directory: File) {
         return memory.putIfAbsent(source, decoded) ?: decoded
     }
 
+    /** The same MediaStore URI may now hold newly edited audio. */
+    fun invalidate(source: String) {
+        synchronized(locks.computeIfAbsent(source) { Any() }) {
+            memory.remove(source)
+            savedFile(source).delete()
+        }
+    }
+
     fun has(source: String): Boolean = peek(source) != null
 
     fun get(source: String, decode: () -> FloatArray): FloatArray {
