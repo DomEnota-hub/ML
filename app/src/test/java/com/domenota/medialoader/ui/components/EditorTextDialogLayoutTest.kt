@@ -68,7 +68,10 @@ class EditorTextDialogLayoutTest {
     @Test fun draftAndFontTabSurviveOrientationChange() {
         launch()
         compose.onNodeWithText("Изменить").performClick()
-        compose.onNodeWithText("Ваш текст").performTextReplacement("Черновик после поворота")
+        // The editing field starts blank; "Ваш текст" is only drawn
+        // inside the selected frame and must never become real layer text.
+        compose.onNodeWithTag("editor-text-input")
+            .performTextReplacement("Черновик после поворота")
         compose.onNodeWithText("Шрифт").performClick()
         compose.waitUntil(timeoutMillis = 15_000) {
             compose.onAllNodesWithText("Библиотека шрифтов").fetchSemanticsNodes().isNotEmpty()
