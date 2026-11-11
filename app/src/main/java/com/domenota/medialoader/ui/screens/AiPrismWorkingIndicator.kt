@@ -46,18 +46,20 @@ internal object AiPrismMotion {
     fun frame(progress: Float): Frame {
         val p = ((progress % 1f) + 1f) % 1f
         val (rotation, white, right) = when {
-            p < .19f -> Triple(0f, true, true)
-            p < .30f -> Triple((p - .19f) / .11f, true, true)
-            p < .40f -> Triple(1f - (p - .30f) / .10f, false, false)
-            p < .60f -> Triple(0f, false, false)
-            p < .70f -> Triple((p - .60f) / .10f, false, false)
-            p < .81f -> Triple(1f - (p - .70f) / .11f, true, true)
-            else -> Triple(0f, true, true)
+            // Reference sequence: BLACK front -> thick side -> WHITE outlined
+            // front -> thick side -> BLACK front; tile never rotates.
+            p < .19f -> Triple(0f, false, true)
+            p < .30f -> Triple((p - .19f) / .11f, false, true)
+            p < .40f -> Triple(1f - (p - .30f) / .10f, true, false)
+            p < .60f -> Triple(0f, true, false)
+            p < .70f -> Triple((p - .60f) / .10f, true, false)
+            p < .81f -> Triple(1f - (p - .70f) / .11f, false, true)
+            else -> Triple(0f, false, true)
         }
         val angle = rotation.coerceIn(0f, 1f) * (PI / 2.0)
         return Frame(
             faceWidth = cos(angle).toFloat().coerceIn(0f, 1f),
-            sideWidth = sin(angle).toFloat() * .235f,
+            sideWidth = sin(angle).toFloat() * .38f,
             faceIsWhite = white,
             sideOnRight = right,
         )
