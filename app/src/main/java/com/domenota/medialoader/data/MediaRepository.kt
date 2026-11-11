@@ -1112,12 +1112,28 @@ class MediaRepository private constructor(context: Context) {
                             ?: throw java.io.IOException("Нет доступа для проверки MP3.")
                         if (writtenSha != outputSha)
                             throw java.io.IOException("Проверка MP3 после записи не прошла.")
+                        val newDuration = runCatching {
+                            MediaMetadataRetriever().let { retriever ->
+                                try {
+                                    retriever.setDataSource(file.absolutePath)
+                                    retriever.extractMetadata(
+                                        MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                                } finally { retriever.release() }
+                            }
+                        }.getOrNull() ?: latest.durationMs
                         val changed = latest.copy(
                             sizeBytes = file.length(),
+                            durationMs = newDuration,
                             recognizedTitle = title, recognizedArtist = artist,
                             recognizedAlbum = album,
                         )
                         history.save(changed)
+                        // Waveform cache is keyed by URI, which is deliberately
+                        // unchanged; invalidate peaks only AFTER verified write.
+                        runCatching {
+                            com.domenota.medialoader.ui.components
+                                .invalidateAudioWaveform(appContext, uri)
+                        }
                         // Metadata lives both in MP3 ID3 and our library row.
                         runCatching {
                             val meta = android.content.ContentValues().apply {
