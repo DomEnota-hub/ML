@@ -44,7 +44,8 @@ class MusicPlayerControlsTest {
             compose.onNodeWithContentDescription("Избранное").performClick()
             compose.onNodeWithContentDescription("Редактировать").performClick()
             compose.onNodeWithContentDescription("Дополнительно").assertDoesNotExist()
-            compose.onNodeWithText("Скорость").performScrollTo().assertExists()
+            compose.onNodeWithContentDescription("Скорость воспроизведения: 1.0×").performScrollTo().performClick()
+            compose.onNodeWithText("1.25×").assertExists()
             assertEquals(1, editor)
             assertEquals(1, eq); assertEquals(1, queue); assertEquals(1, favorite)
         } finally { player.release() }
