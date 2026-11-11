@@ -36,6 +36,10 @@ internal fun loadAudioWaveform(context: Context, uri: Uri): FloatArray =
         com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode { decodeAudioPeaks(context, uri) }
     }
 
+/** Drop stale peaks after the MP3 content changes at the same public URI. */
+internal fun invalidateAudioWaveform(context: Context, uri: Uri) =
+    waveformCache(context).invalidate(uri.toString())
+
 /** Decodes the file in the background and groups PCM loudness by playback time. */
 internal fun decodeAudioPeaks(context: Context, uri: Uri, count: Int = 256): FloatArray {
     val peaks = FloatArray(count)
