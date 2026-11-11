@@ -292,8 +292,8 @@ internal fun EditorTextDialog(
                                             bounds.height * image.height * scale), style = Stroke(2.dp.toPx()))
                                 }
                             }
-                            selected?.takeIf { !selectSample && !pickColor && !playing && it.text.isNotBlank() &&
-                                (durationMs == null || it.visibleAt(position)) }?.let { layer ->
+                            selected?.takeIf { !selectSample && !pickColor && !playing &&
+                                (it.text.isBlank() || durationMs == null || it.visibleAt(position)) }?.let { layer ->
                                 TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom,
                                     onTap = { sheetOpen = true; textToolTab = UnifiedTextTab.KEYBOARD },
                                     onDuplicate = {
@@ -439,10 +439,6 @@ internal fun EditorTextDialog(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 label = { Text("Надпись") },
                                                 maxLines = 4)
-                                            Text("Нажми на надпись на изображении, чтобы выделить её. " +
-                                                "Потяни рамку для перемещения, угловой маркер — для размера и поворота.",
-                                                color = Color.LightGray,
-                                                style = MaterialTheme.typography.bodySmall)
                                         }
                                         UnifiedTextTab.STYLE -> {
                                             UnifiedTextStyle(layer = layer,
