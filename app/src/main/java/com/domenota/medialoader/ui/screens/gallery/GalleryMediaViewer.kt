@@ -269,9 +269,9 @@ internal fun GalleryMediaViewer(
                     // The entire video header, portrait AND landscape, is one
                     // consistent translucent surface. Photos retain their gradient.
                     .then(if (current.mediaType == MediaType.VIDEO)
-                        Modifier.background(Color.Black.copy(alpha = .42f))
+                        Modifier.background(Color.Black.copy(alpha = .52f))
                     else Modifier.background(Brush.verticalGradient(listOf(
-                        viewerHeaderOverlayColor, Color.Black.copy(alpha = .28f), Color.Transparent))))
+                        viewerHeaderOverlayColor, Color.Black.copy(alpha = .38f), Color.Transparent))))
                     .then(if (isLandscape) Modifier else Modifier.statusBarsPadding()),
             ) {
                 val onRotate: () -> Unit = {
@@ -291,6 +291,7 @@ internal fun GalleryMediaViewer(
                         onShare = { onShare(current) },
                         onEdit = { onEdit(current) },
                         onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
+                        isFavorite = current.id in favoriteIds,
                         onDelete = { onDelete(current) },
                         onMenu = { menu = true },
                     )
@@ -308,9 +309,9 @@ internal fun GalleryMediaViewer(
                 Box(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .then(if (current.mediaType == MediaType.VIDEO)
-                            Modifier.background(Color.Black.copy(alpha = .42f))
+                            Modifier.background(Color.Black.copy(alpha = .52f))
                         else Modifier.background(Brush.verticalGradient(listOf(
-                            Color.Transparent, Color.Black.copy(alpha = .26f),
+                            Color.Transparent, Color.Black.copy(alpha = .36f),
                             viewerBottomOverlayColor))))
                         .navigationBarsPadding(),
                 ) {
@@ -320,6 +321,7 @@ internal fun GalleryMediaViewer(
                         onShare = { onShare(current) },
                         onEdit = { onEdit(current) },
                         onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
+                        isFavorite = current.id in favoriteIds,
                         onDelete = { onDelete(current) },
                         onMenu = { menu = true },
                     )
