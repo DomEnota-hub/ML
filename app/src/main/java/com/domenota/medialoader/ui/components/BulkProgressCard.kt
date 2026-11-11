@@ -76,11 +76,13 @@ fun BulkProgressCard(
     val failed = related.count { it.state == DownloadState.FAILED }
     val cancelled = related.count { it.state == DownloadState.CANCELLED }
     val counts = BulkOutcomeCounts.from(
-        selected = state.selectedCount, queued = state.queuedCount,
+        selected = originalSelected, queued = state.queuedCount,
         completed = completed, failed = failed, cancelled = cancelled,
     )
     val isAnalysis = state.phase == BulkPhase.ANALYZING || state.phase == BulkPhase.PREVIEW
-    val total = if (isAnalysis) state.urls.size else state.selectedCount
+    val originalSelected = if (state.plannedCount > 0) state.plannedCount
+        else maxOf(state.selectedCount, state.queuedCount)
+    val total = if (isAnalysis) state.urls.size else originalSelected
     val processed = if (isAnalysis) state.cursor.coerceAtMost(total)
         else counts.terminal.coerceAtMost(total)
     val percent = if (total > 0) processed * 100 / total else 0
