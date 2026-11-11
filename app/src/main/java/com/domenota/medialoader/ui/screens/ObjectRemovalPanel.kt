@@ -335,6 +335,7 @@ internal fun ObjectRemovalPanel(
     var detectedPeople by remember { mutableStateOf<List<PersonInstance>>(emptyList()) }
     val selectedPeople = remember { mutableStateListOf<Int>() }
     var ambiguousPeople by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var incompletePeople by remember { mutableStateOf<Set<Int>>(emptySet()) }
     DisposableEffect(segmenter) { onDispose { segmenter.clearCache() } }
     val glyphDetector = remember { OnDeviceTextGlyphDetector(context.applicationContext) }
     var mobileReady by remember { mutableStateOf(false) }
@@ -516,6 +517,7 @@ internal fun ObjectRemovalPanel(
         detectedPeople = emptyList()
         selectedPeople.clear()
         ambiguousPeople = emptySet()
+        incompletePeople = emptySet()
         refiningPeople = false
         strokes.clear()
         redoStrokes.clear()
@@ -525,11 +527,14 @@ internal fun ObjectRemovalPanel(
                 val found = peoplePipeline.scan(source)
                 detectedPeople = found.people
                 ambiguousPeople = found.ambiguousIds
+                incompletePeople = found.incompleteIds
                 message = when {
                     found.detectedCount == 0 -> "Люди не найдены на фотографии."
                     found.people.isEmpty() -> "Люди обнаружены, но точные маски получить не удалось."
                     found.ambiguousIds.isNotEmpty() ->
                         "Некоторые люди перекрываются. Пересекающиеся маски заблокированы для безопасности."
+                    found.incompleteIds.isNotEmpty() ->
+                        "Не все части человека распознаны. Нажмите «Уточнить маску» и добавьте пропущенные участки."
                     found.unsuccessful > 0 ->
                         "Некоторые люди найдены, но не все маски получены. Выберите доступные."
                     else -> "Выберите одного или нескольких людей, затем нажмите «Начать»."
@@ -560,6 +565,11 @@ internal fun ObjectRemovalPanel(
         }
         val chosenGlyphs = if (textMode) glyphs.filter { it.id in selectedGlyphs }
             else emptyList()
+        if (selectedMode == AiEraserMode.PEOPLE &&
+            selectedPeople.any { it in incompletePeople } && strokes.isEmpty()) {
+            message = "Маска неполная: добавьте пропущенные голову, руки или ноги через «Уточнить маску»."
+            return
+        }
         val otherMasks = when {
             textMode -> emptyList()
             selectedMode == AiEraserMode.PEOPLE -> detectedPeople
@@ -1314,7 +1324,9 @@ internal fun ObjectRemovalPanel(
                     contentAlignment = Alignment.Center) {
                     EraserStartButton(
                         enabled = !busy && (detectedPeople.isEmpty() ||
-                            selectedPeople.isNotEmpty()),
+                            (selectedPeople.isNotEmpty() &&
+                                (selectedPeople.none { it in incompletePeople } ||
+                                    strokes.isNotEmpty()))),
                         label = if (detectedPeople.isEmpty()) "Найти людей" else "Начать",
                         width = if (detectedPeople.isEmpty()) 132.dp else 104.dp,
                         onClick = if (detectedPeople.isEmpty()) ::findPeople else ::processSelection,
@@ -1339,7 +1351,8 @@ internal fun ObjectRemovalPanel(
                                     maskActions.clear()
                                 }
                                 .padding(horizontal = 10.dp, vertical = 7.dp)) {
-                                Text("Человек ${id + 1}" + if (ambiguous) " · ?" else "",
+                                Text("Человек ${id + 1}" +
+                                        if (ambiguous) " · ?" else if (id in incompletePeople) " · !" else "",
                                     fontSize = 12.sp,
                                     color = if (selected) Color.Black
                                         else if (ambiguous) Color.Gray else Color.White)
@@ -1406,6 +1419,7 @@ internal fun ObjectRemovalPanel(
                 detectedPeople = emptyList()
                 selectedPeople.clear()
                 ambiguousPeople = emptySet()
+                incompletePeople = emptySet()
                 message = null
             },
         )
