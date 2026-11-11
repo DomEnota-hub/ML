@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq "versionName '1.7.173'" app/build.gradle
+          grep -Fq "versionName '1.7.174'" app/build.gradle
           grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
       - name: Focused regression tests for all four blocks
         shell: bash
@@ -68,7 +68,7 @@ jobs:
           apk=app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$apk"
           test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
-          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "versionName='1.7.173'"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "versionName='1.7.174'"
       - name: Full JVM regression suite (fatal; legacy UI tests included)
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint (fatal; always report even if legacy tests fail)
