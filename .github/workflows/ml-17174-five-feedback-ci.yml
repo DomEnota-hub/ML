@@ -1,4 +1,4 @@
-name: ML 1.7.174 Xiaomi feedback - 7 fixes QA
+name: ML Xiaomi feedback - 12 fixes integrated QA
 on:
   push:
     branches:
@@ -53,6 +53,9 @@ jobs:
             --tests '*LaMaInputSamplingEquivalenceTest' \
             --tests '*InpaintingPreparationTest' \
             --tests '*LaMaCompositionTest' \
+            --tests '*AudioReplacePolicyTest' \
+            --tests '*EditorTextDialogLayoutTest' \
+            --tests '*PhotoEditorStageOneUiTest' \
             --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
