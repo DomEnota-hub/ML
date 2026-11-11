@@ -1,4 +1,4 @@
-name: ML 1.7.175 Xiaomi feedback - 14 fixes integrated QA
+name: ML 1.7.176 Xiaomi feedback - regression recovery
 on:
   push:
     branches:
@@ -34,8 +34,8 @@ jobs:
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Validate exact app identity
         run: |
-          grep -Fq "versionName '1.7.175'" app/build.gradle
-          grep -Eq 'versionCode 235$' app/build.gradle
+          grep -Fq "versionName '1.7.176'" app/build.gradle
+          grep -Eq 'versionCode 236$' app/build.gradle
           grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
       - name: Focused player, private and AI segmentation regressions
         run: |
@@ -61,6 +61,11 @@ jobs:
             --tests '*MusicTrackVisibilityTest' \
             --tests '*EqualizerScreenTest' \
             --tests '*EqualizerSettingsRepositoryTest' \
+            --tests '*VideoLockVisibilityTest' \
+            --tests '*PrivateViewerQueueTest' \
+            --tests '*PeopleAutoScanGateTest' \
+            --tests '*InpaintingDiagnosticsTest' \
+            --tests '*TextLayerTest' \
             --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
