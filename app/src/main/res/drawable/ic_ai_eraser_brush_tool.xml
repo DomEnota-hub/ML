@@ -6,7 +6,11 @@
     android:viewportHeight="24">
     <!-- Crisp filled marker body and split cap; tint follows selected state. -->
     <path
-        android:fillColor="#FFFFFFFF"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
         android:pathData="M15.35,3.15 C16.16,2.34 17.47,2.34 18.28,3.15 L20.85,5.72 C21.66,6.53 21.66,7.84 20.85,8.65 L12.22,17.28 L6.72,11.78 Z"/>
     <path
         android:fillColor="#00000000"
@@ -17,7 +21,7 @@
         android:pathData="M6.65,11.85 L4.2,18.25 L10.6,15.8"/>
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#FF111111"
+        android:strokeColor="#FFFFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:pathData="M12.8,5.72 L18.28,11.2"/>
