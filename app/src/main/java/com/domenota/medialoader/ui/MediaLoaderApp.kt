@@ -1538,17 +1538,11 @@ fun MediaLoaderApp(
                 // available when a one-item private preview has no queue token.
                 val privateCandidates = remember(privateViewer, privateState.unlocked,
                     privateDownloads, snapshot, downloadId, fileStatuses) {
-                    if (!privateViewer || !privateState.unlocked) emptyList()
-                    else com.domenota.medialoader.data.playback.GridMediaQueue.resolve(
-                        snapshot.ifEmpty { listOfNotNull(downloadId) }, privateDownloads, true, fileStatuses
-                    ).ifEmpty {
-                        privateDownloads.filter { row ->
-                            row.id == downloadId && row.isPrivate && !row.hidden &&
-                                row.state == DownloadState.COMPLETED && row.savedUri != null &&
-                                fileStatuses[row.id] != SavedFileStatus.MISSING &&
-                                fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE
-                        }
-                    }
+                    if (!privateViewer) emptyList()
+                    else com.domenota.medialoader.data.playback.PrivateViewerQueue.resolve(
+                        snapshot, downloadId, privateState.unlocked, privateDownloads,
+                        fileStatuses)
+                    
                 }
                 val resolvedGalleryId = GalleryViewerState.neighbor(currentGalleryId,
                     snapshot.ifEmpty { listOfNotNull(downloadId) },
