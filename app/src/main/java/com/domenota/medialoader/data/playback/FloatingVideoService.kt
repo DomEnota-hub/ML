@@ -47,6 +47,7 @@ import kotlinx.coroutines.*
 @androidx.annotation.OptIn(UnstableApi::class)
 class FloatingVideoService : Service() {
     companion object {
+        private var liveInstance: FloatingVideoService? = null
         private const val CHANNEL = "floating_video"
         private const val NOTIFICATION = 5042
         private const val EXTRA_URI = "uri"
@@ -54,9 +55,20 @@ class FloatingVideoService : Service() {
         private const val EXTRA_POSITION = "position"
         private const val EXTRA_PLAY = "play"
 
+        internal suspend fun releaseHistoricalPlayback(): Unit = withContext(Dispatchers.Main.immediate) {
+            check(com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value)
+            liveInstance?.let { service ->
+                service.playbackJob?.cancel()
+                service.closeWindow()
+                check(service.player == null && service.window == null)
+            }
+            Unit
+        }
+
         fun canShow(context: Context): Boolean = Settings.canDrawOverlays(context)
 
         fun start(context: Context, id: String, uri: Uri, positionMs: Long, play: Boolean) {
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
             val intent = Intent(context, FloatingVideoService::class.java)
                 .putExtra(EXTRA_ID, id).putExtra(EXTRA_URI, uri.toString())
                 .putExtra(EXTRA_POSITION, positionMs).putExtra(EXTRA_PLAY, play)
@@ -82,6 +94,7 @@ class FloatingVideoService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        liveInstance = this
         manager = getSystemService(WINDOW_SERVICE) as WindowManager
         val notifications = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notifications.createNotificationChannel(NotificationChannel(CHANNEL,
@@ -98,6 +111,10 @@ class FloatingVideoService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val id = intent?.getStringExtra(EXTRA_ID)
         val source = intent?.getStringExtra(EXTRA_URI)
         if (id.isNullOrBlank() || source.isNullOrBlank() || !canShow(this)) {
@@ -126,6 +143,7 @@ class FloatingVideoService : Service() {
     }
 
     private fun openVideo(intent: Intent, source: Uri) {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val video = ExoPlayer.Builder(this).build().also { active ->
             active.setMediaItem(MediaItem.fromUri(source))
             active.seekTo(intent.getLongExtra(EXTRA_POSITION, 0L).coerceAtLeast(0L))
@@ -357,6 +375,7 @@ class FloatingVideoService : Service() {
         privateScope.cancel()
         BackgroundMediaWork.setBusy("floating-playback", false)
         closeWindow()
+        if (liveInstance === this) liveInstance = null
         AppLog.i("FloatingVideo", "Floating window closed")
         super.onDestroy()
     }

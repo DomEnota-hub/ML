@@ -58,23 +58,27 @@ internal class LibraryAudioPreview(context: Context) {
     suspend fun preview(refs: List<LibraryMediaRef>, requestedId: String) = update(refs, requestedId, true)
     suspend fun open(refs: List<LibraryMediaRef>, requestedId: String) = update(refs, requestedId, false)
     private suspend fun update(refs: List<LibraryMediaRef>, requestedId: String, toggleCurrent: Boolean) {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val items = withContext(Dispatchers.IO) { refs.filter { ref ->
             !ref.item.isPrivate && !ref.item.hidden && ref.item.mediaType == MediaType.AUDIO &&
                 ref.item.state == DownloadState.COMPLETED && !ref.item.savedUri.isNullOrBlank()
         }.distinctBy { it.key }.map { AudioPlaybackMetadata.item(it.item, it.aliases) } }
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
             check(if (toggleCurrent) AudioQueuePlayback.preview(active, items, requestedId)
                 else AudioQueuePlayback.open(active, items, requestedId)) { "Трек недоступен" }
             sync(active)
         }
     }
     suspend fun enqueue(ref: LibraryMediaRef, next: Boolean) {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         require(!ref.item.isPrivate && !ref.item.hidden && ref.item.mediaType == MediaType.AUDIO &&
             ref.item.state == DownloadState.COMPLETED && !ref.item.savedUri.isNullOrBlank())
         val item = withContext(Dispatchers.IO) { AudioPlaybackMetadata.item(ref.item, ref.aliases) }
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
             check(AudioQueuePlayback.enqueue(active, item, next)) { "Трек недоступен" }
             sync(active)
         }

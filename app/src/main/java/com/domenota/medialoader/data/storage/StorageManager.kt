@@ -62,6 +62,7 @@ class StorageManager(
 
     /** Replaces bytes of an app-owned download while keeping the same Uri whenever possible. */
     suspend fun replaceDownload(savedUri: String, source: File): Boolean = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val uri = Uri.parse(savedUri)
         runCatching {
             when (uri.scheme) {
@@ -83,6 +84,7 @@ class StorageManager(
 
     /** Copies an owned download into private trash before removing the public copy. */
     suspend fun moveToTrash(id: String, savedUri: String) = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val uri = Uri.parse(savedUri)
         if (!trash.exists() && !trash.mkdirs()) throw IOException("Не удалось создать корзину")
         val target = File(trash, id)
@@ -111,6 +113,7 @@ class StorageManager(
 
     /** Removes only the saved file selected by the caller; no private trash copy is made. */
     suspend fun deleteDownloadPermanently(savedUri: String): Boolean = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val uri = Uri.parse(savedUri)
         when {
             uri.scheme == "file" -> {
@@ -134,6 +137,7 @@ class StorageManager(
         ?.let { Uri.fromFile(it).toString() }
 
     suspend fun renameDownload(savedUri: String, newName: String): String? = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val uri = Uri.parse(savedUri)
         when {
             uri.scheme == "file" -> {
@@ -152,6 +156,7 @@ class StorageManager(
     }
 
     suspend fun restoreFromTrash(id: String, name: String, mimeType: String): Pair<String, String> {
+        HistoricalRecoverySignals.requireIdle()
         val source = File(trash, id)
         if (!source.isFile) throw IOException("Файл в корзине не найден")
         val published = publish(source, name, mimeType)
@@ -163,6 +168,7 @@ class StorageManager(
      * until this returns true. No directory-wide blind deletion.
      */
     suspend fun discardTrashed(id: String): Boolean = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         val file = File(trash, id)
         file.isFile && file.delete()
     }
@@ -250,8 +256,10 @@ class StorageManager(
     }
 
     /** Copies a finished temp file into the download folder and returns the actual saved name. */
-    suspend fun publish(source: File, fileName: String, mimeType: String): PublishedFile =
+    suspend fun publish(source: File, fileName: String, mimeType: String, historicalMillis: Long? = null,
+        fileMillis: Long? = historicalMillis): PublishedFile =
         withContext(Dispatchers.IO) {
+            HistoricalRecoverySignals.requireIdle()
             val initialNames = existingNames().toMutableSet()
             selectedFolder()?.let { folder ->
                 if (!folder.canWrite()) throw IOException("Выбранная папка недоступна")
@@ -290,6 +298,7 @@ class StorageManager(
                         values.clear()
                         values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                         resolver.update(uri, values, null, null)
+                        if (historicalMillis != null) confirmPrivateDate(uri, source, mimeType, historicalMillis, fileMillis!!)
                         return@withContext PublishedFile(uri, actualName)
                     } catch (error: Exception) {
                         resolver.delete(uri, null, null)
@@ -314,6 +323,61 @@ class StorageManager(
                 PublishedFile(uri, actualName)
             }
         }
+
+    /** Private original stays intact until PrivateMediaOperations commits the new URI. */
+    internal suspend fun publishPrivateWithDate(source: File, name: String, mime: String, downloaded: Long): PublishedFile =
+        withContext(Dispatchers.IO) {
+            if (Build.VERSION.SDK_INT < 29 || usesSelectedFolder || mime !in setOf("image/jpeg", "video/mp4"))
+                return@withContext publish(source, name, mime)
+            require(downloaded in 946684800000L..System.currentTimeMillis()) { "Исходная дата загрузки неизвестна" }
+            val codec = HistoricalDatedCopyCodec()
+            val photoOrVideo = mime.startsWith("image/") || mime.startsWith("video/")
+            val existing = if (photoOrVideo) codec.existingDate(source, mime) else null
+            val taken = existing ?: downloaded
+            require(taken > 0) { "Дата медиафайла неоднозначна" }
+            var scratch: File? = null
+            try {
+                val prepared = if (photoOrVideo && existing == null) {
+                    File.createTempFile("private-dated-", if (mime.startsWith("image/")) ".jpg" else ".mp4", context.cacheDir).also {
+                        scratch = it
+                        codec.build(source, it, mime, downloaded)
+                        codec.verify(source, it, mime)
+                    }
+                } else source
+                publish(prepared, name, mime, taken, downloaded)
+            } finally { scratch?.delete() }
+        }
+
+    private suspend fun confirmPrivateDate(uri: Uri, source: File, mime: String, taken: Long, modified: Long) {
+        val resolver = context.contentResolver
+        @Suppress("DEPRECATION")
+        val path = resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use {
+            check(it.count == 1 && it.moveToFirst() && !it.isNull(0)) { "Нет пути возвращённого файла" }
+            it.getString(0)
+        } ?: error("Не удалось проверить возвращённый файл")
+        val file = File(path).canonicalFile
+        val expected = publicFolder(MediaStoragePolicy.route(relativeDirectory, mime)).canonicalFile
+        check(file.parentFile == expected && file.length() == source.length()) { "Путь или размер возвращённого файла не совпал" }
+        fun sha(input: java.io.InputStream): ByteArray = input.use {
+            val hash = MessageDigest.getInstance("SHA-256"); val buffer = ByteArray(128*1024)
+            while (true) { val count = it.read(buffer); if (count < 0) break; hash.update(buffer,0,count) }
+            hash.digest()
+        }
+        val actualHash = resolver.openInputStream(uri)?.let(::sha) ?: error("Новый файл не открывается")
+        check(actualHash.contentEquals(sha(source.inputStream()))) { "Контрольная сумма возвращённого файла не совпала" }
+        check(file.setLastModified(modified)) { "Не удалось восстановить дату файла" }
+        MediaScannerConnection.scanFile(context, arrayOf(path), arrayOf(mime), null)
+        if (mime.startsWith("image/") || mime.startsWith("video/")) {
+            repeat(20) {
+                val confirmed = resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATE_TAKEN), null,null,null)?.use { c ->
+                    c.count == 1 && c.moveToFirst() && kotlin.math.abs(c.getLong(0) - taken) <= 1000
+                } == true
+                if (confirmed) return
+                kotlinx.coroutines.delay(400)
+            }
+            error("Android ещё не подтвердил исходную дату. Файл остался в личном; повторите возврат позже")
+        }
+    }
 
     /**
      * Safe replacement for legacy copy/delete migration. A MediaStore move of
@@ -518,6 +582,7 @@ class StorageManager(
 
     /** Rename an app-owned MediaStore entry from an older release; keep history unchanged on failure. */
     suspend fun renameOwnedDownload(savedUri: String, newName: String): Boolean = withContext(Dispatchers.IO) {
+        HistoricalRecoverySignals.requireIdle()
         if (Build.VERSION.SDK_INT < 29) return@withContext false
         val uri = Uri.parse(savedUri)
         if (uri.scheme != "content" || uri.authority != MediaStore.AUTHORITY) return@withContext false

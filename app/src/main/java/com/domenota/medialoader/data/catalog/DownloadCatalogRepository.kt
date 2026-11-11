@@ -15,6 +15,7 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
     val assignments = dao.observeAssignments()
 
     suspend fun createFolder(rawName: String): String = database.withTransaction {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val name = CatalogNames.normalize(rawName)
         val key = CatalogNames.key(name)
         require(dao.folderByKey(key) == null) { "Папка с таким именем уже есть" }
@@ -24,6 +25,7 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
     }
 
     suspend fun renameFolder(id: String, rawName: String) = database.withTransaction {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         require(dao.folderById(id) != null) { "Папка не найдена" }
         val name = CatalogNames.normalize(rawName)
         val key = CatalogNames.key(name)
@@ -34,6 +36,7 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
     }
 
     suspend fun deleteFolder(id: String) = database.withTransaction {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         // ON DELETE SET NULL keeps every favorite and every download record.
         dao.deleteFolder(id)
     }
@@ -63,6 +66,7 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
     }
 
     private suspend fun requireCompleted(id: String) {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         require(database.downloadDao().byId(id)?.let {
             it.state == DownloadState.COMPLETED && !it.hidden
         } == true) { "Файл недоступен в истории загрузок" }
