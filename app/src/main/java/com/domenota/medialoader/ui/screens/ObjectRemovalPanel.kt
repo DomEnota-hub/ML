@@ -431,8 +431,13 @@ internal fun ObjectRemovalPanel(
         val source = current.bitmap
         scope.launch {
             try {
-                glyphs = glyphDetector.detect(source)
-                if (glyphs.isEmpty()) message = "Не удалось найти отдельные буквы."
+                val found = glyphDetector.detect(source)
+                glyphs = found
+                // Detection does not erase anything. Select OCR candidates by
+                // default so "Начать" is usable immediately after a scan;
+                // the actual pixel mask is still validated before inpainting.
+                selectedGlyphs.addAll(found.map { it.id }.distinct().take(160))
+                if (found.isEmpty()) message = "Не удалось найти отдельные буквы."
             } catch (error: Exception) {
                 message = error.message ?: "Не удалось распознать текст."
             } finally {
@@ -807,6 +812,7 @@ internal fun ObjectRemovalPanel(
                             selectedMode != AiEraserMode.GLARE &&
                             selectedMode != AiEraserMode.REFLECTION
                         var selecting = !moveMode && textMode && glyphs.isNotEmpty()
+                        var selectionDrag = false
                         var personTap = !moveMode && selectedMode == AiEraserMode.PEOPLE
                         val points = mutableListOf<MaskPoint>()
                         var previousSelectionPoint = imagePoint(down.position)
@@ -818,16 +824,9 @@ internal fun ObjectRemovalPanel(
                                 if (manualObject) objectTrace = points.toList()
                             }
                         }
-                        if (selecting) {
-                            previousSelectionPoint?.let { position ->
-                                glyphs.filter { it.contains(position.x, position.y) }.forEach { glyph ->
-                                    if (glyph.id !in selectedGlyphs && selectedGlyphs.size < 160) {
-                                        selectedGlyphs.add(glyph.id)
-                                        redoGlyphs.clear()
-                                    }
-                                }
-                            }
-                        }
+                        // Tapping toggles a glyph; dragging only adds glyphs
+                        // intersected by the finger trail. Multi-touch zoom
+                        // cancels selection and never edits the mask.
                         try {
                         do {
                             val event = awaitPointerEvent()
@@ -867,9 +866,11 @@ internal fun ObjectRemovalPanel(
                                     if (manualObject) objectTrace = points.toList()
                                     else inProgress = points.toList()
                                 } else if (selecting) {
+                                    if ((change.position - downPosition).getDistance() >
+                                        10.dp.toPx()) selectionDrag = true
                                     imagePoint(change.position)?.let { position ->
                                         val before = previousSelectionPoint ?: position
-                                        glyphs.filter {
+                                        if (selectionDrag) glyphs.filter {
                                             it.crosses(before.x, before.y, position.x, position.y)
                                         }.forEach { glyph ->
                                             if (glyph.id !in selectedGlyphs && selectedGlyphs.size < 160) {
@@ -900,6 +901,15 @@ internal fun ObjectRemovalPanel(
                                 }
                             }
                         } while (event.changes.any { it.pressed })
+                        if (selecting && !selectionDrag) {
+                            imagePoint(downPosition)?.let { point ->
+                                glyphs.firstOrNull { it.contains(point.x, point.y) }?.let { glyph ->
+                                    if (!selectedGlyphs.remove(glyph.id) && selectedGlyphs.size < 160)
+                                        selectedGlyphs.add(glyph.id)
+                                    redoGlyphs.clear()
+                                }
+                            }
+                        }
                         if (personTap) {
                             val tapped = imagePoint(downPosition)
                             val candidate = tapped?.let { point ->
