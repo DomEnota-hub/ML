@@ -628,7 +628,7 @@ internal fun LocalVideoPlayer(
 
     fun toggleChrome() {
         if (controlsLocked) {
-            unlockVisible = !unlockVisible
+            unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible)
             return
         }
         if (galleryPagingEnabled) {
@@ -979,7 +979,7 @@ internal fun LocalVideoPlayer(
                         onTap = { toggleChrome() },
                         onDoubleTap = { tap ->
                             when {
-                                controlsLocked -> unlockVisible = !unlockVisible
+                                controlsLocked -> unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible)
                                 tap.x < size.width * .42f -> seekBy(-10_000L)
                                 tap.x > size.width * .58f -> seekBy(10_000L)
                                 else -> toggleChrome()
@@ -994,7 +994,7 @@ internal fun LocalVideoPlayer(
             // Auto-hide still applies after the last show when idle.
             Box(
                 Modifier.fillMaxSize().pointerInput(controlsLocked) {
-                    detectTapGestures(onTap = { unlockVisible = !unlockVisible })
+                    detectTapGestures(onTap = { unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible) })
                 },
             )
         }
@@ -1200,7 +1200,7 @@ internal fun LocalVideoPlayer(
                             change.consume()
                         }
                     } while (event.changes.any { it.pressed })
-                    if (tapped) unlockVisible = !unlockVisible
+                    if (tapped) unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible)
                 }
             })
             if (unlockVisible) IconButton(onClick = { onControlsLockedChange(false) },
