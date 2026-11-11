@@ -133,18 +133,18 @@ private fun EraserStartButton(
 ) {
     val shape = RoundedCornerShape(11.dp)
     val gradient = if (enabled) {
-        listOf(Color(0xFFFFE075), Color(0xFFFFC21C), Color(0xFFE18C13))
+        listOf(Color(0xFFFFE99B), Color(0xFFFFC21C), Color(0xFFFFAA00))
     } else {
-        listOf(Color(0xFF665B43), Color(0xFF665B43))
+        listOf(Color(0xFF626262), Color(0xFF626262))
     }
     Box(
         Modifier.width(width).height(37.dp)
             .border(BorderStroke(1.dp, GradientBrush.horizontalGradient(gradient)), shape)
-            .background(Color(0xFF252525), shape)
+            .background(if (enabled) Color(0xFFFFC21C) else Color(0xFF343434), shape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = if (enabled) Color.White else Color(0xFF999999),
+        Text(label, color = if (enabled) Color(0xFF151515) else Color(0xFFC4C4C4),
             fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }
@@ -724,7 +724,20 @@ internal fun ObjectRemovalPanel(
 
     // Object/manual share the original LaMa mask engine; text uses the original
     // on-device glyph detector. Unsupported AI modes remain visibly disabled.
-    Column(modifier.fillMaxSize().background(Color.Black)) {
+    val noticeHost = remember { SnackbarHostState() }
+    LaunchedEffect(message, featureNotice) {
+        val notice = message ?: featureNotice
+        if (!notice.isNullOrBlank()) {
+            // Real errors should remain actionable but never permanently
+            // displace the controls and shrink the working photo.
+            noticeHost.showSnackbar(notice, duration = SnackbarDuration.Short,
+                withDismissAction = true)
+            if (message == notice) message = null
+            if (featureNotice == notice) featureNotice = null
+        }
+    }
+    Box(modifier.fillMaxSize().background(Color.Black)) {
+    Column(Modifier.fillMaxSize()) {
         AiEraserTopBar(
             canUndo = if (textMode) selectedGlyphs.isNotEmpty() || index > 0
                 else strokes.isNotEmpty() || index > 0,
@@ -1233,9 +1246,6 @@ internal fun ObjectRemovalPanel(
                         onClick = ::processGlare,
                     )
                 }
-                Text("SRNet определяет блики и корректирует их нейросетью. " +
-                        "Полностью потерянные детали восстановить не всегда возможно.",
-                    fontSize = 10.sp, color = Color.LightGray)
             }
         }
         if (selectedMode == AiEraserMode.REFLECTION) {
@@ -1256,9 +1266,6 @@ internal fun ObjectRemovalPanel(
                     EraserStartButton(enabled = !busy, label = "Начать",
                         onClick = ::processReflection)
                 }
-                Text("DExNet отделяет отражение от сцены за стеклом. " +
-                        "Сильные отражения и скрытые детали могут восстановиться неточно.",
-                    fontSize = 10.sp, color = Color.LightGray)
             }
         }
         if (selectedMode == AiEraserMode.PEOPLE) {
@@ -1342,18 +1349,16 @@ internal fun ObjectRemovalPanel(
                 trackColor = Color(0xFF383838),
             )
         }
-        featureNotice?.let {
-            Text(it, color = Color(0xFFFFCF22), fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
-        }
-        message?.let {
-            Text(it, color = Color(0xFFFFB4AB), fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 12.dp))
-        }
         AiEraserFooter(
             canApply = !busy && index > 0,
             onCancel = onClose,
             onApply = ::acceptResult,
         )
+    }
+    SnackbarHost(
+        hostState = noticeHost,
+        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 68.dp),
+    ) { data ->
+        Snackbar(data, containerColor = Color(0xFF292929), contentColor = Color.White)
     }
 }
