@@ -45,8 +45,10 @@ fun MusicModeScreen(
     onDetailChange: (Boolean) -> Unit = {}, currentPlayingId: String? = null, playing: Boolean = false,
     deviceMusicFolders: Map<String, String> = emptyMap(),
     hiddenTracksOpen: Boolean = false, onDismissHiddenTracks: () -> Unit = {},
+    favoriteIds: Set<String> = emptySet(),
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
+    var favoritesOnly by rememberSaveable { mutableStateOf(false) }
     val tab = tabOverride ?: localTab
     fun selectTab(value: Int) { localTab = value; onTabChange(value) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -133,10 +135,22 @@ fun MusicModeScreen(
             { addingPlaylist = null }, onPreview ?: onOpen, { onAddTracks(toAdd.id, it) })
         return
     }
-    val filtered = remember(tracks, playlist, tab, available, search, excludedFolders, deviceMusicFolders, hiddenTrackKeys) {
-        (if (tab == 0) tracks.filter { MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) && !MusicTrackVisibility.hidden(it, hiddenTrackKeys) }
-            else playlist?.trackIds?.mapNotNull(available::get).orEmpty())
-            .filter { matchesMusicSearch(it, search) }
+    val filtered = remember(tracks, allAudio, favoriteIds, favoritesOnly, playlist, tab,
+        available, search, excludedFolders, deviceMusicFolders, hiddenTrackKeys) {
+        val source = if (tab != 0) {
+            playlist?.trackIds?.mapNotNull(available::get).orEmpty()
+        } else if (favoritesOnly) {
+            // Favorites must include PHONE media even if the library source
+            // selector currently shows only app-downloaded tracks.
+            allAudio.filter { availableAudio(it) && it.id in favoriteIds }
+                .distinctBy { it.id }
+        } else {
+            tracks.filter {
+                MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) &&
+                    !MusicTrackVisibility.hidden(it, hiddenTrackKeys)
+            }
+        }
+        source.filter { matchesMusicSearch(it, search) }
     }
     val displayed = remember(filtered, sort, tab) { if (tab == 0) sortMusicRows(filtered, sort) else filtered }
     val sections = remember(displayed, sort) { displayed.groupBy { musicGroupHeading(it, sort) } }
@@ -163,7 +177,20 @@ fun MusicModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp), singleLine = true,
                         label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
                     if (tab == 0) Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        FilterChip(
+                            selected = favoritesOnly,
+                            onClick = { favoritesOnly = !favoritesOnly },
+                            label = { Text("Избранное") },
+                            leadingIcon = { Icon(
+                                if (favoritesOnly) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = if (favoritesOnly) androidx.compose.ui.graphics.Color(0xFFF04452)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            ) },
+                        )
+                        Spacer(Modifier.weight(1f))
                         Text(musicSortCaption(sort), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Box {
@@ -180,7 +207,7 @@ fun MusicModeScreen(
                         }
                     }
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading, message, error,
-                        tab == 0 && displayed.isEmpty(), "Нет аудиофайлов") }
+                        tab == 0 && displayed.isEmpty(), if (favoritesOnly) "В избранном пока нет треков" else "Нет аудиофайлов") }
                 }
             }
 
