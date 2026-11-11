@@ -808,7 +808,8 @@ fun MediaLoaderApp(
                 // Explicitly carry the vault context. The public gallery index
                 // intentionally excludes private records and must never be used
                 // to resolve a private viewer request.
-                viewerEntry?.savedStateHandle?.set("private_viewer", item.isPrivate)
+                viewerEntry?.savedStateHandle?.set("private_viewer",
+                    item.isPrivate && item.mediaType != MediaType.AUDIO)
                 navController.currentBackStackEntry?.savedStateHandle?.set("gallery_presentation",
                     item.mediaType != MediaType.AUDIO &&
                         (item.isPrivate || appMode == AppMode.GALLERY || queueIds.isNotEmpty()))
