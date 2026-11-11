@@ -1356,3 +1356,4 @@ internal fun ObjectRemovalPanel(
         Snackbar(data, containerColor = Color(0xFF292929), contentColor = Color.White)
     }
 }
+}
