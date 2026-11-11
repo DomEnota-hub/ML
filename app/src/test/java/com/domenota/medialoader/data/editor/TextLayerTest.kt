@@ -4,6 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TextLayerTest {
+    @Test fun newTextLayerIsEmptyAndPlaceholderIsNeverExportedAsData() {
+        val fresh = TextLayer()
+        assertEquals("", fresh.text)
+        assertFalse(fresh.visibleAt(0))
+        // Preview-only "Ваш текст" is supplied to the selection overlay and
+        // must not become the serialized layer body or exported content.
+        assertEquals("", fresh.copy(centerX = .3f, size = .09f).text)
+        assertTrue(fresh.copy(text = "Привет").visibleAt(0))
+    }
+
     @Test fun visibilityUsesClipRelativeTimeAndExclusiveEnd() {
         val layer = TextLayer(text = "Привет!", startMs = 3000, endMs = 8000)
         assertFalse(layer.visibleAt(2999))
