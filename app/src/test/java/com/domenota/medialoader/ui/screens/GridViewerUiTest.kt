@@ -64,7 +64,7 @@ class GridViewerUiTest {
             DownloadState.COMPLETED, "file:///missing-$it.mp4", null, 0) }
         compose.setContent { MaterialTheme { MediaViewerScreen(rows.first(), {}, {}, {}, mediaQueue = rows) } }
         compose.onNodeWithTag("media-pages").performTouchInput { swipeLeft() }
-        compose.onNodeWithContentDescription("Настройки плеера").assertExists()
+        compose.onNodeWithContentDescription("Заблокировать управление").assertExists()
         // Drive the real native controller: Robolectric has no rendered video surface for touch routing.
         compose.runOnIdle {
             fun findPlayer(view: android.view.View): androidx.media3.ui.PlayerView? {
@@ -78,7 +78,8 @@ class GridViewerUiTest {
             native.showController()
             native.hideController()
         }
-        compose.onNodeWithContentDescription("Настройки плеера").assertDoesNotExist()
+        // Gallery chrome must not be hidden when the native Media3 controller is hidden.
+        compose.onNodeWithContentDescription("Заблокировать управление").assertExists()
     }
 
     @Test fun mixedQueueUpdatesActionsAndRestoresCurrentFile() {
