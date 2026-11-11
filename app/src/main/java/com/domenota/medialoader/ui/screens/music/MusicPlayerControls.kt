@@ -85,7 +85,7 @@ internal fun MusicPlayerControls(
         Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
             IconButton(onClick = { onFavorite?.invoke() }, enabled = onFavorite != null) {
                 Icon(if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Избранное",
-                    tint = if (favorite) editorSliderYellow else MaterialTheme.colorScheme.onSurface)
+                    tint = if (favorite) androidx.compose.ui.graphics.Color(0xFFF04452) else MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = { onEqualizer?.invoke() }, enabled = onEqualizer != null) { Icon(Icons.Rounded.Equalizer, "Эквалайзер") }
             IconButton(onQueue, enabled = player != null) { Icon(Icons.Rounded.QueueMusic, "Очередь") }
