@@ -11,6 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
 
 import androidx.compose.material3.Icon
@@ -79,6 +81,7 @@ internal fun GalleryVideoHeader(
     onFavorite: () -> Unit,
     onDelete: () -> Unit,
     onMenu: () -> Unit,
+    isFavorite: Boolean = false,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()
         .then(if (landscape) Modifier.navigationBarsPadding().displayCutoutPadding() else Modifier)) {
@@ -112,7 +115,14 @@ internal fun GalleryVideoHeader(
                     IconButton(onClick = action, modifier = Modifier.size(if (compactLandscape) 36.dp else 43.dp)
                         .semantics { contentDescription = label }) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            GalleryV10Icon(asset, Modifier.size(if (compactLandscape) 24.dp else 28.dp))
+                            if (asset == "heart") {
+                                Icon(
+                                    if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(if (compactLandscape) 24.dp else 28.dp),
+                                    tint = if (isFavorite) Color(0xFFF04452) else Color.White,
+                                )
+                            } else GalleryV10Icon(asset, Modifier.size(if (compactLandscape) 24.dp else 28.dp))
                         }
                     }
                 }
@@ -154,7 +164,14 @@ internal fun GalleryV10Bottom(
             Triple("more", "Действия с файлом", onMenu),
         ).forEach { (key, label, click) ->
             IconButton(onClick = click, modifier = Modifier.size(width = 59.dp, height = 58.dp).semantics { contentDescription = label }) {
-                GalleryV10Icon(key, Modifier.size(30.dp))
+                if (key == "heart") {
+                    Icon(
+                        if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        contentDescription = null,
+                        modifier = Modifier.size(30.dp),
+                        tint = if (isFavorite) Color(0xFFF04452) else Color.White,
+                    )
+                } else GalleryV10Icon(key, Modifier.size(30.dp))
             }
         }
     }
