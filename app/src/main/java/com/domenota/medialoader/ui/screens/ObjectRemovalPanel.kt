@@ -460,6 +460,10 @@ internal fun ObjectRemovalPanel(
         detectedPeople = emptyList()
         selectedPeople.clear()
         ambiguousPeople = emptySet()
+        refiningPeople = false
+        strokes.clear()
+        redoStrokes.clear()
+        maskActions.clear()
         scope.launch {
             try {
                 val found = peoplePipeline.scan(source)
@@ -939,6 +943,7 @@ internal fun ObjectRemovalPanel(
                             }
                             candidate?.detection?.id?.let { id ->
                                 if (!selectedPeople.remove(id)) selectedPeople.add(id)
+                                if (selectedPeople.isEmpty()) refiningPeople = false
                                 // Corrections always belong to the previous
                                 // selection; never silently apply to a new person.
                                 strokes.clear()
@@ -1298,6 +1303,7 @@ internal fun ObjectRemovalPanel(
                                     RoundedCornerShape(9.dp))
                                 .clickable(enabled = !busy && !ambiguous) {
                                     if (!selectedPeople.remove(id)) selectedPeople.add(id)
+                                    if (selectedPeople.isEmpty()) refiningPeople = false
                                     strokes.clear()
                                     redoStrokes.clear()
                                     maskActions.clear()
