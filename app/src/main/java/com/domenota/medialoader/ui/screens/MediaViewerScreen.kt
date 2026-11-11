@@ -989,12 +989,12 @@ internal fun LocalVideoPlayer(
                 })
         }
         if (galleryPagingEnabled && controlsLocked) {
-            // Previous implementation removed its sole tap receiver when
-            // controlsLocked became true, making the hidden unlock button
-            // impossible to reveal. Intercept taps, not video swipes.
+            // Each ordinary tap toggles visibility only. Locked playback stays
+            // untouched; the lock icon itself remains a separate click target.
+            // Auto-hide still applies after the last show when idle.
             Box(
                 Modifier.fillMaxSize().pointerInput(controlsLocked) {
-                    detectTapGestures(onTap = { unlockVisible = true })
+                    detectTapGestures(onTap = { unlockVisible = !unlockVisible })
                 },
             )
         }
