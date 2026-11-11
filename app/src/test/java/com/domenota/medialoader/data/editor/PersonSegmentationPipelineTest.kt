@@ -86,6 +86,48 @@ class PersonSegmentationPipelineTest {
         assertEquals(0, result.people.size)
         assertEquals(1, result.unsuccessful)
     }
+    @Test fun torsoOnlyMaskMustBeExpandedWithRealHeadAndLegMasks() = runBlocking {
+        val box = PersonBox(.1f, .1f, .9f, .95f)
+        val detection = PersonDetection(0, box, .95f)
+        var inferenceCount = 0
+        fun rows(start: Int, end: Int) = (start..end).map { y ->
+            MaskStroke(listOf(MaskPoint(.29f, y / 100f),
+                MaskPoint(.67f, y / 100f)), .012f)
+        }
+        val pipeline = PersonSegmentationPipeline(
+            detectPeople = { listOf(detection) },
+            segmentAt = { _, point ->
+                inferenceCount++
+                when {
+                    point.y < .28f -> rows(13, 45) // actual hair/head
+                    point.y > .70f -> rows(55, 92) // actual legs
+                    else -> rows(33, 62) // the old, sweater-only result
+                }
+            },
+        )
+        val result = pipeline.scan(source)
+        assertEquals(1, result.people.size)
+        assertEquals(3, inferenceCount)
+        assertTrue(result.incompleteIds.isEmpty())
+        val mask = result.people.single().strokes
+        assertTrue(mask.minOf { it.points.first().y } < .20f)
+        assertTrue(mask.maxOf { it.points.first().y } > .90f)
+    }
+
+    @Test fun sweaterOnlyMaskCannotBeTreatedAsCompletedPerson() = runBlocking {
+        val box = PersonBox(.1f, .1f, .9f, .95f)
+        val sweater = (35..61).map { y ->
+            MaskStroke(listOf(MaskPoint(.29f, y / 100f),
+                MaskPoint(.67f, y / 100f)), .012f)
+        }
+        val result = PersonSegmentationPipeline(
+            detectPeople = { listOf(PersonDetection(0, box, .94f)) },
+            segmentAt = { _, _ -> sweater },
+        ).scan(source)
+        assertEquals(setOf(0), result.incompleteIds)
+        assertEquals(1, result.people.size)
+    }
+
     @Test fun missingHeadSilhouetteTriggersOnlyOneBetterPrompt() = runBlocking {
         val box = PersonBox(.1f, .1f, .5f, .9f)
         var inferences = 0
@@ -94,7 +136,7 @@ class PersonSegmentationPipelineTest {
             segmentAt = { _, point ->
                 inferences++
                 val firstTorsoPrompt = point.y > .40f
-                (if (firstTorsoPrompt) 38..70 else 16..72).map { y ->
+                (if (firstTorsoPrompt) 38..70 else 16..86).map { y ->
                     MaskStroke(listOf(MaskPoint(.2f, y / 100f),
                         MaskPoint(.4f, y / 100f)), .012f)
                 }
