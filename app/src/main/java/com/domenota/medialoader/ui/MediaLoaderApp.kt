@@ -1157,6 +1157,7 @@ fun MediaLoaderApp(
                     }.toMap() },
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
                     allAudio = libraryAudioItems, playlists = playlists,
+                    favoriteIds = libraryCatalogAssignments.filter { it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId },
                     header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneMusic.message else null,
                     onOpen = openDownloadWithQueue,
@@ -1591,7 +1592,15 @@ fun MediaLoaderApp(
                             if (currentLibraryAudioId in favorites) libraryAudioState.currentId?.let(favorites::add)
                         },
                         onAudioFavorite = { selected -> fileActionScope.launch {
-                            try { setLibraryFavorite(selected.id, libraryCatalogAssignments.none { it.downloadId == currentLibraryAudioId && it.isFavorite }) }
+                            // Media3 may use an alias rather than the stable
+                            // public-library ID. Always toggle the canonical row.
+                            val canonicalId = libraryRefsByAlias[selected.id]?.key
+                                ?: currentLibraryAudioId?.takeIf { selected.id == libraryAudioState.currentId }
+                                ?: selected.id
+                            val wasFavorite = libraryCatalogAssignments.any {
+                                it.downloadId == canonicalId && it.isFavorite
+                            }
+                            try { setLibraryFavorite(canonicalId, !wasFavorite) }
                             catch (e: CancellationException) { throw e }
                             catch (_: Exception) { Toast.makeText(context, "Не удалось изменить избранное", Toast.LENGTH_SHORT).show() }
                         } },
