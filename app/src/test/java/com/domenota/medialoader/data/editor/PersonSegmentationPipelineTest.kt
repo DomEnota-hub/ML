@@ -86,4 +86,24 @@ class PersonSegmentationPipelineTest {
         assertEquals(0, result.people.size)
         assertEquals(1, result.unsuccessful)
     }
+    @Test fun missingHeadSilhouetteTriggersOnlyOneBetterPrompt() = runBlocking {
+        val box = PersonBox(.1f, .1f, .5f, .9f)
+        var inferences = 0
+        val pipeline = PersonSegmentationPipeline(
+            detectPeople = { listOf(PersonDetection(0, box, .92f)) },
+            segmentAt = { _, point ->
+                inferences++
+                val firstTorsoPrompt = point.y > .40f
+                (if (firstTorsoPrompt) 38..70 else 16..72).map { y ->
+                    MaskStroke(listOf(MaskPoint(.2f, y / 100f),
+                        MaskPoint(.4f, y / 100f)), .012f)
+                }
+            }
+        )
+        val result = pipeline.scan(source)
+        assertEquals(1, result.people.size)
+        assertEquals(2, inferences)
+        assertTrue(result.people.single().strokes.minOf { it.points.first().y } < .2f)
+    }
+
 }
