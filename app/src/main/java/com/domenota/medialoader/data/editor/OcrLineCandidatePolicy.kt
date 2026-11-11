@@ -66,6 +66,11 @@ internal object OcrLineCandidatePolicy {
                 .thenBy { it.sumOf { glyph -> glyph.confidence.toDouble() } }
         ).orEmpty()
         if (caption.size >= 4) return caption
-        return select(fullPage)
+        // Full-frame guesses need stronger evidence than a dedicated caption
+        // scan. An apparent 4-letter "word" made from facial texture is
+        // safer to leave unselected than to damage the photograph.
+        val full = select(fullPage)
+        return if (full.size >= 5 &&
+            full.count { it.confidence >= 75f } >= 4) full else emptyList()
     }
 }
