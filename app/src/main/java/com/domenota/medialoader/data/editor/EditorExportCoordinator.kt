@@ -261,10 +261,14 @@ class EditorExportCoordinator private constructor(context: Context) {
             try {
                 temp = audioEditor.export(Uri.parse(savedUri), spec) { progress ->
                     _state.update {
-                        it.copy(exporting = true, progress = progress.coerceIn(0, 100))
+                        val shown = if (spec.replaceOriginal)
+                            (progress.coerceIn(0, 100) * 85 / 100) else progress.coerceIn(0, 100)
+                        it.copy(exporting = true, progress = shown)
                     }
                 }
                 val published = if (spec.replaceOriginal) {
+                    // The write+verify+rollback window is non-cancellable.
+                    _state.update { it.copy(operation = "Запись оригинала", progress = 90) }
                     repository.replaceEditedAudioFile(
                         source = source,
                         file = requireNotNull(temp),
@@ -364,6 +368,11 @@ class EditorExportCoordinator private constructor(context: Context) {
     }
 
     fun cancel(message: String? = null) {
+        if (_state.value.exporting && _state.value.operation == "Запись оригинала") {
+            _state.update { it.copy(message =
+                "Идёт безопасная запись MP3 и проверка резервной копии. Дождитесь завершения.") }
+            return
+        }
         job?.cancel()
         job = null
         _state.value = if (message == null) EditorExportState()
