@@ -69,4 +69,19 @@ class AudioWaveformCacheTest {
             fresh.get(source) { floatArrayOf(.8f) }, 0f)
     }
 
+    @Test fun replacingAudioAtSameUriInvalidatesMemoryAndDiskWaveform() {
+        val folder = temporary.newFolder()
+        val uri = "content://media/external/audio/media/177"
+        val cache = AudioWaveformCache(folder)
+        cache.get(uri) { floatArrayOf(.2f, .3f) }
+        assertTrue(cache.has(uri))
+        cache.invalidate(uri)
+        assertFalse(cache.has(uri))
+        val reopened = AudioWaveformCache(folder)
+        assertFalse(reopened.has(uri))
+        assertArrayEquals(floatArrayOf(.85f, .95f),
+            reopened.get(uri) { floatArrayOf(.85f, .95f) }, 0f)
+    }
+
+
 }
