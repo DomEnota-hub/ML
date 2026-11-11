@@ -1052,23 +1052,17 @@ internal fun ObjectRemovalPanel(
                             minOf(size.width / working.width, size.height / working.height)
                         val radius = if (selectedMode == AiEraserMode.OBJECTS)
                             2.dp.toPx() else (brush * previewScale / 2f).coerceAtLeast(1f)
-                        // When the slider moves, place the true-size guide at
-                        // the last visible brush location, never behind a zoomed crop.
-                        val guide = cursor ?: if (brushSizing) {
-                            val recent = lastBrushPoint?.takeIf { candidate ->
-                                ImageViewportGeometry.imageToViewport(
-                                    candidate, viewport.width.toFloat(), viewport.height.toFloat(),
-                                    zoom, pan.x, pan.y,
-                                )?.let { preview ->
-                                    preview.x in 0f..viewport.width.toFloat() &&
-                                        preview.y in 0f..viewport.height.toFloat()
-                                } == true
-                            }
-                            recent ?: ImageViewportGeometry.viewportToImage(
+                        // A size-slider gesture previews the diameter in the
+                        // center of the *visible* image viewport, not at a
+                        // stale touch point (which may be offscreen after zoom).
+                        // This uses the same zoom/pan inverse as real painting.
+                        val guide = if (brushSizing && viewport.width > 0 &&
+                            viewport.height > 0) {
+                            ImageViewportGeometry.viewportToImage(
                                 viewport.width / 2f, viewport.height / 2f,
                                 viewport.width.toFloat(), viewport.height.toFloat(),
                                 zoom, pan.x, pan.y)
-                        } else null
+                        } else cursor
                         guide?.let {
                             val center = Offset(it.x * size.width, it.y * size.height)
                             val guideColor = if (eraserMode) Color(0xFF86D7FF) else yellow
@@ -1183,7 +1177,7 @@ internal fun ObjectRemovalPanel(
                 Row(
                     Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool, "Кисть", !eraserMode) {
                         eraserMode = false
