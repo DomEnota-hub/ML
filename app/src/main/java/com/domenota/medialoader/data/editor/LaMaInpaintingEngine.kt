@@ -24,14 +24,17 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
             val width = source.width; val height = source.height
             val began = SystemClock.elapsedRealtime()
             val prepared = preparedCoverage(mask, width, height)
+            val maskMs = SystemClock.elapsedRealtime() - began
             val coverage = prepared.data
             val region = InpaintingPreparation.region(
                 coverage, width, height, settings.maxWorkingSide, prepared.bounds)
                 ?: return@withContext source.copy(Bitmap.Config.ARGB_8888, false)
             val pixels = IntArray(width * height)
             source.getPixels(pixels, 0, width, 0, 0, width, height)
+            val beforeInputs = SystemClock.elapsedRealtime()
             val inputs = InpaintingPreparation.inputs(pixels, coverage, width, height, region)
             currentCoroutineContext().ensureActive()
+            val inputsMs = SystemClock.elapsedRealtime() - beforeInputs
             val preparationMs = SystemClock.elapsedRealtime() - began
             val inferenceStarted = SystemClock.elapsedRealtime()
             val prediction = runner.predict(inputs.image, inputs.mask)
@@ -43,8 +46,10 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
                 bounds = prepared.bounds)
             val compositingMs = SystemClock.elapsedRealtime() - compositeStarted
             AppLog.i("AiOrtPerf", "model=LAMA size=${width}x$height " +
+                "mask_ms=$maskMs input_sample_ms=$inputsMs " +
                 "mask_preparation_ms=$preparationMs inference_ms=$inferenceMs " +
-                "composite_ms=$compositingMs")
+                "composite_ms=$compositingMs " +
+                "total_ms=${SystemClock.elapsedRealtime() - began}")
             currentCoroutineContext().ensureActive()
             Bitmap.createBitmap(result, width, height, Bitmap.Config.ARGB_8888)
         }
