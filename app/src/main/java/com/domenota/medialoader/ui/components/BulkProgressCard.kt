@@ -74,10 +74,14 @@ fun BulkProgressCard(
     val completed = related.count { it.state == DownloadState.COMPLETED }
     val failed = related.count { it.state == DownloadState.FAILED }
     val cancelled = related.count { it.state == DownloadState.CANCELLED }
+    val accounted = completed + failed + cancelled
+    // Missing here means no terminal status is visible in this screen's
+    // current download snapshot. It does NOT imply a lost file on disk.
+    val unconfirmed = (state.queuedCount - accounted).coerceAtLeast(0)
     val isAnalysis = state.phase == BulkPhase.ANALYZING || state.phase == BulkPhase.PREVIEW
     val total = if (isAnalysis) state.urls.size else state.selectedCount
     val processed = if (isAnalysis) state.cursor.coerceAtMost(total)
-        else (completed + failed + cancelled).coerceAtMost(total)
+        else accounted.coerceAtMost(total)
     val percent = if (total > 0) processed * 100 / total else 0
     val finished = state.phase in setOf(BulkPhase.PREVIEW, BulkPhase.FINISHED, BulkPhase.STOPPED)
     val title = when (state.phase) {
@@ -138,6 +142,14 @@ fun BulkProgressCard(
                     Metric(if (isAnalysis) state.errors.size else failed, "Ошибки")
                     Metric(if (isAnalysis) state.unsupported + state.duplicates else cancelled,
                         if (isAnalysis) "Пропуски/повторы" else "Отменено")
+                }
+                if (!isAnalysis && unconfirmed > 0) {
+                    Text(
+                        "Без подтверждённого результата: $unconfirmed. " +
+                            "Проверьте подробности задания и историю загрузок.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 if (state.phase == BulkPhase.ANALYZING) {
                     val nextUrl = state.urls.getOrNull(state.cursor)
