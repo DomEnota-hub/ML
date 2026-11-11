@@ -83,14 +83,27 @@ fun MusicModeScreen(
     var showExcluded by rememberSaveable { mutableStateOf(false) }
     val available = remember(allAudio) { allAudio.filter(::availableAudio).associateBy { it.id } }
     val tracks = remember(items) { items.filter(::availableAudio).distinctBy { it.id } }
-    val hiddenTracks = remember(tracks, hiddenTrackKeys) { tracks.filter { MusicTrackVisibility.hidden(it, hiddenTrackKeys) } }
+    // Include hidden tracks from both local phone storage and ML downloads, regardless
+    // of which source tab is active. No hidden record is made visible by playback.
+    val hiddenTracks = remember(allAudio, hiddenTrackKeys) {
+        allAudio.filter(::availableAudio).filter { MusicTrackVisibility.hidden(it, hiddenTrackKeys) }
+            .distinctBy { it.id }
+    }
     if (hiddenTracksOpen) AlertDialog(onDismissRequest = onDismissHiddenTracks, title = { Text("Скрытые треки") },
         text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 360.dp)) {
             if (hiddenTracks.isEmpty()) item { Text("Нет скрытых треков") }
             items(hiddenTracks, key = { it.id }) { track ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName, Modifier.weight(1f))
-                    IconButton(onClick = { toggleHidden(track) }) { Icon(Icons.Rounded.Visibility, "Отобразить ${track.originalName}") }
+                    Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName,
+                        Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    val singleTrackQueue = HiddenMusicPreview.queue(track, hiddenTrackKeys)
+                    IconButton(
+                        enabled = singleTrackQueue.isNotEmpty(),
+                        onClick = { (onPreview ?: onOpen)(track.id, singleTrackQueue) },
+                    ) { Icon(Icons.Rounded.PlayArrow, "Прослушать ${track.originalName}") }
+                    IconButton(onClick = { toggleHidden(track) }) {
+                        Icon(Icons.Rounded.Visibility, "Отобразить ${track.originalName}")
+                    }
                 }
             }
         } }, confirmButton = { TextButton(onClick = onDismissHiddenTracks) { Text("Готово") } })
