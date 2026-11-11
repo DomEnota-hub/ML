@@ -519,12 +519,24 @@ internal fun EditorTextDialog(
                                                 videoPlayer?.play(); playing = true
                                             })
                                     }
-                                    TextButton(onClick = {
-                                        layers = layers.filterNot { it.id == layer.id }
-                                        selectedId = layers.lastOrNull()?.id
-                                        if (selectedId == null) sheetOpen = false
-                                    }, modifier = Modifier.fillMaxWidth()) {
-                                        Text("Удалить надпись", color = MaterialTheme.colorScheme.error)
+                                    androidx.compose.material3.OutlinedButton(
+                                        onClick = {
+                                            layers = layers.filterNot { it.id == layer.id }
+                                            selectedId = layers.lastOrNull()?.id
+                                            if (selectedId == null) sheetOpen = false
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .padding(top = 4.dp, bottom = 12.dp),
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp, Color(0xFFE76D80)),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = Color(0xFFFFA0AC)),
+                                    ) {
+                                        Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Удалить надпись")
                                     }
                                 }
                             }
