@@ -85,7 +85,6 @@ import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.components.BulkProgressCard
 import com.domenota.medialoader.data.bulk.BulkState
 import com.domenota.medialoader.core.database.DownloadEntity
-import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.ui.components.EmptyStateCard
 import com.domenota.medialoader.ui.components.SectionTitle
 import com.domenota.medialoader.ui.components.SourceIcon
@@ -181,20 +180,13 @@ fun DownloadsScreen(
             bulkDismissPrefs.edit().putString("dismissed_job_id", id).apply()
         }
     }
-    // A finished, fully accounted batch closes after a brief readable hold.
-    // Never silently conceal an incomplete or disputed completion report.
-    LaunchedEffect(bulkState.jobId, bulkState.phase, bulkState.queuedCount, bulkDownloads) {
+    // A finished job gets a short readable summary, then leaves the screen.
+    // Its history is preserved even if the snapshot reports unmatched rows.
+    LaunchedEffect(bulkState.jobId, bulkState.phase) {
         if (bulkState.phase == com.domenota.medialoader.data.bulk.BulkPhase.FINISHED &&
             bulkState.jobId.isNotBlank() && bulkState.jobId != dismissedBulkJobId) {
-            val linked = bulkState.candidates.mapNotNull { it.downloadId }.toSet()
-            val finishedRows = bulkDownloads.count { row ->
-                row.id in linked && row.state in setOf(
-                    DownloadState.COMPLETED, DownloadState.FAILED, DownloadState.CANCELLED)
-            }
-            if (linked.isNotEmpty() && finishedRows == linked.size) {
-                kotlinx.coroutines.delay(7_000L)
-                dismissBulkSummary()
-            }
+            kotlinx.coroutines.delay(7_000L)
+            dismissBulkSummary()
         }
     }
     LaunchedEffect(listScrollState) {
