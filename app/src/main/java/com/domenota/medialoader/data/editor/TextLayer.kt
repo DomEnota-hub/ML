@@ -7,7 +7,7 @@ enum class TextLayerAlignment { LEFT, CENTER, RIGHT }
 /** Coordinates and size refer to the final cropped/rotated image. Times refer to the exported clip. */
 data class TextLayer(
     val id: String = UUID.randomUUID().toString(),
-    val text: String = "Ваш текст",
+    val text: String = "",
     val fontId: String = "OpenSans-Regular",
     val centerX: Float = 0.5f,
     val centerY: Float = 0.5f,

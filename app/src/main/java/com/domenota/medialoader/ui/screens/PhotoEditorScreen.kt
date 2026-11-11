@@ -33,6 +33,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -543,11 +546,29 @@ fun PhotoEditorScreen(
                 }
             }
             if (ownExport) {
-                Text(exportState.operation + " · " + exportState.progress + "%",
-                    modifier = Modifier.padding(horizontal = 16.dp))
-                LinearProgressIndicator(progress = { exportState.progress / 100f },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-                TextButton(onClick = onCancelExport) { Text("Отменить обработку") }
+                // One shared ML loading symbol instead of an unrelated purple
+                // export line and a second "Экспорт фото" caption.
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    AiPrismWorkingIndicator(
+                        label = "",
+                        showLabel = false,
+                        tileSize = 62.dp,
+                        modifier = Modifier.semantics {
+                            progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(
+                                exportState.progress / 100f, 0f..1f)
+                            contentDescription = "Сохранение фотографии"
+                        },
+                    )
+                    Spacer(Modifier.width(18.dp))
+                    IconButton(onClick = onCancelExport) {
+                        Icon(Icons.Rounded.Close, "Отменить экспорт фото",
+                            tint = Color.White)
+                    }
+                }
             } else if (busyWithOther) {
                 Text("Обрабатывается другой файл. Редактирование временно недоступно.",
                     modifier = Modifier.padding(12.dp), color = Color.LightGray)

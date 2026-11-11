@@ -107,4 +107,35 @@ class PersonInstancePolicyTest {
         assertFalse(PersonInstancePolicy.preferUpperDetail(complete, torso, box))
     }
 
+    @Test fun partialTorsoIsNotCertifiedAsWholePerson() {
+        val box = PersonBox(.10f, .10f, .90f, .95f)
+        fun stripes(first: Int, last: Int) = (first..last).map { y ->
+            MaskStroke(listOf(MaskPoint(.28f, y / 100f),
+                MaskPoint(.68f, y / 100f)), .012f)
+        }
+        val sweater = stripes(35, 63)
+        val head = stripes(13, 38)
+        val legs = stripes(60, 92)
+        assertTrue(PersonInstancePolicy.incomplete(sweater, box))
+        assertTrue(PersonInstancePolicy.addsDetail(sweater, head, box))
+        assertTrue(PersonInstancePolicy.addsDetail(sweater + head, legs, box))
+        assertFalse(PersonInstancePolicy.incomplete(sweater + head + legs, box))
+        assertFalse(PersonInstancePolicy.addsDetail(sweater, sweater, box))
+    }
+
+    @Test fun broadBackgroundCandidateCannotBeMergedIntoPerson() {
+        val box = PersonBox(.10f, .10f, .90f, .95f)
+        val sweater = (35..63).map { y ->
+            MaskStroke(listOf(MaskPoint(.28f, y / 100f),
+                MaskPoint(.68f, y / 100f)), .012f)
+        }
+        val wall = (14..85).map { y ->
+            MaskStroke(listOf(MaskPoint(.11f, y / 100f),
+                MaskPoint(.89f, y / 100f)), .012f)
+        }
+        assertFalse(PersonInstancePolicy.plausibleCandidate(wall, box))
+        assertFalse(PersonInstancePolicy.addsDetail(sweater, wall, box))
+        assertTrue(PersonInstancePolicy.plausibleCandidate(sweater, box))
+    }
+
 }

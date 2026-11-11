@@ -2,6 +2,8 @@ package com.domenota.medialoader.data.editor
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import android.os.SystemClock
+import com.domenota.medialoader.core.logging.AppLog
 import java.io.IOException
 import java.nio.FloatBuffer
 import kotlinx.coroutines.currentCoroutineContext
@@ -16,15 +18,19 @@ internal class LaMaOnnxRunner(private val models: LaMaModelStore) : InpaintingMo
     override suspend fun predict(image: FloatArray, mask: FloatArray): FloatArray {
         val size = LaMaInpaintingEngine.SIZE
         require(image.size == 3 * size * size && mask.size == size * size)
+        val started = SystemClock.elapsedRealtime()
         val model = models.requireInstalled()
         val env = OrtEnvironment.getEnvironment()
         currentCoroutineContext().ensureActive()
         return OrtSessions.lama.use(model, LaMaModelStore.SHA256) { session ->
+            val sessionReady = SystemClock.elapsedRealtime()
             OnnxTensor.createTensor(env, FloatBuffer.wrap(image),
                 longArrayOf(1, 3, size.toLong(), size.toLong())).use { imageInput ->
                 OnnxTensor.createTensor(env, FloatBuffer.wrap(mask),
                     longArrayOf(1, 1, size.toLong(), size.toLong())).use { maskInput ->
+                    val tensorReady = SystemClock.elapsedRealtime()
                     session.run(mapOf("image" to imageInput, "mask" to maskInput)).use { outputs ->
+                        val onnxFinished = SystemClock.elapsedRealtime()
                         currentCoroutineContext().ensureActive()
                         val tensor = outputs[0] as? OnnxTensor
                             ?: throw IOException("LaMa: модель не вернула выходной тензор.")
@@ -32,13 +38,18 @@ internal class LaMaOnnxRunner(private val models: LaMaModelStore) : InpaintingMo
                                 longArrayOf(1, 3, size.toLong(), size.toLong())))
                             throw IOException("LaMa: неожиданная форма выходного тензора.")
                         val result = FloatArray(3 * size * size)
-                        // NCHW output is already contiguous; avoid allocating
-                        // thousands of nested FloatArray rows per inference.
+                        // Keep the original FP32 model, input shape and output
+                        // exactly unchanged: no speed shortcut may blur edges.
                         val buffer = tensor.floatBuffer
                         buffer.rewind()
                         if (buffer.remaining() != result.size)
                             throw IOException("LaMa: неверная длина выходного буфера.")
                         buffer.get(result)
+                        AppLog.i("AiOrtPerf", "model=LAMA " +
+                            "session_wait_ms=${sessionReady - started} " +
+                            "tensor_prepare_ms=${tensorReady - sessionReady} " +
+                            "ort_run_ms=${onnxFinished - tensorReady} " +
+                            "readback_ms=${SystemClock.elapsedRealtime() - onnxFinished}")
                         result
                     }
                 }

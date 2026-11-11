@@ -9,6 +9,7 @@ internal data class PersonScanResult(
     val detectedCount: Int,
     val people: List<PersonInstance>,
     val ambiguousIds: Set<Int>,
+    val incompleteIds: Set<Int> = emptySet(),
 ) {
     val unsuccessful: Int get() = (detectedCount - people.size).coerceAtLeast(0)
 }
@@ -36,30 +37,27 @@ internal class PersonSegmentationPipeline(
             var mask: List<MaskStroke>? = null
             for (point in PersonInstancePolicy.prompts(detection.box)) {
                 currentCoroutineContext().ensureActive()
+                // A fully covered silhouette needs no further expensive
+                // decoder calls; an isolated sweater must NOT end the scan.
+                if (mask != null && !PersonInstancePolicy.incomplete(
+                        requireNotNull(mask), detection.box)) break
                 try {
                     val raw = segmentAt(bitmap, point)
                     val candidate = PersonInstancePolicy.constrainToPerson(raw, detection.box)
-                    if (mask == null) {
-                        mask = candidate
-                        // Only retry if a genuine SAM mask unexpectedly omits
-                        // the upper silhouette (hair/head). One *successful*
-                        // extra inference at most, avoiding repeated slow calls.
-                        if (!PersonInstancePolicy.needsUpperDetailRetry(candidate, detection.box))
-                            break
-                    } else {
-                        if (PersonInstancePolicy.preferUpperDetail(
-                                requireNotNull(mask), candidate, detection.box)) {
-                            mask = candidate
-                        }
-                        break
+                    if (!PersonInstancePolicy.plausibleCandidate(candidate, detection.box))
+                        continue
+                    mask = when {
+                        mask == null -> candidate
+                        PersonInstancePolicy.addsDetail(requireNotNull(mask),
+                            candidate, detection.box) -> requireNotNull(mask) + candidate
+                        else -> mask
                     }
                 } catch (_: IOException) {
-                    // A prompt may land on the background; try other actual
-                    // foreground candidates in THIS detected person's bbox.
-                    // Incompatible weights remain fatal in MobileSAM itself.
+                    // A prompt can land on clothing or background. Try another
+                    // real mask; never replace it with an invented rectangle.
                 }
             }
-            if (mask != null) people += PersonInstance(detection, mask)
+            if (mask != null) people += PersonInstance(detection, requireNotNull(mask))
         }
         val ambiguous = mutableSetOf<Int>()
         for (i in people.indices) for (j in i + 1 until people.size) {
@@ -68,6 +66,9 @@ internal class PersonSegmentationPipeline(
                 ambiguous += people[j].detection.id
             }
         }
-        return PersonScanResult(detections.size, people, ambiguous)
+        val incomplete = people.filter {
+            PersonInstancePolicy.incomplete(it.strokes, it.detection.box)
+        }.mapTo(mutableSetOf()) { it.detection.id }
+        return PersonScanResult(detections.size, people, ambiguous, incomplete)
     }
 }

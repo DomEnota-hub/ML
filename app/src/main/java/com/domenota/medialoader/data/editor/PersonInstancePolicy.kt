@@ -46,13 +46,62 @@ internal object PersonInstancePolicy {
         return output.mapIndexed { index, value -> value.copy(id = index) }
     }
 
-    /** Several true foreground points: torso first, then upper and lower torso. */
+    /** Torso, head, legs, then the left and right limbs of the actual person. */
     fun prompts(box: PersonBox): List<MaskPoint> {
         require(box.valid())
-        return listOf(.5f to .45f, .5f to .3f, .5f to .65f,
-            .35f to .52f, .65f to .52f).map { (rx, ry) ->
+        return listOf(.5f to .45f, .5f to .16f, .5f to .80f,
+            .34f to .42f, .66f to .42f).map { (rx, ry) ->
             MaskPoint(box.left + box.width * rx, box.top + box.height * ry)
         }
+    }
+
+    private data class Extent(
+        val minX: Float, val maxX: Float, val minY: Float, val maxY: Float,
+    )
+
+    private fun extent(strokes: List<MaskStroke>): Extent? {
+        if (strokes.isEmpty()) return null
+        val points = strokes.asSequence().flatMap { it.points.asSequence() }.toList()
+        if (points.isEmpty()) return null
+        return Extent(points.minOf { it.x }, points.maxOf { it.x },
+            points.minOf { it.y }, points.maxOf { it.y })
+    }
+
+    /** Heuristic, never a fabricated mask: missing head or legs requires refinement. */
+    fun incomplete(strokes: List<MaskStroke>, box: PersonBox): Boolean {
+        val e = extent(strokes) ?: return true
+        return e.minY > box.top + box.height * .23f ||
+            e.maxY < box.bottom - box.height * .18f
+    }
+
+    /** A huge nearly solid rectangle is probably background, not a person. */
+    fun plausibleCandidate(strokes: List<MaskStroke>, box: PersonBox): Boolean {
+        val e = extent(strokes) ?: return false
+        val spanY = (e.maxY - e.minY) / box.height
+        val broad = strokes.count {
+            it.points.size >= 2 && (it.points.last().x - it.points.first().x) >
+                box.width * .86f
+        }
+        return !(spanY > .55f && broad > strokes.size * .65f)
+    }
+
+    /**
+     * Union only distinct new coverage within one verified person's box.
+     * Do not accept repeated torso-only predictions, other people's boxes,
+     * or background masks as extra components.
+     */
+    fun addsDetail(
+        existing: List<MaskStroke>,
+        candidate: List<MaskStroke>,
+        box: PersonBox,
+    ): Boolean {
+        if (!plausibleCandidate(candidate, box)) return false
+        val a = extent(existing) ?: return true
+        val b = extent(candidate) ?: return false
+        return b.minY < a.minY - box.height * .055f ||
+            b.maxY > a.maxY + box.height * .055f ||
+            b.minX < a.minX - box.width * .065f ||
+            b.maxX > a.maxX + box.width * .065f
     }
 
     /**

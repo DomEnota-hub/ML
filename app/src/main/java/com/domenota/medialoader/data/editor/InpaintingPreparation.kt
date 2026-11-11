@@ -81,32 +81,51 @@ internal object InpaintingPreparation {
         val image = FloatArray(3 * plane)
         val mask = FloatArray(plane)
         val scale = region.size.toFloat() / side
-        for (y in 0 until side) for (x in 0 until side) {
+
+        // X source coordinates depend only on the output column. Previously
+        // floor/reflection/pixel-footprint work was redundantly recomputed
+        // side * side times. Caching it once per column preserves every sample.
+        val x0 = IntArray(side)
+        val x1 = IntArray(side)
+        val fx = FloatArray(side)
+        val maskLeft = IntArray(side)
+        val maskRight = IntArray(side)
+        for (x in 0 until side) {
             val sourceX = region.left + (x + 0.5f) * scale - 0.5f
+            val beforeReflection = floor(sourceX).toInt()
+            x0[x] = reflected(beforeReflection, width)
+            x1[x] = reflected(beforeReflection + 1, width)
+            fx[x] = sourceX - beforeReflection
+            maskLeft[x] = floor(region.left + x * scale).toInt()
+            maskRight[x] = ceil(region.left + (x + 1) * scale).toInt()
+        }
+        for (y in 0 until side) {
             val sourceY = region.top + (y + 0.5f) * scale - 0.5f
-            val x0 = floor(sourceX).toInt(); val y0 = floor(sourceY).toInt()
-            val fx = sourceX - x0; val fy = sourceY - y0
-            val p00 = source[reflected(y0, height) * width + reflected(x0, width)]
-            val p10 = source[reflected(y0, height) * width + reflected(x0 + 1, width)]
-            val p01 = source[reflected(y0 + 1, height) * width + reflected(x0, width)]
-            val p11 = source[reflected(y0 + 1, height) * width + reflected(x0 + 1, width)]
-            val index = y * side + x
-            for (channel in 0..2) {
-                val shift = (2 - channel) * 8
-                fun value(p: Int) = ((p ushr shift) and 255).toFloat()
-                image[channel * plane + index] = interpolate(value(p00), value(p10), value(p01), value(p11), fx, fy) / 255f
-            }
-            // Max-pool coverage over the pixel footprint: distant small marks
-            // must not disappear when a large crop is reduced to 512 pixels.
-            val xStart = floor(region.left + x * scale).toInt()
-            val xEnd = ceil(region.left + (x + 1) * scale).toInt()
-            val yStart = floor(region.top + y * scale).toInt()
-            val yEnd = ceil(region.top + (y + 1) * scale).toInt()
-            scan@ for (sy in yStart until yEnd) for (sx in xStart until xEnd) {
-                // Image padding mirrors source pixels, including selected objects.
-                // Mirror the mask too so these copies are not treated as known context.
-                if (coverage[reflected(sy, height) * width + reflected(sx, width)] > 0) {
-                    mask[index] = 1f; break@scan
+            val rawY0 = floor(sourceY).toInt()
+            val y0 = reflected(rawY0, height) * width
+            val y1 = reflected(rawY0 + 1, height) * width
+            val fy = sourceY - rawY0
+            val maskTop = floor(region.top + y * scale).toInt()
+            val maskBottom = ceil(region.top + (y + 1) * scale).toInt()
+            for (x in 0 until side) {
+                val p00 = source[y0 + x0[x]]
+                val p10 = source[y0 + x1[x]]
+                val p01 = source[y1 + x0[x]]
+                val p11 = source[y1 + x1[x]]
+                val index = y * side + x
+                for (channel in 0..2) {
+                    val shift = (2 - channel) * 8
+                    fun value(p: Int) = ((p ushr shift) and 255).toFloat()
+                    image[channel * plane + index] = interpolate(
+                        value(p00), value(p10), value(p01), value(p11), fx[x], fy) / 255f
+                }
+                // Keep original max-pooling footprint and reflected padding.
+                // Small selected marks must never vanish after downscaling.
+                scan@ for (sy in maskTop until maskBottom) for (sx in maskLeft[x] until maskRight[x]) {
+                    if (coverage[reflected(sy, height) * width + reflected(sx, width)] > 0) {
+                        mask[index] = 1f
+                        break@scan
+                    }
                 }
             }
         }

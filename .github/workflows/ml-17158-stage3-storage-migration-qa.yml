@@ -79,6 +79,7 @@ jobs:
           sha256sum "$apk"
       - name: Save diagnostics only
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ml17158-stage3-storage-diagnostics

@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
@@ -110,13 +111,69 @@ private fun RemovalToolButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(36.dp).background(
+        // 48dp touch target prevents brush and eraser controls from
+        // becoming a pair of crowded 36dp hotspots on narrow phones.
+        modifier = Modifier.size(48.dp).background(
             if (selected) Color(0xFFFFC21C) else Color(0xFF292929),
-            RoundedCornerShape(10.dp)),
+            RoundedCornerShape(12.dp)),
     ) {
         Icon(painterResource(iconRes), contentDescription = label,
             modifier = Modifier.size(22.dp),
             tint = if (selected) Color(0xFF131313) else Color.White)
+    }
+}
+
+/**
+ * Shared manual-brush arrangement for both the standalone manual mode
+ * and person-mask refinement. A separate slider row reserves actual
+ * horizontal touch space, instead of squeezing all four controls together.
+ */
+@Composable
+private fun RemovalBrushControls(
+    brush: Float,
+    eraserMode: Boolean,
+    busy: Boolean,
+    onBrush: () -> Unit,
+    onErase: () -> Unit,
+    onChangeSize: (Float) -> Unit,
+    onFinishedSize: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool,
+                "Кисть", !eraserMode, onBrush)
+            RemovalToolButton(R.drawable.ic_ai_eraser_erase_tool,
+                "Ластик", eraserMode, onErase)
+        }
+        Row(
+            Modifier.fillMaxWidth().height(42.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Размер", fontSize = 11.sp, color = Color.LightGray)
+            Slider(
+                value = brush,
+                onValueChange = onChangeSize,
+                onValueChangeFinished = onFinishedSize,
+                valueRange = 8f..100f,
+                enabled = !busy,
+                retainColorWhenDisabled = true,
+                modifier = Modifier.weight(1f),
+            )
+            Text("Ø ${brush.roundToInt()} px",
+                modifier = Modifier.width(65.dp),
+                fontSize = 10.sp,
+                color = Color(0xFFFFC21C),
+                maxLines = 1)
+        }
     }
 }
 
@@ -279,6 +336,7 @@ internal fun ObjectRemovalPanel(
     var detectedPeople by remember { mutableStateOf<List<PersonInstance>>(emptyList()) }
     val selectedPeople = remember { mutableStateListOf<Int>() }
     var ambiguousPeople by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var incompletePeople by remember { mutableStateOf<Set<Int>>(emptySet()) }
     DisposableEffect(segmenter) { onDispose { segmenter.clearCache() } }
     val glyphDetector = remember { OnDeviceTextGlyphDetector(context.applicationContext) }
     var mobileReady by remember { mutableStateOf(false) }
@@ -438,6 +496,13 @@ internal fun ObjectRemovalPanel(
                 // default so "Начать" is usable immediately after a scan;
                 // the actual pixel mask is still validated before inpainting.
                 selectedGlyphs.addAll(found.map { it.id }.distinct().take(160))
+                // Store only counts/confidence in QA logs; never print text or
+                // the image. On-device inspection can distinguish false OCR
+                // detections from the separate pixel-mask/inpaint stage.
+                com.domenota.medialoader.core.logging.AppLog.i("PhotoOCR",
+                    "symbol_candidates=${found.size} " +
+                    "high_confidence=${found.count { it.confidence >= 75f }} " +
+                    "selected=${selectedGlyphs.size}")
                 if (found.isEmpty()) message = "Не удалось найти отдельные буквы."
             } catch (error: Exception) {
                 message = error.message ?: "Не удалось распознать текст."
@@ -460,6 +525,7 @@ internal fun ObjectRemovalPanel(
         detectedPeople = emptyList()
         selectedPeople.clear()
         ambiguousPeople = emptySet()
+        incompletePeople = emptySet()
         refiningPeople = false
         strokes.clear()
         redoStrokes.clear()
@@ -469,11 +535,14 @@ internal fun ObjectRemovalPanel(
                 val found = peoplePipeline.scan(source)
                 detectedPeople = found.people
                 ambiguousPeople = found.ambiguousIds
+                incompletePeople = found.incompleteIds
                 message = when {
                     found.detectedCount == 0 -> "Люди не найдены на фотографии."
                     found.people.isEmpty() -> "Люди обнаружены, но точные маски получить не удалось."
                     found.ambiguousIds.isNotEmpty() ->
                         "Некоторые люди перекрываются. Пересекающиеся маски заблокированы для безопасности."
+                    found.incompleteIds.isNotEmpty() ->
+                        "Не все части человека распознаны. Нажмите «Уточнить маску» и добавьте пропущенные участки."
                     found.unsuccessful > 0 ->
                         "Некоторые люди найдены, но не все маски получены. Выберите доступные."
                     else -> "Выберите одного или нескольких людей, затем нажмите «Начать»."
@@ -488,12 +557,15 @@ internal fun ObjectRemovalPanel(
         }
     }
 
-    // Automatically detect when opening People mode if both verified models
-    // are available. This effect is keyed to the photo/mode, never to the
-    // result list, so completion cannot restart an infinite search cycle.
-    LaunchedEffect(selectedMode, current.bitmap, peopleReady, mobileReady) {
-        if (selectedMode == AiEraserMode.PEOPLE && peopleReady && mobileReady &&
-            !peopleSearching && !processing) findPeople()
+    // The original working bitmap is stable across inpaint, Undo and Redo.
+    // Each editor source gets ONE automatic people scan. A processed LaMa
+    // artifact must NEVER trigger a second detector pass by recomposition.
+    val autoPeopleScan = remember(working) { PeopleAutoScanGate() }
+    LaunchedEffect(selectedMode, working, peopleReady, mobileReady) {
+        if (autoPeopleScan.claim(
+                selectedMode == AiEraserMode.PEOPLE && peopleReady && mobileReady &&
+                    !peopleSearching && !processing
+            )) findPeople()
     }
 
     fun processSelection() {
@@ -504,6 +576,11 @@ internal fun ObjectRemovalPanel(
         }
         val chosenGlyphs = if (textMode) glyphs.filter { it.id in selectedGlyphs }
             else emptyList()
+        if (selectedMode == AiEraserMode.PEOPLE &&
+            selectedPeople.any { it in incompletePeople } && strokes.isEmpty()) {
+            message = "Маска неполная: добавьте пропущенные голову, руки или ноги через «Уточнить маску»."
+            return
+        }
         val otherMasks = when {
             textMode -> emptyList()
             selectedMode == AiEraserMode.PEOPLE -> detectedPeople
@@ -528,6 +605,9 @@ internal fun ObjectRemovalPanel(
                     com.domenota.medialoader.data.editor.GlyphContentMask.fromBitmap(
                         startStep.bitmap, chosenGlyphs)
                 } else otherMasks
+                if (textMode) com.domenota.medialoader.core.logging.AppLog.i(
+                    "PhotoOCR", "selected_glyph_count=${chosenGlyphs.size} " +
+                        "verified_pixel_mask_strokes=${marked.size}")
                 if (marked.isEmpty()) {
                     // No bounding-box fallback: it could remove real scenery.
                     // Give the user an actionable manual correction path instead
@@ -1150,6 +1230,9 @@ internal fun ObjectRemovalPanel(
 
         }
 
+        // Stable separation between the photo and the tool panel, even when
+        // the keyboard or an auxiliary selection row changes available height.
+        Spacer(Modifier.height(12.dp))
         // The object selector is the ONLY mode with the A/hand toggle.
         if (selectedMode == AiEraserMode.OBJECTS) {
             BoxWithConstraints(
@@ -1189,39 +1272,13 @@ internal fun ObjectRemovalPanel(
         // The hand toggle within OBJECTS draws a fixed thin yellow path.
         if (selectedMode == AiEraserMode.MANUAL) {
             Column(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool, "Кисть", !eraserMode) {
-                        eraserMode = false
-                        moveMode = false
-                    }
-                    RemovalToolButton(R.drawable.ic_ai_eraser_erase_tool,
-                        "Стереть выделение", eraserMode) {
-                        eraserMode = true
-                        moveMode = false
-                    }
-                    Slider(
-                        value = brush,
-                        onValueChange = { brush = it; brushSizing = true },
-                        onValueChangeFinished = { brushSizing = false },
-                        valueRange = 8f..100f,
-                        enabled = !busy,
-                        retainColorWhenDisabled = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    // A small unrelated circle cannot represent a zoomed
-                    // brush. Show exact source-pixel diameter numerically;
-                    // the real on-photo guide above is scale-aware.
-                    Text("Ø ${brush.roundToInt()} px",
-                        modifier = Modifier.width(56.dp),
-                        fontSize = 10.sp,
-                        color = Color(0xFFFFC21C),
-                        maxLines = 1)
-
-                }
+                RemovalBrushControls(
+                    brush = brush, eraserMode = eraserMode, busy = busy,
+                    onBrush = { eraserMode = false; moveMode = false },
+                    onErase = { eraserMode = true; moveMode = false },
+                    onChangeSize = { brush = it; brushSizing = true },
+                    onFinishedSize = { brushSizing = false },
+                )
                 Box(Modifier.fillMaxWidth().height(48.dp),
                     contentAlignment = Alignment.Center) {
                     EraserStartButton(
@@ -1284,7 +1341,9 @@ internal fun ObjectRemovalPanel(
                     contentAlignment = Alignment.Center) {
                     EraserStartButton(
                         enabled = !busy && (detectedPeople.isEmpty() ||
-                            selectedPeople.isNotEmpty()),
+                            (selectedPeople.isNotEmpty() &&
+                                (selectedPeople.none { it in incompletePeople } ||
+                                    strokes.isNotEmpty()))),
                         label = if (detectedPeople.isEmpty()) "Найти людей" else "Начать",
                         width = if (detectedPeople.isEmpty()) 132.dp else 104.dp,
                         onClick = if (detectedPeople.isEmpty()) ::findPeople else ::processSelection,
@@ -1309,10 +1368,22 @@ internal fun ObjectRemovalPanel(
                                     maskActions.clear()
                                 }
                                 .padding(horizontal = 10.dp, vertical = 7.dp)) {
-                                Text("Человек ${id + 1}" + if (ambiguous) " · ?" else "",
-                                    fontSize = 12.sp,
-                                    color = if (selected) Color.Black
-                                        else if (ambiguous) Color.Gray else Color.White)
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Человек ${id + 1}",
+                                        fontSize = 12.sp,
+                                        color = if (selected) Color.Black
+                                            else if (ambiguous) Color.Gray else Color.White)
+                                    if (ambiguous || id in incompletePeople) {
+                                        Icon(Icons.Rounded.Info,
+                                            contentDescription = if (ambiguous)
+                                                "Неоднозначная маска, выбор заблокирован"
+                                            else "Маска требует уточнения",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = if (selected) Color.DarkGray
+                                                else Color(0xFFFFC21C))
+                                    }
+                                }
                             }
                         }
                         Box(Modifier.clickable(enabled = !busy) { findPeople() }
@@ -1322,9 +1393,10 @@ internal fun ObjectRemovalPanel(
                     }
                 }
                 if (selectedPeople.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth().height(48.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         androidx.compose.material3.FilterChip(
                             selected = refiningPeople,
                             onClick = {
@@ -1336,23 +1408,12 @@ internal fun ObjectRemovalPanel(
                             label = { Text("Уточнить маску", fontSize = 11.sp) },
                         )
                         if (refiningPeople) {
-                            RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool,
-                                "Добавить к маске", !eraserMode) {
-                                eraserMode = false
-                                moveMode = false
-                            }
-                            RemovalToolButton(R.drawable.ic_ai_eraser_erase_tool,
-                                "Вычесть из маски", eraserMode) {
-                                eraserMode = true
-                                moveMode = false
-                            }
-                            Slider(
-                                value = brush,
-                                onValueChange = { brush = it; brushSizing = true },
-                                onValueChangeFinished = { brushSizing = false },
-                                valueRange = 8f..100f,
-                                enabled = !busy,
-                                modifier = Modifier.weight(1f),
+                            RemovalBrushControls(
+                                brush = brush, eraserMode = eraserMode, busy = busy,
+                                onBrush = { eraserMode = false; moveMode = false },
+                                onErase = { eraserMode = true; moveMode = false },
+                                onChangeSize = { brush = it; brushSizing = true },
+                                onFinishedSize = { brushSizing = false },
                             )
                         }
                     }
@@ -1386,6 +1447,7 @@ internal fun ObjectRemovalPanel(
                 detectedPeople = emptyList()
                 selectedPeople.clear()
                 ambiguousPeople = emptySet()
+                incompletePeople = emptySet()
                 message = null
             },
         )

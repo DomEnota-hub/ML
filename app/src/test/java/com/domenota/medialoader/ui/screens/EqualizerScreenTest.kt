@@ -35,6 +35,24 @@ class EqualizerScreenTest {
         assertEquals(List(5) { 0f }, settings.gainsDb)
         assertFalse(settings.enabled)
     }
+    @Test fun lockedEqualizerKeepsSavedGainWhileAllBandsStayDisabled() {
+        var settings by mutableStateOf(EqualizerSettings(
+            enabled = false,
+            gainsDb = listOf(6f, 3f, 1f, -1f, 2f),
+            preset = "Свой",
+        ))
+        compose.setContent {
+            MaterialTheme { EqualizerScreen(settings, 48000, { settings = it }, {}) }
+        }
+        compose.onNodeWithContentDescription("60 Гц").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("230 Гц").assertIsNotEnabled()
+        assertEquals(listOf(6f, 3f, 1f, -1f, 2f), settings.gainsDb)
+        compose.onNodeWithContentDescription("Включить эквалайзер").performClick()
+        compose.onNodeWithContentDescription("60 Гц").assertIsEnabled()
+        assertEquals("Unlock must preserve the exact per-band gain values",
+            listOf(6f, 3f, 1f, -1f, 2f), settings.gainsDb)
+    }
+
     @Test fun lowRateClearlyDisablesUnsupportedBand() {
         compose.setContent { MaterialTheme { EqualizerScreen(EqualizerSettings(), 8000, {}, {}) } }
         compose.onNodeWithContentDescription("14 кГц").performScrollTo().assertIsNotEnabled()

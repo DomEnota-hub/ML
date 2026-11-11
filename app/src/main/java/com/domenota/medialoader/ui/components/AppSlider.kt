@@ -26,8 +26,10 @@ fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier =
     accentColor: Color? = null, retainColorWhenDisabled: Boolean = false) {
     val color = (accentColor ?: MaterialTheme.colorScheme.primary)
         .copy(alpha = if (enabled || retainColorWhenDisabled) 1f else 0.4f)
-    val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-    val zeroColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .95f)
+    // Both the active strip, circular thumb AND zero marker must visually
+    // become inactive when a band is locked. Values remain unchanged.
+    val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 0.3f else 0.14f)
+    val zeroColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) .95f else .38f)
     Slider(value = value, onValueChange = onValueChange, modifier = modifier, enabled = enabled,
         valueRange = valueRange, onValueChangeFinished = onValueChangeFinished, steps = steps,
         thumb = { Box(Modifier.size(20.dp).background(color, CircleShape)) },

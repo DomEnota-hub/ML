@@ -45,7 +45,7 @@ class GalleryVideoChromeTest {
                     onPlayPause = { started = true },
                     onPrevious = {}, onNext = {},
                     onSeekTo = {},
-                    onLockChange = { locked = it },
+                    onLockChange = { locked = it; unlockVisible = it },
                 )
             }
         }
@@ -54,10 +54,8 @@ class GalleryVideoChromeTest {
         compose.onNodeWithContentDescription("Заблокировать управление").performClick()
         compose.waitForIdle()
         assertTrue(locked)
-        // Clean locked video never keeps the lock icon on screen indefinitely.
-        compose.onNodeWithContentDescription("Разблокировать управление").assertDoesNotExist()
-        unlockVisible = true
-        compose.waitForIdle()
+        // The real player must expose the unlock target immediately after
+        // locking and allow restoring control without leaving the video.
         compose.onNodeWithContentDescription("Разблокировать управление").performClick()
         compose.waitForIdle()
         assertFalse(locked)

@@ -24,27 +24,42 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
             val width = source.width; val height = source.height
             val began = SystemClock.elapsedRealtime()
             val prepared = preparedCoverage(mask, width, height)
+            val maskMs = SystemClock.elapsedRealtime() - began
             val coverage = prepared.data
             val region = InpaintingPreparation.region(
                 coverage, width, height, settings.maxWorkingSide, prepared.bounds)
                 ?: return@withContext source.copy(Bitmap.Config.ARGB_8888, false)
             val pixels = IntArray(width * height)
             source.getPixels(pixels, 0, width, 0, 0, width, height)
+            val beforeInputs = SystemClock.elapsedRealtime()
             val inputs = InpaintingPreparation.inputs(pixels, coverage, width, height, region)
             currentCoroutineContext().ensureActive()
+            val inputsMs = SystemClock.elapsedRealtime() - beforeInputs
             val preparationMs = SystemClock.elapsedRealtime() - began
             val inferenceStarted = SystemClock.elapsedRealtime()
             val prediction = runner.predict(inputs.image, inputs.mask)
             val inferenceMs = SystemClock.elapsedRealtime() - inferenceStarted
             currentCoroutineContext().ensureActive()
+            // Aggregate diagnostics only, no image content or names in logs.
+            // Large area and flat neural prediction can now be distinguished
+            // from a wrong ROI/mask scale in Xiaomi device QA.
+            val diagnostics = InpaintingDiagnosticPolicy.analyze(
+                coverage, width, height, inputs.mask, region.size, prediction)
             val compositeStarted = SystemClock.elapsedRealtime()
             val result = InpaintingPreparation.composite(
                 pixels, coverage, width, height, region, prediction,
                 bounds = prepared.bounds)
             val compositingMs = SystemClock.elapsedRealtime() - compositeStarted
             AppLog.i("AiOrtPerf", "model=LAMA size=${width}x$height " +
+                "mask_ms=$maskMs input_sample_ms=$inputsMs " +
                 "mask_preparation_ms=$preparationMs inference_ms=$inferenceMs " +
-                "composite_ms=$compositingMs")
+                "composite_ms=$compositingMs " +
+                "mask_fraction=${diagnostics.sourceMaskFraction} " +
+                "model_mask_fraction=${diagnostics.modelMaskFraction} " +
+                "roi_side_fraction=${diagnostics.workingSideFraction} " +
+                "prediction_spread=${diagnostics.modelPredictionSpread} " +
+                "large_area=${diagnostics.largeArea} " +
+                "total_ms=${SystemClock.elapsedRealtime() - began}")
             currentCoroutineContext().ensureActive()
             Bitmap.createBitmap(result, width, height, Bitmap.Config.ARGB_8888)
         }

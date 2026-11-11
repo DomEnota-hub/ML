@@ -37,6 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntSize
@@ -292,8 +293,8 @@ internal fun EditorTextDialog(
                                             bounds.height * image.height * scale), style = Stroke(2.dp.toPx()))
                                 }
                             }
-                            selected?.takeIf { !selectSample && !pickColor && !playing && it.text.isNotBlank() &&
-                                (durationMs == null || it.visibleAt(position)) }?.let { layer ->
+                            selected?.takeIf { !selectSample && !pickColor && !playing &&
+                                (it.text.isBlank() || durationMs == null || it.visibleAt(position)) }?.let { layer ->
                                 TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom,
                                     onTap = { sheetOpen = true; textToolTab = UnifiedTextTab.KEYBOARD },
                                     onDuplicate = {
@@ -436,13 +437,10 @@ internal fun EditorTextDialog(
                                         UnifiedTextTab.KEYBOARD -> {
                                             OutlinedTextField(layer.text,
                                                 { update(layer.copy(text = it.take(500))) },
-                                                modifier = Modifier.fillMaxWidth(),
+                                                modifier = Modifier.fillMaxWidth()
+                                                    .testTag("editor-text-input"),
                                                 label = { Text("Надпись") },
                                                 maxLines = 4)
-                                            Text("Нажми на надпись на изображении, чтобы выделить её. " +
-                                                "Потяни рамку для перемещения, угловой маркер — для размера и поворота.",
-                                                color = Color.LightGray,
-                                                style = MaterialTheme.typography.bodySmall)
                                         }
                                         UnifiedTextTab.STYLE -> {
                                             UnifiedTextStyle(layer = layer,
@@ -519,12 +517,24 @@ internal fun EditorTextDialog(
                                                 videoPlayer?.play(); playing = true
                                             })
                                     }
-                                    TextButton(onClick = {
-                                        layers = layers.filterNot { it.id == layer.id }
-                                        selectedId = layers.lastOrNull()?.id
-                                        if (selectedId == null) sheetOpen = false
-                                    }, modifier = Modifier.fillMaxWidth()) {
-                                        Text("Удалить надпись", color = MaterialTheme.colorScheme.error)
+                                    androidx.compose.material3.OutlinedButton(
+                                        onClick = {
+                                            layers = layers.filterNot { it.id == layer.id }
+                                            selectedId = layers.lastOrNull()?.id
+                                            if (selectedId == null) sheetOpen = false
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .padding(top = 4.dp, bottom = 12.dp),
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp, Color(0xFFE76D80)),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = Color(0xFFFFA0AC)),
+                                    ) {
+                                        Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Удалить надпись")
                                     }
                                 }
                             }

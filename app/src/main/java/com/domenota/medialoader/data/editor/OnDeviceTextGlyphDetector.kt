@@ -17,6 +17,8 @@ data class DetectedGlyph(
     val top: Float,
     val right: Float,
     val bottom: Float,
+    /** Symbol-level OCR probability, never inferred from image position. */
+    val confidence: Float = 100f,
 ) {
     init {
         require(left >= 0f && top >= 0f && right <= 1f && bottom <= 1f)

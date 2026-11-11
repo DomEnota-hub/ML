@@ -23,6 +23,8 @@ data class AudioEditSpec(
     val album: String = "",
     val replacementCoverUri: String? = null,
     val removeCover: Boolean = false,
+    /** Explicit destructive choice: never inferred from ordinary export. */
+    val replaceOriginal: Boolean = false,
 ) {
     init {
         require(startMs >= 0L)

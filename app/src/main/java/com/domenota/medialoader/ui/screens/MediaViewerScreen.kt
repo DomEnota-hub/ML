@@ -609,7 +609,9 @@ internal fun LocalVideoPlayer(
         else if (!galleryPagingEnabled) playerView?.showController()
     }
     LaunchedEffect(controlsLocked) {
-        unlockVisible = false
+        // Keep the unlock affordance visible immediately after locking.
+        // A subsequent tap on the locked video can reveal it again.
+        unlockVisible = controlsLocked
     }
     LaunchedEffect(unlockVisible, controlsLocked) {
         if (controlsLocked && unlockVisible) {
@@ -626,7 +628,7 @@ internal fun LocalVideoPlayer(
 
     fun toggleChrome() {
         if (controlsLocked) {
-            unlockVisible = !unlockVisible
+            unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible)
             return
         }
         if (galleryPagingEnabled) {
@@ -977,7 +979,7 @@ internal fun LocalVideoPlayer(
                         onTap = { toggleChrome() },
                         onDoubleTap = { tap ->
                             when {
-                                controlsLocked -> unlockVisible = !unlockVisible
+                                controlsLocked -> unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible)
                                 tap.x < size.width * .42f -> seekBy(-10_000L)
                                 tap.x > size.width * .58f -> seekBy(10_000L)
                                 else -> toggleChrome()
@@ -985,6 +987,16 @@ internal fun LocalVideoPlayer(
                         },
                     )
                 })
+        }
+        if (galleryPagingEnabled && controlsLocked) {
+            // Each ordinary tap toggles visibility only. Locked playback stays
+            // untouched; the lock icon itself remains a separate click target.
+            // Auto-hide still applies after the last show when idle.
+            Box(
+                Modifier.fillMaxSize().pointerInput(controlsLocked) {
+                    detectTapGestures(onTap = { unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible) })
+                },
+            )
         }
         // Previous follows the usual music-player rule: >3s restarts the episode;
         // pressing again near the beginning opens the preceding video in the album.
@@ -1159,8 +1171,10 @@ internal fun LocalVideoPlayer(
                 onNext = { onNextVideo?.invoke(player.playWhenReady) },
                 onSeekTo = { position -> player.seekTo(position.coerceIn(0L, playableDurationMs.coerceAtLeast(0L))) },
                 onLockChange = { next ->
+                    // On lock, show a real unlock target immediately; on
+                    // unlock, restore the ordinary player controls.
+                    unlockVisible = next
                     onControlsLockedChange(next)
-                    unlockVisible = false
                 },
             )
         }
@@ -1186,7 +1200,7 @@ internal fun LocalVideoPlayer(
                             change.consume()
                         }
                     } while (event.changes.any { it.pressed })
-                    if (tapped) unlockVisible = !unlockVisible
+                    if (tapped) unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible)
                 }
             })
             if (unlockVisible) IconButton(onClick = { onControlsLockedChange(false) },

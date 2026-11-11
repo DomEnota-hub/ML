@@ -1032,6 +1032,157 @@ class MediaRepository private constructor(context: Context) {
         }
     }
 
+    /**
+     * In-place edit of an explicitly approved public MP3. Preserve the stable
+     * MediaStore URI and Room download ID so favorites, playlists and grouping
+     * keep pointing to the same track. A durable private backup is kept until
+     * both the bytes and the DB update have been verified.
+     *
+     * Caller must have obtained any Android MediaStore write grant first.
+     * Never fall back to delete-and-reinsert: that would lose references.
+     */
+    suspend fun replaceEditedAudioFile(
+        source: DownloadEntity,
+        file: java.io.File,
+        title: String,
+        artist: String,
+        album: String,
+    ): DownloadEntity = musicPostProcessGate.withPermit {
+        requireMediaAccess(source)
+        require(com.domenota.medialoader.data.editor.AudioReplacePolicy.eligible(source)) {
+            "Заменить можно только исходный MP3 в общей медиатеке. Сохраните копию."
+        }
+        require(file.isFile && file.length() > 0L) { "Новый MP3 пуст." }
+        val latest = history.byId(source.id)
+            ?: throw java.io.IOException("Исходный трек не найден в базе.")
+        if (!com.domenota.medialoader.data.editor.AudioReplacePolicy.eligible(latest) ||
+            latest.savedUri != source.savedUri) {
+            throw java.io.IOException("Исходный файл изменился. Повторно откройте редактор.")
+        }
+        val uri = Uri.parse(requireNotNull(latest.savedUri))
+        val recoveryDir = java.io.File(appContext.filesDir, "audio-replacement-recovery")
+        if (!recoveryDir.exists() && !recoveryDir.mkdirs())
+            throw java.io.IOException("Нет места для защитной копии.")
+        val key = latest.id.replace(Regex("[^A-Za-z0-9_-]"), "_").take(90)
+        val backup = java.io.File(recoveryDir, "$key.original.mp3")
+        val journal = java.io.File(recoveryDir, "$key.pending")
+        if (backup.exists() || journal.exists())
+            throw java.io.IOException(
+                "Обнаружена незавершённая предыдущая замена. " +
+                "Нельзя перезаписывать трек до восстановления резервной копии.")
+        withContext(Dispatchers.IO) {
+            val resolver = appContext.contentResolver
+            fun sha256(stream: java.io.InputStream): String {
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                stream.use { input ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        digest.update(buf, 0, n)
+                    }
+                }
+                return digest.digest().joinToString("") { "%02x".format(it) }
+            }
+            fun writeSource(staged: java.io.File, onOpened: () -> Unit = {}) {
+                resolver.openFileDescriptor(uri, "rwt")?.use { descriptor ->
+                    // Provider can reject a write before any bytes changed.
+                    // Only then may we safely skip rollback on permission denial.
+                    onOpened()
+                    java.io.FileOutputStream(descriptor.fileDescriptor).use { output ->
+                        staged.inputStream().use { input -> input.copyTo(output, 64 * 1024) }
+                        output.fd.sync()
+                    }
+                } ?: throw java.io.IOException("Android не предоставил доступ к записи.")
+            }
+            try {
+                resolver.openInputStream(uri)?.use { input ->
+                    backup.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
+                } ?: throw java.io.IOException("Исходный MP3 недоступен для копирования.")
+                if (backup.length() <= 0L)
+                    throw java.io.IOException("Резервная копия исходного MP3 пуста.")
+                val originalSha = sha256(backup.inputStream())
+                val outputSha = sha256(file.inputStream())
+                journal.writeText("id=${latest.id}\nuri=$uri\nsha256=$originalSha\n")
+                // Critical byte replacement and history update must finish
+                // together even if the user navigates away during export.
+                withContext(NonCancellable) {
+                    var writingStarted = false
+                    try {
+                        writeSource(file) { writingStarted = true }
+                        val writtenSha = resolver.openInputStream(uri)?.let(::sha256)
+                            ?: throw java.io.IOException("Нет доступа для проверки MP3.")
+                        if (writtenSha != outputSha)
+                            throw java.io.IOException("Проверка MP3 после записи не прошла.")
+                        val newDuration = runCatching {
+                            MediaMetadataRetriever().let { retriever ->
+                                try {
+                                    retriever.setDataSource(file.absolutePath)
+                                    retriever.extractMetadata(
+                                        MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                                } finally { retriever.release() }
+                            }
+                        }.getOrNull() ?: latest.durationMs
+                        val changed = latest.copy(
+                            sizeBytes = file.length(),
+                            durationMs = newDuration,
+                            recognizedTitle = title, recognizedArtist = artist,
+                            recognizedAlbum = album,
+                        )
+                        history.save(changed)
+                        // Waveform cache is keyed by URI, which is deliberately
+                        // unchanged; invalidate peaks only AFTER verified write.
+                        runCatching {
+                            com.domenota.medialoader.ui.components
+                                .invalidateAudioWaveform(appContext, uri)
+                        }
+                        // Metadata lives both in MP3 ID3 and our library row.
+                        runCatching {
+                            val meta = android.content.ContentValues().apply {
+                                put(android.provider.MediaStore.Audio.Media.TITLE, title)
+                                put(android.provider.MediaStore.Audio.Media.ARTIST, artist)
+                                put(android.provider.MediaStore.Audio.Media.ALBUM, album)
+                            }
+                            resolver.update(uri, meta, null, null)
+                            resolver.notifyChange(uri, null)
+                        }.onFailure {
+                            AppLog.w("AudioReplace", "MediaStore metadata update skipped: ${it.javaClass.simpleName}")
+                        }
+                        backup.delete()
+                        journal.delete()
+                        changed
+                    } catch (error: Throwable) {
+                        if (writingStarted) {
+                            try {
+                                writeSource(backup)
+                                val restoredSha = resolver.openInputStream(uri)?.let(::sha256)
+                                if (restoredSha != originalSha)
+                                    throw java.io.IOException("Контрольная сумма восстановления не совпала.")
+                                backup.delete()
+                                journal.delete()
+                            } catch (restoreError: Throwable) {
+                                val failure = java.io.IOException(
+                                    "Запись не удалась и восстановление требует внимания. " +
+                                    "Защитная копия сохранена в приложении; не удаляйте ML.",
+                                    error,
+                                )
+                                failure.addSuppressed(restoreError)
+                                throw failure
+                            }
+                        } else {
+                            backup.delete()
+                            journal.delete()
+                        }
+                        throw error
+                    }
+                }
+            } catch (error: Throwable) {
+                if (!journal.exists()) backup.delete()
+                throw error
+            }
+        }
+    }
+
     suspend fun downloadById(id: String): DownloadEntity? = history.byId(id)
 
     /** Index a file already published by the separate VK community queue in normal history. */

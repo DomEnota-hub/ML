@@ -70,6 +70,8 @@ internal object AiPrismMotion {
 internal fun AiPrismWorkingIndicator(
     label: String,
     modifier: Modifier = Modifier,
+    showLabel: Boolean = true,
+    tileSize: androidx.compose.ui.unit.Dp = 108.dp,
 ) {
     val transition = rememberInfiniteTransition(label = "ai-prism-working")
     val phase by transition.animateFloat(
@@ -89,7 +91,7 @@ internal fun AiPrismWorkingIndicator(
     ) {
         val tile = RoundedCornerShape(24.dp)
         Canvas(
-            Modifier.size(108.dp).clip(tile).background(Color(0xFFF9F9F9)),
+            Modifier.size(tileSize).clip(tile).background(Color(0xFFF9F9F9)),
         ) {
             val w = size.width
             val h = size.height
@@ -170,7 +172,7 @@ internal fun AiPrismWorkingIndicator(
             }
             drawPath(silhouette, Color.Black, style = Stroke(width = 1.55f * px))
         }
-        Text(
+        if (showLabel && label.isNotBlank()) Text(
             text = label,
             color = Color.White,
             fontSize = 12.sp,

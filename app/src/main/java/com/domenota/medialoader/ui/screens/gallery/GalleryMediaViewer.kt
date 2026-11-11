@@ -68,6 +68,7 @@ internal fun GalleryMediaViewer(
     folders: List<CatalogFolderEntity>, onSetFolder: suspend (String, String?) -> Unit,
     onMoveToPrivate: (DownloadEntity) -> Unit, onOpenExternal: (DownloadEntity) -> Unit,
     onCurrentItemChanged: (DownloadEntity) -> Unit,
+    privateMode: Boolean = false,
 ) {
     val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
     DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
@@ -292,6 +293,7 @@ internal fun GalleryMediaViewer(
                         onEdit = { onEdit(current) },
                         onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
                         isFavorite = current.id in favoriteIds,
+                        showFavorite = !privateMode,
                         onDelete = { onDelete(current) },
                         onMenu = { menu = true },
                     )
@@ -318,6 +320,7 @@ internal fun GalleryMediaViewer(
                     GalleryV10Bottom(
                         isPhoto = current.mediaType == MediaType.PHOTO,
                         isFavorite = current.id in favoriteIds,
+                        showFavorite = !privateMode,
                         onShare = { onShare(current) },
                         onEdit = { onEdit(current) },
                         onFavorite = { mutate { onFavorite(current.id, current.id !in favoriteIds) } },
@@ -332,7 +335,7 @@ internal fun GalleryMediaViewer(
             isPhoto = current.mediaType == MediaType.PHOTO,
             repeatOne = loopVideo,
             speed = videoSpeed,
-            allowPrivate = current.providerId != "device",
+            allowPrivate = !privateMode && current.providerId != "device",
             onDismiss = { menu = false },
             onSpeed = { selected -> videoSpeed = selected; menu = false },
             onAction = { action ->

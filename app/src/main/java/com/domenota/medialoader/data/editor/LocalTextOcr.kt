@@ -161,29 +161,96 @@ internal object LocalTextOcr {
         }
     }
 
+    /**
+     * Multi-scale, local-only OCR. A full-image sparse search is supplemented
+     * by a high-resolution caption crop: tiny watermark letters at the lower
+     * left otherwise look like noise, while faces can yield random symbols.
+     * Every box is remapped to the ORIGINAL bitmap's coordinates.
+     */
     suspend fun glyphs(context: Context, image: Bitmap): List<DetectedGlyph> = withEngine(context) { api ->
-        api.pageSegMode = TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT
-        api.setImage(image)
-        api.getUTF8Text()
-        val iterator = api.resultIterator ?: return@withEngine emptyList()
         val level = TessBaseAPI.PageIteratorLevel.RIL_SYMBOL
-        try {
-            iterator.begin()
-            buildList {
-                do {
-                    currentCoroutineContext().ensureActive()
-                    val text = iterator.getUTF8Text(level).orEmpty()
-                    val box = iterator.getBoundingRect(level)
-                    if (text.isNotBlank() && box != null) {
-                        val l = (box.left.toFloat() / image.width).coerceIn(0f, 1f)
-                        val t = (box.top.toFloat() / image.height).coerceIn(0f, 1f)
-                        val r = (box.right.toFloat() / image.width).coerceIn(0f, 1f)
-                        val b = (box.bottom.toFloat() / image.height).coerceIn(0f, 1f)
-                        if (l < r && t < b) add(DetectedGlyph(size, text, l, t, r, b))
-                    }
-                } while (size < 1200 && iterator.next(level))
+
+        fun scan(
+            bitmap: Bitmap, mode: Int,
+            sourceX: Int, sourceY: Int, sourceWidth: Int, sourceHeight: Int,
+        ): List<DetectedGlyph> {
+            api.pageSegMode = mode
+            api.setImage(bitmap)
+            api.getUTF8Text()
+            val iterator = api.resultIterator ?: return emptyList()
+            try {
+                iterator.begin()
+                return buildList {
+                    do {
+                        val text = iterator.getUTF8Text(level).orEmpty().trim()
+                        val box = iterator.getBoundingRect(level)
+                        val confidence = iterator.confidence(level)
+                        if (text.isNotEmpty() && box != null &&
+                            confidence.isFinite() && confidence >= 45f) {
+                            val left = ((sourceX + box.left.toFloat() / bitmap.width * sourceWidth) /
+                                image.width).coerceIn(0f, 1f)
+                            val top = ((sourceY + box.top.toFloat() / bitmap.height * sourceHeight) /
+                                image.height).coerceIn(0f, 1f)
+                            val right = ((sourceX + box.right.toFloat() / bitmap.width * sourceWidth) /
+                                image.width).coerceIn(0f, 1f)
+                            val bottom = ((sourceY + box.bottom.toFloat() / bitmap.height * sourceHeight) /
+                                image.height).coerceIn(0f, 1f)
+                            if (left < right && top < bottom)
+                                add(DetectedGlyph(size, text, left, top, right, bottom, confidence))
+                        }
+                    } while (size < 1200 && iterator.next(level))
+                }
+            } finally {
+                iterator.delete()
             }
-        } finally { iterator.delete() }
+        }
+
+        val full = scan(image, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+            0, 0, image.width, image.height)
+        currentCoroutineContext().ensureActive()
+
+        // A cropped, upscaled caption is cheaper and more legible than
+        // multiplying the resolution of a whole megapixel photograph.
+        val capW = (image.width * .70f).toInt().coerceIn(1, image.width)
+        val top = (image.height * .69f).toInt().coerceIn(0, image.height - 1)
+        val capH = image.height - top
+        val crop = Bitmap.createBitmap(image, 0, top, capW, capH)
+        val scale = minOf(3.0f, 1920f / capW, 960f / capH)
+            .coerceAtLeast(1f)
+        val enlarged = Bitmap.createScaledBitmap(crop,
+            (capW * scale).toInt().coerceAtLeast(1),
+            (capH * scale).toInt().coerceAtLeast(1), true)
+        try {
+            val croppedSparse = scan(enlarged, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+                0, top, capW, capH)
+            currentCoroutineContext().ensureActive()
+            val croppedLine = scan(enlarged, TessBaseAPI.PageSegMode.PSM_SINGLE_LINE,
+                0, top, capW, capH)
+            val captionCandidates = mutableListOf(croppedSparse, croppedLine)
+            // Tiny pale watermarks can disappear against a pale floor even
+            // after enlargement. Try a local high-contrast crop ONLY when
+            // both normal caption passes failed the coherent-line test.
+            if (captionCandidates.none { OcrLineCandidatePolicy.select(it).size >= 4 }) {
+                currentCoroutineContext().ensureActive()
+                val contrast = enhanceTextForOcr(enlarged)
+                try {
+                    captionCandidates += scan(contrast,
+                        TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+                        0, top, capW, capH)
+                } finally {
+                    if (contrast !== enlarged) contrast.recycle()
+                }
+            }
+            val candidates = OcrLineCandidatePolicy.best(full, captionCandidates)
+            AppLog.i("PhotoOCR", "glyphs_full=${full.size} " +
+                "glyphs_caption=${croppedSparse.size} " +
+                "glyphs_line=${croppedLine.size} " +
+                "caption_passes=${captionCandidates.size} accepted=${candidates.size}")
+            candidates
+        } finally {
+            if (enlarged !== crop) enlarged.recycle()
+            if (crop !== image) crop.recycle()
+        }
     }
 
     private suspend fun <T> withEngine(context: Context, block: suspend (TessBaseAPI) -> T): T =
