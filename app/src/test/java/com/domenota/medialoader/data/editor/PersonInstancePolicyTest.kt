@@ -78,4 +78,33 @@ class PersonInstancePolicyTest {
         assertTrue(PersonInstancePolicy.ambiguity(a, b))
         assertFalse(PersonInstancePolicy.ambiguity(a, c))
     }
+    @Test fun safeHeadPromptCanPreserveHairAboveDetectorBox() {
+        val box = PersonBox(.2f, .2f, .6f, .8f)
+        val strokes = (10..40).map { row ->
+            val y = row / 100f
+            MaskStroke(listOf(MaskPoint(.30f, y), MaskPoint(.48f, y)), .01f)
+        }
+        val mask = PersonInstancePolicy.constrainToPerson(strokes, box)
+        assertTrue("Hair just above the box should remain", mask.any { it.points.first().y == .13f })
+        assertTrue("Far outside detector bounds must still be rejected",
+            mask.none { it.points.first().y == .10f })
+    }
+
+    @Test fun upperSilhouetteRetryOnlyAcceptsMeaningfulHeadCoverage() {
+        val box = PersonBox(.1f, .1f, .5f, .9f)
+        fun rows(begin: Int, end: Int): List<MaskStroke> =
+            (begin..end).map { y ->
+                MaskStroke(listOf(MaskPoint(.2f, y / 100f),
+                    MaskPoint(.4f, y / 100f)), .01f)
+            }
+        val torso = rows(39, 70)
+        val complete = rows(17, 72)
+        val backgroundExplosion = rows(10, 95) + rows(10, 95)
+        assertTrue(PersonInstancePolicy.needsUpperDetailRetry(torso, box))
+        assertFalse(PersonInstancePolicy.needsUpperDetailRetry(complete, box))
+        assertTrue(PersonInstancePolicy.preferUpperDetail(torso, complete, box))
+        assertFalse(PersonInstancePolicy.preferUpperDetail(torso, backgroundExplosion, box))
+        assertFalse(PersonInstancePolicy.preferUpperDetail(complete, torso, box))
+    }
+
 }
