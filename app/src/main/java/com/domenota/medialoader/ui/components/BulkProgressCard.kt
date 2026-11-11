@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.data.bulk.BulkLinks
+import com.domenota.medialoader.data.bulk.BulkOutcomeCounts
 import com.domenota.medialoader.data.bulk.BulkPacing
 import com.domenota.medialoader.data.bulk.BulkPhase
 import com.domenota.medialoader.data.bulk.BulkState
@@ -74,14 +75,14 @@ fun BulkProgressCard(
     val completed = related.count { it.state == DownloadState.COMPLETED }
     val failed = related.count { it.state == DownloadState.FAILED }
     val cancelled = related.count { it.state == DownloadState.CANCELLED }
-    val accounted = completed + failed + cancelled
-    // Missing here means no terminal status is visible in this screen's
-    // current download snapshot. It does NOT imply a lost file on disk.
-    val unconfirmed = (state.queuedCount - accounted).coerceAtLeast(0)
+    val counts = BulkOutcomeCounts.from(
+        selected = state.selectedCount, queued = state.queuedCount,
+        completed = completed, failed = failed, cancelled = cancelled,
+    )
     val isAnalysis = state.phase == BulkPhase.ANALYZING || state.phase == BulkPhase.PREVIEW
     val total = if (isAnalysis) state.urls.size else state.selectedCount
     val processed = if (isAnalysis) state.cursor.coerceAtMost(total)
-        else accounted.coerceAtMost(total)
+        else counts.terminal.coerceAtMost(total)
     val percent = if (total > 0) processed * 100 / total else 0
     val finished = state.phase in setOf(BulkPhase.PREVIEW, BulkPhase.FINISHED, BulkPhase.STOPPED)
     val title = when (state.phase) {
@@ -132,7 +133,7 @@ fun BulkProgressCard(
                 } else {
                     Text(if (state.phase == BulkPhase.PREVIEW)
                             "${state.urls.size} ссылок обработано"
-                        else "Файлов в задании: ${state.queuedCount}",
+                        else "Выбрано: ${counts.selected}, в очереди: ${counts.queued}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -143,10 +144,18 @@ fun BulkProgressCard(
                     Metric(if (isAnalysis) state.unsupported + state.duplicates else cancelled,
                         if (isAnalysis) "Пропуски/повторы" else "Отменено")
                 }
-                if (!isAnalysis && unconfirmed > 0) {
+                if (!isAnalysis && (counts.neverQueued > 0 ||
+                        counts.pendingOrUnknown > 0)) {
                     Text(
-                        "Без подтверждённого результата: $unconfirmed. " +
-                            "Проверьте подробности задания и историю загрузок.",
+                        buildString {
+                            if (counts.neverQueued > 0) {
+                                append("Не поставлено в очередь: ${counts.neverQueued}. ")
+                            }
+                            if (counts.pendingOrUnknown > 0) {
+                                append("Без подтверждённого итога: ${counts.pendingOrUnknown}. ")
+                            }
+                            append("Подробнее в журнале задания.")
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
