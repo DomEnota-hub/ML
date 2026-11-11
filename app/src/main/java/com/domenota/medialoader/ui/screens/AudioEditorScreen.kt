@@ -1,6 +1,10 @@
 package com.domenota.medialoader.ui.screens
 
+import android.app.Activity
+import android.os.Build
+import android.provider.MediaStore
 import android.content.Intent
+import androidx.activity.result.IntentSenderRequest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
@@ -56,6 +60,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.data.editor.AudioEditSpec
+import com.domenota.medialoader.data.editor.AudioReplacePolicy
 import com.domenota.medialoader.data.editor.EditorExportState
 import com.domenota.medialoader.ui.components.editorSliderYellow
 import com.domenota.medialoader.ui.components.AudioWaveformTimeline
@@ -104,6 +109,30 @@ fun AudioEditorScreen(
     var replacementCoverUri by remember(item.id) { mutableStateOf<String?>(null) }
     var replacementCover by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     var removeCover by remember(item.id) { mutableStateOf(false) }
+    var confirmReplacement by remember(item.id) { mutableStateOf(false) }
+    var replaceError by remember(item.id) { mutableStateOf<String?>(null) }
+    val canReplaceOriginal = AudioReplacePolicy.eligible(item)
+    fun currentSpec(replaceOriginal: Boolean) = AudioEditSpec(
+        startMs = trimStart,
+        endMs = trimEnd.takeIf { end ->
+            end > 0L && end < (sourceInfo?.durationMs ?: Long.MAX_VALUE)
+        },
+        title = title.trim(), artist = artist.trim(), album = album.trim(),
+        replacementCoverUri = replacementCoverUri,
+        removeCover = removeCover,
+        replaceOriginal = replaceOriginal,
+    )
+    val replaceGrant = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            replaceError = null
+            onExport(currentSpec(replaceOriginal = true))
+        } else {
+            replaceError = "Android не разрешил заменить исходный файл. Копию сохранить можно."
+        }
+    }
+
 
     val initialTitle = item.recognizedTitle ?: item.sourceAudioTitle ?: sourceInfo?.title.orEmpty()
     val initialArtist = item.recognizedArtist ?: item.sourceAudioArtist ?: sourceInfo?.artist.orEmpty()
@@ -272,7 +301,9 @@ fun AudioEditorScreen(
                 value = title,
                 onValueChange = { title = it.take(200) },
                 label = { Text("Название") },
-                singleLine = true,
+                singleLine = false,
+                minLines = 1,
+                maxLines = 2,
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedLabelColor = MaterialTheme.colorScheme.onSurface,
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -280,14 +311,16 @@ fun AudioEditorScreen(
                     focusedBorderColor = editorSliderYellow,
                     cursorColor = editorSliderYellow,
                 ),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp),
             )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = artist,
                 onValueChange = { artist = it.take(200) },
                 label = { Text("Исполнитель") },
-                singleLine = true,
+                singleLine = false,
+                minLines = 1,
+                maxLines = 2,
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedLabelColor = MaterialTheme.colorScheme.onSurface,
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -295,14 +328,16 @@ fun AudioEditorScreen(
                     focusedBorderColor = editorSliderYellow,
                     cursorColor = editorSliderYellow,
                 ),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp),
             )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = album,
                 onValueChange = { album = it.take(200) },
                 label = { Text("Альбом") },
-                singleLine = true,
+                singleLine = false,
+                minLines = 1,
+                maxLines = 2,
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedLabelColor = MaterialTheme.colorScheme.onSurface,
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -342,11 +377,6 @@ fun AudioEditorScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(
-                    "Тап по полосе запускает предпросмотр с выбранной точки до правой границы.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             } else {
                 Text("Определяем длительность…", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -377,31 +407,63 @@ fun AudioEditorScreen(
                     )
                 }
                 Button(
-                    onClick = {
-                        onExport(
-                            AudioEditSpec(
-                                startMs = trimStart,
-                                endMs = trimEnd.takeIf { end ->
-                                    end > 0L && end < (sourceInfo?.durationMs ?: Long.MAX_VALUE)
-                                },
-                                title = title.trim(),
-                                artist = artist.trim(),
-                                album = album.trim(),
-                                replacementCoverUri = replacementCoverUri,
-                                removeCover = removeCover,
-                            ),
-                        )
-                    },
+                    onClick = { onExport(currentSpec(replaceOriginal = false)) },
                     enabled = sourceInfo != null && !busyWithOther,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 ) {
                     Text("Сохранить копию")
                 }
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = { confirmReplacement = true; replaceError = null },
+                    enabled = canReplaceOriginal && sourceInfo != null && !busyWithOther,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                ) {
+                    Text("Заменить оригинал")
+                }
                 Text(
-                    "Сохраняется отдельный MP3 192 кбит/с. Исходный файл не изменяется.",
+                    if (canReplaceOriginal)
+                        "Копия сохраняется отдельно. Замена MP3 изменяет исходный файл только после подтверждения."
+                    else "Безопасная замена доступна только для общих MP3-файлов в медиатеке. Остальные сохраняются копией.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
+                )
+                replaceError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+
+            if (confirmReplacement) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { confirmReplacement = false },
+                    title = { Text("Заменить исходный MP3?") },
+                    text = {
+                        Text("Изменённое аудио заменит оригинал, сохранив его место в галерее и избранном. " +
+                            "ML сделает защитную копию и проверит новую запись. Не закрывайте приложение до завершения.")
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            confirmReplacement = false
+                            if (!canReplaceOriginal || uri == null) {
+                                replaceError = "Этот файл нельзя безопасно заменить."
+                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                try {
+                                    val permission = MediaStore.createWriteRequest(
+                                        context.contentResolver, listOf(uri))
+                                    replaceGrant.launch(
+                                        IntentSenderRequest.Builder(permission.intentSender).build())
+                                } catch (error: Exception) {
+                                    replaceError = "Не удалось запросить разрешение на изменение MP3."
+                                }
+                            } else {
+                                onExport(currentSpec(replaceOriginal = true))
+                            }
+                        }) { Text("Заменить") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmReplacement = false }) {
+                            Text("Отмена")
+                        }
+                    },
                 )
             }
 
