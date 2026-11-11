@@ -1,17 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#00000000"
-        android:strokeColor="#FFFFFFFF" android:strokeWidth="1.8"
-        android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M3.75,14.1 L12.9,4.95 C13.65,4.2 14.85,4.2 15.6,4.95 L20.05,9.4 C20.8,10.15 20.8,11.35 20.05,12.1 L12.4,19.75 L9.1,19.75 L3.75,14.4 Z"/>
-    <path android:fillColor="#00000000"
-        android:strokeColor="#FFFFFFFF" android:strokeWidth="1.8"
-        android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M8.3,9.55 L15.45,16.7"/>
-    <path android:fillColor="#00000000"
-        android:strokeColor="#FFFFFFFF" android:strokeWidth="1.8"
-        android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M3,20 L21,20"/>
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Rounded parallelogram eraser, tip seam and clean baseline. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M13.82,4.4 C14.57,3.65 15.8,3.65 16.55,4.4 L20.6,8.45 C21.35,9.2 21.35,10.43 20.6,11.18 L12.42,19.36 L8.66,19.36 L3.4,14.1 Z"/>
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF111111"
+        android:strokeWidth="1.65"
+        android:strokeLineCap="round"
+        android:pathData="M8.7,9 L15.95,16.25"/>
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M3.2,21 L21,21"/>
 </vector>
