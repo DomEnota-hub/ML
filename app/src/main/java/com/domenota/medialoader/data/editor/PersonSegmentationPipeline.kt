@@ -38,8 +38,21 @@ internal class PersonSegmentationPipeline(
                 currentCoroutineContext().ensureActive()
                 try {
                     val raw = segmentAt(bitmap, point)
-                    mask = PersonInstancePolicy.constrainToPerson(raw, detection.box)
-                    break
+                    val candidate = PersonInstancePolicy.constrainToPerson(raw, detection.box)
+                    if (mask == null) {
+                        mask = candidate
+                        // Only retry if a genuine SAM mask unexpectedly omits
+                        // the upper silhouette (hair/head). One *successful*
+                        // extra inference at most, avoiding repeated slow calls.
+                        if (!PersonInstancePolicy.needsUpperDetailRetry(candidate, detection.box))
+                            break
+                    } else {
+                        if (PersonInstancePolicy.preferUpperDetail(
+                                requireNotNull(mask), candidate, detection.box)) {
+                            mask = candidate
+                        }
+                        break
+                    }
                 } catch (_: IOException) {
                     // A prompt may land on the background; try other actual
                     // foreground candidates in THIS detected person's bbox.

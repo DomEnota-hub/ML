@@ -133,18 +133,18 @@ private fun EraserStartButton(
 ) {
     val shape = RoundedCornerShape(11.dp)
     val gradient = if (enabled) {
-        listOf(Color(0xFFFFE075), Color(0xFFFFC21C), Color(0xFFE18C13))
+        listOf(Color(0xFFFFE99B), Color(0xFFFFC21C), Color(0xFFFFAA00))
     } else {
-        listOf(Color(0xFF665B43), Color(0xFF665B43))
+        listOf(Color(0xFF626262), Color(0xFF626262))
     }
     Box(
         Modifier.width(width).height(37.dp)
             .border(BorderStroke(1.dp, GradientBrush.horizontalGradient(gradient)), shape)
-            .background(Color(0xFF252525), shape)
+            .background(if (enabled) Color(0xFFFFC21C) else Color(0xFF343434), shape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = if (enabled) Color.White else Color(0xFF999999),
+        Text(label, color = if (enabled) Color(0xFF151515) else Color(0xFFC4C4C4),
             fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }
@@ -334,6 +334,7 @@ internal fun ObjectRemovalPanel(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var selectedMode by remember { mutableStateOf(AiEraserMode.OBJECTS) }
+    var refiningPeople by remember { mutableStateOf(false) }
     val busy = processing || downloading || scanningText || peopleSearching
 
     // Preview the exact source-pixel mask BEFORE launching LaMa. This is
@@ -431,8 +432,13 @@ internal fun ObjectRemovalPanel(
         val source = current.bitmap
         scope.launch {
             try {
-                glyphs = glyphDetector.detect(source)
-                if (glyphs.isEmpty()) message = "Не удалось найти отдельные буквы."
+                val found = glyphDetector.detect(source)
+                glyphs = found
+                // Detection does not erase anything. Select OCR candidates by
+                // default so "Начать" is usable immediately after a scan;
+                // the actual pixel mask is still validated before inpainting.
+                selectedGlyphs.addAll(found.map { it.id }.distinct().take(160))
+                if (found.isEmpty()) message = "Не удалось найти отдельные буквы."
             } catch (error: Exception) {
                 message = error.message ?: "Не удалось распознать текст."
             } finally {
@@ -454,6 +460,10 @@ internal fun ObjectRemovalPanel(
         detectedPeople = emptyList()
         selectedPeople.clear()
         ambiguousPeople = emptySet()
+        refiningPeople = false
+        strokes.clear()
+        redoStrokes.clear()
+        maskActions.clear()
         scope.launch {
             try {
                 val found = peoplePipeline.scan(source)
@@ -498,7 +508,7 @@ internal fun ObjectRemovalPanel(
             textMode -> emptyList()
             selectedMode == AiEraserMode.PEOPLE -> detectedPeople
                 .filter { it.detection.id in selectedPeople && it.detection.id !in ambiguousPeople }
-                .flatMap { it.strokes }
+                .flatMap { it.strokes } + strokes.toList()
             else -> strokes.toList()
         }
         if (if (textMode) chosenGlyphs.isEmpty() else otherMasks.isEmpty()) return
@@ -519,7 +529,20 @@ internal fun ObjectRemovalPanel(
                         startStep.bitmap, chosenGlyphs)
                 } else otherMasks
                 if (marked.isEmpty()) {
-                    message = "Точный контур текста не подтверждён. Исправьте маску вручную."
+                    // No bounding-box fallback: it could remove real scenery.
+                    // Give the user an actionable manual correction path instead
+                    // of leaving "Начать" apparently broken with no way forward.
+                    if (textMode) {
+                        selectedMode = AiEraserMode.MANUAL
+                        textMode = false
+                        selectedGlyphs.clear()
+                        redoGlyphs.clear()
+                        glyphs = emptyList()
+                        message = "Точная маска текста не подтверждена. " +
+                            "Открылся ручной режим: отметьте буквы кистью и нажмите «Начать»."
+                    } else {
+                        message = "Выделите область для удаления."
+                    }
                     return@launch
                 }
                 val result = engine.inpaint(startStep.bitmap, marked)
@@ -706,7 +729,20 @@ internal fun ObjectRemovalPanel(
 
     // Object/manual share the original LaMa mask engine; text uses the original
     // on-device glyph detector. Unsupported AI modes remain visibly disabled.
-    Column(modifier.fillMaxSize().background(Color.Black)) {
+    val noticeHost = remember { SnackbarHostState() }
+    LaunchedEffect(message, featureNotice) {
+        val notice = message ?: featureNotice
+        if (!notice.isNullOrBlank()) {
+            // Real errors should remain actionable but never permanently
+            // displace the controls and shrink the working photo.
+            noticeHost.showSnackbar(notice, duration = SnackbarDuration.Short,
+                withDismissAction = true)
+            if (message == notice) message = null
+            if (featureNotice == notice) featureNotice = null
+        }
+    }
+    Box(modifier.fillMaxSize().background(Color.Black)) {
+    Column(Modifier.fillMaxSize()) {
         AiEraserTopBar(
             canUndo = if (textMode) selectedGlyphs.isNotEmpty() || index > 0
                 else strokes.isNotEmpty() || index > 0,
@@ -730,13 +766,12 @@ internal fun ObjectRemovalPanel(
         // The merged mask is composited exactly ONCE, so crossing lines cannot darken it.
         val selectedStrokes = if (selectedMode == AiEraserMode.PEOPLE) detectedPeople
             .filter { it.detection.id in selectedPeople && it.detection.id !in ambiguousPeople }
-            .flatMap { it.strokes } else strokes.toList()
+            .flatMap { it.strokes } + strokes.toList() else strokes.toList()
         val previewStrokes = remember(selectedStrokes, inProgress, brush, textMode, eraserMode,
             selectedMode) {
-            // People are displayed with a true per-person outline below, not
-            // a merged yellow filled rectangle or an unrelated detector box.
-            if (textMode || selectedMode == AiEraserMode.PEOPLE)
-                emptyList() else selectedStrokes +
+            // The unified preview contains the actual person-mask silhouette
+            // plus all manual additions/CLEAR strokes in source coordinates.
+            if (textMode) emptyList() else selectedStrokes +
                 inProgress.takeIf { it.isNotEmpty() }?.let {
                     listOf(MaskStroke(it,
                         (brush / minOf(working.width, working.height)).coerceIn(0.001f, 0.5f),
@@ -746,10 +781,11 @@ internal fun ObjectRemovalPanel(
         val unifiedOverlay = remember(previewStrokes, working.width, working.height) {
             UnifiedMaskOverlay.render(previewStrokes, working.width, working.height)
         }
-        val selectedIds = selectedPeople.toSet()
-        val peopleContour = remember(detectedPeople, selectedIds, ambiguousPeople,
+        val peopleContour = remember(detectedPeople, ambiguousPeople,
             working.width, working.height) {
-            PersonContourOverlay.render(detectedPeople, selectedIds, ambiguousPeople,
+            // Outline-only people behind the merged yellow preview. The latter
+            // shows EXACTLY what LaMa will receive after brush/eraser corrections.
+            PersonContourOverlay.render(detectedPeople, emptySet(), ambiguousPeople,
                 working.width, working.height)
         }
         DisposableEffect(peopleContour) {
@@ -765,7 +801,7 @@ internal fun ObjectRemovalPanel(
             Modifier.width(previewWidth).height(previewHeight).clipToBounds()
                 .background(Color.Black).onSizeChanged { viewport = it }
                 .pointerInput(moveMode, brush, busy, showBefore, textMode, glyphs, eraserMode,
-                    autoMode, selectedMode, current.bitmap) {
+                    autoMode, selectedMode, refiningPeople, current.bitmap) {
                     if (busy || showBefore) return@pointerInput
                     fun imagePoint(position: Offset): MaskPoint? =
                         ImageViewportGeometry.viewportToImage(
@@ -790,31 +826,28 @@ internal fun ObjectRemovalPanel(
                         }
                         val manualObject = selectedMode == AiEraserMode.OBJECTS && !autoMode
                         var drawing = !moveMode && !textMode && !automaticSelection &&
-                            selectedMode != AiEraserMode.PEOPLE &&
+                            (selectedMode != AiEraserMode.PEOPLE ||
+                                (refiningPeople && selectedPeople.isNotEmpty())) &&
                             selectedMode != AiEraserMode.GLARE &&
                             selectedMode != AiEraserMode.REFLECTION
                         var selecting = !moveMode && textMode && glyphs.isNotEmpty()
-                        var personTap = !moveMode && selectedMode == AiEraserMode.PEOPLE
+                        var selectionDrag = false
+                        var personTap = !moveMode && selectedMode == AiEraserMode.PEOPLE &&
+                            !refiningPeople
                         val points = mutableListOf<MaskPoint>()
                         var previousSelectionPoint = imagePoint(down.position)
                         if (drawing) {
                             imagePoint(down.position)?.let {
                                 points.add(it)
                                 cursor = it
-                                if (selectedMode == AiEraserMode.MANUAL) lastBrushPoint = it
+                                if (selectedMode == AiEraserMode.MANUAL ||
+                                    selectedMode == AiEraserMode.PEOPLE) lastBrushPoint = it
                                 if (manualObject) objectTrace = points.toList()
                             }
                         }
-                        if (selecting) {
-                            previousSelectionPoint?.let { position ->
-                                glyphs.filter { it.contains(position.x, position.y) }.forEach { glyph ->
-                                    if (glyph.id !in selectedGlyphs && selectedGlyphs.size < 160) {
-                                        selectedGlyphs.add(glyph.id)
-                                        redoGlyphs.clear()
-                                    }
-                                }
-                            }
-                        }
+                        // Tapping toggles a glyph; dragging only adds glyphs
+                        // intersected by the finger trail. Multi-touch zoom
+                        // cancels selection and never edits the mask.
                         try {
                         do {
                             val event = awaitPointerEvent()
@@ -848,15 +881,18 @@ internal fun ObjectRemovalPanel(
                                 } else if (drawing) {
                                     imagePoint(change.position)?.let {
                                         cursor = it
-                                        if (selectedMode == AiEraserMode.MANUAL) lastBrushPoint = it
+                                        if (selectedMode == AiEraserMode.MANUAL ||
+                                            selectedMode == AiEraserMode.PEOPLE) lastBrushPoint = it
                                         if (points.size < 20_000) points.add(it)
                                     }
                                     if (manualObject) objectTrace = points.toList()
                                     else inProgress = points.toList()
                                 } else if (selecting) {
+                                    if ((change.position - downPosition).getDistance() >
+                                        10.dp.toPx()) selectionDrag = true
                                     imagePoint(change.position)?.let { position ->
                                         val before = previousSelectionPoint ?: position
-                                        glyphs.filter {
+                                        if (selectionDrag) glyphs.filter {
                                             it.crosses(before.x, before.y, position.x, position.y)
                                         }.forEach { glyph ->
                                             if (glyph.id !in selectedGlyphs && selectedGlyphs.size < 160) {
@@ -887,6 +923,15 @@ internal fun ObjectRemovalPanel(
                                 }
                             }
                         } while (event.changes.any { it.pressed })
+                        if (selecting && !selectionDrag) {
+                            imagePoint(downPosition)?.let { point ->
+                                glyphs.firstOrNull { it.contains(point.x, point.y) }?.let { glyph ->
+                                    if (!selectedGlyphs.remove(glyph.id) && selectedGlyphs.size < 160)
+                                        selectedGlyphs.add(glyph.id)
+                                    redoGlyphs.clear()
+                                }
+                            }
+                        }
                         if (personTap) {
                             val tapped = imagePoint(downPosition)
                             val candidate = tapped?.let { point ->
@@ -898,6 +943,12 @@ internal fun ObjectRemovalPanel(
                             }
                             candidate?.detection?.id?.let { id ->
                                 if (!selectedPeople.remove(id)) selectedPeople.add(id)
+                                if (selectedPeople.isEmpty()) refiningPeople = false
+                                // Corrections always belong to the previous
+                                // selection; never silently apply to a new person.
+                                strokes.clear()
+                                redoStrokes.clear()
+                                maskActions.clear()
                             }
                         }
                         // Tap alone is not an opaque "AI selected something" action.
@@ -942,19 +993,19 @@ internal fun ObjectRemovalPanel(
                 val bitmap = if (showBefore) steps.first().bitmap else current.bitmap
                 Image(bitmap.asImageBitmap(), null, modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.FillBounds)
-                if (!showBefore && !textMode && unifiedOverlay != null) {
-                    Image(
-                        bitmap = unifiedOverlay.asImageBitmap(),
-                        contentDescription = "Полупрозрачная маска",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.FillBounds,
-                    )
-                }
                 if (!showBefore && selectedMode == AiEraserMode.PEOPLE &&
                     peopleContour != null) {
                     Image(peopleContour.asImageBitmap(),
                         contentDescription = "Контуры найденных людей",
                         modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+                }
+                if (!showBefore && !textMode && unifiedOverlay != null) {
+                    Image(
+                        bitmap = unifiedOverlay.asImageBitmap(),
+                        contentDescription = "Полупрозрачная маска с исправлениями",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.FillBounds,
+                    )
                 }
                 if (!showBefore) Canvas(Modifier.fillMaxSize()) {
                     val yellow = Color(0xFFFFCF22)
@@ -968,11 +1019,15 @@ internal fun ObjectRemovalPanel(
                             )
                             // OCR boxes are just candidate guides; the actual
                             // removal mask is the pixel trace rendered below.
-                            drawRect(
-                                if (selected) yellow else Color(0xBBE9F0FF),
-                                topLeft = topLeft, size = rectSize,
-                                style = Stroke(width = if (selected) 2f else 1.2f),
-                            )
+                            // When the true pixel mask exists, do not leave
+                            // misleading yellow rectangles on top of letters.
+                            if (!selected || safeTextPreview.isEmpty()) {
+                                drawRect(
+                                    if (selected) yellow else Color(0xBBE9F0FF),
+                                    topLeft = topLeft, size = rectSize,
+                                    style = Stroke(width = if (selected) 2f else 1.2f),
+                                )
+                            }
                         }
                         for (line in safeTextPreview) {
                             val sizePx = line.diameter * minOf(size.width, size.height)
@@ -1012,23 +1067,17 @@ internal fun ObjectRemovalPanel(
                             minOf(size.width / working.width, size.height / working.height)
                         val radius = if (selectedMode == AiEraserMode.OBJECTS)
                             2.dp.toPx() else (brush * previewScale / 2f).coerceAtLeast(1f)
-                        // When the slider moves, place the true-size guide at
-                        // the last visible brush location, never behind a zoomed crop.
-                        val guide = cursor ?: if (brushSizing) {
-                            val recent = lastBrushPoint?.takeIf { candidate ->
-                                ImageViewportGeometry.imageToViewport(
-                                    candidate, viewport.width.toFloat(), viewport.height.toFloat(),
-                                    zoom, pan.x, pan.y,
-                                )?.let { preview ->
-                                    preview.x in 0f..viewport.width.toFloat() &&
-                                        preview.y in 0f..viewport.height.toFloat()
-                                } == true
-                            }
-                            recent ?: ImageViewportGeometry.viewportToImage(
+                        // A size-slider gesture previews the diameter in the
+                        // center of the *visible* image viewport, not at a
+                        // stale touch point (which may be offscreen after zoom).
+                        // This uses the same zoom/pan inverse as real painting.
+                        val guide = if (brushSizing && viewport.width > 0 &&
+                            viewport.height > 0) {
+                            ImageViewportGeometry.viewportToImage(
                                 viewport.width / 2f, viewport.height / 2f,
                                 viewport.width.toFloat(), viewport.height.toFloat(),
                                 zoom, pan.x, pan.y)
-                        } else null
+                        } else cursor
                         guide?.let {
                             val center = Offset(it.x * size.width, it.y * size.height)
                             val guideColor = if (eraserMode) Color(0xFF86D7FF) else yellow
@@ -1059,7 +1108,7 @@ internal fun ObjectRemovalPanel(
                 }
             }
             if (!showBefore && !textMode && !moveMode && cursor != null &&
-                selectedMode != AiEraserMode.PEOPLE &&
+                (selectedMode != AiEraserMode.PEOPLE || refiningPeople) &&
                 selectedMode != AiEraserMode.GLARE &&
                 selectedMode != AiEraserMode.REFLECTION) {
                 val position = requireNotNull(cursor)
@@ -1143,7 +1192,7 @@ internal fun ObjectRemovalPanel(
                 Row(
                     Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool, "Кисть", !eraserMode) {
                         eraserMode = false
@@ -1206,9 +1255,6 @@ internal fun ObjectRemovalPanel(
                         onClick = ::processGlare,
                     )
                 }
-                Text("SRNet определяет блики и корректирует их нейросетью. " +
-                        "Полностью потерянные детали восстановить не всегда возможно.",
-                    fontSize = 10.sp, color = Color.LightGray)
             }
         }
         if (selectedMode == AiEraserMode.REFLECTION) {
@@ -1229,9 +1275,6 @@ internal fun ObjectRemovalPanel(
                     EraserStartButton(enabled = !busy, label = "Начать",
                         onClick = ::processReflection)
                 }
-                Text("DExNet отделяет отражение от сцены за стеклом. " +
-                        "Сильные отражения и скрытые детали могут восстановиться неточно.",
-                    fontSize = 10.sp, color = Color.LightGray)
             }
         }
         if (selectedMode == AiEraserMode.PEOPLE) {
@@ -1260,6 +1303,10 @@ internal fun ObjectRemovalPanel(
                                     RoundedCornerShape(9.dp))
                                 .clickable(enabled = !busy && !ambiguous) {
                                     if (!selectedPeople.remove(id)) selectedPeople.add(id)
+                                    if (selectedPeople.isEmpty()) refiningPeople = false
+                                    strokes.clear()
+                                    redoStrokes.clear()
+                                    maskActions.clear()
                                 }
                                 .padding(horizontal = 10.dp, vertical = 7.dp)) {
                                 Text("Человек ${id + 1}" + if (ambiguous) " · ?" else "",
@@ -1271,6 +1318,42 @@ internal fun ObjectRemovalPanel(
                         Box(Modifier.clickable(enabled = !busy) { findPeople() }
                             .padding(horizontal = 8.dp, vertical = 7.dp)) {
                             Text("Повторить поиск", fontSize = 12.sp, color = Color(0xFFFFC21C))
+                        }
+                    }
+                }
+                if (selectedPeople.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().height(48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        androidx.compose.material3.FilterChip(
+                            selected = refiningPeople,
+                            onClick = {
+                                refiningPeople = !refiningPeople
+                                eraserMode = false
+                                moveMode = false
+                            },
+                            enabled = !busy,
+                            label = { Text("Уточнить маску", fontSize = 11.sp) },
+                        )
+                        if (refiningPeople) {
+                            RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool,
+                                "Добавить к маске", !eraserMode) {
+                                eraserMode = false
+                                moveMode = false
+                            }
+                            RemovalToolButton(R.drawable.ic_ai_eraser_erase_tool,
+                                "Вычесть из маски", eraserMode) {
+                                eraserMode = true
+                                moveMode = false
+                            }
+                            Slider(
+                                value = brush,
+                                onValueChange = { brush = it; brushSizing = true },
+                                onValueChangeFinished = { brushSizing = false },
+                                valueRange = 8f..100f,
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                     }
                 }
@@ -1286,6 +1369,7 @@ internal fun ObjectRemovalPanel(
             onMode = { mode ->
                 featureNotice = null
                 selectedMode = mode
+                refiningPeople = false
                 if (mode == AiEraserMode.OBJECTS) autoMode = mobileReady
                 textMode = mode == AiEraserMode.TEXT
                 moveMode = false
@@ -1315,18 +1399,17 @@ internal fun ObjectRemovalPanel(
                 trackColor = Color(0xFF383838),
             )
         }
-        featureNotice?.let {
-            Text(it, color = Color(0xFFFFCF22), fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
-        }
-        message?.let {
-            Text(it, color = Color(0xFFFFB4AB), fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 12.dp))
-        }
         AiEraserFooter(
             canApply = !busy && index > 0,
             onCancel = onClose,
             onApply = ::acceptResult,
         )
     }
+    SnackbarHost(
+        hostState = noticeHost,
+        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 68.dp),
+    ) { data ->
+        Snackbar(data, containerColor = Color(0xFF292929), contentColor = Color.White)
+    }
+}
 }

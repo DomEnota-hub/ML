@@ -39,7 +39,7 @@ class LibraryModeScreensTest {
                 media.map { CatalogAssignmentEntity(it.id, null, true) }, {},
                 { id, queue -> opened = id to queue }, {}, { _, _ -> }, { _, _ -> }, { "folder" }, {}, {}, { _, _ -> }, {})
         } }
-        compose.onNodeWithText("Альбомы").performClick()
+        compose.onNodeWithContentDescription("Альбомы").performClick()
         compose.onNodeWithText("Избранное").performClick()
         compose.onNodeWithText("Поиск фото и видео").performTextInput("Beach")
         compose.onNodeWithContentDescription("Beach two.jpg").performClick()
@@ -57,8 +57,8 @@ class LibraryModeScreensTest {
             GalleryModeScreen(media, LibrarySource.PHONE, false, null, emptyList(), emptyList(), {},
                 { id, queue -> opened = id to queue }, {}, { id, value -> favorite = id to value }, { _, _ -> }, { "folder" }, {}, { deleted = it }, { _, _ -> }, {})
         } }
-        compose.onNodeWithText("Альбомы").performClick()
-        compose.onNodeWithText("Camera").performClick()
+        compose.onNodeWithContentDescription("Альбомы").performClick()
+        compose.onNodeWithText("Камера").performClick()
         compose.onNodeWithContentDescription("Действия: Screen.jpg").assertDoesNotExist()
         compose.onNodeWithContentDescription("Действия: Camera.jpg").performClick()
         compose.onNodeWithText("Переименовать").assertDoesNotExist()
@@ -82,7 +82,7 @@ class LibraryModeScreensTest {
         compose.setContent { Music(listOf(a), listOf(a, phone), listOf(MediaPlaylist("mix", "Mix", listOf("phone", "missing", "app"))),
             onOpen = { id, queue -> opened = id to queue }, onRemove = { id, track -> removed = id to track },
             onDeleteFile = { fileDeletes++ }) }
-        compose.onNodeWithText("Плейлисты").performClick()
+        compose.onNodeWithContentDescription("Плейлисты").performClick()
         compose.onNodeWithText("Mix").performClick()
         compose.onNodeWithText("Недоступно треков: 1. Записи сохранены в плейлисте.").assertIsDisplayed()
         compose.onAllNodesWithText("Phone.mp3")[0].performClick()
@@ -99,7 +99,7 @@ class LibraryModeScreensTest {
         var deletes = 0
         compose.setContent { Music(tracks, tracks, listOf(MediaPlaylist("p", "Road", listOf("a", "b"))),
             onMove = { id, track, delta -> moved = Triple(id, track, delta) }, onDelete = { deletes++ }) }
-        compose.onNodeWithText("Плейлисты").performClick()
+        compose.onNodeWithContentDescription("Плейлисты").performClick()
         compose.onNodeWithText("Road").performClick()
         compose.onNodeWithContentDescription("Действия: B.mp3").performClick()
         compose.onNodeWithText("Выше").performClick()
@@ -134,7 +134,7 @@ class LibraryModeScreensTest {
         var deleted = 0
         compose.setContent { Music(emptyList(), listOf(privateTrack), listOf(MediaPlaylist("p", "Mix", listOf("private"))),
             onRemove = { id, track -> removed = id to track }, onDeleteFile = { deleted++ }) }
-        compose.onNodeWithText("Плейлисты").performClick()
+        compose.onNodeWithContentDescription("Плейлисты").performClick()
         compose.onNodeWithText("Mix").performClick()
         compose.onNodeWithText("Недоступный трек").assertIsDisplayed()
         compose.onNodeWithText("Secret.mp3").assertDoesNotExist()
@@ -153,10 +153,10 @@ class LibraryModeScreensTest {
         compose.setContent { Music(listOf(title, artist), listOf(title, artist), emptyList(),
             onOpen = { id, ids -> opened = id to ids }) }
         compose.onNodeWithText("Поиск музыки").performTextInput("Moonlight")
-        compose.onNodeWithText(audioTitle(title)).performClick()
+        compose.onNodeWithTag("music-track-title").performClick()
         assertEquals("title" to listOf("title"), opened)
         compose.onNodeWithText("Поиск музыки").performTextReplacement("Aurora")
-        compose.onNodeWithText(audioTitle(artist)).performClick()
+        compose.onNodeWithTag("music-track-artist").performClick()
         assertEquals("artist" to listOf("artist"), opened)
     }
 
@@ -173,7 +173,7 @@ class LibraryModeScreensTest {
                 renamed = id to name
                 entries = entries.map { if (it.id == id) it.copy(name = name) else it }
             }) }
-        compose.onNodeWithText("Плейлисты").performClick()
+        compose.onNodeWithContentDescription("Плейлисты").performClick()
         compose.onNodeWithText("Создать плейлист").performClick()
         compose.onNodeWithText("Название").performTextInput("New")
         compose.onNodeWithText("Сохранить").performClick()

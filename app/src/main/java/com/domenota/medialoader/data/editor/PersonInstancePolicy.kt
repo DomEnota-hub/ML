@@ -62,12 +62,13 @@ internal object PersonInstancePolicy {
      */
     fun constrainToPerson(strokes: List<MaskStroke>, box: PersonBox): List<MaskStroke> {
         if (!box.valid() || strokes.isEmpty()) throw IOException("Маска человека отсутствует.")
-        val xPad = box.width * .10f
-        val yPad = box.height * .08f
+        val xPad = box.width * .12f
+        val upperPad = box.height * .14f
+        val lowerPad = box.height * .08f
         val left = max(0f, box.left - xPad)
         val right = min(1f, box.right + xPad)
-        val top = max(0f, box.top - yPad)
-        val bottom = min(1f, box.bottom + yPad)
+        val top = max(0f, box.top - upperPad)
+        val bottom = min(1f, box.bottom + lowerPad)
         val clipped = ArrayList<MaskStroke>(strokes.size)
         var hit = 0
         for (stroke in strokes) {
@@ -88,6 +89,29 @@ internal object PersonInstancePolicy {
         if (clipped.size < 8 || hit < 8) throw IOException(
             "MobileSAM не смогла выделить этого человека. Уточните фотографию.")
         return clipped
+    }
+
+    /**
+     * Hair and the crown are frequently missed by a torso-centered SAM prompt.
+     * Retry one upper prompt only if the accepted silhouette starts unusually
+     * low inside the detector box. Never manufacture a head-shaped rectangle.
+     */
+    fun needsUpperDetailRetry(strokes: List<MaskStroke>, box: PersonBox): Boolean {
+        if (!box.valid() || strokes.isEmpty()) return false
+        val top = strokes.minOfOrNull { it.points.firstOrNull()?.y ?: 1f } ?: return false
+        return top > box.top + box.height * .24f
+    }
+
+    /** A second real mask must add head coverage without exploding into background. */
+    fun preferUpperDetail(
+        current: List<MaskStroke>, alternative: List<MaskStroke>, box: PersonBox,
+    ): Boolean {
+        if (!box.valid() || current.isEmpty() || alternative.isEmpty()) return false
+        val currentTop = current.minOf { it.points.first().y }
+        val candidateTop = alternative.minOf { it.points.first().y }
+        return currentTop - candidateTop >= box.height * .06f &&
+            alternative.size * 2 >= current.size &&
+            alternative.size <= current.size * 2
     }
 
     /**

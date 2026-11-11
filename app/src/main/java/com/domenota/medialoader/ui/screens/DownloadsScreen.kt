@@ -167,7 +167,28 @@ fun DownloadsScreen(
 ) {
     val context = LocalContext.current
     val listScrollState = rememberLazyListState()
-    var dismissedBulkJobId by rememberSaveable { mutableStateOf("") }
+    val bulkDismissPrefs = remember(context) {
+        context.getSharedPreferences("ml_bulk_summary_visibility", android.content.Context.MODE_PRIVATE)
+    }
+    var dismissedBulkJobId by rememberSaveable {
+        mutableStateOf(bulkDismissPrefs.getString("dismissed_job_id", "").orEmpty())
+    }
+    fun dismissBulkSummary() {
+        val id = bulkState.jobId
+        if (id.isNotBlank()) {
+            dismissedBulkJobId = id
+            bulkDismissPrefs.edit().putString("dismissed_job_id", id).apply()
+        }
+    }
+    // A finished job gets a short readable summary, then leaves the screen.
+    // Its history is preserved even if the snapshot reports unmatched rows.
+    LaunchedEffect(bulkState.jobId, bulkState.phase) {
+        if (bulkState.phase == com.domenota.medialoader.data.bulk.BulkPhase.FINISHED &&
+            bulkState.jobId.isNotBlank() && bulkState.jobId != dismissedBulkJobId) {
+            kotlinx.coroutines.delay(7_000L)
+            dismissBulkSummary()
+        }
+    }
     LaunchedEffect(listScrollState) {
         try {
             snapshotFlow { listScrollState.isScrollInProgress }.collectLatest { scrolling ->
@@ -476,7 +497,7 @@ fun DownloadsScreen(
                 onStopAnalysis = onBulkStopAnalysis,
                 onPause = onBulkPause,
                 onResume = onBulkResume,
-                onDismissFinished = { dismissedBulkJobId = bulkState.jobId },
+                onDismissFinished = ::dismissBulkSummary,
             )
         }
         Spacer(Modifier.height(16.dp))

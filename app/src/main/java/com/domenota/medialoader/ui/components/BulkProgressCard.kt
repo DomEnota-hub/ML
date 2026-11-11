@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.data.bulk.BulkLinks
+import com.domenota.medialoader.data.bulk.BulkOutcomeCounts
 import com.domenota.medialoader.data.bulk.BulkPacing
 import com.domenota.medialoader.data.bulk.BulkPhase
 import com.domenota.medialoader.data.bulk.BulkState
@@ -74,10 +75,16 @@ fun BulkProgressCard(
     val completed = related.count { it.state == DownloadState.COMPLETED }
     val failed = related.count { it.state == DownloadState.FAILED }
     val cancelled = related.count { it.state == DownloadState.CANCELLED }
+    val originalSelected = if (state.plannedCount > 0) state.plannedCount
+        else maxOf(state.selectedCount, state.queuedCount)
+    val counts = BulkOutcomeCounts.from(
+        selected = originalSelected, queued = state.queuedCount,
+        completed = completed, failed = failed, cancelled = cancelled,
+    )
     val isAnalysis = state.phase == BulkPhase.ANALYZING || state.phase == BulkPhase.PREVIEW
-    val total = if (isAnalysis) state.urls.size else state.selectedCount
+    val total = if (isAnalysis) state.urls.size else originalSelected
     val processed = if (isAnalysis) state.cursor.coerceAtMost(total)
-        else (completed + failed + cancelled).coerceAtMost(total)
+        else counts.terminal.coerceAtMost(total)
     val percent = if (total > 0) processed * 100 / total else 0
     val finished = state.phase in setOf(BulkPhase.PREVIEW, BulkPhase.FINISHED, BulkPhase.STOPPED)
     val title = when (state.phase) {
@@ -128,7 +135,7 @@ fun BulkProgressCard(
                 } else {
                     Text(if (state.phase == BulkPhase.PREVIEW)
                             "${state.urls.size} ссылок обработано"
-                        else "Файлов в задании: ${state.queuedCount}",
+                        else "Выбрано: ${counts.selected}, в очереди: ${counts.queued}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -138,6 +145,22 @@ fun BulkProgressCard(
                     Metric(if (isAnalysis) state.errors.size else failed, "Ошибки")
                     Metric(if (isAnalysis) state.unsupported + state.duplicates else cancelled,
                         if (isAnalysis) "Пропуски/повторы" else "Отменено")
+                }
+                if (!isAnalysis && (counts.neverQueued > 0 ||
+                        counts.pendingOrUnknown > 0)) {
+                    Text(
+                        buildString {
+                            if (counts.neverQueued > 0) {
+                                append("Не поставлено в очередь: ${counts.neverQueued}. ")
+                            }
+                            if (counts.pendingOrUnknown > 0) {
+                                append("Без подтверждённого итога: ${counts.pendingOrUnknown}. ")
+                            }
+                            append("Подробнее в журнале задания.")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 if (state.phase == BulkPhase.ANALYZING) {
                     val nextUrl = state.urls.getOrNull(state.cursor)

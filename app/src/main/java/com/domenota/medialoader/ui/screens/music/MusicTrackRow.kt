@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -28,7 +29,7 @@ internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isC
     Row(Modifier.fillMaxWidth().background(if (isCurrent) {
         if (darkTheme) editorSliderYellow.copy(alpha = .11f) else Color(0xFFFFF2CE)
     } else Color.Transparent)
-        .clickable(onClick = onPlay).heightIn(min = 76.dp).padding(horizontal = 17.dp, vertical = 11.dp),
+        .clickable(onClick = onPlay).testTag("music-track-${track.id}").heightIn(min = 76.dp).padding(horizontal = 17.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         if (isCurrent) Box(Modifier.width(3.dp).height(49.dp)
             .background(editorSliderYellow, RoundedCornerShape(3.dp)))

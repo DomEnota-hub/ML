@@ -15,6 +15,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.ResolverStyle
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CancellationException
@@ -27,14 +30,65 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import kotlin.math.abs
 
+/** Public-tag equivalent of AndroidX's restricted EXIF timestamp getters. */
+internal fun readHistoricalExifTimestamp(exif: androidx.exifinterface.media.ExifInterface): Long? {
+    fun read(dateTag: String, subsecTag: String, offsetTag: String): Long? =
+        parseHistoricalExifTimestamp(
+            exif.getAttribute(dateTag), exif.getAttribute(subsecTag), exif.getAttribute(offsetTag))
+    return read(
+        androidx.exifinterface.media.ExifInterface.TAG_DATETIME_ORIGINAL,
+        androidx.exifinterface.media.ExifInterface.TAG_SUBSEC_TIME_ORIGINAL,
+        androidx.exifinterface.media.ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
+    ) ?: read(
+        androidx.exifinterface.media.ExifInterface.TAG_DATETIME,
+        androidx.exifinterface.media.ExifInterface.TAG_SUBSEC_TIME,
+        androidx.exifinterface.media.ExifInterface.TAG_OFFSET_TIME,
+    )
+}
+
+/**
+ * EXIF timestamps are wall-clock strings, commonly without timezone.
+ * Match AndroidX ExifInterface: absent offset is treated as UTC, explicit
+ * offsets shift the instant, and up to three subsecond digits are retained.
+ * Invalid, partial or ambiguous values return null rather than inventing dates.
+ */
+internal fun parseHistoricalExifTimestamp(
+    date: String?, subsec: String?, offset: String?,
+): Long? {
+    if (date.isNullOrBlank() || date.startsWith("0000")) return null
+    val instant = runCatching {
+        val formats = listOf("uuuu:MM:dd HH:mm:ss", "uuuu-MM-dd HH:mm:ss")
+        val local = formats.firstNotNullOfOrNull { pattern ->
+            runCatching {
+                LocalDateTime.parse(date, DateTimeFormatter.ofPattern(pattern)
+                    .withResolverStyle(ResolverStyle.STRICT))
+            }.getOrNull()
+        } ?: return null
+        val zone = if (offset.isNullOrBlank()) ZoneOffset.UTC else {
+            require(Regex("[+-]\\d{2}:\\d{2}").matches(offset))
+            ZoneOffset.of(offset)
+        }
+        val millis = local.toInstant(zone).toEpochMilli()
+        val fractionalMillis = if (subsec.isNullOrBlank()) 0L else {
+            require(subsec.all(Char::isDigit))
+            subsec.take(3).padEnd(3, '0').toLong()
+        }
+        millis + fractionalMillis
+    }.getOrNull()
+    return instant?.takeIf { it > 0 }
+}
+
 /** Operates exclusively on caller-owned scratch files. Never resolves or changes a media URI. */
 internal class HistoricalDatedCopyCodec {
     /** Existing capture metadata determined the file's original gallery position. */
     fun existingDate(source: File, mime: String): Long? {
         if (mime.startsWith("image/")) {
             if (Build.VERSION.SDK_INT < 31) {
+                // AndroidX's dateTimeOriginal/dateTime accessors are RestrictedApi.
+                // Read public EXIF tags instead; match their UTC-like interpretation
+                // and honor the explicit offset/subseconds when present.
                 val compatible = androidx.exifinterface.media.ExifInterface(source.path)
-                return compatible.dateTimeOriginal ?: compatible.dateTime
+                return readHistoricalExifTimestamp(compatible)
             }
             val exif = ExifInterface(source.path)
             if (exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) == null &&

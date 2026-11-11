@@ -12,7 +12,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -73,18 +77,7 @@ internal fun GalleryVideoChrome(
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var scrubbing by remember { mutableStateOf<Float?>(null) }
     Box(modifier.fillMaxSize()) {
-        if (locked && unlockVisible) {
-            // Locked video stays clean; a tap reveals the unlock control briefly.
-            // Android's landscape navigation rail can occupy either screen edge.
-            // The locked control must always remain inside the content-safe region.
-            Box(Modifier.align(Alignment.CenterEnd)
-                .navigationBarsPadding().displayCutoutPadding().padding(end = 16.dp)) {
-                IconButton(onClick = { onLockChange(false) }, modifier = Modifier.size(52.dp)) {
-                    Icon(Icons.Rounded.Lock, contentDescription = "Разблокировать управление",
-                        modifier = Modifier.size(27.dp), tint = Color.White)
-                }
-            }
-        } else if (visible) {
+        if (!locked && visible) {
             Row(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalArrangement = Arrangement.spacedBy(if (landscape) 20.dp else 13.dp),
@@ -181,11 +174,26 @@ internal fun GalleryVideoChrome(
                 Text(galleryVideoClock(durationMs), color = Color.White, fontSize = 12.sp,
                     fontWeight = FontWeight.Medium)
             }
-            Box(Modifier.align(Alignment.CenterEnd)
-                .navigationBarsPadding().displayCutoutPadding().padding(end = 16.dp)) {
-                IconButton(onClick = { onLockChange(true) }, modifier = Modifier.size(52.dp)) {
-                    Icon(Icons.Rounded.LockOpen, contentDescription = "Заблокировать управление",
-                        tint = Color.White, modifier = Modifier.size(27.dp))
+        }
+        // Single stable right-side anchor for BOTH lock states. Horizontal safe
+        // insets avoid the old lock drift when portrait chrome/nav bars hide.
+        if ((!locked && visible) || (locked && unlockVisible)) {
+            Box(
+                Modifier.align(Alignment.CenterEnd)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .padding(end = 16.dp),
+            ) {
+                IconButton(
+                    onClick = { onLockChange(!locked) },
+                    modifier = Modifier.size(52.dp),
+                ) {
+                    Icon(
+                        if (locked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                        contentDescription = if (locked) "Разблокировать управление"
+                            else "Заблокировать управление",
+                        modifier = Modifier.size(27.dp),
+                        tint = Color.White,
+                    )
                 }
             }
         }

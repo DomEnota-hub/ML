@@ -87,9 +87,9 @@ class LibraryVisualCaptureTest {
                 listOf("gallery", "albums", "album", "viewer", "music", "playlists", "playlist", "add", "player", "eq").forEach { page ->
                     compose.runOnIdle { dark = theme; screen = page }
                     compose.waitForIdle()
-                    if (page in listOf("albums", "album")) compose.onNodeWithText("Альбомы").performClick()
+                    if (page in listOf("albums", "album")) compose.onNodeWithContentDescription("Альбомы").performClick()
                     if (page == "album") compose.onNodeWithText("Путешествия").performScrollTo().performClick()
-                    if (page in listOf("playlists", "playlist")) compose.onNodeWithText("Плейлисты").performClick()
+                    if (page in listOf("playlists", "playlist")) compose.onNodeWithContentDescription("Плейлисты").performClick()
                     if (page == "playlist") compose.onNodeWithText("В дороге").performClick()
                     if (page == "viewer") compose.waitUntil(5000) { compose.onAllNodesWithContentDescription("Фото 0.jpg").fetchSemanticsNodes().isNotEmpty() }
                     // PixelCopy captureToImage requires a display redraw callback unavailable in

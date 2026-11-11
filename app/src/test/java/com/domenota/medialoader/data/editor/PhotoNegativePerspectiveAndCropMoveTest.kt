@@ -23,10 +23,13 @@ class PhotoNegativePerspectiveAndCropMoveTest {
         val positive = PhotoGeometryMath.destination(
             PhotoGeometry(verticalPerspective = 50f), 1000, 600)
         assertFalse(negative.contentEquals(positive))
-        assertTrue("Negative pitch enlarges bottom",
-            negative[4] - negative[6] > negative[2] - negative[0])
-        assertTrue("Positive pitch enlarges top",
-            positive[2] - positive[0] > positive[4] - positive[6])
+        // Match PhotoGeometryCycle2Test: a negative V brings the TOP nearer,
+        // while a positive V brings the BOTTOM nearer. These signs are
+        // intentionally the opposite of this test's obsolete expectation.
+        assertTrue("Negative pitch enlarges top",
+            negative[2] - negative[0] > negative[4] - negative[6])
+        assertTrue("Positive pitch enlarges bottom",
+            positive[4] - positive[6] > positive[2] - positive[0])
     }
 
     @Test fun draggingCropInteriorPreservesWidthHeightAndAspect() {

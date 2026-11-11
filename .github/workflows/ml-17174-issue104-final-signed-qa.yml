@@ -1,0 +1,185 @@
+name: ML 1.7.174 Issue 104 FINAL DomEnota QA (no releases)
+on:
+  push:
+    branches:
+      - feature/ml-17173-issue104-four-blocks-20261111
+    paths:
+      - .github/workflows/ml-17174-issue104-final-signed-qa.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17158-private-signed-handoff
+  cancel-in-progress: true
+jobs:
+  signed-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle wrapper bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for i in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$i" != 4
+            sleep 10
+          done
+      - name: Android build tools
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Optional built-in GAPI keys from protected input, never logged
+        shell: bash
+        env:
+          GAPI_B64: ${{ secrets.ML_GAPI_BUILTIN_KEYS_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          if test -n "${GAPI_B64:-}"; then
+            mkdir -p .gapi-local
+            printf '%s' "$GAPI_B64" | base64 --decode > .gapi-local/builtin-keys.json
+            chmod 600 .gapi-local/builtin-keys.json
+            python3 -c 'import json; a=json.load(open(".gapi-local/builtin-keys.json")); assert isinstance(a,list) and len(a)>=2 and all(isinstance(x,dict) and str(x.get("id","")).strip() and str(x.get("key","")).strip() for x in a); assert len({x["id"] for x in a})==len(a) and len({x["key"] for x in a})==len(a)'
+            echo "Protected GAPI pack verified."
+          else
+            echo "No built-in GAPI pack: existing in-app GAPI settings persist on upgrade."
+          fi
+      - name: Verify 1.7.174 release identity
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 234$' app/build.gradle
+          grep -Fq "versionName '1.7.174'" app/build.gradle
+          test "$GITHUB_REF_NAME" = feature/ml-17173-issue104-four-blocks-20261111
+      - name: Unit and migration/OCR regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*MediaStoragePolicyTest' \
+            --tests '*StorageSettingsPicturesTest' \
+            --tests '*LegacyMediaMigrationHistoryTest' \
+            --tests '*StorageNamingTest' \
+            --tests '*DownloadQueueTest' \
+            --tests '*GalleryLibraryStateTest' \
+            --tests '*LocalTextOcrFallbackTest' \
+            --tests '*TextGlyphMaskTest' \
+            --tests '*GlyphContentMaskTest' \
+            --tests '*PersonInstancePolicyTest' \
+            --tests '*LaMaCompositionTest' \
+            --tests '*GapiKeyStoreTest' --stacktrace
+      - name: Full JVM regression suite - all 4 blocks and legacy tests
+        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Lint and ARM64 Release build
+        run: ./gradlew :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: DomEnota signature, exact sources and bounded APK split
+        shell: bash
+        env:
+          ML_RELEASE_KEYSTORE_BASE64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
+          ML_RELEASE_STORE_PASSWORD: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
+          ML_RELEASE_KEY_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
+          ML_RELEASE_KEY_PASSWORD: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
+          ML_RELEASE_SIGNER_SHA256: ${{ secrets.ML_RELEASE_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          for var in ML_RELEASE_KEYSTORE_BASE64 ML_RELEASE_STORE_PASSWORD ML_RELEASE_KEY_ALIAS ML_RELEASE_KEY_PASSWORD ML_RELEASE_SIGNER_SHA256; do
+            if test -z "${!var:-}"; then echo "::error::Missing protected signing input: $var"; exit 1; fi
+          done
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          unsigned=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$unsigned"
+          "$bt/aapt" dump badging "$unsigned" | grep -F "package: name='com.domenota.medialoader' versionCode='234' versionName='1.7.174'"
+          test "$(unzip -Z1 "$unsigned" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          mkdir -p "$RUNNER_TEMP/mlsecure" bundle handoff/part01 handoff/source
+          key="$RUNNER_TEMP/mlsecure/key.jks"
+          aligned="$RUNNER_TEMP/mlsecure/aligned.apk"
+          signed="$RUNNER_TEMP/mlsecure/ML_1.7.174_ARM64_DomEnota_SIGNED.apk"
+          trap 'rm -f "$key" "$aligned"' EXIT
+          printf '%s' "$ML_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          "$bt/zipalign" -p -f 4 "$unsigned" "$aligned"
+          "$bt/apksigner" sign --min-sdk-version 26 --ks "$key" \
+            --ks-key-alias "$ML_RELEASE_KEY_ALIAS" \
+            --ks-pass env:ML_RELEASE_STORE_PASSWORD \
+            --key-pass env:ML_RELEASE_KEY_PASSWORD \
+            --out "$signed" "$aligned"
+          "$bt/apksigner" verify --verbose "$signed"
+          actual="$("$bt/apksigner" verify --print-certs "$signed" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+).*$/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          expected="$(printf '%s' "$ML_RELEASE_SIGNER_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ': ')"
+          reference=4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2
+          test -n "$actual" && test "$actual" = "$expected" && test "$actual" = "$reference" || { echo "::error::Wrong upgrade signing certificate"; exit 1; }
+          "$bt/aapt" dump badging "$signed" | grep -F "package: name='com.domenota.medialoader' versionCode='234' versionName='1.7.174'"
+          test "$(unzip -Z1 "$signed" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          sha256sum "$signed" | sed "s#$signed#ML_1.7.174_ARM64_DomEnota_SIGNED.apk#" > bundle/APK_SHA256.txt
+          zip -q -0 -j -s 80m bundle/ML_1.7.174_ARM64_DomEnota_SIGNED.zip "$signed"
+          zip -s 0 bundle/ML_1.7.174_ARM64_DomEnota_SIGNED.zip --out "$RUNNER_TEMP/mlsecure/reassembled.zip" >/dev/null
+          expected_apk="$(sha256sum "$signed" | awk '{print $1}')"
+          actual_apk="$(unzip -p "$RUNNER_TEMP/mlsecure/reassembled.zip" ML_1.7.174_ARM64_DomEnota_SIGNED.apk | sha256sum | awk '{print $1}')"
+          test "$expected_apk" = "$actual_apk"
+          git archive --format=zip -o handoff/source/ML_1.7.174_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/source/COMMIT_SHA.txt
+          (cd handoff/source && sha256sum ML_1.7.174_SOURCES_EXACT_COMMIT.zip > SOURCE_SHA256.txt)
+          cat > bundle/README_RU.txt <<'EOF'
+          MediaLoader 1.7.174 QA, сертификат DomEnota.
+          Скачайте ВСЕ файлы APK_PART*.zip и распакуйте содержимое в одну папку.
+          Сохраните исходные имена .z01, .z02 (если есть), .zip.
+          Откройте последний ML_1.7.174_ARM64_DomEnota_SIGNED.zip в ZArchiver/7-Zip
+          и извлеките ML_1.7.174_ARM64_DomEnota_SIGNED.apk.
+          Установите поверх имеющегося приложения, НЕ удаляя старую версию.
+          SHA-256 APK находится в APK_SHA256.txt.
+          Исходники содержатся в отдельном архиве SOURCES.zip.
+          Установка не должна прерывать активное восстановление дат. Перед обновлением завершите или безопасно остановите процесс на устройстве.
+          EOF
+          mapfile -t pieces < <(find bundle -maxdepth 1 -type f \( -name '*.z[0-9][0-9]' -o -name '*.zip' \) | sort)
+          count="${#pieces[@]}"
+          if (( count != 2 )); then echo "::error::APK archive must contain exactly .z01 and .zip, got $count parts"; exit 1; fi
+          i=0
+          for piece in "${pieces[@]}"; do
+            i=$((i+1))
+            dir="handoff/part0$i"
+            mkdir -p "$dir"
+            cp "$piece" "$dir/"
+            cp bundle/APK_SHA256.txt bundle/README_RU.txt "$dir/"
+            test "$(stat -c%s "$piece")" -lt 95000000
+          done
+          echo "Verified signed QA, $count archive parts, exact commit $(git rev-parse --short HEAD)"
+      - name: Short-lived private APK part 1 handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.174_APK_PART01
+          path: handoff/part01/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Short-lived private APK part 2 handoff
+        if: ${{ hashFiles('handoff/part02/*') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.174_APK_PART02
+          path: handoff/part02/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Short-lived private APK part 3 handoff
+        if: ${{ hashFiles('handoff/part03/*') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.174_APK_PART03
+          path: handoff/part03/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Short-lived private exact source handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.174_SOURCES
+          path: handoff/source/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error

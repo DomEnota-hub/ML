@@ -39,6 +39,8 @@ data class BulkState(
     val urls: List<String> = emptyList(),
     val cursor: Int = 0,
     val candidates: List<BulkCandidate> = emptyList(),
+    // Captured at confirmation, immutable when individual enqueue attempts fail.
+    val plannedCount: Int = 0,
     val errors: List<String> = emptyList(),
     val unsupported: Int = 0,
     val unsupportedUrls: List<String> = emptyList(),
@@ -154,7 +156,8 @@ class BulkCoordinator(
     fun confirm() {
         val current = _state.value
         if (current.phase != BulkPhase.PREVIEW || current.selectedCount == 0) return
-        set(current.copy(phase = BulkPhase.QUEUING))
+        set(current.copy(phase = BulkPhase.QUEUING,
+            plannedCount = current.selectedCount))
         launchQueue()
     }
 
@@ -340,6 +343,7 @@ private class BulkStore(context: Context) : SQLiteOpenHelper(context, "bulk-jobs
             put("jobId", state.jobId); put("phase", state.phase.name)
             put("createdAtEpochMillis", state.createdAtEpochMillis)
             put("urls", JSONArray(state.urls)); put("cursor", state.cursor)
+            put("plannedCount", state.plannedCount)
             put("unsupported", state.unsupported); put("duplicates", state.duplicates)
             put("lastInstagramAttemptAt", state.lastInstagramAttemptAt)
             put("unsupportedUrls", JSONArray(state.unsupportedUrls))
@@ -404,6 +408,7 @@ private class BulkStore(context: Context) : SQLiteOpenHelper(context, "bulk-jobs
                 phase = BulkPhase.valueOf(root.getString("phase")),
                 urls = root.getJSONArray("urls").strings(), cursor = root.getInt("cursor"),
                 unsupported = root.getInt("unsupported"), duplicates = root.getInt("duplicates"),
+                plannedCount = root.optInt("plannedCount", 0),
                 lastInstagramAttemptAt = root.optLong("lastInstagramAttemptAt", 0L),
                 unsupportedUrls = root.optJSONArray("unsupportedUrls")?.strings().orEmpty(),
                 errors = root.getJSONArray("errors").strings(),
