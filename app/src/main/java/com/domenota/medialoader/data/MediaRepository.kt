@@ -1084,8 +1084,11 @@ class MediaRepository private constructor(context: Context) {
                 }
                 return digest.digest().joinToString("") { "%02x".format(it) }
             }
-            fun writeSource(staged: java.io.File) {
+            fun writeSource(staged: java.io.File, onOpened: () -> Unit = {}) {
                 resolver.openFileDescriptor(uri, "rwt")?.use { descriptor ->
+                    // Provider can reject a write before any bytes changed.
+                    // Only then may we safely skip rollback on permission denial.
+                    onOpened()
                     java.io.FileOutputStream(descriptor.fileDescriptor).use { output ->
                         staged.inputStream().use { input -> input.copyTo(output, 64 * 1024) }
                         output.fd.sync()
@@ -1106,8 +1109,7 @@ class MediaRepository private constructor(context: Context) {
                 withContext(NonCancellable) {
                     var writingStarted = false
                     try {
-                        writingStarted = true
-                        writeSource(file)
+                        writeSource(file) { writingStarted = true }
                         val writtenSha = resolver.openInputStream(uri)?.let(::sha256)
                             ?: throw java.io.IOException("Нет доступа для проверки MP3.")
                         if (writtenSha != outputSha)
