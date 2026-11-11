@@ -1563,7 +1563,8 @@ fun MediaLoaderApp(
                     viewerState.SaveableStateProvider("content") {
                     if (item.mediaType != MediaType.AUDIO) GalleryMediaViewer(
                         item = item,
-                        media = com.domenota.medialoader.data.playback.GridMediaQueue.resolve(snapshot, viewerRows, false, fileStatuses)
+                        media = com.domenota.medialoader.data.playback.GridMediaQueue.resolve(
+                            snapshot, viewerRows, item.isPrivate, fileStatuses)
                             .ifEmpty { if (item.mediaType == MediaType.PHOTO && photoQueue.isNotEmpty()) photoQueue else listOf(item) },
                         onBack = { navController.popBackStack() },
                         onShare = { selected ->
