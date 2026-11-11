@@ -496,6 +496,13 @@ internal fun ObjectRemovalPanel(
                 // default so "Начать" is usable immediately after a scan;
                 // the actual pixel mask is still validated before inpainting.
                 selectedGlyphs.addAll(found.map { it.id }.distinct().take(160))
+                // Store only counts/confidence in QA logs; never print text or
+                // the image. On-device inspection can distinguish false OCR
+                // detections from the separate pixel-mask/inpaint stage.
+                com.domenota.medialoader.core.logging.AppLog.i("PhotoOCR",
+                    "symbol_candidates=${found.size} " +
+                    "high_confidence=${found.count { it.confidence >= 75f }} " +
+                    "selected=${selectedGlyphs.size}")
                 if (found.isEmpty()) message = "Не удалось найти отдельные буквы."
             } catch (error: Exception) {
                 message = error.message ?: "Не удалось распознать текст."
@@ -598,6 +605,9 @@ internal fun ObjectRemovalPanel(
                     com.domenota.medialoader.data.editor.GlyphContentMask.fromBitmap(
                         startStep.bitmap, chosenGlyphs)
                 } else otherMasks
+                if (textMode) com.domenota.medialoader.core.logging.AppLog.i(
+                    "PhotoOCR", "selected_glyph_count=${chosenGlyphs.size} " +
+                        "verified_pixel_mask_strokes=${marked.size}")
                 if (marked.isEmpty()) {
                     // No bounding-box fallback: it could remove real scenery.
                     // Give the user an actionable manual correction path instead
