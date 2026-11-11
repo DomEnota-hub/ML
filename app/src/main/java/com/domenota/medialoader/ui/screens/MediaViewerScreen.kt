@@ -609,7 +609,9 @@ internal fun LocalVideoPlayer(
         else if (!galleryPagingEnabled) playerView?.showController()
     }
     LaunchedEffect(controlsLocked) {
-        unlockVisible = false
+        // Keep the unlock affordance visible immediately after locking.
+        // A subsequent tap on the locked video can reveal it again.
+        unlockVisible = controlsLocked
     }
     LaunchedEffect(unlockVisible, controlsLocked) {
         if (controlsLocked && unlockVisible) {
@@ -986,6 +988,16 @@ internal fun LocalVideoPlayer(
                     )
                 })
         }
+        if (galleryPagingEnabled && controlsLocked) {
+            // Previous implementation removed its sole tap receiver when
+            // controlsLocked became true, making the hidden unlock button
+            // impossible to reveal. Intercept taps, not video swipes.
+            Box(
+                Modifier.fillMaxSize().pointerInput(controlsLocked) {
+                    detectTapGestures(onTap = { unlockVisible = true })
+                },
+            )
+        }
         // Previous follows the usual music-player rule: >3s restarts the episode;
         // pressing again near the beginning opens the preceding video in the album.
         if (!galleryPagingEnabled && !controlsLocked && chromeVisible && nativePreviousCenter != null) IconButton(
@@ -1159,8 +1171,10 @@ internal fun LocalVideoPlayer(
                 onNext = { onNextVideo?.invoke(player.playWhenReady) },
                 onSeekTo = { position -> player.seekTo(position.coerceIn(0L, playableDurationMs.coerceAtLeast(0L))) },
                 onLockChange = { next ->
+                    // On lock, show a real unlock target immediately; on
+                    // unlock, restore the ordinary player controls.
+                    unlockVisible = next
                     onControlsLockedChange(next)
-                    unlockVisible = false
                 },
             )
         }
