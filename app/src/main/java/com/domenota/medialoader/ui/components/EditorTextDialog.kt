@@ -37,6 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntSize
@@ -436,7 +437,8 @@ internal fun EditorTextDialog(
                                         UnifiedTextTab.KEYBOARD -> {
                                             OutlinedTextField(layer.text,
                                                 { update(layer.copy(text = it.take(500))) },
-                                                modifier = Modifier.fillMaxWidth(),
+                                                modifier = Modifier.fillMaxWidth()
+                                                    .testTag("editor-text-input"),
                                                 label = { Text("Надпись") },
                                                 maxLines = 4)
                                         }
