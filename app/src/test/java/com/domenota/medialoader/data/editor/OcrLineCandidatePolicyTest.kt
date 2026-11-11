@@ -45,6 +45,14 @@ class OcrLineCandidatePolicyTest {
         assertTrue(OcrLineCandidatePolicy.select(shaky).isEmpty())
     }
 
+    @Test fun weakFullFrameClusterDoesNotAutoEraseFaceWhenCaptionMissing() {
+        val cheekTexture = (0 until 5).map { i ->
+            letter(i, .32f + .012f * i, .35f, confidence = 68f)
+        }
+        assertTrue(OcrLineCandidatePolicy.best(
+            cheekTexture, listOf(emptyList())).isEmpty())
+    }
+
     @Test fun fullyVisibleCaptionOutsideBottomCropCanStillBeSelected() {
         val title = (0 until 8).map { i ->
             letter(i, .28f + .02f * i, .19f, confidence = 87f)
