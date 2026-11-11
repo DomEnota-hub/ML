@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
@@ -144,7 +145,7 @@ private fun RemovalBrushControls(
     ) {
         Row(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RemovalToolButton(R.drawable.ic_ai_eraser_brush_tool,
@@ -549,12 +550,15 @@ internal fun ObjectRemovalPanel(
         }
     }
 
-    // Automatically detect when opening People mode if both verified models
-    // are available. This effect is keyed to the photo/mode, never to the
-    // result list, so completion cannot restart an infinite search cycle.
-    LaunchedEffect(selectedMode, current.bitmap, peopleReady, mobileReady) {
-        if (selectedMode == AiEraserMode.PEOPLE && peopleReady && mobileReady &&
-            !peopleSearching && !processing) findPeople()
+    // The original working bitmap is stable across inpaint, Undo and Redo.
+    // Each editor source gets ONE automatic people scan. A processed LaMa
+    // artifact must NEVER trigger a second detector pass by recomposition.
+    val autoPeopleScan = remember(working) { PeopleAutoScanGate() }
+    LaunchedEffect(selectedMode, working, peopleReady, mobileReady) {
+        if (autoPeopleScan.claim(
+                selectedMode == AiEraserMode.PEOPLE && peopleReady && mobileReady &&
+                    !peopleSearching && !processing
+            )) findPeople()
     }
 
     fun processSelection() {
@@ -1216,6 +1220,9 @@ internal fun ObjectRemovalPanel(
 
         }
 
+        // Stable separation between the photo and the tool panel, even when
+        // the keyboard or an auxiliary selection row changes available height.
+        Spacer(Modifier.height(12.dp))
         // The object selector is the ONLY mode with the A/hand toggle.
         if (selectedMode == AiEraserMode.OBJECTS) {
             BoxWithConstraints(
@@ -1351,11 +1358,22 @@ internal fun ObjectRemovalPanel(
                                     maskActions.clear()
                                 }
                                 .padding(horizontal = 10.dp, vertical = 7.dp)) {
-                                Text("Человек ${id + 1}" +
-                                        if (ambiguous) " · ?" else if (id in incompletePeople) " · !" else "",
-                                    fontSize = 12.sp,
-                                    color = if (selected) Color.Black
-                                        else if (ambiguous) Color.Gray else Color.White)
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Человек ${id + 1}",
+                                        fontSize = 12.sp,
+                                        color = if (selected) Color.Black
+                                            else if (ambiguous) Color.Gray else Color.White)
+                                    if (ambiguous || id in incompletePeople) {
+                                        Icon(Icons.Rounded.Info,
+                                            contentDescription = if (ambiguous)
+                                                "Неоднозначная маска, выбор заблокирован"
+                                            else "Маска требует уточнения",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = if (selected) Color.DarkGray
+                                                else Color(0xFFFFC21C))
+                                    }
+                                }
                             }
                         }
                         Box(Modifier.clickable(enabled = !busy) { findPeople() }
