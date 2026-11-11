@@ -1,4 +1,4 @@
-name: ML 1.7.174 Xiaomi feedback - 5 fixes QA
+name: ML 1.7.174 Xiaomi feedback - 7 fixes QA
 on:
   push:
     branches:
@@ -46,6 +46,13 @@ jobs:
             --tests '*PersonSegmentationPipelineTest' \
             --tests '*PersonManualRefinementMaskTest' \
             --tests '*GalleryV10ActionContractTest' \
+            --tests '*OcrLineCandidatePolicyTest' \
+            --tests '*TextGlyphMaskTest' \
+            --tests '*GlyphContentMaskTest' \
+            --tests '*LocalTextOcrFallbackTest' \
+            --tests '*LaMaInputSamplingEquivalenceTest' \
+            --tests '*InpaintingPreparationTest' \
+            --tests '*LaMaCompositionTest' \
             --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
