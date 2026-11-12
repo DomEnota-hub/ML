@@ -66,6 +66,9 @@ fun GalleryModeScreen(
     onDeleteFolder: suspend (String) -> Unit = {},
     onDeviceAlbumsChanged: () -> Unit = {},
     datePickerRequest: Int = 0,
+    albumRequest: GalleryAlbumRequest? = null,
+    onAlbumRequestHandled: () -> Unit = {},
+    onOpenFromAlbum: ((String, List<String>, String?) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -105,6 +108,12 @@ fun GalleryModeScreen(
     fun selectTab(value: Int) { localTab = value; onTabChange(value) }
     fun openAlbum(key: String, title: String) { selection = key; selectionTitle = title; selectTab(0) }
     fun closeAlbum() { selection = "all"; selectionTitle = ""; selectTab(1) }
+    fun openMedia(id: String, queue: List<String>) {
+        val origin = selection.takeIf { detailOpen && (it.startsWith("folder:") || it.startsWith("device:")) }
+        if (onOpenFromAlbum != null) onOpenFromAlbum(id,queue,origin) else onOpen(id,queue)
+    }
+    var jumpToMedia by remember { mutableStateOf<String?>(null) }
+    var highlightedMedia by remember { mutableStateOf<String?>(null) }
     BackHandler(detailOpen || tab != 0) { if (detailOpen) closeAlbum() else selectTab(0) }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     // Multi-select can include the entire phone library. Keep large IDs in
@@ -130,6 +139,14 @@ fun GalleryModeScreen(
     }
     val albums = remember(media, folders, assignments, buckets) {
         GalleryLibraryState.albums(media, folders, assignments, buckets)
+    }
+    LaunchedEffect(albumRequest, albums, loading, media) {
+        val request = albumRequest ?: return@LaunchedEffect
+        val found = albums.firstOrNull { it.key == request.album.key }
+        if (found != null && GalleryLibraryState.filter(media, assignments, found.key, "", buckets).any { it.id == request.itemId }) {
+            search = ""; selection = found.key; selectionTitle = found.name; if (tab != 0) selectTab(0); jumpToMedia = request.itemId
+            onAlbumRequestHandled()
+        } else if (!loading) { Toast.makeText(context, "Альбом недоступен", Toast.LENGTH_SHORT).show(); onAlbumRequestHandled() }
     }
     val orderedAlbums = remember(albums, albumSettings.order) { orderedGalleryAlbums(albums, albumSettings) }
     val visibleAlbums = orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
@@ -200,6 +217,16 @@ fun GalleryModeScreen(
         orderedDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
             .atZone(ZoneId.systemDefault()).toLocalDate() }
     }
+    LaunchedEffect(jumpToMedia, orderedDisplayed, detailOpen, tab, albumFileSort) {
+        val id = jumpToMedia ?: return@LaunchedEffect
+        if (!detailOpen || tab != 0) return@LaunchedEffect
+        val grouped = GalleryAlbumFileOrder.groupedByDate(albumFileSort)
+        val groups = if (grouped) dateSections.values.map { rows -> rows.map { it.id } } else listOf(orderedDisplayed.map { it.id })
+        val index = GalleryLibraryState.gridIndex(groups,id,grouped) ?: return@LaunchedEffect
+        mediaGridState.scrollToItem(index)
+        jumpToMedia = null; highlightedMedia = id
+    }
+    LaunchedEffect(highlightedMedia) { if (highlightedMedia != null) { delay(2600); highlightedMedia = null } }
     // Keep the long-press drag detector on the grid, not a recycled cell:
     // otherwise automatic scrolling would cancel the gesture.
     var dragSelectionAnchor by remember { mutableStateOf<String?>(null) }
@@ -515,13 +542,13 @@ fun GalleryModeScreen(
                 if (detailOpen && !GalleryAlbumFileOrder.groupedByDate(albumFileSort)) {
                     items(orderedDisplayed, key = { it.id }) { row ->
                         GalleryMediaCell(row, catalog[row.id]?.isFavorite == true,
-                            { if (selecting) toggle(row.id) else onOpen(row.id, queue) },
+                            { if (selecting) toggle(row.id) else openMedia(row.id, queue) },
                             { mutate { onFavorite(row.id, catalog[row.id]?.isFavorite != true) } },
                             { folderTarget = row.id }, { onShare(row.id) }, { onDelete(row.id) },
                             { renameTarget = row }, { onMoveToPrivate(row.id) },
                             selecting = selecting, selected = row.id in selectedSet,
                             onSelect = { toggle(row.id) },
-                            onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) })
+                            onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) }, highlighted = row.id == highlightedMedia)
                     }
                 } else dateSections.forEach { (date, rows) ->
                         item(key = "date:$date", span = { GridItemSpan(maxLineSpan) }) {
@@ -557,12 +584,12 @@ fun GalleryModeScreen(
                             }
                         }
                         items(rows, key = { it.id }) { row ->
-                            GalleryMediaCell(row, catalog[row.id]?.isFavorite == true, { if (selecting) toggle(row.id) else onOpen(row.id, queue) },
+                            GalleryMediaCell(row, catalog[row.id]?.isFavorite == true, { if (selecting) toggle(row.id) else openMedia(row.id, queue) },
                                 { mutate { onFavorite(row.id, catalog[row.id]?.isFavorite != true) } }, { folderTarget = row.id },
                                 { onShare(row.id) }, { onDelete(row.id) }, { renameTarget = row }, { onMoveToPrivate(row.id) },
                                 selecting = selecting, selected = row.id in selectedSet,
                                 onSelect = { toggle(row.id) },
-                                onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) })
+                                onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) }, highlighted = row.id == highlightedMedia)
                         }
                     }
             }
@@ -743,12 +770,13 @@ private fun GallerySectionTitle(text: String) { Text(text, Modifier.padding(hori
 private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: () -> Unit, onFavorite: () -> Unit,
                              onFolder: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit, onRename: () -> Unit, onPrivate: () -> Unit,
                              selecting: Boolean, selected: Boolean, onSelect: () -> Unit,
-                             onLongSelect: () -> Unit) {
+                             onLongSelect: () -> Unit, highlighted: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
         .semantics { contentDescription = item.originalName }
         .combinedClickable(onClick = onOpen, onLongClick = onLongSelect, onLongClickLabel = "Выбрать файл")) {
         DownloadThumbnail(item.savedUri, item.previewUrl, item.toUi().kind, Modifier.fillMaxSize(), progressive = true)
+        if (highlighted) Box(Modifier.matchParentSize().border(3.dp, if (com.domenota.medialoader.ui.theme.isDarkPalette) com.domenota.medialoader.ui.theme.AppGold else com.domenota.medialoader.ui.theme.LightAppAccent))
         if (selecting) Box(Modifier.align(Alignment.TopEnd).size(40.dp)) {
             IconButton(onClick = onSelect, modifier = Modifier.fillMaxSize()) {
                 Box(Modifier.align(Alignment.TopEnd).padding(2.dp).size(23.dp)

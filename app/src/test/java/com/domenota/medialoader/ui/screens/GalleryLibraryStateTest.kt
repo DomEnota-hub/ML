@@ -28,4 +28,20 @@ class GalleryLibraryStateTest {
         assertEquals("a", albums.first { it.key == "folder:f" }.cover?.id)
         assertEquals("b", albums.first { it.key == "device:bucket2" }.cover?.id)
     }
+    @Test fun infoLinksResolveRealMembershipAndPreferredOrigin() {
+        val photo = file("a")
+        val folders = listOf(CatalogFolderEntity("f", "Мультфильмы", "мультфильмы", 0))
+        val assignments = listOf(CatalogAssignmentEntity("a", "f", false))
+        val device = mapOf("a" to DeviceAlbum("camera", "Camera"))
+        val links = GalleryLibraryState.albumLinks(photo, folders, assignments, device, "device:camera")
+        assertEquals(listOf("device:camera", "folder:f"), links.map { it.key })
+        assertTrue(GalleryLibraryState.albumLinks(photo.copy(isPrivate=true), folders, assignments, device).isEmpty())
+        assertTrue(GalleryLibraryState.albumLinks(photo.copy(hidden=true), folders, assignments, device).isEmpty())
+        assertTrue(GalleryLibraryState.albumLinks(photo, emptyList(), assignments, emptyMap()).isEmpty())
+    }
+    @Test fun galleryLinkScrollAccountsForHeaders() {
+        assertEquals(1, GalleryLibraryState.gridIndex(listOf(listOf("a","b")), "a", false))
+        assertEquals(5, GalleryLibraryState.gridIndex(listOf(listOf("a","b"), listOf("c","d")), "c", true))
+        assertNull(GalleryLibraryState.gridIndex(listOf(listOf("a")), "absent", true))
+    }
 }

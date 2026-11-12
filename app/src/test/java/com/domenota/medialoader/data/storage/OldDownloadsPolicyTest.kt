@@ -28,4 +28,15 @@ class OldDownloadsPolicyTest {
         assertTrue(OldDownloadsPolicy.safeName("DAMAGE - (2).mp3"))
         listOf("", "..", "../x.mp3", "a\\b.jpg", "a\n.jpg").forEach { assertFalse(OldDownloadsPolicy.safeName(it)) }
     }
+    @Test fun everyMissingMetadataConditionHasAnIndividualReason() {
+        assertTrue(OldDownloadsPolicy.metadataProblems("a.jpg", true, 100, 1, 2, 0, 0, true).isEmpty())
+        val errors = OldDownloadsPolicy.metadataProblems("../a.jpg", false, 0, 0, 0, null, null, true)
+        assertEquals(7, errors.size)
+        assertTrue(errors.any { "DATE_ADDED" in it })
+        assertTrue(errors.any { "DATE_MODIFIED" in it })
+        assertTrue(errors.any { "IS_PENDING=null" in it })
+        assertTrue(errors.any { "IS_TRASHED=null" in it })
+        assertTrue(OldDownloadsPolicy.metadataProblems("a.jpg", true, 100, 1, 2, 0, null, false).isEmpty())
+        assertFalse(OldDownloadsPolicy.metadataProblems("a.jpg", true, 100, 1, 2, 1, 0, true).isEmpty())
+    }
 }

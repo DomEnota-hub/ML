@@ -20,6 +20,28 @@ class AudioPlaybackService : MediaSessionService() {
     companion object {
         private var liveSession: MediaSession? = null
 
+        /** Comparison uses a separate local player, leaving the service queue and position untouched. */
+        internal data class ComparisonPlayback(val player: Player, val ids: List<String>, val index: Int, val position: Long, val wasPlaying: Boolean)
+        internal fun pauseForComparison(): ComparisonPlayback? {
+            val p = liveSession?.player ?: return null
+            if (p.currentMediaItem == null) return null
+            check(p.currentMediaItem?.mediaMetadata?.extras?.getBoolean("private_media") != true) { "Сначала завершите приватное воспроизведение" }
+            return ComparisonPlayback(p, (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId }, p.currentMediaItemIndex, p.currentPosition, p.playWhenReady).also { p.pause() }
+        }
+        internal fun finishComparison(saved: ComparisonPlayback?) {
+            val p = liveSession?.player ?: return
+            if (saved != null && saved.player === p && saved.wasPlaying && !p.playWhenReady &&
+                p.currentMediaItemIndex == saved.index && (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId } == saved.ids &&
+                kotlin.math.abs(p.currentPosition - saved.position) < 1000L) p.play()
+        }
+        internal fun removeTrashedFromQueue(uris: List<String>) {
+            val p = liveSession?.player ?: return
+            for (index in p.mediaItemCount - 1 downTo 0) {
+                val item = p.getMediaItemAt(index)
+                if (uris.any { AudioPlaybackMetadata.matchesPublicUri(item,it) }) p.removeMediaItem(index)
+            }
+        }
+
         internal data class ReplacementPlayback(val player: Player, val mediaId: String,
             val position: Long, val playWhenReady: Boolean)
 

@@ -46,6 +46,8 @@ fun MusicModeScreen(
     deviceMusicFolders: Map<String, String> = emptyMap(),
     hiddenTracksOpen: Boolean = false, onDismissHiddenTracks: () -> Unit = {},
     favoriteIds: Set<String> = emptySet(),
+    duplicateLinkedIds: Set<String> = emptySet(),
+    onTrashDuplicates: ((List<String>) -> Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -55,6 +57,9 @@ fun MusicModeScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
     var sortMenu by remember { mutableStateOf(false) }
+    var duplicatesOpen by remember { mutableStateOf(false) }
+    if (duplicatesOpen && onTrashDuplicates != null) MusicDuplicatesDialog(allAudio, favoriteIds + duplicateLinkedIds + playlists.flatMap { it.trackIds }, currentPlayingId, playing,
+        { duplicatesOpen = false }, onTrashDuplicates)
     val listState = rememberLazyListState()
     var creating by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<MediaPlaylist?>(null) }
@@ -131,7 +136,9 @@ fun MusicModeScreen(
                         Text(if (folder in excludedFolders) "Отобразить в общем списке" else "Скрыть из общего списка")
                     }
                 }
-                androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                val folderListState = rememberLazyListState()
+                Box(Modifier.heightIn(max = 320.dp)) {
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().padding(end = if (folderTracks.size > 4) 36.dp else 0.dp), state = folderListState) {
                     items(folderTracks, key = { it.id }) { track ->
                         TextButton(onClick = { (onPreview ?: onOpen)(track.id, folderTracks.map { it.id }) }) {
                             com.domenota.medialoader.ui.components.DownloadThumbnail(track.savedUri, track.previewUrl, track.toUi().kind, Modifier.size(44.dp))
@@ -139,6 +146,8 @@ fun MusicModeScreen(
                             Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
+                }
+                MusicFastScroll(folderListState, folderTracks.map { musicGroupLetter(musicDisplayTitle(it)) }, Modifier.align(Alignment.CenterEnd).matchParentSize().wrapContentWidth(Alignment.End))
                 }
             } }, confirmButton = { TextButton(onClick = { folderOpen = null }) { Text("Готово") } })
     }
@@ -182,7 +191,12 @@ fun MusicModeScreen(
     val queue = remember(displayed) { displayed.map { it.id } }
     fun preview(id: String) { (onPreview ?: onOpen)(id, queue) }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        LazyColumn(Modifier.weight(1f).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+        val fastLabels = remember(sections, displayedIds, tab, playlist) {
+            if (tab == 0) listOf("") + sections.flatMap { (label, records) -> val caption = if (sort == MusicLibrarySort.DATE || sort == MusicLibrarySort.DATE_OLDEST) label.take(7) else label; listOf(caption) + records.map { caption } }
+            else listOf("") + if (playlist != null) listOf("") + displayedIds.map { id -> available[id]?.let { musicGroupLetter(musicDisplayTitle(it)) }.orEmpty() } else emptyList()
+        }
+        LazyColumn(Modifier.fillMaxSize().padding(end = if (tab == 0 && displayed.size > 5 || playlist != null && displayedIds.size > 5) 36.dp else 0.dp).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "music-controls") {
                 Column {
                     if (playlist == null) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -215,6 +229,10 @@ fun MusicModeScreen(
                                 Icon(Icons.Rounded.Sort, contentDescription = "Сортировка треков")
                             }
                             DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                                if (onTrashDuplicates != null) {
+                                    DropdownMenuItem(text = { Text("Найти дубликаты") }, onClick = { sortMenu = false; duplicatesOpen = true }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                                    HorizontalDivider()
+                                }
                                 MusicLibrarySort.entries.filter { it != MusicLibrarySort.DATE_OLDEST }.forEach { option ->
                                     DropdownMenuItem(text = { Text(musicSortCaption(if (option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE_OLDEST) sort else option)) },
                                         onClick = { sort = if (option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE) MusicLibrarySort.DATE_OLDEST else option; sortMenu = false },
@@ -359,6 +377,8 @@ fun MusicModeScreen(
                     }
                 }
             }
+        }
+        if (tab == 0 || playlist != null) MusicFastScroll(listState, fastLabels, Modifier.align(Alignment.CenterEnd))
         }
         if (tabOverride == null && playlist == null) LibraryBottomSwitcher(AppMode.MUSIC, tab, ::selectTab)
     }
