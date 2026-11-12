@@ -17,6 +17,36 @@ import org.robolectric.annotation.LooperMode
 class PrivateViewerChromeTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
+    @Test fun actualPrivatePhotoViewerKeepsItsAuthorizedQueueOpen() {
+        val context = compose.activity
+        val file = java.io.File.createTempFile("vault-viewer-", ".png", context.cacheDir)
+        val image = android.graphics.Bitmap.createBitmap(12, 12, android.graphics.Bitmap.Config.ARGB_8888)
+        try {
+            image.eraseColor(android.graphics.Color.WHITE)
+            file.outputStream().use { image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            val photo = com.domenota.medialoader.core.database.DownloadEntity(
+                "private-test-photo", "instagram", "private.png",
+                com.domenota.medialoader.core.model.MediaType.PHOTO,
+                com.domenota.medialoader.core.model.DownloadState.COMPLETED,
+                android.net.Uri.fromFile(file).toString(), file.length(), 1L,
+            ).copy(isPrivate = true)
+            var closed = false
+            compose.setContent {
+                MaterialTheme {
+                    GalleryMediaViewer(photo, listOf(photo), onBack = { closed = true },
+                        onShare = {}, onEdit = {}, onDelete = {}, favoriteIds = emptySet(),
+                        onFavorite = { _, _ -> }, folders = emptyList(), onSetFolder = { _, _ -> },
+                        onMoveToPrivate = {}, onOpenExternal = {}, onCurrentItemChanged = {},
+                        privateMode = true)
+                }
+            }
+            compose.waitForIdle()
+            compose.onNodeWithContentDescription("Поделиться").assertExists()
+            compose.onNodeWithContentDescription("Избранное").assertDoesNotExist()
+            compose.runOnIdle { org.junit.Assert.assertFalse("Authorized vault viewer must not pop itself", closed) }
+        } finally { image.recycle(); file.delete() }
+    }
+
     @Test fun privatePhotoHasSameViewerActionsExceptHeart() {
         compose.setContent {
             MaterialTheme {

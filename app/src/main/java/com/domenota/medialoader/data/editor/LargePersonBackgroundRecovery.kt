@@ -22,7 +22,7 @@ internal object LargePersonBackgroundRecovery {
         (color ushr ((2 - channel) * 8)) and 255
 
     fun recover(source: IntArray, coverage: IntArray, width: Int, height: Int,
-        modelComposite: IntArray): IntArray? {
+        modelComposite: IntArray, checkCancellation: () -> Unit = {}): IntArray? {
         require(width > 0 && height > 0 && source.size == width * height &&
             coverage.size == source.size && modelComposite.size == source.size)
         val masked = coverage.count { it > 0 }
@@ -34,6 +34,7 @@ internal object LargePersonBackgroundRecovery {
         val ys = DoubleArray(height) { it * 2.0 / (height - 1) - 1.0 }
         val samples = ArrayList<Sample>()
         for (y in 0 until height step step) for (x in 0 until width step step) {
+            if (x == 0) checkCancellation()
             val i = y * width + x
             if (coverage[i] != 0 || (source[i] ushr 24) < 250) continue
             var clear = true
@@ -51,6 +52,7 @@ internal object LargePersonBackgroundRecovery {
 
         var inliers: List<Sample> = samples
         repeat(4) {
+            checkCancellation()
             val estimate = fit(inliers, xs, ys) ?: return null
             val errors = samples.map { error(it, estimate) }.sorted()
             val threshold = (errors[errors.size / 2] * 2.5).coerceIn(12.0, 32.0)
@@ -83,15 +85,17 @@ internal object LargePersonBackgroundRecovery {
 
         // Keep a little of the model's local high-frequency texture, not its
         // low-frequency ghost/colour cast. The cap avoids reintroducing edges.
-        val output = modelComposite.copyOf()
+        val output = source.copyOf()
         val radius = (maxOf(width, height) / 220).coerceIn(2, 5)
+        val neighbour = IntArray(3)
         for (y in 0 until height) for (x in 0 until width) {
+            if (x == 0 && y % 16 == 0) checkCancellation()
             val i = y * width + x
             val alpha = coverage[i]
             if (alpha == 0) continue
             var color = source[i] and 0xff000000.toInt()
             var count = 0
-            val neighbour = IntArray(3)
+            neighbour.fill(0)
             for (dy in -1..1) for (dx in -1..1) {
                 if (dx == 0 && dy == 0) continue
                 val nx = x + dx * radius; val ny = y + dy * radius

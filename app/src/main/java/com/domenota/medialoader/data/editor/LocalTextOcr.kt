@@ -287,7 +287,7 @@ internal object LocalTextOcr {
             val stripH = image.height - stripTop
             val stripW = (image.width * .85f).toInt().coerceIn(1, image.width)
             val strip = Bitmap.createBitmap(image, 0, stripTop, stripW, stripH)
-            val stripScale = minOf(3.5f, 1920f / stripW, 640f / stripH).coerceAtLeast(1f)
+            val stripScale = minOf(3.5f, 1920f / stripW, 640f / stripH)
             val largeStrip = Bitmap.createScaledBitmap(strip,
                 (stripW * stripScale).toInt().coerceAtLeast(1),
                 (stripH * stripScale).toInt().coerceAtLeast(1), true)

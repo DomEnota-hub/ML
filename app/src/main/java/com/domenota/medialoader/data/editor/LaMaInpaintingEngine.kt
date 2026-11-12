@@ -50,9 +50,11 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
                 pixels, coverage, width, height, region, prediction,
                 bounds = prepared.bounds)
             currentCoroutineContext().ensureActive()
+            val cancellationContext = currentCoroutineContext()
             val recovered = if (settings.recoverLargePersonOnUniformBackground && diagnostics.largeArea)
-                LargePersonBackgroundRecovery.recover(pixels, coverage, width, height, modelResult)
-                else null
+                LargePersonBackgroundRecovery.recover(pixels, coverage, width, height, modelResult) {
+                    cancellationContext.ensureActive()
+                } else null
             val result = recovered ?: modelResult
             val compositingMs = SystemClock.elapsedRealtime() - compositeStarted
             AppLog.i("AiOrtPerf", "model=LAMA size=${width}x$height " +
