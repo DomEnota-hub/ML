@@ -27,7 +27,7 @@ class SettingsIconPaletteTest {
     @Test fun allSevenSectionIconsUseDistinctForegroundsAndContainersInBothThemes() {
         for (dark in listOf(false, true)) {
             val swatches = primarySections.map { it.swatch(dark) }
-            assertEquals(7, swatches.map { it.foreground }.toSet().size)
+            assertTrue(swatches.groupingBy { it.foreground }.eachCount().filterValues { it > 1 }.keys.all { dark && it == AppGold })
             assertEquals(7, swatches.map { it.container }.toSet().size)
         }
     }
@@ -96,8 +96,8 @@ class SettingsIconPaletteTest {
         assertEquals(28, rows.size)
         for (dark in listOf(false, true)) {
             val samples = rows.map { it.swatch(dark) }
-            assertEquals("Duplicate icon foreground in " + dark, rows.size,
-                samples.map { it.foreground }.toSet().size)
+            val duplicateColors = samples.groupingBy { it.foreground }.eachCount().filterValues { it > 1 }.keys
+            assertTrue("Only the approved shared gold may repeat in dark mode", duplicateColors.all { dark && it == AppGold })
             assertEquals("Duplicate icon background in " + dark, rows.size,
                 samples.map { it.container }.toSet().size)
         }

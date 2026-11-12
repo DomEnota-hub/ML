@@ -57,6 +57,27 @@ class GlyphContentMaskTest {
         } finally { bitmap.recycle() }
     }
 
+    @Test fun closeOutlinedTitleCanUseVerifiedOuterLineBackground() {
+        val bitmap = Bitmap.createBitmap(160, 160, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(Color.rgb(190, 192, 194))
+        try {
+            val glyphs = (0 until 4).map { i ->
+                val x = 30 + i * 15
+                // Four close outlined glyphs with real interior background.
+                // Adjacent strokes contaminate an individual side perimeter.
+                for (y in 45..63) for (xx in x..x+13) {
+                    val d = minOf(xx-x, x+13-xx, y-45, 63-y)
+                    if (d < 4) bitmap.setPixel(xx, y, if (d == 0 || d == 3) Color.BLACK else Color.WHITE)
+                }
+                DetectedGlyph(i, "О", x/160f, 45f/160, (x+14)/160f, 64f/160, 96f)
+            }
+            assertTrue("Single inner symbol has contaminated perimeter", GlyphContentMask.fromBitmap(bitmap, listOf(glyphs[1])).isEmpty())
+            val result = GlyphContentMask.fromBitmap(bitmap, glyphs)
+            assertTrue(result.isNotEmpty())
+            assertTrue(result.flatMap { it.points }.all { it.y in .27f..41f && it.x in .17f..57f })
+        } finally { bitmap.recycle() }
+    }
+
     @Test fun blankPhotoNeverProducesASyntheticRectangularMask() {
         val bitmap = Bitmap.createBitmap(100, 70, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(Color.WHITE)

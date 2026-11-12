@@ -13,6 +13,8 @@ import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.ui.model.DownloadUiState
 import com.domenota.medialoader.ui.model.MediaKind
 import com.domenota.medialoader.ui.theme.AccentPurple
+import com.domenota.medialoader.ui.theme.isDarkPalette
+import androidx.compose.material3.MaterialTheme
 
 @Composable
 internal fun VideoWatchStripe(item: DownloadUiItem, modifier: Modifier = Modifier) {
@@ -29,8 +31,9 @@ internal fun VideoWatchStripe(item: DownloadUiItem, modifier: Modifier = Modifie
         fraction = VideoWatchProgress.read(prefs, item.id, item.durationMs)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
+    val accent = if (isDarkPalette) MaterialTheme.colorScheme.primary else AccentPurple
     if (fraction > 0f) Canvas(modifier) {
         drawRect(Color.Black.copy(alpha = 0.55f))
-        drawRect(AccentPurple, size = Size(size.width * fraction, size.height))
+        drawRect(accent, size = Size(size.width * fraction, size.height))
     }
 }

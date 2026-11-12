@@ -93,8 +93,9 @@ internal object OcrLineCandidatePolicy {
     }
 
     /** Merge distinct reliable lines, never blindly merge duplicate boxes from passes. */
-    fun best(fullPage: List<DetectedGlyph>, captionPasses: List<List<DetectedGlyph>>): List<DetectedGlyph> {
-        val full = credibleLines(fullPage).filter { line ->
+    fun best(fullPage: List<DetectedGlyph>, captionPasses: List<List<DetectedGlyph>>,
+        fullPageAlternates: List<List<DetectedGlyph>> = emptyList()): List<DetectedGlyph> {
+        val full = (listOf(fullPage) + fullPageAlternates).flatMap(::credibleLines).filter { line ->
             val letters = line.filter(::hasLetters)
             // Full-frame guesses need stronger evidence than a dedicated scan.
             (letters.size >= 5 && letters.count { it.confidence >= 75f } >= 4) ||

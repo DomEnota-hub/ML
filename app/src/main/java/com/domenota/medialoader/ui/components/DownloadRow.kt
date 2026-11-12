@@ -69,6 +69,8 @@ import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.ui.model.DownloadUiState
 import com.domenota.medialoader.data.storage.SavedFileStatus
 import com.domenota.medialoader.ui.model.MediaKind
+import com.domenota.medialoader.ui.theme.LocalShazamResultColor
+import com.domenota.medialoader.ui.theme.isDarkPalette
 import com.domenota.medialoader.ui.theme.AccentPurple
 import com.domenota.medialoader.ui.theme.Success
 import com.domenota.medialoader.data.search.FullSongSource
@@ -196,7 +198,7 @@ fun DownloadRow(
         inaccessible -> "Нет доступа к файлу" to MaterialTheme.colorScheme.error
         else -> when (item.state) {
         DownloadUiState.QUEUED -> "В очереди" to MaterialTheme.colorScheme.onSurfaceVariant
-        DownloadUiState.DOWNLOADING -> "Загружается…" to AccentPurple
+        DownloadUiState.DOWNLOADING -> "Загружается…" to if (isDarkPalette) MaterialTheme.colorScheme.primary else AccentPurple
         DownloadUiState.COMPLETED -> "Сохранено" to if (MaterialTheme.colorScheme.background.luminance() > 0.5f)
             Color(0xFF16734D) else Success
         DownloadUiState.FAILED -> "Ошибка загрузки" to MaterialTheme.colorScheme.error
@@ -369,7 +371,7 @@ fun DownloadRow(
                     Text(
                         recognition,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = if (item.recognitionSource in setOf("SHAZAM_DIRECT", "SHAZAM_LOOP")) LocalShazamResultColor.current else MaterialTheme.colorScheme.primary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -405,6 +407,7 @@ fun DownloadRow(
 @Composable
 private fun SimpleProgressBar(progress: Float?) {
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.20f)
+    val accent = if (isDarkPalette) MaterialTheme.colorScheme.primary else AccentPurple
     Canvas(Modifier.fillMaxWidth().height(4.dp)) {
         val y = size.height / 2f
         val width = size.width
@@ -412,7 +415,7 @@ private fun SimpleProgressBar(progress: Float?) {
         val fraction = progress?.coerceIn(0f, 1f) ?: 0.12f
         if (fraction > 0f) {
             drawLine(
-                AccentPurple,
+                accent,
                 Offset(0f, y),
                 Offset(width * fraction, y),
                 strokeWidth = size.height,

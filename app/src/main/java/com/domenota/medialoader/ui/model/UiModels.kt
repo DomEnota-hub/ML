@@ -60,4 +60,5 @@ data class DownloadUiItem(
     val fileStatus: SavedFileStatus = SavedFileStatus.UNCHECKED,
     val durationMs: Long? = null,
     val trashOrderMs: Long = 0L,
+    val recognitionSource: String? = null,
 )

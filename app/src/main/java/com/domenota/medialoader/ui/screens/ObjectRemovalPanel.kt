@@ -92,6 +92,7 @@ import java.io.FileOutputStream
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -490,18 +491,28 @@ internal fun ObjectRemovalPanel(
         val source = current.bitmap
         scope.launch {
             try {
-                val found = glyphDetector.detect(source)
-                glyphs = found
-                // Auto-select only entire lines whose pixel masks can be
-                // verified. Keep the other OCR boxes as unselected candidates;
-                // one faint watermark must not disable a separate clear title.
-                val verified = withContext(Dispatchers.Default) {
+                suspend fun validated(candidates: List<DetectedGlyph>): List<Int> = withContext(Dispatchers.Default) {
                     com.domenota.medialoader.data.editor.OcrLineCandidatePolicy
-                        .credibleLines(found).filter { line ->
+                        .credibleLines(candidates).filter { line ->
                             com.domenota.medialoader.data.editor.GlyphContentMask
                                 .fromBitmap(source, line).isNotEmpty()
                         }.flatten().map { it.id }.distinct().take(160)
                 }
+                var found = glyphDetector.detect(source)
+                var verified = validated(found)
+                if (verified.isEmpty()) {
+                    // One bounded retry, within the same user gesture. Prefer
+                    // a result with a verified pixel mask, not merely more boxes.
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    val retry = glyphDetector.detect(source)
+                    val retryVerified = validated(retry)
+                    if (retryVerified.size > verified.size || (retryVerified.isEmpty() && retry.size > found.size)) {
+                        found = retry
+                        verified = retryVerified
+                    }
+                }
+                if (steps.getOrNull(index)?.bitmap !== source) return@launch
+                glyphs = found
                 selectedGlyphs.addAll(verified)
                 // Store only counts/confidence in QA logs; never print text or
                 // the image. On-device inspection can distinguish false OCR
@@ -516,7 +527,8 @@ internal fun ObjectRemovalPanel(
                     verified.size < found.size -> "Часть текста требует ручного выделения. Подтверждённые строки уже выбраны."
                     else -> null
                 }
-            } catch (error: Exception) {
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
                 message = error.message ?: "Не удалось распознать текст."
             } finally {
                 scanningText = false

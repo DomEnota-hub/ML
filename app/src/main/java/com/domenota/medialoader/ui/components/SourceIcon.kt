@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
+import com.domenota.medialoader.ui.theme.isDarkPalette
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,13 +27,15 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun SourceIcon(providerId: String?, size: Dp = 42.dp, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(size * 0.27f)
+    val dark = isDarkPalette
+    val genericForeground = if (dark) MaterialTheme.colorScheme.onPrimary else Color.White
     val fill = when (providerId?.lowercase()) {
         "instagram" -> Brush.linearGradient(listOf(Color(0xFF7046E8), Color(0xFFD62E97), Color(0xFFFFA33B)))
         "youtube" -> Brush.linearGradient(listOf(Color(0xFFFF3341), Color(0xFFE6212E)))
         "vk" -> Brush.linearGradient(listOf(Color(0xFF278BFF), Color(0xFF0860D7)))
-        "rutube" -> Brush.linearGradient(listOf(Color(0xFF24113F), Color(0xFF080713)))
+        "rutube" -> Brush.linearGradient(if (dark) listOf(Color(0xFF252525), Color(0xFF080713)) else listOf(Color(0xFF24113F), Color(0xFF080713)))
         "hitmoz", "muzmo" -> Brush.linearGradient(listOf(Color(0xFF9E527A), Color(0xFF64304F)))
-        else -> Brush.linearGradient(listOf(Color(0xFF8064CB), Color(0xFF6044A8)))
+        else -> Brush.linearGradient(if (dark) listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary) else listOf(Color(0xFF8064CB), Color(0xFF6044A8)))
     }
     Box(modifier.size(size).background(fill, shape), contentAlignment = Alignment.Center) {
         when (providerId?.lowercase()) {
@@ -69,7 +73,7 @@ fun SourceIcon(providerId: String?, size: Dp = 42.dp, modifier: Modifier = Modif
                     )
                 }
             }
-            else -> Text("•", color = Color.White, fontWeight = FontWeight.Bold)
+            else -> Text("•", color = genericForeground, fontWeight = FontWeight.Bold)
         }
     }
 }

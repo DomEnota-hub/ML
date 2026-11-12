@@ -208,9 +208,7 @@ fun AudioEditorScreen(
 
     // Scope yellow actions and trim handles to the audio editor only.
     // All titles use onSurface, so light mode stays dark-on-light.
-    MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(
-        primary = editorSliderYellow, onPrimary = Color.Black,
-        secondary = editorSliderYellow)) {
+    MaterialTheme(colorScheme = com.domenota.medialoader.ui.theme.goldAccentScheme(MaterialTheme.colorScheme)) {
     Scaffold(
         topBar = {
             TopAppBar(

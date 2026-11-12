@@ -22,8 +22,18 @@ internal object GlyphContentMask {
         if (glyphs.isEmpty() || glyphs.size > MAX_SYMBOLS ||
             source.width < 2 || source.height < 2) return emptyList()
         val result = ArrayList<MaskStroke>()
+        // A tight symbol perimeter can cross its neighbour. Only use a line
+        // background inferred from the entire outer ring of a credible line.
+        val backgrounds = mutableMapOf<Int, Background>()
+        for (line in OcrLineCandidatePolicy.credibleLines(glyphs.toList())) {
+            if (line.count { it.confidence >= 75f && it.text.any(Char::isLetterOrDigit) } < 4) continue
+            val bg = lineBackground(source, line) ?: continue
+            line.forEach { backgrounds[it.id] = bg }
+        }
         for (glyph in glyphs) {
-            val segment = extractSymbol(source, glyph) ?: return emptyList()
+            val segment = extractSymbol(source, glyph) ?: backgrounds[glyph.id]?.let {
+                extractSymbol(source, glyph, it)
+            } ?: return emptyList()
             if (segment.isEmpty() || result.size + segment.size > MAX_STROKES) {
                 // No partial removal of a selected phrase.
                 return emptyList()
@@ -33,7 +43,38 @@ internal object GlyphContentMask {
         return result
     }
 
-    private fun extractSymbol(source: Bitmap, glyph: DetectedGlyph): List<MaskStroke>? {
+    private data class Background(val color: Int, val q75: Int)
+
+    private fun verifiedBackground(boundary: List<Int>): Background? {
+        if (boundary.size < 12) return null
+        val color = medianColor(boundary)
+        val deviations = boundary.map { distance(it, color) }.sorted()
+        if (deviations[deviations.size / 2] > 18 ||
+            deviations.count { it <= 30 } * 100L < deviations.size * 72L) return null
+        return Background(color, deviations[(deviations.size - 1) * 3 / 4])
+    }
+
+    private fun lineBackground(source: Bitmap, line: List<DetectedGlyph>): Background? {
+        val width = source.width; val height = source.height
+        val l = (line.minOf { it.left } * width).toInt()
+        val r = kotlin.math.ceil(line.maxOf { it.right } * width).toInt()
+        val t = (line.minOf { it.top } * height).toInt()
+        val b = kotlin.math.ceil(line.maxOf { it.bottom } * height).toInt()
+        val pad = ((b - t) * .30f).toInt().coerceIn(3, 24)
+        val x0 = (l - pad).coerceAtLeast(0); val x1 = (r + pad).coerceAtMost(width)
+        val y0 = (t - pad).coerceAtLeast(0); val y1 = (b + pad).coerceAtMost(height)
+        if (x1 - x0 < 5 || y1 - y0 < 5 || (x1 - x0).toLong() * (y1 - y0) > MAX_PIXELS_PER_SYMBOL) return null
+        // Full perimeter, plus the genuine exterior band, not a decimated grid.
+        val pixels = IntArray((x1 - x0) * (y1 - y0))
+        source.getPixels(pixels, 0, x1 - x0, x0, y0, x1 - x0, y1 - y0)
+        val samples = ArrayList<Int>()
+        for (y in y0 until y1) for (x in x0 until x1) {
+            if (x < l || x >= r || y < t || y >= b) samples.add(pixels[(y-y0)*(x1-x0)+x-x0])
+        }
+        return verifiedBackground(samples)?.takeIf { it.q75 <= 18 }
+    }
+
+    private fun extractSymbol(source: Bitmap, glyph: DetectedGlyph, lineBackground: Background? = null): List<MaskStroke>? {
         val width = source.width
         val height = source.height
         val left = (glyph.left * width).toInt().coerceIn(0, width - 1)
@@ -65,16 +106,14 @@ internal object GlyphContentMask {
             boundary.add(pixels[y * regionWidth])
             boundary.add(pixels[y * regionWidth + regionWidth - 1])
         }
-        val background = medianColor(boundary)
-        // The four-sided background sample is not trustworthy if it contains
-        // texture, multiple foreground objects or adjoining glyphs.
-        // Robust background estimate: neighbouring outlined letters may
-        // touch a minority of the ring samples. Real textured backgrounds,
-        // however, cannot establish a dominant local background colour.
-        val deviations = boundary.map { distance(it, background) }.sorted()
-        val q75 = deviations[(deviations.size - 1) * 3 / 4]
-        if (deviations[deviations.size / 2] > 18 ||
-            deviations.count { it <= 30 } * 100L < deviations.size * 72L) return null
+        val estimate = lineBackground ?: verifiedBackground(boundary) ?: return null
+        val background = estimate.color
+        val q75 = estimate.q75
+        if (lineBackground != null) {
+            // The alternative is permitted only where the character itself
+            // still contains real background evidence. Never fill a box.
+            if (glyph.confidence < 75f || pixels.count { distance(it, background) <= 18 } * 100L < pixels.size * 20L) return null
+        }
 
         // A thin grey outline can be much less than 43 RGB levels from
         // the background. Lower the threshold only for a coherent OCR
@@ -110,7 +149,7 @@ internal object GlyphContentMask {
         // Blank or largely selected rectangles are unsafe. Require that the
         // visible ink has a plausible occupancy within a character region.
         if (ink < 3 || ink * 100L < pixels.size.toLong() ||
-            ink * 100L > pixels.size.toLong() * 62) return null
+            ink * 100L > pixels.size.toLong() * (if (lineBackground == null) 62 else 76)) return null
 
         val strokes = ArrayList<MaskStroke>()
         val diameter = (2f / short).coerceIn(.00001f, .5f)

@@ -47,7 +47,7 @@ import com.domenota.medialoader.data.bulk.BulkPhase
 import com.domenota.medialoader.data.bulk.BulkState
 import kotlinx.coroutines.delay
 
-private val bulkPurple = Color(0xFF8456EC)
+
 
 /** The persisted bulk StateFlow is the only source of progress; no synthetic progress values. */
 @Composable
@@ -61,6 +61,7 @@ fun BulkProgressCard(
     onDismissFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val bulkAccent = if (com.domenota.medialoader.ui.theme.isDarkPalette) MaterialTheme.colorScheme.primary else Color(0xFF8456EC)
     if (state.phase == BulkPhase.EMPTY || state.jobId.isBlank()) return
     var expanded by rememberSaveable(state.jobId) { mutableStateOf(true) }
     var now by remember(state.jobId) { mutableLongStateOf(System.currentTimeMillis()) }
@@ -103,7 +104,7 @@ fun BulkProgressCard(
             Row(Modifier.fillMaxWidth().clickable { expanded = !expanded },
                 horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (finished) Icons.Rounded.CheckCircle else Icons.Rounded.ListAlt,
-                    contentDescription = null, tint = if (finished) Color(0xFF35B779) else bulkPurple)
+                    contentDescription = null, tint = if (finished) Color(0xFF35B779) else bulkAccent)
                 Text(title, style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 if (!expanded) Text("$processed/$total", color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -130,7 +131,7 @@ fun BulkProgressCard(
                         .clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)) {
                         Box(Modifier.fillMaxWidth(percent / 100f).height(7.dp)
-                            .background(bulkPurple, RoundedCornerShape(8.dp)))
+                            .background(bulkAccent, RoundedCornerShape(8.dp)))
                     }
                 } else {
                     Text(if (state.phase == BulkPhase.PREVIEW)

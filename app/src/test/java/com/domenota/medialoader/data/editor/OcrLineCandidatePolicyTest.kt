@@ -79,6 +79,13 @@ class OcrLineCandidatePolicyTest {
         assertEquals(1, selected.count { it.text == "." })
     }
 
+    @Test fun alternateFullFrameDoesNotGetRelaxedCaptionConfidence() {
+        val weak = (0 until 4).map { i -> letter(i, .2f + i * .018f, .35f, 70f) }
+        assertTrue(OcrLineCandidatePolicy.best(emptyList(), emptyList(), listOf(weak)).isEmpty())
+        val strong = weak.map { it.copy(confidence = 96f) }
+        assertEquals(4, OcrLineCandidatePolicy.best(emptyList(), emptyList(), listOf(strong)).size)
+    }
+
     @Test fun fullyVisibleCaptionOutsideBottomCropCanStillBeSelected() {
         val title = (0 until 8).map { i ->
             letter(i, .28f + .02f * i, .19f, confidence = 87f)

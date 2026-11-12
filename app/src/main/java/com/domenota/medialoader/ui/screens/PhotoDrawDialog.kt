@@ -423,7 +423,7 @@ internal fun PhotoDrawDialog(
                                     tint = if (selectedTool) Color.Black else
                                         when (option) {
                                             DrawingTool.MARKER -> Color(0xFFFA8D9C)
-                                            DrawingTool.NEON -> Color(0xFFBF70FF)
+                                            DrawingTool.NEON -> editorYellow
                                             DrawingTool.ERASER -> Color(0xFF9AD8FF)
                                             else -> Color.White
                                         })

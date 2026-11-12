@@ -128,6 +128,9 @@ fun SourceBrowserScreen(
     onRutubeSessionCaptured: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val darkAccent = com.domenota.medialoader.ui.theme.isDarkPalette
+    val injectionAccent by rememberUpdatedState(if (darkAccent) "#FFBD19" else "#7638e8")
+    val injectionInk by rememberUpdatedState(if (darkAccent) "#211800" else "white")
     val currentDownload by rememberUpdatedState(onDownload)
     val currentRutubeSessionCaptured by rememberUpdatedState(onRutubeSessionCaptured)
     var progress by remember { mutableIntStateOf(0) }
@@ -303,7 +306,9 @@ fun SourceBrowserScreen(
                     }
                     if (source.isSite(url)) {
                         view.evaluateJavascript(
-                            browserScript.replace("__SOURCE__", source.id) +
+                            browserScript.replace("__SOURCE__", source.id)
+                                .replace("__ML_ACCENT__", injectionAccent)
+                                .replace("__ML_ACCENT_INK__", injectionInk) +
                                 "\nwindow.__mediaLoaderInstalled",
                         ) { outcome ->
                             AppLog.i(
@@ -803,7 +808,7 @@ private val browserScript = """
       b.innerHTML = buttonMarkup();
       b.setAttribute('data-medialoader-overlay', '1');
       b.setAttribute('aria-label', 'Скачать этот материал');
-      b.style.cssText = 'position:fixed;z-index:2147483646;width:40px;height:40px;padding:0;border:0;border-radius:12px;background:#7638e8;color:white;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.35);cursor:pointer;-webkit-tap-highlight-color:transparent';
+      b.style.cssText = 'position:fixed;z-index:2147483646;width:40px;height:40px;padding:0;border:0;border-radius:12px;background:__ML_ACCENT__;color:__ML_ACCENT_INK__;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.35);cursor:pointer;-webkit-tap-highlight-color:transparent';
       b.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -838,7 +843,7 @@ private val browserScript = """
     b.innerHTML = buttonMarkup();
     b.setAttribute('data-medialoader-download', '1');
     b.setAttribute('aria-label', 'Скачать этот материал');
-    b.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;position:relative;z-index:2;width:40px;height:40px;max-width:100%;flex:0 0 40px;margin:6px;border:0;border-radius:12px;background:#7638e8;color:white;font:600 26px system-ui,sans-serif;line-height:1;box-sizing:border-box;cursor:pointer';
+    b.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;position:relative;z-index:2;width:40px;height:40px;max-width:100%;flex:0 0 40px;margin:6px;border:0;border-radius:12px;background:__ML_ACCENT__;color:__ML_ACCENT_INK__;font:600 26px system-ui,sans-serif;line-height:1;box-sizing:border-box;cursor:pointer';
     b.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -1091,7 +1096,7 @@ private val browserScript = """
       b.setAttribute('data-medialoader-youtube', '1');
       b.setAttribute('aria-label', 'Скачать видео');
       b.style.cssText = 'position:fixed;z-index:2147483646;width:40px;height:40px;border:0;' +
-        'border-radius:12px;background:#7638e8;color:white;display:inline-flex;' +
+        'border-radius:12px;background:__ML_ACCENT__;color:__ML_ACCENT_INK__;display:inline-flex;' +
         'align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.35);' +
         'cursor:pointer;-webkit-tap-highlight-color:transparent';
       b.addEventListener('click', function(e) {

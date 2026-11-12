@@ -1,6 +1,10 @@
 package com.domenota.medialoader.ui.theme
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ColorScheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -22,12 +26,53 @@ val MutedText = Color(0xFF9EA7B8)
 val Success = Color(0xFF65D49A)
 val ErrorRed = Color(0xFFFF6B78)
 
-private val MediaLoaderColors = darkColorScheme(
-    primary = AccentPurple,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF332260),
-    onPrimaryContainer = Color(0xFFE9DFFF),
-    secondary = AccentPurpleSoft,
+internal val AppGold = Color(0xFFFFBD19)
+internal val LightAppAccent = Color(0xFF762DFF)
+// Music and gallery already use this light library accent.
+internal val LightMusicAccent = Color(0xFF7036CB)
+private val GoldContainer = Color(0xFF4D3800)
+private val GoldOnContainer = AppGold
+private val GoldInk = Color(0xFF211800)
+
+/** Legacy recognition tint is independent of the new application accent.
+ * LibraryTheme overrides this with its own original colour. */
+internal val LocalShazamResultColor = staticCompositionLocalOf { LightAppAccent }
+internal fun originalShazamColor(dark: Boolean, library: Boolean = false): Color =
+    if (library) Color(if (dark) 0xFFBB9CFF else 0xFF7036CB)
+    else if (dark) AccentPurple else LightAppAccent
+
+internal fun musicAccent(dark: Boolean): Color = if (dark) AppGold else LightMusicAccent
+internal val musicPlaybackAccent: Color
+    @Composable get() = musicAccent(MaterialTheme.colorScheme.background.luminance() < .5f)
+internal val isDarkPalette: Boolean
+    @Composable get() = MaterialTheme.colorScheme.background.luminance() < .5f
+
+/** Apply to the full scheme, not only primary. Material3 defaults are violet. */
+internal fun goldAccentScheme(base: ColorScheme): ColorScheme = base.copy(
+    primary = AppGold, onPrimary = GoldInk,
+    primaryContainer = GoldContainer, onPrimaryContainer = GoldOnContainer,
+    inversePrimary = Color(0xFF815A00),
+    secondary = AppGold, onSecondary = GoldInk,
+    secondaryContainer = GoldContainer, onSecondaryContainer = GoldOnContainer,
+    tertiary = AppGold, onTertiary = GoldInk,
+    tertiaryContainer = GoldContainer, onTertiaryContainer = GoldOnContainer,
+    surfaceTint = AppGold,
+)
+
+/** Editors retain their own black/white/gold palette even in light mode. */
+internal fun editorColorScheme(): ColorScheme = goldAccentScheme(darkColorScheme(
+    background = Color(0xFF101010), onBackground = Color(0xFFECECEC),
+    surface = Color(0xFF242424), onSurface = Color(0xFFECECEC),
+    surfaceVariant = Color(0xFF303030), onSurfaceVariant = Color(0xFFBDBDBD),
+    outline = Color(0xFF606060), outlineVariant = Color(0xFF454545),
+    surfaceContainerLowest = Color(0xFF080808), surfaceContainerLow = Color(0xFF191919),
+    surfaceContainer = Color(0xFF242424), surfaceContainerHigh = Color(0xFF303030),
+    surfaceContainerHighest = Color(0xFF383838), surfaceDim = Color(0xFF101010),
+    surfaceBright = Color(0xFF383838), inverseSurface = Color(0xFFECECEC),
+    inverseOnSurface = Color(0xFF242424),
+))
+
+internal val MediaLoaderColors = goldAccentScheme(darkColorScheme(
     background = AppBackground,
     onBackground = Color(0xFFF4F6FB),
     surface = AppSurface,
@@ -36,9 +81,15 @@ private val MediaLoaderColors = darkColorScheme(
     onSurfaceVariant = MutedText,
     outline = AppOutline,
     error = ErrorRed,
-)
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF762DFF),
+    outlineVariant = Color(0xFF414855),
+    surfaceContainerLowest = Color(0xFF090C11), surfaceContainerLow = AppBackground,
+    surfaceContainer = AppSurface, surfaceContainerHigh = AppSurfaceElevated,
+    surfaceContainerHighest = Color(0xFF292F3B), surfaceDim = AppBackground,
+    surfaceBright = Color(0xFF303744), inverseSurface = Color(0xFFF4F6FB),
+    inverseOnSurface = AppBackground,
+))
+internal val LightColors = lightColorScheme(
+    primary = LightAppAccent,
     onPrimary = Color.White,
     primaryContainer = Color(0xFFE9E0FF),
     onPrimaryContainer = Color(0xFF321D77),
@@ -104,7 +155,7 @@ fun MediaLoaderTheme(content: @Composable () -> Unit) {
         typography = MediaLoaderTypography,
         content = {
             TransparentWindowNavigation()
-            content()
+            CompositionLocalProvider(LocalShazamResultColor provides originalShazamColor(dark)) { content() }
         },
     )
 }
