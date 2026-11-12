@@ -20,13 +20,34 @@ import com.domenota.medialoader.ui.components.AppSlider
 import kotlin.math.roundToInt
 
 @Composable
-internal fun EqualizerScreen(settings: EqualizerSettings, sampleRate: Int?, onSettings: (EqualizerSettings) -> Unit, onBack: () -> Unit) {
+internal fun EqualizerScreen(
+    settings: EqualizerSettings, sampleRate: Int?,
+    onSettings: (EqualizerSettings) -> Unit, onBack: () -> Unit,
+    trackTitle: String? = null, editGlobal: Boolean = true,
+    onEditGlobal: ((Boolean) -> Unit)? = null,
+    hasTrackProfile: Boolean = false, onUseGlobal: (() -> Unit)? = null,
+) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
             Text("Эквалайзер", fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
         }
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 19.dp)) {
+            if (trackTitle != null && onEditGlobal != null) {
+                Text(trackTitle, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !editGlobal, onClick = { onEditGlobal(false) }, label = { Text("Для трека") })
+                    FilterChip(selected = editGlobal, onClick = { onEditGlobal(true) }, label = { Text("Общие") })
+                }
+                if (!editGlobal) {
+                    Text(if (hasTrackProfile) "Индивидуальные настройки" else "Используются общие настройки. Изменения создадут профиль трека.",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (hasTrackProfile && onUseGlobal != null) {
+                        TextButton(onUseGlobal) { Text("Использовать общие настройки") }
+                    }
+                }
+            }
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Обработка звука", Modifier.weight(1f), fontSize = 14.sp)
                 Switch(settings.enabled, { onSettings(settings.copy(enabled = it)) }, Modifier.semantics { contentDescription = "Включить эквалайзер" })
@@ -51,7 +72,8 @@ internal fun EqualizerScreen(settings: EqualizerSettings, sampleRate: Int?, onSe
                     if (!supported) Text("Недоступна при частоте текущего трека $sampleRate Гц", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Text("Одна настройка для всех треков и плейлистов. Сохраняется и работает при фоновом воспроизведении.",
+            Text(if (editGlobal) "Общие настройки применяются к трекам без индивидуального профиля."
+                else "Настройки сохраняются для этого трека и автоматически применяются при его воспроизведении.",
                 Modifier.padding(vertical = 15.dp), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton({ onSettings(settings.withPreset("Ровный")) }, Modifier.align(Alignment.CenterHorizontally)) { Text("Сбросить настройки") }
         }

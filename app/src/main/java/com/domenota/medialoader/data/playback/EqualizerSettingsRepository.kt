@@ -31,25 +31,62 @@ class EqualizerSettingsRepository(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences("audio_equalizer", 0)
     private val mutable = MutableStateFlow(EqualizerSettings())
     val settings = mutable.asStateFlow()
+    private val profiles = MutableStateFlow(EqualizerProfileState())
+    internal val state = profiles.asStateFlow()
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val loaded = scope.async { mutex.withLock { mutable.value = read() } }
+    private val loaded = scope.async { mutex.withLock { publish(read()) } }
     suspend fun awaitLoaded() { loaded.await() }
-    suspend fun setSettings(settings: EqualizerSettings) = withContext(Dispatchers.IO) {
+    suspend fun setSettings(settings: EqualizerSettings) = save(null, settings)
+    internal suspend fun setTrackSettings(track: EqualizerTrack, settings: EqualizerSettings?) = save(track, settings)
+
+    private suspend fun save(track: EqualizerTrack?, settings: EqualizerSettings?) = withContext(Dispatchers.IO) {
         loaded.await()
         mutex.withLock {
-            // Defensive copy: callers must not mutate the snapshot consumed by the audio thread.
-            val safe = settings.copy(gainsDb = settings.gainsDb.toList())
-            val json = JSONObject().put("enabled", safe.enabled).put("preset", safe.preset).put("gains", JSONArray(safe.gainsDb))
-            if (!preferences.edit().putString("settings", json.toString()).commit()) throw IOException("Could not save equalizer")
-            mutable.value = safe
+            val next = profiles.value.changed(track, settings)
+            if (next == profiles.value) return@withLock
+            val records = JSONArray()
+            next.tracks.forEach { profile ->
+                records.put(JSONObject().put("keys", JSONArray(profile.keys.sorted()))
+                    .put("settings", encode(profile.settings)))
+            }
+            // Preserve the previous global settings key and format so upgrades are lossless.
+            // Write the global and track records together, then publish a single snapshot.
+            if (!preferences.edit().putString("settings", encode(next.global).toString())
+                    .putString("track_profiles_v1", records.toString()).commit()) {
+                throw IOException("Could not save equalizer")
+            }
+            publish(next)
         }
     }
-    private fun read(): EqualizerSettings = runCatching {
-        val json = JSONObject(preferences.getString("settings", null) ?: return EqualizerSettings())
+
+    private fun publish(value: EqualizerProfileState) {
+        profiles.value = value
+        mutable.value = value.global
+    }
+    private fun encode(settings: EqualizerSettings) = JSONObject().put("enabled", settings.enabled)
+        .put("preset", settings.preset).put("gains", JSONArray(settings.gainsDb))
+    private fun decode(json: JSONObject): EqualizerSettings {
         val gains = json.getJSONArray("gains")
-        EqualizerSettings(json.getBoolean("enabled"), (0..4).map { gains.getDouble(it).toFloat() }, json.getString("preset"))
-    }.getOrDefault(EqualizerSettings())
+        require(gains.length() == 5)
+        return EqualizerSettings(json.getBoolean("enabled"), (0..4).map { gains.getDouble(it).toFloat() }, json.getString("preset"))
+    }
+    private fun read(): EqualizerProfileState {
+        val global = runCatching { decode(JSONObject(preferences.getString("settings", null) ?: "{}")) }
+            .getOrDefault(EqualizerSettings())
+        val records = runCatching { JSONArray(preferences.getString("track_profiles_v1", null) ?: "[]") }
+            .getOrDefault(JSONArray())
+        val tracks = (0 until records.length()).mapNotNull { index ->
+            runCatching {
+                val record = records.getJSONObject(index)
+                val array = record.getJSONArray("keys")
+                val keys = (0 until array.length()).map { array.getString(it) }.filter(String::isNotBlank).toSet()
+                require(keys.isNotEmpty())
+                EqualizerTrackProfile(keys, decode(record.getJSONObject("settings")))
+            }.getOrNull()
+        }
+        return EqualizerProfileState(global, tracks)
+    }
     companion object {
         @Volatile private var instance: EqualizerSettingsRepository? = null
         fun get(context: Context): EqualizerSettingsRepository = instance ?: synchronized(this) {

@@ -91,7 +91,10 @@ class InstagramProvider(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: ProviderException) {
-            if (error.reason == ProviderException.Reason.RATE_LIMITED) throw error
+            if (error.reason == ProviderException.Reason.RATE_LIMITED) {
+                AppLog.w("Instagram", "Caption unavailable · reason=optional-rate-limit · fallback=platform")
+                return items // No more optional requests after a rate limit.
+            }
         } catch (_: Exception) {
             // Naming is optional: media extraction has already succeeded.
         }
@@ -109,7 +112,10 @@ class InstagramProvider(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: ProviderException) {
-                    if (error.reason == ProviderException.Reason.RATE_LIMITED) throw error
+                    if (error.reason == ProviderException.Reason.RATE_LIMITED) {
+                AppLog.w("Instagram", "Caption unavailable · reason=optional-rate-limit · fallback=platform")
+                return items // No more optional requests after a rate limit.
+            }
                 } catch (_: Exception) {
                     // The original media remains usable when title lookup fails.
                 }
@@ -447,7 +453,7 @@ class InstagramProvider(
             return cleanCaption(description)
         }
 
-        private fun cleanCaption(raw: String?, author: String = ""): String? {
+        internal fun cleanCaption(raw: String?, author: String = ""): String? {
             if (raw.isNullOrBlank()) return null
             val withoutAuthor = if (author.isNotBlank()) {
                 raw.replaceFirst(Regex("^\\s*@${Regex.escape(author)}(?=\\s|[.:—–-])\\s*", RegexOption.IGNORE_CASE), "")

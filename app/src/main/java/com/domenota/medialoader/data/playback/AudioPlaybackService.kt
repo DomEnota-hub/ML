@@ -42,7 +42,6 @@ class AudioPlaybackService : MediaSessionService() {
         super.onCreate()
         val equalizer = EqualizerAudioProcessor()
         val equalizerSettings = EqualizerSettingsRepository.get(this)
-        privateScope.launch { equalizerSettings.settings.collect { equalizer.updateSettings(it) } }
         val player = ExoPlayer.Builder(this, EqualizerRenderersFactory(this, equalizer))
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -53,6 +52,15 @@ class AudioPlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+
+        fun refreshEqualizer() {
+            val track = EqualizerTrack.fromMediaItem(player.currentMediaItem)
+            // Always select against the latest repository snapshot on the service main
+            // thread. Transition callbacks cannot carry a previous track's settings.
+            equalizer.updateSettings(equalizerSettings.state.value.effective(track))
+            EqualizerPlaybackTrack.update(track)
+        }
+        privateScope.launch { equalizerSettings.state.collect { refreshEqualizer() } }
 
         mediaSession = MediaSession.Builder(this, player).build()
         liveSession = mediaSession
@@ -73,7 +81,10 @@ class AudioPlaybackService : MediaSessionService() {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 com.domenota.medialoader.core.logging.AppLog.w("Audio", "Playback failed · code=${error.errorCodeName} · cause=${error.cause?.javaClass?.simpleName.orEmpty()}")
             }
-            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) { guardPrivate() }
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                guardPrivate()
+                refreshEqualizer()
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 BackgroundMediaWork.setBusy("audio-playback", isPlaying)
             }
@@ -84,6 +95,7 @@ class AudioPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         privateScope.cancel()
+        EqualizerPlaybackTrack.update(null)
         BackgroundMediaWork.setBusy("audio-playback", false)
         if (liveSession === mediaSession) liveSession = null
         mediaSession?.let { session ->

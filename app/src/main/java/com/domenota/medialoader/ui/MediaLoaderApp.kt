@@ -1194,14 +1194,27 @@ fun MediaLoaderApp(
                 }
             }
             composable("equalizer") {
-                val settings by libraryModel.equalizerSettings.collectAsStateWithLifecycle()
+                val profiles by libraryModel.equalizerProfiles.collectAsStateWithLifecycle()
+                val currentTrack by com.domenota.medialoader.data.playback.EqualizerPlaybackTrack.track.collectAsStateWithLifecycle()
                 val sampleRate by com.domenota.medialoader.data.playback.EqualizerPlaybackFormat.sampleRate.collectAsStateWithLifecycle()
                 val error by libraryModel.equalizerError.collectAsStateWithLifecycle()
+                var editGlobal by rememberSaveable { mutableStateOf(false) }
+                val track = currentTrack
+                val target = if (editGlobal) null else track
                 Column(Modifier.fillMaxSize()) {
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(17.dp)) }
-                    settings?.let { com.domenota.medialoader.ui.screens.music.EqualizerScreen(it, sampleRate,
-                        libraryModel::setEqualizer, { navController.popBackStack() }) }
-                        ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    profiles?.let { state ->
+                        com.domenota.medialoader.ui.screens.music.EqualizerScreen(
+                            state.effective(target), sampleRate,
+                            { settings -> libraryModel.setEqualizer(target, settings) },
+                            { navController.popBackStack() },
+                            trackTitle = track?.title,
+                            editGlobal = target == null,
+                            onEditGlobal = { editGlobal = it },
+                            hasTrackProfile = state.profile(target) != null,
+                            onUseGlobal = { target?.let { libraryModel.setEqualizer(it, null) } },
+                        )
+                    } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 }
             }
             composable(PLAYLIST_ADD_ROUTE) { entry ->
