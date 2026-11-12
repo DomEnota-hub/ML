@@ -73,6 +73,11 @@ fun MusicModeScreen(
     } }
     val context = androidx.compose.ui.platform.LocalContext.current
     val folderPrefs = remember(context) { context.getSharedPreferences("music_folder_visibility", 0) }
+    var foldersGrid by remember { mutableStateOf(folderPrefs.getBoolean("folders_grid", false)) }
+    fun setFoldersGrid(grid: Boolean) {
+        foldersGrid = grid
+        folderPrefs.edit().putBoolean("folders_grid", grid).apply()
+    }
     var excludedFolders by remember { mutableStateOf(folderPrefs.getStringSet("excluded", emptySet()).orEmpty().toSet()) }
     var hiddenTrackKeys by remember { mutableStateOf(folderPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty().toSet()) }
     fun toggleHidden(track: DownloadEntity) {
@@ -251,9 +256,42 @@ fun MusicModeScreen(
                     if (playlists.isEmpty()) Text("Пока нет плейлистов", Modifier.padding(17.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 item(key = "music-folders-title") {
-                    Text("Папки с музыкой", Modifier.padding(17.dp), fontWeight = FontWeight.SemiBold)
+                    Row(Modifier.fillMaxWidth().padding(start = 17.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("Папки с музыкой", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        IconButton(onClick = { setFoldersGrid(false) }) {
+                            Icon(Icons.Rounded.List, "Список папок", tint = if (!foldersGrid)
+                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = { setFoldersGrid(true) }) {
+                            Icon(Icons.Rounded.GridView, "Сетка папок", tint = if (foldersGrid)
+                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
-                items(folders.keys.filterNotNull().filter { it !in excludedFolders }.sorted(), key = { "folder:$it" }) { folder ->
+                val visibleFolders = folders.keys.filterNotNull().filter { it !in excludedFolders }.sorted()
+                if (foldersGrid) {
+                    items(visibleFolders.chunked(2), key = { "folder-grid:${it.first()}" }) { pair ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            pair.forEach { folder ->
+                                Surface(Modifier.weight(1f).clickable { folderOpen = folder },
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(16.dp)) {
+                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(Icons.Rounded.Folder, null, Modifier.size(32.dp),
+                                            tint = MaterialTheme.colorScheme.primary)
+                                        Text(MusicFolderRules.title(folder), fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("${folders[folder].orEmpty().size} треков", fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                    }
+                                }
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                } else items(visibleFolders, key = { "folder:$it" }) { folder ->
                     TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Rounded.Folder, null)
                         Text("${MusicFolderRules.title(folder)} · ${folders[folder].orEmpty().size}",

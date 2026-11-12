@@ -574,6 +574,8 @@ fun MediaLoaderApp(
     }
     LaunchedEffect(editorExport.completedItemId, editorExport.sourceId, currentRoute, backStackEntry) {
         val completedId = editorExport.completedItemId ?: return@LaunchedEffect
+        if (editorExport.operation == "Оригинал обновлён")
+            libraryModel.refresh(AppMode.MUSIC, force = true, invalidate = true)
         val editorEntry = backStackEntry
         val editorSourceId = editorEntry?.arguments?.getString("downloadId")
         val isEditorRoute =

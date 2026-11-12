@@ -114,6 +114,13 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads ORDER BY createdAtEpochMillis DESC")
     suspend fun all(): List<DownloadEntity>
 
+    @Query("UPDATE downloads SET sizeBytes = :bytes, durationMs = :duration, " +
+        "recognizedTitle = :title, recognizedArtist = :artist, recognizedAlbum = :album, " +
+        "sourceAudioTitle = :title, sourceAudioArtist = :artist " +
+        "WHERE id = :id AND savedUri = :uri AND state = 'COMPLETED' AND isPrivate = 0 AND hidden = 0 AND mediaType = 'AUDIO'")
+    suspend fun updateEditedAudioWhenCurrent(id: String, uri: String, bytes: Long, duration: Long?,
+        title: String, artist: String, album: String): Int
+
     @Query("UPDATE downloads SET durationMs = :duration WHERE id = :id")
     suspend fun setDuration(id: String, duration: Long)
 
@@ -162,6 +169,9 @@ interface DownloadDao {
 
     @Query("DELETE FROM downloads WHERE hidden = 0 AND isPrivate = 0 AND state IN ('COMPLETED', 'FAILED', 'CANCELLED')")
     suspend fun clearHistory()
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertRecovered(item: DownloadEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: DownloadEntity)

@@ -39,6 +39,10 @@ import com.domenota.medialoader.ui.theme.SettingIconTone
  */
 @Composable
 internal fun MediaRecoveryLabSection(
+    onHide: () -> Unit,
+    operationBusy: Boolean,
+    sandboxBusy: Boolean,
+    onSandboxBusyChange: (Boolean) -> Unit,
     activeDownloadCount: Int,
     storageMigrationRunning: Boolean,
     storageMigrationMessage: String,
@@ -100,37 +104,40 @@ internal fun MediaRecoveryLabSection(
     var removeVideoTrialDialog by remember { mutableStateOf(false) }
 
     Spacer(Modifier.height(26.dp))
-    Text("Лаборатория медиатеки · временно",
+    Text("Лаборатория исправлений",
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(10.dp))
     SettingsGroup {
         SettingRow(
-            Icons.Rounded.BugReport, "Восстановление медиатеки",
+            Icons.Rounded.BugReport, "Инструменты восстановления",
             "Исторические даты · проверка одного файла и массовое восстановление",
             grouped = true, expanded = expanded, iconTone = SettingIconTone.DIAGNOSTICS,
-            onClick = { expanded = !expanded },
+            onClick = { if (!operationBusy) expanded = !expanded },
         )
-        ExpandableSettingsBody(expanded) {
+        ExpandableSettingsBody(expanded || operationBusy) {
+            TextButton(onClick = onHide, enabled = !operationBusy) { Text("Скрыть лабораторию") }
+            OldDownloadsRecoverySection(activeDownloadCount)
+            GroupDivider()
             HistoricalRecoverySection(activeDownloadCount)
             GroupDivider()
             SettingRow(Icons.Rounded.BugReport, "Дополнительная диагностика",
                 "Предыдущие эксперименты, искусственные пробы и отчёты",
                 grouped = true, nested = true, expanded = diagnosticsExpanded,
                 iconTone = SettingIconTone.DIAGNOSTICS,
-                onClick = { diagnosticsExpanded = !diagnosticsExpanded })
-            ExpandableSettingsBody(diagnosticsExpanded) {
+                onClick = { if (!sandboxBusy) diagnosticsExpanded = !diagnosticsExpanded })
+            ExpandableSettingsBody(diagnosticsExpanded || sandboxBusy) {
             Text("Искусственный стенд · ограничения ниже относятся только к этому стенду",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            RecoverySandboxSection()
+            RecoverySandboxSection(onSandboxBusyChange)
             GroupDivider()
             Text("Этап 1/5 · инвентаризация перед миграцией. " +
                 "Оригиналы, URI и базы не меняются. Дата истории ML = время постановки загрузки в очередь.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             SettingRow(Icons.Rounded.Article, "Проверить ВСЕ файлы · только чтение",
-                if (migrationInventoryBusy) "Проверяем историю, MediaStore, VK, альбомы…"
+                if (migrationInventoryBusy) "Проверка истории, MediaStore, VK и альбомов…"
                 else migrationInventoryStatus,
                 grouped = true, nested = true, iconTone = SettingIconTone.LOG,
                 onClick = {
@@ -144,12 +151,12 @@ internal fun MediaRecoveryLabSection(
                     onClick = { if (!migrationInventoryBusy) onExportMigrationInventory() })
             }
             Text("Старый перенос Download → Pictures ОТКЛЮЧЁН. " +
-                "Для восстановления используйте два режима выше.",
+                "Актуальное восстановление — в основных режимах лаборатории.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             GroupDivider()
             SettingRow(Icons.Rounded.Article, "Аудит дат MediaStore",
-                if (galleryDateAuditBusy) "Проверяем записи Android…" else galleryDateAudit,
+                if (galleryDateAuditBusy) "Проверка записей Android…" else galleryDateAudit,
                 grouped = true, nested = true, iconTone = SettingIconTone.LOG,
                 onClick = {
                     if (!galleryDateAuditBusy && !storageMigrationRunning && activeDownloadCount == 0)
@@ -282,7 +289,7 @@ internal fun MediaRecoveryLabSection(
             // Stage 1 audit is read-only. Legacy real-file mtime trial is hidden.
             // Keep rollback available solely for changes made before this QA build.
             Text("Этот старый инструмент изменения mtime оставлен для диагностики. " +
-                "Для восстановления используйте два режима выше.",
+                "Актуальное восстановление — в основных режимах лаборатории.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             SettingRow(Icons.Rounded.Info, "Откат изменения mtime",
@@ -300,13 +307,13 @@ internal fun MediaRecoveryLabSection(
         val video = sameUriMp4Dialog
         AlertDialog(
             onDismissRequest = { sameUriJpegDialog = false; sameUriMp4Dialog = false },
-            title = { Text("Опыту с прежним URI быть? (${if (video) "MP4" else "JPEG"})") },
+            title = { Text("Проба с прежним URI (${if (video) "MP4" else "JPEG"})") },
             text = { Text("Будет создана ОДНА отдельная копия в " +
                 "MediaLoader_QA_SameUri_Test, затем её содержимое будет перезаписано " +
-                "через ТОТ ЖЕ MediaStore URI. Историческое время берём из базы ML. " +
+                "через ТОТ ЖЕ MediaStore URI. Историческое время — из базы ML. " +
                 "Оригиналы и история загрузок только читаются. " +
                 "Если Android сменит ID или появятся дубли, проба будет остановлена. " +
-                "После неё проверьте Xiaomi Gallery, выполните откат и удаление копии.") },
+                "После пробы: проверка Xiaomi Gallery, откат и удаление копии.") },
             confirmButton = { TextButton(onClick = {
                 sameUriJpegDialog = false; sameUriMp4Dialog = false
                 if (!sameUriBusy && !dateRecoveryBusy && !storageMigrationRunning &&
@@ -372,7 +379,7 @@ internal fun MediaRecoveryLabSection(
             "MediaLoader создаст их от самой старой загрузки к новой в отдельном " +
             "альбоме MediaLoader_QA_Order_Test. Оригиналы, альбомы и история " +
             "останутся нетронутыми. Копии получат сегодняшнюю дату добавления, " +
-            "а НЕ настоящие исторические даты. После проверьте в Xiaomi Gallery " +
+            "а НЕ настоящие исторические даты. После пробы: проверка Xiaomi Gallery " +
             "порядок 03_NEW, 02_MIDDLE, 01_OLD. Пробные копии можно удалить.") },
         confirmButton = {
             TextButton(onClick = {
@@ -415,7 +422,7 @@ internal fun MediaRecoveryLabSection(
         text = { Text("Операция изменит только время изменения ОДНОГО " +
             "сохранённого MediaLoader файла из Pictures/Music. Содержимое и EXIF " +
             "останутся прежними; старое значение записывается для отката. " +
-            "После операции проверьте его в галерее Xiaomi. " +
+            "После операции: проверка файла в галерее Xiaomi. " +
             "Автоматического массового изменения не будет.") },
         confirmButton = {
             TextButton(onClick = {
@@ -458,7 +465,7 @@ internal fun MediaRecoveryLabSection(
             "поставит дату из истории ML как УСЛОВНУЮ дату создания видео. " +
             "Это не обязательно реальное время съёмки! Сам оригинал, ссылки " +
             "Загрузок, избранное, альбомы и история не изменяются. " +
-            "Проверьте дату, порядок, звук и воспроизведение в Xiaomi, " +
+            "Проверка даты, порядка, звука и воспроизведения в Xiaomi, " +
             "потом удалите копию отдельной кнопкой.") },
         confirmButton = { TextButton(onClick = {
             videoTrialDialog = false
@@ -497,7 +504,7 @@ internal fun MediaRecoveryLabSection(
             "у настоящего фото дата съёмки может быть другой. " +
             "Изображения с уже существующей EXIF-датой пропускаются. " +
             "Оригиналы, их EXIF, история, альбомы и Личное не меняются. " +
-            "После проверьте в Xiaomi положение копии и удалите её отдельной кнопкой.") },
+            "После пробы: проверка положения копии в Xiaomi и отдельное удаление копии.") },
         confirmButton = {
             TextButton(onClick = {
                 exifTrialDialog = false

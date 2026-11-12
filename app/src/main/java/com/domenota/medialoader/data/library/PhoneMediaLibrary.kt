@@ -30,6 +30,7 @@ class PhoneMediaLibrary(context: Context) {
         protectedPhysicalKeys: Set<String> = emptySet(),
         onProgress: suspend (PhoneMediaSnapshot) -> Unit = {},
     ): PhoneMediaSnapshot = withContext(Dispatchers.IO) {
+        val editedAudio = AudioEditedTags.marked(context)
         val identities = mutableMapOf<String, Set<String>>()
         val fingerprints = mutableMapOf<String, String>()
         val types = when (mode) {
@@ -64,7 +65,8 @@ class PhoneMediaLibrary(context: Context) {
                 context.contentResolver.query(uri, projection.toTypedArray(), null, null, "date_added DESC, _id DESC")?.use { cursor ->
                     while (cursor.moveToNext()) {
                         coroutineContext.ensureActive()
-                        val row = mapRow(cursor, type, uri)
+                        val indexedRow = mapRow(cursor, type, uri)
+                        val row = if (type == MediaType.AUDIO) AudioEditedTags.read(context, indexedRow, editedAudio) else indexedRow
                         val savedUri = requireNotNull(row.savedUri)
                         val path = cursor.getColumnIndex("_data").takeIf { it >= 0 && !cursor.isNull(it) }
                             ?.let(cursor::getString)?.takeIf { it.isNotBlank() }

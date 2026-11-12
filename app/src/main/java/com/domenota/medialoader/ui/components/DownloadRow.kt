@@ -207,7 +207,7 @@ fun DownloadRow(
     }
 
     var menuExpanded by remember { mutableStateOf(false) }
-    val sourceLabel = when (item.providerId?.lowercase()) {
+    val sourceLabel = if (item.kind == MediaKind.AUDIO) "Музыка" else when (item.providerId?.lowercase()) {
         "instagram" -> "Instagram"
         "youtube" -> "YouTube"
         "vk" -> "VK"
@@ -353,7 +353,8 @@ fun DownloadRow(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SourceIcon(item.providerId, 22.dp)
+                    if (item.kind == MediaKind.AUDIO) Icon(Icons.Rounded.MusicNote, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                    else SourceIcon(item.providerId, 22.dp)
                     Text(sourceLabel, style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

@@ -94,7 +94,7 @@ fun VideoSongSearchDialog(savedUri: String, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(26.dp),
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
+                tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 6.dp,
             ) {
                 Column(
                     Modifier.fillMaxWidth().padding(22.dp),

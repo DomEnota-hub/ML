@@ -60,4 +60,17 @@ class AudioPlaybackMetadataTest {
         assertEquals("first", resolved.originalName)
     }
 
+    @Test fun metadataReplacementKeepsQueueIdentityAndUri() {
+        val original = AudioPlaybackMetadata.item(row(), setOf("media:external:42"))
+        val revised = AudioPlaybackMetadata.revisedItem(original, row("download-id").copy(recognizedTitle = "Новое", recognizedArtist = "Автор", recognizedAlbum = "Альбом"))
+        assertEquals(original.mediaId, revised.mediaId)
+        assertEquals(original.localConfiguration?.uri, revised.localConfiguration?.uri)
+        assertEquals("Новое", revised.mediaMetadata.title.toString())
+        assertEquals("Автор", revised.mediaMetadata.artist.toString())
+        assertEquals("Альбом", revised.mediaMetadata.albumTitle.toString())
+        assertEquals(original.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PUBLIC_URI), revised.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PUBLIC_URI))
+        assertEquals(original.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS), revised.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS))
+        val secret = AudioPlaybackMetadata.item(row("private", true), emptySet())
+        assertEquals(secret, AudioPlaybackMetadata.revisedItem(secret, row()))
+    }
 }

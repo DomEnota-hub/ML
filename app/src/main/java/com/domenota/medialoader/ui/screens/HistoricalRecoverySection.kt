@@ -53,7 +53,7 @@ internal fun HistoricalRecoverySection(activeDownloadCount: Int) {
     var state by remember { mutableStateOf<HistoricalRecoveryState?>(null) }
     var inspecting by remember { mutableStateOf(true) }
     var running by remember { mutableStateOf(false) }
-    var status by rememberSaveable { mutableStateOf("Читаем список файлов и журнал восстановления…") }
+    var status by rememberSaveable { mutableStateOf("Чтение списка файлов и журнала восстановления…") }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var showPicker by remember { mutableStateOf(false) }
     var trialConfirmation by remember { mutableStateOf<HistoricalRecoveryItem?>(null) }
@@ -96,7 +96,7 @@ internal fun HistoricalRecoverySection(activeDownloadCount: Int) {
         if (!resume && !trial && state?.trialPassed != true) return
         if (!resume && (ids.isEmpty() || (trial && ids.size != 1))) return
         running = true
-        status = "Подготавливаем восстановление…"
+        status = "Подготовка восстановления…"
         scope.launch {
             try {
                 status = if (resume) repository.resumeHistoricalReplacement { status = it }
@@ -126,30 +126,30 @@ internal fun HistoricalRecoverySection(activeDownloadCount: Int) {
         Text("Дата берётся из истории загрузок MediaLoader и может отличаться от даты съёмки. " +
             "Восстановление заменяет реальные файлы.", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(if (inspecting) "Читаем историю загрузок и метаданные файлов…" else
+        Text(if (inspecting) "Чтение истории и метаданных файлов…" else
             if (pending) "Список можно обновить после завершения операции по журналу" else
             if (state == null) "Список файлов ещё не получен" else
             "Доступно: ${candidates.size} · фото: ${candidates.count { it.mime.startsWith("image/") }} · " +
                 "видео: ${candidates.count { it.mime.startsWith("video/") }}",
             style = MaterialTheme.typography.bodyMedium)
         NeutralTextButton(onClick = ::refresh, enabled = !inspecting && !running) {
-            Text(if (inspecting) "Читаем список…" else "Обновить список · только чтение")
+            Text(if (inspecting) "Чтение списка…" else "Обновить список · только чтение")
         }
         if (activeDownloadCount > 0) Text(
-            "Запуск недоступен: выполняются загрузки ($activeDownloadCount). Дождитесь их завершения.",
+            "Запуск недоступен: выполняются загрузки ($activeDownloadCount). Запуск после завершения загрузок.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 
         RecoveryModeCard(Icons.Rounded.FindInPage, "Проверить на одном файле",
             "Шаг 1 · один выбранный оригинал", SettingIconTone.BLUE) {
-            Text("Сначала выполните одну проверку. Успешный результат сохранится и откроет массовый режим в этой сборке.",
+            Text("Массовый режим доступен после успешной одиночной проверки.",
                 style = MaterialTheme.typography.bodySmall)
             if (selected != null) {
                 Text(selected.name, style = MaterialTheme.typography.bodyMedium)
                 Text("Дата из истории: ${date(selected)}", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else Text(when {
-                inspecting -> "Получаем список файлов…"
-                pending -> "Сначала продолжите незавершённую замену по журналу ниже"
+                inspecting -> "Получение списка файлов…"
+                pending -> "Незавершённая замена · продолжение по журналу"
                 state == null -> "Список пока недоступен"
                 else -> "Нет файлов для восстановления"
             }, style = MaterialTheme.typography.bodySmall)
@@ -162,8 +162,8 @@ internal fun HistoricalRecoverySection(activeDownloadCount: Int) {
         RecoveryModeCard(Icons.Rounded.Collections, "Массовое восстановление",
             "Шаг 2 · все оставшиеся файлы по очереди", SettingIconTone.AMBER) {
             Text(when {
-                pending -> "Сначала продолжите незавершённую операцию по журналу."
-                state?.trialPassed == true -> "Успешная проверка сохранена. Массовое восстановление запускается только вашей кнопкой."
+                pending -> "Незавершённая операция · продолжение по журналу."
+                state?.trialPassed == true -> "Одиночная проверка пройдена. Массовое восстановление — ручной запуск."
                 else -> "Заблокировано до успешной проверки одного реального файла. Дополнительная сборка не требуется."
             }, style = MaterialTheme.typography.bodySmall)
             Text("Файлов к замене: ${candidates.size}. Связи истории, избранного и альбомов сохраняются.",
@@ -193,7 +193,7 @@ internal fun HistoricalRecoverySection(activeDownloadCount: Int) {
 
     if (showPicker) AlertDialog(
         onDismissRequest = { showPicker = false },
-        title = { Text("Выберите один файл") },
+        title = { Text("Выбор одного файла") },
         text = {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
                 items(candidates, key = { it.downloadId }) { item ->
@@ -217,7 +217,7 @@ internal fun HistoricalRecoverySection(activeDownloadCount: Int) {
             title = { Text("Заменить один реальный файл?") },
             text = { Text("Файл: ${item.name}\nДата из истории: ${date(item)}\n\n" +
                 "Будет создана замена с исторической датой. Оригинал удаляется только после проверки замены. " +
-                "Связи истории, избранного и альбомов сохраняются. После проверьте файл в галерее. " +
+                "Связи истории, избранного и альбомов сохраняются. После операции: проверка файла в галерее. " +
                 "Массовое восстановление автоматически не запускается.") },
             confirmButton = { NeutralTextButton(enabled = canTrial && candidates.any { it.downloadId == item.downloadId }, onClick = {
                 trialConfirmation = null
@@ -257,7 +257,7 @@ internal fun HistoricalRecoverySection(activeDownloadCount: Int) {
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text(status)
-            Text("Дождитесь завершения. Если приложение закроется, используйте «Продолжить по журналу».",
+            Text("Операция выполняется. После прерывания доступно продолжение по журналу.",
                 style = MaterialTheme.typography.bodySmall)
         } },
         confirmButton = {},

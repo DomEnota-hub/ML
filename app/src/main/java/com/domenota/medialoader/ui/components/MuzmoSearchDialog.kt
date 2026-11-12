@@ -356,7 +356,7 @@ fun MuzmoSearchDialog(
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
         Surface(modifier = Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.9f),
-            shape = MaterialTheme.shapes.large, tonalElevation = 4.dp) {
+            shape = MaterialTheme.shapes.large, tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 4.dp) {
             Box {
                 Column(Modifier.fillMaxSize().padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -406,7 +406,7 @@ fun MuzmoSearchDialog(
                                 val task = downloads.filter {
                                     it.providerId == "muzmo" && it.sourcePageUrl == row.infoUrl
                                 }.maxByOrNull { it.createdAtEpochMillis }
-                                Surface(tonalElevation = 2.dp, shape = MaterialTheme.shapes.medium) {
+                                Surface(tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 2.dp, shape = MaterialTheme.shapes.medium) {
                                     Row(Modifier.fillMaxWidth().padding(10.dp),
                                         verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Rounded.MusicNote, contentDescription = null)

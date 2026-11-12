@@ -738,7 +738,7 @@ fun HitMozSearchDialog(
             modifier = Modifier
                 .fillMaxWidth(0.96f)
                 .fillMaxHeight(0.90f),
-            tonalElevation = 4.dp,
+            tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 4.dp,
         ) {
             Box {
                 Column(
@@ -927,7 +927,7 @@ private fun NativeMusicTrackRow(
 ) {
     Surface(
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = 2.dp,
+        tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 2.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(

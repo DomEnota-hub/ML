@@ -42,6 +42,22 @@ internal object AudioPlaybackMetadata {
         }.distinctBy { it.id }
     }
 
+    fun matchesPublicUri(item: MediaItem, uri: String): Boolean {
+        if (item.mediaMetadata.extras?.getBoolean("private_media") == true) return false
+        val saved = item.mediaMetadata.extras?.getString(PUBLIC_URI) ?: item.localConfiguration?.uri?.toString()
+            ?: return false
+        val keys = PublicMediaIdentity.uriKeys(uri)
+        return PublicMediaIdentity.uriKeys(saved).any(keys::contains)
+    }
+
+    fun revisedItem(item: MediaItem, row: DownloadEntity): MediaItem {
+        if (row.isPrivate || row.hidden || row.savedUri == null || !matchesPublicUri(item, row.savedUri)) return item
+        return item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon()
+            .setTitle(row.recognizedTitle ?: row.sourceAudioTitle ?: row.originalName)
+            .setArtist(row.recognizedArtist ?: row.sourceAudioArtist)
+            .setAlbumTitle(row.recognizedAlbum).build()).build()
+    }
+
     fun item(row: DownloadEntity, identities: Set<String>): MediaItem = MediaItem.Builder()
         .setMediaId(row.id).setUri(requireNotNull(row.savedUri))
         .setMediaMetadata(MediaMetadata.Builder()

@@ -28,7 +28,10 @@ internal object HistoricalRecoverySignals {
     /** Automatic alias maintenance must also pause BETWEEN resume attempts and
      * after process restarts, when an interrupted cross-store intent still exists. */
     fun hasPendingJournal(context: Context): Boolean {
-        if (running.value) return true
+        return running.value || hasPendingHistoricalJournal(context) || OldDownloadsRecovery.pending(context)
+    }
+
+    internal fun hasPendingHistoricalJournal(context: Context): Boolean {
         val file = File(context.noBackupFilesDir, "historical-media-recovery-v1/operation.json")
         if (File(file.path + ".bak").exists()) return true
         if (!file.exists()) return false
