@@ -117,25 +117,52 @@ internal fun hasPhoneLibraryAccess(context: Context, mode: AppMode): Boolean =
 @OptIn(ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
 internal class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     private val equalizerRepository = com.domenota.medialoader.data.playback.EqualizerSettingsRepository.get(application)
-    private val equalizerDraft = MutableStateFlow<com.domenota.medialoader.data.playback.EqualizerSettings?>(null)
-    val equalizerSettings = equalizerDraft.asStateFlow()
+    private val equalizerDraft = MutableStateFlow<com.domenota.medialoader.data.playback.EqualizerProfileState?>(null)
+    val equalizerProfiles = equalizerDraft.asStateFlow()
     private val equalizerFailure = MutableStateFlow<String?>(null)
     val equalizerError = equalizerFailure.asStateFlow()
-    private val equalizerWrites = kotlinx.coroutines.channels.Channel<com.domenota.medialoader.data.playback.EqualizerSettings>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    // Conflate slider edits only for the SAME target. A quick track change must not
+    // overwrite an unsaved write for another track or for the global profile.
+    private val equalizerPending = linkedMapOf<com.domenota.medialoader.data.playback.EqualizerTrack?,
+        com.domenota.medialoader.data.playback.EqualizerSettings?>()
+    private val equalizerWrites = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
     init {
         viewModelScope.launch {
             equalizerRepository.awaitLoaded()
-            equalizerDraft.value = equalizerRepository.settings.value
-            for (settings in equalizerWrites) {
-                try { equalizerRepository.setSettings(settings); equalizerFailure.value = null }
-                catch (e: CancellationException) { throw e }
-                catch (_: Exception) { equalizerFailure.value = "Не удалось сохранить настройки эквалайзера" }
+            equalizerDraft.value = equalizerRepository.state.value
+            for (signal in equalizerWrites) {
+                while (equalizerPending.isNotEmpty()) {
+                    val entry = equalizerPending.entries.first()
+                    val track = entry.key
+                    val settings = entry.value
+                    equalizerPending.remove(track)
+                    try {
+                        if (track == null) equalizerRepository.setSettings(requireNotNull(settings))
+                        else equalizerRepository.setTrackSettings(track, settings)
+                        equalizerFailure.value = null
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { equalizerFailure.value = "Не удалось сохранить настройки эквалайзера" }
+                    // Retain optimistic edits made during the disk write. All queue
+                    // operations are confined to the ViewModel main dispatcher.
+                    var snapshot = equalizerRepository.state.value
+                    equalizerPending.forEach { (pendingTrack, pendingSettings) ->
+                        snapshot = runCatching { snapshot.changed(pendingTrack, pendingSettings) }.getOrDefault(snapshot)
+                    }
+                    equalizerDraft.value = snapshot
+                }
             }
         }
     }
-    fun setEqualizer(settings: com.domenota.medialoader.data.playback.EqualizerSettings) {
-        equalizerDraft.value = settings
-        equalizerWrites.trySend(settings)
+    fun setEqualizer(track: com.domenota.medialoader.data.playback.EqualizerTrack?,
+        settings: com.domenota.medialoader.data.playback.EqualizerSettings?) {
+        val current = equalizerDraft.value ?: return
+        val next = runCatching { current.changed(track, settings) }.getOrElse {
+            equalizerFailure.value = "Не удалось определить профиль трека"
+            return
+        }
+        equalizerDraft.value = next
+        equalizerPending[track] = settings
+        equalizerWrites.trySend(Unit)
     }
     val playlistRepository = PlaylistRepository(application)
     val externalCatalog = ExternalMediaCatalogRepository(application)

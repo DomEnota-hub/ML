@@ -41,6 +41,28 @@ class LocalTextOcrFallbackTest {
         assertTrue(LocalTextOcr.OcrAttempt("приветика", 58, "caption").usable)
     }
 
+    @Test fun localCaptionContrastRecoversPaleStrokeAcrossChangingLightBackground() {
+        val bitmap = Bitmap.createBitmap(100, 60, Bitmap.Config.ARGB_8888)
+        for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+            val level = 188 + x / 4 + y / 10
+            bitmap.setPixel(x, y, Color.rgb(level, level, level))
+        }
+        for (y in 15..44) {
+            val level = 188 + 40 / 4 + y / 10 - 27
+            bitmap.setPixel(40, y, Color.rgb(level, level, level))
+        }
+        try {
+            val enhanced = LocalTextOcr.enhanceLocalCaptionContrast(bitmap)
+            try {
+                assertEquals(bitmap.width, enhanced.width)
+                assertEquals(bitmap.height, enhanced.height)
+                assertEquals(Color.BLACK, enhanced.getPixel(40, 30))
+                assertEquals(Color.WHITE, enhanced.getPixel(30, 30))
+                assertEquals(Color.WHITE, enhanced.getPixel(80, 30))
+            } finally { enhanced.recycle() }
+        } finally { bitmap.recycle() }
+    }
+
     @Test fun highContrastFallbackFlattensWhiteAndDarkOutlinedLetters() {
         val bitmap = Bitmap.createBitmap(12, 8, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(Color.WHITE)

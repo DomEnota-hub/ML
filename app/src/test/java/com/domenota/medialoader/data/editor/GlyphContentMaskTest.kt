@@ -36,6 +36,27 @@ class GlyphContentMaskTest {
         } finally { bitmap.recycle() }
     }
 
+    @Test fun paleOutlineOnSmoothNoisyFloorProducesRealInkWithoutSelectingBackground() {
+        val bitmap = Bitmap.createBitmap(120, 90, Bitmap.Config.ARGB_8888)
+        try {
+            for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+                val v = 208 + (x * 3 + y * 7) % 5
+                bitmap.setPixel(x, y, Color.rgb(v, v, v))
+            }
+            // Thin grey outline, less than the old fixed 43-level threshold.
+            for (y in 31..52) for (x in 47..60) {
+                if (x == 47 || x == 60 || y == 31 || y == 52)
+                    bitmap.setPixel(x, y, Color.rgb(184, 184, 184))
+            }
+            val glyph = DetectedGlyph(0, "O", 43f/120, 27f/90, 64f/120, 57f/90, 91f)
+            val strokes = GlyphContentMask.fromBitmap(bitmap, listOf(glyph))
+            assertTrue(strokes.isNotEmpty())
+            val points = strokes.flatMap { it.points }
+            assertTrue(points.all { it.x in 46f/120..62f/120 && it.y in 30f/90..54f/90 })
+            assertTrue(points.none { it.x in 50f/120..57f/120 && it.y in 34f/90..49f/90 })
+        } finally { bitmap.recycle() }
+    }
+
     @Test fun blankPhotoNeverProducesASyntheticRectangularMask() {
         val bitmap = Bitmap.createBitmap(100, 70, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(Color.WHITE)

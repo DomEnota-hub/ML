@@ -126,8 +126,16 @@ class GapiInstagramClient(
         // reads cookies, requests Instagram metadata, or adds publication-level music assets.
         val product = if (album) JSONObject().put("carousel_media", children)
             else children.optJSONObject(0) ?: return emptyList()
-        (root.opt("title") as? String)?.let { product.put("caption", JSONObject().put("text", it)) }
+        val title = root.opt("title") as? String
         val author = (root.opt("author") as? String) ?: root.optJSONObject("author")?.optString("username")
+        // The usual title keeps absolute priority. Recover ONLY an absent/unusable
+        // title from explicit caption fields already present in the same response.
+        // No extra HTTP request, cookies, URL replacement or guessed text.
+        val caption = if (InstagramProvider.cleanCaption(title, author.orEmpty()) != null) title
+            else listOf(root.opt("caption_text") as? String, root.opt("caption") as? String,
+                root.optJSONObject("caption")?.opt("text") as? String)
+                .firstOrNull { InstagramProvider.cleanCaption(it, author.orEmpty()) != null }
+        (caption ?: title)?.let { product.put("caption", JSONObject().put("text", it)) }
         if (!author.isNullOrBlank()) product.put("user", JSONObject().put("username", author))
         return InstagramProvider.itemsFromProduct(product, code).map { item -> item.copy(
             sourcePageUrl = source,

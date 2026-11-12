@@ -46,9 +46,16 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
             val diagnostics = InpaintingDiagnosticPolicy.analyze(
                 coverage, width, height, inputs.mask, region.size, prediction)
             val compositeStarted = SystemClock.elapsedRealtime()
-            val result = InpaintingPreparation.composite(
+            val modelResult = InpaintingPreparation.composite(
                 pixels, coverage, width, height, region, prediction,
                 bounds = prepared.bounds)
+            currentCoroutineContext().ensureActive()
+            val cancellationContext = currentCoroutineContext()
+            val recovered = if (settings.recoverLargePersonOnUniformBackground && diagnostics.largeArea)
+                LargePersonBackgroundRecovery.recover(pixels, coverage, width, height, modelResult) {
+                    cancellationContext.ensureActive()
+                } else null
+            val result = recovered ?: modelResult
             val compositingMs = SystemClock.elapsedRealtime() - compositeStarted
             AppLog.i("AiOrtPerf", "model=LAMA size=${width}x$height " +
                 "mask_ms=$maskMs input_sample_ms=$inputsMs " +
@@ -59,6 +66,7 @@ class LaMaInpaintingEngine internal constructor(private val runner: InpaintingMo
                 "roi_side_fraction=${diagnostics.workingSideFraction} " +
                 "prediction_spread=${diagnostics.modelPredictionSpread} " +
                 "large_area=${diagnostics.largeArea} " +
+                "uniform_background_recovery=${recovered != null} " +
                 "total_ms=${SystemClock.elapsedRealtime() - began}")
             currentCoroutineContext().ensureActive()
             Bitmap.createBitmap(result, width, height, Bitmap.Config.ARGB_8888)

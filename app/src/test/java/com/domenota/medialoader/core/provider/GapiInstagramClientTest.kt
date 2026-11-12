@@ -41,6 +41,33 @@ class GapiInstagramClientTest {
         assertEquals(1, calls)
     }
 
+    @Test fun sameResponseCaptionIsUsedOnlyWhenUsualTitleIsUnusable() = runBlocking {
+        var calls = 0
+        val normal = GapiInstagramClient { _, _ ->
+            calls++
+            GapiResponse(200, """{"platform":"instagram","type":"video","title":"Обычное имя #tag","caption":"Другое имя","media":[{"type":"video","url":"https://video.fbcdn.net/clip.mp4"}]}""")
+        }.resolve(page, "test-key").single()
+        assertEquals("Обычное имя.mp4", normal.originalName)
+        val recovered = GapiInstagramClient { _, _ ->
+            calls++
+            GapiResponse(200, """{"platform":"instagram","type":"album","title":"#tag","caption":{"text":"Восстановленная подпись #море"},"media":[{"type":"image","url":"https://scontent.fbcdn.net/a.jpg"},{"type":"video","url":"https://video.fbcdn.net/b.mp4"}]}""")
+        }.resolve(page, "test-key")
+        assertEquals(listOf("Восстановленная подпись_1.jpg", "Восстановленная подпись_2.mp4"), recovered.map { it.originalName })
+        assertEquals(listOf("Ab_12-z_1", "Ab_12-z_2"), recovered.map { it.id })
+        assertEquals("https://video.fbcdn.net/b.mp4", recovered.last().downloadUrl)
+        assertEquals(2, calls)
+    }
+
+    @Test fun explicitCaptionTextUsesExistingCleaningAndNoExtraRequest() = runBlocking {
+        var calls = 0
+        val item = GapiInstagramClient { _, _ ->
+            calls++
+            GapiResponse(200, """{"platform":"instagram","type":"video","caption_text":"Новый день https://example.org #tag","media":[{"type":"video","url":"https://video.fbcdn.net/clip.mp4"}]}""")
+        }.resolve(page, "test-key").single()
+        assertEquals("Новый день.mp4", item.originalName)
+        assertEquals(1, calls)
+    }
+
     @Test fun rejectsUntrustedDownloadHostsAndUnsafeThumbnails() = runBlocking {
         for (url in listOf("https://fbcdn.net.evil.test/a.mp4", "http://scontent.fbcdn.net/a.mp4", "https://user:password@video.fbcdn.net/a.mp4", "file:///tmp/a.mp4", "https://www.instagram.com/a.mp4")) {
             val error = failure(GapiResponse(200, """{"platform":"instagram","type":"video","media":[{"type":"video","url":"$url"}]}"""))

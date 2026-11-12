@@ -530,6 +530,23 @@ class InstagramProviderTest {
         }
     }
 
+    @Test fun optionalCaptionRateLimitKeepsAlreadyResolvedVideoAndSkipsSession() = runBlocking {
+        val requested = mutableListOf<String>()
+        val provider = InstagramProvider(
+            cookies = { error("No session request after optional caption rate limit") },
+            pageSource = { url ->
+                requested += url
+                if (url.endsWith("/embed/captioned/")) throw ProviderException(
+                    ProviderException.Reason.RATE_LIMITED, "Too many requests", "instagram")
+                """<html><meta property="og:video" content="https://video.fbcdn.net/clip.mp4"></html>"""
+            },
+        )
+        val item = provider.resolve("https://www.instagram.com/reel/Ab_12-z/").single()
+        assertEquals("Instagram.mp4", item.originalName)
+        assertEquals("https://video.fbcdn.net/clip.mp4", item.downloadUrl)
+        assertEquals(2, requested.size)
+    }
+
     @Test fun pureHashtagCaptionStillUsesSafeFallback() {
         val item = InstagramProvider.itemsFromProduct(org.json.JSONObject(
             """{"caption":{"text":"#аниме #мем #reels"},

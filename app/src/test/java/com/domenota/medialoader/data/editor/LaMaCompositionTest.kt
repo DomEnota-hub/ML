@@ -39,6 +39,34 @@ class LaMaCompositionTest {
         original.recycle(); edited.recycle(); overlay.recycle(); exported.recycle()
     }
 
+    @Test fun largePersonFallbackUsesSameExportMaskAndLeavesManualRemovalUnchanged() = runBlocking {
+        val bitmap = Bitmap.createBitmap(100, 120, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(Color.rgb(205, 211, 216))
+        val strokes = (25..95 step 2).map { y ->
+            MaskStroke(listOf(MaskPoint(.22f, y / 120f), MaskPoint(.78f, y / 120f)), .025f)
+        }
+        val coverage = LaMaInpaintingEngine.preparedCoverage(strokes, 100, 120).data
+        for (i in coverage.indices) if (coverage[i] > 0) bitmap.setPixel(i % 100, i / 100, Color.rgb(35, 40, 45))
+        val engine = LaMaInpaintingEngine(InpaintingModelRunner { image, _ ->
+            FloatArray(image.size) { 72f }
+        })
+        val manual = engine.inpaint(bitmap, strokes)
+        val recovered = engine.inpaint(bitmap, strokes,
+            InpaintingSettings(recoverLargePersonOnUniformBackground = true))
+        try {
+            assertEquals(Color.rgb(72, 72, 72), manual.getPixel(50, 60))
+            assertEquals(Color.rgb(205, 211, 216), recovered.getPixel(50, 60))
+            assertEquals(bitmap.getPixel(0, 0), recovered.getPixel(0, 0))
+            val overlay = LaMaInpaintingEngine.makeOverlay(recovered, listOf(strokes))
+            val exported = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            try {
+                Canvas(exported).drawBitmap(overlay, 0f, 0f, null)
+                for (y in 0 until 120) for (x in 0 until 100)
+                    assertEquals("Export mismatch at $x,$y", recovered.getPixel(x, y), exported.getPixel(x, y))
+            } finally { overlay.recycle(); exported.recycle() }
+        } finally { manual.recycle(); recovered.recycle(); bitmap.recycle() }
+    }
+
     @Test fun completelyErasedMaskDoesNotCallTheModel() = runBlocking {
         val original = source()
         val edited = LaMaInpaintingEngine(InpaintingModelRunner { _, _ -> error("No selection") })

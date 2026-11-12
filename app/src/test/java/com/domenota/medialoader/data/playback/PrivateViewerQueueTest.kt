@@ -26,6 +26,28 @@ class PrivateViewerQueueTest {
             listOf(photo), emptyMap()).isEmpty())
     }
 
+    @Test fun validatedVaultQueueSurvivesTheActualGalleryViewerFilter() {
+        val photo = row("secret-p", true, MediaType.PHOTO)
+        val video = row("secret-v", true, MediaType.VIDEO)
+        val public = row("ordinary", false, MediaType.PHOTO)
+        val audio = row("secret-a", true, MediaType.AUDIO)
+        val rows = listOf(public, photo, video, audio)
+        val snapshot = rows.map { it.id }
+        val authorized = PrivateViewerQueue.resolve(snapshot, photo.id, true, rows, emptyMap())
+        val viewer = com.domenota.medialoader.ui.screens.gallery.GalleryViewerState
+            .queue(authorized.map { it.id }, authorized, privateMode = true)
+        assertEquals(listOf(photo.id, video.id), viewer.map { it.id })
+        assertEquals(listOf(photo.id), com.domenota.medialoader.ui.screens.gallery.GalleryViewerState
+            .queue(listOf(photo.id), listOf(photo), privateMode = true).map { it.id })
+        assertEquals(listOf(public.id), com.domenota.medialoader.ui.screens.gallery.GalleryViewerState
+            .queue(snapshot, rows).map { it.id })
+        assertEquals(listOf(photo.id, video.id), com.domenota.medialoader.ui.screens.gallery.GalleryViewerState
+            .queue(snapshot, rows, privateMode = true).map { it.id })
+        val locked = PrivateViewerQueue.resolve(snapshot, photo.id, false, rows, emptyMap())
+        assertTrue(com.domenota.medialoader.ui.screens.gallery.GalleryViewerState
+            .queue(snapshot, locked, privateMode = true).isEmpty())
+    }
+
     @Test fun missingOrPublicFileCannotBeShownByVaultRoute() {
         val photo = row("secret-p", true, MediaType.PHOTO)
         val public = row("ordinary", false, MediaType.PHOTO)

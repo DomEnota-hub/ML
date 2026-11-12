@@ -53,6 +53,26 @@ class EqualizerScreenTest {
             listOf(6f, 3f, 1f, -1f, 2f), settings.gainsDb)
     }
 
+    @Test fun trackScopeIsExplicitAndCanReturnToGlobalSettings() {
+        var global by mutableStateOf(false)
+        var cleared by mutableStateOf(false)
+        compose.setContent {
+            MaterialTheme {
+                EqualizerScreen(EqualizerSettings(), 48000, {}, {},
+                    trackTitle = "Проверочный трек", editGlobal = global,
+                    onEditGlobal = { global = it }, hasTrackProfile = true,
+                    onUseGlobal = { cleared = true })
+            }
+        }
+        compose.onNodeWithText("Проверочный трек").assertExists()
+        compose.onNodeWithText("Для трека").assertIsSelected()
+        compose.onNodeWithText("Использовать общие настройки").performClick()
+        assertTrue(cleared)
+        compose.onNodeWithText("Общие").performClick()
+        compose.onNodeWithText("Общие").assertIsSelected()
+        compose.onNodeWithText("Использовать общие настройки").assertDoesNotExist()
+    }
+
     @Test fun lowRateClearlyDisablesUnsupportedBand() {
         compose.setContent { MaterialTheme { EqualizerScreen(EqualizerSettings(), 8000, {}, {}) } }
         compose.onNodeWithContentDescription("14 кГц").performScrollTo().assertIsNotEnabled()

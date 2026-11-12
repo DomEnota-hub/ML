@@ -137,6 +137,44 @@ internal object LocalTextOcr {
         } finally { if (resized !== image) resized.recycle() }
     }
 
+    /** Local contrast for a pale, thin outline on a slowly changing background.
+     * Restricted to the small caption crop; do not replace normal page OCR. */
+    internal fun enhanceLocalCaptionContrast(image: Bitmap): Bitmap {
+        val width = image.width; val height = image.height
+        require(width > 0 && height > 0 && width.toLong() * height <= 2_000_000)
+        val pixels = IntArray(width * height)
+        image.getPixels(pixels, 0, width, 0, 0, width, height)
+        val stride = width + 1
+        val integral = IntArray(stride * (height + 1))
+        for (y in 0 until height) {
+            var sum = 0
+            for (x in 0 until width) {
+                val i = y * width + x
+                val p = pixels[i]
+                val a = (p ushr 24) and 255
+                val rgb = (((p ushr 16) and 255) * 299 + ((p ushr 8) and 255) * 587 + (p and 255) * 114) / 1000
+                val luma = (rgb * a + 255 * (255 - a)) / 255
+                pixels[i] = luma
+                sum += luma
+                integral[(y + 1) * stride + x + 1] = integral[y * stride + x + 1] + sum
+            }
+        }
+        val radius = (minOf(width, height) / 13).coerceIn(5, 24)
+        for (y in 0 until height) for (x in 0 until width) {
+            val left = (x - radius).coerceAtLeast(0)
+            val top = (y - radius).coerceAtLeast(0)
+            val right = (x + radius + 1).coerceAtMost(width)
+            val bottom = (y + radius + 1).coerceAtMost(height)
+            val sum = integral[bottom * stride + right] - integral[top * stride + right] -
+                integral[bottom * stride + left] + integral[top * stride + left]
+            val average = sum / ((right - left) * (bottom - top))
+            val index = y * width + x
+            pixels[index] = if (average - pixels[index] >= maxOf(8, average / 25))
+                Color.BLACK else Color.WHITE
+        }
+        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+    }
+
     suspend fun readLine(context: Context, image: Bitmap): TextReadResult = withEngine(context) { api ->
         api.pageSegMode = TessBaseAPI.PageSegMode.PSM_SINGLE_LINE
         val mask = TextSampleRaster.read(image).tight()
@@ -241,6 +279,32 @@ internal object LocalTextOcr {
                     if (contrast !== enlarged) contrast.recycle()
                 }
             }
+            // A short narrow strip isolates the bottom watermark from a
+            // much larger heading just above it. Run one normal and one local
+            // contrast pass; both map coordinates back to the original image.
+            currentCoroutineContext().ensureActive()
+            val stripTop = (image.height * .86f).toInt().coerceIn(0, image.height - 1)
+            val stripH = image.height - stripTop
+            val stripW = (image.width * .85f).toInt().coerceIn(1, image.width)
+            val strip = Bitmap.createBitmap(image, 0, stripTop, stripW, stripH)
+            val stripScale = minOf(3.5f, 1920f / stripW, 640f / stripH)
+            val largeStrip = Bitmap.createScaledBitmap(strip,
+                (stripW * stripScale).toInt().coerceAtLeast(1),
+                (stripH * stripScale).toInt().coerceAtLeast(1), true)
+            try {
+                captionCandidates += scan(largeStrip, TessBaseAPI.PageSegMode.PSM_SINGLE_LINE,
+                    0, stripTop, stripW, stripH)
+                currentCoroutineContext().ensureActive()
+                val enhanced = enhanceLocalCaptionContrast(largeStrip)
+                try {
+                    captionCandidates += scan(enhanced, TessBaseAPI.PageSegMode.PSM_SINGLE_LINE,
+                        0, stripTop, stripW, stripH)
+                } finally { enhanced.recycle() }
+            } finally {
+                if (largeStrip !== strip) largeStrip.recycle()
+                if (strip !== image) strip.recycle()
+            }
+            currentCoroutineContext().ensureActive()
             val candidates = OcrLineCandidatePolicy.best(full, captionCandidates)
             AppLog.i("PhotoOCR", "glyphs_full=${full.size} " +
                 "glyphs_caption=${croppedSparse.size} " +
