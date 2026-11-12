@@ -72,7 +72,10 @@ internal fun GalleryMediaViewer(
 ) {
     val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
     DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
-    val queue = remember(media, item) { GalleryViewerState.queue(media.ifEmpty { listOf(item) }.map { it.id }, media.ifEmpty { listOf(item) }) }
+    val queue = remember(media, item, privateMode) {
+        val candidates = media.ifEmpty { listOf(item) }
+        GalleryViewerState.queue(candidates.map { it.id }, candidates, privateMode)
+    }
     if (queue.isEmpty()) { LaunchedEffect(Unit) { onBack() }; return }
     var currentId by rememberSaveable { mutableStateOf(item.id) }
     val ids = queue.map { it.id }

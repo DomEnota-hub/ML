@@ -67,18 +67,45 @@ internal object GlyphContentMask {
         val background = medianColor(boundary)
         // The four-sided background sample is not trustworthy if it contains
         // texture, multiple foreground objects or adjoining glyphs.
-        val backgroundSpread = boundary.sumOf { distance(it, background) } / boundary.size
-        if (backgroundSpread > 35) return null
+        // Robust background estimate: neighbouring outlined letters may
+        // touch a minority of the ring samples. Real textured backgrounds,
+        // however, cannot establish a dominant local background colour.
+        val deviations = boundary.map { distance(it, background) }.sorted()
+        val q75 = deviations[(deviations.size - 1) * 3 / 4]
+        if (deviations[deviations.size / 2] > 18 ||
+            deviations.count { it <= 30 } * 100L < deviations.size * 72L) return null
 
+        // A thin grey outline can be much less than 43 RGB levels from
+        // the background. Lower the threshold only for a coherent OCR
+        // candidate with locally consistent background, never globally.
+        val threshold = if (glyph.confidence >= 65f && q75 <= 18)
+            (q75 * 2 + 6).coerceIn(14, 43) else 43
         val foreground = BooleanArray(pixels.size)
-        var ink = 0
+        val margin = min(2, pad)
         for (index in pixels.indices) {
+            val x = x0 + index % regionWidth
+            val y = y0 + index / regionWidth
             val color = pixels[index]
-            val visible = ((color ushr 24) and 255) >= 200 &&
-                distance(color, background) >= 43
-            foreground[index] = visible
-            if (visible) ink++
+            foreground[index] = x in (left - margin) until (right + margin) &&
+                y in (top - margin) until (bottom + margin) &&
+                ((color ushr 24) and 255) >= 200 && distance(color, background) >= threshold
         }
+        // Remove isolated single-pixel noise without filling glyph holes or
+        // discarding real punctuation/diacritics with neighbouring pixels.
+        val coherent = foreground.copyOf()
+        for (index in foreground.indices) if (foreground[index]) {
+            val x = index % regionWidth; val y = index / regionWidth
+            var neighbour = false
+            for (dy in -1..1) for (dx in -1..1) {
+                if (dx == 0 && dy == 0) continue
+                val nx = x + dx; val ny = y + dy
+                if (nx in 0 until regionWidth && ny in 0 until regionHeight &&
+                    foreground[ny * regionWidth + nx]) neighbour = true
+            }
+            if (!neighbour) coherent[index] = false
+        }
+        coherent.copyInto(foreground)
+        val ink = foreground.count { it }
         // Blank or largely selected rectangles are unsafe. Require that the
         // visible ink has a plausible occupancy within a character region.
         if (ink < 3 || ink * 100L < pixels.size.toLong() ||

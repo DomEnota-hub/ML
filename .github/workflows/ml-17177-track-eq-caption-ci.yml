@@ -36,7 +36,7 @@ jobs:
           grep -Eq 'versionCode 237$' app/build.gradle
           grep -Fq "versionName '1.7.177'" app/build.gradle
           grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
-      - name: Focused music EQ and Instagram naming regression tests
+      - name: Focused EQ, Instagram, vault viewer and AI regression tests
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true \
             --tests '*Equalizer*Test' \
@@ -52,6 +52,14 @@ jobs:
             --tests '*GapiInstagramClientTest' \
             --tests '*GapiInstagramProviderTest' \
             --tests '*StorageNamingTest' \
+            --tests '*PrivateViewerQueueTest' \
+            --tests '*PrivateViewerChromeTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*OcrLineCandidatePolicyTest' \
+            --tests '*GlyphContentMaskTest' \
+            --tests '*LocalTextOcrFallbackTest' \
+            --tests '*LaMaCompositionTest' \
+            --tests '*LargePersonBackgroundRecoveryTest' \
             --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace

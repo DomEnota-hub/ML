@@ -492,10 +492,17 @@ internal fun ObjectRemovalPanel(
             try {
                 val found = glyphDetector.detect(source)
                 glyphs = found
-                // Detection does not erase anything. Select OCR candidates by
-                // default so "Начать" is usable immediately after a scan;
-                // the actual pixel mask is still validated before inpainting.
-                selectedGlyphs.addAll(found.map { it.id }.distinct().take(160))
+                // Auto-select only entire lines whose pixel masks can be
+                // verified. Keep the other OCR boxes as unselected candidates;
+                // one faint watermark must not disable a separate clear title.
+                val verified = withContext(Dispatchers.Default) {
+                    com.domenota.medialoader.data.editor.OcrLineCandidatePolicy
+                        .credibleLines(found).filter { line ->
+                            com.domenota.medialoader.data.editor.GlyphContentMask
+                                .fromBitmap(source, line).isNotEmpty()
+                        }.flatten().map { it.id }.distinct().take(160)
+                }
+                selectedGlyphs.addAll(verified)
                 // Store only counts/confidence in QA logs; never print text or
                 // the image. On-device inspection can distinguish false OCR
                 // detections from the separate pixel-mask/inpaint stage.
@@ -503,7 +510,12 @@ internal fun ObjectRemovalPanel(
                     "symbol_candidates=${found.size} " +
                     "high_confidence=${found.count { it.confidence >= 75f }} " +
                     "selected=${selectedGlyphs.size}")
-                if (found.isEmpty()) message = "Не удалось найти отдельные буквы."
+                message = when {
+                    found.isEmpty() -> "Не удалось найти отдельные буквы."
+                    verified.isEmpty() -> "Точные маски не подтверждены. Выделите нужные буквы вручную."
+                    verified.size < found.size -> "Часть текста требует ручного выделения. Подтверждённые строки уже выбраны."
+                    else -> null
+                }
             } catch (error: Exception) {
                 message = error.message ?: "Не удалось распознать текст."
             } finally {
@@ -594,6 +606,7 @@ internal fun ObjectRemovalPanel(
             return
         }
         val startStep = current
+        val peopleRemoval = selectedMode == AiEraserMode.PEOPLE
         processing = true
         message = null
         scope.launch {
@@ -625,7 +638,9 @@ internal fun ObjectRemovalPanel(
                     }
                     return@launch
                 }
-                val result = engine.inpaint(startStep.bitmap, marked)
+                val result = engine.inpaint(startStep.bitmap, marked,
+                    com.domenota.medialoader.data.editor.InpaintingSettings(
+                        recoverLargePersonOnUniformBackground = peopleRemoval))
                 // Retain bounded undo/redo image states and existing mask batches.
                 steps = steps.take(index + 1).takeLast(3) +
                     RemovalStep(result, startStep.maskBatches + listOf(marked),

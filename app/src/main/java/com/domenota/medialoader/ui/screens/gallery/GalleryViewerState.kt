@@ -14,7 +14,10 @@ object GalleryViewerState {
             (ref.aliases.filter { it.startsWith("phone:") || it in routeIds } + ref.key).distinct().map { ref.item.copy(id = it) }
         }
     }
-    fun queue(ids: List<String>, rows: List<DownloadEntity>): List<DownloadEntity> = GridMediaQueue.resolve(ids, rows, false)
+    /** The caller supplies an already-authorized, isolated vault queue.
+     * Preserve that scope through the viewer's own final queue filter. */
+    fun queue(ids: List<String>, rows: List<DownloadEntity>, privateMode: Boolean = false): List<DownloadEntity> =
+        GridMediaQueue.resolve(ids, rows, privateMode)
     fun neighbor(currentId: String?, snapshot: List<String>, available: Set<String>): String? {
         if (currentId in available) return currentId
         val index = snapshot.indexOf(currentId)

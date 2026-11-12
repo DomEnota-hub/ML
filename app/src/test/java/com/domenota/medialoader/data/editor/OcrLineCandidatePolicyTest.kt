@@ -53,6 +53,32 @@ class OcrLineCandidatePolicyTest {
             cheekTexture, listOf(emptyList())).isEmpty())
     }
 
+    @Test fun distinctStrongHeadingAndBottomWatermarkSurviveDifferentPasses() {
+        val heading = (0 until 4).map { i ->
+            DetectedGlyph(i, "Тест"[i].toString(), .31f + i * .055f, .75f,
+                .36f + i * .055f, .83f, 96f)
+        }
+        val watermark = (0 until 15).map { i ->
+            letter(10 + i, .03f + i * .013f, .945f, 84f)
+        }
+        val fragment = watermark.take(6).map { it.copy(confidence = 98f) }
+        val chosen = OcrLineCandidatePolicy.best(heading, listOf(fragment, watermark))
+        assertEquals(19, chosen.size)
+        assertEquals(4, chosen.count { it.top < .9f })
+        assertEquals(15, chosen.count { it.top > .9f })
+        assertEquals((0 until 19).toList(), chosen.map { it.id })
+    }
+
+    @Test fun overlappingHypothesesAreNotDuplicateMasksAndUrlPunctuationIsKept() {
+        val symbols = "link.tr".mapIndexed { i, ch ->
+            letter(i, .02f + i * .013f, .94f, 90f).copy(text = ch.toString())
+        }
+        val duplicate = symbols[1].copy(id = 99, confidence = 70f)
+        val selected = OcrLineCandidatePolicy.select(symbols + duplicate)
+        assertEquals(symbols.size, selected.size)
+        assertEquals(1, selected.count { it.text == "." })
+    }
+
     @Test fun fullyVisibleCaptionOutsideBottomCropCanStillBeSelected() {
         val title = (0 until 8).map { i ->
             letter(i, .28f + .02f * i, .19f, confidence = 87f)

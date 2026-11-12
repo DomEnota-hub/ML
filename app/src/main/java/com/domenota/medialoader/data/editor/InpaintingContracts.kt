@@ -28,6 +28,9 @@ data class MaskStroke(
 
 data class InpaintingSettings(
     val maxWorkingSide: Int = 1024,
+    /** Limited fallback for a failed large PERSON removal on a demonstrably
+     * smooth background; leave normal object/text and complex scenes unchanged. */
+    val recoverLargePersonOnUniformBackground: Boolean = false,
 ) {
     init { require(maxWorkingSide in 256..4096) }
 }
