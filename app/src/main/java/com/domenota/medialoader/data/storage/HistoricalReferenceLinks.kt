@@ -36,7 +36,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         } }
     }
 
-    suspend fun snapshot(row: DownloadEntity, originalAliases: Set<String> = emptySet()): JSONObject {
+    suspend fun snapshot(row: DownloadEntity, originalAliases: Set<String> = emptySet(), verifiedTargetUri: String? = null): JSONObject {
         ensureIdle()
         val old = requireNotNull(row.savedUri)
         val aliases = aliases(old) + row.id + originalAliases
@@ -69,7 +69,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
             .put("watchBackup", JSONObject(watch.all))
         // Validate the exact transformations BEFORE any original is renamed or
         // published, rather than discovering ambiguous catalog entries at rebind.
-        catalogTarget(result.getString("catalog"), aliases, old, old, row.originalName, row.sizeBytes!!)
+        catalogTarget(result.getString("catalog"), aliases, old, verifiedTargetUri ?: old, row.originalName, row.sizeBytes!!)
         playlistTarget(result.getString("playlists"), aliases)
         return result
     }
@@ -145,9 +145,15 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
 
     private suspend fun aliases(uri: String): Set<String> {
         val parsed = Uri.parse(uri)
-        val kind = if (parsed.pathSegments.contains("images")) "image" else "video"
-        val id = parsed.lastPathSegment?.toLongOrNull() ?: error("Неизвестный MediaStore ID")
-        return PublicMediaIdentity.capture(context, uri) + "phone:$kind:$id" + uri
+        val kind = if (parsed.authority == "media") when {
+            "images" in parsed.pathSegments -> "image"
+            "video" in parsed.pathSegments -> "video"
+            "audio" in parsed.pathSegments -> "audio"
+            else -> null
+        } else null
+        val id = parsed.lastPathSegment?.toLongOrNull()
+        return PublicMediaIdentity.capture(context, uri) + uri +
+            (if (kind != null && id != null) setOf("phone:$kind:$id") else emptySet())
     }
     private fun catalogTarget(raw: String, aliases: Set<String>, old: String, new: String, name: String, bytes: Long): String {
         if (raw.isEmpty()) return raw

@@ -158,7 +158,9 @@ class AudioEditor(private val context: Context) {
             }
             append("-map 0:a:0 ")
             if (cover != null) append("-map 1:v:0 ")
-            append("-c:a libmp3lame -b:a 192k ")
+            if (spec.replaceOriginal && spec.startMs == 0L && spec.endMs == null)
+                append("-c:a copy ")
+            else append("-c:a libmp3lame -b:a 192k ")
             if (cover != null) {
                 append("-c:v mjpeg -disposition:v:0 attached_pic ")
                 append("-metadata:s:v title=").append(quote("Album cover")).append(' ')

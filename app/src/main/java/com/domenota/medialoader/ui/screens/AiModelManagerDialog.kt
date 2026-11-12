@@ -3,7 +3,14 @@ package com.domenota.medialoader.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,9 +21,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,12 +47,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.domenota.medialoader.data.editor.AiModelUpdateChecker
 import com.domenota.medialoader.data.editor.ModelUpdateResult
 import com.domenota.medialoader.data.editor.ModelUpdateState
@@ -71,6 +86,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     var reflectionReady by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(true) }
     var active by remember { mutableStateOf<String?>(null) }
+    var removing by remember { mutableStateOf(false) }
     var progress by remember { mutableIntStateOf(0) }
     var job by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -89,7 +105,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     val reflectionFilePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
-        if (uri != null && active == null) {
+        if (uri != null && active == null && !checking && !updateChecking) {
             error = null
             progress = 0
             active = "reflection"
@@ -152,6 +168,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         if (active != null || updateChecking) return
         updateResults = emptyMap()
         error = null
+        removing = true
         active = kind
         pendingDelete = null
         job = scope.launch {
@@ -175,6 +192,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
             } catch (failure: Exception) {
                 error = failure.message ?: "Не удалось удалить AI-модель."
             } finally {
+                removing = false
                 active = null
                 job = null
             }
@@ -215,132 +233,111 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         }
     }
 
-    // Explicit white action colours: do not inherit the app-wide purple Material accent.
-    val whiteActionColors = ButtonDefaults.textButtonColors(
-        contentColor = Color.White,
-        disabledContentColor = Color.White.copy(alpha = 0.38f),
+    val actionColors = ButtonDefaults.textButtonColors(
+        contentColor = MaterialTheme.colorScheme.primary,
     )
 
     if (pendingDelete != null) {
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Удалить AI-модель?") },
-            text = { Text("Фотографии сохранятся. Для повторного использования модель нужно будет скачать заново.") },
-            confirmButton = { TextButton(colors = whiteActionColors, onClick = {
+            title = { Text("Удалить ${when (pendingDelete) {
+                "lama" -> "LaMa"; "mobile" -> "MobileSAM"; "people" -> "EfficientDet-Lite0"
+                "glare" -> "SRNet"; "reflection" -> "DExNet + VGG19"; else -> "AI-модель"
+            }}?") },
+            text = { Text("Фотографии сохраняются. Повторная установка или импорт модели потребуется для обработки.") },
+            confirmButton = { TextButton(colors = actionColors, onClick = {
                 val kind = pendingDelete
                 if (kind != null) delete(kind)
             }) { Text("Удалить") } },
-            dismissButton = { TextButton(colors = whiteActionColors, onClick = { pendingDelete = null }) { Text("Отмена") } },
+            dismissButton = { TextButton(colors = actionColors, onClick = { pendingDelete = null }) { Text("Отмена") } },
         )
     }
 
-    Dialog(onDismissRequest = { if (active == null && !updateChecking) onDismiss() }) {
-        Surface(
-            shape = RoundedCornerShape(22.dp),
-            color = androidx.compose.ui.graphics.Color(0xFF1D1E25),
-        ) {
-            Column(
-                Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("AI-модели", fontWeight = FontWeight.Bold,
-                    color = androidx.compose.ui.graphics.Color.White)
-                Text("Модели устанавливаются отдельно. SRNet работает офлайн, фотографии остаются на устройстве.",
-                    color = androidx.compose.ui.graphics.Color.LightGray)
-                if (checking) CircularProgressIndicator()
-                ModelRow(
-                    title = "LaMa", detail = "Удаление объектов и текста",
-                    ready = lamaReady, enabled = !checking && !updateChecking && active == null,
-                    onInstall = { download("lama") },
-                    onDelete = { pendingDelete = "lama" },
-                )
-                HorizontalDivider()
-                ModelRow(
-                    title = "MobileSAM", detail = "Выделение касанием · 44,7 МБ",
-                    ready = mobileReady, enabled = !checking && !updateChecking && active == null,
-                    onInstall = { download("mobile") },
-                    onDelete = { pendingDelete = "mobile" },
-                )
-                HorizontalDivider()
-                ModelRow(
-                    title = "EfficientDet-Lite0",
-                    detail = "Автоматическое обнаружение людей · 13,8 МБ",
-                    ready = peopleReady, enabled = !checking && !updateChecking && active == null,
-                    onInstall = { download("people") },
-                    onDelete = { pendingDelete = "people" },
-                )
-                HorizontalDivider()
-                ModelRow(
-                    title = "SRNet · удаление бликов",
-                    detail = "Нейросеть 230 КБ · установка из приложения, без сети",
-                    ready = glareReady, enabled = !checking && !updateChecking && active == null,
-                    onInstall = { download("glare") },
-                    onDelete = { pendingDelete = "glare" },
-                )
-                HorizontalDivider()
-                ModelRow(
-                    title = "DExNet + VGG19 · отражения",
-                    detail = if (BuildConfig.REFLECTION_MODEL_BUNDLED)
-                        "Нейросеть 91 МБ · установка из QA-приложения" else
-                        "Нейросеть 91 МБ · импорт проверенного ONNX-файла",
-                    ready = reflectionReady,
-                    enabled = !checking && !updateChecking && active == null,
-                    installDescription = if (BuildConfig.REFLECTION_MODEL_BUNDLED)
-                        "Установить DExNet" else "Импортировать DExNet из файла",
-                    onInstall = { download("reflection") },
-                    onDelete = { pendingDelete = "reflection" },
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(colors = whiteActionColors, onClick = ::checkUpdates,
-                        enabled = !checking && !updateChecking && active == null) {
-                        Text("Проверить обновления")
+    // Full-screen manager shares the same stores and jobs as the former dialog.
+    // In editor routes the caller's scoped editor theme is retained.
+    Dialog(onDismissRequest = { if (active == null && !updateChecking) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false,
+            dismissOnClickOutside = false)) {
+        com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 16.dp)) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss, enabled = active == null && !updateChecking) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад")
+                    }
+                    Text("AI-модели", style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold)
+                }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val count = listOf(lamaReady, mobileReady, peopleReady, glareReady, reflectionReady).count { it }
+                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Psychology, null, Modifier.size(36.dp),
+                                    tint = MaterialTheme.colorScheme.primary)
+                                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                    Text("Локальная обработка", fontWeight = FontWeight.SemiBold)
+                                    Text("Модели на устройстве", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Text(if (checking) "…" else "$count/5", style = MaterialTheme.typography.headlineSmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                            }
+                            if (checking) LinearProgressIndicator(Modifier.fillMaxWidth())
+                            else LinearProgressIndicator(progress = { count / 5f }, modifier = Modifier.fillMaxWidth())
+                            Text("Локальная обработка фотографий · без отправки в облако", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    val enabled = !checking && !updateChecking && active == null
+                    ModelRow("LaMa", "Удаление объектов и текста", "Восстановление фона в выделенной области.",
+                        Icons.Rounded.AutoFixHigh, lamaReady, enabled, checking,
+                        onInstall = { download("lama") }, onDelete = { pendingDelete = "lama" })
+                    ModelRow("MobileSAM", "Выделение касанием · 44,7 МБ", "Сегментация объекта по точке касания.",
+                        Icons.Rounded.TouchApp, mobileReady, enabled, checking,
+                        onInstall = { download("mobile") }, onDelete = { pendingDelete = "mobile" })
+                    ModelRow("EfficientDet-Lite0", "Обнаружение людей · 13,8 МБ", "Обнаружение людей для последующего построения масок.",
+                        Icons.Rounded.PersonSearch, peopleReady, enabled, checking,
+                        onInstall = { download("people") }, onDelete = { pendingDelete = "people" })
+                    ModelRow("SRNet", "Удаление бликов · 230 КБ", "Модель поставляется с приложением. Установка без сети; обновление весов — с новой версией.",
+                        Icons.Rounded.LightMode, glareReady, enabled, checking,
+                        onInstall = { download("glare") }, onDelete = { pendingDelete = "glare" })
+                    ModelRow("DExNet + VGG19", "Удаление отражений · 91 МБ",
+                        if (BuildConfig.REFLECTION_MODEL_BUNDLED) "Установка из QA-приложения." else "Импорт проверенного ONNX-файла.",
+                        Icons.Rounded.Photo, reflectionReady, enabled, checking,
+                        installDescription = if (BuildConfig.REFLECTION_MODEL_BUNDLED) "Установить" else "Импортировать ONNX",
+                        onInstall = { download("reflection") }, onDelete = { pendingDelete = "reflection" })
+                    if (updateChecking) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Проверка версий и SHA-256…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    updateResults.forEach { (kind, result) ->
+                        Text("${when (kind) { "lama" -> "LaMa"; "mobile" -> "MobileSAM"; else -> "EfficientDet" }}: ${result.detail}",
+                            color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
+                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    Spacer(Modifier.height(4.dp))
+                }
+                // The footer stays accessible regardless of scroll position or font size.
+                if (active != null) {
+                    val label = when (active) {
+                        "lama" -> "LaMa"; "mobile" -> "MobileSAM"; "people" -> "EfficientDet";
+                        "glare" -> "SRNet"; "reflection" -> "DExNet"; else -> "AI-модель"
+                    }
+                    Text(if (removing) "Удаление · $label" else "$label · $progress%",
+                        style = MaterialTheme.typography.bodySmall)
+                    if (removing) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else {
+                        LinearProgressIndicator(progress = { progress.coerceIn(0, 100) / 100f }, modifier = Modifier.fillMaxWidth())
+                        TextButton(onClick = { job?.cancel() }) { Text("Отменить установку") }
                     }
                 }
-                if (updateChecking) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text("Проверяем версии и SHA-256 в каталоге разработчиков моделей…",
-                        color = Color.LightGray)
-                }
-                updateResults["lama"]?.let { result ->
-                    Text("LaMa: ${result.detail}",
-                        color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
-                            Color(0xFFFFD180) else Color.LightGray)
-                }
-                updateResults["mobile"]?.let { result ->
-                    Text("MobileSAM: ${result.detail}",
-                        color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
-                            Color(0xFFFFD180) else Color.LightGray)
-                }
-                updateResults["people"]?.let { result ->
-                    Text("EfficientDet: ${result.detail}",
-                        color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
-                            Color(0xFFFFD180) else Color.LightGray)
-                }
-                Text("SRNet: модель поставляется с приложением. Новые веса доступны при обновлении версии.",
-                    color = Color.LightGray)
-                if (active != null && job?.isActive == true) {
-                    Text(when (active) {
-                        "lama" -> "LaMa · $progress%"
-                        "mobile" -> "MobileSAM · $progress%"
-                        "people" -> "EfficientDet · $progress%"
-                        "glare" -> "SRNet · $progress%"
-                        "reflection" -> "DExNet · $progress%"
-                        else -> "AI-модель · $progress%"
-                    },
-                        color = androidx.compose.ui.graphics.Color.White)
-                    LinearProgressIndicator(
-                        progress = { progress.toFloat() / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    TextButton(colors = whiteActionColors, onClick = { job?.cancel() }) { Text("Отменить загрузку") }
-                }
-                error?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFFFB4AB)) }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(colors = whiteActionColors, onClick = onDismiss,
-                        enabled = active == null && !updateChecking) {
-                        Text("Закрыть")
-                    }
+                Button(onClick = ::checkUpdates, enabled = !checking && !updateChecking && active == null,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                    Icon(Icons.Rounded.Refresh, null)
+                    Spacer(Modifier.width(8.dp)); Text("Проверить обновления")
                 }
             }
         }
@@ -351,29 +348,51 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
 private fun ModelRow(
     title: String,
     detail: String,
+    explanation: String,
+    icon: ImageVector,
     ready: Boolean,
     enabled: Boolean,
-    installDescription: String? = null,
+    checking: Boolean,
+    installDescription: String = "Установить",
     onInstall: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = androidx.compose.ui.graphics.Color.White,
-                fontWeight = FontWeight.SemiBold)
-            Text(detail, color = androidx.compose.ui.graphics.Color.LightGray)
-            Text(if (ready) "Установлена" else "Не установлена",
-                color = androidx.compose.ui.graphics.Color.LightGray)
-        }
-        if (ready) {
-            IconButton(onClick = onDelete, enabled = enabled) {
-                Icon(Icons.Rounded.DeleteOutline, "Удалить $title",
-                    tint = androidx.compose.ui.graphics.Color.White)
+    var expanded by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                    Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                        Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+                Column(Modifier.weight(1f).clickable { expanded = !expanded }) {
+                    Text(title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия · $title") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("О модели") }, onClick = { menu = false; expanded = true })
+                        if (ready) DropdownMenuItem(text = { Text("Удалить модель", color = MaterialTheme.colorScheme.error) },
+                            enabled = enabled, onClick = { menu = false; onDelete() })
+                    }
+                }
             }
-        } else {
-            IconButton(onClick = onInstall, enabled = enabled) {
-                Icon(Icons.Rounded.Download, installDescription ?: "Скачать $title",
-                    tint = androidx.compose.ui.graphics.Color.White)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (checking) "Проверка…" else if (ready) "Установлена" else "Не установлена",
+                    color = if (ready && !checking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                if (!ready && !checking) TextButton(onClick = onInstall, enabled = enabled) { Text(installDescription) }
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, "Сведения о модели $title")
+                }
+            }
+            if (expanded) {
+                HorizontalDivider()
+                Text(explanation, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

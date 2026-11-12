@@ -84,6 +84,32 @@ class DownloadQueueTest {
             } }
             return updated
         }
+        override suspend fun updateEditedAudioWhenCurrent(
+            id: String, uri: String, bytes: Long, duration: Long?,
+            title: String, artist: String, album: String,
+        ): Int {
+            var changed = 0
+            rows.update { list ->
+                changed = 0
+                list.map { row ->
+                    if (row.id == id && row.savedUri == uri &&
+                        row.state == DownloadState.COMPLETED && !row.isPrivate &&
+                        !row.hidden && row.mediaType == MediaType.AUDIO) {
+                        changed++
+                        row.copy(sizeBytes = bytes, durationMs = duration,
+                            recognizedTitle = title, recognizedArtist = artist, recognizedAlbum = album,
+                            sourceAudioTitle = title, sourceAudioArtist = artist)
+                    } else row
+                }
+            }
+            return changed
+        }
+        override suspend fun insertRecovered(item: DownloadEntity) {
+            rows.update { list ->
+                check(list.none { it.id == item.id }) { "Duplicate recovered history ID" }
+                list + item
+            }
+        }
         override suspend fun upsert(item: DownloadEntity) {
             rows.update { list -> list.filterNot { it.id == item.id } + item }
         }

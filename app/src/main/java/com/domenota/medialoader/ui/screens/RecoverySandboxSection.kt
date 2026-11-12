@@ -12,20 +12,21 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun RecoverySandboxSection() {
+internal fun RecoverySandboxSection(onBusyChange: (Boolean) -> Unit) {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
-    var status by rememberSaveable { mutableStateOf("Только сгенерированные файлы. Оригиналы пользователя недоступны этому инструменту.") }
+    var status by rememberSaveable { mutableStateOf("Только сгенерированные файлы. Оригиналы недоступны этому инструменту.") }
     fun run(action: String) {
         if (busy) return
         busy = true
-        status = "Проверяем искусственную пробу…"
+        onBusyChange(true)
+        status = "Проверка искусственной пробы…"
         scope.launch {
             try { status = RecoverySandbox(context).execute(action) }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { status = "Остановлено безопасно: ${e.message ?: e.javaClass.simpleName}. Можно продолжить или откатить по журналу." }
-            finally { busy = false }
+            finally { busy = false; onBusyChange(false) }
         }
     }
     Column {

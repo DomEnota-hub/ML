@@ -20,6 +20,47 @@ class AudioPlaybackService : MediaSessionService() {
     companion object {
         private var liveSession: MediaSession? = null
 
+        internal data class ReplacementPlayback(val player: Player, val mediaId: String,
+            val position: Long, val playWhenReady: Boolean)
+
+        internal suspend fun suspendForReplacement(uri: String): ReplacementPlayback? =
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                val player = liveSession?.player ?: return@withContext null
+                val current = player.currentMediaItem ?: return@withContext null
+                if (!AudioPlaybackMetadata.matchesPublicUri(current, uri)) return@withContext null
+                ReplacementPlayback(player, current.mediaId, player.currentPosition.coerceAtLeast(0),
+                    player.playWhenReady).also { player.pause(); player.stop() }
+            }
+
+        internal suspend fun finishReplacement(uri: String, revised: com.domenota.medialoader.core.database.DownloadEntity?,
+            suspended: ReplacementPlayback?) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                val player = liveSession?.player ?: return@withContext
+                if (revised != null) for (index in 0 until player.mediaItemCount) {
+                    val item = player.getMediaItemAt(index)
+                    if (AudioPlaybackMetadata.matchesPublicUri(item, uri))
+                        player.replaceMediaItem(index, AudioPlaybackMetadata.revisedItem(item, revised))
+                }
+                if (suspended != null && player === suspended.player &&
+                    player.currentMediaItem?.mediaId == suspended.mediaId &&
+                    player.currentMediaItem?.let { AudioPlaybackMetadata.matchesPublicUri(it, uri) } == true) {
+                    val limit = revised?.durationMs?.coerceAtLeast(0L) ?: Long.MAX_VALUE
+                    player.seekTo(suspended.position.coerceAtMost(limit))
+                    player.prepare()
+                    player.playWhenReady = suspended.playWhenReady
+                }
+            }
+
+        internal suspend fun requireNoLegacyQueueUri(oldUri: String, newUri: String) =
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                val player = liveSession?.player ?: return@withContext
+                for (index in 0 until player.mediaItemCount) {
+                    val item = player.getMediaItemAt(index)
+                    val actual = item.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PUBLIC_URI)
+                        ?: item.localConfiguration?.uri?.toString()
+                    check(actual != oldUri || actual == newUri) { "В очереди воспроизведения осталась старая ссылка" }
+                }
+            }
+
         /** Runs against the service player itself; a controller may expose optimistic state. */
         internal suspend fun clearHistoricalPlayback(): Unit = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
             check(com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value)

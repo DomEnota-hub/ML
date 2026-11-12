@@ -86,6 +86,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -429,6 +430,17 @@ fun SettingsScreen(
     var developerVisible by remember {
         mutableStateOf(prefs.getBoolean("developer_visible", prefs.getBoolean("logs_unlocked", false)))
     }
+    var recoveryLabVisible by remember { mutableStateOf(prefs.getBoolean("recovery_lab_visible", false)) }
+    val historicalRunning by com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.collectAsState()
+    var sandboxRunning by remember { mutableStateOf(false) }
+    val recoveryLabBusy = sandboxRunning || historicalRunning || storageMigrationRunning || galleryDateAuditBusy ||
+        migrationInventoryBusy || republishTrialBusy || exifTrialBusy || videoTrialBusy ||
+        sameUriBusy || dateRecoveryBusy
+    fun setRecoveryLabVisible(value: Boolean) {
+        if (recoveryLabBusy) return
+        recoveryLabVisible = value
+        prefs.edit().putBoolean("recovery_lab_visible", value).apply()
+    }
     var aboutTapCount by remember { mutableStateOf(0) }
     var aboutTapDeadline by remember { mutableStateOf(0L) }
     var aboutUnlockArmedUntil by remember { mutableStateOf(0L) }
@@ -450,6 +462,7 @@ fun SettingsScreen(
             aboutTapCount = 0
             return
         }
+        if (recoveryLabBusy && developerVisible) return
         developerVisible = !developerVisible
         aboutUnlockArmedUntil = 0L
         aboutTapCount = 0
@@ -616,7 +629,7 @@ fun SettingsScreen(
         Surface(
             modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
             shape = MaterialTheme.shapes.extraLarge,
-            tonalElevation = 6.dp,
+            tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 6.dp,
         ) {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 Text("Журнал приложения", style = MaterialTheme.typography.headlineSmall)
@@ -1057,7 +1070,11 @@ fun SettingsScreen(
 
         // Temporary MediaStore/EXIF migration laboratory. To retire after the
         // Xiaomi issue is solved, remove THIS invocation and its isolated files.
-        MediaRecoveryLabSection(
+        if ((developerVisible && recoveryLabVisible) || recoveryLabBusy) MediaRecoveryLabSection(
+            onHide = { setRecoveryLabVisible(false) },
+            operationBusy = recoveryLabBusy,
+            sandboxBusy = sandboxRunning,
+            onSandboxBusyChange = { sandboxRunning = it },
             activeDownloadCount = activeDownloadCount,
             storageMigrationRunning = storageMigrationRunning,
             storageMigrationMessage = storageMigrationMessage,
@@ -1291,6 +1308,13 @@ fun SettingsScreen(
                         AppLog.setExtended(extendedLog)
                     },
                 )
+                GroupDivider()
+                SettingRow(Icons.Rounded.BugReport, "Лаборатория исправлений",
+                    if (recoveryLabVisible) "Показана" else "Скрыта", grouped = true,
+                    iconTone = SettingIconTone.DIAGNOSTICS, showChevron = false,
+                    trailing = { Switch(checked = recoveryLabVisible, enabled = !recoveryLabBusy,
+                        onCheckedChange = ::setRecoveryLabVisible) },
+                    onClick = if (recoveryLabBusy) null else { { setRecoveryLabVisible(!recoveryLabVisible) } })
             }
         }
     }

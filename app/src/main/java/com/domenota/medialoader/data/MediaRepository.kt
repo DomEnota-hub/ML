@@ -10,10 +10,12 @@ import com.domenota.medialoader.data.privatevault.PrivateFileStore
 import com.domenota.medialoader.data.privatevault.PrivateMediaOperations
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.domenota.medialoader.core.database.DownloadEntity
@@ -519,16 +521,45 @@ class MediaRepository private constructor(context: Context) {
         com.domenota.medialoader.data.storage.MediaMigrationReadOnlyInventory(
             appContext, historyDb.downloadDao(), historyDb.catalogDao()).inspect()
 
+    internal suspend fun inspectOldDownloads() =
+        com.domenota.medialoader.data.storage.OldDownloadsRecovery(appContext, historyDb).inspect()
+
+    internal suspend fun confirmOldDownloadsTrial() = musicPostProcessGate.withPermit {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        com.domenota.medialoader.data.storage.OldDownloadsRecovery(appContext, historyDb).confirmTrial()
+    }
+
+    internal suspend fun runOldDownloadsRecovery(items: List<com.domenota.medialoader.data.storage.OldDownloadCandidate>,
+        trial: Boolean, confirmedMissing: Boolean, onProgress: (String) -> Unit): String = musicPostProcessGate.withPermit {
+        val signals = com.domenota.medialoader.data.storage.HistoricalRecoverySignals
+        check(!signals.hasPendingHistoricalJournal(appContext)) { "Незавершённое восстановление исторических дат" }
+        signals.begin()
+        try {
+            com.domenota.medialoader.data.storage.OldDownloadsRecovery(appContext, historyDb).start(items, trial, confirmedMissing, onProgress)
+        } finally { signals.end() }
+    }
+
+    internal suspend fun resumeOldDownloadsRecovery(onProgress: (String) -> Unit): String = musicPostProcessGate.withPermit {
+        val signals = com.domenota.medialoader.data.storage.HistoricalRecoverySignals
+        check(!signals.hasPendingHistoricalJournal(appContext)) { "Незавершённое восстановление исторических дат" }
+        signals.begin()
+        try {
+            com.domenota.medialoader.data.storage.OldDownloadsRecovery(appContext, historyDb).resume(onProgress)
+        } finally { signals.end() }
+    }
+
     internal suspend fun inspectHistoricalReplacement() =
         com.domenota.medialoader.data.storage.HistoricalMediaRecovery(appContext, historyDb).inspect()
 
     internal suspend fun cancelHistoricalReplacement(): String = musicPostProcessGate.withPermit {
+        check(!com.domenota.medialoader.data.storage.OldDownloadsRecovery.pending(appContext)) { "Незавершённый перенос старых загрузок" }
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         com.domenota.medialoader.data.storage.HistoricalMediaRecovery(appContext, historyDb).cancelBeforePublicMutation()
     }
 
     internal suspend fun runHistoricalReplacement(ids: List<String>, trial: Boolean,
         onProgress: (String) -> Unit): String = musicPostProcessGate.withPermit {
+        check(!com.domenota.medialoader.data.storage.OldDownloadsRecovery.pending(appContext)) { "Незавершённый перенос старых загрузок" }
         val signals = com.domenota.medialoader.data.storage.HistoricalRecoverySignals
         signals.begin()
         try {
@@ -538,6 +569,7 @@ class MediaRepository private constructor(context: Context) {
     }
 
     internal suspend fun resumeHistoricalReplacement(onProgress: (String) -> Unit): String = musicPostProcessGate.withPermit {
+        check(!com.domenota.medialoader.data.storage.OldDownloadsRecovery.pending(appContext)) { "Незавершённый перенос старых загрузок" }
         val signals = com.domenota.medialoader.data.storage.HistoricalRecoverySignals
         signals.begin()
         try {
@@ -1053,13 +1085,37 @@ class MediaRepository private constructor(context: Context) {
             "Заменить можно только исходный MP3 в общей медиатеке. Сохраните копию."
         }
         require(file.isFile && file.length() > 0L) { "Новый MP3 пуст." }
-        val latest = history.byId(source.id)
-            ?: throw java.io.IOException("Исходный трек не найден в базе.")
-        if (!com.domenota.medialoader.data.editor.AudioReplacePolicy.eligible(latest) ||
-            latest.savedUri != source.savedUri) {
-            throw java.io.IOException("Исходный файл изменился. Повторно откройте редактор.")
-        }
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        val target = com.domenota.medialoader.data.editor.AudioReplacePolicy.resolve(source, history.all())
+            ?: throw java.io.IOException("Исходный трек не подтверждён или связан с несколькими записями.")
+        val latest = target.row
         val uri = Uri.parse(requireNotNull(latest.savedUri))
+        val privateKeys = privateMediaIds.first()
+        check(PublicMediaIdentity.capture(appContext, uri.toString()).none(privateKeys::contains)) {
+            "Файл связан с приватной медиатекой"
+        }
+        val sourceMetadata = withContext(Dispatchers.IO) {
+            val resolver = appContext.contentResolver
+            val columns = arrayOf("_display_name", "mime_type", "_size", "title", "artist", "album")
+            resolver.query(uri, columns, null, null, null)?.use { cursor ->
+                check(cursor.moveToFirst()) { "Исходный MP3 недоступен" }
+                check(cursor.getString(0).endsWith(".mp3", true) && cursor.getString(1) == "audio/mpeg" &&
+                    cursor.getLong(2) > 0) { "Исходный MP3 не подтверждён" }
+                listOf(cursor.getString(3), cursor.getString(4), cursor.getString(5))
+            } ?: throw java.io.IOException("Метаданные исходного MP3 недоступны")
+        }
+        fun tagsFromFile(): Pair<List<String>, Long?> = MediaMetadataRetriever().let { retriever ->
+            try {
+                retriever.setDataSource(file.absolutePath)
+                listOf(MediaMetadataRetriever.METADATA_KEY_TITLE, MediaMetadataRetriever.METADATA_KEY_ARTIST,
+                    MediaMetadataRetriever.METADATA_KEY_ALBUM).map { retriever.extractMetadata(it).orEmpty() } to
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+            } finally { retriever.release() }
+        }
+        val (writtenTags, newDuration) = withContext(Dispatchers.IO) { tagsFromFile() }
+        val expectedTags = listOf(title.trim(), artist.trim(), album.trim())
+        check(writtenTags == expectedTags) { "Проверка ID3 нового MP3 не прошла" }
+        check(newDuration != null && newDuration > 0) { "Длительность нового MP3 не подтверждена" }
         val recoveryDir = java.io.File(appContext.filesDir, "audio-replacement-recovery")
         if (!recoveryDir.exists() && !recoveryDir.mkdirs())
             throw java.io.IOException("Нет места для защитной копии.")
@@ -1085,15 +1141,13 @@ class MediaRepository private constructor(context: Context) {
                 return digest.digest().joinToString("") { "%02x".format(it) }
             }
             fun writeSource(staged: java.io.File, onOpened: () -> Unit = {}) {
-                resolver.openFileDescriptor(uri, "rwt")?.use { descriptor ->
-                    // Provider can reject a write before any bytes changed.
-                    // Only then may we safely skip rollback on permission denial.
-                    onOpened()
-                    java.io.FileOutputStream(descriptor.fileDescriptor).use { output ->
-                        staged.inputStream().use { input -> input.copyTo(output, 64 * 1024) }
-                        output.fd.sync()
-                    }
-                } ?: throw java.io.IOException("Android не предоставил доступ к записи.")
+                val descriptor = resolver.openFileDescriptor(uri, "rwt")
+                    ?: throw java.io.IOException("Android не предоставил доступ к записи.")
+                onOpened()
+                android.os.ParcelFileDescriptor.AutoCloseOutputStream(descriptor).use { output ->
+                    staged.inputStream().use { input -> input.copyTo(output, 64 * 1024) }
+                    output.fd.sync()
+                }
             }
             try {
                 resolver.openInputStream(uri)?.use { input ->
@@ -1108,46 +1162,50 @@ class MediaRepository private constructor(context: Context) {
                 // together even if the user navigates away during export.
                 withContext(NonCancellable) {
                     var writingStarted = false
+                    var playbackSafe = true
+                    var playback: com.domenota.medialoader.data.playback.AudioPlaybackService.Companion.ReplacementPlayback? = null
+                    var committed: DownloadEntity? = null
                     try {
-                        writeSource(file) { writingStarted = true }
+                        playback = com.domenota.medialoader.data.playback.AudioPlaybackService.suspendForReplacement(uri.toString())
+                        check(resolver.openInputStream(uri)?.let(::sha256) == originalSha) { "Исходный MP3 изменился" }
+                        writeSource(file) { writingStarted = true; playbackSafe = false }
                         val writtenSha = resolver.openInputStream(uri)?.let(::sha256)
                             ?: throw java.io.IOException("Нет доступа для проверки MP3.")
                         if (writtenSha != outputSha)
                             throw java.io.IOException("Проверка MP3 после записи не прошла.")
-                        val newDuration = runCatching {
-                            MediaMetadataRetriever().let { retriever ->
-                                try {
-                                    retriever.setDataSource(file.absolutePath)
-                                    retriever.extractMetadata(
-                                        MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                                } finally { retriever.release() }
-                            }
-                        }.getOrNull() ?: latest.durationMs
-                        val changed = latest.copy(
-                            sizeBytes = file.length(),
-                            durationMs = newDuration,
-                            recognizedTitle = title, recognizedArtist = artist,
-                            recognizedAlbum = album,
-                        )
-                        history.save(changed)
-                        // Waveform cache is keyed by URI, which is deliberately
-                        // unchanged; invalidate peaks only AFTER verified write.
-                        runCatching {
-                            com.domenota.medialoader.ui.components
-                                .invalidateAudioWaveform(appContext, uri)
+                        val changed = latest.copy(sizeBytes = file.length(), durationMs = newDuration,
+                            recognizedTitle = expectedTags[0], recognizedArtist = expectedTags[1], recognizedAlbum = expectedTags[2],
+                            sourceAudioTitle = expectedTags[0], sourceAudioArtist = expectedTags[1])
+                        val meta = android.content.ContentValues().apply {
+                            put(android.provider.MediaStore.Audio.Media.TITLE, title)
+                            put(android.provider.MediaStore.Audio.Media.ARTIST, artist)
+                            put(android.provider.MediaStore.Audio.Media.ALBUM, album)
                         }
-                        // Metadata lives both in MP3 ID3 and our library row.
-                        runCatching {
-                            val meta = android.content.ContentValues().apply {
-                                put(android.provider.MediaStore.Audio.Media.TITLE, title)
-                                put(android.provider.MediaStore.Audio.Media.ARTIST, artist)
-                                put(android.provider.MediaStore.Audio.Media.ALBUM, album)
-                            }
+                        // Device-only rows have no Room metadata. Re-read their actual ID3
+                        // on subsequent scans if MediaStore does not immediately update.
+                        com.domenota.medialoader.data.library.AudioEditedTags.mark(appContext, uri.toString())
+                        val providerUpdated = runCatching {
                             resolver.update(uri, meta, null, null)
-                            resolver.notifyChange(uri, null)
-                        }.onFailure {
-                            AppLog.w("AudioReplace", "MediaStore metadata update skipped: ${it.javaClass.simpleName}")
+                            resolver.query(uri, arrayOf("title", "artist", "album"), null, null, null)?.use { c ->
+                                c.moveToFirst() && listOf(0, 1, 2).all { i ->
+                                    expectedTags[i].isBlank() || c.getString(i) == expectedTags[i]
+                                }
+                            } == true
+                        }.getOrDefault(false)
+                        if (!providerUpdated) AppLog.w("AudioReplace", "MediaStore metadata not confirmed; verified ID3 and history retained")
+                        target.historyRow?.let { old ->
+                            historyDb.withTransaction {
+                                check(historyDb.downloadDao().byId(old.id) == old) { "История трека изменилась" }
+                                check(historyDb.downloadDao().updateEditedAudioWhenCurrent(old.id,
+                                    requireNotNull(old.savedUri), file.length(), newDuration, expectedTags[0], expectedTags[1], expectedTags[2]) == 1)
+                            }
                         }
+                        committed = changed
+                        playbackSafe = true
+                        // Cache and playback refresh must not roll back a committed file/DB transaction.
+                        runCatching { com.domenota.medialoader.ui.components.invalidateAudioWaveform(appContext, uri) }
+                        runCatching { storage.invalidateAudioThumbnail(uri.toString()) }
+                        runCatching { resolver.notifyChange(uri, null) }
                         backup.delete()
                         journal.delete()
                         changed
@@ -1158,6 +1216,14 @@ class MediaRepository private constructor(context: Context) {
                                 val restoredSha = resolver.openInputStream(uri)?.let(::sha256)
                                 if (restoredSha != originalSha)
                                     throw java.io.IOException("Контрольная сумма восстановления не совпала.")
+                                runCatching {
+                                    val oldMetadata = android.content.ContentValues().apply {
+                                        put("title", sourceMetadata[0]); put("artist", sourceMetadata[1]); put("album", sourceMetadata[2])
+                                    }
+                                    resolver.update(uri, oldMetadata, null, null)
+                                    resolver.notifyChange(uri, null)
+                                }
+                                playbackSafe = true
                                 backup.delete()
                                 journal.delete()
                             } catch (restoreError: Throwable) {
@@ -1174,6 +1240,11 @@ class MediaRepository private constructor(context: Context) {
                             journal.delete()
                         }
                         throw error
+                    } finally {
+                        if (playbackSafe) runCatching { com.domenota.medialoader.data.playback.AudioPlaybackService.finishReplacement(
+                            uri.toString(), committed, playback) }.onFailure {
+                            AppLog.w("AudioReplace", "Playback refresh deferred: ${it.javaClass.simpleName}")
+                        }
                     }
                 }
             } catch (error: Throwable) {
@@ -1392,6 +1463,7 @@ class MediaRepository private constructor(context: Context) {
         AppLog.ok("History", "History-only cleanup completed · entries=$affected; trashUntouched=true")
     }
     suspend fun retry(id: String) {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val previous = history.byId(id) ?: return
         requireMediaAccess(previous)
         require(!previous.isPrivate)
