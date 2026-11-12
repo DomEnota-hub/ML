@@ -87,7 +87,11 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
             grantAction = null; grantBatches = emptyList()
             perform(action)
         } else try {
-            check(Build.VERSION.SDK_INT >= 30) { "Разрешение записи требует Android 11+" }
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                grantAction = null; grantBatches = emptyList()
+                status = "Разрешение записи требует Android 11+"
+                return@LaunchedEffect
+            }
             val request = MediaStore.createWriteRequest(context.contentResolver, grantBatches[grantIndex].map(Uri::parse))
             grant.launch(IntentSenderRequest.Builder(request.intentSender).build())
         } catch (e: Exception) { grantAction = null; grantBatches = emptyList(); status = "Запрос записи отклонён: ${e.message}" }
