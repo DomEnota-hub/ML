@@ -195,7 +195,7 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
         val physical = File(Environment.getExternalStorageDirectory(), target + name)
         val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val names = query(uri, arrayOf("_id", "_display_name"), "relative_path=?", arrayOf(target))?.use { c ->
-            buildList { while (c.moveToNext()) if (c.getString(1).equals(name, true)) add(c.getLong(0)) }
+            buildList<Long> { while (c.moveToNext()) if (c.getString(1).equals(name, true)) add(c.getLong(0)) }
         } ?: error("Проверка папки назначения недоступна")
         if (physical.exists() || names.isNotEmpty()) {
             val digest = runCatching {
@@ -214,13 +214,15 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
         val foundNames = mutableSetOf<String>()
         val files = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val indexed = query(files, arrayOf("_id", "_display_name", "mime_type"), "relative_path=?", arrayOf(OldDownloadsPolicy.SOURCE))?.use { c ->
-            buildList { while (c.moveToNext()) add(Triple(c.getLong(0), c.getString(1).orEmpty(), c.getString(2).orEmpty())) }
+            buildList<Triple<Long, String, String>> { while (c.moveToNext()) add(Triple(c.getLong(0), c.getString(1).orEmpty(), c.getString(2).orEmpty())) }
         } ?: error("Инвентаризация MediaStore недоступна")
         for ((id, name, mime) in indexed) {
             coroutineContext.ensureActive(); foundNames += name
             if (name.equals(OldDownloadsPolicy.EXCLUDED, true)) { skipped += "$name · исключён"; continue }
-            val t = type(mime)
-            if (t == null) { skipped += "$name · неподдерживаемый формат"; continue }
+            val t: MediaType = type(mime) ?: run {
+                skipped += "$name · неподдерживаемый формат"
+                return@run null
+            } ?: continue
             val uri = ContentUris.withAppendedId(collection(t), id)
             try {
                 val s = media(uri, t)
