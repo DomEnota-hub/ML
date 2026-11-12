@@ -101,7 +101,7 @@ jobs:
           cp "$bt/lib/apksigner.jar" handoff/tools/apksigner.jar
           git archive --format=zip -o handoff/source/ML_1.7.177_SOURCES_EXACT_COMMIT.zip HEAD
           git rev-parse HEAD > handoff/source/DELIVERY_COMMIT_SHA.txt
-          printf '%s\n' '03818448a89dfc9557c5154b064916846d69a346' > handoff/source/APP_VERIFIED_PR121_SHA.txt
+          printf '%s\n' 'c84b195e230cecb1f8129ec4e7f8b2309ba62dd8' > handoff/source/APP_VERIFIED_PR121_SHA.txt
           (cd handoff && sha256sum ML_1.7.177_ARM64_ALIGNED_UNSIGNED.apk tools/apksigner.jar source/ML_1.7.177_SOURCES_EXACT_COMMIT.zip > UNSIGNED_HANDOFF_SHA256.txt)
           test -s handoff/tools/apksigner.jar
       - name: Temporary handoff for OFF-GITHUB signing, never a release

@@ -64,7 +64,7 @@ jobs:
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint
-        if: always()
+        if: success()
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: ARM64 release compilation
         if: success()
