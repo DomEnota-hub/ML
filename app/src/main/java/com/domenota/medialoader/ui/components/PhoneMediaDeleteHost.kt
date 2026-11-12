@@ -23,13 +23,14 @@ private enum class DeletionConsent { NONE, PHONE_BATCH, RETRY_CURRENT }
 @Composable
 internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismiss: () -> Unit,
     onDeleteApp: suspend (String) -> Unit, onDeleteAppPermanently: suspend (String) -> Unit,
-    onDeleted: () -> Unit) {
+    onDeleted: () -> Unit, trashOnly: Boolean = false,
+    onTrashed: (List<MediaDeletionTarget>) -> Unit = {}) {
     val context = LocalContext.current
     val requestKey = remember(targets) { targets.joinToString("\u0000") { it.id } }
     val phoneBatches = remember(targets) { MediaDeletionPolicy.phoneBatches(targets) }
     val phoneUris = remember(phoneBatches) { phoneBatches.flatten() }
     val appTargets = remember(targets) { targets.filterNot { it.phone } }
-    var phase by rememberSaveable(requestKey) { mutableStateOf(DeletionPhase.CHOICE) }
+    var phase by rememberSaveable(requestKey) { mutableStateOf(if (trashOnly) DeletionPhase.TRASH else DeletionPhase.CHOICE) }
     var permanently by rememberSaveable(requestKey) { mutableStateOf(false) }
     var batchIndex by rememberSaveable(requestKey) { mutableIntStateOf(0) }
     var phoneIndex by rememberSaveable(requestKey) { mutableIntStateOf(0) }
@@ -44,7 +45,10 @@ internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismis
         else {
             // API30+ performs the entire phone batch itself. A recoverable grant on
             // API29, or a grant for an app record, must retry that same operation.
-            if (consentKind == DeletionConsent.PHONE_BATCH) batchIndex++
+            if (consentKind == DeletionConsent.PHONE_BATCH) {
+                if (phase == DeletionPhase.TRASH) onTrashed(targets.filter { it.phone && it.uri in phoneBatches.getOrNull(batchIndex).orEmpty() })
+                batchIndex++
+            }
             consentKind = DeletionConsent.NONE
             revision++
         }
@@ -107,6 +111,7 @@ internal fun LibraryMediaDeleteHost(targets: List<MediaDeletionTarget>, onDismis
                         return@LaunchedEffect
                     throw failure
                 }
+                if (!permanent) onTrashed(listOf(target))
                 appIndex++
             }
             onDeleted()

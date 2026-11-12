@@ -6,7 +6,32 @@ import com.domenota.medialoader.core.model.*
 data class DeviceAlbum(val id: String, val name: String)
 data class GalleryAlbum(val key: String, val name: String, val origin: String, val count: Int, val cover: DownloadEntity?)
 
+data class GalleryAlbumLink(val key: String, val title: String)
+data class GalleryAlbumRequest(val album: GalleryAlbumLink, val itemId: String)
+
 object GalleryLibraryState {
+    /** A real catalog assignment and/or indexed device album, never a guessed folder name. */
+    fun albumLinks(row: DownloadEntity, folders: List<CatalogFolderEntity>, assignments: List<CatalogAssignmentEntity>,
+                   deviceAlbums: Map<String, DeviceAlbum>, preferred: String? = null): List<GalleryAlbumLink> {
+        if (row.hidden || row.isPrivate || row.state != DownloadState.COMPLETED || row.mediaType !in setOf(MediaType.PHOTO, MediaType.VIDEO)) return emptyList()
+        val result = buildList {
+            val ids = assignments.filter { it.downloadId == row.id }.mapNotNull { it.folderId }.toSet()
+            folders.filter { it.id in ids }.forEach { add(GalleryAlbumLink("folder:${it.id}", it.name)) }
+            deviceAlbums[row.id]?.let { add(GalleryAlbumLink("device:${it.id}", it.name)) }
+        }.distinctBy { it.key }
+        return result.sortedBy { it.key != preferred }
+    }
+    fun gridIndex(groups: List<List<String>>, id: String, grouped: Boolean): Int? {
+        var index = 1 // controls cell
+        for (group in groups) {
+            if (grouped) index++ // date header
+            val found = group.indexOf(id)
+            if (found >= 0) return index + found
+            index += group.size
+        }
+        return null
+    }
+
     fun filter(items: List<DownloadEntity>, assignments: List<CatalogAssignmentEntity>, selection: String,
                query: String, deviceAlbums: Map<String, DeviceAlbum>): List<DownloadEntity> {
         val catalog = assignments.associateBy { it.downloadId }

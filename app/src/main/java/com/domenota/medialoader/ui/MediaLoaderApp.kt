@@ -14,6 +14,8 @@ import com.domenota.medialoader.ui.components.LibraryBottomSwitcher
 import com.domenota.medialoader.ui.screens.gallery.DeviceAlbum
 import com.domenota.medialoader.ui.screens.gallery.GalleryMediaViewer
 import com.domenota.medialoader.ui.screens.gallery.GalleryViewerState
+import com.domenota.medialoader.ui.screens.gallery.GalleryLibraryState
+import com.domenota.medialoader.ui.screens.gallery.GalleryAlbumRequest
 import com.domenota.medialoader.ui.screens.music.PlaylistTracksScreen
 import com.domenota.medialoader.ui.components.LibraryMediaDeleteHost
 import com.domenota.medialoader.ui.components.MediaDeletionTarget
@@ -196,6 +198,8 @@ fun MediaLoaderApp(
     var galleryTab by rememberSaveable { mutableIntStateOf(0) }
     var galleryTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDetailOpen by remember { mutableStateOf(false) }
+    var galleryAlbumRequest by remember { mutableStateOf<GalleryAlbumRequest?>(null) }
+    var openingAlbumKey by remember { mutableStateOf<String?>(null) }
     var musicTab by rememberSaveable { mutableIntStateOf(0) }
     var musicTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var musicDetailOpen by remember { mutableStateOf(false) }
@@ -772,6 +776,8 @@ fun MediaLoaderApp(
         dismissButton = { TextButton(onClick = { showNameDialog = false }) { Text("Отмена") } },
     )
     val openDownloadWithQueue: (String, List<String>) -> Unit = { id, queueIds ->
+        val originAlbumKey = openingAlbumKey
+        openingAlbumKey = null
         (accessibleDownloads.firstOrNull { it.id == id } ?: libraryRefsByAlias[id]?.item
             ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let { libraryRefsByAlias[it]?.item })?.let { item ->
           fileActionScope.launch {
@@ -807,6 +813,7 @@ fun MediaLoaderApp(
                 val viewerEntry = navController.currentBackStackEntry
                 val token = ViewerQueueCache.store(queueIds)
                 viewerEntry?.savedStateHandle?.set("grid_viewer_token", token)
+                viewerEntry?.savedStateHandle?.set("gallery_origin_album", originAlbumKey)
                 // Explicitly carry the vault context. The public gallery index
                 // intentionally excludes private records and must never be used
                 // to resolve a private viewer request.
@@ -835,7 +842,9 @@ fun MediaLoaderApp(
     // Large multi-select operations are transient; persisting every ID/URI
     // pair into Android SavedState can exhaust the Activity Bundle.
     var pendingDeleteRecords by remember { mutableStateOf(arrayListOf<String>()) }
+    var pendingTrashOnly by remember { mutableStateOf(false) }
     val deleteLibraryFiles: (List<String>) -> Unit = { ids ->
+        pendingTrashOnly = false
         val phoneById = phoneRows.associateBy { it.id }
         val appById = accessibleDownloads.associateBy { it.id }
         pendingDeleteRecords = ArrayList(ids.distinct().mapNotNull { id ->
@@ -845,19 +854,31 @@ fun MediaLoaderApp(
         }.flatten())
     }
     val deleteLibraryFile: (String) -> Unit = { deleteLibraryFiles(listOf(it)) }
+    val trashDuplicates: (List<String>) -> Unit = { ids ->
+        val resolved = ids.distinct().mapNotNull { id -> libraryRefsByAlias[id]?.takeUnless { it.item.isPrivate || it.item.hidden || it.item.mediaType != MediaType.AUDIO } }
+        if (resolved.size != ids.size || resolved.any { it.key == currentLibraryAudioId } || resolved.map { it.item.savedUri }.distinct().size != resolved.size || resolved.any { it.item.savedUri.isNullOrBlank() }) {
+            Toast.makeText(context, "Список дубликатов изменился. Повторная проверка необходима.", Toast.LENGTH_SHORT).show()
+        } else {
+            pendingTrashOnly = true
+            pendingDeleteRecords = ArrayList(resolved.flatMap { ref -> listOf(ref.appDownloadId ?: ref.key, requireNotNull(ref.item.savedUri)) })
+        }
+    }
     if (pendingDeleteRecords.isNotEmpty()) {
         val targets = remember(pendingDeleteRecords) { pendingDeleteRecords.chunked(2).map {
             MediaDeletionTarget(it[0], it[1].ifBlank { null })
         } }
         fun finishDeletion() {
             pendingDeleteRecords = arrayListOf()
-            if (targets.any { it.phone }) {
+            val duplicateOperation = pendingTrashOnly
+            pendingTrashOnly = false
+            if (duplicateOperation || targets.any { it.phone }) {
                 libraryModel.refresh(AppMode.GALLERY, force = true)
                 libraryModel.refresh(AppMode.MUSIC, force = true)
             }
         }
         LibraryMediaDeleteHost(targets, onDismiss = ::finishDeletion,
-            onDeleteApp = viewModel::hideLibraryFile, onDeleteAppPermanently = viewModel::deleteLibraryFilePermanently, onDeleted = ::finishDeletion)
+            onDeleteApp = viewModel::hideLibraryFile, onDeleteAppPermanently = viewModel::deleteLibraryFilePermanently, onDeleted = ::finishDeletion,
+            trashOnly = pendingTrashOnly, onTrashed = { done -> if (pendingTrashOnly) com.domenota.medialoader.data.playback.AudioPlaybackService.removeTrashedFromQueue(done.mapNotNull { it.uri }) })
     }
     val previewLibraryAudio: (String, List<String>) -> Unit = { id, ids ->
         libraryPreviewJob?.cancel()
@@ -1135,6 +1156,8 @@ fun MediaLoaderApp(
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
                     folders = catalogFolders, assignments = libraryCatalogAssignments, header = libraryHeader,
                     onOpen = openDownloadWithQueue,
+                    albumRequest = galleryAlbumRequest, onAlbumRequestHandled = { galleryAlbumRequest = null },
+                    onOpenFromAlbum = { id, queue, album -> openingAlbumKey = album; openDownloadWithQueue(id,queue) },
                     onOpenPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onFavorite = setLibraryFavorite, onSetFolder = setLibraryFolder,
                     onCreateFolder = viewModel::createCatalogFolder,
@@ -1176,6 +1199,9 @@ fun MediaLoaderApp(
                     },
                     onRemoveTrack = libraryModel.playlistRepository::removeTrack, onMoveTrack = libraryModel.playlistRepository::moveTrack,
                     onShare = shareLibraryFile, onDeleteFile = deleteLibraryFile,
+                    onTrashDuplicates = trashDuplicates,
+                    duplicateLinkedIds = libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +
+                        publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
                     searchVisible = librarySearchVisible, tabOverride = musicTab,
                      scrollToTopRequest = musicTopRequest, onTabChange = {
                          if (musicTab == 0 && it == 0) musicTopRequest++
@@ -1635,6 +1661,22 @@ fun MediaLoaderApp(
                         },
                         onCurrentItemChanged = { entry.savedStateHandle["gallery_current_id"] = it.id },
                         privateMode = item.isPrivate,
+                        albumLinks = { selected ->
+                            val ref = libraryRefsByAlias[selected.id]
+                            if (selected.isPrivate || ref == null) emptyList() else GalleryLibraryState.albumLinks(ref.item, catalogFolders, libraryCatalogAssignments,
+                                ref.deviceAlbumId?.let { albumId -> mapOf(ref.key to DeviceAlbum(albumId, ref.deviceAlbumName ?: "Без альбома")) }.orEmpty(),
+                                entry.savedStateHandle.get<String>("gallery_origin_album"))
+                        },
+                        onOpenAlbum = { album, selected ->
+                            val ref = libraryRefsByAlias[selected.id]
+                            if (!selected.isPrivate && ref != null && !ref.item.isPrivate && !ref.item.hidden) {
+                                galleryAlbumRequest = GalleryAlbumRequest(album,ref.key)
+                                changeAppMode(AppMode.GALLERY)
+                                if (album.key.startsWith("device:") && gallerySource != LibrarySource.PHONE) changeLibrarySource(LibrarySource.PHONE)
+                                galleryTab = 0; librarySearchVisible = false
+                                com.domenota.medialoader.ui.navigation.returnToLibrary(navController)
+                            }
+                        },
                     ) else MediaViewerScreen(
                         item = item,
                         onBack = { navController.popBackStack() },

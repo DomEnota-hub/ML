@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -69,6 +71,8 @@ internal fun GalleryMediaViewer(
     onMoveToPrivate: (DownloadEntity) -> Unit, onOpenExternal: (DownloadEntity) -> Unit,
     onCurrentItemChanged: (DownloadEntity) -> Unit,
     privateMode: Boolean = false,
+    albumLinks: (DownloadEntity) -> List<GalleryAlbumLink> = { emptyList() },
+    onOpenAlbum: ((GalleryAlbumLink, DownloadEntity) -> Unit)? = null,
 ) {
     val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
     DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
@@ -438,9 +442,36 @@ internal fun GalleryMediaViewer(
         } }
         AlertDialog(onDismissRequest = { info = false }, title = { Text("Сведения") }, text = {
             Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(current.originalName); Text(dimensions)
-                Text(current.sizeBytes?.let { android.text.format.Formatter.formatFileSize(context, it) } ?: "Размер файла неизвестен")
+                PhotoInfoRow(Icons.Rounded.InsertDriveFile, "Имя файла", current.originalName)
+                PhotoInfoRow(Icons.Rounded.AspectRatio, "Разрешение", dimensions)
+                PhotoInfoRow(Icons.Rounded.Storage, "Размер", current.sizeBytes?.let { android.text.format.Formatter.formatFileSize(context, it) } ?: "Неизвестно")
+                if (current.mediaType == MediaType.PHOTO && !privateMode && !current.isPrivate) {
+                    val links = albumLinks(current)
+                    if (links.isEmpty()) PhotoInfoRow(Icons.Rounded.PhotoLibrary, "Альбом", "Без альбома")
+                    else links.forEach { album ->
+                        val accent = if (com.domenota.medialoader.ui.theme.isDarkPalette) com.domenota.medialoader.ui.theme.AppGold else com.domenota.medialoader.ui.theme.LightAppAccent
+                        Row(Modifier.fillMaxWidth().clickable(enabled = onOpenAlbum != null) { info = false; onOpenAlbum?.invoke(album,current) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(Icons.Rounded.PhotoLibrary, null, tint = accent)
+                            Column(Modifier.weight(1f)) {
+                                Text("Альбом", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(album.title, color = accent, fontWeight = FontWeight.Medium, modifier = Modifier.testTag("photo-album-${album.key}"))
+                            }
+                            Icon(Icons.Rounded.ChevronRight, "Открыть альбом", tint = accent)
+                        }
+                    }
+                }
             }
         }, confirmButton = { TextButton({ info = false }) { Text("Закрыть") } })
+    }
+}
+
+@Composable
+private fun PhotoInfoRow(icon: ImageVector, label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+        Icon(icon,null,tint = MaterialTheme.colorScheme.onSurfaceVariant,modifier = Modifier.size(24.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        }
     }
 }

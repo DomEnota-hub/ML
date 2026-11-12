@@ -1,6 +1,13 @@
 package com.domenota.medialoader.ui.screens
 
 import androidx.activity.compose.BackHandler
+import android.app.Activity
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,8 +43,12 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
     var confirmedSources by remember { mutableStateOf(false) }
     var picker by remember { mutableStateOf(false) }
     var showSkipped by remember { mutableStateOf(false) }
+    var showDiagnostics by remember { mutableStateOf(false) }
+    var grantAction by remember { mutableStateOf<String?>(null) }
+    var grantBatches by remember { mutableStateOf<List<List<String>>>(emptyList()) }
+    var grantIndex by remember { mutableIntStateOf(0) }
     var confirm by remember { mutableStateOf<String?>(null) }
-    val available = !busy && activeDownloadCount == 0
+    val available = !busy && grantAction == null && activeDownloadCount == 0
     val candidates = state?.candidates.orEmpty().filter { it.problem == null }
     val selected = candidates.firstOrNull { it.uri == selectedUri }
     val pending = state?.pending == true
@@ -48,7 +59,7 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
         if (selectedUri !in state!!.candidates.map { it.uri }) selectedUri = null
     }
     fun run(action: suspend () -> Unit) {
-        if (!available) return
+        if (busy || grantAction != null || activeDownloadCount != 0) return
         busy = true
         scope.launch {
             try { action() }
@@ -57,7 +68,41 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
             finally { busy = false }
         }
     }
-    BackHandler(busy) { }
+    fun perform(action: String) = run {
+        val result = when(action) {
+            "trial" -> repository.runOldDownloadsRecovery(listOf(requireNotNull(selected)), true, confirmedSources) { status = it }
+            "bulk" -> repository.runOldDownloadsRecovery(candidates.filter(::eligible), false, confirmedSources) { status = it }
+            "resume" -> repository.resumeOldDownloadsRecovery { status = it }
+            else -> { repository.confirmOldDownloadsTrial(); "Одиночная проверка подтверждена" }
+        }
+        inspect(); status = result
+    }
+    val grant = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) grantIndex++
+        else { grantAction = null; grantBatches = emptyList(); status = "Разрешение записи не предоставлено. Перенос не запущен." }
+    }
+    LaunchedEffect(grantAction, grantIndex) {
+        val action = grantAction ?: return@LaunchedEffect
+        if (grantIndex >= grantBatches.size) {
+            grantAction = null; grantBatches = emptyList()
+            perform(action)
+        } else try {
+            check(Build.VERSION.SDK_INT >= 30) { "Разрешение записи требует Android 11+" }
+            val request = MediaStore.createWriteRequest(context.contentResolver, grantBatches[grantIndex].map(Uri::parse))
+            grant.launch(IntentSenderRequest.Builder(request.intentSender).build())
+        } catch (e: Exception) { grantAction = null; grantBatches = emptyList(); status = "Запрос записи отклонён: ${e.message}" }
+    }
+    fun requestOrPerform(action: String) {
+        val uris = when(action) {
+            "trial" -> listOfNotNull(selected?.takeIf { it.needsWriteGrant }?.uri)
+            "bulk" -> candidates.filter(::eligible).filter { it.needsWriteGrant }.map { it.uri }
+            "resume" -> state?.pendingWriteUris.orEmpty()
+            else -> emptyList()
+        }
+        if (uris.isEmpty()) perform(action)
+        else { grantBatches = uris.distinct().chunked(2000); grantIndex = 0; grantAction = action }
+    }
+    BackHandler(busy || grantAction != null) { }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         Text("Восстановление старых загрузок", style = MaterialTheme.typography.titleMedium)
         Text("Download/MediaLoader → Pictures/MediaLoader · аудио → Music/MediaLoader", style = MaterialTheme.typography.bodySmall)
@@ -67,6 +112,7 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (state != null) {
             val excluded = state!!.skipped.size + state!!.candidates.count { it.problem != null }
+            if (state!!.diagnostics.isNotEmpty()) NeutralTextButton(onClick = { showDiagnostics = true }, enabled = !busy) { Text("Подробный отчёт") }
             if (excluded > 0) NeutralTextButton(onClick = { showSkipped = true }, enabled = !busy) { Text("Ограничения · $excluded") }
             if (pending) {
                 Text("Незавершённая операция. Резерв и журнал сохранены.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -107,9 +153,13 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
                     Text(item.name)
                     Text("${dateFormat.format(Date(item.receivedMillis))} · ${item.bytes} Б", style = MaterialTheme.typography.bodySmall)
                     Text(if (item.missingHistory) "История отсутствует" else "Запись истории найдена", style = MaterialTheme.typography.bodySmall)
+                    if (item.needsWriteGrant) Text("Требуется разрешение записи Android", style = MaterialTheme.typography.bodySmall)
                 }
             }
         } } }, confirmButton = { NeutralTextButton(onClick = { picker = false }) { Text("Закрыть") } })
+    if (showDiagnostics) AlertDialog(onDismissRequest = { showDiagnostics = false }, title = { Text("Диагностика переноса") },
+        text = { LazyColumn(Modifier.heightIn(max = 420.dp)) { items(state?.diagnostics.orEmpty()) { Text(it, Modifier.padding(vertical = 6.dp), style = MaterialTheme.typography.bodySmall) } } },
+        confirmButton = { NeutralTextButton(onClick = { showDiagnostics = false }) { Text("Закрыть") } })
     if (showSkipped) AlertDialog(onDismissRequest = { showSkipped = false }, title = { Text("Ограничения переноса") },
         text = { LazyColumn(Modifier.heightIn(max = 360.dp)) { items(state?.skipped.orEmpty() + state?.candidates.orEmpty().mapNotNull { c -> c.problem?.let { "${c.name} · $it" } }) { Text(it, Modifier.padding(vertical = 6.dp), style = MaterialTheme.typography.bodySmall) } } },
         confirmButton = { NeutralTextButton(onClick = { showSkipped = false }) { Text("Закрыть") } })
@@ -124,15 +174,7 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
             dismissButton = { NeutralTextButton(onClick = { confirm = null }) { Text("Отмена") } },
             confirmButton = { NeutralTextButton(onClick = {
                 confirm = null
-                run {
-                    val result = when(action) {
-                        "trial" -> repository.runOldDownloadsRecovery(listOf(requireNotNull(selected)), true, confirmedSources) { status = it }
-                        "bulk" -> repository.runOldDownloadsRecovery(candidates.filter(::eligible), false, confirmedSources) { status = it }
-                        "resume" -> repository.resumeOldDownloadsRecovery { status = it }
-                        else -> { repository.confirmOldDownloadsTrial(); "Одиночная проверка подтверждена" }
-                    }
-                    inspect(); status = result
-                }
+                requestOrPerform(action)
             }, enabled = available) { Text("Подтвердить") } })
     }
     if (busy) AlertDialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),

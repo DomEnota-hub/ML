@@ -50,18 +50,29 @@ internal object OldDownloadsPolicy {
         }
     }
     fun validSelection(trial: Boolean, uris: List<String>) = uris.isNotEmpty() && uris.distinct().size == uris.size && (!trial || uris.size == 1)
+    fun metadataProblems(name: String, typeMatches: Boolean, bytes: Long, added: Long, modified: Long,
+        pending: Long?, trashed: Long?, checkTrash: Boolean): List<String> = buildList {
+        if (!safeName(name)) add("Недопустимое имя")
+        if (!typeMatches) add("MIME не соответствует коллекции")
+        if (bytes <= 0) add("Размер не подтверждён: $bytes")
+        if (added <= 0) add("DATE_ADDED не подтверждён: $added")
+        if (modified <= 0) add("DATE_MODIFIED не подтверждён: $modified")
+        if (pending != 0L) add("IS_PENDING=${pending ?: "null"}")
+        if (checkTrash && trashed != 0L) add("IS_TRASHED=${trashed ?: "null"}")
+    }
     fun safeName(name: String) = name.isNotBlank() && name !in setOf(".", "..") &&
         name.none { it == '/' || it == '\\' || it.isISOControl() }
 }
 
 internal data class OldDownloadCandidate(val uri: String, val name: String, val type: MediaType,
     val receivedMillis: Long, val bytes: Long, val provider: String?, val missingHistory: Boolean,
-    val problem: String?, val snapshot: String, val historySnapshot: String?)
+    val problem: String?, val snapshot: String, val historySnapshot: String?, val needsWriteGrant: Boolean = false)
 internal data class OldDownloadInventory(val candidates: List<OldDownloadCandidate>, val skipped: List<String>,
-    val pending: Boolean, val trialReady: Boolean, val trialConfirmed: Boolean, val trialName: String?, val message: String)
+    val pending: Boolean, val trialReady: Boolean, val trialConfirmed: Boolean, val trialName: String?, val message: String,
+    val diagnostics: List<String> = emptyList(), val pendingWriteUris: List<String> = emptyList())
 
 /** A different operation from historical-date replacement: no copy is published, no bytes are deleted,
- * no timestamps are assigned. Only a stable, app-owned primary-volume MediaStore row may move. */
+ * no timestamps are assigned. A stable primary-volume row may move with actual Android write access. */
 internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabase) {
     private val context = ctx.applicationContext
     private val resolver get() = context.contentResolver
@@ -77,6 +88,14 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
             if (File(f.path + ".bak").exists()) return true
             return f.exists() && runCatching { !JSONObject(f.readText()).getBoolean("done") }.getOrDefault(true)
         }
+    }
+    private fun hasWriteGrant(uri: Uri): Boolean = context.checkUriPermission(uri,
+        android.os.Process.myPid(), android.os.Process.myUid(), android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    private fun needsGrant(s: JSONObject): Boolean = s.optString("owner", "") != context.packageName &&
+        !hasWriteGrant(Uri.parse(s.getString("uri")))
+    private fun requireWriteAccess(s: JSONObject) {
+        check(!needsGrant(s)) { "Нет системного разрешения записи: ${s.getString("name")}" }
     }
     private fun supported() { check(Build.VERSION.SDK_INT >= 29) { "MediaStore: Android 10+" } }
     private fun read(name: String): JSONObject? {
@@ -136,7 +155,7 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
                 .firstOrNull { it.startsWith(prefix) } ?: error("Медиадорожка не подтверждена")
         } finally { extractor.release() }
     }
-    private fun media(uri: Uri, expectedType: MediaType): JSONObject {
+    private fun media(uri: Uri, expectedType: MediaType, report: ((String) -> Unit)? = null): JSONObject {
         val cols = mutableListOf("_id", "_data", "relative_path", "_display_name", "mime_type", "owner_package_name",
             "_size", "date_added", "date_modified", "is_pending")
         if (expectedType != MediaType.AUDIO) cols += "datetaken"
@@ -145,6 +164,7 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
             check(c.moveToFirst()) { "Запись MediaStore отсутствует" }
             fun str(name: String): String? = c.getColumnIndex(name).takeIf { it >= 0 && !c.isNull(it) }?.let(c::getString)
             fun num(name: String): Long? = c.getColumnIndex(name).takeIf { it >= 0 && !c.isNull(it) }?.let(c::getLong)
+            report?.invoke("URI=$uri · id=${num("_id")} · путь=${str("relative_path")} · имя=${str("_display_name")} · MIME=${str("mime_type")} · owner=${str("owner_package_name")} · size=${num("_size")} · date_added=${num("date_added")} · date_modified=${num("date_modified")} · datetaken=${num("datetaken")} · pending=${num("is_pending")} · trashed=${num("is_trashed")} · raw=${str("_data")}")
             check(num("_id") == uri.lastPathSegment?.toLongOrNull()) { "Изменился MediaStore ID" }
             val path = str("relative_path") ?: error("Папка MediaStore недоступна")
             check(path == OldDownloadsPolicy.SOURCE || path == OldDownloadsPolicy.target(expectedType)) { "Путь вне области переноса" }
@@ -154,22 +174,27 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
             val bytes = num("_size") ?: 0L
             val added = num("date_added") ?: 0L
             val modified = num("date_modified") ?: 0L
-            check(owner == context.packageName && OldDownloadsPolicy.safeName(name) && type(mime) == expectedType &&
-                bytes > 0 && added > 0 && modified > 0 && num("is_pending") == 0L && (num("is_trashed") ?: 0L) == 0L) {
-                "Владелец, формат, состояние или даты не подтверждены"
-            }
+            val pending = num("is_pending")
+            val trashed = num("is_trashed")
+            val problems = OldDownloadsPolicy.metadataProblems(name, type(mime) == expectedType, bytes, added, modified, pending, trashed, Build.VERSION.SDK_INT >= 30)
+            check(problems.isEmpty()) { problems.joinToString("; ") }
+            check(owner == context.packageName || Build.VERSION.SDK_INT >= 30) { "Владелец MediaStore: ${owner ?: "не указан"}; системное разрешение записи требует Android 11+" }
             check(MediaStoragePolicy.legacyMime(expectedType, name, mime) != null) { "Неподдерживаемый формат" }
             val physical = str("_data") ?: error("Физический путь недоступен")
             val expected = File(Environment.getExternalStorageDirectory(), path + name).canonicalFile
             check(File(physical).canonicalFile == expected && expected.isFile) { "Физический путь не совпал" }
             val mtime = expected.lastModified()
-            check(mtime > 0 && expected.length() == bytes) { "Фактические размер или дата недоступны" }
+            report?.invoke("Физический путь=${expected.path} · mtime=$mtime · фактический размер=${expected.length()}")
+            check(mtime > 0) { "Физическая дата изменения недоступна: $mtime" }
+            check(expected.length() == bytes) { "Размер MediaStore и файла не совпал: $bytes / ${expected.length()}" }
             JSONObject().put("uri", uri.toString()).put("type", expectedType.name).put("path", path)
-                .put("name", name).put("mime", mime).put("owner", owner).put("bytes", bytes)
+                .put("name", name).put("mime", mime).put("owner", owner ?: JSONObject.NULL).put("bytes", bytes)
                 .put("added", added).put("modified", modified).put("taken", num("datetaken") ?: JSONObject.NULL)
                 .put("mtime", mtime).put("physical", expected.path)
         } ?: error("Запись MediaStore недоступна")
-        return value.put("actualMime", actualMime(uri, expectedType)).put("sha", hash(uri))
+        return value.put("actualMime", actualMime(uri, expectedType)).put("sha", hash(uri)).also {
+            report?.invoke("Формат=${it.getString("actualMime")} · физический mtime=${it.getLong("mtime")} · SHA-256=${it.getString("sha")} · разрешение записи=${!needsGrant(it)}")
+        }
     }
     private fun keys(snapshot: JSONObject): Set<String> = PublicMediaIdentity.uriKeys(snapshot.getString("uri")) +
         PublicMediaIdentity.pathKeys(snapshot.getString("physical"))
@@ -208,7 +233,7 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
         }
         return null
     }
-    private suspend fun inventory(): Pair<List<OldDownloadCandidate>, List<String>> {
+    private suspend fun inventory(diagnostics: MutableList<String> = mutableListOf()): Pair<List<OldDownloadCandidate>, List<String>> {
         supported()
         val rows = dao.all(); val candidates = mutableListOf<OldDownloadCandidate>(); val skipped = mutableListOf<String>()
         val foundNames = mutableSetOf<String>()
@@ -225,7 +250,7 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
             } ?: continue
             val uri = ContentUris.withAppendedId(collection(t), id)
             try {
-                val s = media(uri, t)
+                val s = media(uri, t) { diagnostics += "$name · $it" }
                 check(s.getString("path") == OldDownloadsPolicy.SOURCE && s.getString("name") == name) { "Запись вне исходной папки" }
                 val matches = matching(s, rows)
                 val row = matches.singleOrNull()
@@ -239,9 +264,10 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
                     else -> targetConflict(s)
                 }
                 candidates += OldDownloadCandidate(uri.toString(), name, t, s.getLong("added") * 1000L,
-                    s.getLong("bytes"), row?.providerId, row == null, problem, s.toString(), row?.let { rowJson(it).toString() })
+                    s.getLong("bytes"), row?.providerId, row == null, problem, s.toString(), row?.let { rowJson(it).toString() }, needsGrant(s))
+                diagnostics += "$name · история=${row?.id ?: "отсутствует"} · ${problem ?: "метаданные подтверждены"}"
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { skipped += "$name · ${e.message ?: e.javaClass.simpleName}" }
+            catch (e: Exception) { val reason = "$name · ${e.message ?: e.javaClass.simpleName}"; skipped += reason; diagnostics += reason }
         }
         val raw = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "MediaLoader")
         val local = raw.listFiles()
@@ -264,10 +290,21 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
     suspend fun inspect(): OldDownloadInventory = withContext(Dispatchers.IO) {
         val batch = read(journal); val pending = batch != null && !batch.getBoolean("done")
         val r = read(receipt); val ready = r != null && verifyTrial(r)
-        val (items, skipped) = if (pending) emptyList<OldDownloadCandidate>() to emptyList<String>() else inventory()
+        val diagnostics = mutableListOf<String>()
+        val (items, skipped) = if (pending) emptyList<OldDownloadCandidate>() to emptyList<String>() else inventory(diagnostics)
+        val grants = if (pending) {
+            val entries = batch!!.getJSONArray("items")
+            (batch.getInt("cursor") until entries.length()).mapNotNull { index ->
+                val op = entries.getJSONObject(index)
+                val s = op.getJSONObject("snapshot")
+                s.getString("uri").takeIf { op.getString("stage") in setOf("PREPARED", "MOVE_INTENT") && needsGrant(s) }
+            }
+        } else emptyList()
+        diagnostics.forEach { com.domenota.medialoader.core.logging.AppLog.i("OldDownloads", it) }
         OldDownloadInventory(items, skipped, pending, ready, ready && r!!.optBoolean("confirmed"),
             r?.optJSONObject("snapshot")?.optString("name"),
-            if (pending) batch!!.optString("message") else "Готово к проверке: ${items.count { it.problem == null }} · ограничений: ${skipped.size + items.count { it.problem != null }}")
+            if (pending) batch!!.optString("message") else "Готово к проверке: ${items.count { it.problem == null }} · ограничений: ${skipped.size + items.count { it.problem != null }}",
+            diagnostics, grants)
     }
     suspend fun confirmTrial(): Unit = withContext(Dispatchers.IO) {
         check(!pending(context)) { "Незавершённый перенос" }
@@ -283,8 +320,12 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
         val (fresh, _) = inventory()
         val selectedFresh = selected.map { old ->
             val now = fresh.singleOrNull { it.uri == old.uri } ?: error("Файл отсутствует: ${old.name}")
-            check(now == old && now.problem == null) { "Снимок файла изменился: ${old.name}" }
+            val oldSnapshot = JSONObject(old.snapshot)
+            val freshSnapshot = JSONObject(now.snapshot)
+            val comparable = if (oldSnapshot.isNull("owner")) freshSnapshot.put("owner", JSONObject.NULL).toString() else now.snapshot
+            check(now.copy(needsWriteGrant = old.needsWriteGrant, snapshot = comparable) == old && now.problem == null) { "Снимок файла изменился: ${old.name}" }
             check(!now.missingHistory || confirmedMissing) { "Источник и восстановление истории не подтверждены" }
+            requireWriteAccess(JSONObject(now.snapshot))
             now
         }
         val entries = JSONArray()
@@ -362,6 +403,7 @@ internal class OldDownloadsRecovery(ctx: Context, private val db: HistoryDatabas
         val before = media(uri, type)
         if (sameSnapshot(s, before, target)) return // prior move committed before checkpoint
         check(sameSnapshot(s, before, OldDownloadsPolicy.SOURCE)) { "Исходные даты или содержимое изменились" }
+        requireWriteAccess(before)
         check(targetConflict(s) == null) { "Папка назначения: конфликт имени" }
         try {
             check(resolver.update(uri, ContentValues().apply { put("relative_path", target) }, null, null) == 1) { "MediaStore отклонил перенос" }
