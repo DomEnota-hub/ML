@@ -55,6 +55,24 @@ class LargePersonBackgroundRecoveryTest {
         assertNull(LargePersonBackgroundRecovery.recover(smooth, small, w, h, textured))
     }
 
+    @Test fun periodicTextureAliasingTheSamplingGridIsStillRejected() {
+        val width = 400
+        val height = 400
+        val coverage = IntArray(width * height) { i ->
+            if (i % width in 75..324 && i / width in 65..334) 255 else 0
+        }
+        // step=4: every sampled anchor has the same colour, but the
+        // actual unmasked context is a high-contrast checkerboard.
+        val source = IntArray(width * height) { i ->
+            if (coverage[i] > 0) color(30, 36, 44)
+            else if ((i % width + i / width) % 2 == 0)
+                color(200, 204, 210) else color(25, 30, 35)
+        }
+        val failed = source.copyOf()
+        for (i in failed.indices) if (coverage[i] > 0) failed[i] = color(35, 35, 35)
+        assertNull(LargePersonBackgroundRecovery.recover(source, coverage, width, height, failed))
+    }
+
     @Test fun contextFromOnlyOneSideCannotJustifyRecovery() {
         val coverage = IntArray(w * h) { i -> if (i / w < 75) 255 else 0 }
         val source = IntArray(w * h) { i -> if (coverage[i] > 0) color(25, 25, 25)
