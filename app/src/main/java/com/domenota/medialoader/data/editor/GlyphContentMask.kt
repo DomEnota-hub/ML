@@ -53,14 +53,15 @@ internal object GlyphContentMask {
 
         val pixels = IntArray(regionWidth * regionHeight)
         source.getPixels(pixels, 0, regionWidth, x0, y0, regionWidth, regionHeight)
-        val boundary = ArrayList<Int>()
-        val xStep = max(1, regionWidth / 12)
-        val yStep = max(1, regionHeight / 12)
-        for (x in 0 until regionWidth step xStep) {
+        // Sample the entire perimeter, not a regularly decimated grid.
+        // Even strides can sample only one colour of a periodic texture
+        // (e.g. a checkerboard), making a noisy background appear uniform.
+        val boundary = ArrayList<Int>(2 * (regionWidth + regionHeight) - 4)
+        for (x in 0 until regionWidth) {
             boundary.add(pixels[x])
             boundary.add(pixels[(regionHeight - 1) * regionWidth + x])
         }
-        for (y in 0 until regionHeight step yStep) {
+        for (y in 1 until regionHeight - 1) {
             boundary.add(pixels[y * regionWidth])
             boundary.add(pixels[y * regionWidth + regionWidth - 1])
         }
