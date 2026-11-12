@@ -72,6 +72,30 @@ internal object LargePersonBackgroundRecovery {
             (if (sample.x >= width / 2) 1 else 0)]++
         if (quadrants.any { it < maxOf(8, trusted.size / 50) }) return null
 
+        // A decimated grid can alias a periodic texture. Before changing any
+        // pixels, verify the fit on ALL available opaque background pixels.
+        // Histograms bound memory even for full-resolution photographs.
+        val fullErrors = LongArray(256)
+        var fullCount = 0L
+        var fullTrusted = 0L
+        for (y in 0 until height) {
+            if (y % 16 == 0) checkCancellation()
+            for (x in 0 until width) {
+                val i = y * width + x
+                val color = source[i]
+                if (coverage[i] != 0 || (color ushr 24) < 250) continue
+                val residual = (0..2).sumOf { channel ->
+                    abs(component(color, channel) - plane.value(xs[x], ys[y], channel))
+                } / 3.0
+                fullErrors[residual.roundToInt().coerceIn(0, 255)]++
+                fullCount++
+                if (residual <= 22.0) fullTrusted++
+            }
+        }
+        if (fullCount < 120 || fullTrusted < fullCount * .78 ||
+            fullErrors.take(11).sum() < fullCount * .50 ||
+            fullErrors.take(19).sum() < fullTrusted * .90) return null
+
         val modelErrors = ArrayList<Double>()
         for (y in 0 until height step step) for (x in 0 until width step step) {
             val i = y * width + x
