@@ -246,6 +246,20 @@ internal object LocalTextOcr {
         val full = scan(image, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
             0, 0, image.width, image.height)
         currentCoroutineContext().ensureActive()
+        // A fresh engine's first sparse layout can miss outlined titles. Complete
+        // independent bounded layout passes during the SAME user request.
+        val fullAlternates = mutableListOf<List<DetectedGlyph>>()
+        fullAlternates += scan(image, TessBaseAPI.PageSegMode.PSM_AUTO, 0, 0, image.width, image.height)
+        currentCoroutineContext().ensureActive()
+        if (OcrLineCandidatePolicy.select(full).isEmpty() ||
+            fullAlternates.none { OcrLineCandidatePolicy.select(it).isNotEmpty() }) {
+            val contrast = enhanceTextForOcr(image)
+            try {
+                fullAlternates += scan(contrast, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+                    0, 0, image.width, image.height)
+            } finally { if (contrast !== image) contrast.recycle() }
+        }
+        currentCoroutineContext().ensureActive()
 
         // A cropped, upscaled caption is cheaper and more legible than
         // multiplying the resolution of a whole megapixel photograph.
@@ -254,7 +268,6 @@ internal object LocalTextOcr {
         val capH = image.height - top
         val crop = Bitmap.createBitmap(image, 0, top, capW, capH)
         val scale = minOf(3.0f, 1920f / capW, 960f / capH)
-            .coerceAtLeast(1f)
         val enlarged = Bitmap.createScaledBitmap(crop,
             (capW * scale).toInt().coerceAtLeast(1),
             (capH * scale).toInt().coerceAtLeast(1), true)
@@ -305,7 +318,7 @@ internal object LocalTextOcr {
                 if (strip !== image) strip.recycle()
             }
             currentCoroutineContext().ensureActive()
-            val candidates = OcrLineCandidatePolicy.best(full, captionCandidates)
+            val candidates = OcrLineCandidatePolicy.best(full, captionCandidates, fullAlternates)
             AppLog.i("PhotoOCR", "glyphs_full=${full.size} " +
                 "glyphs_caption=${croppedSparse.size} " +
                 "glyphs_line=${croppedLine.size} " +

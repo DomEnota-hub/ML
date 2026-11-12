@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.ui.theme.AccentPurple
 import com.domenota.medialoader.ui.theme.AccentPurpleSoft
+import com.domenota.medialoader.ui.theme.isDarkPalette
 
 @Composable
 fun GradientActionButton(
@@ -39,8 +40,9 @@ fun GradientActionButton(
     trailingIcon: ImageVector? = null,
 ) {
     val shape = RoundedCornerShape(16.dp)
+    val buttonInk = if (isDarkPalette) MaterialTheme.colorScheme.onPrimary else Color.White
     val gradient = if (enabled) {
-        Brush.horizontalGradient(listOf(AccentPurple, AccentPurpleSoft))
+        Brush.horizontalGradient(if (isDarkPalette) listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary) else listOf(AccentPurple, AccentPurpleSoft))
     } else {
         Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant))
     }
@@ -58,14 +60,14 @@ fun GradientActionButton(
             Icon(
                 imageVector = it,
                 contentDescription = null,
-                tint = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (enabled) buttonInk else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.size(10.dp))
         }
         Text(
             text = text,
-            color = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (enabled) buttonInk else MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
         )
@@ -74,7 +76,7 @@ fun GradientActionButton(
             Icon(
                 imageVector = it,
                 contentDescription = null,
-                tint = if (enabled) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (enabled) buttonInk.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )
         }

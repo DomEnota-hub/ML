@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.Color
 
 /**
  * Settings accents belong to actions, not to the global purple theme.
- * All seven top-level groups have distinct foreground/container pairs in both
+ * All seven top-level groups have distinct container pairs (former violet accents share the approved gold) in both
  * day and night mode. Brand icons keep their own identity.
  */
 data class SettingsIconSwatch(val foreground: Color, val container: Color)
@@ -20,7 +20,7 @@ enum class SettingIconTone {
 
     fun swatch(dark: Boolean): SettingsIconSwatch = when (this) {
         ACCOUNTS, PURPLE ->
-            if (dark) SettingsIconSwatch(Color(0xFFB58AFF), Color(0xFF342545))
+            if (dark) SettingsIconSwatch(AppGold, Color(0xFF403111))
             else SettingsIconSwatch(Color(0xFF6F36BB), Color(0xFFEEE2FF))
         DOWNLOAD, BLUE ->
             if (dark) SettingsIconSwatch(Color(0xFF59B6FF), Color(0xFF173650))
@@ -56,7 +56,7 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFF43DDD3), Color(0xFF174440))
             else SettingsIconSwatch(Color(0xFF087B77), Color(0xFFDCF7F2))
         PLAYER ->
-            if (dark) SettingsIconSwatch(Color(0xFFB19BFF), Color(0xFF342A52))
+            if (dark) SettingsIconSwatch(AppGold, Color(0xFF3C321B))
             else SettingsIconSwatch(Color(0xFF6C48B6), Color(0xFFEEE8FF))
         AI_MODELS ->
             if (dark) SettingsIconSwatch(Color(0xFFFFD16B), Color(0xFF46371E))
@@ -95,7 +95,7 @@ enum class SettingIconTone {
             if (dark) SettingsIconSwatch(Color(0xFFFFC46C), Color(0xFF48331A))
             else SettingsIconSwatch(Color(0xFF946018), Color(0xFFFFF1D4))
         THEME ->
-            if (dark) SettingsIconSwatch(Color(0xFFCD9BFF), Color(0xFF3D2851))
+            if (dark) SettingsIconSwatch(AppGold, Color(0xFF493A16))
             else SettingsIconSwatch(Color(0xFF8746C4), Color(0xFFF1E5FF))
         BACKUP_AUTH ->
             if (dark) SettingsIconSwatch(Color(0xFFFFD58C), Color(0xFF493321))

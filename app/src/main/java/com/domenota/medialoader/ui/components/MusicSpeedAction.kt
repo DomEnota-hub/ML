@@ -1,4 +1,5 @@
 package com.domenota.medialoader.ui.components
+import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -49,7 +50,7 @@ internal fun MusicSpeedAction(
                     },
                     trailingIcon = if (selected) ({
                         Icon(Icons.Rounded.Check, contentDescription = null,
-                            tint = editorSliderYellow)
+                            tint = musicPlaybackAccent)
                     }) else null,
                 )
             }

@@ -65,6 +65,8 @@ class EqualizerScreenTest {
             }
         }
         compose.onNodeWithText("Проверочный трек").assertExists()
+        compose.onNodeWithText("Используются общие настройки. Изменения создадут профиль трека.").assertDoesNotExist()
+        compose.onNodeWithText("Настройки сохраняются для этого трека и автоматически применяются при его воспроизведении.").assertDoesNotExist()
         compose.onNodeWithText("Для трека").assertIsSelected()
         compose.onNodeWithText("Использовать общие настройки").performClick()
         assertTrue(cleared)

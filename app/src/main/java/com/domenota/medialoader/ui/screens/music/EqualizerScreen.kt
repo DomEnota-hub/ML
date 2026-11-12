@@ -41,8 +41,7 @@ internal fun EqualizerScreen(
                     FilterChip(selected = editGlobal, onClick = { onEditGlobal(true) }, label = { Text("Общие") })
                 }
                 if (!editGlobal) {
-                    Text(if (hasTrackProfile) "Индивидуальные настройки" else "Используются общие настройки. Изменения создадут профиль трека.",
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (hasTrackProfile) Text("Индивидуальные настройки", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (hasTrackProfile && onUseGlobal != null) {
                         TextButton(onUseGlobal) { Text("Использовать общие настройки") }
                     }
@@ -65,16 +64,14 @@ internal fun EqualizerScreen(
                 Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("${if (gain > 0) "+" else ""}$gain дБ", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                        Text("${if (gain > 0) "+" else ""}$gain дБ", fontSize = 13.sp, color = if (settings.enabled && supported) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     AppSlider(settings.gainsDb[index], { onSettings(settings.withBand(index, it.roundToInt().toFloat())) },
-                        Modifier.fillMaxWidth().semantics { contentDescription = label }, enabled = settings.enabled && supported, valueRange = -12f..12f)
+                        Modifier.fillMaxWidth().semantics { contentDescription = label }, enabled = settings.enabled && supported, valueRange = -12f..12f, neutralWhenDisabled = true)
                     if (!supported) Text("Недоступна при частоте текущего трека $sampleRate Гц", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Text(if (editGlobal) "Общие настройки применяются к трекам без индивидуального профиля."
-                else "Настройки сохраняются для этого трека и автоматически применяются при его воспроизведении.",
-                Modifier.padding(vertical = 15.dp), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
             TextButton({ onSettings(settings.withPreset("Ровный")) }, Modifier.align(Alignment.CenterHorizontally)) { Text("Сбросить настройки") }
         }
     }

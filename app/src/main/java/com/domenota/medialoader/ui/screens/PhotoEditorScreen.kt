@@ -99,6 +99,19 @@ fun PhotoEditorScreen(
     onExport: (PhotoEditSpec) -> Unit,
     onCancelExport: () -> Unit,
 ) {
+    MaterialTheme(colorScheme = com.domenota.medialoader.ui.theme.editorColorScheme()) {
+        PhotoEditorContent(item, exportState, onBack, onExport, onCancelExport)
+    }
+}
+
+@Composable
+private fun PhotoEditorContent(
+    item: DownloadEntity,
+    exportState: EditorExportState,
+    onBack: () -> Unit,
+    onExport: (PhotoEditSpec) -> Unit,
+    onCancelExport: () -> Unit,
+) {
     val context = LocalContext.current
     val uri = item.savedUri?.let(Uri::parse)
     val ownExport = exportState.exporting && exportState.sourceId == item.id

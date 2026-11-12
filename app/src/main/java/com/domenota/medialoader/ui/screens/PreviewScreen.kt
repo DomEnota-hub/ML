@@ -64,6 +64,7 @@ import com.domenota.medialoader.ui.model.AnalysisUiState
 import com.domenota.medialoader.ui.model.MediaKind
 import com.domenota.medialoader.ui.model.PreviewMediaUi
 import com.domenota.medialoader.ui.theme.AccentPurple
+import com.domenota.medialoader.ui.theme.isDarkPalette
 import com.domenota.medialoader.core.recognition.MusicLookupPolicy
 import com.domenota.medialoader.core.provider.YouTubeLinkParser
 import com.domenota.medialoader.core.provider.VkLinkParser
@@ -343,7 +344,7 @@ private fun FullSongTextLink(onClick: () -> Unit, enabled: Boolean, text: String
         modifier = Modifier.fillMaxWidth()
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        color = if (enabled) AccentPurple else MaterialTheme.colorScheme.onSurfaceVariant,
+        color = if (enabled) (if (isDarkPalette) MaterialTheme.colorScheme.primary else AccentPurple) else MaterialTheme.colorScheme.onSurfaceVariant,
         style = MaterialTheme.typography.bodyMedium,
     )
 }
@@ -432,7 +433,7 @@ private fun HeroPreview(state: AnalysisUiState, previewUrl: String?, isVideo: Bo
         }
         when (state) {
             AnalysisUiState.ANALYZING, AnalysisUiState.IDLE -> CircularProgressIndicator(
-                color = AccentPurple,
+                color = if (isDarkPalette) MaterialTheme.colorScheme.primary else AccentPurple,
                 strokeWidth = 3.dp,
             )
             AnalysisUiState.ACCESS_REQUIRED -> Icon(

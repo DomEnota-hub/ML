@@ -123,8 +123,8 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
         Box(Modifier.offset { IntOffset(((start - scrollDp()) * density).roundToInt(), 0) }
             .wrapContentWidth(Alignment.Start, unbounded = true)
             .width(width.dp).testTag("audio-lane-${track.id}").fillMaxHeight().clip(RoundedCornerShape(7.dp))
-            .background(Color(0xFFAD37BE)).border(if (selected) 3.dp else 1.dp,
-                Color(0xFFDF7CF4), RoundedCornerShape(7.dp))) {
+            .background(Color(0xFF78531B)).border(if (selected) 3.dp else 1.dp,
+                Color(0xFFFFBD19), RoundedCornerShape(7.dp))) {
             Canvas(Modifier.fillMaxSize()) {
                 val count = peaks.size
                 peaks.forEachIndexed { index, amplitude ->
@@ -133,7 +133,7 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
                         val time = track.atMs + ((sourceMs - track.inMs) / track.speed).toLong()
                         val x = (scale.xAt(time) - start) * density
                         val half = amplitude.coerceIn(0f, 1f) * track.gainAt(time) * size.height * .45f
-                        drawLine(Color(0xFFDE85ED), Offset(x, size.height / 2 - half),
+                        drawLine(Color(0xFFFFD878), Offset(x, size.height / 2 - half),
                             Offset(x, size.height / 2 + half), 1.dp.toPx())
                     }
                 }
@@ -145,9 +145,9 @@ private fun VideoAudioLane(track: VideoAudioTrackDraft, selected: Boolean,
                 .drag(VideoAudioLaneHandle.MOVE))
             if (handles) {
                 Box(Modifier.align(Alignment.CenterStart).testTag("audio-start-${track.id}").width(17.dp).fillMaxHeight().drag(VideoAudioLaneHandle.START),
-                    contentAlignment = Alignment.Center) { Box(Modifier.width(2.dp).height(15.dp).background(Color(0xFF54205E))) }
+                    contentAlignment = Alignment.Center) { Box(Modifier.width(2.dp).height(15.dp).background(Color(0xFF322407))) }
                 Box(Modifier.align(Alignment.CenterEnd).testTag("audio-end-${track.id}").width(17.dp).fillMaxHeight().drag(VideoAudioLaneHandle.END),
-                    contentAlignment = Alignment.Center) { Box(Modifier.width(2.dp).height(15.dp).background(Color(0xFF54205E))) }
+                    contentAlignment = Alignment.Center) { Box(Modifier.width(2.dp).height(15.dp).background(Color(0xFF322407))) }
             }
         }
         Canvas(Modifier.align(Alignment.CenterStart).offset(x = cursorDp.dp - .75.dp)

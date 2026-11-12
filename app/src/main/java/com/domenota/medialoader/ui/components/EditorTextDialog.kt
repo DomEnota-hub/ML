@@ -179,7 +179,7 @@ internal fun EditorTextDialog(
 
     EditorWindow(onDismissRequest = ::close) {
         // Editor text controls are neutral white; slider/thumb accents stay yellow.
-        MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(
+        MaterialTheme(colorScheme = com.domenota.medialoader.ui.theme.editorColorScheme().copy(
             primary = Color.White, onPrimary = Color.Black,
             onSurface = Color.White, onSurfaceVariant = Color.LightGray)) {
         Surface(Modifier.fillMaxSize(), color = Color(0xFF08090D)) {

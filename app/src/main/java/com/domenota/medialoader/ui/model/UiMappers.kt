@@ -84,6 +84,7 @@ fun DownloadEntity.toUi(fileStatus: SavedFileStatus = SavedFileStatus.UNCHECKED)
                 .takeIf { it.isNotBlank() }?.let { "$it · $origin" } ?: origin
         },
         recognized = recognitionSource != null,
+        recognitionSource = recognitionSource,
         recognizedArtist = recognizedArtist,
         recognizedTitle = recognizedTitle,
         recognizedArtworkUrl = recognitionArtworkUrl,

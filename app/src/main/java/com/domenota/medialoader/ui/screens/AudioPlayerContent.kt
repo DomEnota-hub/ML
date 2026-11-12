@@ -1,4 +1,5 @@
 package com.domenota.medialoader.ui.screens
+import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 
 import android.content.ComponentName
 import android.graphics.Bitmap
@@ -69,7 +70,6 @@ import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.data.playback.AudioPlaybackService
 import com.domenota.medialoader.ui.components.AudioPlaybackModes
 import com.domenota.medialoader.ui.components.MusicSpeedAction
-import com.domenota.medialoader.ui.components.editorSliderYellow
 import com.domenota.medialoader.ui.components.AudioWaveform
 import com.domenota.medialoader.ui.components.loadAudioWaveform
 import com.domenota.medialoader.ui.components.peekAudioWaveform
@@ -379,7 +379,7 @@ fun BackgroundAudioPlayer(
         if (waveform != null) {
             AudioWaveform(
                 peaks = waveform!!,
-                accentColor = editorSliderYellow,
+                accentColor = musicPlaybackAccent,
                 progress = (positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f),
                 onSeekFraction = { fraction ->
                     if (durationMs > 0) controller?.seekTo((durationMs * fraction).toLong())
@@ -388,6 +388,7 @@ fun BackgroundAudioPlayer(
         } else {
             androidx.compose.material3.LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth().height(4.dp),
+                color = musicPlaybackAccent,
             )
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

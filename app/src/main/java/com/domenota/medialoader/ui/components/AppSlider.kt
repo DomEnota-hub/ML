@@ -23,9 +23,11 @@ import androidx.compose.ui.unit.dp
 fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     onValueChangeFinished: (() -> Unit)? = null, steps: Int = 0,
-    accentColor: Color? = null, retainColorWhenDisabled: Boolean = false) {
-    val color = (accentColor ?: MaterialTheme.colorScheme.primary)
-        .copy(alpha = if (enabled || retainColorWhenDisabled) 1f else 0.4f)
+    accentColor: Color? = null, retainColorWhenDisabled: Boolean = false,
+    neutralWhenDisabled: Boolean = false) {
+    val color = if (!enabled && neutralWhenDisabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .45f)
+        else (accentColor ?: MaterialTheme.colorScheme.primary)
+            .copy(alpha = if (enabled || retainColorWhenDisabled) 1f else 0.4f)
     // Both the active strip, circular thumb AND zero marker must visually
     // become inactive when a band is locked. Values remain unchanged.
     val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 0.3f else 0.14f)
@@ -39,10 +41,10 @@ fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier =
                 val fraction = ((state.value - valueRange.start) / full).coerceIn(0f, 1f)
                 drawLine(track, Offset(0f, size.height / 2), Offset(size.width, size.height / 2),
                     strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
-                drawLine(color, Offset(0f, size.height / 2),
+                if (enabled || !neutralWhenDisabled) drawLine(color, Offset(0f, size.height / 2),
                     Offset(size.width * fraction, size.height / 2),
                     strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
-                if (valueRange.start < 0f && valueRange.endInclusive > 0f) {
+                if ((enabled || !neutralWhenDisabled) && valueRange.start < 0f && valueRange.endInclusive > 0f) {
                     val zeroFraction = -valueRange.start / full
                     val zeroX = zeroFraction * size.width
                     drawLine(zeroColor,

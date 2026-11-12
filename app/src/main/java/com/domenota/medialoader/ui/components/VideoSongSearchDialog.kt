@@ -46,8 +46,10 @@ import com.domenota.medialoader.data.search.FullSongSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
-private val recognitionPurple = Color(0xFF8456EC)
-private val recognitionPurpleLight = Color(0xFF9573FF)
+private val recognitionAccent: Color
+    @Composable get() = if (com.domenota.medialoader.ui.theme.isDarkPalette) MaterialTheme.colorScheme.primary else Color(0xFF8456EC)
+private val recognitionAccentSoft: Color
+    @Composable get() = if (com.domenota.medialoader.ui.theme.isDarkPalette) MaterialTheme.colorScheme.primary else Color(0xFF9573FF)
 
 /** Compact progress UI; the stage is reported by the decoder / recognizer, not guessed by a timer. */
 @Composable
@@ -107,7 +109,7 @@ fun VideoSongSearchDialog(savedUri: String, onDismiss: () -> Unit) {
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(Icons.Rounded.GraphicEq, contentDescription = null,
-                                tint = recognitionPurpleLight, modifier = Modifier.size(28.dp))
+                                tint = recognitionAccentSoft, modifier = Modifier.size(28.dp))
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text("Распознаём музыку", style = MaterialTheme.typography.titleLarge,
@@ -123,7 +125,7 @@ fun VideoSongSearchDialog(savedUri: String, onDismiss: () -> Unit) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp,
-                            color = recognitionPurple)
+                            color = recognitionAccent)
                         Text(if (stage == SavedVideoRecognitionStage.EXTRACTING_AUDIO)
                                 "Извлекаем аудио…" else "Ищем совпадение…",
                             style = MaterialTheme.typography.bodySmall,
@@ -168,7 +170,7 @@ private fun RecognitionWaveform() {
                     label = "wave-$index",
                 )
                 Box(Modifier.width(5.dp).height((height * scale).dp)
-                    .background(if (index % 3 == 0) recognitionPurpleLight else recognitionPurple,
+                    .background(if (index % 3 == 0) recognitionAccentSoft else recognitionAccent,
                         RoundedCornerShape(10.dp)))
             }
         }

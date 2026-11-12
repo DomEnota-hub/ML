@@ -1,4 +1,5 @@
 package com.domenota.medialoader.ui.components
+import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,12 +37,12 @@ internal fun AudioPlaybackModes(player: Player, repeatMode: Int, shuffleEnabled:
                 Icon(if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                     contentDescription = repeatDescription(repeatMode),
                     tint = if (repeatMode == Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.onSurfaceVariant
-                        else editorSliderYellow)
+                        else musicPlaybackAccent)
             }
             IconToggleButton(checked = shuffleEnabled,
                 onCheckedChange = { player.shuffleModeEnabled = it }) {
                 Icon(Icons.Rounded.Shuffle, contentDescription = "Перемешать",
-                    tint = if (shuffleEnabled) editorSliderYellow
+                    tint = if (shuffleEnabled) musicPlaybackAccent
                         else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
