@@ -8,6 +8,7 @@ import kotlinx.coroutines.*
 import java.util.Base64
 
 /** Observes the actual service player, not UI taps, and never opens media files. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class ListeningRecorder(context: Context, private val player: Player,
     private val scope: CoroutineScope, private val store: ListeningHistoryStore,
     private val allowed: (MediaItem) -> Boolean) : Player.Listener {
@@ -19,6 +20,8 @@ internal class ListeningRecorder(context: Context, private val player: Player,
     private var token = 0L
     private var lastSavedMedia = 0L
     private var lastSavedCredit: Long? = null
+    private var lastSavedPosition = -1L
+    private var lastSavedClosed = false
 
     private fun keys(item: MediaItem?): Set<String> {
         if (item == null || !allowed(item)) return emptySet()
@@ -37,9 +40,11 @@ internal class ListeningRecorder(context: Context, private val player: Player,
 
     private fun persist(force: Boolean = false) {
         val p = active?.progress ?: return
-        if (force || p.creditedAt != lastSavedCredit || p.mediaMs - lastSavedMedia >= 10_000L) {
+        if (p.creditedAt != lastSavedCredit || p.mediaMs - lastSavedMedia >= 10_000L ||
+            (force && (p.mediaMs != lastSavedMedia || p.position != lastSavedPosition || p.closed != lastSavedClosed))) {
             store.submit(p)
             lastSavedCredit = p.creditedAt; lastSavedMedia = p.mediaMs
+            lastSavedPosition = p.position; lastSavedClosed = p.closed
         }
     }
 
@@ -76,6 +81,7 @@ internal class ListeningRecorder(context: Context, private val player: Player,
                 activeKeys = currentKeys
                 active = ListeningCounter(p,position,elapsed,true,rate,duration)
                 lastSavedMedia = p.mediaMs; lastSavedCredit = p.creditedAt
+                lastSavedPosition = p.position; lastSavedClosed = p.closed
                 sample()
                 if (!player.isPlaying) persist(force=true)
             } catch (e: CancellationException) { throw e }

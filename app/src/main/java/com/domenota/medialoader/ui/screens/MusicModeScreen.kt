@@ -134,7 +134,7 @@ internal fun MusicModeScreen(
             // the next highest rank when a file disappeared or lost permission.
             while (result.ranked.isNotEmpty()) {
                 val ids = result.ranked.map { it.rowId }
-                val valid = validateFrequent(ids,frequentOpen)
+                val valid = validateFrequent(ids,false)
                 val missing = ids.filterNot(valid::contains)
                 if (missing.isEmpty()) break
                 eligible = eligible - missing.toSet()
@@ -272,7 +272,7 @@ internal fun MusicModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp), singleLine = true,
                         label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
                     if (tab == 0) BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
-                        val wide = maxWidth >= 480.dp
+                        val wide = !listeningEnabled || maxWidth >= 480.dp
                         Row(Modifier.fillMaxWidth(),verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(7.dp)) {
                         FilterChip(
