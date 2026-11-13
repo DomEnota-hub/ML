@@ -44,8 +44,8 @@ internal class ResumeQueueRecorder(private val player:Player,private val scope:C
         if(player.playbackState==Player.STATE_ENDED){
             store.finish(id!!);current=null;lastWritten=null;ticker?.cancel();ticker=null;return
         }
-        if(player.isPlaying||current!=null) {
-            val position=player.currentPosition.coerceAtLeast(0L)
+        val position=player.currentPosition.coerceAtLeast(0L)
+        if(current!=null||player.isPlaying&&(position>0L||index>0)) {
             current=ResumeQueueSession(id!!,playlistId,queueKeys,index,position,player.duration,
                 player.shuffleModeEnabled,player.repeatMode,player.playbackParameters.speed.coerceIn(.25f,4f),System.currentTimeMillis())
             persist(current)

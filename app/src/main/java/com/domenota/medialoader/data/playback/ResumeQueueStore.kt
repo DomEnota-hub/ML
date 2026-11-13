@@ -13,7 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** Bounded local queue checkpoints; writes are serial and atomic, outside the player thread.
- * Stored outside Android backup. No metadata/artwork/private paths. */
+ * Stored outside Android backup. No titles/artwork or private playback paths. */
 internal class ResumeQueueStore private constructor(context:Context,fileName:String="music-resume-v1.json") {
     private val file=AtomicFile(File(context.applicationContext.noBackupFilesDir,fileName))
     private val mutex=Mutex()

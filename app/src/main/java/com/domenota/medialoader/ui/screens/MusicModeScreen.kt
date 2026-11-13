@@ -134,6 +134,12 @@ internal fun MusicModeScreen(
     var mixDiversity by remember { mutableIntStateOf(smartPrefs.getInt("diversity",50).coerceIn(0,100)/5*5) }
     var forgottenDays by remember { mutableLongStateOf(smartPrefs.getLong("forgotten_days",30L).takeIf { it==30L||it==60L } ?: 30L) }
     var mixNonce by rememberSaveable { mutableLongStateOf(0L) }
+    fun localDay()=java.time.LocalDate.now().toEpochDay()
+    var smartDay by remember{mutableLongStateOf(localDay())}
+    LaunchedEffect(smartPage){
+        if(smartPage==null)return@LaunchedEffect
+        while(true){smartDay=localDay();kotlinx.coroutines.delay(60_000L)}
+    }
     val smartRevision by listeningStore.smartRevision.collectAsState()
     val smartCandidates = remember(frequentRows,frequentKeys,favoriteIds) {
         frequentRows.values.mapNotNull { row -> frequentKeys[row.id]?.let { SmartTrackCandidate(row.id,it,
@@ -159,12 +165,12 @@ internal fun MusicModeScreen(
     // Read only when a smart screen is open. Don't turn every playback tick into a
     // database scan or restart a real playback queue when recommendations change.
     val smartRefresh = if(smartPage==SmartMusicPage.STATS) smartRevision else listeningRevision
-    LaunchedEffect(smartPage,smartCandidates,smartRefresh,smartStatsPeriod,mixDiversity,forgottenDays,mixNonce) {
+    LaunchedEffect(smartPage,smartCandidates,smartRefresh,smartStatsPeriod,mixDiversity,forgottenDays,mixNonce,smartDay) {
         if(smartPage==null||!listeningEnabled) return@LaunchedEffect
         smartLoading=true;smartError=null
         try {
             val now=System.currentTimeMillis()
-            val seed=now/SmartMusicPolicy.DAY_MS+mixNonce
+            val seed=smartDay+mixNonce
             var candidates=smartCandidates
             var result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays)
             while(true) {

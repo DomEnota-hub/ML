@@ -65,7 +65,7 @@ private fun listeningTime(ms: Long): String {
 @Composable
 private fun HistoryGraph(points: List<SmartChartPoint>,byTime:Boolean) {
     val maximum=points.maxOfOrNull { if(byTime) it.wallMs else it.plays }?.coerceAtLeast(1L) ?: 1L
-    val barWidth=if(points.size>12) 28.dp else 42.dp
+    val barWidth=if(points.any {it.label.length>5}) 66.dp else 42.dp
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(5.dp),verticalAlignment=Alignment.Bottom) {
         points.forEach { point ->
             val value=if(byTime) point.wallMs else point.plays

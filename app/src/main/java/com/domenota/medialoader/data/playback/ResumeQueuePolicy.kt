@@ -2,7 +2,7 @@ package com.domenota.medialoader.data.playback
 
 import java.security.MessageDigest
 
-/** Only public physical identities; no copied title, media URI or audio data.
+/** Only public physical identity keys (which may contain locators); no copied title or audio data.
  * Session state is separate from listening counts and cannot credit a play. */
 internal data class ResumeQueueSession(val id:String,val playlistId:String?,val entries:List<Set<String>>,
     val index:Int,val positionMs:Long,val durationMs:Long,val shuffle:Boolean,val repeat:Int,val speed:Float,val updatedAt:Long) {
