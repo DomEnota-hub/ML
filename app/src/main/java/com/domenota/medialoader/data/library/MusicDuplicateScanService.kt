@@ -65,6 +65,8 @@ class MusicDuplicateScanService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
     private var terminal = false
+    private var cancelReason: String? = null
+    private var explicitCancel = false
     private var token = 0L
     private var wake: PowerManager.WakeLock? = null
     private var lastNotice = 0L
@@ -77,14 +79,14 @@ class MusicDuplicateScanService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == CANCEL) {
             if (DuplicateBackgroundScan.state.value.committing) return START_NOT_STICKY
-            terminal = true; job?.cancel()
-            DuplicateBackgroundScan.finish(this,token,null,"Поиск отменён",cancelled = true)
-            stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); return START_NOT_STICKY
+            cancelReason = "Поиск отменён"; explicitCancel = true
+            if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); DuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = true) }
+            return START_NOT_STICKY
         }
         if (job != null && job?.isActive == true) return START_NOT_STICKY
         val request = DuplicateBackgroundScan.claim()
         token = request?.token ?: DuplicateBackgroundScan.state.value.token
-        terminal = false
+        terminal = false; cancelReason = null; explicitCancel = false
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID,notice(0,request?.rows?.size ?: 0),ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else startForeground(ID,notice(0,request?.rows?.size ?: 0))
         if (request == null) { terminal = true; DuplicateBackgroundScan.finish(this,token,null,"Поиск прерван. Запустите его снова."); stopSelf(); return START_NOT_STICKY }
@@ -118,12 +120,14 @@ class MusicDuplicateScanService : Service() {
                 if (wake?.isHeld == true) wake?.release()
                 wake = null
                 stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
+                cancelReason?.let { terminal = true; DuplicateBackgroundScan.finish(this@MusicDuplicateScanService,scanToken,null,it,cancelled = explicitCancel) }
             }
         }
         return START_NOT_STICKY
     }
     override fun onTimeout(startId: Int, fgsType: Int) {
-        terminal = true; job?.cancel(); DuplicateBackgroundScan.finish(this,token,null,"Поиск приостановлен Android. Продолжите при следующем открытии.")
+        cancelReason = "Поиск приостановлен Android. Продолжите при следующем открытии."; explicitCancel = false
+        job?.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
     }
     override fun onDestroy() {
