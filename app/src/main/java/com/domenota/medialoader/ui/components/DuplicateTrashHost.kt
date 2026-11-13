@@ -171,7 +171,9 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                 }
                 if (valid.isEmpty()) continue
                 try {
-                    val intent = MediaStore.createTrashRequest(context.contentResolver,valid.map { Uri.parse(it.track.uri) },true)
+                    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        MediaStore.createTrashRequest(context.contentResolver,valid.map { Uri.parse(it.track.uri) },true)
+                    } else error("Системная корзина недоступна")
                     pending = valid.toList(); waiting = true
                     launcher.launch(IntentSenderRequest.Builder(intent.intentSender).build())
                     return@LaunchedEffect
