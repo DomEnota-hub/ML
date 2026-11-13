@@ -19,18 +19,24 @@ import com.domenota.medialoader.data.privatevault.PrivateAccessManager
 class AudioPlaybackService : MediaSessionService() {
     companion object {
         private var liveSession: MediaSession? = null
+        private var liveTimer: PlaybackStopTimer? = null
+        private val mutableTimer = kotlinx.coroutines.flow.MutableStateFlow<StopTimerState?>(null)
+        internal val timerState: kotlinx.coroutines.flow.StateFlow<StopTimerState?> = mutableTimer
+        private var timerStops = 0L
+        internal fun startStopTimer(request: StopRequest): Boolean = liveTimer?.start(request) == true
+        internal fun cancelStopTimer() { liveTimer?.cancel() }
 
         /** Comparison uses a separate local player, leaving the service queue and position untouched. */
-        internal data class ComparisonPlayback(val player: Player, val ids: List<String>, val index: Int, val position: Long, val wasPlaying: Boolean)
+        internal data class ComparisonPlayback(val player: Player, val ids: List<String>, val index: Int, val position: Long, val wasPlaying: Boolean, val timerGeneration: Long)
         internal fun pauseForComparison(): ComparisonPlayback? {
             val p = liveSession?.player ?: return null
             if (p.currentMediaItem == null) return null
             check(p.currentMediaItem?.mediaMetadata?.extras?.getBoolean("private_media") != true) { "Сначала завершите приватное воспроизведение" }
-            return ComparisonPlayback(p, (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId }, p.currentMediaItemIndex, p.currentPosition, p.playWhenReady).also { p.pause() }
+            return ComparisonPlayback(p, (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId }, p.currentMediaItemIndex, p.currentPosition, p.playWhenReady,timerStops).also { p.pause() }
         }
         internal fun finishComparison(saved: ComparisonPlayback?) {
             val p = liveSession?.player ?: return
-            if (saved != null && saved.player === p && saved.wasPlaying && !p.playWhenReady &&
+            if (saved != null && saved.player === p && saved.wasPlaying && saved.timerGeneration == timerStops && !p.playWhenReady &&
                 p.currentMediaItemIndex == saved.index && (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId } == saved.ids &&
                 kotlin.math.abs(p.currentPosition - saved.position) < 1000L) p.play()
         }
@@ -43,7 +49,7 @@ class AudioPlaybackService : MediaSessionService() {
         }
 
         internal data class ReplacementPlayback(val player: Player, val mediaId: String,
-            val position: Long, val playWhenReady: Boolean)
+            val position: Long, val playWhenReady: Boolean, val timerGeneration: Long)
 
         internal suspend fun suspendForReplacement(uri: String): ReplacementPlayback? =
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
@@ -51,7 +57,7 @@ class AudioPlaybackService : MediaSessionService() {
                 val current = player.currentMediaItem ?: return@withContext null
                 if (!AudioPlaybackMetadata.matchesPublicUri(current, uri)) return@withContext null
                 ReplacementPlayback(player, current.mediaId, player.currentPosition.coerceAtLeast(0),
-                    player.playWhenReady).also { player.pause(); player.stop() }
+                    player.playWhenReady,timerStops).also { player.pause(); player.stop() }
             }
 
         internal suspend fun finishReplacement(uri: String, revised: com.domenota.medialoader.core.database.DownloadEntity?,
@@ -68,7 +74,7 @@ class AudioPlaybackService : MediaSessionService() {
                     val limit = revised?.durationMs?.coerceAtLeast(0L) ?: Long.MAX_VALUE
                     player.seekTo(suspended.position.coerceAtMost(limit))
                     player.prepare()
-                    player.playWhenReady = suspended.playWhenReady
+                    player.playWhenReady = suspended.playWhenReady && suspended.timerGeneration == timerStops
                 }
             }
 
@@ -127,6 +133,10 @@ class AudioPlaybackService : MediaSessionService() {
 
         mediaSession = MediaSession.Builder(this, player).build()
         liveSession = mediaSession
+        val timer = PlaybackStopTimer(player) { timerStops++ }
+        liveTimer = timer
+        privateScope.launch { timer.state.collect { mutableTimer.value = it } }
+        privateScope.launch { while (true) { timer.tick(); kotlinx.coroutines.delay(250) } }
         val access = PrivateAccessManager.get(this)
         var privateIds: Set<String> = emptySet()
         var guarding = false
@@ -157,6 +167,7 @@ class AudioPlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
+        liveTimer?.release(); liveTimer = null; mutableTimer.value = null
         privateScope.cancel()
         EqualizerPlaybackTrack.update(null)
         BackgroundMediaWork.setBusy("audio-playback", false)

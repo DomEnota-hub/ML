@@ -55,14 +55,14 @@ internal class LibraryAudioPreview(context: Context) {
         controller
     }
     suspend fun observe() { controller() }
-    suspend fun preview(refs: List<LibraryMediaRef>, requestedId: String) = update(refs, requestedId, true)
+    suspend fun preview(refs: List<LibraryMediaRef>, requestedId: String, playlistId: String? = null) = update(refs, requestedId, true, playlistId)
     suspend fun open(refs: List<LibraryMediaRef>, requestedId: String) = update(refs, requestedId, false)
-    private suspend fun update(refs: List<LibraryMediaRef>, requestedId: String, toggleCurrent: Boolean) {
+    private suspend fun update(refs: List<LibraryMediaRef>, requestedId: String, toggleCurrent: Boolean, playlistId: String? = null) {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val items = withContext(Dispatchers.IO) { refs.filter { ref ->
             !ref.item.isPrivate && !ref.item.hidden && ref.item.mediaType == MediaType.AUDIO &&
                 ref.item.state == DownloadState.COMPLETED && !ref.item.savedUri.isNullOrBlank()
-        }.distinctBy { it.key }.map { AudioPlaybackMetadata.item(it.item, it.aliases) } }
+        }.distinctBy { it.key }.map { AudioPlaybackMetadata.item(it.item, it.aliases, playlistId) } }
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
             com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()

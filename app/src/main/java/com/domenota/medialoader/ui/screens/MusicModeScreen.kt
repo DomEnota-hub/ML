@@ -47,6 +47,7 @@ fun MusicModeScreen(
     favoriteIds: Set<String> = emptySet(),
     duplicateLinkedIds: Set<String> = emptySet(),
     onTrashDuplicates: ((List<String>) -> Unit)? = null,
+    onPlaylistPreview: ((String, List<String>, String) -> Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -195,7 +196,7 @@ fun MusicModeScreen(
         }
     }
     val queue = remember(displayed) { displayed.map { it.id } }
-    fun preview(id: String) { (onPreview ?: onOpen)(id, queue) }
+    fun preview(id: String) { if (playlist != null && onPlaylistPreview != null) onPlaylistPreview(id,queue,playlist.id) else (onPreview ?: onOpen)(id,queue) }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         val fastLabels = remember(sections, displayedIds, tab, playlist) {

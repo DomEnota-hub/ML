@@ -887,7 +887,7 @@ fun MediaLoaderApp(
                 fileActionScope.launch { runCatching { MusicDuplicateSessionStore.removeTrashed(context, uris.toSet()) } }
             } })
     }
-    val previewLibraryAudio: (String, List<String>) -> Unit = { id, ids ->
+    fun previewLibraryAudioWithPlaylist(id: String, ids: List<String>, playlistId: String?) {
         libraryPreviewJob?.cancel()
         libraryPreviewJob = fileActionScope.launch {
             val ref = libraryRefsByAlias[id] ?: return@launch
@@ -897,12 +897,14 @@ fun MediaLoaderApp(
                     Toast.makeText(context, "Трек недоступен. Проверьте файл и разрешения.", Toast.LENGTH_SHORT).show()
                 } else {
                     val queue = ids.mapNotNull(libraryRefsByAlias::get).distinctBy { it.key }
-                    libraryModel.audioPreview.preview(queue, ref.key)
+                    libraryModel.audioPreview.preview(queue, ref.key, playlistId)
                 }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { Toast.makeText(context, "Не удалось начать воспроизведение", Toast.LENGTH_SHORT).show() }
         }
     }
+
+    val previewLibraryAudio: (String, List<String>) -> Unit = { id, ids -> previewLibraryAudioWithPlaylist(id,ids,null) }
 
     if (preview.duplicateMatches.isNotEmpty()) {
         val duplicates = preview.duplicateMatches
@@ -1222,6 +1224,7 @@ fun MediaLoaderApp(
                     onRemoveTrack = libraryModel.playlistRepository::removeTrack, onMoveTrack = libraryModel.playlistRepository::moveTrack,
                     onShare = shareLibraryFile, onDeleteFile = deleteLibraryFile,
                     onTrashDuplicates = trashDuplicates,
+                     onPlaylistPreview = { id, ids, playlist -> previewLibraryAudioWithPlaylist(id,ids,playlist) },
                     duplicateLinkedIds = libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +
                         publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
                     searchVisible = librarySearchVisible, tabOverride = musicTab,
