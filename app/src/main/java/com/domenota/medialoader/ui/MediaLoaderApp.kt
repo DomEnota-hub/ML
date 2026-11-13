@@ -250,7 +250,7 @@ fun MediaLoaderApp(
     val libraryRefsByAlias = libraryAliasProjection.value
     val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
     val organizationReady=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
-    val reviewCount=remember(reviewEntries,publicLibraryRefs){val ids=publicLibraryRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
+
     fun openCollections(id:String?=null,audioOnly:Boolean=false,ids:List<String> = emptyList(),link:String?=null){
         collectionInitial=id;collectionAudioOnly=audioOnly;collectionAddIds=ids;collectionLink=link
         navController.navigate("collections"){launchSingleTop=true}
@@ -658,6 +658,10 @@ fun MediaLoaderApp(
             completedUris.associate { (id, uri) -> id to availabilityCache.get(uri) }
         }
     }
+    val organizationRefs=remember(publicLibraryRefs,organizationReady,fileStatuses){
+        if(!organizationReady)emptyList() else publicLibraryRefs.filter{fileStatuses[it.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE)}
+    }
+    val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
     val downloadItems = remember(downloads, fileStatuses) {
         downloads.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
     }
@@ -1300,7 +1304,7 @@ fun MediaLoaderApp(
                         libraryModel.externalCatalog.removeFolder(folderId)
                     }, onShare = shareLibraryFile,
                     onTrashFolderContents = requestAlbumTrash,
-                    collectionContent={CollectionGalleryStrip(collections,if(organizationReady)publicLibraryRefs else emptyList()){openCollections(it)}},
+                    collectionContent={CollectionGalleryStrip(collections,organizationRefs){openCollections(it)}},
                     onAddCollection=::addToCollection,
                      onTrashDeviceAlbum = requestDeviceAlbumTrash,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
@@ -1417,9 +1421,9 @@ fun MediaLoaderApp(
             }
             composable("collections") {
                 val hidden=context.getSharedPreferences("music_folder_visibility",0).getStringSet("hidden_tracks",emptySet()).orEmpty()
-                val refs=remember(publicLibraryRefs,organizationReady,hidden){if(organizationReady)publicLibraryRefs.filter{
+                val refs=remember(organizationRefs,hidden){organizationRefs.filter{
                     it.item.mediaType!=MediaType.AUDIO||!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,hidden)
-                } else emptyList()}
+                }}
                 CollectionsScreen(collections,refs,organization,collectionInitial,collectionAudioOnly,collectionAddIds,collectionLink,
                     organizationReady,{navController.popBackStack()},openDownloadWithQueue,
                     onPlay={ids->
@@ -1435,7 +1439,7 @@ fun MediaLoaderApp(
             }
             composable("media-review"){
                 var playlistTarget by remember{mutableStateOf<String?>(null)}
-                ReviewScreen(reviewEntries,if(organizationReady)publicLibraryRefs else emptyList(),catalogFolders,
+                ReviewScreen(reviewEntries,organizationRefs,catalogFolders,
                     libraryCatalogAssignments.filter{it.isFavorite}.mapTo(mutableSetOf()){it.downloadId},
                     organization,organizationReady,{navController.popBackStack()},openDownloadWithQueue,
                     onEdit={row->navController.navigate(when(row.mediaType){MediaType.PHOTO->"photo-editor/";MediaType.VIDEO->"video-editor/";MediaType.AUDIO->"audio-editor/"}+android.net.Uri.encode(row.id))},
@@ -1458,7 +1462,7 @@ fun MediaLoaderApp(
                     (folders+listOfNotNull(r.deviceAlbumName)).distinct()
                 }.orEmpty()
                 val playlistNames=ref?.let{r->playlists.filter{p->p.trackIds.any{it==r.key||it in r.aliases}}.map{it.name}}.orEmpty()
-                MediaPassportScreen(ref,if(organizationReady)publicLibraryRefs else emptyList(),collections,ops,names,playlistNames,
+                MediaPassportScreen(ref?.takeIf{candidate->organizationRefs.any{it.key==candidate.key}},organizationRefs,collections,ops,names,playlistNames,
                     {navController.popBackStack()},openDownloadWithQueue,::openOrganizationLink,{openCollections(it)})
             }
             composable("music-duplicates") {

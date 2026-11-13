@@ -49,11 +49,11 @@ internal fun OrganizationEntry(title:String,description:String,onOpen:()->Unit,m
 }
 @Composable
 internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit) {
-    // Only the two displayed cards resolve cover identities; opening the full
+    // Only the two displayed cards resolve member identities; opening the full
     // screen performs the complete projection on a worker thread.
     val shown=remember(collections){collections.take(2)}
     val covers by produceState(emptyMap<String,LibraryMediaRef>(),shown,refs) {
-        value=withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(shown.flatMap{it.members.take(8)},refs)}
+        value=withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(shown.flatMap{it.members},refs)}
     }
     Column(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
@@ -63,7 +63,9 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
         if(shown.isEmpty()) OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",{onOpen(null)})
         else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
             shown.forEach { collection ->
-                val cover=collection.members.firstNotNullOfOrNull{member->covers[member.id]?.let{candidate->refs.firstOrNull{it.key==candidate.key}?.item}}
+                val live=remember(refs){refs.associateBy{it.key}}
+                val displayed=collection.members.mapNotNull{member->covers[member.id]?.let{candidate->live[candidate.key]?.item}}
+                val cover=displayed.firstOrNull()
                 Surface(Modifier.weight(1f).clickable{onOpen(collection.record.id)},shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){
                     Column(Modifier.padding(8.dp)){
                         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){
@@ -71,7 +73,8 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
                             else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
                         }
                         Text(collection.record.name,maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.titleSmall)
-                        Text("${collection.members.size} материалов",style=MaterialTheme.typography.labelSmall)
+                        Text("Фото: ${displayed.count{it.mediaType==MediaType.PHOTO}} · Видео: ${displayed.count{it.mediaType==MediaType.VIDEO}}",style=MaterialTheme.typography.labelSmall)
+                        Text("Музыка: ${displayed.count{it.mediaType==MediaType.AUDIO}} · Ссылки: ${collection.members.count{it.link!=null}}",style=MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -177,7 +180,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             val missing=collection.members.count{it.link==null&&it.id !in resolved}
             LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                 item{
-                    Text("Фото: ${visible.count{it.second.item.mediaType==MediaType.PHOTO}} · Видео: ${visible.count{it.second.item.mediaType==MediaType.VIDEO}} · Музыка: ${audio.size} · Ссылки: ${links.size}")
+                    Text(if(audioOnly)"Треков: ${audio.size}" else "Фото: ${visible.count{it.second.item.mediaType==MediaType.PHOTO}} · Видео: ${visible.count{it.second.item.mediaType==MediaType.VIDEO}} · Музыка: ${audio.size} · Ссылки: ${links.size}")
                     if(!audioOnly)Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
                         listOf("Всё","Фото","Видео","Музыка","Ссылки").forEach{label->FilterChip(filter==label,{filter=label},{Text(label)})}
                     }
