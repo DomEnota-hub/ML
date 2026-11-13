@@ -5,14 +5,13 @@ import android.os.SystemClock
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import kotlinx.coroutines.*
-import java.util.Base64
 
 /** Observes the actual service player, not UI taps, and never opens media files. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class ListeningRecorder(context: Context, private val player: Player,
     private val scope: CoroutineScope, private val store: ListeningHistoryStore,
     private val allowed: (MediaItem) -> Boolean) : Player.Listener {
-    private val hiddenPrefs = context.applicationContext.getSharedPreferences("music_folder_visibility",Context.MODE_PRIVATE)
+    private val identity=PublicListeningIdentity(context,allowed)
     private var active: ListeningCounter? = null
     private var activeKeys: Set<String> = emptySet()
     private var ticker: Job? = null
@@ -23,18 +22,7 @@ internal class ListeningRecorder(context: Context, private val player: Player,
     private var lastSavedPosition = -1L
     private var lastSavedClosed = false
 
-    private fun keys(item: MediaItem?): Set<String> {
-        if (item == null || !allowed(item)) return emptySet()
-        val uri = item.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PUBLIC_URI) ?: return emptySet()
-        fun encode(value: String) = Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray(Charsets.UTF_8))
-        val idEncoded = encode(item.mediaId)
-        val uriEncoded = encode(uri)
-        if (hiddenPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty().any { record ->
-                val parts = record.split('.',limit=2)
-                parts.size == 2 && (parts[0] == idEncoded || parts[1] == uriEncoded)
-            }) return emptySet()
-        return item.mediaMetadata.extras?.getStringArrayList(AudioPlaybackMetadata.LISTENING_KEYS).orEmpty().toSet()
-    }
+    private fun keys(item:MediaItem?):Set<String> = identity.keys(item)
 
     fun attach() { player.addListener(this); refresh() }
 

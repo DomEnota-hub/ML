@@ -1326,6 +1326,28 @@ fun MediaLoaderApp(
                             catch (_:Exception) { Toast.makeText(context,"Нет доступных треков или плеер недоступен",Toast.LENGTH_SHORT).show() }
                         }
                     },
+                    onResumeSelection = { resolved ->
+                        libraryPreviewJob?.cancel()
+                        libraryPreviewJob = fileActionScope.launch {
+                            try {
+                                check(libraryIndex.ready && libraryPrivateKeys != null) { "Медиатека ещё не готова" }
+                                val refs=resolved.availableIds.map { id ->
+                                    libraryRefsByAlias[id]?.takeIf { it.key==id && !it.item.isPrivate && !it.item.hidden }
+                                        ?: error("Состав очереди изменился")
+                                }
+                                val current=refs.getOrNull(resolved.currentIndex)?:error("Трек недоступен")
+                                val hidden=context.getSharedPreferences("music_folder_visibility",0).getStringSet("hidden_tracks",emptySet()).orEmpty().toSet()
+                                check(refs.none { com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,hidden) }) { "Состав очереди изменился" }
+                                val present=withContext(Dispatchers.IO) {
+                                    availabilityCache.get(current.item.savedUri,fresh=true)==SavedFileStatus.PRESENT &&
+                                        refs.all { availabilityCache.get(it.item.savedUri)==SavedFileStatus.PRESENT }
+                                }
+                                check(present) { "Часть файлов недоступна. Открой подборку заново." }
+                                libraryModel.audioPreview.resumeSelection(refs,resolved)
+                            } catch(e:CancellationException){throw e}
+                            catch(e:Exception){Toast.makeText(context,e.message?:"Не удалось продолжить сеанс",Toast.LENGTH_LONG).show()}
+                        }
+                    },
                     onSaveFrequent = { name,ids -> libraryModel.playlistRepository.createFromTracks(name,ids,libraryAliases); Unit },
                     onFavorite = setLibraryFavorite,
                     duplicateLinkedIds = libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +

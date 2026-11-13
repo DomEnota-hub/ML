@@ -28,6 +28,12 @@ import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.data.playback.ListeningHistoryStore
 import com.domenota.medialoader.data.playback.ListeningPeriod
 import com.domenota.medialoader.data.playback.ListeningSelection
+import com.domenota.medialoader.data.playback.SmartMusicSnapshot
+import com.domenota.medialoader.data.playback.SmartTrackCandidate
+import com.domenota.medialoader.data.playback.SmartStatsPeriod
+import com.domenota.medialoader.data.playback.SmartMusicPolicy
+import com.domenota.medialoader.data.playback.ResumeQueueStore
+import com.domenota.medialoader.data.playback.ResolvedResumeQueue
 import com.domenota.medialoader.ui.components.*
 import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.ui.screens.music.*
@@ -59,6 +65,7 @@ internal fun MusicModeScreen(
     onPlayFrequent: ((List<String>,Boolean)->Unit)? = null,
     onSaveFrequent: (suspend (String,List<String>)->Unit)? = null,
     onFavorite: (suspend (String,Boolean)->Unit)? = null,
+    onResumeSelection: ((ResolvedResumeQueue)->Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -66,6 +73,8 @@ internal fun MusicModeScreen(
     fun selectTab(value: Int) { localTab = value; onTabChange(value) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var frequentOpen by rememberSaveable { mutableStateOf(false) }
+    var smartPage by rememberSaveable { mutableStateOf<SmartMusicPage?>(null) }
+    var resumeOpen by rememberSaveable { mutableStateOf(false) }
     var listeningPeriod by rememberSaveable { mutableStateOf(ListeningPeriod.MONTH) }
     var search by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
@@ -120,6 +129,64 @@ internal fun MusicModeScreen(
             MusicFolderRules.visible(row,excludedFolders,deviceMusicFolders) }
     }
     val frequentKeys = remember(frequentRows,listeningKeys) { listeningKeys.filterKeys { it in frequentRows } }
+    var smartStatsPeriod by rememberSaveable { mutableStateOf(SmartStatsPeriod.MONTH) }
+    val smartPrefs = remember(context) { context.getSharedPreferences("smart_music",0) }
+    var mixDiversity by remember { mutableIntStateOf(smartPrefs.getInt("diversity",50).coerceIn(0,100)/5*5) }
+    var forgottenDays by remember { mutableLongStateOf(smartPrefs.getLong("forgotten_days",30L).takeIf { it==30L||it==60L } ?: 30L) }
+    var mixNonce by rememberSaveable { mutableLongStateOf(0L) }
+    fun localDay()=java.time.LocalDate.now().toEpochDay()
+    var smartDay by remember{mutableLongStateOf(localDay())}
+    LaunchedEffect(smartPage){
+        if(smartPage==null)return@LaunchedEffect
+        while(true){smartDay=localDay();kotlinx.coroutines.delay(60_000L)}
+    }
+    val smartRevision by listeningStore.smartRevision.collectAsState()
+    val smartCandidates = remember(frequentRows,frequentKeys,favoriteIds) {
+        frequentRows.values.mapNotNull { row -> frequentKeys[row.id]?.let { SmartTrackCandidate(row.id,it,
+            audioArtist(row),row.id in favoriteIds) } }
+    }
+    val resumeStore=remember(context){ResumeQueueStore.get(context)}
+    val resumeSessions by resumeStore.sessions.collectAsState()
+    val resumeFailed by resumeStore.failed.collectAsState()
+    var resolvedSessions by remember{mutableStateOf<List<ResolvedResumeQueue>>(emptyList())}
+    var resumeLoading by remember{mutableStateOf(false)}
+    var resumeError by remember{mutableStateOf(false)}
+    LaunchedEffect(resumeOpen,resumeSessions,smartCandidates) {
+        if(!resumeOpen||onResumeSelection==null)return@LaunchedEffect
+        resumeLoading=true;resumeError=false
+        try{resolvedSessions=listeningStore.resolveResume(resumeSessions,smartCandidates)}
+        catch(e:CancellationException){throw e}
+        catch(_:Exception){resolvedSessions=emptyList();resumeError=true}
+        finally{resumeLoading=false}
+    }
+    var smartSnapshot by remember { mutableStateOf(SmartMusicSnapshot()) }
+    var smartLoading by remember { mutableStateOf(false) }
+    var smartError by remember { mutableStateOf<String?>(null) }
+    // Read only when a smart screen is open. Don't turn every playback tick into a
+    // database scan or restart a real playback queue when recommendations change.
+    val smartRefresh = if(smartPage==SmartMusicPage.STATS) smartRevision else listeningRevision
+    LaunchedEffect(smartPage,smartCandidates,smartRefresh,smartStatsPeriod,mixDiversity,forgottenDays,mixNonce,smartDay) {
+        if(smartPage==null||!listeningEnabled) return@LaunchedEffect
+        smartLoading=true;smartError=null
+        try {
+            val now=System.currentTimeMillis()
+            val seed=smartDay+mixNonce
+            var candidates=smartCandidates
+            var result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays)
+            while(true) {
+                val ids=when(smartPage){SmartMusicPage.FORGOTTEN->result.forgotten;SmartMusicPage.MIX->result.mix;SmartMusicPage.STATS->result.topTracks;null->emptyList()}.map {it.rowId}
+                if(ids.isEmpty()) break
+                val valid=validateFrequent(ids,false)
+                val missing=ids.filterNot(valid::contains).toSet()
+                if(missing.isEmpty()) break
+                candidates=candidates.filterNot {it.rowId in missing}
+                result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays)
+            }
+            smartSnapshot=result
+        } catch(e:CancellationException){throw e}
+        catch(_:Exception){smartSnapshot=SmartMusicSnapshot();smartError="Не удалось загрузить подборку"}
+        finally{smartLoading=false}
+    }
     var listeningSelection by remember { mutableStateOf(ListeningSelection()) }
     var listeningLoading by remember { mutableStateOf(false) }
     var listeningError by remember { mutableStateOf<String?>(null) }
@@ -206,9 +273,9 @@ internal fun MusicModeScreen(
     }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
-    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen) }
+    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
-    BackHandler(frequentOpen || playlist != null || tab == 1) { if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
+    BackHandler(resumeOpen || smartPage != null || frequentOpen || playlist != null || tab == 1) { if(resumeOpen)resumeOpen=false else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
         PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, available.values.toList(), emptyMap(),
@@ -250,7 +317,16 @@ internal fun MusicModeScreen(
         if (playlist != null && onOpenFromPlaylist != null) onOpenFromPlaylist(id,queue,playlist.id)
         else onOpen(id,queue)
     }
-    if (frequentOpen && onPlayFrequent != null && onSaveFrequent != null) {
+    if(resumeOpen&&onResumeSelection!=null) {
+        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},resumeLoading||loading,
+            resumeFailed||resumeError,{resumeOpen=false},onResumeSelection)
+    } else if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
+        SmartMusicScreen(smartPage!!,smartSnapshot,frequentRows,smartStatsPeriod,{smartStatsPeriod=it},
+            mixDiversity,{mixDiversity=it;smartPrefs.edit().putInt("diversity",it).apply()},
+            forgottenDays,{forgottenDays=it;smartPrefs.edit().putLong("forgotten_days",it).apply()},
+            smartLoading||loading,smartError,currentPlayingId,playing,favoriteIds,{smartPage=null},{mixNonce++},
+            onPlayFrequent,onPreview?:onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite)
+    } else if (frequentOpen && onPlayFrequent != null && onSaveFrequent != null) {
         FrequentListeningScreen(listeningSelection,frequentRows,listeningPeriod,{listeningPeriod=it},listeningLoading||loading,listeningError,
             currentPlayingId,playing,favoriteIds,listeningStore,{frequentOpen=false},onPlayFrequent,
             onPreview ?: onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite)
@@ -290,6 +366,10 @@ internal fun MusicModeScreen(
                         if (listeningEnabled) FilterChip(selected=false,onClick={frequentOpen=true},label={Text("Часто слушаю")},
                             leadingIcon={Icon(Icons.Rounded.GraphicEq,null,Modifier.size(18.dp),tint=com.domenota.medialoader.ui.theme.musicPlaybackAccent)},
                             modifier=Modifier.testTag("frequent-listening-chip"))
+                        if(onResumeSelection!=null) FilterChip(selected=false,onClick={resumeOpen=true},label={Text("Продолжить слушать")},leadingIcon={Icon(Icons.Rounded.PlayCircle,null,Modifier.size(18.dp))})
+                        if(listeningEnabled) SmartMusicPage.entries.forEach { page ->
+                            FilterChip(selected=false,onClick={smartPage=page},label={Text(page.label)},leadingIcon={Icon(page.icon,null,Modifier.size(18.dp))})
+                        }
                         }
                         if (wide) Text(musicSortCaption(sort), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -316,7 +396,11 @@ internal fun MusicModeScreen(
             }
 
             if (tab == 1 && playlist == null) {
-                if (listeningEnabled) item(key="frequent-playlist") { FrequentListeningCard(listeningSelection.ranked.size,listeningPeriod) { frequentOpen=true } }
+                if (listeningEnabled) {
+                    if(onResumeSelection!=null) item(key="resume-music-card"){ResumeMusicCard(resumeSessions.size){resumeOpen=true}}
+                    item(key="frequent-playlist") { FrequentListeningCard(listeningSelection.ranked.size,listeningPeriod) { frequentOpen=true } }
+                    SmartMusicPage.entries.forEach { page -> item(key="smart-${page.name}") { SmartMusicCard(page){smartPage=page} } }
+                }
                 item(key = "playlists-title") { Text("Мои плейлисты", Modifier.padding(horizontal = 17.dp, vertical = 15.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
                 items(playlists.chunked(2), key = { it.first().id }) { pair ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

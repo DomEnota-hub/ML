@@ -54,15 +54,18 @@ internal class LibraryAudioPreview(context: Context) {
         sync(controller)
         controller
     }
+    private fun queueItems(refs:List<LibraryMediaRef>,playlistId:String?=null,contextId:String?=null):List<androidx.media3.common.MediaItem> {
+        val public=refs.filter{!it.item.isPrivate&&!it.item.hidden&&it.item.mediaType==MediaType.AUDIO&&
+            it.item.state==DownloadState.COMPLETED&&!it.item.savedUri.isNullOrBlank()}.distinctBy{it.key}
+        val tag=contextId?:ResumeQueuePolicy.contextId(playlistId,public.map{ListeningHistoryPolicy.keys(it.item,it.aliases)})
+        return public.map{AudioPlaybackMetadata.item(it.item,it.aliases,playlistId,tag)}
+    }
     suspend fun observe() { controller() }
     suspend fun preview(refs: List<LibraryMediaRef>, requestedId: String, playlistId: String? = null) = update(refs, requestedId, true, playlistId)
     suspend fun open(refs: List<LibraryMediaRef>, requestedId: String, playlistId: String? = null) = update(refs, requestedId, false, playlistId)
     private suspend fun update(refs: List<LibraryMediaRef>, requestedId: String, toggleCurrent: Boolean, playlistId: String?) {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
-        val items = withContext(Dispatchers.IO) { refs.filter { ref ->
-            !ref.item.isPrivate && !ref.item.hidden && ref.item.mediaType == MediaType.AUDIO &&
-                ref.item.state == DownloadState.COMPLETED && !ref.item.savedUri.isNullOrBlank()
-        }.distinctBy { it.key }.map { AudioPlaybackMetadata.item(it.item, it.aliases, playlistId) } }
+        val items = withContext(Dispatchers.IO) { queueItems(refs,playlistId) }
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
             com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
@@ -73,13 +76,23 @@ internal class LibraryAudioPreview(context: Context) {
     }
     suspend fun playSelection(refs: List<LibraryMediaRef>, shuffle: Boolean) {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
-        val items = withContext(Dispatchers.IO) { refs.filter {
-            !it.item.isPrivate && !it.item.hidden && it.item.mediaType == MediaType.AUDIO &&
-                it.item.state == DownloadState.COMPLETED && !it.item.savedUri.isNullOrBlank()
-        }.distinctBy { it.key }.map { AudioPlaybackMetadata.item(it.item,it.aliases) } }
+        val items = withContext(Dispatchers.IO) { queueItems(refs) }
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
             check(AudioQueuePlayback.startSelection(active,items,shuffle)) { "Нет доступных треков" }
+            sync(active)
+        }
+    }
+    suspend fun resumeSelection(refs:List<LibraryMediaRef>,resolved:ResolvedResumeQueue) {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        val current=resolved.currentId?:error("Исходный трек недоступен")
+        require(refs.map{it.key}==resolved.availableIds && refs.getOrNull(resolved.currentIndex)?.key==current){"Очередь изменилась"}
+        val items=withContext(Dispatchers.IO){queueItems(refs,resolved.session.playlistId,resolved.session.id)}
+        check(items.size==refs.size){"Часть файлов недоступна"}
+        val position=ResumeQueuePolicy.clampedPosition(resolved.session,refs[resolved.currentIndex].item.durationMs)
+        withContext(Dispatchers.Main.immediate){
+            val active=controller()
+            check(AudioQueuePlayback.resume(active,items,resolved.currentIndex,resolved.session,position)){"Не удалось восстановить очередь"}
             sync(active)
         }
     }
