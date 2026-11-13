@@ -47,6 +47,7 @@ fun MusicModeScreen(
     favoriteIds: Set<String> = emptySet(),
     duplicateLinkedIds: Set<String> = emptySet(),
     onTrashDuplicates: ((List<String>) -> Unit)? = null,
+    duplicateRequest: Int = 0, onDuplicateRequestHandled: () -> Unit = {},
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -57,6 +58,9 @@ fun MusicModeScreen(
     var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
     var sortMenu by remember { mutableStateOf(false) }
     var duplicatesOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(duplicateRequest, loading) {
+        if (duplicateRequest != 0 && !loading) { duplicatesOpen = true; onDuplicateRequestHandled() }
+    }
     if (duplicatesOpen && onTrashDuplicates != null) MusicDuplicatesDialog(allAudio, favoriteIds + duplicateLinkedIds + playlists.flatMap { it.trackIds }, currentPlayingId, playing,
         { duplicatesOpen = false }, onTrashDuplicates)
     val listState = rememberLazyListState()

@@ -167,6 +167,7 @@ private fun fileNameFieldColors() = if (MaterialTheme.colorScheme.background.lum
 fun MediaLoaderApp(
     shortcutMode: AppMode? = null,
     shortcutGeneration: Int = 0,
+    shortcutDuplicates: Boolean = false,
     onShortcutConsumed: () -> Unit = {},
     sharedText: String? = null,
     sharedTextGeneration: Int = 0,
@@ -197,6 +198,7 @@ fun MediaLoaderApp(
     val libraryPreferences = remember(context) { LibraryPreferences(context) }
     var appMode by rememberSaveable { mutableStateOf(shortcutMode ?: libraryPreferences.mode) }
     var privateNavigation by remember { mutableStateOf(false) }
+    var duplicateRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDateRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryTab by rememberSaveable { mutableIntStateOf(0) }
     var galleryTopRequest by rememberSaveable { mutableIntStateOf(0) }
@@ -986,6 +988,7 @@ fun MediaLoaderApp(
             popUpTo(AppDestination.Home.route) { inclusive = false }
             launchSingleTop = true
         }
+        if (shortcutDuplicates) duplicateRequest++
         onShortcutConsumed()
     }
     LaunchedEffect(sharedText, sharedTextGeneration) {
@@ -1202,6 +1205,8 @@ fun MediaLoaderApp(
                     } }.toMap(),
                     )
                 else MusicModeScreen(
+                    duplicateRequest = duplicateRequest,
+                    onDuplicateRequestHandled = { duplicateRequest = 0 },
                     hiddenTracksOpen = hiddenMusicTracksOpen,
                     onDismissHiddenTracks = { hiddenMusicTracksOpen = false },
                     deviceMusicFolders = remember(phoneMusic.items) { phoneMusic.items.mapNotNull { row ->
