@@ -66,6 +66,9 @@ internal fun MusicModeScreen(
     onSaveFrequent: (suspend (String,List<String>)->Unit)? = null,
     onFavorite: (suspend (String,Boolean)->Unit)? = null,
     onResumeSelection: ((ResolvedResumeQueue)->Unit)? = null,
+    onOpenCollections: (() -> Unit)? = null,
+    onAddCollection: ((List<String>) -> Unit)? = null,
+    onPassport: ((String) -> Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -398,6 +401,9 @@ internal fun MusicModeScreen(
             if (tab == 1 && playlist == null) {
                 if (listeningEnabled) {
                     if(onResumeSelection!=null) item(key="resume-music-card"){ResumeMusicCard(resumeSessions.size){resumeOpen=true}}
+                    if(onOpenCollections!=null)item(key="music-collections"){
+                        com.domenota.medialoader.ui.screens.organization.OrganizationEntry("Коллекции","Музыкальная часть коллекций",onOpenCollections,Modifier.padding(horizontal=17.dp,vertical=5.dp))
+                    }
                     item(key="frequent-playlist") { FrequentListeningCard(listeningSelection.ranked.size,listeningPeriod) { frequentOpen=true } }
                     SmartMusicPage.entries.forEach { page -> item(key="smart-${page.name}") { SmartMusicCard(page){smartPage=page} } }
                 }
@@ -515,7 +521,8 @@ internal fun MusicModeScreen(
                             MusicLibraryTrackRow(track, { preview(id) }, id == currentPlayingId, playing) {
                                 MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } },
                                     { openTrack(id) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
-                                    null, null, null, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) })
+                                    null, null, null, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) },
+                                    onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}})
                             }
                         }
                     }
@@ -527,7 +534,8 @@ internal fun MusicModeScreen(
                         MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } }, { openTrack(id) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
                             playlist?.let { entry -> { mutate { onRemoveTrack(entry.id, id) } } },
                             playlist?.takeIf { it.trackIds.indexOf(id) > 0 }?.let { entry -> { mutate { onMoveTrack(entry.id, id, -1) } } },
-                            playlist?.takeIf { it.trackIds.indexOf(id) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } }, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) })
+                            playlist?.takeIf { it.trackIds.indexOf(id) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } }, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) },
+                                    onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}})
                     }
                 }
             }
@@ -594,7 +602,8 @@ private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDel
 @Composable
 internal fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Unit)?, onOpen: () -> Unit, onAdd: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
                               onRemove: (() -> Unit)?, onUp: (() -> Unit)?, onDown: (() -> Unit)?, hidden: Boolean = false, onToggleHidden: (() -> Unit)? = null,
-                              onExclude: (() -> Unit)? = null, favorite: Boolean = false, onFavorite: (() -> Unit)? = null) {
+                              onExclude: (() -> Unit)? = null, favorite: Boolean = false, onFavorite: (() -> Unit)? = null,
+                              onCollection: (() -> Unit)? = null,onPassport: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
     if (properties) MusicFilePropertiesDialog(track) { properties = false }
@@ -613,6 +622,8 @@ internal fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> U
             if (onDown != null) DropdownMenuItem({ Text("Ниже") }, { menu = false; onDown() }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })
             if (onToggleHidden != null) DropdownMenuItem({ Text(if (hidden) "Отобразить в общем списке" else "Скрыть") },
                 { menu = false; onToggleHidden() }, leadingIcon = { Icon(if (hidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null) })
+            if(onCollection!=null)DropdownMenuItem({Text("В коллекцию")},{menu=false;onCollection()},leadingIcon={Icon(Icons.Rounded.CollectionsBookmark,null)})
+            if(onPassport!=null)DropdownMenuItem({Text("Паспорт файла")},{menu=false;onPassport()},leadingIcon={Icon(Icons.Rounded.Info,null)})
             DropdownMenuItem({ Text("Свойства") }, { menu = false; properties = true }, leadingIcon = { Icon(Icons.Rounded.Info, null) })
             DropdownMenuItem({ Text("Поделиться") }, { menu = false; onShare() }, leadingIcon = { Icon(Icons.Rounded.Share, null) })
             DropdownMenuItem({ Text("Удалить файл", color = MaterialTheme.colorScheme.error) }, { menu = false; onDelete() },

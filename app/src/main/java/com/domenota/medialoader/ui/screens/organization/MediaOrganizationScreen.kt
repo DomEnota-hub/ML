@@ -63,7 +63,7 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
         if(shown.isEmpty()) OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",{onOpen(null)})
         else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
             shown.forEach { collection ->
-                val cover=collection.members.firstNotNullOfOrNull{covers[it.id]?.item}
+                val cover=collection.members.firstNotNullOfOrNull{member->covers[member.id]?.takeIf{candidate->refs.any{it.key==candidate.key}}?.item}
                 Surface(Modifier.weight(1f).clickable{onOpen(collection.record.id)},shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){
                     Column(Modifier.padding(8.dp)){
                         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){

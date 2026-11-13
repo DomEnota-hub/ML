@@ -64,6 +64,7 @@ fun HomeScreen(
     deferredLinks: List<String> = emptyList(), deferredActive: String? = null, deferredMessage: String? = null,
     onDeferredOpen: (String) -> Unit = {}, onDeferredRemove: (String) -> Unit = {},
     onDeferredRetryAll: () -> Unit = {}, onDeferredStop: () -> Unit = {},
+    organizationContent: (@Composable () -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
@@ -149,6 +150,7 @@ fun HomeScreen(
         }
         Spacer(Modifier.height(24.dp))
         MusicHomeSection()
+        if(organizationContent!=null){Spacer(Modifier.height(18.dp));organizationContent()}
         if (recentDownloads.isNotEmpty()) {
             Spacer(Modifier.height(26.dp))
             SectionTitle(title = "Последние загрузки", action = "Все", onActionClick = onOpenDownloads)
