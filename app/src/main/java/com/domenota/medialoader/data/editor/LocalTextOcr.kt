@@ -41,6 +41,13 @@ internal object LocalTextOcr {
      * Try sparse and block layouts on the full image, then a contrast-boosted version
      * and overlapping vertical bands. No OCR text is written into diagnostics.
      */
+    /** Fast, one-pass classification only; full editor OCR keeps its existing fallback pipeline. */
+    suspend fun readPageQuick(context: Context, image: Bitmap): TextReadResult = withEngine(context) { api ->
+        api.pageSegMode = TessBaseAPI.PageSegMode.PSM_AUTO
+        api.setImage(image)
+        TextReadResult(api.getUTF8Text().orEmpty().trim(),api.meanConfidence())
+    }
+
     suspend fun readPage(context: Context, image: Bitmap): TextReadResult = withEngine(context) { api ->
         val attempts = mutableListOf<OcrAttempt>()
         fun recognize(bitmap: Bitmap, mode: Int, stage: String): OcrAttempt {

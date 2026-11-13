@@ -135,9 +135,26 @@ fun GalleryModeScreen(
         else items.mapNotNull { row -> row.groupId?.let { row.id to DeviceAlbum(it, it) } }.toMap()
     }
     val media = remember(items, assignments, buckets) { GalleryLibraryState.filter(items, assignments, "all", "", buckets) }
-    val displayed = remember(items, assignments, selection, search, buckets) {
-        GalleryLibraryState.filter(items, assignments, selection, search, buckets)
+    val smartStore = remember(context) { SmartAlbumSettingsStore(context) }
+    var smartSettings by remember { mutableStateOf(smartStore.read()) }
+    var smartOptions by remember { mutableStateOf(false) }
+    val smartStates by SmartAlbumIndex.state.collectAsState()
+    val smartStatus = smartStates[source.name] ?: SmartIndexStatus()
+    LaunchedEffect(source,media,smartSettings,loading,tab,selection) {
+        if (!loading && (tab == 1 || selection.startsWith("smart:"))) SmartAlbumIndex.request(context,source.name,media,smartSettings)
     }
+    val displayed = remember(items, assignments, selection, search, buckets, smartStatus.members, smartSettings) {
+        val normal = GalleryLibraryState.filter(items, assignments, selection, search, buckets)
+        if (selection.startsWith("smart:")) {
+            val category = SmartAlbum.entries.firstOrNull { it.key == selection && it in smartSettings.enabled }
+            val ids = category?.let { smartStatus.members[it] }.orEmpty()
+            normal.filter { it.id in ids && SmartAlbumPolicy.eligible(it) }
+        } else normal
+    }
+    if (smartOptions) SmartAlbumOptionsDialog(smartSettings, onDismiss = { smartOptions=false }, onSave = {
+        smartStore.save(it); smartSettings=it; smartOptions=false
+        SmartAlbumIndex.request(context,source.name,media,it)
+    })
     val albums = remember(media, folders, assignments, buckets) {
         GalleryLibraryState.albums(media, folders, assignments, buckets)
     }
@@ -465,6 +482,12 @@ fun GalleryModeScreen(
                         },
                         onDelete = { deletingAlbum = album },
                     )
+                }
+                item(key = "smart-albums", span = { GridItemSpan(maxLineSpan) }) {
+                    SmartAlbumsPanel(smartSettings,smartStatus,
+                        onSettings = { smartOptions=true },
+                        onRefresh = { SmartAlbumIndex.request(context,source.name,media,smartSettings,true) },
+                        onOpen = { openAlbum(it.key,it.title) })
                 }
                 item(key = "albums-title", span = { GridItemSpan(maxLineSpan) }) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

@@ -1,0 +1,119 @@
+name: ML 1.7.182 library recovery and UI validation and unsigned handoff
+on:
+  push:
+    branches:
+      - feature/ml-17182-background-timer-smart-albums-20261113
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17182-background-timer-smart-albums
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle and SDK
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Validate exact app identity
+        run: |
+          grep -Eq 'versionCode 242$' app/build.gradle
+          grep -Fq "versionName '1.7.182'" app/build.gradle
+          grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
+      - name: Audit hardcoded UI palette
+        run: python3 scripts/audit_ui_palette.py
+      - name: Focused duplicate, scroll, gallery, recovery and regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*AccentPaletteTest' \
+            --tests '*SettingsIconPaletteTest' \
+            --tests '*Equalizer*Test' \
+            --tests '*MusicDuplicatePolicyTest' \
+            --tests '*MusicDuplicateSessionTest' \
+            --tests '*ModeShortcutsTest' \
+            --tests '*MusicStopTimerPolicyTest' \
+            --tests '*SmartAlbumPolicyTest' \
+            --tests '*MusicFastScrollPolicyTest' \
+            --tests '*OldDownloadsPolicyTest' \
+            --tests '*AudioReplacePolicyTest' \
+            --tests '*AudioPlaybackMetadataTest' \
+            --tests '*AudioQueuePlaybackTest' \
+            --tests '*AudioPlaybackModesTest' \
+            --tests '*PrivatePlaybackPolicyTest' \
+            --tests '*PrivatePlaybackAliasTest' \
+            --tests '*HiddenMusicPreviewTest' \
+            --tests '*MusicTrackVisibilityTest' \
+            --tests '*InstagramProviderTest' \
+            --tests '*InstagramApiFailureTest' \
+            --tests '*GapiInstagramClientTest' \
+            --tests '*GapiInstagramProviderTest' \
+            --tests '*StorageNamingTest' \
+            --tests '*PrivateViewerQueueTest' \
+            --tests '*PrivateViewerChromeTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*OcrLineCandidatePolicyTest' \
+            --tests '*GlyphContentMaskTest' \
+            --tests '*LocalTextOcrFallbackTest' \
+            --tests '*LaMaCompositionTest' \
+            --tests '*LargePersonBackgroundRecoveryTest' \
+            --tests '*MediaStoragePolicyTest' \
+            --tests '*StorageSettingsPicturesTest' \
+            --tests '*LegacyMediaMigrationHistoryTest' \
+            --tests '*DownloadQueueTest' \
+            --tests '*GalleryLibraryStateTest' \
+            --tests '*EditorPaletteTest' \
+            --tests '*VideoAudioLaneGestureTest' \
+            --stacktrace
+      - name: Full JVM suite
+        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        if: success()
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: ARM64 release compilation
+        if: success()
+        run: |
+          ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          test "$(unzip -Z1 app/build/outputs/apk/release/app-release-unsigned.apk | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+      - name: Align APK and archive exact source commit
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          input=app/build/outputs/apk/release/app-release-unsigned.apk
+          "$bt/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='242' versionName='1.7.182'"
+          test "$(unzip -Z1 "$input" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          mkdir -p handoff/tools handoff/source
+          aligned=handoff/ML_1.7.182_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -p -f 4 "$input" "$aligned"
+          "$bt/zipalign" -c -v 4 "$aligned"
+          cp "$bt/lib/apksigner.jar" handoff/tools/apksigner.jar
+          git archive --format=zip -o handoff/source/ML_1.7.182_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/source/DELIVERY_COMMIT_SHA.txt
+          (cd handoff && sha256sum ML_1.7.182_ARM64_ALIGNED_UNSIGNED.apk tools/apksigner.jar source/ML_1.7.182_SOURCES_EXACT_COMMIT.zip > UNSIGNED_HANDOFF_SHA256.txt)
+      - name: Temporary unsigned handoff for local signing (not a release)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.182_PRIVATE_UNSIGNED_LOCAL_SIGNING
+          path: handoff/
+          retention-days: 2
+          if-no-files-found: error
+          compression-level: 0
