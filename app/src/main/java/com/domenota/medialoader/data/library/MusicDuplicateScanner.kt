@@ -107,6 +107,25 @@ internal object MusicDuplicateScanner {
         }
         DuplicateScanResult(MusicDuplicatePolicy.groups(tracks),skipped)
     }
+    /** Restore only still-identical public rows; no audio decoding or hashing here. */
+    suspend fun restore(context: Context, saved: DuplicateScanResult, rows: List<DownloadEntity>,
+        linkedIds: Set<String>, currentId: String?): DuplicateScanResult = withContext(Dispatchers.IO) {
+        val byId = rows.associateBy { it.id }
+        var stale = 0
+        val groups = saved.groups.mapNotNull { group ->
+            val valid = group.tracks.mapNotNull { t ->
+                coroutineContext.ensureActive()
+                val row = byId[t.id]
+                val ok = row != null && !row.hidden && !row.isPrivate && row.state == DownloadState.COMPLETED &&
+                    row.mediaType == MediaType.AUDIO && row.savedUri == t.uri && row.originalName == t.filename &&
+                    t.modified != null && runCatching { stamp(context, Uri.parse(t.uri)).let { it.size == t.bytes && it.modified == t.modified } }.getOrDefault(false)
+                if (ok) t.copy(linked = t.id in linkedIds, current = t.id == currentId)
+                else { stale++; null }
+            }
+            if (valid.size >= 2) group.copy(tracks = valid) else null
+        }
+        DuplicateScanResult(groups, saved.skipped + stale)
+    }
     suspend fun verify(context: Context, groups: List<DuplicateGroup>, selected: Set<String>, currentRows: List<DownloadEntity>): Unit = withContext(Dispatchers.IO) {
         check(MusicDuplicatePolicy.validSelection(groups,selected)) { "Недопустимое выделение" }
         val rows = currentRows.associateBy { it.id }

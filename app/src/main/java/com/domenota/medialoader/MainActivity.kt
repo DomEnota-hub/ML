@@ -25,6 +25,13 @@ class MainActivity : ComponentActivity() {
     private var sharedText by mutableStateOf<String?>(null)
     private var sharedTextGeneration by mutableIntStateOf(0)
     private var wasForeground = false
+    private var shortcutMode by mutableStateOf<com.domenota.medialoader.data.library.AppMode?>(null)
+    private var shortcutGeneration by mutableIntStateOf(0)
+    private fun acceptModeShortcut(incoming: Intent?) {
+        com.domenota.medialoader.data.library.ModeShortcuts.mode(incoming?.action)?.let {
+            shortcutMode = it; shortcutGeneration++
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val startupAt = android.os.SystemClock.uptimeMillis()
@@ -46,6 +53,7 @@ class MainActivity : ComponentActivity() {
         }
         // A recreated activity (rotation) must not re-import the link the user already saw.
         if (savedInstanceState == null) {
+            acceptModeShortcut(intent)
             textFrom(intent)?.let {
                 sharedText = it
                 sharedTextGeneration++
@@ -54,6 +62,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             MediaLoaderTheme {
                 MediaLoaderApp(
+                    shortcutMode = shortcutMode,
+                    shortcutGeneration = shortcutGeneration,
+                    onShortcutConsumed = { shortcutMode = null },
                     sharedText = sharedText,
                     sharedTextGeneration = sharedTextGeneration,
                     onSharedTextConsumed = { sharedText = null },
@@ -73,6 +84,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (forwardAutomaticShare(intent, !wasForeground)) return
+        acceptModeShortcut(intent)
         textFrom(intent)?.let {
             sharedText = it
             sharedTextGeneration++

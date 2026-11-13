@@ -45,6 +45,7 @@ import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.ui.components.*
 import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.ui.screens.gallery.*
+import com.domenota.medialoader.ui.screens.music.GalleryFastScroll
 import java.time.*
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -217,6 +218,11 @@ fun GalleryModeScreen(
         orderedDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
             .atZone(ZoneId.systemDefault()).toLocalDate() }
     }
+    // One label per actual grid item, including controls and full-width date headers.
+    // When sorting by name/size, the label is the date of the actual target file.
+    val galleryScrollLabels = remember(orderedDisplayed, dateSections, detailOpen, albumFileSort) {
+        galleryFastScrollLabels(orderedDisplayed, !detailOpen || GalleryAlbumFileOrder.groupedByDate(albumFileSort))
+    }
     LaunchedEffect(jumpToMedia, orderedDisplayed, detailOpen, tab, albumFileSort) {
         val id = jumpToMedia ?: return@LaunchedEffect
         if (!detailOpen || tab != 0) return@LaunchedEffect
@@ -387,8 +393,8 @@ fun GalleryModeScreen(
             // a fixed, opaque 106dp blank strip.
             // Leave enough scroll tail to expose the final row above the overlay.
             // The tail lives *inside* the scrollable grid, not in Scaffold.
-            contentPadding = PaddingValues(bottom =
-                with(density) { galleryOverlayHeightPx.toDp() } + 12.dp)) {
+            contentPadding = PaddingValues(end = if (tab == 0 && orderedDisplayed.size > 4) 36.dp else 0.dp,
+                bottom = with(density) { galleryOverlayHeightPx.toDp() } + 12.dp)) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
                 if (!selecting) Column {
                     if (!detailOpen) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -407,16 +413,12 @@ fun GalleryModeScreen(
                             ) {
                                 GalleryAlbumFileSort.entries.forEach { option ->
                                     DropdownMenuItem(
-                                        text = { Text(option.label, color = Color.White) },
+                                        text = { Text(option.label, color = if (albumFileSort == option) com.domenota.medialoader.ui.theme.musicPlaybackAccent else MaterialTheme.colorScheme.onSurface) },
                                         onClick = {
                                             albumSortMenuExpanded = false
                                             albumFileSortStore.save(source.name, selection, option)
                                             albumFileSort = option
                                             selectedJumpDate = null
-                                        },
-                                        leadingIcon = {
-                                            if (albumFileSort == option)
-                                                Icon(Icons.Rounded.Check, null, tint = Color.White)
                                         },
                                     )
                                 }
@@ -593,6 +595,12 @@ fun GalleryModeScreen(
                         }
                     }
             }
+        }
+        if (tab == 0 && dragSelectionAnchor == null) {
+            GalleryFastScroll(mediaGridState, galleryScrollLabels,
+                Modifier.align(Alignment.CenterEnd)
+                    .padding(bottom = with(density) { galleryOverlayHeightPx.toDp() })
+                    .zIndex(4f))
         }
         // Floating drag preview remains present even when its original row scrolls out of view.
         draggingAlbumKey?.let { key ->

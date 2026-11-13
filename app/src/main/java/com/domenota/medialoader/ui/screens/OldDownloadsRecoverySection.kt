@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
 
 /** Independent legacy-folder operation. No mutation on opening or inventory. */
 @Composable
-internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
+internal fun OldDownloadsRecoverySection(activeDownloadCount: Int, onBusyChange: (Boolean) -> Unit = {}) {
     val context = LocalContext.current.applicationContext
     val repository = remember(context) { MediaRepository.get(context) }
     val scope = rememberCoroutineScope()
@@ -106,13 +106,19 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
         if (uris.isEmpty()) perform(action)
         else { grantBatches = uris.distinct().chunked(2000); grantIndex = 0; grantAction = action }
     }
+    LaunchedEffect(busy, grantAction) { onBusyChange(busy || grantAction != null) }
+    DisposableEffect(Unit) { onDispose { onBusyChange(false) } }
     BackHandler(busy || grantAction != null) { }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-        Text("Восстановление старых загрузок", style = MaterialTheme.typography.titleMedium)
-        Text("Download/MediaLoader → Pictures/MediaLoader · аудио → Music/MediaLoader", style = MaterialTheme.typography.bodySmall)
-        Text("Исходные даты, URI и содержимое сохраняются. Массовый режим — после одиночной проверки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        NeutralTextButton(onClick = { run { inspect() } }, enabled = available) { Text("Проверить папку · только чтение") }
-        Text(status, style = MaterialTheme.typography.bodySmall)
+        Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Инвентаризация", style = MaterialTheme.typography.titleMedium)
+                Text("Download/MediaLoader", style = MaterialTheme.typography.bodyMedium)
+                Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(onClick = { run { inspect() } }, enabled = available, modifier = Modifier.fillMaxWidth()) { Text("Проверить папку") }
+                Text("Только чтение. Исходные даты, URI и содержимое сохраняются.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (state != null) {
             val excluded = state!!.skipped.size + state!!.candidates.count { it.problem != null }
@@ -128,7 +134,8 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
                         Text("Подтверждённый остаток ML: фото/видео Instagram, ADDICT и COTTON CANDY YouTube; прочее аудио — неизвестный источник.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                Text("Шаг 1 · один файл", style = MaterialTheme.typography.titleSmall)
+                HorizontalDivider()
+                Text("1 · Пробный перенос", style = MaterialTheme.typography.titleMedium)
                 selected?.let {
                     Text(it.name, style = MaterialTheme.typography.bodyMedium)
                     Text("Исходная дата: ${dateFormat.format(Date(it.receivedMillis))}", style = MaterialTheme.typography.bodySmall)
@@ -142,7 +149,8 @@ internal fun OldDownloadsRecoverySection(activeDownloadCount: Int) {
                         NeutralTextButton(onClick = { confirm = "verify" }, enabled = available) { Text("Подтвердить результат проверки") }
                     }
                 }
-                Text("Шаг 2 · оставшиеся файлы", style = MaterialTheme.typography.titleSmall)
+                HorizontalDivider()
+                Text("2 · Массовое восстановление", style = MaterialTheme.typography.titleMedium)
                 val bulk = candidates.filter(::eligible)
                 Text(if (state!!.trialConfirmed) "Массовый режим доступен · ${bulk.size} файлов" else "Массовый режим закрыт", style = MaterialTheme.typography.bodySmall)
                 NeutralTextButton(onClick = { confirm = "bulk" }, enabled = available && state!!.trialConfirmed && bulk.isNotEmpty()) { Text("Восстановить все оставшиеся (${bulk.size})") }
