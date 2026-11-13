@@ -32,7 +32,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-fun MusicModeScreen(
+internal fun MusicModeScreen(
     items: List<DownloadEntity>, allAudio: List<DownloadEntity>, playlists: List<MediaPlaylist>, header: @Composable () -> Unit,
     loading: Boolean, message: String?, onOpen: (String, List<String>) -> Unit, onOpenPrivate: () -> Unit,
     onCreate: suspend (String) -> String, onRename: suspend (String, String) -> Unit, onDeletePlaylist: suspend (String) -> Unit,
@@ -46,7 +46,7 @@ fun MusicModeScreen(
     hiddenTracksOpen: Boolean = false, onDismissHiddenTracks: () -> Unit = {},
     favoriteIds: Set<String> = emptySet(),
     duplicateLinkedIds: Set<String> = emptySet(),
-    onTrashDuplicates: ((List<String>) -> Unit)? = null,
+    onTrashDuplicates: ((com.domenota.medialoader.data.library.DuplicateTrashSelection) -> Unit)? = null,
     duplicateRequest: Int = 0, onDuplicateRequestHandled: () -> Unit = {},
     onPreviewFromPlaylist: ((String,List<String>,String) -> Unit)? = null,
     onOpenFromPlaylist: ((String,List<String>,String) -> Unit)? = null,

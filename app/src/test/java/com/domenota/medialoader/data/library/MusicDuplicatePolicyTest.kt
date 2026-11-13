@@ -36,6 +36,14 @@ class MusicDuplicatePolicyTest {
         assertFalse(MusicDuplicatePolicy.validSelection(groups,g.tracks.map{it.id}.toSet()))
         assertTrue(MusicDuplicatePolicy.validSelection(groups,selected-"a"))
     }
+    @Test fun switchKeeperSwapsOnlyWhenExactlyOneRetained() {
+        val group = DuplicateGroup(listOf(t("1","Song","A"),t("2","Song","A"),t("3","Song","A")),"Song","Same")
+        val selection = setOf("1","3","other")
+        assertEquals(setOf("1","2","other"), MusicDuplicatePolicy.switchKeeper(group,selection,"2","3"))
+        assertEquals(selection,MusicDuplicatePolicy.switchKeeper(group,selection,"2","2"))
+        assertEquals(setOf("other"),MusicDuplicatePolicy.switchKeeper(group,setOf("3","other"),"2","3"))
+        assertEquals(selection,MusicDuplicatePolicy.switchKeeper(group,selection,"2","invalid"))
+    }
     @Test fun unknownArtistDoesNotBridgeDifferentKnownArtists() {
         val groups = MusicDuplicatePolicy.groups(listOf(t("a","Same","A"),t("b","Same",null),t("c","Same","C")))
         assertFalse(groups.any { it.tracks.size == 3 })

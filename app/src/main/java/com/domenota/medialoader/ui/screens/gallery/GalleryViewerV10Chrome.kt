@@ -126,7 +126,7 @@ internal fun GalleryVideoHeader(
                                     modifier = Modifier.size(if (compactLandscape) 24.dp else 28.dp),
                                     tint = if (isFavorite) Color(0xFFF04452) else Color.White,
                                 )
-                            } else if (asset == "share") GalleryShareIcon(Modifier.size(if (compactLandscape) 26.dp else 30.dp))
+                            } else if (asset == "share") GalleryShareIcon(Modifier.size(if (compactLandscape) 25.dp else 28.dp))
                             else GalleryV10Icon(asset, Modifier.size(if (compactLandscape) 24.dp else 28.dp))
                         }
                     }
@@ -178,7 +178,7 @@ internal fun GalleryV10Bottom(
                         modifier = Modifier.size(30.dp),
                         tint = if (isFavorite) Color(0xFFF04452) else Color.White,
                     )
-                } else if (key == "share") GalleryShareIcon(Modifier.size(32.dp))
+                } else if (key == "share") GalleryShareIcon(Modifier.size(30.dp))
                 else GalleryV10Icon(key, Modifier.size(30.dp))
             }
         }

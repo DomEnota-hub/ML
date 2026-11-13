@@ -2,6 +2,15 @@ package com.domenota.medialoader.ui.screens.music
 
 import android.net.Uri
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -39,7 +48,7 @@ import kotlinx.coroutines.launch
 @OptIn(androidx.media3.common.util.UnstableApi::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
 internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<String>, currentId: String?, mainPlaying: Boolean,
-    onDismiss: () -> Unit, onTrash: (List<String>) -> Unit) {
+    onDismiss: () -> Unit, onTrash: (DuplicateTrashSelection) -> Unit) {
     val context = LocalContext.current
     val latestRows by rememberUpdatedState(rows)
     val latestCurrent by rememberUpdatedState(currentId)
@@ -119,7 +128,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     LaunchedEffect(result) {
         if (result == null) return@LaunchedEffect
         snapshotFlow { snapshot() }.debounce(350L).collect { saved ->
-            if (saved != null && !MusicDuplicateSessionStore.save(context,saved)) error = "Не удалось сохранить состояние"
+            if (saved != null && !verifying && !MusicDuplicateSessionStore.save(context,saved)) error = "Не удалось сохранить состояние"
         }
     }
     fun restorePrevious(saved: DuplicateSession) {
@@ -152,9 +161,17 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             MusicDuplicateSessionStore.save(context,saved); onDismiss()
         }
     }
-    Dialog(onDismissRequest = { if (!verifying) close() }, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !verifying, decorFitsSystemWindows = false)) {
+    Dialog(onDismissRequest = { if (!verifying) close() }, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !verifying, decorFitsSystemWindows = true)) {
+        // The dialog owns its Window. Fit the actual dialog to system bars, rather
+        // than depending on the Activity's consumed Compose insets.
+        val dialogView = LocalView.current
+        SideEffect {
+            (dialogView.parent as? DialogWindowProvider)?.window?.let { window ->
+                WindowCompat.setDecorFitsSystemWindows(window, true)
+            }
+        }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ close() }, enabled = !verifying) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
                     Text("Дубликаты треков", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
@@ -206,9 +223,23 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                                 MusicDuplicatePolicy.version(t)?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                                                 if (t.linked) Text("Есть связи библиотеки", style = MaterialTheme.typography.labelSmall, color = musicPlaybackAccent)
                                                 if (t.id == keep) Text("Оставить", color = musicPlaybackAccent, style = MaterialTheme.typography.labelMedium)
-                                                else TextButton({ kept = kept + (group.key to t.id); selected = selected - t.id }, enabled = !verifying) { Text("Оставить эту версию") }
+                                                else TextButton({
+                                                    selected = MusicDuplicatePolicy.switchKeeper(group, selected, keep, t.id)
+                                                    kept = kept + (group.key to t.id)
+                                                }, enabled = !verifying) { Text("Оставить эту версию") }
                                             }
-                                            Checkbox(checked = t.id in selected, onCheckedChange = { checked -> selected = if (checked) selected + t.id else selected - t.id }, enabled = t.id != keep && !verifying, modifier = Modifier.testTag("duplicate-select-${t.id}"))
+                                            val checked = t.id in selected
+                                            val enabled = t.id != keep && !verifying
+                                            val mark = if (checked) musicPlaybackAccent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else .55f)
+                                            Box(Modifier.size(48.dp).testTag("duplicate-select-${t.id}")
+                                                .toggleable(value = checked, enabled = enabled, role = Role.Checkbox,
+                                                    onValueChange = { value -> selected = if (value) selected + t.id else selected - t.id }),
+                                                contentAlignment = Alignment.Center) {
+                                                Box(Modifier.size(24.dp).border(2.dp, mark, CircleShape)
+                                                    .background(if (checked) mark else Color.Transparent, CircleShape), contentAlignment = Alignment.Center) {
+                                                    if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.surface)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -219,12 +250,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         tag = "duplicates-fast-scroll", description = "Быстрая прокрутка дубликатов")
                     }
                     if (groups.isNotEmpty()) {
-                        HorizontalDivider()
-                        Spacer(Modifier.height(8.dp))
-                        Text("Выбрано: ${selected.size} · ${android.text.format.Formatter.formatFileSize(context,size)}", style = MaterialTheme.typography.bodyMedium)
-                        Button(onClick = { confirm = true }, enabled = selected.isNotEmpty() && !verifying, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
-                            Text(if (verifying) "Проверка файлов…" else "В корзину (${selected.size})")
-                        }
+                        DuplicateResultsFooter(selected.size, android.text.format.Formatter.formatFileSize(context,size), verifying) { confirm = true }
                     }
                 }
             }
@@ -235,14 +261,26 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }, dismissButton = { TextButton({ confirm = false }) { Text("Отмена") } }, confirmButton = {
         TextButton({
             confirm = false; val choice = selected.toSet()
-            if (latestCurrent in choice) { error = "Текущий трек выбран. Сохраните его или переключите воспроизведение."; return@TextButton }
             stopPreview(); verifying = true
             scope.launch {
                 try {
-                    MusicDuplicateScanner.verify(context,groups,choice,latestRows)
-                    check(latestCurrent !in choice) { "Текущий трек изменился" }
-                    snapshot()?.let { MusicDuplicateSessionStore.save(context,it) }
-                    onTrash(choice.toList()); onDismiss()
+                    check(MusicDuplicatePolicy.validSelection(groups,choice)) { "Недопустимое выделение" }
+                    val verified = mutableSetOf<String>()
+                    val failures = linkedMapOf<String,String>()
+                    for (group in groups) {
+                        val groupChoice = choice.intersect(group.tracks.map { it.id }.toSet())
+                        if (groupChoice.isEmpty()) continue
+                        try {
+                            check(latestCurrent !in groupChoice) { "Текущий трек выбран" }
+                            MusicDuplicateScanner.verify(context,listOf(group),groupChoice,latestRows)
+                            verified += groupChoice
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { groupChoice.forEach { failures[it] = e.message ?: "Проверка группы не прошла" } }
+                    }
+                    check(latestCurrent !in verified) { "Текущий трек изменился" }
+                    val saved = requireNotNull(snapshot())
+                    check(MusicDuplicateSessionStore.save(context,saved)) { "Не удалось сохранить состояние" }
+                    onTrash(DuplicateTrashSelection(groups, choice, verified, failures)); onDismiss()
                 } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message ?: "Проверка не прошла" }
                 finally { verifying = false }
             }

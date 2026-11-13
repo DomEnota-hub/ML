@@ -102,6 +102,14 @@ internal object MusicDuplicatePolicy {
         val retained = keep[group.key]?.takeIf { id -> group.tracks.any { it.id == id } } ?: recommended(group)
         group.tracks.map { it.id }.filter { it != retained }
     }.toSet()
+    /** Transfer the only keeper's mark without changing unrelated/manual exceptions. */
+    fun switchKeeper(group: DuplicateGroup, selected: Set<String>, previous: String, next: String): Set<String> {
+        val ids = group.tracks.map { it.id }.toSet()
+        if (previous == next || next !in ids || previous !in ids) return selected
+        val retained = ids - selected
+        val changed = selected - next
+        return if (retained == setOf(previous) && next in selected) changed + previous else changed
+    }
     fun validSelection(groups: List<DuplicateGroup>, selected: Set<String>): Boolean = selected.isNotEmpty() &&
         selected.all { id -> groups.any { group -> group.tracks.any { it.id == id } } } &&
         groups.all { group -> group.tracks.any { it.id !in selected } }

@@ -862,14 +862,25 @@ fun MediaLoaderApp(
         }.flatten())
     }
     val deleteLibraryFile: (String) -> Unit = { deleteLibraryFiles(listOf(it)) }
-    val trashDuplicates: (List<String>) -> Unit = { ids ->
-        val resolved = ids.distinct().mapNotNull { id -> libraryRefsByAlias[id]?.takeUnless { it.item.isPrivate || it.item.hidden || it.item.mediaType != MediaType.AUDIO } }
-        if (resolved.size != ids.size || resolved.any { it.key == currentLibraryAudioId } || resolved.map { it.item.savedUri }.distinct().size != resolved.size || resolved.any { it.item.savedUri.isNullOrBlank() }) {
-            Toast.makeText(context, "Список дубликатов изменился. Повторная проверка необходима.", Toast.LENGTH_SHORT).show()
-        } else {
-            pendingTrashOnly = true
-            pendingDeleteRecords = ArrayList(resolved.flatMap { ref -> listOf(ref.appDownloadId ?: ref.key, requireNotNull(ref.item.savedUri)) })
-        }
+    var duplicateTrash by remember { mutableStateOf<com.domenota.medialoader.data.library.DuplicateTrashSelection?>(null) }
+    val trashDuplicates: (com.domenota.medialoader.data.library.DuplicateTrashSelection) -> Unit = { request ->
+        duplicateTrash = request
+    }
+    duplicateTrash?.let { request ->
+        com.domenota.medialoader.ui.components.DuplicateTrashHost(
+            request = request, refs = libraryRefsByAlias, currentId = currentLibraryAudioId,
+            onAppTrash = viewModel::trashVerifiedDuplicate,
+            onTrashed = { uris ->
+                com.domenota.medialoader.data.playback.AudioPlaybackService.removeTrashedFromQueue(uris.toList())
+                MusicDuplicateSessionStore.removeTrashed(context, uris)
+            },
+            onClose = {
+                duplicateTrash = null
+                libraryModel.refresh(AppMode.GALLERY, force = true)
+                libraryModel.refresh(AppMode.MUSIC, force = true)
+                duplicateRequest++
+            },
+        )
     }
     if (pendingDeleteRecords.isNotEmpty()) {
         val targets = remember(pendingDeleteRecords) { pendingDeleteRecords.chunked(2).map {

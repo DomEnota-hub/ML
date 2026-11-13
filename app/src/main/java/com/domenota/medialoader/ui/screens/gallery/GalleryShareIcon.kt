@@ -30,7 +30,7 @@ internal fun GalleryShareIcon(modifier: Modifier = Modifier) {
             quadraticBezierTo(x+20.2f*u,y+9*u,x+18.4f*u,y+9*u)
             lineTo(x+16*u,y+9*u)
         }
-        val stroke = 1.85f*u
+        val stroke = 1.55f*u
         drawPath(outline,Color.White,style=Stroke(stroke,cap=StrokeCap.Round,join=StrokeJoin.Round))
         drawLine(Color.White,point(12f,2.2f),point(12f,15f),stroke,StrokeCap.Round)
         val arrow = Path().apply {
