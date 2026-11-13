@@ -4,7 +4,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.SettingsBackupRestore
+import androidx.compose.material.icons.rounded.Troubleshoot
+import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Article
 import androidx.compose.material.icons.rounded.InsertPhoto
 import androidx.compose.material.icons.rounded.PhotoCamera
@@ -43,6 +46,8 @@ internal fun MediaRecoveryLabSection(
     operationBusy: Boolean,
     sandboxBusy: Boolean,
     onSandboxBusyChange: (Boolean) -> Unit,
+    oldRecoveryBusy: Boolean,
+    onOldRecoveryBusyChange: (Boolean) -> Unit,
     activeDownloadCount: Int,
     storageMigrationRunning: Boolean,
     storageMigrationMessage: String,
@@ -89,6 +94,8 @@ internal fun MediaRecoveryLabSection(
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var diagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
+    var oldExpanded by rememberSaveable { mutableStateOf(false) }
+    var historicalExpanded by rememberSaveable { mutableStateOf(false) }
     var migrateLegacyDialog by remember { mutableStateOf(false) }
     var dateTrialDialog by remember { mutableStateOf(false) }
     var republishTrialDialog by remember { mutableStateOf(false) }
@@ -110,18 +117,27 @@ internal fun MediaRecoveryLabSection(
     Spacer(Modifier.height(10.dp))
     SettingsGroup {
         SettingRow(
-            Icons.Rounded.BugReport, "Инструменты восстановления",
-            "Исторические даты · проверка одного файла и массовое восстановление",
+            Icons.Rounded.SettingsBackupRestore, "Инструменты восстановления",
+            "Файлы и исторические даты",
             grouped = true, expanded = expanded, iconTone = SettingIconTone.DIAGNOSTICS,
             onClick = { if (!operationBusy) expanded = !expanded },
         )
         ExpandableSettingsBody(expanded || operationBusy) {
             TextButton(onClick = onHide, enabled = !operationBusy) { Text("Скрыть лабораторию") }
-            OldDownloadsRecoverySection(activeDownloadCount)
             GroupDivider()
-            HistoricalRecoverySection(activeDownloadCount)
+            SettingRow(Icons.Rounded.FolderOpen, "Старые загрузки", "Инвентаризация и перенос",
+                grouped = true, nested = true, expanded = oldExpanded || oldRecoveryBusy,
+                onClick = { if (!oldRecoveryBusy) oldExpanded = !oldExpanded })
+            ExpandableSettingsBody(oldExpanded || oldRecoveryBusy) {
+                OldDownloadsRecoverySection(activeDownloadCount, onOldRecoveryBusyChange)
+            }
             GroupDivider()
-            SettingRow(Icons.Rounded.BugReport, "Дополнительная диагностика",
+            SettingRow(Icons.Rounded.DateRange, "Исторические даты", "Проверка и восстановление дат",
+                grouped = true, nested = true, expanded = historicalExpanded,
+                onClick = { if (!operationBusy) historicalExpanded = !historicalExpanded })
+            ExpandableSettingsBody(historicalExpanded) { HistoricalRecoverySection(activeDownloadCount) }
+            GroupDivider()
+            SettingRow(Icons.Rounded.Troubleshoot, "Дополнительная диагностика",
                 "Предыдущие эксперименты, искусственные пробы и отчёты",
                 grouped = true, nested = true, expanded = diagnosticsExpanded,
                 iconTone = SettingIconTone.DIAGNOSTICS,

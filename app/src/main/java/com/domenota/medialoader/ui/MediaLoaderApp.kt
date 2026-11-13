@@ -165,6 +165,9 @@ private fun fileNameFieldColors() = if (MaterialTheme.colorScheme.background.lum
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaLoaderApp(
+    shortcutMode: AppMode? = null,
+    shortcutGeneration: Int = 0,
+    onShortcutConsumed: () -> Unit = {},
     sharedText: String? = null,
     sharedTextGeneration: Int = 0,
     onSharedTextConsumed: () -> Unit = {},
@@ -192,7 +195,7 @@ fun MediaLoaderApp(
         onDispose { libraryModel.holdAutomaticMediaIndexing(false) }
     }
     val libraryPreferences = remember(context) { LibraryPreferences(context) }
-    var appMode by rememberSaveable { mutableStateOf(libraryPreferences.mode) }
+    var appMode by rememberSaveable { mutableStateOf(shortcutMode ?: libraryPreferences.mode) }
     var privateNavigation by remember { mutableStateOf(false) }
     var galleryDateRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryTab by rememberSaveable { mutableIntStateOf(0) }
@@ -966,6 +969,21 @@ fun MediaLoaderApp(
         }
     }
 
+    LaunchedEffect(shortcutMode, shortcutGeneration) {
+        val mode = shortcutMode ?: return@LaunchedEffect
+        if (mode != AppMode.GALLERY && mode != AppMode.MUSIC) return@LaunchedEffect
+        viewModel.privateAccess.lock()
+        privateNavigation = false
+        hiddenMusicTracksOpen = false
+        galleryAlbumRequest = null
+        galleryTab = 0; musicTab = 0
+        changeAppMode(mode)
+        navController.navigate(AppDestination.Home.route) {
+            popUpTo(AppDestination.Home.route) { inclusive = false }
+            launchSingleTop = true
+        }
+        onShortcutConsumed()
+    }
     LaunchedEffect(sharedText, sharedTextGeneration) {
         if (!sharedText.isNullOrBlank()) {
             // ACTION_SEND is explicit user intent and always wins over clipboard auto-import.

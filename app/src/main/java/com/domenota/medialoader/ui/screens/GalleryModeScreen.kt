@@ -407,16 +407,12 @@ fun GalleryModeScreen(
                             ) {
                                 GalleryAlbumFileSort.entries.forEach { option ->
                                     DropdownMenuItem(
-                                        text = { Text(option.label, color = Color.White) },
+                                        text = { Text(option.label, color = if (albumFileSort == option) com.domenota.medialoader.ui.theme.musicPlaybackAccent else MaterialTheme.colorScheme.onSurface) },
                                         onClick = {
                                             albumSortMenuExpanded = false
                                             albumFileSortStore.save(source.name, selection, option)
                                             albumFileSort = option
                                             selectedJumpDate = null
-                                        },
-                                        leadingIcon = {
-                                            if (albumFileSort == option)
-                                                Icon(Icons.Rounded.Check, null, tint = Color.White)
                                         },
                                     )
                                 }

@@ -43,6 +43,8 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Article
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Science
+import androidx.compose.material.icons.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.CloseFullscreen
 import androidx.compose.material.icons.rounded.PlaylistAddCheck
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -433,7 +435,8 @@ fun SettingsScreen(
     var recoveryLabVisible by remember { mutableStateOf(prefs.getBoolean("recovery_lab_visible", false)) }
     val historicalRunning by com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.collectAsState()
     var sandboxRunning by remember { mutableStateOf(false) }
-    val recoveryLabBusy = sandboxRunning || historicalRunning || storageMigrationRunning || galleryDateAuditBusy ||
+    var oldRecoveryRunning by remember { mutableStateOf(false) }
+    val recoveryLabBusy = oldRecoveryRunning || sandboxRunning || historicalRunning || storageMigrationRunning || galleryDateAuditBusy ||
         migrationInventoryBusy || republishTrialBusy || exifTrialBusy || videoTrialBusy ||
         sameUriBusy || dateRecoveryBusy
     fun setRecoveryLabVisible(value: Boolean) {
@@ -1075,6 +1078,8 @@ fun SettingsScreen(
             operationBusy = recoveryLabBusy,
             sandboxBusy = sandboxRunning,
             onSandboxBusyChange = { sandboxRunning = it },
+            oldRecoveryBusy = oldRecoveryRunning,
+            onOldRecoveryBusyChange = { oldRecoveryRunning = it },
             activeDownloadCount = activeDownloadCount,
             storageMigrationRunning = storageMigrationRunning,
             storageMigrationMessage = storageMigrationMessage,
@@ -1205,6 +1210,8 @@ fun SettingsScreen(
                 },
             )
             }
+            GroupDivider()
+            ModeShortcutsSection()
         }
 
         Spacer(Modifier.height(26.dp))
@@ -1287,7 +1294,7 @@ fun SettingsScreen(
                 )
                 GroupDivider()
                 SettingRow(
-                    Icons.Rounded.BugReport,
+                    Icons.Rounded.FormatListBulleted,
                     "Расширенный журнал",
                     if (extendedLog) "Подробные события всех подсистем · включён"
                     else "Подробная диагностика · выключена",
@@ -1309,7 +1316,7 @@ fun SettingsScreen(
                     },
                 )
                 GroupDivider()
-                SettingRow(Icons.Rounded.BugReport, "Лаборатория исправлений",
+                SettingRow(Icons.Rounded.Science, "Лаборатория исправлений",
                     if (recoveryLabVisible) "Показана" else "Скрыта", grouped = true,
                     iconTone = SettingIconTone.DIAGNOSTICS, showChevron = false,
                     trailing = { Switch(checked = recoveryLabVisible, enabled = !recoveryLabBusy,

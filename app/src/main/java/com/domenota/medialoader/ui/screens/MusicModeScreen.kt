@@ -14,7 +14,6 @@ import androidx.compose.material3.*
 import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -233,10 +232,9 @@ fun MusicModeScreen(
                                     DropdownMenuItem(text = { Text("Найти дубликаты") }, onClick = { sortMenu = false; duplicatesOpen = true }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                                     HorizontalDivider()
                                 }
-                                MusicLibrarySort.entries.filter { it != MusicLibrarySort.DATE_OLDEST }.forEach { option ->
-                                    DropdownMenuItem(text = { Text(musicSortCaption(if (option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE_OLDEST) sort else option)) },
-                                        onClick = { sort = if (option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE) MusicLibrarySort.DATE_OLDEST else option; sortMenu = false },
-                                        leadingIcon = { if (sort == option || option == MusicLibrarySort.DATE && sort == MusicLibrarySort.DATE_OLDEST) Icon(Icons.Rounded.Check, null) })
+                                MusicLibrarySort.entries.forEach { option ->
+                                    DropdownMenuItem(text = { Text(musicSortLabel(option), color = if (sort == option) com.domenota.medialoader.ui.theme.musicPlaybackAccent else MaterialTheme.colorScheme.onSurface) },
+                                        onClick = { sort = option; sortMenu = false })
                                 }
                             }
                         }
@@ -465,12 +463,11 @@ private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Un
 }
 
 @Composable
-private fun musicSortCaption(sort: MusicLibrarySort): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
-    val dated = sort == MusicLibrarySort.DATE || sort == MusicLibrarySort.DATE_OLDEST
-    withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.onSurface)) {
-        append(if (dated) "По дате · " else sort.label)
-    }
-    if (dated) withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.onSurface)) {
-        append(if (sort == MusicLibrarySort.DATE) "новые" else "старые")
-    }
+private fun musicSortCaption(sort: MusicLibrarySort): androidx.compose.ui.text.AnnotatedString =
+    androidx.compose.ui.text.AnnotatedString(musicSortLabel(sort))
+
+private fun musicSortLabel(sort: MusicLibrarySort): String = when (sort) {
+    MusicLibrarySort.DATE -> "Сначала новые"
+    MusicLibrarySort.DATE_OLDEST -> "Сначала старые"
+    else -> sort.label
 }
