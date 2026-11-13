@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -153,6 +155,12 @@ fun GapiKeysDialog(
                                 editing = key; name = key.name; token = ""; error = null
                             }) { Text("Название") }
                         }
+                        if (key.remaining != null && key.monthlyLimit != null && key.monthlyLimit > 0) {
+                            LinearProgressIndicator(progress = { (key.remaining.toFloat() / key.monthlyLimit).coerceIn(0f,1f) },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
+                        }
+                        val linked = keys.filter { it.id != key.id && it.balanceId == key.balanceId }
+                        if (linked.isNotEmpty()) Text("Общий счёт: ${linked.joinToString { it.name }}",style = MaterialTheme.typography.bodySmall)
                         key.balanceCheckedAt?.let { Text("Сверено: ${DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
                         NeutralTextButton(enabled = store.storageAvailable, onClick = {
                             balanceTarget = key

@@ -1099,7 +1099,7 @@ fun MediaLoaderApp(
         containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
             else MaterialTheme.colorScheme.background,
         contentWindowInsets = when {
-            currentRoute == "music-duplicates" -> androidx.compose.foundation.layout.WindowInsets.safeDrawing
+            currentRoute == "music-duplicates" -> WindowInsets.safeDrawing
             fullBleedGalleryViewer -> WindowInsets(0, 0, 0, 0)
             galleryHomeOverlay -> WindowInsets.statusBars
             else -> ScaffoldDefaults.contentWindowInsets
