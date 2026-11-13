@@ -103,7 +103,8 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
     currentId:String?,playing:Boolean,favoriteIds:Set<String>,onBack:()->Unit,onRefreshMix:()->Unit,
     onPlay:(List<String>,Boolean)->Unit,onPreview:(String,List<String>)->Unit,onOpen:(String,List<String>)->Unit,
     onSave:suspend (String,List<String>)->Unit,onAdd:(String)->Unit,onShare:(String)->Unit,onDelete:(String)->Unit,
-    onEnqueue:((String,Boolean)->Unit)?,onFavorite:(suspend (String,Boolean)->Unit)?) {
+    onEnqueue:((String,Boolean)->Unit)?,onFavorite:(suspend (String,Boolean)->Unit)?,
+    onCollection:((List<String>)->Unit)?=null,onPassport:((String)->Unit)?=null) {
     val scope=rememberCoroutineScope()
     val context=LocalContext.current
     val palette=MaterialTheme.colorScheme
@@ -236,7 +237,8 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                 rank=ids.indexOf(id)+1,listeningCount=if(page==SmartMusicPage.STATS) entry.periodPlays else entry.plays) {
                 MusicTrackActions(row,onEnqueue?.let { action->{ next:Boolean->action(id,next) } },
                     {onOpen(id,ids)},{onAdd(id)},{onShare(id)},{onDelete(id)},null,null,null,
-                    favorite=id in favoriteIds,onFavorite=onFavorite?.let { action->{mutate {action(id,id !in favoriteIds)}} })
+                    favorite=id in favoriteIds,onFavorite=onFavorite?.let { action->{mutate {action(id,id !in favoriteIds)}} },
+                    onCollection=onCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}})
             }
         }
     }

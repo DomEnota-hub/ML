@@ -328,11 +328,11 @@ internal fun MusicModeScreen(
             mixDiversity,{mixDiversity=it;smartPrefs.edit().putInt("diversity",it).apply()},
             forgottenDays,{forgottenDays=it;smartPrefs.edit().putLong("forgotten_days",it).apply()},
             smartLoading||loading,smartError,currentPlayingId,playing,favoriteIds,{smartPage=null},{mixNonce++},
-            onPlayFrequent,onPreview?:onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite)
+            onPlayFrequent,onPreview?:onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport)
     } else if (frequentOpen && onPlayFrequent != null && onSaveFrequent != null) {
         FrequentListeningScreen(listeningSelection,frequentRows,listeningPeriod,{listeningPeriod=it},listeningLoading||loading,listeningError,
             currentPlayingId,playing,favoriteIds,listeningStore,{frequentOpen=false},onPlayFrequent,
-            onPreview ?: onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite)
+            onPreview ?: onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport)
     } else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         val fastLabels = remember(sections, displayedIds, tab, playlist) {

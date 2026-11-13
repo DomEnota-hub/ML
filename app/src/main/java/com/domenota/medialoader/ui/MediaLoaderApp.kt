@@ -658,8 +658,20 @@ fun MediaLoaderApp(
             completedUris.associate { (id, uri) -> id to availabilityCache.get(uri) }
         }
     }
-    val organizationRefs=remember(publicLibraryRefs,organizationReady,fileStatuses){
-        if(!organizationReady)emptyList() else publicLibraryRefs.filter{fileStatuses[it.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE)}
+    val musicVisibilityPrefs=remember(context){context.getSharedPreferences("music_folder_visibility",0)}
+    var organizationHidden by remember{mutableStateOf(musicVisibilityPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty().toSet())}
+    DisposableEffect(musicVisibilityPrefs){
+        val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,key->
+            if(key=="hidden_tracks"||key==null)organizationHidden=musicVisibilityPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty().toSet()
+        }
+        musicVisibilityPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose{musicVisibilityPrefs.unregisterOnSharedPreferenceChangeListener(listener)}
+    }
+    val organizationRefs=remember(publicLibraryRefs,organizationReady,fileStatuses,organizationHidden){
+        if(!organizationReady)emptyList() else publicLibraryRefs.filter{
+            fileStatuses[it.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE)&&
+                (it.item.mediaType!=MediaType.AUDIO||!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,organizationHidden))
+        }
     }
     val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
     val downloadItems = remember(downloads, fileStatuses) {
@@ -1267,6 +1279,7 @@ fun MediaLoaderApp(
                     onDeferredOpen = { link -> pendingUrl = link; lastHandledLink = link; viewModel.analyze(link); showPicker = true },
                     onDeferredRemove = viewModel::removeDeferredLink, onDeferredRetryAll = retryDeferred, onDeferredStop = viewModel::stopDeferred,
                     onOpenDownloads = goToDownloads,
+                    onAddCollection=::addToCollection,onPassport=::openPassport,
                     organizationContent={ Column {
                         OrganizationEntry("На разбор","Новых загрузок: $reviewCount",{navController.navigate("media-review")})
                         OrganizationEntry("Коллекции","Сохранённые материалы и ссылки",{openCollections()},Modifier.padding(top=8.dp))
@@ -1420,11 +1433,7 @@ fun MediaLoaderApp(
                 }
             }
             composable("collections") {
-                val hidden=context.getSharedPreferences("music_folder_visibility",0).getStringSet("hidden_tracks",emptySet()).orEmpty()
-                val refs=remember(organizationRefs,hidden){organizationRefs.filter{
-                    it.item.mediaType!=MediaType.AUDIO||!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,hidden)
-                }}
-                CollectionsScreen(collections,refs,organization,collectionInitial,collectionAudioOnly,collectionAddIds,collectionLink,
+                CollectionsScreen(collections,organizationRefs,organization,collectionInitial,collectionAudioOnly,collectionAddIds,collectionLink,
                     organizationReady,{navController.popBackStack()},openDownloadWithQueue,
                     onPlay={ids->
                         libraryPreviewJob?.cancel()
@@ -1547,6 +1556,7 @@ fun MediaLoaderApp(
             composable(AppDestination.Downloads.route) {
                 DownloadsScreen(
                     items = downloadItems,
+                    onAddCollection=::addToCollection,onPassport=::openPassport,
                     onOpenPrivate = { viewModel.privateAccess.lock(); pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false; privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onMoveToPrivate = { id -> requestPrivateMove(listOf(id)) },
                     onMoveGroupToPrivate = ::requestPrivateMove,
