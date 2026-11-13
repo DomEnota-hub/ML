@@ -184,8 +184,10 @@ class MediaRepository private constructor(context: Context) {
                     db.execSQL("CREATE INDEX IF NOT EXISTS `index_catalog_assignments_folderId` " +
                         "ON `catalog_assignments` (`folderId`)")
                 }
-            }, com.domenota.medialoader.core.database.PRIVATE_HISTORY_MIGRATION).build()
-    private val history = HistoryRepository(historyDb.downloadDao(), historyDb.catalogDao())
+            }, com.domenota.medialoader.core.database.PRIVATE_HISTORY_MIGRATION,
+                com.domenota.medialoader.core.database.MEDIA_ORGANIZATION_MIGRATION).build()
+    private val history = HistoryRepository(historyDb.downloadDao(), historyDb.catalogDao(),historyDb)
+    internal val organization = com.domenota.medialoader.data.library.MediaOrganizationRepository(historyDb)
     private val catalog = DownloadCatalogRepository(historyDb)
     private val gapiKeys = com.domenota.medialoader.data.gapi.GapiKeyStore(appContext)
     private val gapiRequests = com.domenota.medialoader.data.gapi.GapiRequestCoordinator()
@@ -964,9 +966,10 @@ class MediaRepository private constructor(context: Context) {
         preferredName: String,
         mediaType: MediaType,
         mimeType: String,
+        operation: String? = null,
     ): DownloadEntity {
         return musicPostProcessGate.withPermit {
-            publishDerived(source, file, preferredName, mediaType, mimeType)
+            publishDerived(source, file, preferredName, mediaType, mimeType,operation=operation)
         }
     }
 
@@ -974,6 +977,7 @@ class MediaRepository private constructor(context: Context) {
         source: DownloadEntity, file: java.io.File, preferredName: String,
         mediaType: MediaType, mimeType: String,
         title: String? = null, artist: String? = null, album: String? = null,
+        operation: String? = null,
     ): DownloadEntity {
         val latest = history.byId(source.id)
         val isPrivate = source.isPrivate || latest?.isPrivate == true || source.savedUri?.let(privateFiles::owns) == true
@@ -997,7 +1001,7 @@ class MediaRepository private constructor(context: Context) {
                 recognizedTitle = title, recognizedArtist = artist, recognizedAlbum = album,
                 isPrivate = isPrivate,
             )
-            try { history.save(row) }
+            try { history.saveDerived(row,operation) }
             catch (error: Throwable) {
                 runCatching { if (isPrivate) privateFiles.remove(uri) else privateFiles.removePublicSource(uri) }
                 throw error
@@ -1063,7 +1067,7 @@ class MediaRepository private constructor(context: Context) {
         album: String,
     ): DownloadEntity {
         return musicPostProcessGate.withPermit {
-            publishDerived(source, file, preferredName, MediaType.AUDIO, "audio/mpeg", title, artist, album)
+            publishDerived(source, file, preferredName, MediaType.AUDIO, "audio/mpeg", title, artist, album,operation="Редактирование аудио")
         }
     }
 

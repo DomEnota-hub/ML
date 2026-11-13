@@ -5,9 +5,14 @@ import com.domenota.medialoader.core.database.CatalogDao
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.DownloadState
 import kotlinx.coroutines.flow.Flow
+import androidx.room.withTransaction
+import com.domenota.medialoader.core.database.HistoryDatabase
+import com.domenota.medialoader.core.database.MediaReviewEntity
+import com.domenota.medialoader.core.database.MediaOperationEntity
 
 /** The only place that talks to the download table. */
-class HistoryRepository(private val dao: DownloadDao, private val catalogDao: CatalogDao? = null) {
+class HistoryRepository(private val dao: DownloadDao, private val catalogDao: CatalogDao? = null,
+    private val db: HistoryDatabase? = null) {
     fun observePrivate(): Flow<List<DownloadEntity>> = dao.observePrivate()
     suspend fun deletePrivate(id: String) { dao.deletePrivate(id); catalogDao?.pruneOrphans() }
     fun observeAll(): Flow<List<DownloadEntity>> = dao.observeAll()
@@ -23,6 +28,27 @@ class HistoryRepository(private val dao: DownloadDao, private val catalogDao: Ca
 
     suspend fun setDuration(id: String, duration: Long) = dao.setDuration(id, duration)
     suspend fun save(entity: DownloadEntity) = dao.upsert(entity)
+    /** Only the real download completion path enqueues review. Existing history,
+     * metadata rewrites, imports and editor exports cannot create new inbox entries. */
+    suspend fun completeDownload(entity:DownloadEntity,completedAt:Long) {
+        require(entity.state==DownloadState.COMPLETED)
+        if(db==null){dao.upsert(entity);return}
+        db.withTransaction {
+            val previous=dao.byId(entity.id)
+            dao.upsert(entity)
+            if(previous?.state==DownloadState.RUNNING && !entity.isPrivate && !entity.hidden &&
+                !entity.savedUri.isNullOrBlank()) db.organizationDao().insertReview(MediaReviewEntity(entity.id,completedAt))
+        }
+    }
+    suspend fun saveDerived(entity:DownloadEntity,operation:String?) {
+        if(db==null){dao.upsert(entity);return}
+        db.withTransaction {
+            dao.upsert(entity)
+            if(!entity.isPrivate && !operation.isNullOrBlank())
+                db.organizationDao().insertOperation(MediaOperationEntity(java.util.UUID.randomUUID().toString(),
+                    entity.id,operation,entity.createdAtEpochMillis))
+        }
+    }
     suspend fun hide(id: String) { dao.byId(id)?.let { dao.upsert(it.copy(hidden = true)) } }
     suspend fun restoreHidden() = dao.restoreHidden()
     suspend fun clearHidden() { dao.clearHidden(); catalogDao?.pruneOrphans() }
