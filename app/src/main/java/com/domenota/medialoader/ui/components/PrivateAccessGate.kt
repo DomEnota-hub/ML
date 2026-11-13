@@ -18,6 +18,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -44,7 +46,7 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     val authenticate = rememberSystemAuthentication(
         onSuccess = { manager.onSystemAuthenticationSucceeded(); busy = false },
-        onFailure = { error = it; busy = false }
+        onFailure = { error = if (it == "Подтверждение отменено") null else it; busy = false }
     )
     LaunchedEffect(state.mode, lifecycleState, autoAuthenticate) {
         if (autoAuthenticate && state.mode == PrivateAccessMode.BIOMETRIC &&
@@ -56,8 +58,10 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
             authenticate()
         }
     }
-    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Приватный раздел", style = MaterialTheme.typography.headlineSmall)
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Личный раздел", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         when (state.mode) {
             PrivateAccessMode.PIN -> {
                 Text("Введите PIN из 6 цифр")
@@ -76,7 +80,7 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
                 Text("Если вы забыли свой PIN, восстановить доступ к приватным файлам нельзя.", style = MaterialTheme.typography.bodySmall)
             }
             PrivateAccessMode.BIOMETRIC -> {
-                Text("Подтвердите вход биометрией или блокировкой устройства")
+                Text("Подтвердите вход, чтобы открыть личные файлы", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                 Button(enabled = !busy && manager.systemProtectionAvailable, onClick = { attemptedSystemEntry = true; busy = true; error = null; authenticate() }) { Text(if (attemptedSystemEntry) "Повторить вход" else "Подтвердить вход") }
                 if (!manager.systemProtectionAvailable) Text("Блокировка устройства недоступна. Восстановите её в настройках Android.")
             }
@@ -84,7 +88,8 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
             else -> Unit
         }
         if (busy) CircularProgressIndicator()
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        error?.let { Text(if (state.mode == PrivateAccessMode.BIOMETRIC) "Не удалось подтвердить вход. Попробуйте ещё раз." else it,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center) }
     }
 }
 

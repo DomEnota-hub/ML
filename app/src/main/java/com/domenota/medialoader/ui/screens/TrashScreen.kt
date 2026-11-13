@@ -153,7 +153,7 @@ fun TrashScreen(
             )
         },
         bottomBar = {
-            if (allItems.isNotEmpty()) Surface(tonalElevation = 3.dp) {
+            if (allItems.isNotEmpty()) Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 0.dp) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = {

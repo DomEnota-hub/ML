@@ -16,7 +16,7 @@ enum class SettingIconTone {
     CLOSE_PICKER, MUSIC, RECOGNITION, RENAME, THEME, PLAYER,
     TRASH, CLEAR_HISTORY, YTDLP, ABOUT, DIAGNOSTICS, LOG, INSTAGRAM_MODE,
     BACKUP_AUTH, DOWNLOAD_FOLDER, QUALITY, VIDEO_THUMBNAIL, BUILTIN_PLAYER,
-    FILE_ACCESS, MEDIA_MANAGEMENT, ADVANCED_LOG, AI_MODELS;
+    FILE_ACCESS, MEDIA_MANAGEMENT, ADVANCED_LOG, AI_MODELS, SHORTCUTS, SHORTCUT_STYLE, SHORTCUT_GALLERY, SHORTCUT_MUSIC;
 
     fun swatch(dark: Boolean): SettingsIconSwatch = when (this) {
         ACCOUNTS, PURPLE ->
@@ -121,6 +121,18 @@ enum class SettingIconTone {
         ADVANCED_LOG ->
             if (dark) SettingsIconSwatch(Color(0xFFA3B9CC), Color(0xFF2B3945))
             else SettingsIconSwatch(Color(0xFF526E85), Color(0xFFE6EEF4))
+        SHORTCUTS ->
+            if (dark) SettingsIconSwatch(Color(0xFFB9D98F), Color(0xFF34452A))
+            else SettingsIconSwatch(Color(0xFF456B26), Color(0xFFE9F3DB))
+        SHORTCUT_STYLE ->
+            if (dark) SettingsIconSwatch(Color(0xFF91DFD8), Color(0xFF234743))
+            else SettingsIconSwatch(Color(0xFF176C67), Color(0xFFDEF3EE))
+        SHORTCUT_GALLERY ->
+            if (dark) SettingsIconSwatch(Color(0xFF8EDBED), Color(0xFF23424E))
+            else SettingsIconSwatch(Color(0xFF176C89), Color(0xFFDEF1F8))
+        SHORTCUT_MUSIC ->
+            if (dark) SettingsIconSwatch(Color(0xFFFFB680), Color(0xFF503625))
+            else SettingsIconSwatch(Color(0xFF995320), Color(0xFFFFE9D9))
         NEUTRAL, ABOUT ->
             if (dark) SettingsIconSwatch(Color(0xFFB2BBD1), Color(0xFF2A303E))
             else SettingsIconSwatch(Color(0xFF515C73), Color(0xFFE9ECF3))
