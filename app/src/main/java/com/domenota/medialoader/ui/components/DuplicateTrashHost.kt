@@ -156,10 +156,13 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
             } else {
                 val candidate = queue.takeWhile { it.appId == null }.take(batchLimit)
                 queue = queue.drop(candidate.size)
+                if (Build.VERSION.SDK_INT < 30) {
+                    candidate.forEach { failure(it, "Системная корзина недоступна") }
+                    continue
+                }
                 val valid = mutableListOf<Work>()
                 for (item in candidate) {
                     try {
-                        check(Build.VERSION.SDK_INT >= 30) { "Системная корзина недоступна" }
                         val uri = Uri.parse(item.track.uri)
                         check(uri.scheme == "content" && uri.authority == MediaStore.AUTHORITY) { "URI не поддерживает системную корзину" }
                         verifyWork(item); valid += item
