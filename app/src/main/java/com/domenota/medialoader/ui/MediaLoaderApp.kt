@@ -881,7 +881,11 @@ fun MediaLoaderApp(
         }
         LibraryMediaDeleteHost(targets, onDismiss = ::finishDeletion,
             onDeleteApp = viewModel::hideLibraryFile, onDeleteAppPermanently = viewModel::deleteLibraryFilePermanently, onDeleted = ::finishDeletion,
-            trashOnly = pendingTrashOnly, onTrashed = { done -> if (pendingTrashOnly) com.domenota.medialoader.data.playback.AudioPlaybackService.removeTrashedFromQueue(done.mapNotNull { it.uri }) })
+            trashOnly = pendingTrashOnly, onTrashed = { done -> if (pendingTrashOnly) {
+                val uris = done.mapNotNull { it.uri }
+                com.domenota.medialoader.data.playback.AudioPlaybackService.removeTrashedFromQueue(uris)
+                fileActionScope.launch { runCatching { MusicDuplicateSessionStore.removeTrashed(context, uris.toSet()) } }
+            } })
     }
     val previewLibraryAudio: (String, List<String>) -> Unit = { id, ids ->
         libraryPreviewJob?.cancel()

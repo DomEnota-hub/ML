@@ -160,7 +160,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     Text("Последний поиск", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(saved.scannedAt)))
                     Text("Групп: ${saved.result.groups.size} · файлов: ${saved.result.groups.sumOf { it.tracks.size }}")
-                    Text("Выбрано: ${saved.selected.size}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val savedBytes = saved.result.groups.sumOf { g -> g.tracks.filter { it.id in saved.selected }.sumOf { it.bytes } }
+                    Text("Выбрано: ${saved.selected.size} · ${android.text.format.Formatter.formatFileSize(context,savedBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button({ restorePrevious(saved) }, Modifier.fillMaxWidth()) { Text("Продолжить проверку") }
                     OutlinedButton({ scanRevision++ }, Modifier.fillMaxWidth()) { Text("Новый поиск") }
@@ -174,7 +175,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         OutlinedButton({ selected = if (selected == allSelected) emptySet() else allSelected }, Modifier.fillMaxWidth(), enabled = !verifying) { Text(if (selected == allSelected) "Снять выделение" else "Выделить все") }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                    LazyColumn(Modifier.fillMaxSize().padding(end = if (groups.size > 3) 36.dp else 0.dp), state = listState,
+                    LazyColumn(Modifier.fillMaxSize().padding(end = if (groups.size > 1) 36.dp else 0.dp), state = listState,
                         verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
                         items(groups, key = { it.key }) { group ->
                             val keep = kept[group.key] ?: MusicDuplicatePolicy.recommended(group)
@@ -202,7 +203,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             }
                         }
                     }
-                    MusicFastScroll(listState, emptyList(), Modifier.align(Alignment.CenterEnd).matchParentSize().wrapContentWidth(Alignment.End))
+                    MusicFastScroll(listState, emptyList(), Modifier.align(Alignment.CenterEnd),
+                        tag = "duplicates-fast-scroll", description = "Быстрая прокрутка дубликатов")
                     }
                     if (groups.isNotEmpty()) {
                         HorizontalDivider()
@@ -227,6 +229,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                 try {
                     MusicDuplicateScanner.verify(context,groups,choice,latestRows)
                     check(latestCurrent !in choice) { "Текущий трек изменился" }
+                    snapshot()?.let { MusicDuplicateSessionStore.save(context,it) }
                     onTrash(choice.toList()); onDismiss()
                 } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message ?: "Проверка не прошла" }
                 finally { verifying = false }

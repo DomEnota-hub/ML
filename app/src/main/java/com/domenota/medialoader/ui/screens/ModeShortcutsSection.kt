@@ -5,6 +5,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddToHomeScreen
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.AudioFile
+import androidx.compose.material.icons.rounded.Style
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
@@ -21,6 +23,12 @@ internal fun ModeShortcutsSection() {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var pinned by remember { mutableStateOf(emptySet<String>()) }
     var supported by remember { mutableStateOf(false) }
+    var branded by remember { mutableStateOf(ModeShortcuts.branded(context)) }
+    fun changeStyle(enabled: Boolean) {
+        val updated = runCatching { ModeShortcuts.setBranded(context,enabled) }.getOrDefault(false)
+        branded = ModeShortcuts.branded(context)
+        if (!updated) Toast.makeText(context, "Стиль сохранён. Лаунчер не подтвердил обновление ярлыков.", Toast.LENGTH_LONG).show()
+    }
     fun refresh() {
         supported = runCatching { ModeShortcuts.supported(context) }.getOrDefault(false)
         pinned = runCatching { ModeShortcuts.pinned(context) }.getOrDefault(emptySet())
@@ -33,6 +41,11 @@ internal fun ModeShortcutsSection() {
     SettingRow(Icons.Rounded.AddToHomeScreen, "Ярлыки рабочего стола", "Быстрый запуск режимов",
         grouped = true, expanded = expanded, onClick = { expanded = !expanded; refresh() })
     ExpandableSettingsBody(expanded) {
+        GroupDivider()
+        SettingRow(Icons.Rounded.Style, "Стиль ярлыков", if (branded) "Фирменные иконки ML" else "Базовые иконки",
+            grouped = true, nested = true, showChevron = false,
+            trailing = { Switch(checked = branded, onCheckedChange = ::changeStyle) },
+            onClick = { changeStyle(!branded) })
         listOf(AppMode.GALLERY, AppMode.MUSIC).forEach { mode ->
             GroupDivider()
             val added = ModeShortcuts.id(mode) in pinned

@@ -32,6 +32,24 @@ internal object MusicDuplicateSessionStore {
             }.isSuccess
         }
     }
+    /** Only remove files the trash host actually confirmed. Keep cancelled/failed requests. */
+    suspend fun removeTrashed(context: Context, uris: Set<String>) = withContext(Dispatchers.IO + NonCancellable) {
+        synchronized(lock) {
+            val target = file(context)
+            val old = runCatching { decode(target.openRead().bufferedReader().use { it.readText() }) }.getOrNull() ?: return@synchronized
+            val groups = old.result.groups.mapNotNull { g ->
+                val remaining = g.tracks.filter { it.uri !in uris }
+                if (remaining.size >= 2) g.copy(tracks = remaining) else null
+            }
+            val keep = groups.associate { g -> g.key to (old.kept.entries.firstOrNull { (_, id) -> g.tracks.any { it.id == id } }?.value ?: MusicDuplicatePolicy.recommended(g)) }
+            val selected = old.selected.intersect(groups.flatMap { g -> g.tracks.filter { it.id != keep[g.key] }.map { it.id } }.toSet())
+            val next = old.copy(result = old.result.copy(groups = groups), selected = selected, kept = keep,
+                index = old.index.coerceAtMost((groups.size - 1).coerceAtLeast(0)))
+            val stream = target.startWrite()
+            try { stream.write(encode(next).toByteArray(Charsets.UTF_8)); target.finishWrite(stream) }
+            catch (e: Exception) { target.failWrite(stream); throw e }
+        }
+    }
     fun encode(session: DuplicateSession): String {
         val groups = JSONArray()
         session.result.groups.forEach { g ->

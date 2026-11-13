@@ -11,6 +11,7 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.domenota.medialoader.MainActivity
+import com.domenota.medialoader.R
 
 internal object ModeShortcuts {
     private const val GALLERY = "com.domenota.medialoader.OPEN_GALLERY"
@@ -19,14 +20,27 @@ internal object ModeShortcuts {
     fun id(mode: AppMode): String = when (mode) { AppMode.GALLERY -> "ml_gallery"; AppMode.MUSIC -> "ml_music"; else -> error("Unsupported mode") }
     fun supported(context: Context) = ShortcutManagerCompat.isRequestPinShortcutSupported(context)
     fun pinned(context: Context): Set<String> = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_PINNED).map { it.id }.toSet()
-    fun request(context: Context, mode: AppMode): Boolean {
-        val action = when (mode) { AppMode.GALLERY -> GALLERY; AppMode.MUSIC -> MUSIC; else -> return false }
-        if (!supported(context)) return false
+    private fun preferences(context: Context) = context.getSharedPreferences("mode_shortcuts", Context.MODE_PRIVATE)
+    fun branded(context: Context): Boolean = preferences(context).getBoolean("branded_icons", true)
+    fun setBranded(context: Context, enabled: Boolean): Boolean {
+        preferences(context).edit().putBoolean("branded_icons", enabled).apply()
+        val existing = pinned(context)
+        val updates = listOf(AppMode.GALLERY, AppMode.MUSIC).filter { id(it) in existing }.map { shortcut(context, it) }
+        return updates.isEmpty() || ShortcutManagerCompat.updateShortcuts(context, updates)
+    }
+    private fun shortcut(context: Context, mode: AppMode): ShortcutInfoCompat {
+        val action = when (mode) { AppMode.GALLERY -> GALLERY; AppMode.MUSIC -> MUSIC; else -> error("Unsupported mode") }
         val label = if (mode == AppMode.GALLERY) "Галерея" else "Музыка"
         val launch = Intent(context, MainActivity::class.java).setAction(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        val shortcut = ShortcutInfoCompat.Builder(context, id(mode)).setShortLabel(label).setLongLabel(label)
-            .setIntent(launch).setIcon(IconCompat.createWithAdaptiveBitmap(icon(mode))).build()
-        return ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
+        val shortcutIcon = if (branded(context)) {
+            IconCompat.createWithResource(context, if (mode == AppMode.GALLERY) R.drawable.ml_shortcut_gallery else R.drawable.ml_shortcut_music)
+        } else IconCompat.createWithAdaptiveBitmap(icon(mode))
+        return ShortcutInfoCompat.Builder(context, id(mode)).setShortLabel(label).setLongLabel(label)
+            .setIntent(launch).setIcon(shortcutIcon).build()
+    }
+    fun request(context: Context, mode: AppMode): Boolean {
+        if (mode != AppMode.GALLERY && mode != AppMode.MUSIC || !supported(context)) return false
+        return ShortcutManagerCompat.requestPinShortcut(context, shortcut(context, mode), null)
     }
     private fun icon(mode: AppMode): Bitmap {
         val bitmap = Bitmap.createBitmap(192,192,Bitmap.Config.ARGB_8888)
