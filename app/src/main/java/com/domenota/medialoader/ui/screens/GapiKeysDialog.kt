@@ -58,6 +58,11 @@ fun GapiKeysDialog(
     var token by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var remove by remember { mutableStateOf<GapiKey?>(null) }
+    var balanceTarget by remember { mutableStateOf<GapiKey?>(null) }
+    var limitInput by remember { mutableStateOf("") }
+    var remainderInput by remember { mutableStateOf("") }
+    var sharedWith by remember { mutableStateOf<String?>(null) }
+    var balanceError by remember { mutableStateOf<String?>(null) }
     fun refresh() {
         keys = store.snapshot()
         builtinAllowed = store.builtinAllowed()
@@ -148,6 +153,14 @@ fun GapiKeysDialog(
                                 editing = key; name = key.name; token = ""; error = null
                             }) { Text("Название") }
                         }
+                        key.balanceCheckedAt?.let { Text("Сверено: ${DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
+                        NeutralTextButton(enabled = store.storageAvailable, onClick = {
+                            balanceTarget = key
+                            limitInput = (key.monthlyLimit ?: 200).toString()
+                            remainderInput = key.remaining?.toString().orEmpty()
+                            sharedWith = keys.firstOrNull { it.id != key.id && it.balanceId == key.balanceId }?.id
+                            balanceError = null
+                        }) { Text("Изменить остаток") }
                         if (key.invalid || key.exhaustedMonth == store.currentMonth() ||
                             key.pauseUntilMillis > System.currentTimeMillis()) {
                             NeutralTextButton(enabled = store.storageAvailable, onClick = {
@@ -200,6 +213,40 @@ fun GapiKeysDialog(
             token = ""; adding = false; editing = null; error = null
         }) { Text("Отмена") } },
     )
+    balanceTarget?.let { key ->
+        val limit = limitInput.toIntOrNull()
+        val remaining = remainderInput.toIntOrNull()
+        AlertDialog(onDismissRequest = { balanceTarget = null }, title = { Text("Остаток GAPI") },
+            text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Расчётный баланс · обновляется 1-го числа в 00:00 UTC (03:00 МСК).")
+                OutlinedTextField(limitInput, { limitInput = it.filter(Char::isDigit); balanceError = null },
+                    label = { Text("Месячный лимит") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(remainderInput, { remainderInput = it.filter(Char::isDigit); balanceError = null },
+                    label = { Text("Осталось токенов") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                Text("Счёт GAPI", style = MaterialTheme.typography.titleSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(sharedWith == null, onClick = { sharedWith = null }); Text("Отдельный аккаунт")
+                }
+                keys.filter { it.id != key.id }.forEach { other ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(sharedWith == other.id, onClick = {
+                            sharedWith = other.id
+                            limitInput = (other.monthlyLimit ?: 200).toString()
+                            remainderInput = other.remaining?.toString().orEmpty()
+                        })
+                        Text("Общий с «${other.name}»")
+                    }
+                }
+                Text("Ключи одного аккаунта используют общий баланс. Укажите фактический остаток из кабинета.",style = MaterialTheme.typography.bodySmall)
+                balanceError?.let { Text(it,color = MaterialTheme.colorScheme.error) }
+            } }, confirmButton = {
+                NeutralTextButton(enabled = limit != null && limit > 0 && remaining != null && remaining in 0..limit, onClick = {
+                    if (store.setBalance(key.id,requireNotNull(limit),requireNotNull(remaining),sharedWith)) {
+                        balanceTarget = null; refresh()
+                    } else balanceError = "Не удалось сохранить баланс"
+                }) { Text("Сохранить") }
+            }, dismissButton = { NeutralTextButton({ balanceTarget = null }) { Text("Отмена") } })
+    }
     remove?.let { key ->
         AlertDialog(
             onDismissRequest = { remove = null },
@@ -216,7 +263,7 @@ fun GapiKeysDialog(
 private fun keyStatus(key: GapiKey, currentMonth: String): String = when {
     !key.enabled -> "Выключен"
     key.invalid -> "Ключ отклонён сервисом"
-    key.exhaustedMonth == currentMonth -> "Месячный лимит исчерпан · восстановится в следующем месяце (UTC)"
+    key.exhaustedMonth == currentMonth || key.remaining == 0 -> "Месячный лимит исчерпан · восстановится в следующем месяце (UTC)"
     key.pauseUntilMillis > System.currentTimeMillis() ->
         "Пауза до ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(key.pauseUntilMillis))}"
     else -> "Готов к запросам"

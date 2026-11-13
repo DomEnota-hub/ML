@@ -50,6 +50,7 @@ internal fun MusicModeScreen(
     duplicateRequest: Int = 0, onDuplicateRequestHandled: () -> Unit = {},
     onPreviewFromPlaylist: ((String,List<String>,String) -> Unit)? = null,
     onOpenFromPlaylist: ((String,List<String>,String) -> Unit)? = null,
+    onOpenDuplicates: (() -> Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -60,11 +61,15 @@ internal fun MusicModeScreen(
     var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
     var sortMenu by remember { mutableStateOf(false) }
     var duplicatesOpen by remember { mutableStateOf(false) }
+    fun openDuplicates() { if (onOpenDuplicates != null) onOpenDuplicates() else duplicatesOpen = true }
     LaunchedEffect(duplicateRequest, loading) {
-        if (duplicateRequest != 0 && !loading) { duplicatesOpen = true; onDuplicateRequestHandled() }
+        if (duplicateRequest != 0 && !loading) { onDuplicateRequestHandled(); openDuplicates() }
     }
-    if (duplicatesOpen && onTrashDuplicates != null) MusicDuplicatesDialog(allAudio, favoriteIds + duplicateLinkedIds + playlists.flatMap { it.trackIds }, currentPlayingId, playing,
-        { duplicatesOpen = false }, onTrashDuplicates)
+    if (duplicatesOpen && onTrashDuplicates != null) {
+        MusicDuplicatesDialog(allAudio, favoriteIds + duplicateLinkedIds + playlists.flatMap { it.trackIds }, currentPlayingId, playing,
+            { duplicatesOpen = false }, onTrashDuplicates)
+        return
+    }
     val listState = rememberLazyListState()
     var creating by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<MediaPlaylist?>(null) }
@@ -143,7 +148,7 @@ internal fun MusicModeScreen(
                 }
                 val folderListState = rememberLazyListState()
                 Box(Modifier.heightIn(max = 320.dp)) {
-                androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().padding(end = if (folderTracks.size > 4) 36.dp else 0.dp), state = folderListState) {
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().padding(end = if (folderTracks.size > 4) musicFastScrollLaneWidth else 0.dp), state = folderListState) {
                     items(folderTracks, key = { it.id }) { track ->
                         TextButton(onClick = { (onPreview ?: onOpen)(track.id, folderTracks.map { it.id }) }) {
                             com.domenota.medialoader.ui.components.DownloadThumbnail(track.savedUri, track.previewUrl, track.toUi().kind, Modifier.size(44.dp))
@@ -152,7 +157,7 @@ internal fun MusicModeScreen(
                         }
                     }
                 }
-                MusicFastScroll(folderListState, folderTracks.map { musicGroupLetter(musicDisplayTitle(it)) }, Modifier.align(Alignment.CenterEnd).matchParentSize().wrapContentWidth(Alignment.End))
+                MusicFastScroll(folderListState, folderTracks.map { musicGroupLetter(musicDisplayTitle(it)) }, Modifier.align(Alignment.CenterEnd))
                 }
             } }, confirmButton = { TextButton(onClick = { folderOpen = null }) { Text("Готово") } })
     }
@@ -208,7 +213,7 @@ internal fun MusicModeScreen(
             if (tab == 0) listOf("") + sections.flatMap { (label, records) -> val caption = if (sort == MusicLibrarySort.DATE || sort == MusicLibrarySort.DATE_OLDEST) label.take(7) else label; listOf(caption) + records.map { caption } }
             else listOf("") + if (playlist != null) listOf("") + displayedIds.map { id -> available[id]?.let { musicGroupLetter(musicDisplayTitle(it)) }.orEmpty() } else emptyList()
         }
-        LazyColumn(Modifier.fillMaxSize().padding(end = if (tab == 0 && displayed.size > 5 || playlist != null && displayedIds.size > 5) 36.dp else 0.dp).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(end = if (tab == 0 && displayed.size > 5 || playlist != null && displayedIds.size > 5) musicFastScrollLaneWidth else 0.dp).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "music-controls") {
                 Column {
                     if (playlist == null) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -242,7 +247,7 @@ internal fun MusicModeScreen(
                             }
                             DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                                 if (onTrashDuplicates != null) {
-                                    DropdownMenuItem(text = { Text("Найти дубликаты") }, onClick = { sortMenu = false; duplicatesOpen = true }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                                    DropdownMenuItem(text = { Text("Найти дубликаты") }, onClick = { sortMenu = false; openDuplicates() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                                     HorizontalDivider()
                                 }
                                 MusicLibrarySort.entries.forEach { option ->

@@ -1374,16 +1374,18 @@ class MediaRepository private constructor(context: Context) {
     }
 
     /** Duplicate cleanup must not silently convert missing media into a successful trash operation. */
-    internal suspend fun trashVerifiedDuplicate(id: String, expectedUri: String) = musicPostProcessGate.withPermit {
+    internal suspend fun trashVerifiedDuplicate(id: String, expectedUri: String) = trashVerifiedLibraryMedia(id, expectedUri, setOf(MediaType.AUDIO))
+    internal suspend fun trashVerifiedAlbumMedia(id: String, expectedUri: String) = trashVerifiedLibraryMedia(id, expectedUri, setOf(MediaType.PHOTO, MediaType.VIDEO))
+    private suspend fun trashVerifiedLibraryMedia(id: String, expectedUri: String, types: Set<MediaType>) = musicPostProcessGate.withPermit {
         val item = history.byId(id) ?: error("Запись отсутствует")
         requireMediaAccess(item)
         check(!item.hidden && !item.isPrivate && item.state == DownloadState.COMPLETED &&
-            item.mediaType == MediaType.AUDIO && item.savedUri == expectedUri) { "Запись изменилась" }
+            item.mediaType in types && item.savedUri == expectedUri) { "Запись изменилась" }
         check(withContext(Dispatchers.IO) { savedFileStatus(expectedUri) } == SavedFileStatus.PRESENT) { "Файл недоступен" }
         storage.moveToTrash(id, expectedUri)
         check(storage.hasTrashed(id)) { "Копия в корзине не подтверждена" }
         history.save(item.copy(hidden = true, savedUri = null))
-        AppLog.i("Trash", "Duplicate move completed · id=$id")
+        AppLog.i("Trash", "Verified move completed · id=$id")
     }
 
     /** Gallery-only deletion: never stage bytes or metadata in either trash. */

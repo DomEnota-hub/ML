@@ -8,9 +8,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -29,8 +27,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -161,15 +157,10 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             MusicDuplicateSessionStore.save(context,saved); onDismiss()
         }
     }
-    Dialog(onDismissRequest = { if (!verifying) close() }, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !verifying, decorFitsSystemWindows = true)) {
-        // The dialog owns its Window. Fit the actual dialog to system bars, rather
-        // than depending on the Activity's consumed Compose insets.
-        val dialogView = LocalView.current
-        SideEffect {
-            (dialogView.parent as? DialogWindowProvider)?.window?.let { window ->
-                WindowCompat.setDecorFitsSystemWindows(window, true)
-            }
-        }
+    BackHandler(enabled = true) { if (!verifying) close() }
+    // This is a NavHost destination within the Activity's bounded Scaffold.
+    // No independent Dialog window, no duplicate system-bar fitting.
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().testTag("duplicates-route")) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -204,7 +195,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         OutlinedButton({ selected = if (selected == allSelected) emptySet() else allSelected }, Modifier.fillMaxWidth(), enabled = !verifying) { Text(if (selected == allSelected) "Снять выделение" else "Выделить все") }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                    LazyColumn(Modifier.fillMaxSize().padding(end = if (groups.size > 1) 36.dp else 0.dp), state = listState,
+                    LazyColumn(Modifier.fillMaxSize().padding(end = if (groups.size > 1) musicFastScrollLaneWidth else 0.dp), state = listState,
                         verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
                         items(groups, key = { it.key }) { group ->
                             val keep = kept[group.key] ?: MusicDuplicatePolicy.recommended(group)

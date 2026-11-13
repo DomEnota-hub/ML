@@ -187,6 +187,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     suspend fun setCatalogFavorite(downloadId: String, favorite: Boolean) = repository.setDownloadFavorite(downloadId, favorite)
     suspend fun hideLibraryFile(id: String) = repository.hide(id)
     internal suspend fun trashVerifiedDuplicate(id: String, uri: String) = repository.trashVerifiedDuplicate(id,uri)
+    internal suspend fun trashVerifiedAlbumMedia(id: String, uri: String) = repository.trashVerifiedAlbumMedia(id,uri)
     suspend fun deleteLibraryFilePermanently(id: String) = repository.deleteLibraryFilePermanently(id)
     suspend fun hideGroupFile(id: String) = repository.hide(id, completedOnly = true)
     suspend fun toggleCatalogFavorite(downloadId: String) = repository.toggleDownloadFavorite(downloadId)

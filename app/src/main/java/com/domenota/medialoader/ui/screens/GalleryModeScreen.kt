@@ -9,6 +9,9 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
@@ -66,6 +69,7 @@ fun GalleryModeScreen(
     onDetailChange: (Boolean) -> Unit = {}, onTrash: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
     onDeleteFolder: suspend (String) -> Unit = {},
+    onTrashFolderContents: ((String, List<String>) -> Unit)? = null,
     onDeviceAlbumsChanged: () -> Unit = {},
     datePickerRequest: Int = 0,
     albumRequest: GalleryAlbumRequest? = null,
@@ -660,19 +664,37 @@ fun GalleryModeScreen(
     deletingAlbum?.let { album ->
         val appFolder = album.key.startsWith("folder:")
         val albumRows = GalleryLibraryState.filter(media, assignments, album.key, "", buckets)
+        var includeContents by remember(album.key) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { deletingAlbum = null },
             title = { Text(if (appFolder) "Удалить папку?" else "Удалить альбом и файлы?") },
             text = {
-                Text(if (appFolder)
-                    "Папка «${album.name}» будет удалена из MediaLoader. Её ${album.count} файлов сохранятся в «Медиа» без этой папки."
-                else "В альбоме «${album.name}» ${albumRows.size} файлов. Они будут перемещены в корзину после системного подтверждения и смогут быть восстановлены.")
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(if (appFolder && !includeContents)
+                        "Альбом «${album.name}» будет удалён из MediaLoader. Файлы сохранятся в «Медиа»."
+                    else "В альбоме «${album.name}» ${albumRows.size} файлов. Они будут перемещены в корзину и смогут быть восстановлены.")
+                    if (appFolder && onTrashFolderContents != null && albumRows.isNotEmpty()) {
+                        val mark = if (includeContents) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(includeContents, role = Role.Checkbox, onValueChange = { includeContents = it }),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(Modifier.size(24.dp).border(2.dp,mark,CircleShape).background(if (includeContents) mark else Color.Transparent,CircleShape),
+                                contentAlignment = Alignment.Center) {
+                                if (includeContents) Icon(Icons.Rounded.Check,null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onPrimary)
+                            }
+                            Text("Удалить также содержимое")
+                        }
+                        if (includeContents) Text("Файлы исчезнут и из других обычных представлений. При неполном переносе альбом сохранится.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         deletingAlbum = null
-                        if (appFolder) {
+                        if (appFolder && includeContents) {
+                            onTrashFolderContents?.invoke(album.key.removePrefix("folder:"), albumRows.map { it.id })
+                        } else if (appFolder) {
                             mutate {
                                 onDeleteFolder(album.key.removePrefix("folder:"))
                                 saveSettings(removeGalleryAlbumSettings(albumSettings, album.key))
@@ -680,7 +702,7 @@ fun GalleryModeScreen(
                         } else onDeleteSelected?.invoke(albumRows.map { it.id })
                     },
                     enabled = appFolder || (onDeleteSelected != null && albumRows.isNotEmpty())
-                ) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+                ) { Text(if (appFolder && includeContents) "В корзину" else "Удалить", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton({ deletingAlbum = null }) { Text("Отмена") } },
         )
@@ -737,7 +759,7 @@ private fun GalleryAlbumCell(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
             if (mediaExcluded) {
                 Box(
-                    Modifier.align(Alignment.TopStart).padding(7.dp)
+                    Modifier.align(Alignment.TopStart).padding(3.dp)
                         .background(Color.Black.copy(alpha = .65f), RoundedCornerShape(8.dp))
                         .padding(5.dp)
                 ) {
@@ -746,11 +768,11 @@ private fun GalleryAlbumCell(
                 }
             }
             Box(Modifier.align(Alignment.TopEnd)) {
-                IconButton({ menu = true }) {
-                    Icon(Icons.Rounded.MoreVert, "Управление альбомом ${album.name}",
-                        tint = Color.White,
-                        modifier = Modifier.background(
-                            Color.Black.copy(alpha = .45f), RoundedCornerShape(8.dp)))
+                IconButton({ menu = true }, modifier = Modifier.offset(x = 3.dp, y = (-3).dp)) {
+                    Box(Modifier.size(30.dp).background(Color.Black.copy(alpha = .55f), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.MoreVert, "Управление альбомом ${album.name}", tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
                 }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem({ Text(if (pinned) "Убрать из быстрого доступа" else if (hidden) "Вернуть в альбомы" else "В другие альбомы") },

@@ -29,7 +29,7 @@ private data class Work(val track: DuplicateTrack, val appId: String?, val group
 private data class Outcome(val name: String, val success: Boolean, val reason: String)
 
 /** Read the actual provider state; RESULT_OK alone is not proof that every URI was trashed. */
-private suspend fun confirmedSystemTrash(context: Context, uri: Uri): Boolean = withContext(Dispatchers.IO) {
+internal suspend fun confirmedSystemTrash(context: Context, uri: Uri): Boolean = withContext(Dispatchers.IO) {
     if (Build.VERSION.SDK_INT < 30 || uri.scheme != "content" || uri.authority != MediaStore.AUTHORITY) return@withContext false
     val args = Bundle().apply { putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE) }
     runCatching {

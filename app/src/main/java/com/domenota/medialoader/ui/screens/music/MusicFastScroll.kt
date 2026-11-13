@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.roundToInt
 
 internal val galleryFastScrollLaneWidth = 16.dp
+internal val musicFastScrollLaneWidth = 16.dp
 
 internal object MusicFastScrollPolicy {
     fun index(fraction: Float, count: Int): Int = if (count <= 1) 0 else (fraction.coerceIn(0f, 1f) * (count - 1)).roundToInt()
@@ -37,7 +38,7 @@ internal fun MusicFastScroll(state: LazyListState, labels: List<String>, modifie
     tag: String = "music-fast-scroll", description: String = "Быстрая прокрутка музыки") {
     LibraryFastScroll(state, state.layoutInfo.totalItemsCount, state.firstVisibleItemIndex,
         state.canScrollForward, state.canScrollBackward, state.isScrollInProgress, labels,
-        modifier, tag, description) { index ->
+        modifier, tag, description, hitWidth = musicFastScrollLaneWidth) { index ->
         state.scrollToItem(index.coerceIn(0, (state.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)))
     }
 }
