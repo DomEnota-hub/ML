@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.*
 import com.domenota.medialoader.data.library.*
+import com.domenota.medialoader.data.playback.ListeningHistoryStore
+import com.domenota.medialoader.data.playback.ListeningPeriod
+import com.domenota.medialoader.data.playback.ListeningSelection
 import com.domenota.medialoader.ui.components.*
 import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.ui.screens.music.*
@@ -51,12 +54,19 @@ internal fun MusicModeScreen(
     onPreviewFromPlaylist: ((String,List<String>,String) -> Unit)? = null,
     onOpenFromPlaylist: ((String,List<String>,String) -> Unit)? = null,
     onOpenDuplicates: (() -> Unit)? = null,
+    listeningKeys: Map<String,Set<String>> = emptyMap(),
+    validateFrequent: suspend (List<String>,Boolean) -> Set<String> = { ids,_ -> ids.toSet() },
+    onPlayFrequent: ((List<String>,Boolean)->Unit)? = null,
+    onSaveFrequent: (suspend (String,List<String>)->Unit)? = null,
+    onFavorite: (suspend (String,Boolean)->Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
     val tab = tabOverride ?: localTab
     fun selectTab(value: Int) { localTab = value; onTabChange(value) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var frequentOpen by rememberSaveable { mutableStateOf(false) }
+    var listeningPeriod by rememberSaveable { mutableStateOf(ListeningPeriod.MONTH) }
     var search by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
     var sortMenu by remember { mutableStateOf(false) }
@@ -102,6 +112,39 @@ internal fun MusicModeScreen(
     var folderOpen by rememberSaveable { mutableStateOf<String?>(null) }
     var showExcluded by rememberSaveable { mutableStateOf(false) }
     val available = remember(allAudio) { allAudio.filter(::availableAudio).associateBy { it.id } }
+    val listeningEnabled = onPlayFrequent != null && onSaveFrequent != null
+    val listeningStore = remember(context) { ListeningHistoryStore.get(context) }
+    val listeningRevision by listeningStore.revision.collectAsState()
+    val frequentRows = remember(available, hiddenTrackKeys, excludedFolders, deviceMusicFolders, listeningKeys) {
+        available.filterValues { row -> row.id in listeningKeys && !MusicTrackVisibility.hidden(row,hiddenTrackKeys) &&
+            MusicFolderRules.visible(row,excludedFolders,deviceMusicFolders) }
+    }
+    val frequentKeys = remember(frequentRows,listeningKeys) { listeningKeys.filterKeys { it in frequentRows } }
+    var listeningSelection by remember { mutableStateOf(ListeningSelection()) }
+    var listeningLoading by remember { mutableStateOf(false) }
+    var listeningError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(listeningEnabled, listeningRevision, listeningPeriod, frequentKeys, frequentOpen) {
+        if (!listeningEnabled) return@LaunchedEffect
+        listeningLoading = true; listeningError = null
+        try {
+            var eligible = frequentKeys
+            val now = System.currentTimeMillis()
+            var result = listeningStore.selection(eligible,listeningPeriod,now)
+            // Only verify ranked candidates, not the entire library. Refill from
+            // the next highest rank when a file disappeared or lost permission.
+            while (result.ranked.isNotEmpty()) {
+                val ids = result.ranked.map { it.rowId }
+                val valid = validateFrequent(ids,frequentOpen)
+                val missing = ids.filterNot(valid::contains)
+                if (missing.isEmpty()) break
+                eligible = eligible - missing.toSet()
+                result = listeningStore.selection(eligible,listeningPeriod,now)
+            }
+            listeningSelection = result
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { listeningSelection = ListeningSelection(); listeningError = "Не удалось загрузить статистику" }
+        finally { listeningLoading = false }
+    }
     val tracks = remember(items) { items.filter(::availableAudio).distinctBy { it.id } }
     // Include hidden tracks from both local phone storage and ML downloads, regardless
     // of which source tab is active. No hidden record is made visible by playback.
@@ -163,9 +206,9 @@ internal fun MusicModeScreen(
     }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
-    LaunchedEffect(playlist?.id, addingPlaylist) { onDetailChange(playlist != null || addingPlaylist != null) }
+    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
-    BackHandler(playlist != null || tab == 1) { if (playlist != null) selectedId = null else selectTab(0) }
+    BackHandler(frequentOpen || playlist != null || tab == 1) { if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
         PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, available.values.toList(), emptyMap(),
@@ -207,7 +250,11 @@ internal fun MusicModeScreen(
         if (playlist != null && onOpenFromPlaylist != null) onOpenFromPlaylist(id,queue,playlist.id)
         else onOpen(id,queue)
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    if (frequentOpen && onPlayFrequent != null && onSaveFrequent != null) {
+        FrequentListeningScreen(listeningSelection,frequentRows,listeningPeriod,{listeningPeriod=it},listeningLoading||loading,listeningError,
+            currentPlayingId,playing,favoriteIds,listeningStore,{frequentOpen=false},onPlayFrequent,
+            onPreview ?: onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite)
+    } else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         val fastLabels = remember(sections, displayedIds, tab, playlist) {
             if (tab == 0) listOf("") + sections.flatMap { (label, records) -> val caption = if (sort == MusicLibrarySort.DATE || sort == MusicLibrarySort.DATE_OLDEST) label.take(7) else label; listOf(caption) + records.map { caption } }
@@ -224,8 +271,10 @@ internal fun MusicModeScreen(
                     if (searchVisible != false && playlist == null) OutlinedTextField(search, { search = it },
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp), singleLine = true,
                         label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
-                    if (tab == 0) Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    if (tab == 0) BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
+                        val wide = maxWidth >= 480.dp
+                        Row(Modifier.fillMaxWidth(),verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(7.dp)) {
                         FilterChip(
                             selected = favoritesOnly,
                             onClick = { favoritesOnly = !favoritesOnly },
@@ -238,8 +287,11 @@ internal fun MusicModeScreen(
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                             ) },
                         )
-                        Spacer(Modifier.weight(1f))
-                        Text(musicSortCaption(sort), style = MaterialTheme.typography.bodySmall,
+                        if (listeningEnabled) FilterChip(selected=false,onClick={frequentOpen=true},label={Text("Часто слушаю")},
+                            leadingIcon={Icon(Icons.Rounded.GraphicEq,null,Modifier.size(18.dp),tint=com.domenota.medialoader.ui.theme.musicPlaybackAccent)},
+                            modifier=Modifier.testTag("frequent-listening-chip"))
+                        }
+                        if (wide) Text(musicSortCaption(sort), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Box {
                             IconButton(onClick = { sortMenu = true }) {
@@ -257,12 +309,14 @@ internal fun MusicModeScreen(
                             }
                         }
                     }
+                    }
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading, message, error,
                         tab == 0 && displayed.isEmpty(), if (favoritesOnly) "В избранном пока нет треков" else "Нет аудиофайлов") }
                 }
             }
 
             if (tab == 1 && playlist == null) {
+                if (listeningEnabled) item(key="frequent-playlist") { FrequentListeningCard(listeningSelection.ranked.size,listeningPeriod) { frequentOpen=true } }
                 item(key = "playlists-title") { Text("Мои плейлисты", Modifier.padding(horizontal = 17.dp, vertical = 15.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
                 items(playlists.chunked(2), key = { it.first().id }) { pair ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -454,8 +508,9 @@ private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDel
 }
 
 @Composable
-private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Unit)?, onOpen: () -> Unit, onAdd: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
-                              onRemove: (() -> Unit)?, onUp: (() -> Unit)?, onDown: (() -> Unit)?, hidden: Boolean = false, onToggleHidden: (() -> Unit)? = null) {
+internal fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Unit)?, onOpen: () -> Unit, onAdd: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
+                              onRemove: (() -> Unit)?, onUp: (() -> Unit)?, onDown: (() -> Unit)?, hidden: Boolean = false, onToggleHidden: (() -> Unit)? = null,
+                              onExclude: (() -> Unit)? = null, favorite: Boolean = false, onFavorite: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
     if (properties) MusicFilePropertiesDialog(track) { properties = false }
@@ -467,6 +522,8 @@ private fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Un
                 DropdownMenuItem({ Text("Добавить в конец очереди") }, { menu = false; onEnqueue(false) }, leadingIcon = { Icon(Icons.Rounded.QueueMusic, null) })
             }
             DropdownMenuItem({ Text("Добавить в плейлист") }, { menu = false; onAdd() }, leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, null) })
+            if (onFavorite != null) DropdownMenuItem({Text(if(favorite) "Убрать из избранного" else "В избранное")},{menu=false;onFavorite()},leadingIcon={Icon(if(favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,null)})
+            if (onExclude != null) DropdownMenuItem({Text("Исключить из подборки")},{menu=false;onExclude()},leadingIcon={Icon(Icons.Rounded.PlaylistRemove,null)})
             if (onRemove != null) DropdownMenuItem({ Text("Убрать из плейлиста") }, { menu = false; onRemove() }, leadingIcon = { Icon(Icons.Rounded.PlaylistRemove, null) })
             if (onUp != null) DropdownMenuItem({ Text("Выше") }, { menu = false; onUp() }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) })
             if (onDown != null) DropdownMenuItem({ Text("Ниже") }, { menu = false; onDown() }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })

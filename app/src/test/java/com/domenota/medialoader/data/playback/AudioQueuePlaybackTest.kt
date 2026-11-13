@@ -17,6 +17,21 @@ import org.robolectric.annotation.Config
 class AudioQueuePlaybackTest {
     private fun item(id: String, private: Boolean = false) = MediaItem.Builder().setMediaId(id).setUri("file:///missing-$id.mp3")
         .setMediaMetadata(MediaMetadata.Builder().setExtras(Bundle().apply { putBoolean("private_media", private) }).build()).build()
+    @Test fun explicitAutomaticPlaylistReplacesQueueEvenForCurrentFirstTrack() {
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            player.setMediaItems(listOf(item("a"),item("old")))
+            player.seekTo(0,4567)
+            player.pause()
+            assertTrue(AudioQueuePlayback.startSelection(player,listOf(item("a"),item("new"),item("secret",true)),false))
+            assertEquals(listOf("a","new"),(0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId })
+            assertEquals(0L,player.currentPosition)
+            assertTrue(player.playWhenReady)
+            assertFalse(player.shuffleModeEnabled)
+            assertFalse(AudioQueuePlayback.startSelection(player,listOf(item("secret",true)),true))
+            assertEquals(2,player.mediaItemCount)
+        } finally { player.release() }
+    }
     @Test fun previewOfCurrentTrackTogglesWithoutReplacingQueueOrPosition() {
         val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
         try {

@@ -61,6 +61,7 @@ internal fun FrequentListeningScreen(selection: ListeningSelection, rows: Map<St
     var clearOpen by remember { mutableStateOf(false) }
     var saveOpen by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
+    var saveIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var operationError by remember { mutableStateOf<String?>(null) }
     val ranked = selection.ranked.filter { it.rowId in rows }
@@ -88,7 +89,7 @@ internal fun FrequentListeningScreen(selection: ListeningSelection, rows: Map<St
                     Box {
                         IconButton({ menu=true }) { Icon(Icons.Rounded.MoreVert,"Действия с автоподборкой") }
                         DropdownMenu(menu,{menu=false}) {
-                            DropdownMenuItem({ Text("Сохранить как плейлист") },{menu=false; name="Часто слушаю · ${period.label}"; saveOpen=true},enabled=ids.isNotEmpty(),leadingIcon={Icon(Icons.Rounded.PlaylistAdd,null)})
+                            DropdownMenuItem({ Text("Сохранить как плейлист") },{menu=false; name="Часто слушаю · ${period.label}"; saveIds=ids.toList(); saveOpen=true},enabled=ids.isNotEmpty()&&!loading,leadingIcon={Icon(Icons.Rounded.PlaylistAdd,null)})
                             DropdownMenuItem({ Text("Исключённые треки") },{menu=false; excludedOpen=true},leadingIcon={Icon(Icons.Rounded.VisibilityOff,null)})
                             DropdownMenuItem({ Text("Очистить статистику") },{menu=false; clearOpen=true},leadingIcon={Icon(Icons.Rounded.DeleteSweep,null)})
                         }
@@ -154,8 +155,8 @@ internal fun FrequentListeningScreen(selection: ListeningSelection, rows: Map<St
         dismissButton={TextButton({clearOpen=false}){Text("Отмена")}})
     if (saveOpen) AlertDialog(onDismissRequest={if(!busy)saveOpen=false},title={Text("Сохранить как плейлист")},
         text={OutlinedTextField(name,{name=it},label={Text("Название")},singleLine=true,enabled=!busy)},
-        confirmButton={TextButton(enabled=!busy&&name.isNotBlank()&&ids.isNotEmpty(),onClick={
-            val snapshot=ids.toList(); val title=name.trim()
+        confirmButton={TextButton(enabled=!busy&&name.isNotBlank()&&saveIds.isNotEmpty(),onClick={
+            val snapshot=saveIds; val title=name.trim()
             scope.launch {
                 busy=true
                 try { onSave(title,snapshot); saveOpen=false; snackbar.showSnackbar("Плейлист сохранён") }
