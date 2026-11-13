@@ -115,7 +115,7 @@ internal class ListeningRecorder(context: Context, private val player: Player,
         if (active == null) { if (opening?.isActive == true) finish(); return }
         val oldKeys = keys(oldPosition.mediaItem)
         val newKeys = keys(newPosition.mediaItem)
-        if (oldKeys.any(activeKeys::contains)) sample(oldPosition.positionMs)
+        if (oldKeys.any(activeKeys::contains)) sample(oldPosition.positionMs,-1L)
         if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION || activeKeys.none(newKeys::contains)) finish()
         else active?.reset(newPosition.positionMs,SystemClock.elapsedRealtime(),player.isPlaying,player.playbackParameters.speed)
     }
