@@ -121,7 +121,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     onOpen:(String,List<String>)->Unit,onPlay:(List<String>)->Unit,onLink:(String)->Unit,onPassport:(String)->Unit,
     onAddComplete:()->Unit) {
     var selected by rememberSaveable(initialCollection){mutableStateOf(initialCollection)}
-    var filter by rememberSaveable{mutableStateOf(if(audioOnly)"Музыка" else "Всё")}
+    var filter by rememberSaveable(audioOnly){mutableStateOf(if(audioOnly)"Музыка" else "Всё")}
     var create by remember{mutableStateOf(false)}
     var rename by remember{mutableStateOf(false)}
     var remove by remember{mutableStateOf(false)}
@@ -332,8 +332,11 @@ internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>
         if(ref==null){Text("Файл недоступен",Modifier.padding(16.dp));return@Column}
         val row=ref.item
         val passport=remember(ref,refs){MediaOrganizationPolicy.passport(ref,refs)}
-        val membership by produceState(emptyList<MediaCollection>(),ref,collections){
-            value=withContext(Dispatchers.Default){collections.filter{MediaOrganizationPolicy.resolve(it.members,listOf(ref)).isNotEmpty()}}
+        val membership by produceState(emptyList<MediaCollection>(),ref,collections,refs){
+            value=withContext(Dispatchers.Default){
+                val matches=MediaOrganizationPolicy.resolve(collections.flatMap{it.members},refs)
+                collections.filter{collection->collection.members.any{matches[it.id]?.key==ref.key}}
+            }
         }
         LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
             item{
