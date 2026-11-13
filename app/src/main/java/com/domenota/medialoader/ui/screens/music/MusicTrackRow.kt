@@ -24,7 +24,8 @@ import com.domenota.medialoader.ui.screens.audioTitle
 
 @Composable
 internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isCurrent: Boolean = false,
-                                  isPlaying: Boolean = false, trailing: @Composable () -> Unit) {
+                                  isPlaying: Boolean = false, rank: Int? = null, listeningCount: Long? = null,
+                                  trailing: @Composable () -> Unit) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < .5f
     Row(Modifier.fillMaxWidth().background(if (isCurrent) {
         if (darkTheme) editorSliderYellow.copy(alpha = .11f) else Color(0xFFFFF2CE)
@@ -33,6 +34,7 @@ internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isC
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         if (isCurrent) Box(Modifier.width(3.dp).height(49.dp)
             .background(editorSliderYellow, RoundedCornerShape(3.dp)))
+        rank?.let { Text(it.toString(),Modifier.widthIn(min=20.dp),color=MaterialTheme.colorScheme.primary,fontWeight=androidx.compose.ui.text.font.FontWeight.Medium) }
         Box(Modifier.size(53.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) {
             DownloadThumbnail(track.savedUri, track.recognitionArtworkUrl ?: track.sourceAudioArtworkUrl ?: track.previewUrl,
                 track.toUi().kind, Modifier.fillMaxSize())
@@ -44,6 +46,7 @@ internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isC
             if (artist != null || isCurrent) Text((if (isCurrent) if (isPlaying) "♪ Воспроизводится · " else "Пауза · " else "") + artist.orEmpty(),
                 Modifier.padding(top = 5.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+            listeningCount?.let { Text("Прослушиваний: $it",Modifier.padding(top=4.dp),fontSize=11.sp,color=MaterialTheme.colorScheme.primary) }
         }
         track.durationMs?.takeIf { it > 0 }?.let { duration ->
             val seconds = duration / 1000

@@ -85,6 +85,15 @@ class PlaylistRepository(context: Context) {
         return id
     }
 
+    /** Save a dynamic selection atomically; no empty playlist on partial failure. */
+    suspend fun createFromTracks(name: String, ids: List<String>, aliases: Map<String,String>): String {
+        val validName = validatedName(name)
+        require(ids.isNotEmpty() && ids.all { it.isNotBlank() }) { "Нет треков для сохранения" }
+        val id = UUID.randomUUID().toString()
+        mutate { it + resolveReferences(MediaPlaylist(id,validName,emptyList()),aliases,ids) }
+        return id
+    }
+
     suspend fun rename(id: String, name: String) {
         val validName = validatedName(name)
         update(id) { it.copy(name = validName) }

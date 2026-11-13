@@ -105,6 +105,7 @@ class AudioPlaybackService : MediaSessionService() {
     }
 
     private var mediaSession: MediaSession? = null
+    private var listeningRecorder: ListeningRecorder? = null
     private val privateScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
     override fun onCreate() {
@@ -136,6 +137,7 @@ class AudioPlaybackService : MediaSessionService() {
         liveTimer = MusicStopTimer(player,privateScope).also { it.attach() }
         val access = PrivateAccessManager.get(this)
         var privateIds: Set<String> = emptySet()
+        var privateReady = false
         var guarding = false
         fun guardPrivate() {
             if (guarding) return
@@ -143,9 +145,18 @@ class AudioPlaybackService : MediaSessionService() {
             try { PrivatePlaybackPolicy.protect(player, access.state.value.unlocked, privateIds) }
             finally { guarding = false }
         }
+        val listening = ListeningRecorder(this,player,privateScope,ListeningHistoryStore.get(this)) { item ->
+            privateReady && !PrivatePlaybackPolicy.isPrivate(item) && item.mediaId !in privateIds &&
+                item.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty().none(privateIds::contains) &&
+                item.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PUBLIC_URI)?.let { uri ->
+                    PublicMediaIdentity.uriKeys(uri).none(privateIds::contains)
+                } == true
+        }
+        listeningRecorder = listening
+        listening.attach()
         privateScope.launch {
             combine(access.state, MediaRepository.get(this@AudioPlaybackService).privateMediaIds) { state, ids -> state to ids }
-                .collect { (_, ids) -> privateIds = ids; guardPrivate() }
+                .collect { (_, ids) -> privateIds = ids; privateReady = true; guardPrivate(); listening.refresh() }
         }
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -165,6 +176,7 @@ class AudioPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         liveTimer?.release(); liveTimer = null
+        listeningRecorder?.release(); listeningRecorder = null
         privateScope.cancel()
         EqualizerPlaybackTrack.update(null)
         BackgroundMediaWork.setBusy("audio-playback", false)

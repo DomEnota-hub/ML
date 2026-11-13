@@ -881,19 +881,33 @@ fun MediaLoaderApp(
             Toast.makeText(context,"Состав альбома изменился или загружен не полностью. Файлы не перемещены.",Toast.LENGTH_LONG).show()
         } else albumTrash = com.domenota.medialoader.ui.components.AlbumTrashRequest(folderId,resolved,members)
     }
+    val requestDeviceAlbumTrash: (String,List<String>) -> Unit = { bucket, ids ->
+        val resolved = ids.distinct().mapNotNull(libraryRefsByAlias::get).distinctBy { it.item.savedUri }
+        val members = publicLibraryRefs.filter { it.deviceAlbumId == bucket }.map { it.key }.toSet()
+        if (!libraryIndex.ready || !libraryAliasProjection.ready || libraryPrivateKeys == null ||
+            !com.domenota.medialoader.ui.screens.gallery.PhysicalAlbumPolicy.fullAccess(context) ||
+            members.isEmpty() || resolved.map { it.key }.toSet() != members || resolved.size != ids.distinct().size ||
+            resolved.any { it.item.savedUri.isNullOrBlank() || it.item.hidden || it.item.isPrivate ||
+                it.item.mediaType !in setOf(MediaType.PHOTO,MediaType.VIDEO) }) {
+            Toast.makeText(context,"Состав папки не подтверждён. Файлы не перемещены.",Toast.LENGTH_LONG).show()
+        } else albumTrash = com.domenota.medialoader.ui.components.AlbumTrashRequest(bucket,resolved,members,physical = true)
+    }
     albumTrash?.let { request ->
         com.domenota.medialoader.ui.components.AlbumTrashHost(
             request, refs = libraryRefsByAlias,
             currentMembers = {
-                viewModel.albumMemberIds(request.folderId) + libraryModel.externalCatalog.albumMemberIds(request.folderId)
+                if (request.physical) publicLibraryRefs.filter { it.deviceAlbumId == request.folderId }.map { it.key }.toSet()
+                else viewModel.albumMemberIds(request.folderId) + libraryModel.externalCatalog.albumMemberIds(request.folderId)
             },
             onAppTrash = viewModel::trashVerifiedAlbumMedia,
             onTrashed = { ref ->
-                ref.appDownloadId?.let { viewModel.detachTrashedAlbumMember(it,request.folderId) }
-                libraryModel.externalCatalog.detachTrashedAlbumMember(ref,request.folderId)
+                if (!request.physical) {
+                    ref.appDownloadId?.let { viewModel.detachTrashedAlbumMember(it,request.folderId) }
+                    libraryModel.externalCatalog.detachTrashedAlbumMember(ref,request.folderId)
+                }
             },
             onRemoveAlbum = {
-                libraryModel.externalCatalog.withEmptyAlbum(request.folderId) {
+                if (!request.physical) libraryModel.externalCatalog.withEmptyAlbum(request.folderId) {
                     viewModel.deleteEmptyAlbum(request.folderId)
                 }
             },
@@ -1247,8 +1261,9 @@ fun MediaLoaderApp(
                         libraryModel.externalCatalog.removeFolder(folderId)
                     }, onShare = shareLibraryFile,
                     onTrashFolderContents = requestAlbumTrash,
+                     onTrashDeviceAlbum = requestDeviceAlbumTrash,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
-                    onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY) },
+                    onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY, force = true) },
                     onRename = viewModel::renameDownload,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
                     searchVisible = librarySearchVisible, tabOverride = galleryTab, datePickerRequest = galleryDateRequest,
@@ -1285,6 +1300,34 @@ fun MediaLoaderApp(
                     onShare = shareLibraryFile, onDeleteFile = deleteLibraryFile,
                     onTrashDuplicates = trashDuplicates,
                     onOpenDuplicates = { navController.navigate("music-duplicates") { launchSingleTop = true } },
+                    listeningKeys = remember(publicLibraryRefs,fileStatuses) {
+                        publicLibraryRefs.filter { ref -> ref.item.mediaType == MediaType.AUDIO &&
+                            fileStatuses[ref.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE) }
+                            .mapNotNull { ref ->
+                                val keys = com.domenota.medialoader.data.playback.ListeningHistoryPolicy.keys(ref.item,ref.aliases)
+                                keys.takeIf { it.isNotEmpty() }?.let { ref.key to it }
+                            }.toMap()
+                    },
+                    validateFrequent = { ids,fresh -> withContext(Dispatchers.IO) {
+                        ids.filterTo(mutableSetOf()) { id -> libraryRefsByAlias[id]?.item?.savedUri?.let {
+                            availabilityCache.get(it,fresh=fresh) == SavedFileStatus.PRESENT
+                        } == true }
+                    } },
+                    onPlayFrequent = { ids,shuffle ->
+                        libraryPreviewJob?.cancel()
+                        libraryPreviewJob = fileActionScope.launch {
+                            try {
+                                val refs = ids.mapNotNull(libraryRefsByAlias::get).distinctBy { it.key }
+                                val valid = withContext(Dispatchers.IO) { refs.filter { ref ->
+                                    availabilityCache.get(ref.item.savedUri,fresh=true) == SavedFileStatus.PRESENT
+                                } }
+                                libraryModel.audioPreview.playSelection(valid,shuffle)
+                            } catch (e:CancellationException) { throw e }
+                            catch (_:Exception) { Toast.makeText(context,"Нет доступных треков или плеер недоступен",Toast.LENGTH_SHORT).show() }
+                        }
+                    },
+                    onSaveFrequent = { name,ids -> libraryModel.playlistRepository.createFromTracks(name,ids,libraryAliases); Unit },
+                    onFavorite = setLibraryFavorite,
                     duplicateLinkedIds = libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +
                         publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
                     searchVisible = librarySearchVisible, tabOverride = musicTab,

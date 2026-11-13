@@ -71,6 +71,18 @@ internal class LibraryAudioPreview(context: Context) {
             sync(active)
         }
     }
+    suspend fun playSelection(refs: List<LibraryMediaRef>, shuffle: Boolean) {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        val items = withContext(Dispatchers.IO) { refs.filter {
+            !it.item.isPrivate && !it.item.hidden && it.item.mediaType == MediaType.AUDIO &&
+                it.item.state == DownloadState.COMPLETED && !it.item.savedUri.isNullOrBlank()
+        }.distinctBy { it.key }.map { AudioPlaybackMetadata.item(it.item,it.aliases) } }
+        withContext(Dispatchers.Main.immediate) {
+            val active = controller()
+            check(AudioQueuePlayback.startSelection(active,items,shuffle)) { "Нет доступных треков" }
+            sync(active)
+        }
+    }
     suspend fun enqueue(ref: LibraryMediaRef, next: Boolean) {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         require(!ref.item.isPrivate && !ref.item.hidden && ref.item.mediaType == MediaType.AUDIO &&
