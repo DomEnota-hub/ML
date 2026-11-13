@@ -74,6 +74,7 @@ internal fun GalleryBulkAlbumMoveSheet(
     onDismiss: () -> Unit,
     onDeviceMoveCompleted: () -> Unit,
     onFinished: (Set<String>, String) -> Unit,
+    removingDeviceAlbum: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     var search by remember { mutableStateOf("") }
@@ -89,7 +90,7 @@ internal fun GalleryBulkAlbumMoveSheet(
     // The phone writer owns the user-granted write request and processes immutable IDs.
     phoneTarget?.let { target ->
         GalleryPhoneAlbumMoveHost(
-            selected = selected, target = target, deviceAlbums = deviceAlbums,
+            selected = selected, target = target, deviceAlbums = deviceAlbums, removingDeviceAlbum = removingDeviceAlbum,
             onFinished = { completed, note ->
                 if (completed.isNotEmpty()) onDeviceMoveCompleted()
                 onFinished(completed, note ?: GalleryAlbumMovePolicy.summary(
@@ -128,7 +129,7 @@ internal fun GalleryBulkAlbumMoveSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 18.dp)) {
-            Text("Переместить в альбом", style = MaterialTheme.typography.titleLarge,
+            Text(if (removingDeviceAlbum == null) "Переместить в альбом" else "Выбрать папку назначения", style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold)
             Text("Выбрано: ${selected.size}", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -138,7 +139,8 @@ internal fun GalleryBulkAlbumMoveSheet(
                 enabled = !busy)
             Spacer(Modifier.height(8.dp))
             LazyColumn(Modifier.heightIn(max = 340.dp)) {
-                items(albums.filter { it.name.contains(search, ignoreCase = true) },
+                items(albums.filter { it.name.contains(search, ignoreCase = true) && (removingDeviceAlbum == null ||
+                    (it.key.startsWith("device:") && it.key != "device:$removingDeviceAlbum")) },
                     key = { it.key }) { album ->
                     Row(
                         Modifier.fillMaxWidth().clickable(enabled = !busy) {
@@ -181,7 +183,7 @@ internal fun GalleryBulkAlbumMoveSheet(
                         Text("Создать альбом телефона")
                     }
                 }
-                item(key = "new-folder") {
+                if (removingDeviceAlbum == null) item(key = "new-folder") {
                     Row(
                         Modifier.fillMaxWidth().clickable(enabled = !busy) {
                             creating = true
@@ -204,7 +206,7 @@ internal fun GalleryBulkAlbumMoveSheet(
                     enabled = !busy)
             }
             Text(
-                if (creatingPhone || chosen?.startsWith("device:") == true)
+                if (removingDeviceAlbum != null || creatingPhone || chosen?.startsWith("device:") == true)
                     "Альбом телефона: оригиналы будут физически перенесены. Android запросит разрешение."
                 else "Папка MediaLoader: файлы попадут в коллекцию без изменения расположения оригиналов.",
                 style = MaterialTheme.typography.bodySmall,
@@ -243,7 +245,7 @@ internal fun GalleryBulkAlbumMoveSheet(
                         } else {
                             val target = albums.firstOrNull { it.key == chosen }
                             if (target == null) problem = "Выбери альбом"
-                            else if (target.key.startsWith("folder:")) {
+                            else if (target.key.startsWith("folder:") && removingDeviceAlbum == null) {
                                 assignToFolder(target.key.removePrefix("folder:"))
                             } else if (target.key.startsWith("device:")) {
                                 phoneTarget = target
@@ -264,6 +266,7 @@ private fun GalleryPhoneAlbumMoveHost(
     target: GalleryAlbum,
     deviceAlbums: Map<String, DeviceAlbum>,
     onFinished: (Set<String>, String?) -> Unit,
+    removingDeviceAlbum: String? = null,
 ) {
     val context = LocalContext.current
     val albumId = target.key.removePrefix("device:")
@@ -278,6 +281,7 @@ private fun GalleryPhoneAlbumMoveHost(
         selected.filter { it.id !in alreadyThere && it.id !in invalid }.chunked(200)
     }
     var targetPath by remember(target.key) { mutableStateOf<String?>(null) }
+    var targetVolume by remember(target.key) { mutableStateOf<String?>(null) }
     var fatal by remember(target.key) { mutableStateOf<String?>(null) }
     var batchIndex by remember(target.key) { mutableIntStateOf(0) }
     var authorized by remember(target.key) { mutableStateOf(false) }
@@ -293,6 +297,7 @@ private fun GalleryPhoneAlbumMoveHost(
     LaunchedEffect(target.key) {
         try {
             require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { "Альбомы телефона требуют Android 10 или новее" }
+            if (removingDeviceAlbum != null) check(PhysicalAlbumPolicy.fullAccess(context)) { "Нужен полный доступ к фото и видео Android 11+" }
             val path = if (target.key.startsWith("newdevice:")) {
                 // DCIM accepts both photos and videos; MediaStore creates the directory
                 // on the first successful RELATIVE_PATH update.
@@ -300,7 +305,12 @@ private fun GalleryPhoneAlbumMoveHost(
             } else {
                 val cover = target.cover?.savedUri?.takeIf(GalleryAlbumMovePolicy::isPhoneMedia)
                     ?: error("Не удалось определить папку альбома телефона")
-                withContext(Dispatchers.IO) {
+                if (removingDeviceAlbum != null) {
+                    val info = withContext(Dispatchers.IO) { PhysicalAlbumPolicy.read(context,Uri.parse(cover)) }
+                    check(info.bucket == albumId && albumId != removingDeviceAlbum && PhysicalAlbumPolicy.removableSource(info.path)) { "Папка назначения изменилась или является системной" }
+                    targetVolume = info.volume
+                    info.path
+                } else withContext(Dispatchers.IO) {
                     context.contentResolver.query(
                         Uri.parse(cover),
                         arrayOf(MediaStore.MediaColumns.RELATIVE_PATH),
@@ -350,10 +360,19 @@ private fun GalleryPhoneAlbumMoveHost(
             for (item in batch) {
                 try {
                     val uri = Uri.parse(requireNotNull(item.savedUri))
+                    val before = if (removingDeviceAlbum != null) {
+                        check(PhysicalAlbumPolicy.fullAccess(context)) { "Доступ изменился" }
+                        PhysicalAlbumPolicy.read(context,uri).also { info ->
+                            PhysicalAlbumPolicy.verifySource(info,removingDeviceAlbum,item)
+                            check(info.path != destination && (targetVolume == null || targetVolume == info.volume)) { "Нужна другая папка на том же накопителе" }
+                            check(!PhysicalAlbumPolicy.collision(context,info,destination)) { "Файл с таким именем уже существует" }
+                        }
+                    } else null
                     val values = ContentValues().apply {
                         put(MediaStore.MediaColumns.RELATIVE_PATH, destination)
                     }
-                    if (context.contentResolver.update(uri, values, null, null) > 0) succeeded += item.id
+                    val updated = context.contentResolver.update(uri, values, null, null) > 0
+                    if (updated && (before == null || PhysicalAlbumPolicy.verifyDestination(before,PhysicalAlbumPolicy.read(context,uri),destination))) succeeded += item.id
                     else rejected += item.id
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { rejected += item.id }

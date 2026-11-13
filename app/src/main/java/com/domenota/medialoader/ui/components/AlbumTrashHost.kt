@@ -22,7 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal data class AlbumTrashRequest(val folderId: String, val rows: List<LibraryMediaRef>, val memberIds: Set<String>)
+internal data class AlbumTrashRequest(val folderId: String, val rows: List<LibraryMediaRef>, val memberIds: Set<String>, val physical: Boolean = false)
 
 internal fun albumTrashMembershipSafe(request: AlbumTrashRequest, members: Set<String>, ref: LibraryMediaRef): Boolean {
     val aliases = ref.aliases + ref.key + listOfNotNull(ref.appDownloadId)
@@ -61,6 +61,12 @@ internal fun AlbumTrashHost(request: AlbumTrashRequest, refs: Map<String,Library
             live.item.state == DownloadState.COMPLETED && live.item.mediaType in setOf(MediaType.PHOTO,MediaType.VIDEO)) { "Файл изменился" }
         val uri = Uri.parse(requireNotNull(ref.item.savedUri))
         withContext(Dispatchers.IO) {
+            if (request.physical) {
+                val policy = com.domenota.medialoader.ui.screens.gallery.PhysicalAlbumPolicy
+                check(policy.fullAccess(context)) { "Нужен полный доступ к фото и видео" }
+                check(live.deviceAlbumId == request.folderId) { "Папка изменилась" }
+                policy.verifySource(policy.read(context,policy.mediaUri(live)),request.folderId,live.item)
+            }
             val descriptor = context.contentResolver.openFileDescriptor(uri,"r") ?: error("Файл недоступен")
             descriptor.use { fd ->
                 val expected = ref.item.sizeBytes
@@ -130,7 +136,7 @@ internal fun AlbumTrashHost(request: AlbumTrashRequest, refs: Map<String,Library
         }
         finished = true
     }
-    if (finished) AlertDialog(onDismissRequest = onClose, title = { Text(if (removed) "Альбом удалён" else "Альбом сохранён") },
+    if (finished) AlertDialog(onDismissRequest = onClose, title = { Text(if (request.physical) "Перемещение завершено" else if (removed) "Альбом удалён" else "Альбом сохранён") },
         text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("В корзине: ${successful.size} из ${request.rows.size}")
             albumError?.let { Text(it) }
@@ -139,6 +145,7 @@ internal fun AlbumTrashHost(request: AlbumTrashRequest, refs: Map<String,Library
                 Text(request.rows.firstOrNull { it.key == key }?.item?.originalName ?: "Файл")
                 Text(reason, style = MaterialTheme.typography.bodySmall)
             }
+            if (request.physical) Text("Физическая папка не удаляется принудительно. После обновления галереи останутся только доступные файлы.")
             if (!removed) Text("Оставшиеся файлы можно обработать повторно из альбома после обновления библиотеки.")
         } }, confirmButton = { TextButton(onClose) { Text("Закрыть") } })
     else if (!waiting) AlertDialog(onDismissRequest = {}, title = { Text("Перемещение в корзину") },

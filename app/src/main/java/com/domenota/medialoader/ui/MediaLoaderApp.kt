@@ -881,19 +881,33 @@ fun MediaLoaderApp(
             Toast.makeText(context,"Состав альбома изменился или загружен не полностью. Файлы не перемещены.",Toast.LENGTH_LONG).show()
         } else albumTrash = com.domenota.medialoader.ui.components.AlbumTrashRequest(folderId,resolved,members)
     }
+    val requestDeviceAlbumTrash: (String,List<String>) -> Unit = { bucket, ids ->
+        val resolved = ids.distinct().mapNotNull(libraryRefsByAlias::get).distinctBy { it.item.savedUri }
+        val members = publicLibraryRefs.filter { it.deviceAlbumId == bucket }.map { it.key }.toSet()
+        if (!libraryIndex.ready || !libraryAliasProjection.ready || libraryPrivateKeys == null ||
+            !com.domenota.medialoader.ui.screens.gallery.PhysicalAlbumPolicy.fullAccess(context) ||
+            members.isEmpty() || resolved.map { it.key }.toSet() != members || resolved.size != ids.distinct().size ||
+            resolved.any { it.item.savedUri.isNullOrBlank() || it.item.hidden || it.item.isPrivate ||
+                it.item.mediaType !in setOf(MediaType.PHOTO,MediaType.VIDEO) }) {
+            Toast.makeText(context,"Состав папки не подтверждён. Файлы не перемещены.",Toast.LENGTH_LONG).show()
+        } else albumTrash = com.domenota.medialoader.ui.components.AlbumTrashRequest(bucket,resolved,members,physical = true)
+    }
     albumTrash?.let { request ->
         com.domenota.medialoader.ui.components.AlbumTrashHost(
             request, refs = libraryRefsByAlias,
             currentMembers = {
-                viewModel.albumMemberIds(request.folderId) + libraryModel.externalCatalog.albumMemberIds(request.folderId)
+                if (request.physical) publicLibraryRefs.filter { it.deviceAlbumId == request.folderId }.map { it.key }.toSet()
+                else viewModel.albumMemberIds(request.folderId) + libraryModel.externalCatalog.albumMemberIds(request.folderId)
             },
             onAppTrash = viewModel::trashVerifiedAlbumMedia,
             onTrashed = { ref ->
-                ref.appDownloadId?.let { viewModel.detachTrashedAlbumMember(it,request.folderId) }
-                libraryModel.externalCatalog.detachTrashedAlbumMember(ref,request.folderId)
+                if (!request.physical) {
+                    ref.appDownloadId?.let { viewModel.detachTrashedAlbumMember(it,request.folderId) }
+                    libraryModel.externalCatalog.detachTrashedAlbumMember(ref,request.folderId)
+                }
             },
             onRemoveAlbum = {
-                libraryModel.externalCatalog.withEmptyAlbum(request.folderId) {
+                if (!request.physical) libraryModel.externalCatalog.withEmptyAlbum(request.folderId) {
                     viewModel.deleteEmptyAlbum(request.folderId)
                 }
             },
@@ -1247,8 +1261,9 @@ fun MediaLoaderApp(
                         libraryModel.externalCatalog.removeFolder(folderId)
                     }, onShare = shareLibraryFile,
                     onTrashFolderContents = requestAlbumTrash,
+                     onTrashDeviceAlbum = requestDeviceAlbumTrash,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
-                    onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY) },
+                    onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY, force = true) },
                     onRename = viewModel::renameDownload,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
                     searchVisible = librarySearchVisible, tabOverride = galleryTab, datePickerRequest = galleryDateRequest,

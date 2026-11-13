@@ -70,6 +70,7 @@ fun GalleryModeScreen(
     onDeleteSelected: ((List<String>) -> Unit)? = null,
     onDeleteFolder: suspend (String) -> Unit = {},
     onTrashFolderContents: ((String, List<String>) -> Unit)? = null,
+    onTrashDeviceAlbum: ((String, List<String>) -> Unit)? = null,
     onDeviceAlbumsChanged: () -> Unit = {},
     datePickerRequest: Int = 0,
     albumRequest: GalleryAlbumRequest? = null,
@@ -128,6 +129,7 @@ fun GalleryModeScreen(
     // transient screen state instead of serializing them into Android Bundles.
     var selectedIds by remember(source.name, selection, search, tab) { mutableStateOf(arrayListOf<String>()) }
     var moveSnapshot by remember { mutableStateOf<List<DownloadEntity>?>(null) }
+    var removingDeviceAlbum by remember(source) { mutableStateOf<String?>(null) }
     val selecting = selectedIds.isNotEmpty()
     fun toggle(id: String) { selectedIds = ArrayList(if (id in selectedIds) selectedIds - id else selectedIds + id) }
     BackHandler(selecting) { selectedIds = arrayListOf() }
@@ -651,11 +653,15 @@ fun GalleryModeScreen(
             source = source,
             onCreateFolder = onCreateFolder,
             onSetFolder = onSetFolder,
-            onDismiss = { moveSnapshot = null },
+            onDismiss = { moveSnapshot = null; removingDeviceAlbum = null },
+            removingDeviceAlbum = removingDeviceAlbum,
             onDeviceMoveCompleted = onDeviceAlbumsChanged,
             onFinished = { done, message ->
                 selectedIds = ArrayList(GalleryAlbumMovePolicy.remainingSelection(selectedIds, done))
-                moveSnapshot = null
+                val removedAlbum = removingDeviceAlbum
+                moveSnapshot = null; removingDeviceAlbum = null
+                if (removedAlbum != null && done.size == snapshot.size)
+                    saveSettings(removeGalleryAlbumSettings(albumSettings, "device:$removedAlbum"))
                 error = if (done.size == snapshot.size) null else message
                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             },
@@ -667,13 +673,14 @@ fun GalleryModeScreen(
         var includeContents by remember(album.key) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { deletingAlbum = null },
-            title = { Text(if (appFolder) "Удалить папку?" else "Удалить альбом и файлы?") },
+            title = { Text("Удалить альбом?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(if (appFolder && !includeContents)
-                        "Альбом «${album.name}» будет удалён из MediaLoader. Файлы сохранятся в «Медиа»."
-                    else "В альбоме «${album.name}» ${albumRows.size} файлов. Они будут перемещены в корзину и смогут быть восстановлены.")
-                    if (appFolder && onTrashFolderContents != null && albumRows.isNotEmpty()) {
+                    Text(if (includeContents)
+                        "В альбоме «${album.name}» ${albumRows.size} файлов. Они будут перемещены в корзину и смогут быть восстановлены."
+                    else if (appFolder) "Альбом «${album.name}» будет удалён из MediaLoader. Файлы сохранятся в «Медиа»."
+                    else "Чтобы убрать альбом «${album.name}», переместите его ${albumRows.size} файлов в другую папку телефона. Вы выберете её следующим шагом.")
+                    if (albumRows.isNotEmpty() && (if (appFolder) onTrashFolderContents != null else onTrashDeviceAlbum != null)) {
                         val mark = if (includeContents) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(includeContents, role = Role.Checkbox, onValueChange = { includeContents = it }),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -699,10 +706,19 @@ fun GalleryModeScreen(
                                 onDeleteFolder(album.key.removePrefix("folder:"))
                                 saveSettings(removeGalleryAlbumSettings(albumSettings, album.key))
                             }
-                        } else onDeleteSelected?.invoke(albumRows.map { it.id })
+                        } else if (!PhysicalAlbumPolicy.fullAccess(context)) {
+                            val reason = "Для удаления альбома нужен полный доступ к фото и видео Android 11+."
+                            error = reason
+                            Toast.makeText(context,reason,Toast.LENGTH_LONG).show()
+                        } else if (includeContents) {
+                            onTrashDeviceAlbum?.invoke(album.key.removePrefix("device:"), albumRows.map { it.id })
+                        } else {
+                            removingDeviceAlbum = album.key.removePrefix("device:")
+                            moveSnapshot = albumRows.toList()
+                        }
                     },
-                    enabled = appFolder || (onDeleteSelected != null && albumRows.isNotEmpty())
-                ) { Text(if (appFolder && includeContents) "В корзину" else "Удалить", color = MaterialTheme.colorScheme.error) }
+                    enabled = !loading && (appFolder || (album.key.startsWith("device:") && onTrashDeviceAlbum != null && albumRows.isNotEmpty()))
+                ) { Text(if (includeContents) "В корзину" else if (appFolder) "Удалить" else "Выбрать папку", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton({ deletingAlbum = null }) { Text("Отмена") } },
         )
