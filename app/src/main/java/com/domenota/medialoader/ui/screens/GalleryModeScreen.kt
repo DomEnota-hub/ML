@@ -720,7 +720,7 @@ private fun GalleryAlbumCell(
     Column(
         Modifier
             .alpha(if (dragged) 0.30f else 1f)
-            .padding(horizontal = 8.dp, bottom = 18.dp)
+            .padding(start = 8.dp, end = 8.dp, bottom = 18.dp)
             .fillMaxWidth()
             .clickable(onClick = onOpen)
     ) {

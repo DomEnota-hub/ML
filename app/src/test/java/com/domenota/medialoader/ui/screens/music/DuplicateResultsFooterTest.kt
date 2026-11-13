@@ -25,6 +25,7 @@ class DuplicateResultsFooterTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
     @Test fun portraitFooterAndButtonFitAboveViewportEnd() = verify(340, 480, 178)
+    @Config(qualifiers = "w800dp-h360dp-land-xhdpi")
     @Test fun landscapeFooterAndButtonFitAboveViewportEnd() = verify(640, 220, 178)
     @Test fun noSelectionDisablesTrash() = verify(340, 480, 0)
 
