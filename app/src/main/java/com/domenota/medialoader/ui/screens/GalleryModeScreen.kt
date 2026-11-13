@@ -135,9 +135,32 @@ fun GalleryModeScreen(
         else items.mapNotNull { row -> row.groupId?.let { row.id to DeviceAlbum(it, it) } }.toMap()
     }
     val media = remember(items, assignments, buckets) { GalleryLibraryState.filter(items, assignments, "all", "", buckets) }
-    val displayed = remember(items, assignments, selection, search, buckets) {
-        GalleryLibraryState.filter(items, assignments, selection, search, buckets)
+    val smartPrefs = remember(context) { context.getSharedPreferences("gallery_smart_albums",0) }
+    var smartVisible by rememberSaveable { mutableStateOf(smartPrefs.getStringSet("visible",SmartCategory.entries.map { it.name }.toSet()).orEmpty()) }
+    var smartThreshold by rememberSaveable { mutableIntStateOf(smartPrefs.getInt("threshold_mp",24).coerceIn(8,64)) }
+    var smartSettings by remember { mutableStateOf(false) }
+    var smartStarted by rememberSaveable(source.name) { mutableStateOf(false) }
+    val smartStates by SmartAlbumIndex.state.collectAsState()
+    val smartStatus = smartStates[source.name] ?: SmartAlbumStatus()
+    val smartPhotos = remember(media,smartStatus.photos) {
+        media.mapNotNull { row -> smartStatus.photos[row.id]?.takeIf { it.uri == row.savedUri && SmartAlbumPolicy.publicPhoto(row) }?.let { row.id to it } }.toMap()
     }
+    LaunchedEffect(tab,selection,media,loading,smartVisible,source) {
+        if (tab == 1 || selection.startsWith("smart:")) smartStarted = true
+        if (smartVisible.isEmpty()) SmartAlbumIndex.stop(source.name)
+        else if (smartStarted && !loading) SmartAlbumIndex.refresh(context,source.name,media)
+    }
+    val displayed = remember(items, assignments, selection, search, buckets, smartPhotos, smartThreshold) {
+        val smart = SmartCategory.entries.firstOrNull { it.key == selection }
+        if (smart != null) GalleryLibraryState.filter(items,assignments,"all",search,buckets).filter {
+            smartPhotos[it.id]?.matches(smart,smartThreshold) == true
+        } else GalleryLibraryState.filter(items, assignments, selection, search, buckets)
+    }
+    if (smartSettings) SmartAlbumsSettingsDialog(smartVisible,smartThreshold,
+        onVisibility = { visible -> smartVisible = visible; smartPrefs.edit().putStringSet("visible",visible).apply() },
+        onThreshold = { value -> smartThreshold = value; smartPrefs.edit().putInt("threshold_mp",value).apply() },
+        onRefresh = { SmartAlbumIndex.refresh(context,source.name,media,true) },
+        onDismiss = { smartSettings = false })
     val albums = remember(media, folders, assignments, buckets) {
         GalleryLibraryState.albums(media, folders, assignments, buckets)
     }
@@ -465,6 +488,11 @@ fun GalleryModeScreen(
                         },
                         onDelete = { deletingAlbum = album },
                     )
+                }
+                item(key = "smart-albums", span = { GridItemSpan(maxLineSpan) }) {
+                    SmartAlbumsSection(smartPhotos,smartStatus,smartVisible,smartThreshold,
+                        onOpen = { category -> openAlbum(category.key,category.title) },
+                        onSettings = { smartSettings = true })
                 }
                 item(key = "albums-title", span = { GridItemSpan(maxLineSpan) }) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
