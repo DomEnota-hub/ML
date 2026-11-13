@@ -886,8 +886,12 @@ fun MediaLoaderApp(
             request, refs = libraryRefsByAlias,
             currentMembers = { albumMemberIds(request.folderId) },
             onAppTrash = viewModel::trashVerifiedAlbumMedia,
+            onTrashed = { ref ->
+                ref.appDownloadId?.let { viewModel.detachTrashedAlbumMember(it,request.folderId) }
+                libraryModel.externalCatalog.detachTrashedAlbumMember(ref,request.folderId)
+            },
             onRemoveAlbum = {
-                check(request.memberIds.containsAll(albumMemberIds(request.folderId))) { "Состав альбома изменился" }
+                check(albumMemberIds(request.folderId).isEmpty()) { "В альбоме остались файлы или состав изменился" }
                 libraryModel.externalCatalog.removeFolder(request.folderId)
                 viewModel.deleteCatalogFolder(request.folderId)
             },

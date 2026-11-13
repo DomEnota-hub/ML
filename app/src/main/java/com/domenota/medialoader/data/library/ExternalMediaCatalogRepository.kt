@@ -88,6 +88,13 @@ class ExternalMediaCatalogRepository(context: Context) {
     suspend fun removeFolder(folderId: String) = mutate { rows ->
         rows.map { if (it.folderId == folderId) it.copy(folderId = null) else it }.filter { it.isFavorite || it.folderId != null }
     }
+    internal suspend fun detachTrashedAlbumMember(ref: LibraryMediaRef, folderId: String) {
+        val aliases = ref.aliases + ref.key + ref.item.id
+        mutate { rows -> rows.map { entry ->
+            if (entry.folderId == folderId && (entry.ref.key in aliases || entry.ref.aliases.any(aliases::contains)))
+                entry.copy(folderId = null) else entry
+        }.filter { it.folderId != null || it.isFavorite } }
+    }
     suspend fun setExistingFavorite(ref: LibraryMediaRef, favorite: Boolean) = updateExisting(ref) { it.copy(isFavorite = favorite) }
     suspend fun setExistingFolder(ref: LibraryMediaRef, folderId: String?) = updateExisting(ref) { it.copy(folderId = folderId) }
     private suspend fun updateExisting(ref: LibraryMediaRef, operation: (ExternalMediaEntry) -> ExternalMediaEntry) {

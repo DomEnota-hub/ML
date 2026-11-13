@@ -182,6 +182,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     suspend fun createCatalogFolder(name: String): String = repository.createCatalogFolder(name)
     suspend fun renameCatalogFolder(id: String, name: String) = repository.renameCatalogFolder(id, name)
     suspend fun deleteCatalogFolder(id: String) = repository.deleteCatalogFolder(id)
+    internal suspend fun detachTrashedAlbumMember(id: String, folderId: String) = repository.detachTrashedAlbumMember(id,folderId)
     suspend fun setCatalogFolder(downloadId: String, folderId: String?) =
         repository.setDownloadFolder(downloadId, folderId)
     suspend fun setCatalogFavorite(downloadId: String, favorite: Boolean) = repository.setDownloadFavorite(downloadId, favorite)

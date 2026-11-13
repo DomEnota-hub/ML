@@ -169,7 +169,7 @@ fun GapiKeysDialog(
                             sharedWith = keys.firstOrNull { it.id != key.id && it.balanceId == key.balanceId }?.id
                             balanceError = null
                         }) { Text("Изменить остаток") }
-                        if (key.invalid || key.exhaustedMonth == store.currentMonth() ||
+                        if (key.invalid || (key.exhaustedMonth == store.currentMonth() && key.balanceCheckedAt == null) ||
                             key.pauseUntilMillis > System.currentTimeMillis()) {
                             NeutralTextButton(enabled = store.storageAvailable, onClick = {
                                 mutate { store.resetStatus(key.id) }

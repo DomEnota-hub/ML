@@ -430,6 +430,7 @@ class MediaRepository private constructor(context: Context) {
     suspend fun createCatalogFolder(name: String) = catalog.createFolder(name)
     suspend fun renameCatalogFolder(id: String, name: String) = catalog.renameFolder(id, name)
     suspend fun deleteCatalogFolder(id: String) = catalog.deleteFolder(id)
+    internal suspend fun detachTrashedAlbumMember(id: String, folderId: String) = catalog.detachTrashedAlbumMember(id, folderId)
     suspend fun setDownloadFolder(id: String, folderId: String?) { history.byId(id)?.let(::requireMediaAccess); catalog.setFolder(id, folderId) }
     suspend fun setDownloadFavorite(id: String, favorite: Boolean) { history.byId(id)?.let(::requireMediaAccess); catalog.setFavorite(id, favorite) }
     suspend fun toggleDownloadFavorite(id: String) { history.byId(id)?.let(::requireMediaAccess); catalog.toggleFavorite(id) }

@@ -768,10 +768,12 @@ private fun GalleryAlbumCell(
                 }
             }
             Box(Modifier.align(Alignment.TopEnd)) {
-                IconButton({ menu = true }, modifier = Modifier.offset(x = 3.dp, y = (-3).dp)) {
-                    Box(Modifier.size(30.dp).background(Color.Black.copy(alpha = .55f), RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.MoreVert, "Управление альбомом ${album.name}", tint = Color.White, modifier = Modifier.size(22.dp))
+                IconButton({ menu = true }, modifier = Modifier.size(48.dp)) {
+                    Box(Modifier.fillMaxSize().padding(4.dp), contentAlignment = Alignment.TopEnd) {
+                        Box(Modifier.size(30.dp).background(Color.Black.copy(alpha = .55f), RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.MoreVert, "Управление альбомом ${album.name}", tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
                     }
                 }
                 DropdownMenu(menu, { menu = false }) {

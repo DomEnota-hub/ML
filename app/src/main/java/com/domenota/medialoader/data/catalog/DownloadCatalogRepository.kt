@@ -41,6 +41,16 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
         dao.deleteFolder(id)
     }
 
+    /** After a verified recoverable move, detach only the original album assignment. */
+    internal suspend fun detachTrashedAlbumMember(downloadId: String, folderId: String) = database.withTransaction {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        val previous = dao.assignmentById(downloadId)
+        if (previous?.folderId == folderId) {
+            if (previous.isFavorite) dao.saveAssignment(previous.copy(folderId = null))
+            else dao.removeAssignment(downloadId)
+        }
+    }
+
     suspend fun setFolder(downloadId: String, folderId: String?) = database.withTransaction {
         requireCompleted(downloadId)
         require(folderId == null || dao.folderById(folderId) != null) { "Папка не найдена" }

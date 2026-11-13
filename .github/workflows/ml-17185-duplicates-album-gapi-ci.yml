@@ -54,6 +54,7 @@ jobs:
             --tests '*MusicDuplicateSessionTest' \
             --tests '*DuplicateResultsFooterTest' \
             --tests '*GapiKeyStoreTest' \
+            --tests '*AlbumTrashMembershipTest' \
             --tests '*ModeShortcutsTest' \
             --tests '*MusicStopTimerPolicyTest' \
             --tests '*GalleryViewerOverlayPolicyTest' \

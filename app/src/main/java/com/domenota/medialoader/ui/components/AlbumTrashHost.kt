@@ -19,6 +19,8 @@ import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.library.LibraryMediaRef
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal data class AlbumTrashRequest(val folderId: String, val rows: List<LibraryMediaRef>, val memberIds: Set<String>)
 
@@ -31,14 +33,16 @@ internal fun albumTrashMembershipSafe(request: AlbumTrashRequest, members: Set<S
 @Composable
 internal fun AlbumTrashHost(request: AlbumTrashRequest, refs: Map<String,LibraryMediaRef>,
     currentMembers: () -> Set<String>, onAppTrash: suspend (String,String) -> Unit,
-    onRemoveAlbum: suspend () -> Unit, onClose: () -> Unit) {
+    onTrashed: suspend (LibraryMediaRef) -> Unit, onRemoveAlbum: suspend () -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val liveRefs by rememberUpdatedState(refs)
     val members by rememberUpdatedState(currentMembers)
     val removeAlbum by rememberUpdatedState(onRemoveAlbum)
+    val detachMember by rememberUpdatedState(onTrashed)
     var index by remember(request) { mutableIntStateOf(0) }
     var waiting by remember(request) { mutableStateOf(false) }
     var answer by remember(request) { mutableStateOf<Int?>(null) }
+    var pending by remember(request) { mutableStateOf<List<LibraryMediaRef>>(emptyList()) }
     var revision by remember(request) { mutableIntStateOf(0) }
     var finished by remember(request) { mutableStateOf(false) }
     var removed by remember(request) { mutableStateOf(false) }
@@ -48,30 +52,46 @@ internal fun AlbumTrashHost(request: AlbumTrashRequest, refs: Map<String,Library
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         answer = it.resultCode; waiting = false; revision++
     }
-    fun verify(ref: LibraryMediaRef) {
+    suspend fun verify(ref: LibraryMediaRef) {
         val live = requireNotNull(liveRefs[ref.key]) { "Файл недоступен" }
         check(albumTrashMembershipSafe(request,members(),live)) { "Состав альбома изменился" }
         check(live.item.savedUri == ref.item.savedUri && live.item.sizeBytes == ref.item.sizeBytes &&
+            live.item.createdAtEpochMillis == ref.item.createdAtEpochMillis &&
             live.appDownloadId == ref.appDownloadId && !live.item.hidden && !live.item.isPrivate &&
             live.item.state == DownloadState.COMPLETED && live.item.mediaType in setOf(MediaType.PHOTO,MediaType.VIDEO)) { "Файл изменился" }
-    }
-    fun requestSystemTrash(ref: LibraryMediaRef) {
         val uri = Uri.parse(requireNotNull(ref.item.savedUri))
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && uri.scheme == "content" && uri.authority == MediaStore.AUTHORITY) {
-            val intent = MediaStore.createTrashRequest(context.contentResolver,listOf(uri),true)
-            waiting = true
+        withContext(Dispatchers.IO) {
+            val descriptor = context.contentResolver.openFileDescriptor(uri,"r") ?: error("Файл недоступен")
+            descriptor.use { fd ->
+                val expected = ref.item.sizeBytes
+                check(expected == null || expected <= 0L || fd.statSize < 0L || expected == fd.statSize) { "Размер файла изменился" }
+            }
+        }
+    }
+    fun requestSystemTrash(rows: List<LibraryMediaRef>) {
+        val uris = rows.map { Uri.parse(requireNotNull(it.item.savedUri)) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && uris.all { it.scheme == "content" && it.authority == MediaStore.AUTHORITY }) {
+            val intent = MediaStore.createTrashRequest(context.contentResolver,uris,true)
+            pending = rows; waiting = true
             try { launcher.launch(IntentSenderRequest.Builder(intent.intentSender).build()) }
-            catch (e: Exception) { waiting = false; throw e }
+            catch (e: Exception) { waiting = false; pending = emptyList(); throw e }
         } else error("Системная корзина недоступна для файла")
+    }
+    suspend fun success(ref: LibraryMediaRef) {
+        successful += ref.key
+        try { detachMember(ref) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { failures[ref.key] = "Файл в корзине; связь с альбомом не обновлена: ${e.message ?: "ошибка каталога"}" }
     }
     LaunchedEffect(request, revision) {
         if (waiting || finished) return@LaunchedEffect
         val result = answer
-        if (result != null && index < request.rows.size) {
-            val ref = request.rows[index]
-            if (confirmedSystemTrash(context,Uri.parse(requireNotNull(ref.item.savedUri)))) successful += ref.key
-            else failures[ref.key] = if (result == Activity.RESULT_OK) "Android не подтвердил перенос" else "Разрешение отклонено"
-            index++; answer = null
+        if (result != null) {
+            for (ref in pending) {
+                if (confirmedSystemTrash(context,Uri.parse(requireNotNull(ref.item.savedUri)))) success(ref)
+                else failures[ref.key] = if (result == Activity.RESULT_OK) "Android не подтвердил перенос" else "Разрешение отклонено"
+            }
+            pending = emptyList(); answer = null
             if (result != Activity.RESULT_OK) {
                 request.rows.drop(index).forEach { failures[it.key] = "Операция отменена" }
                 index = request.rows.size
@@ -79,12 +99,26 @@ internal fun AlbumTrashHost(request: AlbumTrashRequest, refs: Map<String,Library
         }
         while (index < request.rows.size) {
             val ref = request.rows[index]
+            if (ref.appDownloadId == null) {
+                val candidates = request.rows.drop(index).takeWhile { it.appDownloadId == null }.take(50)
+                index += candidates.size
+                val valid = mutableListOf<LibraryMediaRef>()
+                for (candidate in candidates) {
+                    try { verify(candidate); valid += candidate }
+                    catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { failures[candidate.key] = e.message ?: "Файл недоступен" }
+                }
+                if (valid.isNotEmpty()) {
+                    try { requestSystemTrash(valid); return@LaunchedEffect }
+                    catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { valid.forEach { failures[it.key] = e.message ?: "Системная корзина недоступна" } }
+                }
+                continue
+            }
             try {
                 verify(ref)
-                val appId = ref.appDownloadId
-                if (appId == null) { requestSystemTrash(ref); return@LaunchedEffect }
-                try { onAppTrash(appId,requireNotNull(ref.item.savedUri)); successful += ref.key }
-                catch (e: SecurityException) { verify(ref); requestSystemTrash(ref); return@LaunchedEffect }
+                try { onAppTrash(requireNotNull(ref.appDownloadId),requireNotNull(ref.item.savedUri)); success(ref) }
+                catch (e: SecurityException) { verify(ref); requestSystemTrash(listOf(ref)); index++; return@LaunchedEffect }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { failures[ref.key] = e.message ?: "Не удалось переместить" }
             index++
