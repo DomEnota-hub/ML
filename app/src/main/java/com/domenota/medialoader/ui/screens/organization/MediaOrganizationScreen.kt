@@ -53,7 +53,8 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
     // screen performs the complete projection on a worker thread.
     val shown=remember(collections){collections.take(2)}
     val covers by produceState(emptyMap<String,LibraryMediaRef>(),shown,refs) {
-        value=withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(shown.flatMap{it.members},refs)}
+        val projection = withContext(Dispatchers.Default) { MediaOrganizationPolicy.resolve(shown.flatMap { it.members }, refs) }
+        this.value = projection
     }
     Column(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
