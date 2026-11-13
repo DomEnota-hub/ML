@@ -172,7 +172,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     Text("Выбрано: ${saved.selected.size} · ${android.text.format.Formatter.formatFileSize(context,savedBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button({ restorePrevious(saved) }, Modifier.fillMaxWidth()) { Text("Продолжить проверку") }
-                    OutlinedButton({ scanRevision++ }, Modifier.fillMaxWidth()) { Text("Новый поиск") }
+                    OutlinedButton({ scanRevision++ }, Modifier.fillMaxWidth()) {
+                        Text(if (DuplicateSearchService.resumePending(context)) "Продолжить прерванный поиск" else "Новый поиск")
+                    }
                 } else {
                     Text("Групп: ${groups.size} · файлов: ${groups.sumOf { it.tracks.size }}", style = MaterialTheme.typography.bodyMedium)
                     if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)

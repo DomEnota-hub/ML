@@ -38,15 +38,21 @@ class DuplicateSearchService : Service() {
         internal fun requestOpen() { openMutable.value = true }
         internal fun consumeOpen() { openMutable.value = false }
         internal fun acknowledge() { if (mutable.value !is DuplicateSearchState.Running) mutable.value = DuplicateSearchState.Idle }
+        internal fun resumePending(context: Context) = context.getSharedPreferences("duplicate_scan_checkpoint",Context.MODE_PRIVATE).getBoolean("pending",false)
+        private fun markPending(context: Context, value: Boolean) {
+            context.getSharedPreferences("duplicate_scan_checkpoint",Context.MODE_PRIVATE).edit().putBoolean("pending",value).commit()
+        }
         internal fun begin(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?) {
             if (mutable.value is DuplicateSearchState.Running) return
             pending = Request(rows.toList(), linked.toSet(), current)
+            markPending(context,true)
             mutable.value = DuplicateSearchState.Running()
             try { ContextCompat.startForegroundService(context, Intent(context,DuplicateSearchService::class.java)) }
             catch (e: Exception) { pending = null; mutable.value = DuplicateSearchState.Failed("Не удалось запустить фоновый поиск: ${e.message.orEmpty()}") }
         }
         internal fun cancel(context: Context) {
             pending = null
+            markPending(context,false)
             mutable.value = DuplicateSearchState.Failed("Поиск отменён. Предыдущий результат сохранён.")
             context.stopService(Intent(context,DuplicateSearchService::class.java))
         }
@@ -86,6 +92,9 @@ class DuplicateSearchService : Service() {
         else startForeground(ID,notification)
         task = scope.launch {
             var completed = false
+            val wake = getSystemService(android.os.PowerManager::class.java)
+                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK,"MediaLoader:DuplicateScan")
+            runCatching { wake.acquire(2*60*60*1000L) }
             try {
                 val r = MusicDuplicateScanner.scan(applicationContext,request.rows,request.linked,request.current) { n,total ->
                     if (mutable.value is DuplicateSearchState.Running) mutable.value = DuplicateSearchState.Running(n,total)
@@ -99,6 +108,7 @@ class DuplicateSearchService : Service() {
                 val session = DuplicateSession(r,emptySet(),r.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) },0,0,System.currentTimeMillis())
                 check(MusicDuplicateSessionStore.save(applicationContext,session)) { "Не удалось сохранить результат поиска" }
                 ensureActive()
+                markPending(applicationContext,false)
                 mutable.value = DuplicateSearchState.Complete(session)
                 completed = true
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -106,8 +116,9 @@ class DuplicateSearchService : Service() {
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { mutable.value = DuplicateSearchState.Failed(e.message ?: "Ошибка проверки") }
             finally {
+                if (wake.isHeld) wake.release()
                 if (!completed) stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                stopSelf(startId)
             }
         }
         return START_NOT_STICKY

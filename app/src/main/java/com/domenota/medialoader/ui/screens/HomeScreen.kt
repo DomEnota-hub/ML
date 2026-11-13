@@ -75,7 +75,7 @@ fun HomeScreen(
         AppCard(Modifier.fillMaxWidth()) {
             Column(Modifier
                 .background(Brush.linearGradient(listOf(
-                    if (com.domenota.medialoader.ui.theme.isDarkPalette) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer,
+                    if (com.domenota.medialoader.ui.theme.isDarkPalette && MaterialTheme.colorScheme.primary == com.domenota.medialoader.ui.theme.AppGold) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer,
                     MaterialTheme.colorScheme.surface,
                 )))
                 .padding(18.dp)) {

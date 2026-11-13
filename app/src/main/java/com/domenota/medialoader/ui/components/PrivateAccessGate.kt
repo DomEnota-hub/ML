@@ -205,6 +205,8 @@ private fun rememberSystemAuthentication(onSuccess: () -> Unit, onFailure: (Stri
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                         if (!active || signal !== cancellation) return
                         if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT || errorCode == BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS || errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE || errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT || errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT) credential()
+                        else if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_CANCELED || errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED)
+                            failure("Подтверждение отменено")
                         else failure(errString.toString())
                     }
                 })

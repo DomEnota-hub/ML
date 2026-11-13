@@ -73,7 +73,9 @@ internal class PlaybackStopTimer(private val player: ExoPlayer, private val onSt
     }
     private fun stop() {
         if (request == null) return
-        onStopped(); cancel(); player.pause()
+        request = null
+        player.pause()
+        onStopped(); cancel()
     }
     private fun hasLaterPlaylistTrack(): Boolean {
         val id = playlistId ?: return false

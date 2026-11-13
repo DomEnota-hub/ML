@@ -73,13 +73,18 @@ internal object SmartAlbumIndex {
     fun refresh(context: Context, source: String, rows: List<DownloadEntity>, force: Boolean = false) {
         val public = rows.filter(SmartAlbumPolicy::publicPhoto).distinctBy { it.id }
         if (!force && inputs[source] == public) return
+        val old = inputs[source].orEmpty()
         inputs[source] = public
         jobs[source]?.cancel()
         val app = context.applicationContext
-        val previous = status.value[source]?.photos.orEmpty().filter { (id,photo) -> public.any { it.id == id && it.savedUri == photo.uri } }
+        val byId = public.associateBy { it.id }
+        val previous = status.value[source]?.photos.orEmpty().filter { (id,photo) -> byId[id]?.savedUri == photo.uri }
+        val activeUris = inputs.values.flatten().mapNotNull { it.savedUri }.toSet()
+        val removedUris = old.mapNotNull { it.savedUri }.filterNot(activeUris::contains)
         publish(source,SmartAlbumStatus(previous,0,public.size,true))
         jobs[source] = scope.launch {
             gate.withLock {
+                removedUris.forEach { cacheFile(app,it).delete() }
                 val photos = linkedMapOf<String,SmartPhoto>()
                 var skipped = 0
                 val detector = runCatching { FaceDetection.getClient(FaceDetectorOptions.Builder()
@@ -104,7 +109,7 @@ internal object SmartAlbumIndex {
                         if (cached == null) delay(15)
                     }
                     publish(source,SmartAlbumStatus(photos.toMap(),public.size,public.size,false,skipped))
-                } finally { detector?.close() }
+                } finally { runCatching { detector?.close() } }
             }
         }
     }
@@ -145,11 +150,11 @@ internal object SmartAlbumIndex {
             } catch (e: Exception) { file.failWrite(stream); throw e }
         }
     }
-    private suspend fun analyze(context: Context,uri: Uri,stamp: Pair<Long,Long>?,
+    private suspend fun analyze(context: Context,uri: Uri,snapshotStamp: Pair<Long,Long>?,
         detector: com.google.mlkit.vision.face.FaceDetector?): SmartPhoto? {
         val resolver = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it,null,bounds) } ?: return null
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it,null,bounds); Unit } ?: return null
         val w = bounds.outWidth; val h = bounds.outHeight
         if (w <= 0 || h <= 0) return null
         var sample = 1
@@ -200,11 +205,13 @@ internal object SmartAlbumIndex {
             val page = pageLike(image)
             // One bounded OCR pass, only on plausible page-like photos or images without a prominent face.
             val doc = if (page || fraction < .075f) {
-                val read = LocalTextOcr.readForCatalog(context,image)
-                SmartAlbumPolicy.document(read.text,read.confidence,page)
+                try {
+                    val read = LocalTextOcr.readForCatalog(context,image)
+                    SmartAlbumPolicy.document(read.text,read.confidence,page)
+                } catch (e: CancellationException) { throw e } catch (_: Exception) { false }
             } else false
-            if (stamp != null && stamp(context,uri) != stamp) return null
-            return SmartPhoto(uri.toString(),stamp?.first ?: 0,stamp?.second ?: 0,w,h,doc,
+            if (snapshotStamp != null && stamp(context,uri) != snapshotStamp) return null
+            return SmartPhoto(uri.toString(),snapshotStamp?.first ?: 0,snapshotStamp?.second ?: 0,w,h,doc,
                 SmartAlbumPolicy.portrait(fraction,count),SmartAlbumPolicy.selfie(front,fraction,count,centered))
         } finally { if (image !== original) image.recycle(); original.recycle() }
     }
