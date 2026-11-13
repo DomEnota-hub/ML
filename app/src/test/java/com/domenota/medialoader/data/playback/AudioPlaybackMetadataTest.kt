@@ -16,6 +16,15 @@ class AudioPlaybackMetadataTest {
         MediaType.AUDIO, DownloadState.COMPLETED, "content://media/external/audio/media/42", 123L, 0L,
         sourceAudioTitle = "Song", sourceAudioArtist = "Artist", isPrivate = private)
 
+    @Test fun listeningKeysRequirePublicIdentityAndNeverIncludePrivateMetadata() {
+        val phone = row().copy(createdAtEpochMillis=10L)
+        val aliases=setOf("media:external:42","file-stat:physical")
+        val public=AudioPlaybackMetadata.item(phone,aliases)
+        assertEquals(ListeningHistoryPolicy.keys(phone,aliases),public.mediaMetadata.extras?.getStringArrayList(AudioPlaybackMetadata.LISTENING_KEYS)?.toSet())
+        assertTrue(ListeningHistoryPolicy.keys(phone.copy(originalName="renamed.mp3"),aliases).contains("file-stat:physical"))
+        assertTrue(ListeningHistoryPolicy.keys(phone.copy(isPrivate=true),aliases).isEmpty())
+        assertNull(AudioPlaybackMetadata.item(phone.copy(isPrivate=true),aliases).mediaMetadata.extras?.getStringArrayList(AudioPlaybackMetadata.LISTENING_KEYS))
+    }
     @Test fun serviceSnapshotRestoresOpenableTrackWithoutAPhoneCatalog() {
         val original = AudioPlaybackMetadata.item(row(), setOf("file-stat:identity"))
         val transferred = MediaItem.fromBundle(original.toBundle())

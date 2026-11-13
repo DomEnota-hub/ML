@@ -92,7 +92,7 @@ internal fun GalleryBulkAlbumMoveSheet(
         GalleryPhoneAlbumMoveHost(
             selected = selected, target = target, deviceAlbums = deviceAlbums, removingDeviceAlbum = removingDeviceAlbum,
             onFinished = { completed, note ->
-                if (completed.isNotEmpty()) onDeviceMoveCompleted()
+                if (completed.isNotEmpty() || removingDeviceAlbum != null) onDeviceMoveCompleted()
                 onFinished(completed, note ?: GalleryAlbumMovePolicy.summary(
                     selected.size, completed.size, selected.size - completed.size))
             },
@@ -288,6 +288,10 @@ private fun GalleryPhoneAlbumMoveHost(
     var completed by remember(target.key) { mutableStateOf(alreadyThere.toSet()) }
     var failed by remember(target.key) { mutableStateOf(invalid.toSet()) }
     var requesting by remember(target.key) { mutableStateOf(false) }
+    fun resultSummary(): String = if (removingDeviceAlbum != null) {
+        "Подтверждено перенесённых файлов: ${completed.size} из ${selected.size}." +
+            if (completed.size < selected.size) " Проверьте оставшиеся файлы после обновления галереи." else ""
+    } else GalleryAlbumMovePolicy.summary(selected.size, completed.size, selected.size - completed.size)
     val writePermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()) { answer ->
         requesting = false
@@ -334,8 +338,7 @@ private fun GalleryPhoneAlbumMoveHost(
         val destination = targetPath ?: return@LaunchedEffect
         if (fatal != null || requesting) return@LaunchedEffect
         if (batchIndex >= batches.size) {
-            onFinished(completed, GalleryAlbumMovePolicy.summary(
-                selected.size, completed.size, selected.size - completed.size))
+            onFinished(completed, resultSummary())
             return@LaunchedEffect
         }
         val batch = batches[batchIndex]
@@ -395,14 +398,13 @@ private fun GalleryPhoneAlbumMoveHost(
                          else "Обработано: ${completed.size + failed.size} из ${selected.size}")
                 } else {
                     Text(fatal.orEmpty(), color = MaterialTheme.colorScheme.error)
-                    Text("Уже перенесённые файлы не обрабатываются повторно. Остальные останутся выделенными.")
+                    Text(if (removingDeviceAlbum != null) "После закрытия галерея обновится. Уже подтверждённые файлы повторно не обрабатываются." else "Уже перенесённые файлы не обрабатываются повторно. Остальные останутся выделенными.")
                 }
             }
         },
         confirmButton = {
             if (fatal != null) TextButton(onClick = {
-                onFinished(completed, GalleryAlbumMovePolicy.summary(
-                    selected.size, completed.size, selected.size - completed.size) + " " + fatal)
+                onFinished(completed, resultSummary() + " " + fatal)
             }) { Text("Закрыть") }
         },
     )

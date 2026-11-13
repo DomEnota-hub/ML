@@ -1300,6 +1300,34 @@ fun MediaLoaderApp(
                     onShare = shareLibraryFile, onDeleteFile = deleteLibraryFile,
                     onTrashDuplicates = trashDuplicates,
                     onOpenDuplicates = { navController.navigate("music-duplicates") { launchSingleTop = true } },
+                    listeningKeys = remember(publicLibraryRefs,fileStatuses) {
+                        publicLibraryRefs.filter { ref -> ref.item.mediaType == MediaType.AUDIO &&
+                            fileStatuses[ref.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE) }
+                            .mapNotNull { ref ->
+                                val keys = com.domenota.medialoader.data.playback.ListeningHistoryPolicy.keys(ref.item,ref.aliases)
+                                keys.takeIf { it.isNotEmpty() }?.let { ref.key to it }
+                            }.toMap()
+                    },
+                    validateFrequent = { ids,fresh -> withContext(Dispatchers.IO) {
+                        ids.filterTo(mutableSetOf()) { id -> libraryRefsByAlias[id]?.item?.savedUri?.let {
+                            availabilityCache.get(it,fresh=fresh) == SavedFileStatus.PRESENT
+                        } == true }
+                    } },
+                    onPlayFrequent = { ids,shuffle ->
+                        libraryPreviewJob?.cancel()
+                        libraryPreviewJob = fileActionScope.launch {
+                            try {
+                                val refs = ids.mapNotNull(libraryRefsByAlias::get).distinctBy { it.key }
+                                val valid = withContext(Dispatchers.IO) { refs.filter { ref ->
+                                    availabilityCache.get(ref.item.savedUri,fresh=true) == SavedFileStatus.PRESENT
+                                } }
+                                libraryModel.audioPreview.playSelection(valid,shuffle)
+                            } catch (e:CancellationException) { throw e }
+                            catch (_:Exception) { Toast.makeText(context,"Нет доступных треков или плеер недоступен",Toast.LENGTH_SHORT).show() }
+                        }
+                    },
+                    onSaveFrequent = { name,ids -> libraryModel.playlistRepository.createFromTracks(name,ids,libraryAliases); Unit },
+                    onFavorite = setLibraryFavorite,
                     duplicateLinkedIds = libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +
                         publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
                     searchVisible = librarySearchVisible, tabOverride = musicTab,

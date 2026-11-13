@@ -10,6 +10,7 @@ import com.domenota.medialoader.core.model.*
 internal object AudioPlaybackMetadata {
     const val PUBLIC_URI = "public_saved_uri"
     const val PLAYLIST_ID = "origin_playlist_id"
+    const val LISTENING_KEYS = "listening_identity_keys"
     fun publicRow(item: MediaItem, lookup: List<DownloadEntity>, blocked: Set<String> = emptySet()): DownloadEntity? {
         val meta = item.mediaMetadata
         val identities = meta.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty()
@@ -70,6 +71,9 @@ internal object AudioPlaybackMetadata {
                 putBoolean("private_media", row.isPrivate)
                 if (!row.isPrivate && playlistId != null) putString(PLAYLIST_ID,playlistId)
                 putStringArrayList(PublicMediaIdentity.EXTRA_KEYS, ArrayList(identities))
-                if (!row.isPrivate) putString(PUBLIC_URI, row.savedUri)
+                if (!row.isPrivate) {
+                    putString(PUBLIC_URI, row.savedUri)
+                    putStringArrayList(LISTENING_KEYS, ArrayList(ListeningHistoryPolicy.keys(row,identities)))
+                }
             }).build()).build()
 }
