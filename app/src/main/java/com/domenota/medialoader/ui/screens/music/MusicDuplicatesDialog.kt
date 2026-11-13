@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -47,7 +48,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     val listState = rememberLazyListState()
     var previous by remember { mutableStateOf<DuplicateSession?>(null) }
     var scannedAt by remember { mutableLongStateOf(0L) }
-    var progress by remember { mutableStateOf(0 to 0) }
+    val background by DuplicateBackgroundScan.state.collectAsState()
+    val progress = background.done to background.total
     var scanning by remember { mutableStateOf(true) }
     var verifying by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -91,18 +93,25 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         } catch (e: Exception) { previewError = e.message ?: "Прослушивание недоступно"; stopPreview() }
     }
     LaunchedEffect(scanRevision) {
-        scanning = true; result = null; previous = null; error = null; selected = emptySet(); kept = emptyMap(); progress = 0 to 0
+        scanning = true; result = null; previous = null; error = null; selected = emptySet(); kept = emptyMap()
         try {
-            if (scanRevision == 0) {
-                val saved = MusicDuplicateSessionStore.load(context)
-                if (saved != null) { previous = saved; return@LaunchedEffect }
+            if (!DuplicateBackgroundScan.state.value.running) {
+                if (scanRevision == 0) {
+                    val saved = MusicDuplicateSessionStore.load(context)
+                    if (saved != null) { previous = saved; return@LaunchedEffect }
+                }
+                DuplicateBackgroundScan.start(context,latestRows,linkedIds,latestCurrent)
             }
-            val r = MusicDuplicateScanner.scan(context,latestRows,linkedIds,latestCurrent) { n,total -> progress = n to total }
-            scannedAt = System.currentTimeMillis()
-            val recommended = r.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) }
-            if (!MusicDuplicateSessionStore.save(context, DuplicateSession(r,emptySet(),recommended,0,0,scannedAt)))
-                error = "Не удалось сохранить результат поиска"
-            kept = recommended; result = r
+            val finished = DuplicateBackgroundScan.state.first { !it.running }
+            val saved = finished.session
+            if (saved == null) {
+                error = finished.error
+                previous = MusicDuplicateSessionStore.load(context)
+                return@LaunchedEffect
+            }
+            val r = MusicDuplicateScanner.restore(context,saved.result,latestRows,linkedIds,latestCurrent)
+            scannedAt = saved.scannedAt
+            kept = r.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) }; result = r
         } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message ?: "Ошибка проверки" }
         finally { scanning = false }
     }
@@ -154,7 +163,10 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                 if (scanning) {
                     LinearProgressIndicator(progress = { if (progress.second == 0) 0f else progress.first.toFloat()/progress.second }, modifier = Modifier.fillMaxWidth())
                     Text("Проверка файлов · ${progress.first}/${progress.second}", Modifier.padding(vertical = 12.dp))
-                    TextButton({ close() }) { Text("Отмена") }
+                    if (background.running) {
+                        Button({ close() }, Modifier.fillMaxWidth()) { Text("Продолжить в фоне") }
+                        TextButton({ DuplicateBackgroundScan.cancel(context) }, enabled = !background.committing) { Text("Отменить поиск") }
+                    } else TextButton({ close() }) { Text("Закрыть") }
                 } else if (previous != null) {
                     val saved = previous!!
                     Text("Последний поиск", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
@@ -164,7 +176,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     Text("Выбрано: ${saved.selected.size} · ${android.text.format.Formatter.formatFileSize(context,savedBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button({ restorePrevious(saved) }, Modifier.fillMaxWidth()) { Text("Продолжить проверку") }
-                    OutlinedButton({ scanRevision++ }, Modifier.fillMaxWidth()) { Text("Новый поиск") }
+                    OutlinedButton({ scanRevision++ }, Modifier.fillMaxWidth()) { Text(if (DuplicateBackgroundScan.interrupted(context)) "Продолжить незавершённый поиск" else "Новый поиск") }
                 } else {
                     Text("Групп: ${groups.size} · файлов: ${groups.sumOf { it.tracks.size }}", style = MaterialTheme.typography.bodyMedium)
                     if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)

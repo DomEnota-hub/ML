@@ -27,8 +27,10 @@ class MainActivity : ComponentActivity() {
     private var wasForeground = false
     private var shortcutMode by mutableStateOf<com.domenota.medialoader.data.library.AppMode?>(null)
     private var shortcutGeneration by mutableIntStateOf(0)
+    private var openDuplicates by mutableStateOf(false)
     private fun acceptModeShortcut(incoming: Intent?) {
         com.domenota.medialoader.data.library.ModeShortcuts.mode(incoming?.action)?.let {
+            openDuplicates = incoming?.action == com.domenota.medialoader.data.library.DuplicateBackgroundScan.OPEN_ACTION
             shortcutMode = it; shortcutGeneration++
         }
     }
@@ -64,6 +66,7 @@ class MainActivity : ComponentActivity() {
                 MediaLoaderApp(
                     shortcutMode = shortcutMode,
                     shortcutGeneration = shortcutGeneration,
+                    shortcutDuplicates = openDuplicates,
                     onShortcutConsumed = { shortcutMode = null },
                     sharedText = sharedText,
                     sharedTextGeneration = sharedTextGeneration,

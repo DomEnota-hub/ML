@@ -47,6 +47,9 @@ fun MusicModeScreen(
     favoriteIds: Set<String> = emptySet(),
     duplicateLinkedIds: Set<String> = emptySet(),
     onTrashDuplicates: ((List<String>) -> Unit)? = null,
+    duplicateRequest: Int = 0, onDuplicateRequestHandled: () -> Unit = {},
+    onPreviewFromPlaylist: ((String,List<String>,String) -> Unit)? = null,
+    onOpenFromPlaylist: ((String,List<String>,String) -> Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -57,6 +60,9 @@ fun MusicModeScreen(
     var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
     var sortMenu by remember { mutableStateOf(false) }
     var duplicatesOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(duplicateRequest, loading) {
+        if (duplicateRequest != 0 && !loading) { duplicatesOpen = true; onDuplicateRequestHandled() }
+    }
     if (duplicatesOpen && onTrashDuplicates != null) MusicDuplicatesDialog(allAudio, favoriteIds + duplicateLinkedIds + playlists.flatMap { it.trackIds }, currentPlayingId, playing,
         { duplicatesOpen = false }, onTrashDuplicates)
     val listState = rememberLazyListState()
@@ -188,7 +194,14 @@ fun MusicModeScreen(
         }
     }
     val queue = remember(displayed) { displayed.map { it.id } }
-    fun preview(id: String) { (onPreview ?: onOpen)(id, queue) }
+    fun preview(id: String) {
+        if (playlist != null && onPreviewFromPlaylist != null) onPreviewFromPlaylist(id,queue,playlist.id)
+        else (onPreview ?: onOpen)(id, queue)
+    }
+    fun openTrack(id: String) {
+        if (playlist != null && onOpenFromPlaylist != null) onOpenFromPlaylist(id,queue,playlist.id)
+        else onOpen(id,queue)
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         val fastLabels = remember(sections, displayedIds, tab, playlist) {
@@ -358,7 +371,7 @@ fun MusicModeScreen(
                             val id = track.id
                             MusicLibraryTrackRow(track, { preview(id) }, id == currentPlayingId, playing) {
                                 MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } },
-                                    { onOpen(id, queue) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
+                                    { openTrack(id) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
                                     null, null, null, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) })
                             }
                         }
@@ -368,7 +381,7 @@ fun MusicModeScreen(
                     if (track == null && playlist != null) UnavailablePlaylistTrackRow(playlist.trackIds.indexOf(id) + 1) {
                         mutate { onRemoveTrack(playlist.id, id) }
                     } else if (track != null) MusicLibraryTrackRow(track, { preview(id) }, id == currentPlayingId, playing) {
-                        MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } }, { onOpen(id, queue) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
+                        MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } }, { openTrack(id) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
                             playlist?.let { entry -> { mutate { onRemoveTrack(entry.id, id) } } },
                             playlist?.takeIf { it.trackIds.indexOf(id) > 0 }?.let { entry -> { mutate { onMoveTrack(entry.id, id, -1) } } },
                             playlist?.takeIf { it.trackIds.indexOf(id) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } }, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) })

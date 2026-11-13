@@ -50,19 +50,27 @@ internal object MusicDuplicateSessionStore {
             catch (e: Exception) { target.failWrite(stream); throw e }
         }
     }
-    fun encode(session: DuplicateSession): String {
-        val groups = JSONArray()
-        session.result.groups.forEach { g ->
-            val tracks = JSONArray()
-            g.tracks.forEach { t ->
-                tracks.put(JSONObject().apply {
+    internal fun encodeTrack(t: DuplicateTrack): JSONObject = JSONObject().apply {
                     put("id", t.id); put("title", t.title); put("artist", t.artist ?: JSONObject.NULL)
                     put("filename", t.filename); put("uri", t.uri); put("bytes", t.bytes)
                     put("modified", t.modified ?: JSONObject.NULL); put("sha", t.sha)
                     put("payload", t.payloadSha ?: JSONObject.NULL); put("duration", t.duration ?: JSONObject.NULL)
                     put("bitrate", t.bitrate ?: JSONObject.NULL); put("folder", t.folder ?: JSONObject.NULL)
                     put("linked", t.linked); put("current", t.current)
-                })
+    }
+    internal fun decodeTrack(t: JSONObject): DuplicateTrack {
+        fun JSONObject.str(key: String): String? = if (isNull(key)) null else getString(key)
+        fun JSONObject.lng(key: String): Long? = if (isNull(key)) null else getLong(key)
+        return DuplicateTrack(t.getString("id"),t.getString("title"),t.str("artist"),t.getString("filename"),
+                    t.getString("uri"),t.getLong("bytes"),t.lng("modified"),t.getString("sha"),t.str("payload"),
+                    t.lng("duration"),t.lng("bitrate"),t.str("folder"),t.getBoolean("linked"),t.getBoolean("current"))
+    }
+    fun encode(session: DuplicateSession): String {
+        val groups = JSONArray()
+        session.result.groups.forEach { g ->
+            val tracks = JSONArray()
+            g.tracks.forEach { t ->
+                tracks.put(encodeTrack(t))
             }
             groups.put(JSONObject().put("title", g.title).put("reason", g.reason).put("tracks", tracks))
         }
@@ -73,16 +81,11 @@ internal object MusicDuplicateSessionStore {
     }
     fun decode(text: String): DuplicateSession {
         val json = JSONObject(text); require(json.getInt("schema") == 1)
-        fun JSONObject.str(key: String): String? = if (isNull(key)) null else getString(key)
-        fun JSONObject.lng(key: String): Long? = if (isNull(key)) null else getLong(key)
         val ga = json.getJSONArray("groups")
         val groups = (0 until ga.length()).map { i ->
             val g = ga.getJSONObject(i); val ta = g.getJSONArray("tracks")
             val tracks = (0 until ta.length()).map { j ->
-                val t = ta.getJSONObject(j)
-                DuplicateTrack(t.getString("id"),t.getString("title"),t.str("artist"),t.getString("filename"),
-                    t.getString("uri"),t.getLong("bytes"),t.lng("modified"),t.getString("sha"),t.str("payload"),
-                    t.lng("duration"),t.lng("bitrate"),t.str("folder"),t.getBoolean("linked"),t.getBoolean("current"))
+                decodeTrack(ta.getJSONObject(j))
             }
             require(tracks.size >= 2)
             DuplicateGroup(tracks,g.getString("title"),g.getString("reason"))

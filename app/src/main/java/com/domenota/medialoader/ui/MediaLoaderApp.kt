@@ -167,6 +167,7 @@ private fun fileNameFieldColors() = if (MaterialTheme.colorScheme.background.lum
 fun MediaLoaderApp(
     shortcutMode: AppMode? = null,
     shortcutGeneration: Int = 0,
+    shortcutDuplicates: Boolean = false,
     onShortcutConsumed: () -> Unit = {},
     sharedText: String? = null,
     sharedTextGeneration: Int = 0,
@@ -197,12 +198,14 @@ fun MediaLoaderApp(
     val libraryPreferences = remember(context) { LibraryPreferences(context) }
     var appMode by rememberSaveable { mutableStateOf(shortcutMode ?: libraryPreferences.mode) }
     var privateNavigation by remember { mutableStateOf(false) }
+    var duplicateRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDateRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryTab by rememberSaveable { mutableIntStateOf(0) }
     var galleryTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDetailOpen by remember { mutableStateOf(false) }
     var galleryAlbumRequest by remember { mutableStateOf<GalleryAlbumRequest?>(null) }
     var openingAlbumKey by remember { mutableStateOf<String?>(null) }
+    var openingPlaylistId by remember { mutableStateOf<String?>(null) }
     var musicTab by rememberSaveable { mutableIntStateOf(0) }
     var musicTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var musicDetailOpen by remember { mutableStateOf(false) }
@@ -780,7 +783,9 @@ fun MediaLoaderApp(
     )
     val openDownloadWithQueue: (String, List<String>) -> Unit = { id, queueIds ->
         val originAlbumKey = openingAlbumKey
+        val originPlaylistId = openingPlaylistId
         openingAlbumKey = null
+        openingPlaylistId = null
         (accessibleDownloads.firstOrNull { it.id == id } ?: libraryRefsByAlias[id]?.item
             ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let { libraryRefsByAlias[it]?.item })?.let { item ->
           fileActionScope.launch {
@@ -802,7 +807,7 @@ fun MediaLoaderApp(
                     val ref = libraryRefsByAlias[item.id] ?: selected.first().copy(aliases = selected.first().aliases +
                         withContext(Dispatchers.IO) { com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, requireNotNull(item.savedUri)) })
                     val queue = selectedRows.mapNotNull { row -> selected.firstOrNull { it.item.savedUri == row.savedUri } }
-                    try { libraryModel.audioPreview.open(if (queue.any { it.key == ref.key }) queue.map { if (it.key == ref.key) ref else it } else listOf(ref) + queue, ref.key) }
+                    try { libraryModel.audioPreview.open(if (queue.any { it.key == ref.key }) queue.map { if (it.key == ref.key) ref else it } else listOf(ref) + queue, ref.key, originPlaylistId) }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) {
                         Toast.makeText(context, "Не удалось подключиться к музыкальному плееру", Toast.LENGTH_SHORT).show()
@@ -887,7 +892,7 @@ fun MediaLoaderApp(
                 fileActionScope.launch { runCatching { MusicDuplicateSessionStore.removeTrashed(context, uris.toSet()) } }
             } })
     }
-    val previewLibraryAudio: (String, List<String>) -> Unit = { id, ids ->
+    fun previewLibraryAudioInContext(id: String, ids: List<String>, playlistId: String?) {
         libraryPreviewJob?.cancel()
         libraryPreviewJob = fileActionScope.launch {
             val ref = libraryRefsByAlias[id] ?: return@launch
@@ -897,13 +902,14 @@ fun MediaLoaderApp(
                     Toast.makeText(context, "Трек недоступен. Проверьте файл и разрешения.", Toast.LENGTH_SHORT).show()
                 } else {
                     val queue = ids.mapNotNull(libraryRefsByAlias::get).distinctBy { it.key }
-                    libraryModel.audioPreview.preview(queue, ref.key)
+                    libraryModel.audioPreview.preview(queue, ref.key, playlistId)
                 }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { Toast.makeText(context, "Не удалось начать воспроизведение", Toast.LENGTH_SHORT).show() }
         }
     }
 
+    val previewLibraryAudio: (String,List<String>) -> Unit = { id, ids -> previewLibraryAudioInContext(id,ids,null) }
     if (preview.duplicateMatches.isNotEmpty()) {
         val duplicates = preview.duplicateMatches
         val selectedCount = preview.selectedIds.size
@@ -986,6 +992,7 @@ fun MediaLoaderApp(
             popUpTo(AppDestination.Home.route) { inclusive = false }
             launchSingleTop = true
         }
+        if (shortcutDuplicates) duplicateRequest++
         onShortcutConsumed()
     }
     LaunchedEffect(sharedText, sharedTextGeneration) {
@@ -1202,6 +1209,8 @@ fun MediaLoaderApp(
                     } }.toMap(),
                     )
                 else MusicModeScreen(
+                    duplicateRequest = duplicateRequest,
+                    onDuplicateRequestHandled = { duplicateRequest = 0 },
                     hiddenTracksOpen = hiddenMusicTracksOpen,
                     onDismissHiddenTracks = { hiddenMusicTracksOpen = false },
                     deviceMusicFolders = remember(phoneMusic.items) { phoneMusic.items.mapNotNull { row ->
@@ -1238,6 +1247,8 @@ fun MediaLoaderApp(
                         }
                     },
                     onPreview = previewLibraryAudio,
+                    onPreviewFromPlaylist = { id, ids, playlistId -> previewLibraryAudioInContext(id,ids,playlistId) },
+                    onOpenFromPlaylist = { id, ids, playlistId -> openingPlaylistId = playlistId; openDownloadWithQueue(id,ids) },
                     onAddPlaylistTracks = { navController.navigate("playlist-add/$it") },
                     onDetailChange = { musicDetailOpen = it }, currentPlayingId = currentLibraryAudioId,
                     playing = libraryAudioState.playing)

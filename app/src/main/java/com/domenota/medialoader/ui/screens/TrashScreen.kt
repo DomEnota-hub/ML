@@ -153,7 +153,9 @@ fun TrashScreen(
             )
         },
         bottomBar = {
-            if (allItems.isNotEmpty()) Surface(tonalElevation = 3.dp) {
+            if (allItems.isNotEmpty()) Surface(
+                color = if (com.domenota.medialoader.ui.theme.isDarkPalette) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surface,
+                tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 3.dp) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = {
