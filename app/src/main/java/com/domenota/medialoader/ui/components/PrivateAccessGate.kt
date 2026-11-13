@@ -19,6 +19,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -44,7 +48,7 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     val authenticate = rememberSystemAuthentication(
         onSuccess = { manager.onSystemAuthenticationSucceeded(); busy = false },
-        onFailure = { error = it; busy = false }
+        onFailure = { error = it.takeUnless { reason -> reason == "Подтверждение отменено" }; busy = false }
     )
     LaunchedEffect(state.mode, lifecycleState, autoAuthenticate) {
         if (autoAuthenticate && state.mode == PrivateAccessMode.BIOMETRIC &&
@@ -56,8 +60,11 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
             authenticate()
         }
     }
-    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Приватный раздел", style = MaterialTheme.typography.headlineSmall)
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(Icons.Rounded.Lock, null, Modifier.size(52.dp), tint = com.domenota.medialoader.ui.theme.musicPlaybackAccent)
+        Text("Личный раздел", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         when (state.mode) {
             PrivateAccessMode.PIN -> {
                 Text("Введите PIN из 6 цифр")
@@ -76,7 +83,7 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
                 Text("Если вы забыли свой PIN, восстановить доступ к приватным файлам нельзя.", style = MaterialTheme.typography.bodySmall)
             }
             PrivateAccessMode.BIOMETRIC -> {
-                Text("Подтвердите вход биометрией или блокировкой устройства")
+                Text("Подтвердите вход, чтобы открыть личные файлы", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                 Button(enabled = !busy && manager.systemProtectionAvailable, onClick = { attemptedSystemEntry = true; busy = true; error = null; authenticate() }) { Text(if (attemptedSystemEntry) "Повторить вход" else "Подтвердить вход") }
                 if (!manager.systemProtectionAvailable) Text("Блокировка устройства недоступна. Восстановите её в настройках Android.")
             }
@@ -84,7 +91,7 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
             else -> Unit
         }
         if (busy) CircularProgressIndicator()
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center) }
     }
 }
 
@@ -200,7 +207,8 @@ private fun rememberSystemAuthentication(onSuccess: () -> Unit, onFailure: (Stri
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                         if (!active || signal !== cancellation) return
                         if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT || errorCode == BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS || errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE || errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT || errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT) credential()
-                        else failure(errString.toString())
+                        else if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_CANCELED || errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED || errorCode == BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON) failure("Подтверждение отменено")
+                        else failure("Не удалось подтвердить вход. Попробуйте ещё раз.")
                     }
                 })
             }.onFailure { credential() }
