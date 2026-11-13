@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import com.domenota.medialoader.core.database.HistoryDatabase
 import com.domenota.medialoader.core.database.PRIVATE_HISTORY_MIGRATION
+import com.domenota.medialoader.core.database.MEDIA_ORGANIZATION_MIGRATION
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -59,7 +60,7 @@ class PrivateHistoryMigrationTest {
                 old.version = 11
             }
             val opened = Room.databaseBuilder(context, HistoryDatabase::class.java, name)
-                .addMigrations(PRIVATE_HISTORY_MIGRATION).allowMainThreadQueries().build()
+                .addMigrations(PRIVATE_HISTORY_MIGRATION,MEDIA_ORGANIZATION_MIGRATION).allowMainThreadQueries().build()
             migrated = opened
             val dao = opened.downloadDao()
             val retained = requireNotNull(dao.byId("existing-download"))
@@ -77,7 +78,8 @@ class PrivateHistoryMigrationTest {
             assertEquals("content://media/existing", privateRow.privateSourceUri)
             assertTrue(dao.observeAll().first().isEmpty())
             assertEquals(listOf(privateRow), dao.observePrivate().first())
-            assertEquals(12, opened.openHelper.writableDatabase.version)
+            assertEquals(13, opened.openHelper.writableDatabase.version)
+            assertTrue(opened.organizationDao().observeReview().first().isEmpty())
         } finally {
             migrated?.close()
             context.deleteDatabase(name)

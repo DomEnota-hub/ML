@@ -1416,9 +1416,10 @@ fun MediaLoaderApp(
                 }
             }
             composable("collections") {
-                val refs=if(organizationReady)publicLibraryRefs.filter{it.item.mediaType!=MediaType.AUDIO||
-                    !com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,
-                        context.getSharedPreferences("music_folder_visibility",0).getStringSet("hidden_tracks",emptySet()).orEmpty())} else emptyList()
+                val hidden=context.getSharedPreferences("music_folder_visibility",0).getStringSet("hidden_tracks",emptySet()).orEmpty()
+                val refs=remember(publicLibraryRefs,organizationReady,hidden){if(organizationReady)publicLibraryRefs.filter{
+                    it.item.mediaType!=MediaType.AUDIO||!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,hidden)
+                } else emptyList()}
                 CollectionsScreen(collections,refs,organization,collectionInitial,collectionAudioOnly,collectionAddIds,collectionLink,
                     organizationReady,{navController.popBackStack()},openDownloadWithQueue,
                     onPlay={ids->

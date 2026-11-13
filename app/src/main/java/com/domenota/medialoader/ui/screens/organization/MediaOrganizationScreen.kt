@@ -63,7 +63,7 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
         if(shown.isEmpty()) OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",{onOpen(null)})
         else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
             shown.forEach { collection ->
-                val cover=collection.members.firstNotNullOfOrNull{member->covers[member.id]?.takeIf{candidate->refs.any{it.key==candidate.key}}?.item}
+                val cover=collection.members.firstNotNullOfOrNull{member->covers[member.id]?.let{candidate->refs.firstOrNull{it.key==candidate.key}?.item}}
                 Surface(Modifier.weight(1f).clickable{onOpen(collection.record.id)},shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){
                     Column(Modifier.padding(8.dp)){
                         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){
@@ -150,7 +150,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         Header(if(choosing)"Добавить в коллекцию" else collection?.record?.name?:"Коллекции",{
             if(selected!=null&&!choosing)selected=null else onBack()
         }){
-            if(collection==null||choosing)IconButton({create=true},enabled=!busy){Icon(Icons.Rounded.Add,"Создать коллекцию")}
+            if(collection==null||choosing)IconButton({create=true},enabled=!busy&&(!choosing||ready)){Icon(Icons.Rounded.Add,"Создать коллекцию")}
             else {
                 IconButton({rename=true},enabled=!busy){Icon(Icons.Rounded.Edit,"Переименовать коллекцию")}
                 IconButton({remove=true},enabled=!busy){Icon(Icons.Rounded.DeleteOutline,"Удалить коллекцию")}
@@ -162,14 +162,14 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
                 if(collections.isEmpty())item{Text("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.")}
                 items(collections,key={it.record.id}){c->
-                    val visible=c.members.mapNotNull{resolved[it.id]?.takeIf{ref->ref.key in byId}}
+                    val visible=c.members.mapNotNull{resolved[it.id]?.let{ref->byId[ref.key]}}
                     val count=if(audioOnly)visible.count{it.item.mediaType==MediaType.AUDIO} else visible.size
                     OrganizationEntry(c.record.name,if(audioOnly)"Музыка · $count треков" else "${c.members.size} материалов",
-                        {if(choosing)addInitial(c.record.id) else selected=c.record.id})
+                        {if(choosing){if(ready&&!busy)addInitial(c.record.id)}else selected=c.record.id})
                 }
             }
         } else {
-            val visible=collection.members.mapNotNull{member->resolved[member.id]?.takeIf{it.key in byId}?.let{member to it}}
+            val visible=collection.members.mapNotNull{member->resolved[member.id]?.let{byId[it.key]}?.let{member to it}}
             val audio=visible.filter{it.second.item.mediaType==MediaType.AUDIO}.map{it.second.key}.distinct()
             val filtered=visible.filter{!audioOnly||it.second.item.mediaType==MediaType.AUDIO}
                 .filter{filter=="Всё"||it.second.item.mediaType.caption()==filter}
