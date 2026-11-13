@@ -36,7 +36,9 @@ internal object MediaOrganizationPolicy {
     fun name(raw:String)=raw.trim().also{require(it.length in 1..80){"Название: от 1 до 80 символов"}}
     /** Only one verified candidate; a conflicting locator cannot attach a different file. */
     fun resolve(members:List<MediaCollectionMemberEntity>,refs:List<LibraryMediaRef>):Map<String,LibraryMediaRef> {
-        val index=refs.flatMap{ref->keys(ref).map{it to ref}}.groupBy({it.first},{it.second})
+        if(members.none{it.identityJson!=null}||refs.isEmpty())return emptyMap()
+        val wanted=members.flatMap{decode(it.identityJson)}.toHashSet()
+        val index=refs.flatMap{ref->keys(ref).filter(wanted::contains).map{it to ref}}.groupBy({it.first},{it.second})
         return members.mapNotNull{ member->
             val matches=decode(member.identityJson).flatMap{index[it].orEmpty()}.distinctBy{it.key}
             matches.singleOrNull()?.let{member.id to it}

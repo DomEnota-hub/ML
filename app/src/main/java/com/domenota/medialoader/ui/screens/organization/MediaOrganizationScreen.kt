@@ -51,7 +51,7 @@ internal fun OrganizationEntry(title:String,description:String,onOpen:()->Unit,m
 internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit) {
     // Only the two displayed cards resolve cover identities; opening the full
     // screen performs the complete projection on a worker thread.
-    val shown=collections.take(2)
+    val shown=remember(collections){collections.take(2)}
     val covers by produceState(emptyMap<String,LibraryMediaRef>(),shown,refs) {
         value=withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(shown.flatMap{it.members.take(8)},refs)}
     }
@@ -214,12 +214,9 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         }
     }
     if(create)ValueDialog("Новая коллекция","","Название",{create=false}){name->
-        val id=repository.create(name)
-        if(choosing){
-            if(initialAdd.isNotEmpty())repository.addMedia(id,initialAdd.distinct().map{byId[it]?:error("Файл недоступен")})
-            initialLink?.let{repository.addLink(id,it)}
-            choosing=false;onAddComplete()
-        }
+        val files=if(choosing)initialAdd.distinct().map{byId[it]?:error("Файл недоступен")} else emptyList()
+        val id=repository.create(name,files,if(choosing)initialLink else null)
+        if(choosing){choosing=false;onAddComplete()}
         selected=id
     }
     if(rename&&collection!=null)ValueDialog("Переименовать",collection.record.name,"Название",{rename=false}){repository.rename(collection.record.id,it)}

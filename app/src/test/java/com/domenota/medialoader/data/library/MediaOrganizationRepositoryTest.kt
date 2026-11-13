@@ -46,6 +46,16 @@ class MediaOrganizationRepositoryTest {
         history.saveDerived(row("edit",parent="new"),"Редактирование фото")
         assertTrue(store.review.first().isEmpty())
         assertEquals("Редактирование фото",store.operations("edit").first().single().operation)
+        history.recordPublishedDownload(row("vk-direct"),3000)
+        assertEquals(listOf("vk-direct"),store.review.first().map{it.downloadId})
+        store.setReviewed(listOf("vk-direct"))
+        history.recordPublishedDownload(row("vk-direct"),4000)
+        assertTrue(store.review.first().isEmpty())
+    }
+    @Test fun newCollectionRollsBackIfInitialFileIsInvalid()=runBlocking {
+        val bad=ref(row("missing"))
+        assertTrue(runCatching{store.create("Invalid",listOf(bad))}.isFailure)
+        assertTrue(db.organizationDao().observeCollections().first().isEmpty())
     }
     @Test fun privateAndAmbiguousMediaCannotBeResolved()=runBlocking {
         val a=row("a");val b=row("b");history.save(a);history.save(b)

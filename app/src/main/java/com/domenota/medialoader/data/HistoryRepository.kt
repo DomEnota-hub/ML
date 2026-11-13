@@ -40,6 +40,18 @@ class HistoryRepository(private val dao: DownloadDao, private val catalogDao: Ca
                 !entity.savedUri.isNullOrBlank()) db.organizationDao().insertReview(MediaReviewEntity(entity.id,completedAt))
         }
     }
+    /** Alternate download queue publishes a finished file without a RUNNING history row.
+     * Only a genuinely new history ID creates a review entry. */
+    suspend fun recordPublishedDownload(entity:DownloadEntity,completedAt:Long) {
+        require(entity.state==DownloadState.COMPLETED)
+        if(db==null){dao.upsert(entity);return}
+        db.withTransaction {
+            val previous=dao.byId(entity.id)
+            dao.upsert(entity)
+            if(previous==null&&!entity.isPrivate&&!entity.hidden&&!entity.savedUri.isNullOrBlank())
+                db.organizationDao().insertReview(MediaReviewEntity(entity.id,completedAt))
+        }
+    }
     suspend fun saveDerived(entity:DownloadEntity,operation:String?) {
         if(db==null){dao.upsert(entity);return}
         db.withTransaction {

@@ -15,10 +15,12 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
     }
     val review=dao.observeReview()
     fun operations(id:String)=dao.observeOperations(id)
-    suspend fun create(name:String):String {
+    suspend fun create(name:String,refs:List<LibraryMediaRef> = emptyList(),link:String?=null):String = db.withTransaction {
         val id=UUID.randomUUID().toString()
         dao.insertCollection(MediaCollectionEntity(id,MediaOrganizationPolicy.name(name),System.currentTimeMillis()))
-        return id
+        if(refs.isNotEmpty())addMedia(id,refs)
+        if(link!=null)addLink(id,link)
+        id
     }
     suspend fun rename(id:String,name:String){check(dao.rename(id,MediaOrganizationPolicy.name(name))==1)}
     suspend fun delete(id:String){dao.deleteCollection(id)}

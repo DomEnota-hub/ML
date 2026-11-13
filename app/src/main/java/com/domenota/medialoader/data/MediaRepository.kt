@@ -1051,7 +1051,7 @@ class MediaRepository private constructor(context: Context) {
                 sizeBytes = requireNotNull(frame).length(),
                 createdAtEpochMillis = System.currentTimeMillis(),
                 sourcePageUrl = item.sourcePageUrl, previewUrl = item.previewUrl,
-            ).also { history.save(it) }
+            ).also { history.saveDerived(it,"Сохранение кадра из предпросмотра видео") }
         } finally {
             frame?.delete()
             video.delete()
@@ -1205,6 +1205,8 @@ class MediaRepository private constructor(context: Context) {
                                 check(historyDb.downloadDao().byId(old.id) == old) { "История трека изменилась" }
                                 check(historyDb.downloadDao().updateEditedAudioWhenCurrent(old.id,
                                     requireNotNull(old.savedUri), file.length(), newDuration, expectedTags[0], expectedTags[1], expectedTags[2]) == 1)
+                                historyDb.organizationDao().insertOperation(com.domenota.medialoader.core.database.MediaOperationEntity(
+                                    UUID.randomUUID().toString(),old.id,"Редактирование исходного аудио",System.currentTimeMillis()))
                             }
                         }
                         committed = changed
@@ -1268,7 +1270,7 @@ class MediaRepository private constructor(context: Context) {
         jobId: String, photoKey: String, postKey: String,
         fileName: String, savedUri: String, sizeBytes: Long,
     ) {
-        history.save(DownloadEntity(
+        history.recordPublishedDownload(DownloadEntity(
             id = "vk-community-$jobId-$photoKey",
             providerId = "vk",
             originalName = fileName,
@@ -1279,7 +1281,7 @@ class MediaRepository private constructor(context: Context) {
             createdAtEpochMillis = System.currentTimeMillis(),
             sourcePageUrl = "https://vk.com/wall${postKey.replace(':', '_')}",
             groupId = "vk-community-$jobId",
-        ))
+        ),System.currentTimeMillis())
     }
     suspend fun cancelQueuedDownload(id: String) {
         history.byId(id)?.let(::requireMediaAccess)
