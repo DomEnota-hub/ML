@@ -32,7 +32,7 @@ internal enum class SmartCategory(val title: String, val key: String) {
     HIGH_RES("Высокое разрешение","smart:high-res");
 }
 internal data class SmartPhoto(val uri: String, val bytes: Long, val modified: Long, val width: Int, val height: Int,
-    val document: Boolean, val portrait: Boolean, val selfie: Boolean) {
+    val document: Boolean, val portrait: Boolean, val selfie: Boolean, val analysisComplete: Boolean = true) {
     fun matches(category: SmartCategory, threshold: Int): Boolean = when(category) {
         SmartCategory.DOCUMENTS -> document
         SmartCategory.PORTRAITS -> portrait
@@ -44,6 +44,13 @@ internal data class SmartAlbumStatus(val photos: Map<String,SmartPhoto> = emptyM
     val total: Int = 0, val running: Boolean = false, val skipped: Int = 0)
 
 internal object SmartAlbumPolicy {
+    /** JNI may be missing on an unsupported ABI or its initialization may fail.
+     * Contain that recoverable capability failure without swallowing cancellation. */
+    suspend fun <T> optionalRecognition(block: suspend () -> T): T? = try { block() }
+        catch (e: CancellationException) { throw e }
+        catch (_: LinkageError) { null }
+        catch (_: Exception) { null }
+
     fun publicPhoto(row: DownloadEntity) = !row.hidden && !row.isPrivate && row.state == DownloadState.COMPLETED &&
         row.mediaType == MediaType.PHOTO && !row.savedUri.isNullOrBlank()
     fun highResolution(width: Int, height: Int, threshold: Int): Boolean =
@@ -84,8 +91,9 @@ internal object SmartAlbumIndex {
         publish(source,SmartAlbumStatus(previous,0,public.size,true))
         jobs[source] = scope.launch {
             gate.withLock {
-                removedUris.forEach { cacheFile(app,it).delete() }
+                removedUris.forEach { runCatching { cacheFile(app,it).delete() } }
                 val photos = linkedMapOf<String,SmartPhoto>()
+                val analyzed = mutableMapOf<String,SmartPhoto?>()
                 var skipped = 0
                 val detector = runCatching { FaceDetection.getClient(FaceDetectorOptions.Builder()
                     .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST).setMinFaceSize(.12f).build()) }.getOrNull()
@@ -94,15 +102,17 @@ internal object SmartAlbumIndex {
                         ensureActive()
                         val uri = Uri.parse(requireNotNull(row.savedUri))
                         val stamp = runCatching { stamp(app,uri) }.getOrNull()
-                        val cached = stamp?.let { load(app,uri.toString(),it.first,it.second) }
-                        val photo = cached ?: try {
+                        val cached = if (force) null else stamp?.let { load(app,uri.toString(),it.first,it.second) }
+                        val key = uri.toString()
+                        val photo = cached ?: if (analyzed.containsKey(key)) analyzed[key] else SmartAlbumPolicy.optionalRecognition {
                             BackgroundMediaWork.awaitIdle()
                             analyze(app,uri,stamp,detector)
-                        } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                        }.also { analyzed[key] = it }
                         ensureActive()
                         if (photo == null) skipped++ else {
                             photos[row.id] = photo
-                            if (cached == null && photo.modified > 0 && photo.bytes > 0) save(app,photo)
+                            if (!photo.analysisComplete) skipped++
+                            if (cached == null && photo.analysisComplete && photo.modified > 0 && photo.bytes > 0) save(app,photo)
                         }
                         if ((i+1)%8 == 0 || i+1 == public.size)
                             publish(source,SmartAlbumStatus(photos.toMap(),i+1,public.size,true,skipped))
@@ -205,14 +215,15 @@ internal object SmartAlbumIndex {
             val page = pageLike(image)
             // One bounded OCR pass, only on plausible page-like photos or images without a prominent face.
             val doc = if (page || fraction < .075f) {
-                try {
+                SmartAlbumPolicy.optionalRecognition {
                     val read = LocalTextOcr.readForCatalog(context,image)
                     SmartAlbumPolicy.document(read.text,read.confidence,page)
-                } catch (e: CancellationException) { throw e } catch (_: Exception) { false }
+                }
             } else false
             if (snapshotStamp != null && stamp(context,uri) != snapshotStamp) return null
-            return SmartPhoto(uri.toString(),snapshotStamp?.first ?: 0,snapshotStamp?.second ?: 0,w,h,doc,
-                SmartAlbumPolicy.portrait(fraction,count),SmartAlbumPolicy.selfie(front,fraction,count,centered))
+            return SmartPhoto(uri.toString(),snapshotStamp?.first ?: 0,snapshotStamp?.second ?: 0,w,h,doc == true,
+                SmartAlbumPolicy.portrait(fraction,count),SmartAlbumPolicy.selfie(front,fraction,count,centered),
+                analysisComplete = doc != null)
         } finally { if (image !== original) image.recycle(); original.recycle() }
     }
     private fun pageLike(image: Bitmap): Boolean {

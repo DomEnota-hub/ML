@@ -47,6 +47,7 @@ jobs:
             --tests '*MusicDuplicatePolicyTest' \
             --tests '*StopTimerPolicyTest' \
             --tests '*SmartAlbumPolicyTest' \
+            --tests '*LibraryVisualCaptureTest' \
             --tests '*MusicDuplicateSessionTest' \
             --tests '*ModeShortcutsTest' \
             --tests '*MusicFastScrollPolicyTest' \
@@ -82,6 +83,16 @@ jobs:
             --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Retain test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.182_JVM_FAILURE_DIAGNOSTICS
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          retention-days: 2
+          if-no-files-found: ignore
       - name: Android lint
         if: success()
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
