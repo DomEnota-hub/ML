@@ -1,4 +1,4 @@
-name: ML 1.7.187 library recovery and UI validation and unsigned handoff
+name: ML 1.7.187 stage 2 integration checkpoint (no distribution)
 on:
   push:
     branches:
@@ -44,11 +44,80 @@ jobs:
           ! grep -R -E 'SmartAlbumIndex|SmartAlbumsPanel|readPageQuick' app/src/main/java
       - name: Audit hardcoded UI palette
         run: python3 scripts/audit_ui_palette.py
-      - name: Stage 2.1 analytics policy and database regression
+      - name: Focused music analytics, resume and existing regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true \
-            --tests '*SmartMusicPolicyTest' \
+            --tests '*AccentPaletteTest' \
+            --tests '*SettingsIconPaletteTest' \
+            --tests '*Equalizer*Test' \
+            --tests '*MusicDuplicatePolicyTest' \
+            --tests '*MusicDuplicateSessionTest' \
+            --tests '*DuplicateResultsFooterTest' \
+            --tests '*GapiKeyStoreTest' \
+            --tests '*AlbumTrashMembershipTest' \
+            --tests '*ModeShortcutsTest' \
+            --tests '*MusicStopTimerPolicyTest' \
+            --tests '*GalleryViewerOverlayPolicyTest' \
+            --tests '*GalleryVideoChromeTest' \
+            --tests '*GalleryViewerPhotoUiTest' \
+            --tests '*MusicFastScrollPolicyTest' \
+            --tests '*OldDownloadsPolicyTest' \
+            --tests '*AudioReplacePolicyTest' \
+            --tests '*AudioPlaybackMetadataTest' \
+            --tests '*AudioQueuePlaybackTest' \
+            --tests '*AudioPlaybackModesTest' \
+            --tests '*PrivatePlaybackPolicyTest' \
+            --tests '*PrivatePlaybackAliasTest' \
+            --tests '*HiddenMusicPreviewTest' \
+            --tests '*MusicTrackVisibilityTest' \
+            --tests '*InstagramProviderTest' \
+            --tests '*InstagramApiFailureTest' \
+            --tests '*GapiInstagramClientTest' \
+            --tests '*GapiInstagramProviderTest' \
+            --tests '*StorageNamingTest' \
+            --tests '*PrivateViewerQueueTest' \
+            --tests '*PrivateViewerChromeTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*OcrLineCandidatePolicyTest' \
+            --tests '*GlyphContentMaskTest' \
+            --tests '*LocalTextOcrFallbackTest' \
+            --tests '*LaMaCompositionTest' \
+            --tests '*LargePersonBackgroundRecoveryTest' \
+            --tests '*MediaStoragePolicyTest' \
+            --tests '*StorageSettingsPicturesTest' \
+            --tests '*LegacyMediaMigrationHistoryTest' \
+            --tests '*DownloadQueueTest' \
+            --tests '*GalleryLibraryStateTest' \
+            --tests '*EditorPaletteTest' \
+            --tests '*VideoAudioLaneGestureTest' \
+            --tests '*PhysicalAlbumPolicyTest' \
+            --tests '*GalleryBulkAlbumMoveTest' \
+            --tests '*ExternalMediaCatalogRepositoryTest' \
             --tests '*ListeningHistoryPolicyTest' \
             --tests '*ListeningHistoryStoreTest' \
-            --tests '*AudioPlaybackMetadataTest' \
-            --tests '*AudioQueuePlaybackTest' --stacktrace
+            --tests '*SmartMusicPolicyTest' \
+            --tests '*ResumeQueuePolicyTest' \
+            --tests '*ResumeQueueStoreTest' \
+            --tests '*ResumeQueueRecorderTest' \
+            --tests '*SmartMusicScreenTest' \
+            --tests '*MusicSummaryImageTest' \
+            --stacktrace
+      - name: Full JVM suite
+        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        if: success()
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: ARM64 release compilation
+        if: success()
+        run: |
+          ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          test "$(unzip -Z1 app/build/outputs/apk/release/app-release-unsigned.apk | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+      - name: Verify internal ARM64 APK (no handoff)
+        if: success()
+        run: |
+          set -euo pipefail
+          input=app/build/outputs/apk/release/app-release-unsigned.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='247' versionName='1.7.187'"
+          git rev-parse HEAD
+          sha256sum "$input"
