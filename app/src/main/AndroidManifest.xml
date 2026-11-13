@@ -76,6 +76,7 @@
         <activity
             android:name=".ui.RutubeLoginActivity"
             android:exported="false" />
+        <service android:name=".data.library.DuplicateSearchService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".data.download.ActiveDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

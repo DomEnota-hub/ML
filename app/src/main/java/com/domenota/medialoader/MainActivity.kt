@@ -28,6 +28,8 @@ class MainActivity : ComponentActivity() {
     private var shortcutMode by mutableStateOf<com.domenota.medialoader.data.library.AppMode?>(null)
     private var shortcutGeneration by mutableIntStateOf(0)
     private fun acceptModeShortcut(incoming: Intent?) {
+        if (incoming?.action == com.domenota.medialoader.data.library.DuplicateSearchService.OPEN)
+            com.domenota.medialoader.data.library.DuplicateSearchService.requestOpen()
         com.domenota.medialoader.data.library.ModeShortcuts.mode(incoming?.action)?.let {
             shortcutMode = it; shortcutGeneration++
         }

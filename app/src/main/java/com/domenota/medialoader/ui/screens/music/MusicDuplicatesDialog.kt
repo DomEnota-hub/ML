@@ -90,21 +90,28 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             player.setMediaItem(MediaItem.fromUri(Uri.parse(t.uri))); player.prepare(); player.play()
         } catch (e: Exception) { previewError = e.message ?: "Прослушивание недоступно"; stopPreview() }
     }
+    val background by DuplicateSearchService.state.collectAsState()
     LaunchedEffect(scanRevision) {
         scanning = true; result = null; previous = null; error = null; selected = emptySet(); kept = emptyMap(); progress = 0 to 0
-        try {
-            if (scanRevision == 0) {
-                val saved = MusicDuplicateSessionStore.load(context)
-                if (saved != null) { previous = saved; return@LaunchedEffect }
+        if (DuplicateSearchService.state.value is DuplicateSearchState.Running) return@LaunchedEffect
+        if (scanRevision == 0) {
+            val saved = MusicDuplicateSessionStore.load(context)
+            if (saved != null) { previous = saved; scanning = false; DuplicateSearchService.acknowledge(); return@LaunchedEffect }
+        }
+        DuplicateSearchService.begin(context,latestRows,linkedIds,latestCurrent)
+    }
+    LaunchedEffect(background) {
+        when (val state = background) {
+            is DuplicateSearchState.Running -> { scanning = true; progress = state.done to state.total }
+            is DuplicateSearchState.Complete -> {
+                val saved = state.session
+                scannedAt = saved.scannedAt; kept = saved.kept; selected = saved.selected
+                result = saved.result; previous = null; scanning = false
+                DuplicateSearchService.acknowledge()
             }
-            val r = MusicDuplicateScanner.scan(context,latestRows,linkedIds,latestCurrent) { n,total -> progress = n to total }
-            scannedAt = System.currentTimeMillis()
-            val recommended = r.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) }
-            if (!MusicDuplicateSessionStore.save(context, DuplicateSession(r,emptySet(),recommended,0,0,scannedAt)))
-                error = "Не удалось сохранить результат поиска"
-            kept = recommended; result = r
-        } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message ?: "Ошибка проверки" }
-        finally { scanning = false }
+            is DuplicateSearchState.Failed -> { error = state.message; scanning = false; previous = MusicDuplicateSessionStore.load(context); DuplicateSearchService.acknowledge() }
+            DuplicateSearchState.Idle -> Unit
+        }
     }
     fun snapshot(): DuplicateSession? = result?.let { DuplicateSession(it,selected,kept,listState.firstVisibleItemIndex,listState.firstVisibleItemScrollOffset,scannedAt) }
     LaunchedEffect(result) {
@@ -154,7 +161,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                 if (scanning) {
                     LinearProgressIndicator(progress = { if (progress.second == 0) 0f else progress.first.toFloat()/progress.second }, modifier = Modifier.fillMaxWidth())
                     Text("Проверка файлов · ${progress.first}/${progress.second}", Modifier.padding(vertical = 12.dp))
-                    TextButton({ close() }) { Text("Отмена") }
+                    Button({ close() }, Modifier.fillMaxWidth()) { Text("Продолжить в фоне") }
+                    TextButton({ DuplicateSearchService.cancel(context); close() }) { Text("Отменить поиск") }
                 } else if (previous != null) {
                     val saved = previous!!
                     Text("Последний поиск", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))

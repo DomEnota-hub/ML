@@ -57,6 +57,13 @@ fun MusicModeScreen(
     var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
     var sortMenu by remember { mutableStateOf(false) }
     var duplicatesOpen by remember { mutableStateOf(false) }
+    val duplicateOpenRequest by com.domenota.medialoader.data.library.DuplicateSearchService.openRequested.collectAsState()
+    LaunchedEffect(duplicateOpenRequest, allAudio, onTrashDuplicates != null) {
+        if (duplicateOpenRequest && onTrashDuplicates != null && allAudio.isNotEmpty()) {
+            duplicatesOpen = true
+            com.domenota.medialoader.data.library.DuplicateSearchService.consumeOpen()
+        }
+    }
     if (duplicatesOpen && onTrashDuplicates != null) MusicDuplicatesDialog(allAudio, favoriteIds + duplicateLinkedIds + playlists.flatMap { it.trackIds }, currentPlayingId, playing,
         { duplicatesOpen = false }, onTrashDuplicates)
     val listState = rememberLazyListState()
