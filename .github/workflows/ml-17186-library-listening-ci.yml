@@ -44,10 +44,15 @@ jobs:
           ! grep -R -E 'SmartAlbumIndex|SmartAlbumsPanel|readPageQuick' app/src/main/java
       - name: Audit hardcoded UI palette
         run: python3 scripts/audit_ui_palette.py
-      - name: QA-185-01 duplicate footer and selection regression
+      - name: QA-185-01/02 duplicate and physical album regression
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true \
             --tests '*DuplicateResultsFooterTest' \
             --tests '*MusicDuplicatePolicyTest' \
             --tests '*MusicDuplicateSessionTest' \
-            --tests '*MusicFastScrollPolicyTest' --stacktrace
+            --tests '*MusicFastScrollPolicyTest' \
+            --tests '*PhysicalAlbumPolicyTest' \
+            --tests '*GalleryBulkAlbumMoveTest' \
+            --tests '*GalleryLibraryStateTest' \
+            --tests '*AlbumTrashMembershipTest' \
+            --tests '*ExternalMediaCatalogRepositoryTest' --stacktrace
