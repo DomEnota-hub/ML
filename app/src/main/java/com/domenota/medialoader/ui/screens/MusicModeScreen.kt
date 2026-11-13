@@ -32,6 +32,8 @@ import com.domenota.medialoader.data.playback.SmartMusicSnapshot
 import com.domenota.medialoader.data.playback.SmartTrackCandidate
 import com.domenota.medialoader.data.playback.SmartStatsPeriod
 import com.domenota.medialoader.data.playback.SmartMusicPolicy
+import com.domenota.medialoader.data.playback.ResumeQueueStore
+import com.domenota.medialoader.data.playback.ResolvedResumeQueue
 import com.domenota.medialoader.ui.components.*
 import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.ui.screens.music.*
@@ -63,6 +65,7 @@ internal fun MusicModeScreen(
     onPlayFrequent: ((List<String>,Boolean)->Unit)? = null,
     onSaveFrequent: (suspend (String,List<String>)->Unit)? = null,
     onFavorite: (suspend (String,Boolean)->Unit)? = null,
+    onResumeSelection: ((ResolvedResumeQueue)->Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -71,6 +74,7 @@ internal fun MusicModeScreen(
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var frequentOpen by rememberSaveable { mutableStateOf(false) }
     var smartPage by rememberSaveable { mutableStateOf<SmartMusicPage?>(null) }
+    var resumeOpen by rememberSaveable { mutableStateOf(false) }
     var listeningPeriod by rememberSaveable { mutableStateOf(ListeningPeriod.MONTH) }
     var search by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
@@ -134,6 +138,20 @@ internal fun MusicModeScreen(
     val smartCandidates = remember(frequentRows,frequentKeys,favoriteIds) {
         frequentRows.values.mapNotNull { row -> frequentKeys[row.id]?.let { SmartTrackCandidate(row.id,it,
             audioArtist(row),row.id in favoriteIds) } }
+    }
+    val resumeStore=remember(context){ResumeQueueStore.get(context)}
+    val resumeSessions by resumeStore.sessions.collectAsState()
+    val resumeFailed by resumeStore.failed.collectAsState()
+    var resolvedSessions by remember{mutableStateOf<List<ResolvedResumeQueue>>(emptyList())}
+    var resumeLoading by remember{mutableStateOf(false)}
+    var resumeError by remember{mutableStateOf(false)}
+    LaunchedEffect(resumeOpen,resumeSessions,smartCandidates) {
+        if(!resumeOpen||onResumeSelection==null)return@LaunchedEffect
+        resumeLoading=true;resumeError=false
+        try{resolvedSessions=listeningStore.resolveResume(resumeSessions,smartCandidates)}
+        catch(e:CancellationException){throw e}
+        catch(_:Exception){resolvedSessions=emptyList();resumeError=true}
+        finally{resumeLoading=false}
     }
     var smartSnapshot by remember { mutableStateOf(SmartMusicSnapshot()) }
     var smartLoading by remember { mutableStateOf(false) }
@@ -249,9 +267,9 @@ internal fun MusicModeScreen(
     }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
-    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null) }
+    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
-    BackHandler(smartPage != null || frequentOpen || playlist != null || tab == 1) { if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
+    BackHandler(resumeOpen || smartPage != null || frequentOpen || playlist != null || tab == 1) { if(resumeOpen)resumeOpen=false else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
         PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, available.values.toList(), emptyMap(),
@@ -293,7 +311,10 @@ internal fun MusicModeScreen(
         if (playlist != null && onOpenFromPlaylist != null) onOpenFromPlaylist(id,queue,playlist.id)
         else onOpen(id,queue)
     }
-    if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
+    if(resumeOpen&&onResumeSelection!=null) {
+        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},resumeLoading||loading,
+            resumeFailed||resumeError,{resumeOpen=false},onResumeSelection)
+    } else if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
         SmartMusicScreen(smartPage!!,smartSnapshot,frequentRows,smartStatsPeriod,{smartStatsPeriod=it},
             mixDiversity,{mixDiversity=it;smartPrefs.edit().putInt("diversity",it).apply()},
             forgottenDays,{forgottenDays=it;smartPrefs.edit().putLong("forgotten_days",it).apply()},
@@ -339,6 +360,7 @@ internal fun MusicModeScreen(
                         if (listeningEnabled) FilterChip(selected=false,onClick={frequentOpen=true},label={Text("Часто слушаю")},
                             leadingIcon={Icon(Icons.Rounded.GraphicEq,null,Modifier.size(18.dp),tint=com.domenota.medialoader.ui.theme.musicPlaybackAccent)},
                             modifier=Modifier.testTag("frequent-listening-chip"))
+                        if(onResumeSelection!=null) FilterChip(selected=false,onClick={resumeOpen=true},label={Text("Продолжить слушать")},leadingIcon={Icon(Icons.Rounded.PlayCircle,null,Modifier.size(18.dp))})
                         if(listeningEnabled) SmartMusicPage.entries.forEach { page ->
                             FilterChip(selected=false,onClick={smartPage=page},label={Text(page.label)},leadingIcon={Icon(page.icon,null,Modifier.size(18.dp))})
                         }
@@ -369,6 +391,7 @@ internal fun MusicModeScreen(
 
             if (tab == 1 && playlist == null) {
                 if (listeningEnabled) {
+                    if(onResumeSelection!=null) item(key="resume-music-card"){ResumeMusicCard(resumeSessions.size){resumeOpen=true}}
                     item(key="frequent-playlist") { FrequentListeningCard(listeningSelection.ranked.size,listeningPeriod) { frequentOpen=true } }
                     SmartMusicPage.entries.forEach { page -> item(key="smart-${page.name}") { SmartMusicCard(page){smartPage=page} } }
                 }

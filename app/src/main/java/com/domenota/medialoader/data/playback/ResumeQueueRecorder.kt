@@ -5,7 +5,7 @@ import androidx.media3.common.MediaItem
 import kotlinx.coroutines.*
 
 /** The service is the only owner of the real queue. UI never guesses positions.
- * Save on transitions/pause and every five seconds of actual playback. */
+ * Save on transitions/pause and every ten seconds of actual playback. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class ResumeQueueRecorder(private val player:Player,private val scope:CoroutineScope,
     private val store:ResumeQueueStore,private val identity:PublicListeningIdentity):Player.Listener {
@@ -22,7 +22,7 @@ internal class ResumeQueueRecorder(private val player:Player,private val scope:C
         if(count !in 1..ResumeQueuePolicy.MAX_QUEUE) {queueItems=emptyList();queueKeys=emptyList();contextId=null;return}
         if(!force&&queueItems.size==count)return
         queueItems=(0 until count).map{player.getMediaItemAt(it)}
-        queueKeys=queueItems.map(identity::keys)
+        queueKeys=identity.keysForQueue(queueItems)
         playlistId=queueItems.mapNotNull{it.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PLAYLIST_ID)}.distinct().singleOrNull()
         val tags=queueItems.mapNotNull{it.mediaMetadata.extras?.getString(AudioPlaybackMetadata.RESUME_CONTEXT)}.distinct()
         contextId=if(queueKeys.any{it.isEmpty()})null else tags.singleOrNull()?:ResumeQueuePolicy.contextId(playlistId,queueKeys)
@@ -51,7 +51,7 @@ internal class ResumeQueueRecorder(private val player:Player,private val scope:C
             persist(current)
         }
         if(player.isPlaying&&ticker?.isActive!=true) ticker=scope.launch{
-            while(isActive&&player.isPlaying){delay(5000);refresh(false)}
+            while(isActive&&player.isPlaying){delay(10_000);refresh(false)}
         } else if(!player.isPlaying){ticker?.cancel();ticker=null}
     }
     override fun onEvents(player:Player,events:Player.Events) {

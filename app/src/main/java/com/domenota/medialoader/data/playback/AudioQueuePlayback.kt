@@ -93,6 +93,13 @@ internal object AudioQueuePlayback {
     fun resume(player:Player,items:List<MediaItem>,index:Int,session:ResumeQueueSession,position:Long):Boolean {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         if(index !in items.indices||items.any(PrivatePlaybackPolicy::isPrivate)||items.map{it.mediaId}.distinct().size!=items.size)return false
+        val sameQueue=player.mediaItemCount==items.size&&player.currentMediaItemIndex==index&&
+            (0 until player.mediaItemCount).all { i -> isSameFile(items[i],player.getMediaItemAt(i)) }&&
+            player.currentMediaItem?.mediaMetadata?.extras?.getString(AudioPlaybackMetadata.RESUME_CONTEXT)==session.id
+        if(sameQueue&&player.playbackState!=Player.STATE_ENDED){
+            if(player.playbackState==Player.STATE_IDLE||player.playerError!=null)player.prepare()
+            player.play();return true
+        }
         nextBatches.remove(player)
         player.shuffleModeEnabled=session.shuffle
         player.repeatMode=session.repeat
