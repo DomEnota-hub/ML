@@ -55,9 +55,10 @@ class ListeningHistoryStoreTest {
         assertEquals(1L,all.plays); assertEquals(15_000L,all.wallMs)
         assertEquals(12,all.chart.size); assertEquals(1L,all.chart.sumOf { it.plays }); assertEquals(15_000L,all.chart.sumOf { it.wallMs })
         store.setExcluded(p.trackId,true)
-        val excluded=store.smartSnapshot(candidates,SmartStatsPeriod.YEAR,now)
+        val excluded=store.smartSnapshot(candidates,SmartStatsPeriod.ALL,now)
         assertTrue(excluded.forgotten.isEmpty()); assertEquals(listOf("new"),excluded.mix.map{it.rowId})
         assertEquals(1L,excluded.plays)
+        assertEquals(1L,excluded.chart.sumOf{it.plays});assertEquals(15_000L,excluded.chart.sumOf{it.wallMs})
         store.clearHistory()
         assertEquals(0L,store.smartSnapshot(candidates,SmartStatsPeriod.YEAR,now).plays)
     }

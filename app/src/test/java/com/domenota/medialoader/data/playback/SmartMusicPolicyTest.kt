@@ -13,13 +13,13 @@ class SmartMusicPolicyTest {
         assertEquals(listOf("boundary"),SmartMusicPolicy.forgotten(listOf(row("boundary",1,30)),now).map { it.rowId })
     }
     @Test fun mixIsBoundedDeterministicAndDoesNotRepeatOrIncludeExcluded() {
-        val rows=(1..70).map { i -> row("row$i",if(i<=20) 8 else if(i<=40) 2 else 0,if(i in 21..40) 50 else 1,"Artist ${i%4}",excluded=i==5) }
+        val rows=(1..70).map { i -> row("row$i",if(i<=20) 8 else if(i<=40) 2 else 0,if(i in 21..40) 50 else 5,"Artist ${i%4}",excluded=i==5) }
         val mix=SmartMusicPolicy.mix(rows,now,12)
         assertEquals(30,mix.size); assertEquals(30,mix.map {it.rowId}.distinct().size)
         assertEquals(mix,SmartMusicPolicy.mix(rows.reversed(),now,12))
         assertFalse(mix.any { it.excluded })
         assertTrue(mix.zipWithNext().all { (a,b) -> a.artist!=b.artist })
-        assertTrue(mix.any {it.plays==0}); assertTrue(mix.any {it.lastPlayed < now-30*SmartMusicPolicy.DAY_MS})
+        assertTrue(mix.any {it.plays==0L}); assertTrue(mix.any {it.lastPlayed < now-30*SmartMusicPolicy.DAY_MS})
     }
     @Test fun sliderControlsBalanceAndKeepsTotalThirty() {
         assertArrayEquals(intArrayOf(24,3,3),SmartMusicPolicy.quotas(0))
@@ -37,6 +37,11 @@ class SmartMusicPolicyTest {
         assertEquals(30,SmartStatsPeriod.MONTH.buckets(now,zone).size)
         assertEquals(java.time.LocalDate.of(2025,12,1),SmartStatsPeriod.YEAR.buckets(now,zone).first())
         assertEquals(java.time.LocalDate.of(2026,11,1),SmartStatsPeriod.YEAR.buckets(now,zone).last())
+    }
+    @Test fun mixAvoidsVeryRecentTracksWhenEnoughOthersExist() {
+        val rows=(1..40).map { row("old$it",2,5,"Artist ${it%3}") } +
+            (1..20).map { row("recent$it",9,1,"Artist ${it%3}") }
+        assertTrue(SmartMusicPolicy.mix(rows,now).none { it.rowId.startsWith("recent") })
     }
     @Test fun mixWithOneArtistAndSmallLibraryStillUsesAllAvailableTracks() {
         val rows=(1..4).map { row("$it",2,1) }

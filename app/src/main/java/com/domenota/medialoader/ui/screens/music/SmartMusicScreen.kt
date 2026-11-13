@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.screens.music
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -16,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -101,7 +105,30 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
     onSave:suspend (String,List<String>)->Unit,onAdd:(String)->Unit,onShare:(String)->Unit,onDelete:(String)->Unit,
     onEnqueue:((String,Boolean)->Unit)?,onFavorite:(suspend (String,Boolean)->Unit)?) {
     val scope=rememberCoroutineScope()
+    val context=LocalContext.current
+    val palette=MaterialTheme.colorScheme
+    var exportPending by remember { mutableStateOf<MusicSummaryExport?>(null) }
+    var exporting by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
+    var exported by remember { mutableStateOf(false) }
+    val saveImage=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
+        val data=exportPending;exportPending=null
+        if(uri!=null&&data!=null)scope.launch {
+            exporting=true;exported=false;problem=null
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val bitmap=MusicSummaryImage.render(data)
+                    try {
+                        val output=context.contentResolver.openOutputStream(uri,"w")?:error("Нет доступа к файлу")
+                        output.use{check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it))}
+                    } finally{bitmap.recycle()}
+                }
+                exported=true
+            } catch(e:CancellationException){throw e}
+            catch(_:Exception){problem="Не удалось сохранить изображение"}
+            finally{exporting=false}
+        }
+    }
     var saveIds by remember { mutableStateOf<List<String>?>(null) }
     var name by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -168,6 +195,17 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                                 }
                             }
                         }
+                        OutlinedButton(onClick={
+                            exportPending=MusicSummaryExport(period.label+" · "+java.time.LocalDate.now(),snapshot,
+                                snapshot.topTracks.firstOrNull()?.rowId?.let(rows::get)?.let(::audioTitle),
+                                palette.background.toArgb(),palette.surfaceVariant.toArgb(),palette.onBackground.toArgb(),
+                                palette.onSurfaceVariant.toArgb(),palette.primary.toArgb())
+                            saveImage.launch("ML_music_summary_"+java.time.LocalDate.now()+".png")
+                        },enabled=!loading&&!exporting&&(snapshot.plays>0||snapshot.wallMs>0),modifier=Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.Save,null);Spacer(Modifier.width(8.dp));Text("Сохранить итог изображением")
+                        }
+                        if(exporting)LinearProgressIndicator(Modifier.fillMaxWidth())
+                        if(exported)Text("Изображение сохранено",color=MaterialTheme.colorScheme.primary)
                         Text("Топ треков",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
                     }
                 }

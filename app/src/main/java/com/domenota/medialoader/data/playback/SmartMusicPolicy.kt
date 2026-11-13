@@ -16,20 +16,21 @@ internal data class SmartTrackHistory(val rowId: String, val trackId: String?, v
 internal data class SmartArtistRank(val artist: String, val plays: Long, val wallMs: Long)
 internal data class SmartChartPoint(val label: String,val plays: Long,val wallMs: Long)
 internal enum class SmartStatsPeriod(val label: String) {
-    WEEK("Неделя"), MONTH("Месяц"), YEAR("Год");
+    WEEK("Неделя"), MONTH("Месяц"), YEAR("Год"), ALL("Всё время");
     fun date(now: Long,zone: ZoneId) = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     fun first(now: Long,zone: ZoneId): LocalDate = when(this) {
         WEEK -> date(now,zone).minusDays(6)
         MONTH -> date(now,zone).minusDays(29)
         YEAR -> date(now,zone).withDayOfMonth(1).minusMonths(11)
+        ALL -> LocalDate.of(1970,1,1)
     }
-    fun cutoff(now: Long,zone: ZoneId): Long = first(now,zone).atStartOfDay(zone).toInstant().toEpochMilli()
-    fun bucket(at: Long,zone: ZoneId): LocalDate = date(at,zone).let { if(this==YEAR) it.withDayOfMonth(1) else it }
+    fun cutoff(now: Long,zone: ZoneId): Long = if(this==ALL) 0L else first(now,zone).atStartOfDay(zone).toInstant().toEpochMilli()
+    fun bucket(at: Long,zone: ZoneId): LocalDate = date(at,zone).let { when(this){ YEAR->it.withDayOfMonth(1); ALL->it.withDayOfYear(1); else->it } }
     fun buckets(now: Long,zone: ZoneId): List<LocalDate> =
-        (0 until when(this){WEEK->7; MONTH->30; YEAR->12}).map {
+        (0 until when(this){WEEK->7; MONTH->30; YEAR->12; ALL->0}).map {
             if(this==YEAR) first(now,zone).plusMonths(it.toLong()) else first(now,zone).plusDays(it.toLong())
         }
-    fun label(date: LocalDate): String = date.format(DateTimeFormatter.ofPattern(if(this==YEAR) "MM.yyyy" else "dd.MM",Locale.ROOT))
+    fun label(date: LocalDate): String = date.format(DateTimeFormatter.ofPattern(when(this){YEAR->"MM.yyyy"; ALL->"yyyy"; else->"dd.MM"},Locale.ROOT))
 }
 internal data class SmartMusicSnapshot(val forgotten: List<SmartTrackHistory> = emptyList(),
     val mix: List<SmartTrackHistory> = emptyList(), val topTracks: List<SmartTrackHistory> = emptyList(),
@@ -74,7 +75,9 @@ internal object SmartMusicPolicy {
         return intArrayOf(familiar,other,LIMIT-familiar-other)
     }
     fun mix(rows: List<SmartTrackHistory>, now: Long, seed: Long = now / DAY_MS, diversity: Int = 50): List<SmartTrackHistory> {
-        val eligible = rows.filterNot { it.excluded }.distinctBy { it.rowId }
+        val all = rows.filterNot { it.excluded }.distinctBy { it.rowId }
+        val notRecent = all.filter { it.lastPlayed <= now - 2*DAY_MS }
+        val eligible = if(notRecent.size >= LIMIT) notRecent else all
         val oldIds = eligible.filter { it.plays > 0 && it.lastPlayed in 1..(now - FORGOTTEN_DAYS*DAY_MS) }.mapTo(hashSetOf()) { it.rowId }
         val old = eligible.filter { it.rowId in oldIds }
         val favorite = eligible.filter { it.rowId !in oldIds && (it.favorite || it.plays >= 2) }

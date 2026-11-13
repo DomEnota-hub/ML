@@ -162,14 +162,18 @@ internal class ListeningHistoryStore private constructor(context: Context) {
                     data?.periodPlays ?: 0,data?.wall ?: 0,track in excluded)
             }
             val known = resolved.mapNotNull { it.second }.toHashSet()
-            val timeline = period.buckets(now,zone).associateWith { longArrayOf(0,0) }.toMutableMap()
+            val timeline = period.buckets(now,zone).associateWith { longArrayOf(0,0) }.toSortedMap()
+            fun point(at:Long):LongArray? {
+                val bucket=period.bucket(at,zone)
+                return if(period==SmartStatsPeriod.ALL) timeline.getOrPut(bucket){longArrayOf(0,0)} else timeline[bucket]
+            }
             db.rawQuery("SELECT track_id,credited_at,last_at,wall_ms FROM sessions WHERE (credited_at>=? AND credited_at<=?) OR (last_at>=? AND last_at<=?)",
                 arrayOf(cutoff,end,cutoff,end)).use { c ->
                 while(c.moveToNext()) if(c.getString(0) in known) {
                     if(!c.isNull(1) && c.getLong(1) in cutoff.toLong()..now)
-                        timeline[period.bucket(c.getLong(1),zone)]?.let { it[0]++ }
+                        point(c.getLong(1))?.let { it[0]++ }
                     if(c.getLong(2) in cutoff.toLong()..now)
-                        timeline[period.bucket(c.getLong(2),zone)]?.let { it[1]+=c.getLong(3) }
+                        point(c.getLong(2))?.let { it[1]+=c.getLong(3) }
                 }
             }
             SmartMusicPolicy.snapshot(rows,now,seed,diversity,forgottenDays).copy(
