@@ -884,16 +884,18 @@ fun MediaLoaderApp(
     albumTrash?.let { request ->
         com.domenota.medialoader.ui.components.AlbumTrashHost(
             request, refs = libraryRefsByAlias,
-            currentMembers = { albumMemberIds(request.folderId) },
+            currentMembers = {
+                viewModel.albumMemberIds(request.folderId) + libraryModel.externalCatalog.albumMemberIds(request.folderId)
+            },
             onAppTrash = viewModel::trashVerifiedAlbumMedia,
             onTrashed = { ref ->
                 ref.appDownloadId?.let { viewModel.detachTrashedAlbumMember(it,request.folderId) }
                 libraryModel.externalCatalog.detachTrashedAlbumMember(ref,request.folderId)
             },
             onRemoveAlbum = {
-                check(albumMemberIds(request.folderId).isEmpty()) { "В альбоме остались файлы или состав изменился" }
-                libraryModel.externalCatalog.removeFolder(request.folderId)
-                viewModel.deleteCatalogFolder(request.folderId)
+                libraryModel.externalCatalog.withEmptyAlbum(request.folderId) {
+                    viewModel.deleteEmptyAlbum(request.folderId)
+                }
             },
             onClose = {
                 albumTrash = null

@@ -88,6 +88,21 @@ class ExternalMediaCatalogRepository(context: Context) {
     suspend fun removeFolder(folderId: String) = mutate { rows ->
         rows.map { if (it.folderId == folderId) it.copy(folderId = null) else it }.filter { it.isFavorite || it.folderId != null }
     }
+    internal suspend fun albumMemberIds(folderId: String): Set<String> = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock { read().filter { it.folderId == folderId }.map { it.ref.key }.toSet() }
+    }
+
+    /** Keep external assignments stable while the database verifies and removes its empty album. */
+    internal suspend fun withEmptyAlbum(folderId: String, remove: suspend () -> Unit) = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock {
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+            check(read().none { it.folderId == folderId }) { "В альбоме остались внешние файлы" }
+            remove()
+        }
+    }
+
     internal suspend fun detachTrashedAlbumMember(ref: LibraryMediaRef, folderId: String) {
         val aliases = ref.aliases + ref.key + ref.item.id
         mutate { rows -> rows.map { entry ->

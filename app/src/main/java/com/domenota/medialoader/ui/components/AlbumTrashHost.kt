@@ -32,7 +32,7 @@ internal fun albumTrashMembershipSafe(request: AlbumTrashRequest, members: Set<S
 /** Only recoverable moves, verified per URI. The virtual album survives any partial failure. */
 @Composable
 internal fun AlbumTrashHost(request: AlbumTrashRequest, refs: Map<String,LibraryMediaRef>,
-    currentMembers: () -> Set<String>, onAppTrash: suspend (String,String) -> Unit,
+    currentMembers: suspend () -> Set<String>, onAppTrash: suspend (String,String) -> Unit,
     onTrashed: suspend (LibraryMediaRef) -> Unit, onRemoveAlbum: suspend () -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val liveRefs by rememberUpdatedState(refs)
