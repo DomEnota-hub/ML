@@ -46,6 +46,7 @@ import com.domenota.medialoader.ui.components.*
 import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.ui.screens.gallery.*
 import com.domenota.medialoader.ui.screens.music.GalleryFastScroll
+import com.domenota.medialoader.ui.screens.music.galleryFastScrollLaneWidth
 import java.time.*
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -395,7 +396,7 @@ fun GalleryModeScreen(
             // a fixed, opaque 106dp blank strip.
             // Leave enough scroll tail to expose the final row above the overlay.
             // The tail lives *inside* the scrollable grid, not in Scaffold.
-            contentPadding = PaddingValues(end = if (tab == 0 && orderedDisplayed.size > 4) 12.dp else 0.dp,
+            contentPadding = PaddingValues(end = if (tab == 0 && orderedDisplayed.size > 4) galleryFastScrollLaneWidth else 0.dp,
                 bottom = with(density) { galleryOverlayHeightPx.toDp() } + 12.dp)) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
                 if (!selecting) Column {

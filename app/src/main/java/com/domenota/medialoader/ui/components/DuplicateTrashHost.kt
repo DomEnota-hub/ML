@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.domenota.medialoader.core.logging.AppLog
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.library.*
@@ -61,7 +62,10 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
         waiting = false
         revision++
     }
-    fun failure(w: Work, reason: String) { outcomes[w.track.id] = Outcome(w.track.filename,false,reason) }
+    fun failure(w: Work, reason: String) {
+        outcomes[w.track.id] = Outcome(w.track.filename,false,reason)
+        AppLog.w("Trash", "Duplicate transfer not confirmed · id=${w.track.id} · $reason")
+    }
     fun groupStillSafe(w: Work): Boolean {
         // Only the explicitly unselected members can serve as keepers. Never count an
         // already processed or failed selected track as the last surviving copy.
@@ -85,6 +89,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
     }
     suspend fun success(w: Work) {
         outcomes[w.track.id] = Outcome(w.track.filename,true,"Перемещено")
+        AppLog.i("Trash", "Duplicate transfer confirmed · id=${w.track.id}")
         // File movement is already confirmed; a journal failure must never trigger
         // another deletion of the same URI.
         try { latestOnTrashed(setOf(w.track.uri)) }

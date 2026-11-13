@@ -11,7 +11,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -251,35 +250,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         tag = "duplicates-fast-scroll", description = "Быстрая прокрутка дубликатов")
                     }
                     if (groups.isNotEmpty()) {
-                        HorizontalDivider()
-                        Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().testTag("duplicates-footer")) {
-                            BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                                val compact = maxWidth > 500.dp
-                                val stats: @Composable () -> Unit = {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text("Выбрано файлов", style = MaterialTheme.typography.labelSmall)
-                                            Text("${selected.size}", style = MaterialTheme.typography.titleMedium, color = musicPlaybackAccent)
-                                        }
-                                        Column(horizontalAlignment = Alignment.End) {
-                                            Text("Освободится", style = MaterialTheme.typography.labelSmall)
-                                            Text(android.text.format.Formatter.formatFileSize(context,size), style = MaterialTheme.typography.titleMedium)
-                                        }
-                                    }
-                                }
-                                val action: @Composable () -> Unit = {
-                                    Button(onClick = { confirm = true }, enabled = selected.isNotEmpty() && !verifying,
-                                        modifier = Modifier.fillMaxWidth().testTag("duplicates-trash-action"),
-                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
-                                        Text(if (verifying) "Проверка файлов…" else "В корзину (${selected.size})", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                                if (compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Box(Modifier.weight(1f)) { stats() }
-                                    Box(Modifier.weight(1f)) { action() }
-                                } else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { stats(); action() }
-                            }
-                        }
+                        DuplicateResultsFooter(selected.size, android.text.format.Formatter.formatFileSize(context,size), verifying) { confirm = true }
                     }
                 }
             }

@@ -52,6 +52,7 @@ jobs:
             --tests '*Equalizer*Test' \
             --tests '*MusicDuplicatePolicyTest' \
             --tests '*MusicDuplicateSessionTest' \
+            --tests '*DuplicateResultsFooterTest' \
             --tests '*ModeShortcutsTest' \
             --tests '*MusicStopTimerPolicyTest' \
             --tests '*GalleryViewerOverlayPolicyTest' \
