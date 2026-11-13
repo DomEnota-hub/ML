@@ -194,6 +194,9 @@ interface CatalogDao {
     @Query("SELECT * FROM catalog_assignments")
     fun observeAssignments(): Flow<List<CatalogAssignmentEntity>>
 
+    @Query("SELECT downloadId FROM catalog_assignments WHERE folderId = :folderId")
+    suspend fun memberIds(folderId: String): List<String>
+
     @Query("SELECT * FROM catalog_folders WHERE id = :id LIMIT 1")
     suspend fun folderById(id: String): CatalogFolderEntity?
 

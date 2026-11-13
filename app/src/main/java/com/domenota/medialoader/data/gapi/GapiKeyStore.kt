@@ -25,6 +25,8 @@ data class GapiKey(
     val remaining: Int? = null,
     val monthlyLimit: Int? = null,
     val lastUsage: String? = null,
+    val balanceId: String = id,
+    val balanceCheckedAt: Long? = null,
 ) {
     override fun toString(): String = "GapiKey(id=$id, name=$name, token=••••, enabled=$enabled, " +
         "builtIn=$builtIn, exhaustedMonth=$exhaustedMonth, invalid=$invalid, pauseUntilMillis=$pauseUntilMillis)"
@@ -81,24 +83,28 @@ class GapiKeyStore internal constructor(
         availableBuiltins.values.filterNot { builtin -> keys.any { it.id == builtin.id } }
             .forEach(keys::add)
         keys.distinctBy { it.id }.distinctBy { it.token }.map { key ->
-            val usage = runCatching { JSONObject(preferences?.getString("usage:${key.id}", "{}") ?: "{}") }.getOrDefault(JSONObject())
+            val balanceId = preferences?.getString("balance:${key.id}", key.id) ?: key.id
+            val usage = readUsage(balanceId)
             val builtinIndex = builtins.indexOfFirst { it.id == key.id }
             val month = currentMonth()
-            val limit = if (builtinIndex in 0..1) 200 else null
+            val manual = usage.optBoolean("manual")
+            val limit = usage.optInt("limit",-1).takeIf { it > 0 } ?: if (builtinIndex in 0..1) 200 else null
             // These are the user's November estimated balances, not a change to the
             // service's 200-credit monthly allowance. Other months reset normally.
-            val seed = if (month == "2026-11") {
+            val seed = if (!manual && month == "2026-11") {
                 when (builtinIndex) { 0 -> 112; 1 -> 200; else -> null }
             } else limit
             val recorded = if (usage.optString("month") == month && usage.has("remaining"))
                 usage.optInt("remaining").takeIf { it >= 0 } else null
             val remaining = when {
-                builtinIndex == 0 && month == "2026-11" && recorded != null ->
+                !manual && builtinIndex == 0 && month == "2026-11" && recorded != null ->
                     novemberFirstKeyBalance(key.id, usage, recorded)
                 else -> recorded ?: seed
             }
-            key.copy(remaining = if (key.exhaustedMonth == month) 0 else remaining,
-                monthlyLimit = limit, lastUsage = usage.optString("last").takeIf { it.isNotBlank() })
+            key.copy(remaining = if (key.exhaustedMonth == month && !manual) 0 else remaining,
+                exhaustedMonth = if (manual) usage.optString("exhaustedMonth").takeIf { it.isNotBlank() } else key.exhaustedMonth,
+                monthlyLimit = limit, lastUsage = usage.optString("last").takeIf { it.isNotBlank() },
+                balanceId = balanceId, balanceCheckedAt = usage.optLong("checkedAt").takeIf { it > 0 })
         }
     }
 
@@ -119,6 +125,25 @@ class GapiKeyStore internal constructor(
             .put("seedBaseline", 112)
         val saved = preferences?.edit()?.putString("usage:$id", migrated.toString())?.commit() == true
         return if (saved) adjusted else 0
+    }
+
+    private fun readUsage(id: String): JSONObject = runCatching {
+        JSONObject(preferences?.getString("usage:$id", "{}") ?: "{}")
+    }.getOrDefault(JSONObject())
+
+    /** Manual baseline; shared accounts are explicitly selected, never inferred from token text. */
+    fun setBalance(id: String, limit: Int, remaining: Int, sharedWith: String? = null): Boolean = synchronized(lock) {
+        val prefs = preferences ?: return false
+        if (limit <= 0 || remaining !in 0..limit) return false
+        val keys = snapshot()
+        val key = keys.firstOrNull { it.id == id } ?: return false
+        val other = sharedWith?.let { target -> keys.firstOrNull { it.id == target && it.id != id } ?: return false }
+        val balanceId = other?.balanceId ?: if (keys.any { it.id != id && it.balanceId == key.balanceId }) "account-${UUID.randomUUID()}" else key.balanceId
+        val usage = readUsage(balanceId).put("manual",true).put("limit",limit)
+            .put("month",currentMonth()).put("remaining",remaining).put("checkedAt",now())
+            .put("exhaustedMonth", if (remaining == 0) currentMonth() else "")
+        if (!prefs.edit().putString("balance:$id",balanceId).putString("usage:$balanceId",usage.toString()).commit()) return false
+        true
     }
 
     fun eligible(): List<GapiKey> {
@@ -191,9 +216,10 @@ class GapiKeyStore internal constructor(
 
     fun markExhausted(id: String) = synchronized(lock) {
         update(id) { it.copy(exhaustedMonth = currentMonth()) }
-        val usage = runCatching { JSONObject(preferences?.getString("usage:$id", "{}") ?: "{}") }.getOrDefault(JSONObject())
-        usage.put("month", currentMonth()).put("remaining", 0)
-        preferences?.edit()?.putString("usage:$id", usage.toString())?.commit()
+        val balanceId = snapshot().firstOrNull { it.id == id }?.balanceId ?: id
+        val usage = readUsage(balanceId)
+        usage.put("month", currentMonth()).put("remaining", 0).put("exhaustedMonth",currentMonth())
+        preferences?.edit()?.putString("usage:$balanceId", usage.toString())?.commit()
         Unit
     }
     fun markInvalid(id: String) { update(id) { it.copy(invalid = true) } }
@@ -231,12 +257,12 @@ class GapiKeyStore internal constructor(
                     else -> "GAPI"
                 }
                 val last = "${java.time.Instant.ofEpochMilli(now())} · $source · ${status?.let { "HTTP $it · расход $cost" } ?: "Ответ не получен · расход неизвестен"}"
-                val usage = JSONObject().put("month", currentMonth()).put("last", last)
+                val usage = readUsage(key.balanceId).put("month", currentMonth()).put("last", last)
                 if (remaining != null) usage.put("remaining", remaining)
                 // New November usage must never be mistaken for a legacy 156 seed.
-                if (builtins.indexOfFirst { it.id == key.id } == 0 &&
+                if (!usage.optBoolean("manual") && builtins.indexOfFirst { it.id == key.id } == 0 &&
                     currentMonth() == "2026-11") usage.put("seedBaseline", 112)
-                val saved = preferences?.edit()?.putString("usage:${key.id}", usage.toString())?.commit() == true
+                val saved = preferences?.edit()?.putString("usage:${key.balanceId}", usage.toString())?.commit() == true
                 com.domenota.medialoader.core.logging.AppLog.i("GapiUsage",
                     "method=gapi · keyId=${key.id} · endpoint=$endpoint · status=${status ?: "unconfirmed"} · cost=$cost · remaining=${remaining ?: "unknown"} · saved=$saved")
             }

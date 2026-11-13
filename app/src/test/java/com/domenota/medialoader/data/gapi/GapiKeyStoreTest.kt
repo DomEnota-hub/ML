@@ -204,6 +204,56 @@ class GapiKeyStoreTest {
             reopened.nextAvailableAtMillis())
     }
 
+    @Test fun `manual custom balance persists and replenishes once at UTC boundary`() {
+        val store = store()
+        assertTrue(store.add("Основной","custom-secret"))
+        val id = store.snapshot().single { !it.builtIn }.id
+        assertNull(store.snapshot().single { it.id == id }.remaining)
+        assertFalse(store.setBalance(id,200,201))
+        assertFalse(store.setBalance(id,0,0))
+        assertTrue(store.setBalance(id,200,112))
+        store.recordResponse("/v2/youtube?url=redacted","custom-secret",200)
+        store.recordResponse("/v2/instagram/media","custom-secret",404)
+        store.recordResponse("/v2/vk","custom-secret",429)
+        assertEquals(103,store().snapshot().single { it.id == id }.remaining)
+        assertTrue(store.rename(id,"Новое имя"))
+        assertTrue(store.move(id,-1))
+        assertEquals(103,store().snapshot().single { it.id == id }.remaining)
+        now = Instant.parse("2026-12-01T00:00:00Z").toEpochMilli()
+        assertEquals(200,store().snapshot().single { it.id == id }.remaining)
+        store.recordResponse("/v2/vk","custom-secret",200)
+        assertEquals(199,store().snapshot().single { it.id == id }.remaining)
+        assertEquals(199,store().snapshot().single { it.id == id }.remaining)
+    }
+
+    @Test fun `shared account consumes one balance and explicit correction overrides exhaustion`() {
+        val store = store()
+        assertTrue(store.add("Основной","custom-one"))
+        assertTrue(store.add("Резервный","custom-two"))
+        val first = store.snapshot().first { it.name == "Основной" }
+        val second = store.snapshot().first { it.name == "Резервный" }
+        assertTrue(store.setBalance(first.id,200,12))
+        assertTrue(store.setBalance(second.id,200,12,first.id))
+        store.recordResponse("/v2/vk",first.token,200)
+        store.recordResponse("/v2/youtube",second.token,200)
+        assertEquals(listOf(3,3),store().snapshot().filterNot { it.builtIn }.map { it.remaining })
+        store.markExhausted(second.id)
+        assertTrue(store().eligible().none { !it.builtIn })
+        assertTrue(store.setBalance(first.id,200,50,second.id))
+        assertEquals(listOf(50,50),store().snapshot().filterNot { it.builtIn }.map { it.remaining })
+        assertEquals(2,store().eligible().count { !it.builtIn })
+        assertTrue(store.setBalance(first.id,200,18))
+        assertEquals(listOf(18,50),store().snapshot().filterNot { it.builtIn }.map { it.remaining })
+    }
+
+    @Test fun `manual builtin correction is not clamped to old November seed`() {
+        val store = store()
+        assertTrue(store.setBalance(builtin.id,200,170))
+        store.recordResponse("/v2/vk",builtin.token,200)
+        assertEquals(169,store().snapshot().single().remaining)
+        assertNotNull(store().snapshot().single().balanceCheckedAt)
+    }
+
     @Test fun `unavailable encrypted storage never makes builtin credentials eligible`() {
         val ui = context.getSharedPreferences("ui-test", 0)
         ui.edit().putBoolean("developer_visible", true).putBoolean("extended_app_log", true).commit()

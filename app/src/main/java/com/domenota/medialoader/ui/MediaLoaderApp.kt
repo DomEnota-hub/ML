@@ -3,6 +3,7 @@ package com.domenota.medialoader.ui
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.ScaffoldDefaults
 
 import com.domenota.medialoader.data.library.*
@@ -862,6 +863,45 @@ fun MediaLoaderApp(
         }.flatten())
     }
     val deleteLibraryFile: (String) -> Unit = { deleteLibraryFiles(listOf(it)) }
+    var albumTrash by remember { mutableStateOf<com.domenota.medialoader.ui.components.AlbumTrashRequest?>(null) }
+    fun albumMemberIds(folderId: String): Set<String> =
+        viewModel.catalogAssignments.value.filter { it.folderId == folderId }.map { it.downloadId }.toSet() +
+            libraryModel.externalCatalog.entries.value.filter { it.folderId == folderId }.map { it.ref.key }
+    val requestAlbumTrash: (String,List<String>) -> Unit = { folderId, ids ->
+        val resolved = ids.distinct().mapNotNull { libraryRefsByAlias[it] }.distinctBy { it.item.savedUri }
+        val expectedAliases = resolved.flatMap { it.aliases + it.key + listOfNotNull(it.appDownloadId) }.toSet()
+        val members = albumMemberIds(folderId)
+        if (!libraryIndex.ready || !libraryAliasProjection.ready || libraryPrivateKeys == null ||
+            resolved.isEmpty() || resolved.size != ids.distinct().size || members.isEmpty() ||
+            !expectedAliases.containsAll(members) || resolved.any { row ->
+                row.item.savedUri.isNullOrBlank() || row.item.hidden || row.item.isPrivate ||
+                row.item.mediaType !in setOf(MediaType.PHOTO, MediaType.VIDEO) ||
+                (row.aliases + row.key + listOfNotNull(row.appDownloadId)).none { it in members }
+            }) {
+            Toast.makeText(context,"Состав альбома изменился или загружен не полностью. Файлы не перемещены.",Toast.LENGTH_LONG).show()
+        } else albumTrash = com.domenota.medialoader.ui.components.AlbumTrashRequest(folderId,resolved,members)
+    }
+    albumTrash?.let { request ->
+        com.domenota.medialoader.ui.components.AlbumTrashHost(
+            request, refs = libraryRefsByAlias,
+            currentMembers = {
+                viewModel.albumMemberIds(request.folderId) + libraryModel.externalCatalog.albumMemberIds(request.folderId)
+            },
+            onAppTrash = viewModel::trashVerifiedAlbumMedia,
+            onTrashed = { ref ->
+                ref.appDownloadId?.let { viewModel.detachTrashedAlbumMember(it,request.folderId) }
+                libraryModel.externalCatalog.detachTrashedAlbumMember(ref,request.folderId)
+            },
+            onRemoveAlbum = {
+                libraryModel.externalCatalog.withEmptyAlbum(request.folderId) {
+                    viewModel.deleteEmptyAlbum(request.folderId)
+                }
+            },
+            onClose = {
+                albumTrash = null
+                libraryModel.refresh(AppMode.GALLERY, force = true)
+            })
+    }
     var duplicateTrash by remember { mutableStateOf<com.domenota.medialoader.data.library.DuplicateTrashSelection?>(null) }
     val trashDuplicates: (com.domenota.medialoader.data.library.DuplicateTrashSelection) -> Unit = { request ->
         duplicateTrash = request
@@ -1065,6 +1105,7 @@ fun MediaLoaderApp(
         containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
             else MaterialTheme.colorScheme.background,
         contentWindowInsets = when {
+            currentRoute == "music-duplicates" -> WindowInsets.safeDrawing
             fullBleedGalleryViewer -> WindowInsets(0, 0, 0, 0)
             galleryHomeOverlay -> WindowInsets.statusBars
             else -> ScaffoldDefaults.contentWindowInsets
@@ -1075,7 +1116,7 @@ fun MediaLoaderApp(
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
                 currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" &&
-                currentRoute != "diagnostics" && currentRoute != "vk-community") {
+                currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
                     // Gallery intentionally has no player chrome. Playback is
@@ -1205,6 +1246,7 @@ fun MediaLoaderApp(
                         viewModel.deleteCatalogFolder(folderId)
                         libraryModel.externalCatalog.removeFolder(folderId)
                     }, onShare = shareLibraryFile,
+                    onTrashFolderContents = requestAlbumTrash,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
                     onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY) },
                     onRename = viewModel::renameDownload,
@@ -1242,6 +1284,7 @@ fun MediaLoaderApp(
                     onRemoveTrack = libraryModel.playlistRepository::removeTrack, onMoveTrack = libraryModel.playlistRepository::moveTrack,
                     onShare = shareLibraryFile, onDeleteFile = deleteLibraryFile,
                     onTrashDuplicates = trashDuplicates,
+                    onOpenDuplicates = { navController.navigate("music-duplicates") { launchSingleTop = true } },
                     duplicateLinkedIds = libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +
                         publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
                     searchVisible = librarySearchVisible, tabOverride = musicTab,
@@ -1264,6 +1307,18 @@ fun MediaLoaderApp(
                     onDetailChange = { musicDetailOpen = it }, currentPlayingId = currentLibraryAudioId,
                     playing = libraryAudioState.playing)
                 }
+            }
+            composable("music-duplicates") {
+                if (!libraryIndex.ready || libraryPrivateKeys == null || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded)) {
+                    Column(Modifier.fillMaxSize().padding(16.dp)) {
+                        TextButton({ navController.popBackStack() }) { Text("Назад") }
+                        Text("Загрузка музыкальной библиотеки…")
+                    }
+                } else com.domenota.medialoader.ui.screens.music.MusicDuplicatesDialog(
+                    libraryAudioItems, libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +
+                        playlists.flatMap { it.trackIds } + publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
+                    currentLibraryAudioId, libraryAudioState.playing,
+                    onDismiss = { navController.popBackStack() }, onTrash = trashDuplicates)
             }
             composable("equalizer") {
                 val profiles by libraryModel.equalizerProfiles.collectAsStateWithLifecycle()

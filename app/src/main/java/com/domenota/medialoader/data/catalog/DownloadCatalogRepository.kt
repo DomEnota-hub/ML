@@ -41,6 +41,26 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
         dao.deleteFolder(id)
     }
 
+    internal suspend fun albumMemberIds(folderId: String): Set<String> = dao.memberIds(folderId).toSet()
+
+    /** The final check and folder deletion must share the database transaction. */
+    internal suspend fun deleteEmptyAlbum(folderId: String) = database.withTransaction {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        check(dao.memberIds(folderId).isEmpty()) { "В альбоме остались файлы" }
+        check(dao.folderById(folderId) != null) { "Альбом не найден" }
+        dao.deleteFolder(folderId)
+    }
+
+    /** After a verified recoverable move, detach only the original album assignment. */
+    internal suspend fun detachTrashedAlbumMember(downloadId: String, folderId: String) = database.withTransaction {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        val previous = dao.assignmentById(downloadId)
+        if (previous?.folderId == folderId) {
+            if (previous.isFavorite) dao.saveAssignment(previous.copy(folderId = null))
+            else dao.removeAssignment(downloadId)
+        }
+    }
+
     suspend fun setFolder(downloadId: String, folderId: String?) = database.withTransaction {
         requireCompleted(downloadId)
         require(folderId == null || dao.folderById(folderId) != null) { "Папка не найдена" }
