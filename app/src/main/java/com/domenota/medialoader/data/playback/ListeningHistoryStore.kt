@@ -136,8 +136,9 @@ internal class ListeningHistoryStore private constructor(context: Context) {
     /** Read the original schema without migration or a parallel statistics counter.
      * Duration is real wall time, attributed to the session's last recorded date.
      * Old sessions don't contain daily slices, so cross-midnight time is not split. */
-    suspend fun smartSnapshot(candidates: List<SmartTrackCandidate>, period: ListeningPeriod, now: Long,
-        seed: Long = now / SmartMusicPolicy.DAY_MS): SmartMusicSnapshot = withContext(Dispatchers.IO) {
+    suspend fun smartSnapshot(candidates: List<SmartTrackCandidate>, period: SmartStatsPeriod, now: Long,
+        seed: Long = now / SmartMusicPolicy.DAY_MS, diversity: Int = 50, forgottenDays: Long = 30,
+        zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): SmartMusicSnapshot = withContext(Dispatchers.IO) {
         mutex.withLock {
             val db = helper.readableDatabase
             val resolved = SmartMusicPolicy.resolve(candidates,aliasMap(db))
@@ -145,7 +146,7 @@ internal class ListeningHistoryStore private constructor(context: Context) {
                 buildSet { while(c.moveToNext()) add(c.getString(0)) }
             }
             data class Totals(val plays: Long,val last: Long,val periodPlays: Long,val wall: Long)
-            val cutoff = period.cutoff(now).toString()
+            val cutoff = period.cutoff(now,zone).toString()
             val end = now.toString()
             val history = db.rawQuery(
                 "SELECT track_id, SUM(CASE WHEN credited_at<=? THEN 1 ELSE 0 END), " +
@@ -160,7 +161,19 @@ internal class ListeningHistoryStore private constructor(context: Context) {
                 SmartTrackHistory(row.rowId,track,row.artist,row.favorite,data?.plays ?: 0,data?.last ?: 0,
                     data?.periodPlays ?: 0,data?.wall ?: 0,track in excluded)
             }
-            SmartMusicPolicy.snapshot(rows,now,seed)
+            val known = resolved.mapNotNull { it.second }.toHashSet()
+            val timeline = period.buckets(now,zone).associateWith { longArrayOf(0,0) }.toMutableMap()
+            db.rawQuery("SELECT track_id,credited_at,last_at,wall_ms FROM sessions WHERE (credited_at>=? AND credited_at<=?) OR (last_at>=? AND last_at<=?)",
+                arrayOf(cutoff,end,cutoff,end)).use { c ->
+                while(c.moveToNext()) if(c.getString(0) in known) {
+                    if(!c.isNull(1) && c.getLong(1) in cutoff.toLong()..now)
+                        timeline[period.bucket(c.getLong(1),zone)]?.let { it[0]++ }
+                    if(c.getLong(2) in cutoff.toLong()..now)
+                        timeline[period.bucket(c.getLong(2),zone)]?.let { it[1]+=c.getLong(3) }
+                }
+            }
+            SmartMusicPolicy.snapshot(rows,now,seed,diversity,forgottenDays).copy(
+                chart=timeline.map { (day,value)->SmartChartPoint(period.label(day),value[0],value[1]) })
         }
     }
 

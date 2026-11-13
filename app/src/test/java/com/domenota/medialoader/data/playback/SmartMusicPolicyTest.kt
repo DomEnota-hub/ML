@@ -21,6 +21,23 @@ class SmartMusicPolicyTest {
         assertTrue(mix.zipWithNext().all { (a,b) -> a.artist!=b.artist })
         assertTrue(mix.any {it.plays==0}); assertTrue(mix.any {it.lastPlayed < now-30*SmartMusicPolicy.DAY_MS})
     }
+    @Test fun sliderControlsBalanceAndKeepsTotalThirty() {
+        assertArrayEquals(intArrayOf(24,3,3),SmartMusicPolicy.quotas(0))
+        assertArrayEquals(intArrayOf(15,8,7),SmartMusicPolicy.quotas(50))
+        assertArrayEquals(intArrayOf(6,12,12),SmartMusicPolicy.quotas(100))
+        for(value in 0..100 step 5) assertEquals(30,SmartMusicPolicy.quotas(value).sum())
+        val rows=(1..90).map { i -> row("r$i",if(i<=30) 5 else if(i<=60) 0 else 3,if(i>60) 50 else 5,"Artist ${i%4}") }
+        assertEquals(24,SmartMusicPolicy.mix(rows,now,10,0).count { it.plays==5L })
+        assertEquals(6,SmartMusicPolicy.mix(rows,now,10,100).count { it.plays==5L })
+    }
+    @Test fun calendarBucketsCoverWeekMonthAndYear() {
+        val zone=java.time.ZoneId.of("Europe/Moscow")
+        val now=java.time.Instant.parse("2026-11-14T00:00:00Z").toEpochMilli()
+        assertEquals(7,SmartStatsPeriod.WEEK.buckets(now,zone).size)
+        assertEquals(30,SmartStatsPeriod.MONTH.buckets(now,zone).size)
+        assertEquals(java.time.LocalDate.of(2025,12,1),SmartStatsPeriod.YEAR.buckets(now,zone).first())
+        assertEquals(java.time.LocalDate.of(2026,11,1),SmartStatsPeriod.YEAR.buckets(now,zone).last())
+    }
     @Test fun mixWithOneArtistAndSmallLibraryStillUsesAllAvailableTracks() {
         val rows=(1..4).map { row("$it",2,1) }
         assertEquals(rows.map { it.rowId }.toSet(),SmartMusicPolicy.mix(rows,now).map { it.rowId }.toSet())
