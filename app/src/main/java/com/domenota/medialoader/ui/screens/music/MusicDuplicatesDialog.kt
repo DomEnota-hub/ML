@@ -162,20 +162,23 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     // No independent Dialog window, no duplicate system-bar fitting.
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().testTag("duplicates-route")) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ close() }, enabled = !verifying) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
                     Text("Дубликаты треков", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                     IconButton({ stopPreview(); scanRevision++ }, enabled = !scanning && !verifying) { Icon(Icons.Rounded.Refresh, "Повторить поиск") }
                 }
                 if (scanning) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     LinearProgressIndicator(progress = { if (progress.second == 0) 0f else progress.first.toFloat()/progress.second }, modifier = Modifier.fillMaxWidth())
                     Text("Проверка файлов · ${progress.first}/${progress.second}", Modifier.padding(vertical = 12.dp))
                     if (background.running) {
                         Button({ close() }, Modifier.fillMaxWidth()) { Text("Продолжить в фоне") }
                         TextButton({ DuplicateBackgroundScan.cancel(context) }, enabled = !background.committing) { Text("Отменить поиск") }
                     } else TextButton({ close() }) { Text("Закрыть") }
+                    }
                 } else if (previous != null) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     val saved = previous!!
                     Text("Последний поиск", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(saved.scannedAt)))
@@ -185,7 +188,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button({ restorePrevious(saved) }, Modifier.fillMaxWidth()) { Text("Продолжить проверку") }
                     OutlinedButton({ scanRevision++ }, Modifier.fillMaxWidth()) { Text(if (DuplicateBackgroundScan.interrupted(context)) "Продолжить незавершённый поиск" else "Новый поиск") }
+                    }
                 } else {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     Text("Групп: ${groups.size} · файлов: ${groups.sumOf { it.tracks.size }}", style = MaterialTheme.typography.bodyMedium)
                     if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -194,7 +199,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     if (groups.isNotEmpty()) {
                         OutlinedButton({ selected = if (selected == allSelected) emptySet() else allSelected }, Modifier.fillMaxWidth(), enabled = !verifying) { Text(if (selected == allSelected) "Снять выделение" else "Выделить все") }
                     }
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
                     LazyColumn(Modifier.fillMaxSize().padding(end = if (groups.size > 1) musicFastScrollLaneWidth else 0.dp), state = listState,
                         verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
                         items(groups, key = { it.key }) { group ->

@@ -47,8 +47,13 @@ class DuplicateResultsFooterTest {
         } }
         val window = compose.onNodeWithTag("activity-window").fetchSemanticsNode().boundsInRoot
         val safe = compose.onNodeWithTag("safe-viewport").fetchSemanticsNode().boundsInRoot
+        val footer = compose.onNodeWithTag("duplicates-footer").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val divider = compose.onNodeWithTag("duplicates-footer-divider").fetchSemanticsNode().boundsInRoot
         val action = compose.onNodeWithTag("duplicates-trash-action").assertIsDisplayed()
         val bounds = action.fetchSemanticsNode().boundsInRoot
+        assertTrue(kotlin.math.abs(footer.left - safe.left) <= 1f && kotlin.math.abs(footer.right - safe.right) <= 1f)
+        assertTrue(kotlin.math.abs(divider.left - safe.left) <= 1f && kotlin.math.abs(divider.right - safe.right) <= 1f)
+        assertTrue(bounds.left > footer.left && bounds.right < footer.right)
         assertTrue(safe.bottom <= window.bottom - bottomPx + 1f)
         assertTrue(bounds.bottom <= safe.bottom + 1f)
         action.performClick()
@@ -66,6 +71,8 @@ class DuplicateResultsFooterTest {
         val footer = compose.onNodeWithTag("duplicates-footer").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val action = compose.onNodeWithTag("duplicates-trash-action").assertIsDisplayed()
         val bounds = action.fetchSemanticsNode().boundsInRoot
+        assertTrue(kotlin.math.abs(footer.left - viewport.left) <= 1f && kotlin.math.abs(footer.right - viewport.right) <= 1f)
+        assertTrue(bounds.left > footer.left && bounds.right < footer.right)
         assertTrue(footer.bottom <= viewport.bottom + 1f)
         assertTrue(bounds.top >= footer.top && bounds.bottom <= footer.bottom + 1f)
         compose.onNodeWithTag("duplicates-count").assertTextEquals(count.toString())

@@ -13,9 +13,9 @@ import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 /** Anchored outside the weighted scrolling list inside the Activity's safe viewport. */
 @Composable
 internal fun DuplicateResultsFooter(count: Int, bytesLabel: String, verifying: Boolean, onTrash: () -> Unit) {
-    HorizontalDivider()
+    HorizontalDivider(Modifier.fillMaxWidth().testTag("duplicates-footer-divider"))
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().testTag("duplicates-footer")) {
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
             val oneRow = maxWidth >= 300.dp && LocalDensity.current.fontScale <= 1.4f
             val stats: @Composable () -> Unit = {
                 Column {
