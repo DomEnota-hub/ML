@@ -4,7 +4,8 @@ import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddToHomeScreen
 import androidx.compose.material.icons.rounded.Collections
-import androidx.compose.material.icons.rounded.AudioFile
+import androidx.compose.material.icons.rounded.MusicNote
+import com.domenota.medialoader.ui.theme.SettingIconTone
 import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.*
@@ -39,20 +40,20 @@ internal fun ModeShortcutsSection() {
         onDispose { lifecycle.removeObserver(observer) }
     }
     SettingRow(Icons.Rounded.AddToHomeScreen, "Ярлыки рабочего стола", "Быстрый запуск режимов",
-        grouped = true, expanded = expanded, onClick = { expanded = !expanded; refresh() })
+        grouped = true, nested = true, iconTone = SettingIconTone.SHORTCUTS, expanded = expanded, onClick = { expanded = !expanded; refresh() })
     ExpandableSettingsBody(expanded) {
         GroupDivider()
         SettingRow(Icons.Rounded.Style, "Стиль ярлыков", if (branded) "Фирменные иконки ML" else "Базовые иконки",
-            grouped = true, nested = true, showChevron = false,
+            grouped = true, nested = true, iconTone = SettingIconTone.SHORTCUT_STYLE, showChevron = false,
             trailing = { Switch(checked = branded, onCheckedChange = ::changeStyle) },
             onClick = { changeStyle(!branded) })
         listOf(AppMode.GALLERY, AppMode.MUSIC).forEach { mode ->
             GroupDivider()
             val added = ModeShortcuts.id(mode) in pinned
             val label = if (mode == AppMode.GALLERY) "Галерея" else "Музыка"
-            SettingRow(if (mode == AppMode.GALLERY) Icons.Rounded.Collections else Icons.Rounded.AudioFile,
+            SettingRow(if (mode == AppMode.GALLERY) Icons.Rounded.Collections else Icons.Rounded.MusicNote,
                 label, if (!supported) "Лаунчер не поддерживает создание" else if (added) "Добавлен" else "Создать ярлык",
-                grouped = true, nested = true, onClick = {
+                grouped = true, nested = true, iconTone = if (mode == AppMode.GALLERY) SettingIconTone.SHORTCUT_GALLERY else SettingIconTone.SHORTCUT_MUSIC, onClick = {
                     if (added) refresh() else {
                         val accepted = runCatching { ModeShortcuts.request(context,mode) }.getOrDefault(false)
                         Toast.makeText(context, if (accepted) "Запрос создания ярлыка отправлен" else "Создание ярлыка недоступно", Toast.LENGTH_SHORT).show()

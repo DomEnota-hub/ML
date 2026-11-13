@@ -36,10 +36,16 @@ internal fun MusicPlayerControls(
     favorite: Boolean = false, onEdit: (() -> Unit)? = null,
 ) {
     var scrub by remember(item.id) { mutableStateOf<Float?>(null) }
+    var timerOpen by remember { mutableStateOf(false) }
+    val timerState by com.domenota.medialoader.data.playback.AudioPlaybackService.timerState.collectAsState()
+    if (timerOpen) PlaybackStopDialog(player) { timerOpen = false }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
             Text("Сейчас играет", Modifier.weight(1f), fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+            IconButton({ timerOpen = true }, enabled = player != null && !item.isPrivate) {
+                Icon(Icons.Rounded.Timer, "Таймер остановки", tint = if (timerState != null) musicPlaybackAccent else MaterialTheme.colorScheme.onSurface)
+            }
             if (onEdit != null) {
                 IconButton(onClick = onEdit) {
                     Icon(Icons.Rounded.Edit, contentDescription = "Редактировать")

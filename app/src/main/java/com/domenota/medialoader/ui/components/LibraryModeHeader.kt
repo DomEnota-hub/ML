@@ -34,13 +34,12 @@ internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
         }
         DropdownMenu(expanded, { expanded = false }) {
             AppMode.entries.forEach { item -> DropdownMenuItem(
-                text = { Text(item.label) }, onClick = { expanded = false; onChange(item) },
+                text = { Text(item.label, color = if (mode == item) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }, onClick = { expanded = false; onChange(item) },
                 leadingIcon = { Icon(when (item) {
                     AppMode.DOWNLOADER -> Icons.Rounded.Download
                     AppMode.GALLERY -> Icons.Rounded.PhotoLibrary
                     AppMode.MUSIC -> Icons.Rounded.MusicNote
-                }, null) },
-                trailingIcon = { if (mode == item) Icon(Icons.Rounded.Check, null) }) }
+                }, null, tint = if (mode == item) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }) }
         }
     }
 }

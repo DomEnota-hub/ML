@@ -885,7 +885,7 @@ fun SettingsScreen(
                     themeDialog = false
                     (context as? Activity)?.recreate()
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (themeMode == key) "✓  $title" else title)
+                    Text(title, color = if (themeMode == key) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                 }
             }
         } },
@@ -1184,7 +1184,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
             SettingRow(Icons.Rounded.Palette, "Оформление и просмотр",
-                "Тема, миниатюры и проигрыватель", grouped = true,
+                "Тема, миниатюры, проигрыватель и ярлыки", grouped = true,
                 iconTone = SettingIconTone.APPEARANCE, expanded = interfaceOptionsExpanded,
                 onClick = { interfaceOptionsExpanded = !interfaceOptionsExpanded })
             ExpandableSettingsBody(interfaceOptionsExpanded) {
@@ -1209,9 +1209,9 @@ fun SettingsScreen(
                     )
                 },
             )
+                GroupDivider()
+                ModeShortcutsSection()
             }
-            GroupDivider()
-            ModeShortcutsSection()
         }
 
         Spacer(Modifier.height(26.dp))

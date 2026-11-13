@@ -73,7 +73,9 @@ internal object MusicDuplicateScanner {
     }
     private suspend fun read(context: Context, row: DownloadEntity, linked: Boolean, current: Boolean): DuplicateTrack {
         val value = requireNotNull(row.savedUri); val uri = Uri.parse(value); val before = stamp(context,uri)
-        val old = synchronized(cache) { cache[value] }
+        val old = synchronized(cache) { cache[value] } ?: DuplicateHashCheckpoints.read(context, value)?.let {
+            Cached(Stamp(it.bytes,it.modified,it.folder),it)
+        }
         if (before.modified != null && old != null && old.stamp == before && old.track.filename == row.originalName) return old.track.copy(id = row.id, linked = linked, current = current,
             title = row.recognizedTitle ?: row.sourceAudioTitle ?: old.track.title, artist = row.recognizedArtist ?: row.sourceAudioArtist ?: old.track.artist)
         var title = row.recognizedTitle ?: row.sourceAudioTitle
@@ -90,11 +92,15 @@ internal object MusicDuplicateScanner {
         val sha = hash(context,uri); val encoded = payload(context,uri)
         check(stamp(context,uri) == before) { "Файл изменился во время проверки" }
         val track = DuplicateTrack(row.id,title?.takeIf(String::isNotBlank) ?: row.originalName.substringBeforeLast('.'),artist,row.originalName,value,before.size,before.modified,sha,encoded,duration,bitrate,before.folder,linked,current)
-        if (before.modified != null) synchronized(cache) { cache[value] = Cached(before,track) }
+        if (before.modified != null) {
+            synchronized(cache) { cache[value] = Cached(before,track) }
+            DuplicateHashCheckpoints.write(context,track)
+        }
         return track
     }
     suspend fun scan(context: Context, rows: List<DownloadEntity>, linkedIds: Set<String>, currentId: String?, progress: (Int,Int) -> Unit): DuplicateScanResult = withContext(Dispatchers.IO) {
         val usable = rows.filter { !it.hidden && !it.isPrivate && it.state == DownloadState.COMPLETED && it.mediaType == MediaType.AUDIO && !it.savedUri.isNullOrBlank() }.distinctBy { it.id }
+        DuplicateHashCheckpoints.prune(context, usable.mapNotNull { it.savedUri }.toSet())
         val seen = mutableSetOf<String>(); val tracks = mutableListOf<DuplicateTrack>(); var skipped = 0
         usable.forEachIndexed { index,row ->
             coroutineContext.ensureActive(); progress(index+1, usable.size)
