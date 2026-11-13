@@ -55,9 +55,11 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
     var consentResult by remember(request) { mutableStateOf<Int?>(null) }
     var finished by remember(request) { mutableStateOf(false) }
     var revision by remember(request) { mutableIntStateOf(0) }
+    var batchLimit by remember(request) { mutableIntStateOf(50) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         consentResult = it.resultCode
         waiting = false
+        revision++
     }
     fun failure(w: Work, reason: String) { outcomes[w.track.id] = Outcome(w.track.filename,false,reason) }
     fun groupStillSafe(w: Work): Boolean {
@@ -101,7 +103,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
         }
         initialized = true
     }
-    LaunchedEffect(initialized, revision, consentResult) {
+    LaunchedEffect(initialized, revision) {
         if (!initialized || waiting || finished) return@LaunchedEffect
         val answer = consentResult
         if (answer != null) {
@@ -147,7 +149,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                     } else failure(w,e.message ?: "Нет разрешения на перенос")
                 } catch (e: Exception) { failure(w,e.message ?: "Ошибка переноса в корзину") }
             } else {
-                val candidate = queue.takeWhile { it.appId == null }.take(50)
+                val candidate = queue.takeWhile { it.appId == null }.take(batchLimit)
                 queue = queue.drop(candidate.size)
                 val valid = mutableListOf<Work>()
                 for (item in candidate) {
@@ -168,8 +170,12 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) {
                     waiting = false; pending = emptyList()
-                    // Local request failure must not prevent independent batches.
-                    valid.forEach { failure(it,e.message ?: "Не удалось запросить системную корзину") }
+                    // Invalid batch construction can be caused by one URI. Split
+                    // only this local failure, not a cancelled system permission.
+                    if (e is IllegalArgumentException && valid.size > 1) {
+                        batchLimit = (valid.size / 2).coerceAtLeast(1)
+                        queue = valid + queue
+                    } else valid.forEach { failure(it,e.message ?: "Не удалось запросить системную корзину") }
                 }
             }
         }

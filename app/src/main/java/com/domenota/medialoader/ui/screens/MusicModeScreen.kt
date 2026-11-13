@@ -32,7 +32,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-fun MusicModeScreen(
+internal fun MusicModeScreen(
     items: List<DownloadEntity>, allAudio: List<DownloadEntity>, playlists: List<MediaPlaylist>, header: @Composable () -> Unit,
     loading: Boolean, message: String?, onOpen: (String, List<String>) -> Unit, onOpenPrivate: () -> Unit,
     onCreate: suspend (String) -> String, onRename: suspend (String, String) -> Unit, onDeletePlaylist: suspend (String) -> Unit,

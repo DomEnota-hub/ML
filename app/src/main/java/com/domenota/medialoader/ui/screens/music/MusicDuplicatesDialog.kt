@@ -129,7 +129,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     LaunchedEffect(result) {
         if (result == null) return@LaunchedEffect
         snapshotFlow { snapshot() }.debounce(350L).collect { saved ->
-            if (saved != null && !MusicDuplicateSessionStore.save(context,saved)) error = "Не удалось сохранить состояние"
+            if (saved != null && !verifying && !MusicDuplicateSessionStore.save(context,saved)) error = "Не удалось сохранить состояние"
         }
     }
     fun restorePrevious(saved: DuplicateSession) {
@@ -254,7 +254,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         HorizontalDivider()
                         Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().testTag("duplicates-footer")) {
                             BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                                val compact = maxHeight < 112.dp || maxWidth > 500.dp
+                                val compact = maxWidth > 500.dp
                                 val stats: @Composable () -> Unit = {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Column(Modifier.weight(1f)) {
@@ -274,7 +274,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                         Text(if (verifying) "Проверка файлов…" else "В корзину (${selected.size})", maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                 }
-                                if (compact && maxWidth > 400.dp) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Box(Modifier.weight(1f)) { stats() }
                                     Box(Modifier.weight(1f)) { action() }
                                 } else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { stats(); action() }
