@@ -395,7 +395,7 @@ fun GalleryModeScreen(
             // a fixed, opaque 106dp blank strip.
             // Leave enough scroll tail to expose the final row above the overlay.
             // The tail lives *inside* the scrollable grid, not in Scaffold.
-            contentPadding = PaddingValues(end = if (tab == 0 && orderedDisplayed.size > 4) 36.dp else 0.dp,
+            contentPadding = PaddingValues(end = if (tab == 0 && orderedDisplayed.size > 4) 12.dp else 0.dp,
                 bottom = with(density) { galleryOverlayHeightPx.toDp() } + 12.dp)) {
             item(key = "gallery-controls", span = { GridItemSpan(maxLineSpan) }) {
                 if (!selecting) Column {
@@ -719,8 +719,8 @@ private fun GalleryAlbumCell(
     Column(
         Modifier
             .alpha(if (dragged) 0.30f else 1f)
-            .padding(start = if (index % columns == 0) 17.dp else 5.dp,
-                end = if (index % columns == columns - 1) 17.dp else 5.dp, bottom = 18.dp)
+            .padding(horizontal = 8.dp, bottom = 18.dp)
+            .fillMaxWidth()
             .clickable(onClick = onOpen)
     ) {
         Box(
@@ -767,7 +767,9 @@ private fun GalleryAlbumCell(
         }
         Text(album.name, Modifier.padding(top = 8.dp), fontSize = 13.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("${album.count} файлов · ${album.origin}", fontSize = 11.sp,
+        Text("${album.count} файлов", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(album.origin, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

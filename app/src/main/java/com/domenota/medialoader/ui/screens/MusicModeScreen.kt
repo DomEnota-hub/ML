@@ -46,7 +46,7 @@ fun MusicModeScreen(
     hiddenTracksOpen: Boolean = false, onDismissHiddenTracks: () -> Unit = {},
     favoriteIds: Set<String> = emptySet(),
     duplicateLinkedIds: Set<String> = emptySet(),
-    onTrashDuplicates: ((List<String>) -> Unit)? = null,
+    onTrashDuplicates: ((com.domenota.medialoader.data.library.DuplicateTrashSelection) -> Unit)? = null,
     duplicateRequest: Int = 0, onDuplicateRequestHandled: () -> Unit = {},
     onPreviewFromPlaylist: ((String,List<String>,String) -> Unit)? = null,
     onOpenFromPlaylist: ((String,List<String>,String) -> Unit)? = null,

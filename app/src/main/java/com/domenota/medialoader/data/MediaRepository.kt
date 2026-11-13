@@ -1373,6 +1373,19 @@ class MediaRepository private constructor(context: Context) {
         AppLog.i("Trash", "Move completed · id=$id")
     }
 
+    /** Duplicate cleanup must not silently convert missing media into a successful trash operation. */
+    internal suspend fun trashVerifiedDuplicate(id: String, expectedUri: String) = musicPostProcessGate.withPermit {
+        val item = history.byId(id) ?: error("Запись отсутствует")
+        requireMediaAccess(item)
+        check(!item.hidden && !item.isPrivate && item.state == DownloadState.COMPLETED &&
+            item.mediaType == MediaType.AUDIO && item.savedUri == expectedUri) { "Запись изменилась" }
+        check(withContext(Dispatchers.IO) { savedFileStatus(expectedUri) } == SavedFileStatus.PRESENT) { "Файл недоступен" }
+        storage.moveToTrash(id, expectedUri)
+        check(storage.hasTrashed(id)) { "Копия в корзине не подтверждена" }
+        history.save(item.copy(hidden = true, savedUri = null))
+        AppLog.i("Trash", "Duplicate move completed · id=$id")
+    }
+
     /** Gallery-only deletion: never stage bytes or metadata in either trash. */
     suspend fun deleteLibraryFilePermanently(id: String) = musicPostProcessGate.withPermit {
         val item = history.byId(id) ?: return@withPermit

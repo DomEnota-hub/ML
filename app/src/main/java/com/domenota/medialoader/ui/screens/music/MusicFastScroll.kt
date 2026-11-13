@@ -44,7 +44,7 @@ internal fun MusicFastScroll(state: LazyListState, labels: List<String>, modifie
 internal fun GalleryFastScroll(state: LazyGridState, labels: List<String>, modifier: Modifier = Modifier) {
     LibraryFastScroll(state, state.layoutInfo.totalItemsCount, state.firstVisibleItemIndex,
         state.canScrollForward, state.canScrollBackward, state.isScrollInProgress, labels,
-        modifier, "gallery-fast-scroll", "Быстрая прокрутка галереи") { index ->
+        modifier, "gallery-fast-scroll", "Быстрая прокрутка галереи", hitWidth = 12.dp) { index ->
         state.scrollToItem(index.coerceIn(0, (state.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)))
     }
 }
@@ -52,7 +52,7 @@ internal fun GalleryFastScroll(state: LazyGridState, labels: List<String>, modif
 @Composable
 private fun LibraryFastScroll(identity: Any, count: Int, firstIndex: Int,
     canForward: Boolean, canBackward: Boolean, scrolling: Boolean, labels: List<String>,
-    modifier: Modifier, tag: String, description: String, scrollTo: suspend (Int) -> Unit) {
+    modifier: Modifier, tag: String, description: String, hitWidth: androidx.compose.ui.unit.Dp = 36.dp, scrollTo: suspend (Int) -> Unit) {
     val scrollable = count > 1 && (canForward || canBackward)
     val latestScrollTo by rememberUpdatedState(scrollTo)
     var visible by remember { mutableStateOf(false) }
@@ -68,14 +68,15 @@ private fun LibraryFastScroll(identity: Any, count: Int, firstIndex: Int,
     if (!scrollable || !visible) return
     val fraction = if (dragging) dragFraction else if (!canForward) 1f else MusicFastScrollPolicy.fraction(firstIndex, count)
     val accent = musicPlaybackAccent
-    BoxWithConstraints(modifier.width(36.dp).fillMaxHeight().padding(vertical = 12.dp), contentAlignment = Alignment.TopEnd) {
+    BoxWithConstraints(modifier.width(hitWidth).fillMaxHeight().padding(vertical = 12.dp), contentAlignment = Alignment.TopEnd) {
         val thumb = 40.dp.coerceAtMost(maxHeight)
         val travel = (maxHeight - thumb).coerceAtLeast(0.dp)
         val thumbPx = with(LocalDensity.current) { thumb.toPx() }
         val travelPx = with(LocalDensity.current) { travel.toPx() }
         Box(Modifier.width(4.dp).fillMaxHeight().padding(end = 1.dp).background(accent.copy(alpha = .18f), RoundedCornerShape(2.dp)))
         Box(Modifier.offset(y = travel * fraction).width(8.dp).height(thumb).background(accent, RoundedCornerShape(5.dp)))
-        // Reserve a wider touch target than the visible line; it does not overlap the row action menu.
+        // The gallery reserves a narrow dedicated edge lane, outside tile/menu hit areas.
+        // Other lists retain their wider touch target.
         Box(Modifier.fillMaxSize().testTag(tag).semantics {
             contentDescription = description
             progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
