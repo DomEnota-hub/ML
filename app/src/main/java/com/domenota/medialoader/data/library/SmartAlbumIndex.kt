@@ -124,6 +124,8 @@ internal object SmartAlbumIndex {
     private suspend fun scan(context:Context,source:String,version:Long,rows:List<DownloadEntity>,settings:SmartAlbumSettings) {
         val members=SmartAlbum.entries.associateWith { mutableSetOf<String>() }
         var failed=0
+        val files=File(context.noBackupFilesDir,"smart-album-facts-v1").listFiles().orEmpty()
+        if(files.size>14000) files.sortedBy { it.lastModified() }.take(files.size-10000).forEach { it.delete() }
         val ai=settings.enabled.any { it!=SmartAlbum.HIGH_RESOLUTION }
         val detector=if(ai) FaceDetection.getClient(FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST).setMinFaceSize(.1f).build()) else null
@@ -133,11 +135,13 @@ internal object SmartAlbumIndex {
                 try {
                     val uri=Uri.parse(requireNotNull(row.savedUri)); val before=stamp(context,uri); val file=cache(context,uri.toString(),row.originalName)
                     val saved=cached(file,before)
-                    val facts=saved ?: analyze(context,uri,row.originalName,detector)
+                    val analyzed = if(saved == null) analyze(context,uri,row.originalName,detector) else saved to true
+                    val facts=analyzed.first
+                    if(!analyzed.second) failed++
                     currentCoroutineContext().ensureActive()
                     if(before!=null && stamp(context,uri)!=before) error("Файл изменился")
                     // Do not cache metadata-only facts as if AI had already examined the photo.
-                    if(saved==null && ai) save(file,before,facts)
+                    if(saved==null && ai && analyzed.second) save(file,before,facts)
                     SmartAlbumPolicy.categories(facts,settings.threshold).filter { it in settings.enabled }.forEach { members.getValue(it).add(row.id) }
                 } catch(e:CancellationException) { throw e } catch(_:Exception) { failed++ }
                 if(index%12==0 || index==rows.lastIndex) publish(source,version,SmartIndexStatus(members.mapValues { it.value.toSet() },true,index+1,rows.size,failed))
@@ -146,12 +150,14 @@ internal object SmartAlbumIndex {
             publish(source,version,SmartIndexStatus(members.mapValues { it.value.toSet() },false,rows.size,rows.size,failed))
         } finally { detector?.close() }
     }
-    private suspend fun analyze(context:Context,uri:Uri,name:String,detector:com.google.mlkit.vision.face.FaceDetector?):SmartPhotoFacts {
+    private suspend fun analyze(context:Context,uri:Uri,name:String,detector:com.google.mlkit.vision.face.FaceDetector?):Pair<SmartPhotoFacts,Boolean> {
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it,null,bounds) }
         check(bounds.outWidth>0 && bounds.outHeight>0) { "Размер недоступен" }
         val width=bounds.outWidth; val height=bounds.outHeight
-        if(detector==null) return SmartPhotoFacts(width,height,0,0f,false,0,0,0,0f)
+        val basic=SmartPhotoFacts(width,height,0,0f,false,0,0,0,0f)
+        if(detector==null) return basic to true
+        return try {
         var sample=1
         while(maxOf(width,height)/sample>1280) sample*=2
         val options=BitmapFactory.Options().apply { inSampleSize=sample; inPreferredConfig=Bitmap.Config.ARGB_8888 }
@@ -182,7 +188,8 @@ internal object SmartAlbumIndex {
             val content=ocr?.text.orEmpty()
             val words=Regex("""[\p{L}\p{N}]{2,}""").findAll(content).count()
             val lines=content.lineSequence().count { it.trim().length>=4 }
-            return SmartPhotoFacts(width,height,faces.size,area,hint,words,lines,ocr?.confidence ?: 0,paleRatio)
+            SmartPhotoFacts(width,height,faces.size,area,hint,words,lines,ocr?.confidence ?: 0,paleRatio) to true
         } finally { if(normalized!==bitmap) normalized.recycle(); bitmap.recycle() }
+        } catch(e:CancellationException) { throw e } catch(_:Exception) { basic to false }
     }
 }
