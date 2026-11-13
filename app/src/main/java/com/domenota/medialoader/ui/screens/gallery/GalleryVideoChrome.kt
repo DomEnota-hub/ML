@@ -39,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -104,10 +103,11 @@ internal fun GalleryVideoChrome(
             // Keep a 40dp scrubbing target, independent of its 4dp visual stroke.
             Row(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .then(if (landscape) Modifier.background(viewerOverlayColor) else Modifier)
                     .navigationBarsPadding()
-                    .padding(bottom = if (landscape) 8.dp else 86.dp)
-                    .background(Brush.verticalGradient(listOf(
-                        Color.Transparent, Color.Black.copy(alpha = .26f))))
+                    .padding(bottom = if (landscape) 8.dp else viewerActionBarHeight)
+                    .then(if (landscape) Modifier else Modifier.background(viewerOverlayColor))
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                     .height(48.dp)
                     .padding(horizontal = if (landscape) 24.dp else 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

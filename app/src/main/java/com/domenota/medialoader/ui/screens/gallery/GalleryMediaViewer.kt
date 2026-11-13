@@ -33,7 +33,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -274,13 +273,11 @@ internal fun GalleryMediaViewer(
                 .atZone(ZoneId.systemDefault())
             Box(
                 modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                    // The entire video header, portrait AND landscape, is one
-                    // consistent translucent surface. Photos retain their gradient.
-                    .then(if (current.mediaType == MediaType.VIDEO)
-                        Modifier.background(Color.Black.copy(alpha = .52f))
-                    else Modifier.background(Brush.verticalGradient(listOf(
-                        viewerHeaderOverlayColor, Color.Black.copy(alpha = .38f), Color.Transparent))))
-                    .then(if (isLandscape) Modifier else Modifier.statusBarsPadding()),
+                    .background(viewerOverlayColor)
+                    .then(if (isLandscape) Modifier else Modifier.statusBarsPadding())
+                    .then(if (isLandscape && current.mediaType == MediaType.PHOTO)
+                        Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                        else Modifier),
             ) {
                 val onRotate: () -> Unit = {
                     // SENSOR_LANDSCAPE lets the player follow BOTH landscape sides.
@@ -317,12 +314,8 @@ internal fun GalleryMediaViewer(
             if (current.mediaType != MediaType.VIDEO || !isLandscape) {
                 Box(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .then(if (current.mediaType == MediaType.VIDEO)
-                            Modifier.background(Color.Black.copy(alpha = .52f))
-                        else Modifier.background(Brush.verticalGradient(listOf(
-                            Color.Transparent, Color.Black.copy(alpha = .36f),
-                            viewerBottomOverlayColor))))
-                        .navigationBarsPadding(),
+                        .background(viewerOverlayColor)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)),
                 ) {
                     GalleryV10Bottom(
                         isPhoto = current.mediaType == MediaType.PHOTO,

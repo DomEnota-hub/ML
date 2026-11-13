@@ -42,8 +42,10 @@ import androidx.compose.ui.unit.sp
 private val v10MenuSurface = Color(0xFF2C2C2D)
 private val v10Muted = Color(0xFF8F8F90)
 /** Both control strips float over media instead of occupying the media viewport. */
-internal val viewerHeaderOverlayColor = Color(0x99000000)
-internal val viewerBottomOverlayColor = Color(0x88000000)
+internal val viewerOverlayColor = Color.Black.copy(alpha = .58f)
+internal val viewerHeaderOverlayColor = viewerOverlayColor
+internal val viewerBottomOverlayColor = viewerOverlayColor
+internal val viewerActionBarHeight = 80.dp
 
 @Composable
 internal fun GalleryV10Header(date: String, time: String, onBack: () -> Unit, onRotate: () -> Unit) {
@@ -124,7 +126,8 @@ internal fun GalleryVideoHeader(
                                     modifier = Modifier.size(if (compactLandscape) 24.dp else 28.dp),
                                     tint = if (isFavorite) Color(0xFFF04452) else Color.White,
                                 )
-                            } else GalleryV10Icon(asset, Modifier.size(if (compactLandscape) 24.dp else 28.dp))
+                            } else if (asset == "share") GalleryShareIcon(Modifier.size(if (compactLandscape) 26.dp else 30.dp))
+                            else GalleryV10Icon(asset, Modifier.size(if (compactLandscape) 24.dp else 28.dp))
                         }
                     }
                 }
@@ -155,7 +158,7 @@ internal fun GalleryV10Bottom(
     showFavorite: Boolean = true,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(80.dp).padding(horizontal = 6.dp),
+        modifier = Modifier.fillMaxWidth().height(viewerActionBarHeight).padding(horizontal = 6.dp),
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -175,7 +178,8 @@ internal fun GalleryV10Bottom(
                         modifier = Modifier.size(30.dp),
                         tint = if (isFavorite) Color(0xFFF04452) else Color.White,
                     )
-                } else GalleryV10Icon(key, Modifier.size(30.dp))
+                } else if (key == "share") GalleryShareIcon(Modifier.size(32.dp))
+                else GalleryV10Icon(key, Modifier.size(30.dp))
             }
         }
     }
