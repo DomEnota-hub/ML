@@ -41,6 +41,10 @@ class MainActivity : ComponentActivity() {
         com.domenota.medialoader.core.logging.PerformanceLog.begin("activity_create")
         super.onCreate(savedInstanceState)
         lifecycleScope.launch(Dispatchers.IO) { ProcessExitDiagnostics.recordPreviousExits(applicationContext) }
+        lifecycleScope.launch(Dispatchers.IO) {
+            // Remove only the retired 1.7.182 derived index, never original media.
+            com.domenota.medialoader.data.library.RetiredAlbumCleanup.run(applicationContext)
+        }
         if (savedInstanceState == null && forwardAutomaticShare(intent, false)) {
             finish()
             return

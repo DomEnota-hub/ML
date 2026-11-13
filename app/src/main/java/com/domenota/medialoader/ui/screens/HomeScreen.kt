@@ -3,6 +3,7 @@ package com.domenota.medialoader.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -72,10 +73,10 @@ fun HomeScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(22.dp))
-        AppCard(Modifier.fillMaxWidth()) {
+        AppCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(24.dp))) {
             Column(Modifier
                 .background(Brush.linearGradient(listOf(
-                    if (com.domenota.medialoader.ui.theme.isDarkPalette) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.primaryContainer,
+                    MaterialTheme.colorScheme.surfaceContainerHigh,
                     MaterialTheme.colorScheme.surface,
                 )))
                 .padding(18.dp)) {
