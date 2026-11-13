@@ -102,6 +102,7 @@ jobs:
             --tests '*SmartMusicScreenTest' \
             --tests '*MusicSummaryImageTest' \
             --tests '*MediaOrganizationRepositoryTest' \
+            --tests '*MediaOrganizationMigrationTest' \
             --tests '*DownloadQueueTest' \
             --tests '*PrivateHistoryMigrationTest' \
             --stacktrace
