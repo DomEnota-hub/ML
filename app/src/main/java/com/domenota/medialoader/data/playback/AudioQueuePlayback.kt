@@ -89,6 +89,18 @@ internal object AudioQueuePlayback {
         player.play()
         return true
     }
+    /** A deliberate resume never toggles/replaces by a stale UI index. */
+    fun resume(player:Player,items:List<MediaItem>,index:Int,session:ResumeQueueSession,position:Long):Boolean {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        if(index !in items.indices||items.any(PrivatePlaybackPolicy::isPrivate)||items.map{it.mediaId}.distinct().size!=items.size)return false
+        nextBatches.remove(player)
+        player.shuffleModeEnabled=session.shuffle
+        player.repeatMode=session.repeat
+        player.setPlaybackSpeed(session.speed)
+        player.setMediaItems(items,index,position.coerceAtLeast(0L))
+        player.prepare();player.play()
+        return true
+    }
     fun open(player: Player, items: List<MediaItem>, requestedId: String): Boolean {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val selected = items.firstOrNull { it.mediaMetadata.extras?.getBoolean("private_media") != true &&

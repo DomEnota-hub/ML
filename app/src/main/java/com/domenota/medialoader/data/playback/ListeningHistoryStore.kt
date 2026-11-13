@@ -177,6 +177,12 @@ internal class ListeningHistoryStore private constructor(context: Context) {
         }
     }
 
+    suspend fun resolveResume(sessions:List<ResumeQueueSession>,candidates:List<SmartTrackCandidate>):List<ResolvedResumeQueue> =
+        withContext(Dispatchers.IO) { mutex.withLock {
+            val aliases=aliasMap(helper.readableDatabase)
+            sessions.map{ResumeQueuePolicy.resolve(it,candidates,aliases)}
+        }}
+
     suspend fun setExcluded(trackId: String, excluded: Boolean) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val db = helper.writableDatabase
