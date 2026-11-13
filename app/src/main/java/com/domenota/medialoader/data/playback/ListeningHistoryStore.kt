@@ -52,7 +52,14 @@ internal class ListeningHistoryStore private constructor(context: Context) {
             val db = helper.writableDatabase
             db.beginTransaction()
             try {
-                val aliases = aliasMap(db)
+                val aliases = buildMap<String,String> {
+                    keys.chunked(100).forEach { batch ->
+                        val placeholders = batch.joinToString(",") { "?" }
+                        db.rawQuery("SELECT alias,track_id FROM aliases WHERE alias IN ($placeholders)",batch.toTypedArray()).use { c ->
+                            while (c.moveToNext()) put(c.getString(0),c.getString(1))
+                        }
+                    }
+                }
                 val matched = keys.mapNotNull(aliases::get).distinct()
                 if (matched.size > 1) return@withLock null
                 val track = matched.singleOrNull() ?: UUID.randomUUID().toString().also { id ->
@@ -141,6 +148,8 @@ internal class ListeningHistoryStore private constructor(context: Context) {
     suspend fun clearHistory() = withContext(Dispatchers.IO) { mutex.withLock {
         helper.writableDatabase.delete("sessions",null,null); epoch.incrementAndGet(); changed()
     } }
+
+    internal fun closeForTest() { scope.cancel(); helper.close() }
 
     companion object {
         @Volatile private var instance: ListeningHistoryStore? = null
