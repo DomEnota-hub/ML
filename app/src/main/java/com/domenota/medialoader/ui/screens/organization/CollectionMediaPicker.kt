@@ -126,8 +126,8 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
             IconButton(onBack,enabled=!busy){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
             Text("Добавить в $title",Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.titleLarge)
         }
-        OutlinedTextField(query,{query=it},Modifier.fillMaxWidth().padding(horizontal=12.dp),singleLine=true,label={Text("Поиск")},enabled=!busy)
-        if(!audioOnly)ScrollableTabRow(tab){listOf("Фото","Видео","Музыка","Ссылки").forEachIndexed{i,label->Tab(tab==i,{tab=i;album=null;audio.stop();audition=null},text={Text(label)})}}
+        OutlinedTextField(query,{query=it},Modifier.fillMaxWidth().padding(horizontal=12.dp),singleLine=true,placeholder={Text("Поиск")},enabled=!busy)
+        if(!audioOnly)TabRow(tab){listOf("Фото","Видео","Музыка","Ссылки").forEachIndexed{i,label->Tab(tab==i,{tab=i;album=null;audio.stop();audition=null},text={Text(label)})}}
         Row(Modifier.fillMaxWidth().padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically){
             if(tab!=3) {
                 Box{TextButton({albumMenu=true},enabled=!busy){Text(albums.firstOrNull{it.first==album}?.second?:"Все альбомы")}
@@ -136,7 +136,7 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
                     DropdownMenu(sortMenu,{sortMenu=false}){GalleryAlbumFileSort.entries.forEach{sort->DropdownMenuItem({Text(sort.label)},{sortName=sort.name;sortMenu=false})}}}
             }
             Spacer(Modifier.weight(1f))
-            TextButton({selection=ArrayList(selected+visibleKeys.filterNot(existingKeys::contains))},enabled=!busy&&visibleKeys.isNotEmpty()){Text("Выбрать все в фильтре")}
+            TextButton({selection=ArrayList(selected+visibleKeys.filterNot(existingKeys::contains))},enabled=!busy&&visibleKeys.isNotEmpty()){Text("Выбрать все")}
         }
         error?.let{Text(it,Modifier.padding(horizontal=12.dp),color=MaterialTheme.colorScheme.error)}
         if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -185,7 +185,7 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
             }
             if(visibleKeys.isEmpty())item{Text("Нет доступных материалов",Modifier.padding(20.dp))}
         }
-        Surface(tonalElevation=3.dp){Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        Surface(color=MaterialTheme.colorScheme.surface){Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             Text("Выбрано: ${selected.size}",Modifier.weight(1f),style=MaterialTheme.typography.labelLarge)
             TextButton({selection=arrayListOf()},enabled=!busy&&selected.isNotEmpty()){Text("Сбросить")}
             Button(enabled=!busy&&selected.isNotEmpty(),onClick={scope.launch{
