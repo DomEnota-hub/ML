@@ -80,7 +80,7 @@ internal object VisualDuplicateScanner {
         return VisualFingerprint(ref.key,uri.toString(),row.mediaType,before.bytes,before.modified,hash,width,height,duration,
             frames.map{it.hash},frames.isNotEmpty()&&frames.all{it.informative})
     }
-    suspend fun scan(context:Context,refs:List<LibraryMediaRef>,progress:(Int,Int)->Unit={}):VisualScanResult=withContext(Dispatchers.IO){
+    suspend fun scan(context:Context,refs:List<LibraryMediaRef>,progress:(Int,Int)->Unit={ _, _ -> }):VisualScanResult=withContext(Dispatchers.IO){
         val candidates=refs.filter{val r=it.item;!r.isPrivate&&!r.hidden&&r.state==DownloadState.COMPLETED&&r.mediaType!=MediaType.AUDIO&&!r.savedUri.isNullOrBlank()}
             .distinctBy{it.item.savedUri}
         val rows=mutableListOf<VisualFingerprint>();var skipped=0
