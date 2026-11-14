@@ -92,7 +92,8 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     onAddComplete:()->Unit,usable:Boolean=ready) {
     var selected by rememberSaveable(initialCollection){mutableStateOf(initialCollection)}
     var filter by rememberSaveable(audioOnly){mutableStateOf(if(audioOnly)"Музыка" else "Всё")}
-    var create by remember{mutableStateOf(false)}
+    var create by rememberSaveable{mutableStateOf(false)}
+    var newName by rememberSaveable{mutableStateOf("")}
     var rename by rememberSaveable{mutableStateOf(false)}
     var remove by remember{mutableStateOf(false)}
     var linkDialog by remember{mutableStateOf(false)}
@@ -130,6 +131,24 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     }
     if(rename&&collection!=null){
         CollectionCoverEditor(collection,refs,{rename=false}){repository.rename(collection.record.id,it)}
+        return
+    }
+    if(create){
+        BackHandler{if(!busy)create=false}
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp).testTag("collection-create-editor")){
+            Header("Новая коллекция",{if(!busy)create=false})
+            OutlinedTextField(newName,{newName=it},Modifier.fillMaxWidth(),singleLine=true,label={Text("Название")},enabled=!busy)
+            Text("Автоматическая обложка",Modifier.padding(vertical=16.dp),style=MaterialTheme.typography.titleMedium)
+            Text("Обложку можно выбрать после создания коллекции.")
+            error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+            Spacer(Modifier.weight(1f))
+            Button(enabled=!busy&&newName.isNotBlank(),modifier=Modifier.fillMaxWidth(),onClick={mutate{
+                val files=if(choosing)initialAdd.distinct().map{byId[it]?:error("Файл недоступен")} else emptyList()
+                val id=repository.create(newName,files,if(choosing)initialLink else null)
+                if(choosing){choosing=false;onAddComplete()}
+                selected=id;create=false;newName=""
+            }}){Text("Создать коллекцию")}
+        }
         return
     }
     BackHandler(selected!=null&&!choosing){selected=null}
@@ -203,12 +222,6 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 }
             }
         }
-    }
-    if(create)ValueDialog("Новая коллекция","","Название",{create=false}){name->
-        val files=if(choosing)initialAdd.distinct().map{byId[it]?:error("Файл недоступен")} else emptyList()
-        val id=repository.create(name,files,if(choosing)initialLink else null)
-        if(choosing){choosing=false;onAddComplete()}
-        selected=id
     }
     if(linkDialog&&collection!=null)ValueDialog("Добавить ссылку","","HTTP(S) ссылка",{linkDialog=false}){repository.addLink(collection.record.id,it)}
     if(remove&&collection!=null)AlertDialog(onDismissRequest={remove=false},title={Text("Удалить коллекцию?")},
