@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ml-17158-stage3-storage
-  cancel-in-progress: true
+  group: ml-17158-stage3-storage-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   storage-and-regression:
@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
