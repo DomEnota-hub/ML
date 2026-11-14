@@ -93,7 +93,7 @@ internal fun CollectionCoverEditor(collection:MediaCollection,refs:List<LibraryM
         androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             item{OutlinedTextField(name,{name=it},Modifier.fillMaxWidth(),singleLine=true,label={Text("Название")},enabled=!busy)}
             item {
-                BoxWithConstraints(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {
+                Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {
                     val viewport=Modifier.widthIn(max=320.dp).fillMaxWidth().aspectRatio(.8f)
                     val image=bitmap
                     if(image!=null&&!automatic) {
