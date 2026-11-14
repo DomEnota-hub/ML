@@ -78,6 +78,7 @@ fun GalleryModeScreen(
     onOpenFromAlbum: ((String, List<String>, String?) -> Unit)? = null,
     collectionContent: (@Composable () -> Unit)? = null,
     onAddCollection: ((List<String>)->Unit)? = null,
+    onBatchPhotoEdit: ((List<String>)->Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -304,7 +305,8 @@ fun GalleryModeScreen(
         }
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        if (selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+        if (selecting) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             IconButton({ selectedIds = arrayListOf() }) { Icon(Icons.Rounded.Close, "Отменить выбор") }
             Text("Выбрано: ${selectedIds.size}", Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -319,6 +321,11 @@ fun GalleryModeScreen(
             }
             IconButton({ onDeleteSelected?.invoke(queue.filter { it in selectedSet }) }, enabled = onDeleteSelected != null) {
                 Icon(Icons.Rounded.Delete, "Удалить выбранное", tint = MaterialTheme.colorScheme.error)
+            }
+        }
+        if(onBatchPhotoEdit!=null && orderedDisplayed.filter{it.id in selectedSet}.let{it.isNotEmpty() && it.all{row->row.mediaType==MediaType.PHOTO && !row.isPrivate && !row.hidden}})
+            TextButton({onBatchPhotoEdit(queue.filter{it in selectedSet})},modifier=Modifier.fillMaxWidth()){
+                Icon(Icons.Rounded.Edit,null); Spacer(Modifier.width(8.dp));Text("Пакетный редактор")
             }
         }
         Box(Modifier.weight(1f)) {

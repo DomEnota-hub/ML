@@ -719,6 +719,8 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     fun needsLegacyStoragePermission(): Boolean = !repository.usesSelectedFolder
 
     /** Public access first; providers fall back to their saved sessions only when needed. */
+    suspend fun wasInstagramDownloaded(url:String)=repository.wasInstagramDownloaded(url)
+
     fun analyze(url: String) {
         val link = url.trim()
         analysisJob?.cancel()

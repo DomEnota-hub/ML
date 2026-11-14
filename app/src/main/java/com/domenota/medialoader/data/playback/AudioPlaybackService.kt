@@ -124,6 +124,20 @@ class AudioPlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
+        val playbackModes = getSharedPreferences("audio_playback_modes", MODE_PRIVATE)
+        player.shuffleModeEnabled = playbackModes.getBoolean("shuffle", false)
+        player.repeatMode = playbackModes.getInt("repeat", Player.REPEAT_MODE_OFF).let {
+            if (it in setOf(Player.REPEAT_MODE_OFF, Player.REPEAT_MODE_ONE, Player.REPEAT_MODE_ALL)) it else Player.REPEAT_MODE_OFF
+        }
+        player.addListener(object : Player.Listener {
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                playbackModes.edit().putBoolean("shuffle", shuffleModeEnabled).apply()
+            }
+            override fun onRepeatModeChanged(repeatMode: Int) {
+                playbackModes.edit().putInt("repeat", repeatMode).apply()
+            }
+        })
+
         fun refreshEqualizer() {
             val track = EqualizerTrack.fromMediaItem(player.currentMediaItem)
             // Always select against the latest repository snapshot on the service main
