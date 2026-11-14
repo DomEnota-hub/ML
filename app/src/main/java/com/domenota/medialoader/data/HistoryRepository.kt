@@ -61,6 +61,22 @@ class HistoryRepository(private val dao: DownloadDao, private val catalogDao: Ca
                     entity.id,operation,entity.createdAtEpochMillis))
         }
     }
+    /** Compare the complete snapshot in a Room transaction: concurrent privacy/rename/delete wins. */
+    suspend fun restoreMissingFile(previous: DownloadEntity, uri: String, name: String, bytes: Long): Boolean {
+        require(com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.eligible(previous))
+        suspend fun replace(): Boolean {
+            if (dao.byId(previous.id) != previous) return false
+            // Keep source URLs, time, group, recognition, folder/collection links and stable ID intact.
+            if (previous.savedUri != null && previous.sizeBytes != null) {
+                return dao.rebindSavedFileWhenCurrent(previous.id, previous.savedUri, previous.originalName,
+                    previous.sizeBytes, uri, name, bytes) == 1
+            }
+            dao.upsert(previous.copy(savedUri = uri, originalName = name, sizeBytes = bytes))
+            return true
+        }
+        return if (db != null) db.withTransaction { replace() } else replace()
+    }
+
     suspend fun hide(id: String) { dao.byId(id)?.let { dao.upsert(it.copy(hidden = true)) } }
     suspend fun restoreHidden() = dao.restoreHidden()
     suspend fun clearHidden() { dao.clearHidden(); catalogDao?.pruneOrphans() }

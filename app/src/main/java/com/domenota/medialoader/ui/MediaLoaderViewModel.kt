@@ -64,6 +64,7 @@ enum class DuplicateDownloadPolicy {
 }
 
 data class PreviewState(
+    val recoveryHistoryId: String? = null,
     val analysis: AnalysisUiState = AnalysisUiState.IDLE,
     val url: String = "",
     val items: List<MediaItem> = emptyList(),
@@ -721,22 +722,33 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     /** Public access first; providers fall back to their saved sessions only when needed. */
     suspend fun wasInstagramDownloaded(url:String)=repository.wasInstagramDownloaded(url)
 
-    fun analyze(url: String) {
+    fun analyze(url: String, recoveryHistoryId: String? = null) {
         val link = url.trim()
         analysisJob?.cancel()
         fullSongGate.close()
         fullSongJob?.cancel()
         fullSongJob = null
-        _preview.value = PreviewState(analysis = AnalysisUiState.ANALYZING, url = link)
+        _preview.value = PreviewState(analysis = AnalysisUiState.ANALYZING, url = link, recoveryHistoryId = recoveryHistoryId)
         analysisJob = viewModelScope.launch {
             try {
-                val items = analyzeMedia(link)
+                val resolved = analyzeMedia(link)
+                val items = if (recoveryHistoryId == null) resolved else {
+                    val exact = repository.missingRecoveryCandidate(recoveryHistoryId, resolved)
+                    if (exact == null) {
+                        _preview.value = PreviewState(analysis = AnalysisUiState.ERROR, url = link,
+                            recoveryHistoryId = recoveryHistoryId,
+                            message = "Не удалось точно определить отсутствующий файл. Исходная запись сохранена")
+                        return@launch
+                    }
+                    listOf(exact)
+                }
                 if (items.any { it.providerId == "instagram" }) {
                     _instagramSessionRevision.value++
                 }
                 _preview.value = PreviewState(
                     analysis = AnalysisUiState.PREVIEW_READY,
                     url = link,
+                    recoveryHistoryId = recoveryHistoryId,
                     items = items,
                     selectedIds = items.defaultSelectedIds(),
                 )
@@ -755,6 +767,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                         AnalysisUiState.ERROR
                     },
                     url = link,
+                    recoveryHistoryId = recoveryHistoryId,
                     message = when (error.reason) {
                         ProviderException.Reason.ACCESS_REQUIRED -> error.message ?: "Требуется вход."
                         ProviderException.Reason.TEMPORARY_FAILURE -> error.message ?: "Нет соединения. Повторите."
@@ -766,6 +779,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                 _preview.value = PreviewState(
                     analysis = AnalysisUiState.ERROR,
                     url = link,
+                    recoveryHistoryId = recoveryHistoryId,
                     message = "Не удалось проверить ссылку. Попробуйте ещё раз.",
                 )
             }
@@ -886,6 +900,14 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         _preview.update { it.copy(enqueuing = true, message = null) }
         viewModelScope.launch {
             try {
+                if (state.recoveryHistoryId != null) {
+                    ActiveDownloadService.start(getApplication())
+                    repository.restoreMissingFile(state.recoveryHistoryId, state.items)
+                    _preview.update { it.copy(enqueuing = false, duplicateMatches = emptyList(),
+                        message = "Файл восстановлен на прежнем месте") }
+                    onQueued()
+                    return@launch
+                }
                 if (duplicatePolicy == DuplicateDownloadPolicy.CHECK) {
                     val matches = renamed.mapNotNull { item ->
                         repository.findDownloaded(item)?.let { existing ->
@@ -931,7 +953,8 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(
                         enqueuing = false,
                         duplicateMatches = emptyList(),
-                        message = "Не удалось добавить загрузку. Повторите.",
+                        message = if (state.recoveryHistoryId != null) "Не удалось восстановить файл. Исходная запись сохранена. Повторите."
+                            else "Не удалось добавить загрузку. Повторите.",
                     )
                 }
             }
