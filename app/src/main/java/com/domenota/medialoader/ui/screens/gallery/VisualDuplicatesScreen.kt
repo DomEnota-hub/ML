@@ -41,13 +41,13 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
         session=VisualDuplicateSessionStore.load(context)
         loaded=true
     }
-    LaunchedEffect(status.session,loaded) {
-        if(loaded) status.session?.let { fresh ->
+    LaunchedEffect(status.session,loaded,trash) {
+        if(loaded&&trash==null) status.session?.let { fresh ->
             if(fresh.scannedAt!=session?.scannedAt){session=fresh;restored=false}
         }
     }
-    LaunchedEffect(ready,refs,loaded,status.running) {
-        if(ready&&loaded&&!status.running) session=session?.reconcile(refs)
+    LaunchedEffect(ready,refs,loaded,status.running,trash) {
+        if(ready&&loaded&&!status.running&&trash==null) session=session?.reconcile(refs)
     }
     LaunchedEffect(current?.scannedAt,loaded,ready,restored) {
         if(loaded&&ready&&!restored&&current!=null){
@@ -93,10 +93,9 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
         val fingerprints=remember(snapshot){snapshot.result.groups.flatMap{it.files}.associateBy{it.id}}
         DuplicateTrashHost(request,byId,null,onAppTrash,
             onTrashed={uris->
-                val previous=latestSession ?: snapshot
-                val next=previous.removeConfirmed(uris)
+                val next=VisualDuplicateSessionStore.removeConfirmed(context,snapshot.scannedAt,uris)
+                if(next==null){error="Файл перемещён, но журнал не обновлён. Обновите поиск."; error("Не удалось сохранить результат корзины")}
                 session=next
-                check(VisualDuplicateSessionStore.save(context,next)){"Не удалось сохранить результат корзины"}
             },
             onClose={trash=null;onRefresh()},visual=fingerprints)
     }
@@ -116,7 +115,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
                 OutlinedButton({scope.launch{
                     val previous=VisualDuplicateSessionStore.load(context)
                     session=previous?.reconcile(refs);restored=false
-                }},enabled=ready&&loaded&&!saving){Text("Последний поиск")}
+                }},enabled=ready&&loaded&&!saving&&trash==null){Text("Последний поиск")}
             }
         }
         status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}

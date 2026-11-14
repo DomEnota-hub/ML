@@ -68,6 +68,19 @@ internal object VisualDuplicateSessionStore {
             }
         }.isSuccess}
     }
+    /** Apply confirmed moves to the persisted generation only, without replacing newer scans. */
+    suspend fun removeConfirmed(context:Context,scannedAt:Long,uris:Set<String>):VisualDuplicateSession?=withContext(Dispatchers.IO+NonCancellable){
+        synchronized(lock){runCatching{
+            val target=file(context)
+            val previous=decode(target.openRead().bufferedReader().use{it.readText()})
+            check(previous.scannedAt==scannedAt)
+            val next=previous.removeConfirmed(uris)
+            val stream=target.startWrite()
+            try{stream.write(encode(next).toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
+            catch(e:Exception){target.failWrite(stream);throw e}
+            next
+        }.getOrNull()}
+    }
     internal fun encode(session:VisualDuplicateSession):String {
         val groups=JSONArray()
         session.result.groups.forEach{g->
