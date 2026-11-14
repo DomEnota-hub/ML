@@ -90,7 +90,7 @@ internal class MissingRecoveryJournal(private val context:Context){
         if(uri==null){clear();return}
         if(referenceCount(uri)>0){clear();return}
         val status=SavedFilePresence.check(context,uri)
-        if(status==SavedFileStatus.MISSING){clear();return}
+        if(status==SavedFileStatus.MISSING&&!ownedPending(uri)){clear();return}
         val verified=try{
             val actual=readFingerprint(uri)
             actual.first==record.bytes&&actual.second==record.sha256

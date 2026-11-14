@@ -1,4 +1,4 @@
-name: ML 1.7.189 stages 1-5 verification
+name: ML 1.7.189 stages 1-6 verification
 on:
   push:
     branches: [feature/ml-17189-qa-rework]
@@ -56,6 +56,9 @@ jobs:
       - name: Video editor filters and viewer regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Video*Test' --tests '*GalleryStage5ViewerTest' --tests '*GalleryViewer*Test' --tests '*PrivateViewerChromeTest' --tests '*EditorPaletteTest' --stacktrace
+      - name: Missing file restoration and deferred routing regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*MissingFileRecovery*Test' --tests '*MissingRecovery*Test' --tests '*DeferredLinkStoreTest' --tests '*DownloadQueueTest' --tests '*RecoveryHistoryCasTest' --tests '*SavedFilePresenceTest' --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint

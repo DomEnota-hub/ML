@@ -111,6 +111,7 @@ fun PreviewScreen(
     resolvePlayback: suspend (String) -> PreviewPlayback = { throw IllegalArgumentException("Предпросмотр недоступен") },
     recoveryMode:Boolean=false,
     recoveryIdentityFailure:Boolean=false,
+    onCancelRecovery:()->Unit={},
 ) {
     var viewingId by rememberSaveable { mutableStateOf<String?>(null) }
     val openPreview: (String) -> Unit = { viewingId = it }
@@ -261,7 +262,8 @@ fun PreviewScreen(
                 GradientActionButton(text=if(busy)"Восстанавливаем…" else "Восстановить файл",
                     onClick=onDownloadSelected,enabled=!busy&&items.size==1&&items.single().selected,
                     leadingIcon=Icons.Rounded.Download)
-                if(onDefer!=null&&!busy)TextButton(onDefer,Modifier.fillMaxWidth()){Text("Добавить в отложенное")}
+                if(busy)TextButton(onCancelRecovery,Modifier.fillMaxWidth()){Text("Отменить восстановление")}
+                else if(onDefer!=null)TextButton(onDefer,Modifier.fillMaxWidth()){Text("Добавить в отложенное")}
                 errorMessage?.let{Text(it,color=MaterialTheme.colorScheme.error)}
             }else MediaList(
                 items = items,

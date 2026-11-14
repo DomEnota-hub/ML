@@ -16,6 +16,7 @@ class DeferredLinkStore(context:Context){
         val uri=Uri.parse(link)
         uri.scheme in listOf("https","http")&&!uri.host.isNullOrBlank()
     }.getOrDefault(false)
+    private var unreadable=false
     private fun read():List<DeferredLink>{
         val versioned=prefs.getString("entries_v2",null)
         // Never reinterpret a broken v2 recovery as an ordinary new download.
@@ -29,12 +30,14 @@ class DeferredLinkStore(context:Context){
                     val obj=json.getJSONObject(index)
                     val url=obj.getString("url")
                     val id=obj.getString("id")
+                    require(obj.has("recoveryHistoryId"))
                     val recovery=if(obj.isNull("recoveryHistoryId"))null else obj.getString("recoveryHistoryId")
                     require(id.isNotBlank()&&valid(url)&&(recovery==null||recovery.isNotBlank()))
+                    require(if(recovery==null)id==url else id!=url)
                     DeferredLink(id,url,recovery)
                 }
             }.distinctBy{it.id}
-        }.getOrDefault(emptyList())
+        }.getOrElse{unreadable=true;emptyList()}
     }
     private val state=MutableStateFlow(read())
     val entries=state.asStateFlow()
@@ -53,6 +56,7 @@ class DeferredLinkStore(context:Context){
     @Synchronized fun complete(url:String,recoveryHistoryId:String?):Boolean=
         write(state.value.filterNot{it.url==url&&it.recoveryHistoryId==recoveryHistoryId})
     private fun write(entries:List<DeferredLink>):Boolean{
+        if(unreadable)return false
         val json=JSONArray()
         entries.forEach{entry->json.put(JSONObject().put("id",entry.id).put("url",entry.url)
             .put("recoveryHistoryId",entry.recoveryHistoryId?:JSONObject.NULL))}

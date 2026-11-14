@@ -772,7 +772,10 @@ fun MediaLoaderApp(
                 (it.type == com.domenota.medialoader.core.model.MediaType.AUDIO ||
                     it.type == com.domenota.medialoader.core.model.MediaType.VIDEO)
         }
-        if (musicLookupAvailable && !closePickerAfterDownload) {
+        if(preview.recoveryHistoryId!=null){
+            showPicker=false
+            if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
+        }else if (musicLookupAvailable && !closePickerAfterDownload) {
             // Keep analyzed assets available for both audio choices without another analysis.
             Toast.makeText(context, "Добавлено в загрузки. Можно выбрать второй вариант.",
                 Toast.LENGTH_LONG).show()
@@ -2245,6 +2248,7 @@ fun MediaLoaderApp(
                     onLogin = startLoginForCurrentUrl,
                     onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
                     recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
+                    onCancelRecovery=viewModel::cancelRecoveryDownload,
                     onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
                         showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
                     } },
@@ -2286,6 +2290,7 @@ fun MediaLoaderApp(
                 onLogin = startLoginForCurrentUrl,
                 onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
                     recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
+                    onCancelRecovery=viewModel::cancelRecoveryDownload,
                     onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
                         showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
                     } },

@@ -306,7 +306,9 @@ class StorageManager(
                         if (historicalMillis != null) confirmPrivateDate(uri, source, mimeType, historicalMillis, fileMillis!!)
                         return@withContext PublishedFile(uri, actualName)
                     } catch (error: Exception) {
-                        resolver.delete(uri, null, null)
+                        val removed=resolver.delete(uri,null,null)
+                        if(recovery!=null&&removed!=1&&SavedFilePresence.check(context,uri.toString())!=SavedFileStatus.MISSING)
+                            throw IOException("Не удалось очистить незавершённую копию восстановления",error)
                         val nameCollision = error is IllegalStateException &&
                             error.message?.contains("Failed to build unique file", ignoreCase = true) == true
                         if (!nameCollision) throw error

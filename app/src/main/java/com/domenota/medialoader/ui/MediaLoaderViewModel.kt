@@ -357,6 +357,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun savePreviewFrame(id: String) {
+        if(_preview.value.recoveryHistoryId!=null)return
         val item = _preview.value.items.firstOrNull { it.id == id } ?: return
         viewModelScope.launch {
             try {
@@ -904,6 +905,43 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
 
     fun showMessage(text: String) = _preview.update { it.copy(message = text) }
 
+    private var recoveryDownloadJob:Job?=null
+    fun cancelRecoveryDownload(){recoveryDownloadJob?.cancel()}
+
+    private fun restoreSelectedRecovery(state:PreviewState,onRestored:()->Unit){
+        val id=state.recoveryHistoryId?:return
+        if(recoveryDownloadJob?.isActive==true){
+            showMessage("Дождитесь завершения текущего восстановления.")
+            return
+        }
+        if(state.recoveryCandidates.isEmpty())return
+        fun current()=_preview.value.let{it.recoveryHistoryId==id&&it.url==state.url&&it.recoveryCandidates==state.recoveryCandidates}
+        fun message(value:String){
+            _preview.update{if(current())it.copy(enqueuing=false,message=value)else it}
+        }
+        _preview.update{it.copy(enqueuing=true,message=null,duplicateMatches=emptyList())}
+        recoveryDownloadJob=viewModelScope.launch{
+            try{
+                ActiveDownloadService.start(getApplication())
+                val restored=repository.restoreMissingFile(id,state.recoveryCandidates)
+                val removed=deferredStore.complete(state.url,id)
+                val result=if(restored)"Файл восстановлен в исходной записи" else "Файл уже доступен"
+                if(current()){
+                    message(result)
+                    Toast.makeText(getApplication(),if(removed)result else "$result. Не удалось обновить отложенное.",Toast.LENGTH_LONG).show()
+                    onRestored()
+                }else Toast.makeText(getApplication(),result,Toast.LENGTH_LONG).show()
+            }catch(cancelled:CancellationException){
+                message("Восстановление остановлено. Исходная запись сохранена.")
+                throw cancelled
+            }catch(error:Exception){
+                AppLog.e("MissingRecovery","Restore failed",error)
+                message((error as? com.domenota.medialoader.data.download.MissingRecoveryFailure)?.message
+                    ?:"Не удалось восстановить файл. Исходная запись сохранена. Повторите.")
+            }
+        }
+    }
+
     fun downloadSelected(onQueued: () -> Unit) {
         downloadSelected(emptyMap(), onQueued)
     }
@@ -916,8 +954,12 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         val state = _preview.value
         val chosen = state.items.filter { it.id in state.selectedIds }
         if (chosen.isEmpty() || state.enqueuing) return
+        if(state.recoveryHistoryId!=null){
+            restoreSelectedRecovery(state,onQueued)
+            return
+        }
         val renamed = try {
-            if(state.recoveryHistoryId!=null)chosen else chosen.map { item ->
+            chosen.map { item ->
                 item.copy(
                     originalName = StorageNaming.customName(
                         names[item.id] ?: item.originalName,
@@ -933,16 +975,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         _preview.update { it.copy(enqueuing = true, message = null) }
         viewModelScope.launch {
             try {
-                if (state.recoveryHistoryId != null) {
-                    ActiveDownloadService.start(getApplication())
-                    val restored=repository.restoreMissingFile(state.recoveryHistoryId,state.recoveryCandidates)
-                    deferredStore.complete(state.url,state.recoveryHistoryId)
-                    _preview.update { it.copy(enqueuing = false, duplicateMatches = emptyList(),
-                        message = if(restored)"Файл восстановлен в исходной записи" else "Файл уже доступен") }
-                    onQueued()
-                    return@launch
-                }
-                if (duplicatePolicy == DuplicateDownloadPolicy.CHECK) {
+                 if (duplicatePolicy == DuplicateDownloadPolicy.CHECK) {
                     val matches = renamed.mapNotNull { item ->
                         repository.findDownloaded(item)?.let { existing ->
                             DuplicateMatch(item.id, existing.id, existing.originalName)
@@ -987,9 +1020,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(
                         enqueuing = false,
                         duplicateMatches = emptyList(),
-                        message = if (state.recoveryHistoryId != null)
-                            (error as? com.domenota.medialoader.data.download.MissingRecoveryFailure)?.message ?: "Не удалось восстановить файл. Исходная запись сохранена. Повторите."
-                            else "Не удалось добавить загрузку. Повторите.",
+                        message = "Не удалось добавить загрузку. Повторите.",
                     )
                 }
             }
