@@ -43,9 +43,8 @@ internal fun CollectionCard(collection:MediaCollection,cover:LibraryMediaRef?,on
                 else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
             }
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.92f)).padding(10.dp)) {
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.92f)).padding(horizontal=10.dp,vertical=7.dp)) {
                 Text(collection.record.name,maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.primary)
-                Text(if(collection.members.isEmpty())"Пустая" else "${collection.members.size} материалов",maxLines=1,style=MaterialTheme.typography.labelSmall)
             }
         }
     }
