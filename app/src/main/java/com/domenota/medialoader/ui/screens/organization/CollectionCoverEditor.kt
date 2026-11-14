@@ -118,14 +118,14 @@ internal fun CollectionCoverEditor(collection:MediaCollection,refs:List<LibraryM
                         val cover=if(!automatic)saved?.file?.let{android.net.Uri.fromFile(it).toString()} else null
                         val auto=liveAutomatic
                         if(cover!=null)DownloadThumbnail(cover,null,MediaKind.IMAGE,viewport)
-                        else if(auto!=null)DownloadThumbnail(auto.item.savedUri,auto.item.previewUrl,when(auto.item.mediaType){MediaType.PHOTO->MediaKind.IMAGE;MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO},viewport)
+                        else if(auto!=null)CollectionOriginalCover(auto,viewport)
                         else Surface(viewport,color=MaterialTheme.colorScheme.surfaceVariant){Box(contentAlignment=Alignment.Center){Text("Автоматическая обложка")}}
                     }
                 }
             }
             item {
                 if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
-                if(bitmap!=null&&!automatic)Text("Масштаб и положение",style=MaterialTheme.typography.bodySmall)
+                if(bitmap!=null&&!automatic)Text("Кадрирование: масштаб и положение",style=MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     OutlinedButton({choosing=true},enabled=!busy,modifier=Modifier.weight(1f)){Text("Выбрать изображение")}
                     OutlinedButton({x=.5f;y=.5f;zoom=1f},enabled=!busy&&bitmap!=null&&!automatic){Text("Автоподгон")}
