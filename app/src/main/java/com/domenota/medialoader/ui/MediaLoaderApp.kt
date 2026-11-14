@@ -213,6 +213,7 @@ fun MediaLoaderApp(
     var galleryTab by rememberSaveable { mutableIntStateOf(0) }
     var galleryTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDetailOpen by remember { mutableStateOf(false) }
+    var batchPhotoIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var galleryAlbumRequest by remember { mutableStateOf<GalleryAlbumRequest?>(null) }
     var openingAlbumKey by remember { mutableStateOf<String?>(null) }
     var openingPlaylistId by remember { mutableStateOf<String?>(null) }
@@ -1169,7 +1170,7 @@ fun MediaLoaderApp(
         containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
             else MaterialTheme.colorScheme.background,
         contentWindowInsets = when {
-            currentRoute in setOf("music-duplicates", "visual-duplicates") -> WindowInsets.safeDrawing
+            currentRoute in setOf("music-duplicates", "visual-duplicates", "batch-photo-editor") -> WindowInsets.safeDrawing
             fullBleedGalleryViewer -> WindowInsets(0, 0, 0, 0)
             galleryHomeOverlay -> WindowInsets.statusBars
             else -> ScaffoldDefaults.contentWindowInsets
@@ -1180,7 +1181,7 @@ fun MediaLoaderApp(
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
                 currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" &&
-                currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates") {
+                currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
                     // Gallery intentionally has no player chrome. Playback is
@@ -1325,6 +1326,10 @@ fun MediaLoaderApp(
                         }
                     },
                     onAddCollection=::addToCollection,
+                    onBatchPhotoEdit={ids->
+                        batchPhotoIds=ArrayList(ids)
+                        navController.navigate("batch-photo-editor"){launchSingleTop=true}
+                    },
                      onTrashDeviceAlbum = requestDeviceAlbumTrash,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
                     onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY, force = true) },
@@ -1479,6 +1484,16 @@ fun MediaLoaderApp(
                 val playlistNames=ref?.let{r->playlists.filter{p->p.trackIds.any{it==r.key||it in r.aliases}}.map{it.name}}.orEmpty()
                 MediaPassportScreen(ref?.takeIf{candidate->organizationRefs.any{it.key==candidate.key}},organizationRefs,collections,ops,names,playlistNames,
                     {navController.popBackStack()},openDownloadWithQueue,::openOrganizationLink,{openCollections(it)})
+            }
+            composable("batch-photo-editor") {
+                val coordinator=remember(context){com.domenota.medialoader.data.editor.EditorExportCoordinator.get(context)}
+                val batch by coordinator.batch.collectAsStateWithLifecycle()
+                val rows=batchPhotoIds.mapNotNull{libraryRefsByAlias[it]?.item}.distinctBy{it.savedUri}
+                    .filter{it.mediaType==MediaType.PHOTO&&!it.isPrivate&&!it.hidden&&it.savedUri!=null}
+                com.domenota.medialoader.ui.screens.BatchPhotoEditorScreen(rows,batch,editorExport.exporting,
+                    ready=libraryIndex.ready && rows.size==batchPhotoIds.size,
+                    onBack={navController.popBackStack()},
+                    onStart=coordinator::startBatchPhotos,onCancel={coordinator.cancel()})
             }
             composable("visual-duplicates") {
                 com.domenota.medialoader.ui.screens.gallery.VisualDuplicatesScreen(
