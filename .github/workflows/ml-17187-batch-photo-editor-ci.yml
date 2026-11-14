@@ -1,4 +1,4 @@
-name: ML 1.7.187 stage 5 integration checkpoint (no distribution)
+name: ML 1.7.187 stage 5 QA verification and private signing handoff
 on:
   push:
     branches:
@@ -129,11 +129,29 @@ jobs:
           ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
           test -s app/build/outputs/apk/release/app-release-unsigned.apk
           test "$(unzip -Z1 app/build/outputs/apk/release/app-release-unsigned.apk | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
-      - name: Verify internal ARM64 APK (no handoff)
+      - name: Align APK and archive exact source commit
         if: success()
+        shell: bash
         run: |
           set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
           input=app/build/outputs/apk/release/app-release-unsigned.apk
-          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='247' versionName='1.7.187'"
-          git rev-parse HEAD
-          sha256sum "$input"
+          "$bt/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='247' versionName='1.7.187'"
+          test "$(unzip -Z1 "$input" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          mkdir -p handoff/tools handoff/source
+          aligned=handoff/ML_1.7.187_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -p -f 4 "$input" "$aligned"
+          "$bt/zipalign" -c -v 4 "$aligned"
+          cp "$bt/lib/apksigner.jar" handoff/tools/apksigner.jar
+          git archive --format=zip -o handoff/source/ML_1.7.187_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/source/DELIVERY_COMMIT_SHA.txt
+          (cd handoff && sha256sum ML_1.7.187_ARM64_ALIGNED_UNSIGNED.apk tools/apksigner.jar source/ML_1.7.187_SOURCES_EXACT_COMMIT.zip > UNSIGNED_HANDOFF_SHA256.txt)
+      - name: Temporary unsigned handoff for local signing (not a release)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.187_PRIVATE_UNSIGNED_LOCAL_SIGNING
+          path: handoff/
+          retention-days: 2
+          if-no-files-found: error
+          compression-level: 0
