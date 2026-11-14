@@ -70,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -175,6 +176,8 @@ fun MediaLoaderApp(
     sharedText: String? = null,
     sharedTextGeneration: Int = 0,
     onSharedTextConsumed: () -> Unit = {},
+    currentPlayerRequest: Int = 0,
+    onCurrentPlayerRequestConsumed: (Int) -> Unit = {},
     viewModel: MediaLoaderViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -194,8 +197,15 @@ fun MediaLoaderApp(
     val uiPrefs = remember(context) { context.getSharedPreferences("ui", 0) }
     val libraryModel: LibraryViewModel = viewModel()
     val organization=remember(context){MediaRepository.get(context).organization}
-    val collections by organization.collections.collectAsStateWithLifecycle(initialValue=emptyList())
-    val reviewEntries by organization.review.collectAsStateWithLifecycle(initialValue=emptyList())
+    // Reversible home-only presentation switch. Stored library data and routes remain intact.
+    val showHomeOrganization = remember(uiPrefs) {
+        uiPrefs.getBoolean(HomeOrganizationPolicy.PREFERENCE, HomeOrganizationPolicy.DEFAULT_VISIBLE)
+    }
+    val reviewObserved = HomeOrganizationPolicy.observeReview(currentRoute, showHomeOrganization)
+    val reviewFlow = remember(organization, reviewObserved) {
+        if (reviewObserved) organization.review else kotlinx.coroutines.flow.flowOf(emptyList())
+    }
+    val reviewEntries by reviewFlow.collectAsStateWithLifecycle(initialValue=emptyList())
     var collectionInitial by rememberSaveable{mutableStateOf<String?>(null)}
     var collectionAudioOnly by rememberSaveable{mutableStateOf(false)}
     var collectionAddIds by remember{mutableStateOf<List<String>>(emptyList())}
@@ -207,6 +217,11 @@ fun MediaLoaderApp(
     }
     val libraryPreferences = remember(context) { LibraryPreferences(context) }
     var appMode by rememberSaveable { mutableStateOf(shortcutMode ?: libraryPreferences.mode) }
+    val collectionsObserved = HomeOrganizationPolicy.observeCollections(currentRoute, appMode, showHomeOrganization)
+    val collectionsFlow = remember(organization, collectionsObserved) {
+        if (collectionsObserved) organization.collections else kotlinx.coroutines.flow.flowOf(emptyList())
+    }
+    val collections by collectionsFlow.collectAsStateWithLifecycle(initialValue=emptyList())
     var privateNavigation by remember { mutableStateOf(false) }
     var duplicateRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDateRequest by rememberSaveable { mutableIntStateOf(0) }
@@ -251,6 +266,7 @@ fun MediaLoaderApp(
     val libraryRefsByAlias = libraryAliasProjection.value
     val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
     val organizationReady=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
+    val organizationUsable=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.usable
 
     fun openCollections(id:String?=null,audioOnly:Boolean=false,ids:List<String> = emptyList(),link:String?=null){
         collectionInitial=id;collectionAudioOnly=audioOnly;collectionAddIds=ids;collectionLink=link
@@ -668,13 +684,56 @@ fun MediaLoaderApp(
         musicVisibilityPrefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose{musicVisibilityPrefs.unregisterOnSharedPreferenceChangeListener(listener)}
     }
-    val organizationRefs=remember(publicLibraryRefs,organizationReady,fileStatuses,organizationHidden){
-        if(!organizationReady)emptyList() else publicLibraryRefs.filter{
+    val organizationRefs=remember(publicLibraryRefs,organizationUsable,fileStatuses,organizationHidden){
+        if(!organizationUsable)emptyList() else publicLibraryRefs.filter{
             fileStatuses[it.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE)&&
                 (it.item.mediaType!=MediaType.AUDIO||!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,organizationHidden))
         }
     }
     val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
+    val consumePlayerRequest by rememberUpdatedState(onCurrentPlayerRequestConsumed)
+    // Notification entry observes the existing controller only. Opening an ordinary audio row
+    // invokes audioPreview.open and may replace its queue, so that path must never be reused here.
+    LaunchedEffect(currentPlayerRequest) {
+        if (currentPlayerRequest <= 0) return@LaunchedEffect
+        val request = currentPlayerRequest
+        try { libraryModel.audioPreview.observeCurrent() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) {
+            Toast.makeText(context, "Текущий плеер недоступен", Toast.LENGTH_SHORT).show()
+            consumePlayerRequest(request)
+        }
+    }
+    LaunchedEffect(currentPlayerRequest, libraryAudioState, libraryIndex.ready,
+        indexedLibraryProjection.ready, libraryAliasProjection.ready, libraryPrivateKeys,
+        publicLibraryRows, organizationHidden) {
+        if (currentPlayerRequest <= 0) return@LaunchedEffect
+        val request = currentPlayerRequest
+        val decision = com.domenota.medialoader.data.playback.CurrentPlayerNavigation.resolve(
+            controllerReady = libraryAudioState.connected,
+            catalogReady = libraryIndex.ready && indexedLibraryProjection.ready && libraryAliasProjection.ready,
+            privateReady = libraryPrivateKeys != null,
+            currentItem = libraryAudioState.currentItem,
+            rows = publicLibraryRows,
+            blockedIdentities = libraryPrivateKeys.orEmpty() + organizationHidden)
+        when (decision) {
+            com.domenota.medialoader.data.playback.CurrentPlayerDestination.Wait -> Unit
+            com.domenota.medialoader.data.playback.CurrentPlayerDestination.Unavailable -> {
+                Toast.makeText(context, "Текущий плеер недоступен", Toast.LENGTH_SHORT).show()
+                consumePlayerRequest(request)
+            }
+            is com.domenota.medialoader.data.playback.CurrentPlayerDestination.Open -> {
+                navController.navigate("viewer/${android.net.Uri.encode(decision.row.id)}") { launchSingleTop = true }
+                navController.currentBackStackEntry?.savedStateHandle?.apply {
+                    set("private_viewer", false)
+                    set("gallery_presentation", false)
+                    set("current_audio_session_only", true)
+                }
+                consumePlayerRequest(request)
+            }
+        }
+    }
+
     val downloadItems = remember(downloads, fileStatuses) {
         downloads.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
     }
@@ -1089,7 +1148,7 @@ fun MediaLoaderApp(
             pendingUrl = link
             lastHandledLink = link
             navigateTo(AppDestination.Home.route)
-            viewModel.analyze(link)
+            viewModel.analyze(link, recoveryHistoryId = id)
             showPicker = true
         }
     }
@@ -1307,12 +1366,12 @@ fun MediaLoaderApp(
                     onDeferredRemove = viewModel::removeDeferredLink, onDeferredRetryAll = retryDeferred, onDeferredStop = viewModel::stopDeferred,
                     onOpenDownloads = goToDownloads,
                     onAddCollection=::addToCollection,onPassport=::openPassport,
-                    organizationContent={ Column {
+                    organizationContent=if (showHomeOrganization) ({ Column {
                         OrganizationEntry("На разбор","Новых загрузок: $reviewCount",{navController.navigate("media-review")})
                         OrganizationEntry("Коллекции","Сохранённые материалы и ссылки",{openCollections()},Modifier.padding(top=8.dp))
                         if(pendingUrl.isNotBlank()&&runCatching{MediaOrganizationPolicy.link(pendingUrl)}.isSuccess)
                             TextButton({openCollections(link=pendingUrl)}){Text("Сохранить ссылку в коллекцию")}
-                    } },
+                    } }) else null,
                     onOpenSource = { source ->
                         showPicker = false
                         navController.navigate("browser/$source")
@@ -1481,7 +1540,7 @@ fun MediaLoaderApp(
                                 libraryModel.audioPreview.playSelection(valid,false)
                             }catch(e:CancellationException){throw e}catch(_:Exception){Toast.makeText(context,"Нет доступных треков",Toast.LENGTH_SHORT).show()}
                         }
-                    },onLink=::openOrganizationLink,onPassport=::openPassport,onAddComplete={collectionAddIds=emptyList();collectionLink=null})
+                    },onLink=::openOrganizationLink,onPassport=::openPassport,onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable)
             }
             composable("media-review"){
                 var playlistTarget by remember{mutableStateOf<String?>(null)}
@@ -1490,7 +1549,7 @@ fun MediaLoaderApp(
                     organization,organizationReady,{navController.popBackStack()},openDownloadWithQueue,
                     onEdit={row->navController.navigate(when(row.mediaType){MediaType.PHOTO->"photo-editor/";MediaType.VIDEO->"video-editor/";MediaType.AUDIO->"audio-editor/"}+android.net.Uri.encode(row.id))},
                     onTrash=deleteLibraryFile,onAddCollection=::addToCollection,onPassport=::openPassport,
-                    onFavorite=setLibraryFavorite,onFolder=setLibraryFolder,onPlaylist={playlistTarget=it})
+                    onFavorite=setLibraryFavorite,onFolder=setLibraryFolder,onPlaylist={playlistTarget=it},usable=organizationUsable)
                 playlistTarget?.let{id->AlertDialog(onDismissRequest={playlistTarget=null},title={Text("В плейлист")},
                     text={Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState())){
                         playlists.forEach{p->TextButton({playlistTarget=null;fileActionScope.launch{
@@ -2000,6 +2059,7 @@ fun MediaLoaderApp(
                         },
                     ) else MediaViewerScreen(
                         item = item,
+                        currentAudioSessionOnly = entry.savedStateHandle.get<Boolean>("current_audio_session_only") == true,
                         onBack = { navController.popBackStack() },
                         onOpenExternal = { selected -> if (!selected.isPrivate) openSavedFile(context, selected) },
                         onShare = { selected -> if (!selected.isPrivate) shareSavedFile(context, selected) },
@@ -2158,7 +2218,7 @@ fun MediaLoaderApp(
                     errorMessage = preview.message,
                     busy = preview.enqueuing,
                     onLogin = startLoginForCurrentUrl,
-                    onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }) },
+                    onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
                     onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
                 )
             }
@@ -2196,7 +2256,7 @@ fun MediaLoaderApp(
                 errorMessage = preview.message,
                 busy = preview.enqueuing,
                 onLogin = startLoginForCurrentUrl,
-                onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }) },
+                onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
                     onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
                 asSheet = true,
             )
