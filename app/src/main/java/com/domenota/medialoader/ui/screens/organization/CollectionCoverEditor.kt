@@ -51,12 +51,13 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
     var automatic by rememberSaveable(collectionId){mutableStateOf(false)}
     var choosing by rememberSaveable{mutableStateOf(false)}
     var saved by remember{mutableStateOf<CollectionCover?>(null)}
-    var bitmap by remember{mutableStateOf<Bitmap?>(null)}
+    var decoded by remember{mutableStateOf<Pair<String,Bitmap>?>(null)}
+    val bitmap=decoded?.takeIf{it.first==source}?.second
     var error by remember{mutableStateOf<String?>(null)}
     var busy by remember{mutableStateOf(false)}
     var loading by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
-    DisposableEffect(bitmap){val owned=bitmap;onDispose{owned?.recycle()}}
+    DisposableEffect(decoded){val owned=decoded?.second;onDispose{owned?.recycle()}}
     val photos=remember(refs){refs.filter{it.item.mediaType==MediaType.PHOTO&&!it.item.savedUri.isNullOrBlank()&&MediaOrganizationPolicy.keys(it).isNotEmpty()}}
     var automaticCover by remember(collectionId){mutableStateOf<LibraryMediaRef?>(null)}
     LaunchedEffect(collection?.members.orEmpty(),refs){
@@ -73,10 +74,11 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
     }
     LaunchedEffect(source){
         val uri=source
-        if(uri==null){bitmap=null;return@LaunchedEffect}
+        decoded=null
+        if(uri==null){loading=false;return@LaunchedEffect}
         loading=true
-        try{bitmap=withContext(Dispatchers.IO){store.decode(uri)};error=null}
-        catch(e:CancellationException){throw e}catch(e:Exception){bitmap=null;error="Исходное изображение недоступно. Сохранённая обложка остаётся."}
+        try{decoded=uri to withContext(Dispatchers.IO){store.decode(uri)};error=null}
+        catch(e:CancellationException){throw e}catch(e:Exception){decoded=null;error="Исходное изображение недоступно. Сохранённая обложка остаётся."}
         finally{loading=false}
     }
     BackHandler{if(!busy){if(choosing)choosing=false else onBack()}}
@@ -121,8 +123,13 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
                     } else {
                         val cover=if(!automatic)saved?.file?.let{android.net.Uri.fromFile(it).toString()} else null
                         val auto=liveAutomatic
-                        if(cover!=null)DownloadThumbnail(cover,null,MediaKind.IMAGE,viewport)
-                        else if(auto!=null)CollectionOriginalCover(auto,viewport)
+                        if(cover!=null)DownloadThumbnail(cover,null,MediaKind.IMAGE,viewport.clickable(enabled=!busy){choosing=true})
+                        else if(auto!=null)CollectionOriginalCover(auto,viewport.clickable(enabled=!busy){
+                            val uri=auto.item.savedUri
+                            if(auto.item.mediaType==MediaType.PHOTO&&!uri.isNullOrBlank()){
+                                source=uri;x=.5f;y=.5f;zoom=1f;automatic=false
+                            }else choosing=true
+                        })
                         else Surface(viewport.clickable(enabled=!busy){choosing=true},color=MaterialTheme.colorScheme.surfaceVariant){Box(contentAlignment=Alignment.Center){Text("Автоматическая обложка")}}
                     }
                 }

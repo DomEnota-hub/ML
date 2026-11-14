@@ -210,17 +210,18 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
     previewKey?.let{key->
         val pages=visible.filter{!it.item.savedUri.isNullOrBlank()}
         val initial=pages.indexOfFirst{collectionPickerKey(it)==key}
+        LaunchedEffect(initial){if(initial<0)previewKey=null}
         if(initial>=0)Dialog({previewKey=null},properties=DialogProperties(usePlatformDefaultWidth=false)){
             val pager=rememberPagerState(initialPage=initial,pageCount={pages.size})
             var zoomed by remember{mutableStateOf(false)}
             LaunchedEffect(pager.settledPage){zoomed=false}
             Box(Modifier.fillMaxSize().background(Color.Black)){
-                HorizontalPager(state=pager,userScrollEnabled=!zoomed,key={collectionPickerKey(pages[it])},modifier=Modifier.fillMaxSize()){page->
-                    val ref=pages[page]
+                HorizontalPager(state=pager,userScrollEnabled=!zoomed,key={index->pages.getOrNull(index)?.let(::collectionPickerKey)?:"pending-preview-page:$index"},modifier=Modifier.fillMaxSize()){page->
+                    val ref=pages.getOrNull(page)?:return@HorizontalPager
                     val uri=ref.item.savedUri?.let(Uri::parse)
                     if(uri!=null&&ref.item.mediaType==MediaType.PHOTO){
                         ZoomablePhoto(ref.item,uri,page+1,pages.size,{value->if(pager.currentPage==page)zoomed=value},Modifier.fillMaxSize(),active=pager.settledPage==page)
-                    }else if(uri!=null&&pager.settledPage==page){
+                    }else if(uri!=null&&pager.settledPage==page&&!pager.isScrollInProgress){
                         AndroidView(factory={ctx->VideoView(ctx).apply{setMediaController(MediaController(ctx).also{it.setAnchorView(this)});setVideoURI(uri);setOnPreparedListener{start()}}},modifier=Modifier.fillMaxSize(),onRelease={it.stopPlayback()})
                     }
                 }
