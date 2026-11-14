@@ -4,6 +4,9 @@ import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.database.DownloadEntity
 import org.junit.Assert.*
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -18,6 +21,22 @@ class VisualDuplicateSessionTest {
     @Test fun neverSelectAll(){assertEquals(setOf("a","b"),session.copy(selected=setOf("a","b","c","unknown")).normalized().selected)}
     @Test fun partialTrashKeepsUnconfirmed(){val next=session.removeConfirmed(setOf("content://media/a"));assertEquals(setOf("b"),next.selected);assertEquals(listOf("b","c"),next.result.groups.single().files.map{it.id})}
     @Test fun singletonRemovedFromResults(){assertTrue(session.removeConfirmed(setOf("content://media/a","content://media/b")).result.groups.isEmpty())}
+    @Test fun confirmedTrashPreservesLatestSelectionAndPosition()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        assertTrue(VisualDuplicateSessionStore.save(context,session.copy(selected=setOf("b"),offset=42)))
+        val next=VisualDuplicateSessionStore.removeConfirmed(context,session.scannedAt,setOf("content://media/a"))
+        assertNotNull(next)
+        assertEquals(setOf("b"),next!!.selected)
+        assertEquals(42,next.offset)
+        assertEquals(next,VisualDuplicateSessionStore.load(context))
+    }
+    @Test fun staleTrashCannotOverwriteNewScan()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val newer=session.copy(scannedAt=124,selected=setOf("c"))
+        assertTrue(VisualDuplicateSessionStore.save(context,newer))
+        assertNull(VisualDuplicateSessionStore.removeConfirmed(context,session.scannedAt,setOf("content://media/a")))
+        assertEquals(newer,VisualDuplicateSessionStore.load(context))
+    }
     private fun ref(id:String)=LibraryMediaRef(id,setOf(id),
         DownloadEntity(id,"device","$id.jpg",MediaType.PHOTO,DownloadState.COMPLETED,"content://media/$id",100L,100L),null)
     @Test fun catalogIdentityRejectsChangedOrPrivateRows(){

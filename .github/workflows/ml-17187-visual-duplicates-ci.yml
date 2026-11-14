@@ -107,6 +107,7 @@ jobs:
             --tests '*DownloadQueueTest' \
             --tests '*PrivateHistoryMigrationTest' \
             --tests '*VisualDuplicatePolicyTest' \
+            --tests '*VisualDuplicateSessionTest' \
             --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
