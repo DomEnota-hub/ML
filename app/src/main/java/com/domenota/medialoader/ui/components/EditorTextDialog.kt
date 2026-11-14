@@ -221,7 +221,7 @@ internal fun EditorTextDialog(
                             onApply(layers.filter { it.text.isNotBlank() }.mapNotNull {
                                 if (durationMs == null) it else it.within(durationMs)
                             })
-                        }, enabled = !matching) {
+                        }, enabled = !matching, modifier = Modifier.testTag("editor-text-apply")) {
                             Text("Готово", color = if (matching) Color.Gray else Color.White,
                                 style = MaterialTheme.typography.titleMedium)
                         }
@@ -390,7 +390,7 @@ internal fun EditorTextDialog(
                                     selectedId = layer.id
                                     sheetOpen = true
                                     textToolTab = UnifiedTextTab.KEYBOARD
-                                }, enabled = layers.size < 8) {
+                                }, enabled = layers.size < 8, modifier = Modifier.testTag("editor-text-add")) {
                                     Icon(Icons.Rounded.Add, null)
                                     Spacer(Modifier.width(4.dp))
                                     Text("Надпись")

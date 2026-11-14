@@ -83,9 +83,9 @@ class BatchPhotoEditorGeometryTest {
             waitForPhoto()
             compose.onNodeWithText("Водяной знак").performScrollTo().performClick()
             compose.onNodeWithText("Текстовый знак").performClick()
-            compose.onNodeWithText("Надпись").performClick()
+            compose.onNodeWithTag("editor-text-add").performClick()
             compose.onNodeWithTag("editor-text-input").performTextReplacement("Общий водяной знак")
-            compose.onNodeWithText("Готово").performClick()
+            compose.onNodeWithTag("editor-text-apply").performClick()
             compose.onNodeWithTag("batch-export").performClick()
             compose.onNodeWithTag("batch-confirm-export").performClick()
             compose.runOnIdle {
