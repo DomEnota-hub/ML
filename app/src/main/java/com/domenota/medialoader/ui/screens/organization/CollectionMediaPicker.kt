@@ -234,7 +234,7 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
     }
 }
 @Composable
-private fun PickerMark(selected:Boolean,existing:Boolean,modifier:Modifier=Modifier,enabled:Boolean=true,onToggle:()->Unit) {
+internal fun PickerMark(selected:Boolean,existing:Boolean,modifier:Modifier=Modifier,enabled:Boolean=true,onToggle:()->Unit) {
     Box(modifier.size(48.dp).semantics{contentDescription=if(existing)"Уже добавлено" else if(selected)"Снять выбор" else "Выбрать"}.clickable(enabled=enabled&&!existing,onClick=onToggle),contentAlignment=Alignment.Center){
         Box(Modifier.size(24.dp).clip(CircleShape).background(if(selected)MaterialTheme.colorScheme.primary else Color.Black.copy(alpha=.4f)).border(1.dp,if(selected)MaterialTheme.colorScheme.primary else Color.White,CircleShape),contentAlignment=Alignment.Center){
             if(selected)Icon(Icons.Rounded.Check,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.onPrimary)

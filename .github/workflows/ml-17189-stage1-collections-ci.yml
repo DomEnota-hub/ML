@@ -1,0 +1,63 @@
+name: ML 1.7.189 stage 1 collections verification
+on:
+  push:
+    branches: [feature/ml-17189-qa-rework]
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17189-collections-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+jobs:
+  collections:
+    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17189-qa-rework'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle and SDK
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Verify identity and UI guards
+        run: |
+          grep -Eq 'versionCode 249$' app/build.gradle
+          grep -Fq "versionName '1.7.189'" app/build.gradle
+          python3 scripts/audit_ui_palette.py
+          python3 scripts/check-round-sliders.py
+      - name: Collection regression tests
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --stacktrace
+      - name: Full JVM suite
+        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Internal ARM64 compilation (no distribution)
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Save diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17189-collections-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 3

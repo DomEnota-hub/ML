@@ -30,19 +30,9 @@ import kotlinx.coroutines.withContext
 
 @Composable
 internal fun CollectionCard(collection:MediaCollection,cover:LibraryMediaRef?,onOpen:()->Unit,modifier:Modifier=Modifier) {
-    val context=LocalContext.current
-    val store=remember(context){CollectionCoverStore(context)}
-    val revision by CollectionCoverStore.changes.collectAsState()
-    var saved by remember(collection.record.id){mutableStateOf<CollectionCover?>(null)}
-    LaunchedEffect(collection.record.id,revision){saved=withContext(Dispatchers.IO){store.read(collection.record.id)}}
     Surface(modifier.aspectRatio(4f/5f).clickable(onClick=onOpen).testTag("collection-card-${collection.record.id}"),shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){
         Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){
-            Box(Modifier.fillMaxSize().testTag("collection-cover-${collection.record.id}"),contentAlignment=Alignment.Center){
-                val privateCover=saved
-                if(privateCover!=null)DownloadThumbnail(android.net.Uri.fromFile(privateCover.file).toString(),null,MediaKind.IMAGE,Modifier.fillMaxSize())
-                else if(cover!=null)CollectionOriginalCover(cover,Modifier.fillMaxSize())
-                else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
-            }
+            CollectionCoverImage(collection,cover,Modifier.fillMaxSize().testTag("collection-cover-${collection.record.id}"))
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.92f)).padding(horizontal=10.dp,vertical=7.dp)) {
                 Text(collection.record.name,maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.primary)
@@ -50,6 +40,21 @@ internal fun CollectionCard(collection:MediaCollection,cover:LibraryMediaRef?,on
         }
     }
 }
+@Composable
+internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaRef?,modifier:Modifier=Modifier){
+    val context=LocalContext.current
+    val store=remember(context){CollectionCoverStore(context)}
+    val revision by CollectionCoverStore.changes.collectAsState()
+    var saved by remember(collection.record.id){mutableStateOf<CollectionCover?>(null)}
+    LaunchedEffect(collection.record.id,revision){saved=withContext(Dispatchers.IO){store.read(collection.record.id)}}
+    Box(modifier,contentAlignment=Alignment.Center){
+        val privateCover=saved
+        if(privateCover!=null)DownloadThumbnail(android.net.Uri.fromFile(privateCover.file).toString(),null,MediaKind.IMAGE,Modifier.fillMaxSize())
+        else if(cover!=null)CollectionOriginalCover(cover,Modifier.fillMaxSize())
+        else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
+    }
+}
+
 @Composable
 private fun CreateCollectionCard(onOpen:()->Unit,modifier:Modifier=Modifier) {
     val border=MaterialTheme.colorScheme.outline

@@ -2,6 +2,9 @@ package com.domenota.medialoader.ui.screens.organization
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import com.domenota.medialoader.ui.screens.music.MusicLibraryTrackRow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -97,6 +100,11 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     var remove by remember{mutableStateOf(false)}
     var linkDialog by remember{mutableStateOf(false)}
     var picker by rememberSaveable{mutableStateOf(false)}
+    var largeCards by rememberSaveable{mutableStateOf(false)}
+    var detailMenu by remember{mutableStateOf(false)}
+    var selecting by rememberSaveable(selected){mutableStateOf(false)}
+    var chosenMembers by rememberSaveable(selected){mutableStateOf(arrayListOf<String>())}
+    var removeMembers by remember{mutableStateOf(false)}
     var choosing by remember(initialAdd,initialLink){mutableStateOf(initialAdd.isNotEmpty()||initialLink!=null)}
     var error by remember{mutableStateOf<String?>(null)}
     var busy by remember{mutableStateOf(false)}
@@ -148,15 +156,22 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             },onRename={})
         return
     }
-    BackHandler(selected!=null&&!choosing){selected=null}
+    BackHandler(selected!=null&&!choosing){if(selecting){selecting=false;chosenMembers=arrayListOf()}else if(initialCreate||initialCollection!=null)onBack() else selected=null}
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("collections-screen")){
-        Header(if(choosing)"Добавить в коллекцию" else collection?.record?.name?:"Коллекции",{
-            if(selected!=null&&!choosing)selected=null else onBack()
+        Header(if(choosing)"Добавить в коллекцию" else if(collection!=null)"Коллекция" else "Коллекции",{
+            if(selecting){selecting=false;chosenMembers=arrayListOf()}else if(selected!=null&&!choosing&&!initialCreate&&initialCollection==null)selected=null else onBack()
         }){
             if(collection==null||choosing)IconButton({create=true},enabled=!busy&&(!choosing||ready)){Icon(Icons.Rounded.Add,"Создать коллекцию")}
             else {
                 IconButton({rename=true},enabled=!busy){Icon(Icons.Rounded.Edit,"Редактировать коллекцию")}
-                IconButton({remove=true},enabled=!busy){Icon(Icons.Rounded.DeleteOutline,"Удалить коллекцию")}
+                Box{
+                    IconButton({detailMenu=true},enabled=!busy){Icon(Icons.Rounded.MoreVert,"Меню коллекции")}
+                    DropdownMenu(detailMenu,{detailMenu=false}){
+                        DropdownMenuItem({Text(if(largeCards)"Компактная сетка" else "Крупные карточки")},{largeCards=!largeCards;detailMenu=false})
+                        DropdownMenuItem({Text("Выбрать материалы")},{selecting=true;chosenMembers=arrayListOf();detailMenu=false})
+                        DropdownMenuItem({Text("Удалить коллекцию")},{remove=true;detailMenu=false})
+                    }
+                }
             }
         }
         if(!usable||busy)LinearProgressIndicator(Modifier.fillMaxWidth().testTag("organization-loading"))
@@ -176,55 +191,129 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 .filter{filter=="Всё"||it.second.item.mediaType.caption()==filter}
             val links=collection.members.filter{it.link!=null}
             val missing=collection.members.count{it.link==null&&it.id !in resolved}
-            LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                item{
-                    val typeLabels=buildList {
-                        MediaType.entries.forEach{type->val count=visible.count{it.second.item.mediaType==type};if(count>0)add("${type.caption()}: $count")}
-                        if(links.isNotEmpty())add("Ссылки: ${links.size}")
+            val columns=if(largeCards)2 else 3
+            val cover=visible.firstOrNull()?.second
+            val visual=filtered.filter{it.second.item.mediaType!=MediaType.AUDIO}
+            val tracks=filtered.filter{it.second.item.mediaType==MediaType.AUDIO}
+            val visibleLinks=if(!audioOnly&&(filter=="Всё"||filter=="Ссылки"))links else emptyList()
+            val unavailable=if(!audioOnly&&filter=="Всё"&&ready)collection.members.filter{it.link==null&&it.id !in resolved} else emptyList()
+            fun toggleMember(id:String){chosenMembers=ArrayList(if(id in chosenMembers)chosenMembers-id else chosenMembers+id)}
+            fun openMember(ref:LibraryMediaRef){onOpen(ref.key,visible.filter{it.second.item.mediaType==ref.item.mediaType}.map{it.second.key})}
+            fun removeMember(id:String){mutate{repository.remove(collection.record.id,id)}}
+            LazyVerticalGrid(GridCells.Fixed(columns),Modifier.weight(1f).testTag("collection-detail-grid"),
+                contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp),
+                horizontalArrangement=Arrangement.spacedBy(4.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+                item(span={GridItemSpan(maxLineSpan)}){
+                    Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+                        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                            CollectionCoverImage(collection,cover,Modifier.width(78.dp).aspectRatio(.8f).clip(RoundedCornerShape(10.dp)).clickable{rename=true})
+                            Column(Modifier.weight(1f)){
+                                Text(collection.record.name,style=MaterialTheme.typography.titleLarge)
+                                Text(collectionMaterialCount(collection.members.size),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            Button({picker=true},enabled=ready&&!busy,modifier=Modifier.weight(1f)){Icon(Icons.Rounded.Add,null);Text("Добавить")}
+                            if(audio.isNotEmpty())OutlinedButton({onPlay(audio)},enabled=ready&&!busy,modifier=Modifier.weight(1f)){
+                                Icon(Icons.Rounded.PlayArrow,null);Text("Слушать")
+                            }
+                        }
+                        if(!audioOnly)TextButton({linkDialog=true},enabled=!busy){Text("Добавить ссылку")}
+                        if(!audioOnly)Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                            val available=listOf("Всё")+MediaType.entries.filter{type->visible.any{it.second.item.mediaType==type}}.map{it.caption()}+if(links.isNotEmpty())listOf("Ссылки") else emptyList()
+                            LaunchedEffect(available){if(filter !in available)filter="Всё"}
+                            available.forEach{label->FilterChip(filter==label,{filter=label},{Text(label)})}
+                        }
+                        if(missing>0&&!audioOnly&&ready)Text("Недоступно файлов: $missing. Связи сохранены.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(collection.members.isEmpty())Text("Пока нет материалов",color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(if(audioOnly)"Треков: ${audio.size}" else typeLabels.joinToString(" · ").ifEmpty{"Пустая"})
-                    if(!audioOnly)Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                        val available=listOf("Всё")+MediaType.entries.filter{type->visible.any{it.second.item.mediaType==type}}.map{it.caption()}+if(links.isNotEmpty())listOf("Ссылки") else emptyList()
-                        LaunchedEffect(available){if(filter !in available)filter="Всё"}
-                        available.forEach{label->FilterChip(filter==label,{filter=label},{Text(label)})}
-                    }
-                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                        OutlinedButton({picker=true},enabled=ready&&!busy,modifier=Modifier.weight(1f)){Text("Добавить файлы")}
-                        if(!audioOnly)OutlinedButton({linkDialog=true},enabled=!busy,modifier=Modifier.weight(1f)){Text("Добавить ссылку")}
-                    }
-                    if(audio.isNotEmpty())Button({onPlay(audio)},enabled=ready&&!busy,modifier=Modifier.fillMaxWidth()){
-                        Icon(Icons.Rounded.PlayArrow,null);Text("Слушать коллекцию")
-                    }
-                    if(missing>0&&!audioOnly)Text("Недоступно файлов: $missing. Связи сохранены.",color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                items(filtered,key={it.first.id}){(member,ref)->
+                items(visual,key={it.first.id}){(member,ref)->
                     val row=ref.item
-                    MediaLine(row,{onOpen(ref.key,visible.filter{it.second.item.mediaType==row.mediaType}.map{it.second.key})}){
-                        IconButton({onPassport(ref.key)}){Icon(Icons.Rounded.Info,"Паспорт файла")}
-                        IconButton({mutate{repository.remove(collection.record.id,member.id)}},enabled=!busy){Icon(Icons.Rounded.Close,"Убрать из коллекции")}
+                    Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(6.dp)).clickable{
+                        if(selecting)toggleMember(member.id) else openMember(ref)
+                    }.testTag("collection-media-"+member.id)){
+                        DownloadThumbnail(row.savedUri,row.previewUrl,row.mediaType.kind(),Modifier.fillMaxSize())
+                        if(row.mediaType==MediaType.VIDEO)Row(Modifier.align(Alignment.BottomStart).background(Color.Black.copy(alpha=.6f)).padding(4.dp),verticalAlignment=Alignment.CenterVertically){
+                            Icon(Icons.Rounded.PlayArrow,null,Modifier.size(16.dp),tint=Color.White)
+                            row.durationMs?.let{Text("${it/60000}:${"%02d".format(it/1000%60)}",color=Color.White,style=MaterialTheme.typography.labelSmall)}
+                        }
+                        Box(Modifier.align(Alignment.TopEnd)){
+                            if(selecting)PickerMark(member.id in chosenMembers,false,enabled=!busy){toggleMember(member.id)}
+                            else CollectionMemberMenu({onPassport(ref.key)},{removeMember(member.id)},!busy)
+                        }
                     }
                 }
-                if(!audioOnly&&(filter=="Всё"||filter=="Ссылки"))items(links,key={it.id}){member->
-                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                        Icon(Icons.Rounded.Link,null)
-                        Text(member.link.orEmpty(),Modifier.weight(1f).clickable{member.link?.let(onLink)}.padding(8.dp),maxLines=2,overflow=TextOverflow.Ellipsis)
-                        IconButton({mutate{repository.remove(collection.record.id,member.id)}},enabled=!busy){Icon(Icons.Rounded.Close,"Убрать ссылку")}
+                items(tracks,key={it.first.id},span={GridItemSpan(maxLineSpan)}){(member,ref)->
+                    MusicLibraryTrackRow(ref.item,onPlay={if(selecting)toggleMember(member.id) else onPlay(listOf(ref.key))},isCurrent=false,isPlaying=false){
+                        if(selecting)PickerMark(member.id in chosenMembers,false,enabled=!busy){toggleMember(member.id)}
+                        else CollectionMemberMenu({onPassport(ref.key)},{removeMember(member.id)},!busy)
                     }
                 }
-                if(!audioOnly&&filter=="Всё")items(collection.members.filter{it.link==null&&it.id !in resolved},key={it.id}){member->
+                items(visibleLinks,key={it.id},span={GridItemSpan(maxLineSpan)}){member->
+                    val url=member.link.orEmpty()
+                    val metadata=refs.firstOrNull{MediaOrganizationPolicy.keys(it).isNotEmpty()&&(it.item.sourcePageUrl==url||it.item.sourceUrl==url)}?.item
+                    Surface(shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceVariant){
+                        Row(Modifier.fillMaxWidth().clickable{if(selecting)toggleMember(member.id) else onLink(url)}.padding(8.dp),verticalAlignment=Alignment.CenterVertically){
+                            if(metadata!=null)DownloadThumbnail(metadata.savedUri,metadata.previewUrl,metadata.mediaType.kind(),Modifier.size(56.dp).clip(RoundedCornerShape(8.dp))) else Icon(Icons.Rounded.Link,null,Modifier.size(48.dp))
+                            Column(Modifier.weight(1f).padding(horizontal=8.dp)){
+                                Text(metadata?.originalName?:url,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                Text(runCatching{java.net.URI(url).host}.getOrNull().orEmpty(),style=MaterialTheme.typography.labelSmall)
+                            }
+                            if(selecting)PickerMark(member.id in chosenMembers,false,enabled=!busy){toggleMember(member.id)}
+                            else CollectionMemberMenu(null,{removeMember(member.id)},!busy)
+                        }
+                    }
+                }
+                items(unavailable,key={it.id},span={GridItemSpan(maxLineSpan)}){member->
                     Row(verticalAlignment=Alignment.CenterVertically){
                         Text("Недоступный файл",Modifier.weight(1f))
-                        IconButton({mutate{repository.remove(collection.record.id,member.id)}},enabled=!busy){Icon(Icons.Rounded.Close,"Убрать недоступную запись")}
+                        if(selecting)PickerMark(member.id in chosenMembers,false,enabled=!busy){toggleMember(member.id)}
+                        else CollectionMemberMenu(null,{removeMember(member.id)},!busy)
                     }
                 }
             }
+            if(selecting)Surface(color=MaterialTheme.colorScheme.surface){
+                Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.CenterVertically){
+                    Text("Выбрано: ${chosenMembers.size}",Modifier.weight(1f))
+                    TextButton({selecting=false;chosenMembers=arrayListOf()}){Text("Отмена")}
+                    Button({removeMembers=true},enabled=!busy&&chosenMembers.isNotEmpty()){Text("Убрать")}
+                }
+            }
+
         }
     }
+    if(removeMembers&&collection!=null)AlertDialog(onDismissRequest={removeMembers=false},title={Text("Убрать материалы?")},
+        text={Text("Будут удалены только связи с коллекцией. Файлы останутся на месте.")},
+        confirmButton={TextButton({removeMembers=false;mutate{repository.removeSelection(collection.record.id,chosenMembers);chosenMembers=arrayListOf();selecting=false}}){Text("Убрать")}},
+        dismissButton={TextButton({removeMembers=false}){Text("Отмена")}})
     if(linkDialog&&collection!=null)ValueDialog("Добавить ссылку","","HTTP(S) ссылка",{linkDialog=false}){repository.addLink(collection.record.id,it)}
     if(remove&&collection!=null)AlertDialog(onDismissRequest={remove=false},title={Text("Удалить коллекцию?")},
         text={Text("Будет удалена только подборка «${collection.record.name}». Все файлы, альбомы и плейлисты останутся.")},
         confirmButton={TextButton({remove=false;mutate{repository.delete(collection.record.id);withContext(Dispatchers.IO){CollectionCoverStore(context).automatic(collection.record.id)};selected=null}}){Text("Удалить",color=MaterialTheme.colorScheme.error)}},
         dismissButton={TextButton({remove=false}){Text("Отмена")}})
+}
+
+internal fun collectionMaterialCount(count:Int):String {
+    val ending=when{
+        count%100 in 11..14->"материалов"
+        count%10==1->"материал"
+        count%10 in 2..4->"материала"
+        else->"материалов"
+    }
+    return "$count $ending"
+}
+
+@Composable
+private fun CollectionMemberMenu(onInfo:(()->Unit)?,onRemove:()->Unit,enabled:Boolean){
+    var expanded by remember{mutableStateOf(false)}
+    Box{
+        IconButton({expanded=true},enabled=enabled){Icon(Icons.Rounded.MoreVert,"Действия материала")}
+        DropdownMenu(expanded,{expanded=false}){
+            if(onInfo!=null)DropdownMenuItem({Text("Паспорт файла")},{expanded=false;onInfo()})
+            DropdownMenuItem({Text("Убрать из коллекции")},{expanded=false;onRemove()})
+        }
+    }
 }
 
 @Composable

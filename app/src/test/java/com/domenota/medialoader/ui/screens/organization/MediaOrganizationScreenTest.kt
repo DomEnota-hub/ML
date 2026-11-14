@@ -28,7 +28,8 @@ class MediaOrganizationScreenTest {
     @Test fun deletionClearlyStatesThatOriginalsRemain(){
         val c=MediaCollection(MediaCollectionEntity("c","Work",1),emptyList())
         compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),emptyList(),store,"c",false,emptyList(),null,true,{},{_,_->},{},{},{},{})}}
-        compose.onNodeWithContentDescription("Удалить коллекцию").performClick()
+        compose.onNodeWithContentDescription("Меню коллекции").performClick()
+        compose.onNodeWithText("Удалить коллекцию").performClick()
         compose.onNodeWithText("Удалить коллекцию?").assertIsDisplayed()
         compose.onNodeWithText("Будет удалена только подборка «Work». Все файлы, альбомы и плейлисты останутся.").assertIsDisplayed()
         compose.onNodeWithText("Отмена").performClick()
@@ -45,7 +46,7 @@ class MediaOrganizationScreenTest {
     @Test fun addFilesOpensFullScreenPickerWithFixedSelectionActions() {
         val c=MediaCollection(MediaCollectionEntity("c","Work",1),emptyList())
         compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),emptyList(),store,"c",false,emptyList(),null,true,{},{_,_->},{},{},{},{})}}
-        compose.onNodeWithText("Добавить файлы").performClick()
+        compose.onNodeWithText("Добавить").performClick()
         compose.onNodeWithTag("collection-media-picker").assertIsDisplayed()
         compose.onNodeWithText("Добавить в Work").assertIsDisplayed()
         compose.onNodeWithText("Добавить (0)").assertIsNotEnabled()
@@ -53,7 +54,7 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithText("Музыка").performClick()
         compose.onNodeWithText("Нет доступных материалов").assertIsDisplayed()
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithText("Добавить файлы").assertIsDisplayed()
+        compose.onNodeWithText("Добавить").assertIsDisplayed()
     }
     @Test fun pickerKeepsSelectionWhenChangingTypeAndSearch() {
         val photo=DownloadEntity("p","device","Holiday.jpg",MediaType.PHOTO,DownloadState.COMPLETED,"content://media/p",100,100)
@@ -118,6 +119,10 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithText("Создать коллекцию").assertIsNotEnabled()
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.runOnIdle{assertTrue(back)}
+    }
+    @Test fun countsUseRussianPluralForms(){
+        val expected=mapOf(0 to "0 материалов",1 to "1 материал",2 to "2 материала",4 to "4 материала",5 to "5 материалов",11 to "11 материалов",14 to "14 материалов",21 to "21 материал",22 to "22 материала")
+        expected.forEach{(n,label)->assertEquals(label,collectionMaterialCount(n))}
     }
     @Test fun missingPassportDoesNotDisplayOldPrivateMetadata(){
         compose.setContent{MaterialTheme{MediaPassportScreen(null,emptyList(),emptyList(),emptyList(),emptyList(),emptyList(),{},{_,_->},{},{})}}

@@ -59,6 +59,10 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
             dao.insertMember(MediaCollectionMemberEntity(UUID.randomUUID().toString(),collectionId,null,link,System.currentTimeMillis()))
     }
     suspend fun remove(collectionId:String,id:String){dao.removeMember(collectionId,id)}
+    suspend fun removeSelection(collectionId:String,ids:List<String>)=db.withTransaction {
+        check(dao.collection(collectionId)!=null){"Коллекция удалена"}
+        ids.distinct().forEach{dao.removeMember(collectionId,it)}
+    }
     suspend fun setReviewed(ids:List<String>,reviewed:Boolean=true)=db.withTransaction {
         ids.distinct().chunked(500).forEach{dao.setReviewed(it,reviewed)}
     }
