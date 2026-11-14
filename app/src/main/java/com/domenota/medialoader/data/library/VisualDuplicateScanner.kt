@@ -45,11 +45,11 @@ internal object VisualDuplicateScanner {
             return Frame(hash,gray.maxOrNull()!!-gray.minOrNull()!!>=24&&java.lang.Long.bitCount(hash) in 5..59)
         }finally{if(small!==bitmap)small.recycle()}
     }
-    private suspend fun read(context:Context,ref:LibraryMediaRef):VisualFingerprint {
+    private suspend fun read(context:Context,ref:LibraryMediaRef,metrics:DuplicateScanMetrics):VisualFingerprint {
         val row=ref.item;val uri=Uri.parse(requireNotNull(row.savedUri));val before=stamp(context,uri)
-        val hash=sha(context,uri)
+        val hash=metrics.measure("sha256"){sha(context,uri)}
         var width=0;var height=0;var duration:Long?=null;val frames=mutableListOf<Frame>()
-        try {
+        try { metrics.measure(if(row.mediaType==MediaType.PHOTO)"photo_decode" else "video_frames") {
             if(row.mediaType==MediaType.PHOTO){
                 val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true}
                 context.contentResolver.openInputStream(uri)?.use{BitmapFactory.decodeStream(it,null,bounds)}
@@ -75,7 +75,7 @@ internal object VisualDuplicateScanner {
                     }
                 }finally{retriever.release()}
             }
-        }catch(e:CancellationException){throw e}catch(_:Exception){frames.clear()}
+        }}catch(e:CancellationException){throw e}catch(_:Exception){frames.clear()}
         check(before==stamp(context,uri)){"File changed during scan"}
         return VisualFingerprint(ref.key,uri.toString(),row.mediaType,before.bytes,before.modified,hash,width,height,duration,
             frames.map{it.hash},frames.isNotEmpty()&&frames.all{it.informative})
@@ -104,13 +104,16 @@ internal object VisualDuplicateScanner {
     suspend fun scan(context:Context,refs:List<LibraryMediaRef>,progress:(Int,Int)->Unit={ _, _ -> }):VisualScanResult=withContext(Dispatchers.IO){
         val candidates=refs.filter{val r=it.item;!r.isPrivate&&!r.hidden&&r.state==DownloadState.COMPLETED&&r.mediaType!=MediaType.AUDIO&&!r.savedUri.isNullOrBlank()}
             .distinctBy{it.item.savedUri}
+        val metrics=DuplicateScanMetrics("gallery")
         val rows=mutableListOf<VisualFingerprint>();var skipped=0
         for((index,ref) in candidates.withIndex()){
             coroutineContext.ensureActive()
-            try{rows+=read(context,ref)}catch(e:CancellationException){throw e}catch(_:Exception){skipped++}
+            try{rows+=read(context,ref,metrics)}catch(e:CancellationException){throw e}catch(_:Exception){skipped++}
             progress(index+1,candidates.size)
         }
         val ctx=coroutineContext
-        VisualScanResult(VisualDuplicatePolicy.groups(rows){ctx.ensureActive()},skipped)
+        val groups=metrics.measure("grouping"){VisualDuplicatePolicy.groups(rows){ctx.ensureActive()}}
+        metrics.report()
+        VisualScanResult(groups,skipped)
     }
 }
