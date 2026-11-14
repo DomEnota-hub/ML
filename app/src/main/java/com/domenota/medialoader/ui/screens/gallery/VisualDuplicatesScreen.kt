@@ -14,13 +14,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.ui.components.DownloadThumbnail
+import com.domenota.medialoader.ui.components.DuplicateTrashHost
 import com.domenota.medialoader.ui.model.MediaKind
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onBack:()->Unit) {
+internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit) {
     val context=LocalContext.current
     val status by VisualDuplicateBackgroundScan.state.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
@@ -29,8 +30,10 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     var restored by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf(false) }
+    var trash by remember { mutableStateOf<VisualDuplicateSession?>(null) }
     val list=rememberLazyListState()
-    val byId=remember(refs){refs.associateBy{it.key}}
+    val byId=remember(refs,ready){if(ready)refs.groupBy{it.key}.mapNotNull{(id,rows)->rows.singleOrNull()?.let{id to it}}.toMap() else emptyMap()}
     // Render only a projection validated against the current complete public catalog.
     val current=remember(session,refs,ready){if(ready)session?.reconcile(refs) else null}
     val latestSession by rememberUpdatedState(session)
@@ -52,8 +55,8 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
             restored=true
         }
     }
-    LaunchedEffect(list,restored,status.running,saving,current?.scannedAt,ready) {
-        if(restored&&ready&&!status.running&&!saving&&current!=null) snapshotFlow{Triple(list.firstVisibleItemIndex,list.firstVisibleItemScrollOffset,list.isScrollInProgress)}
+    LaunchedEffect(list,restored,status.running,saving,current?.scannedAt,ready,trash) {
+        if(restored&&ready&&!status.running&&!saving&&trash==null&&current!=null) snapshotFlow{Triple(list.firstVisibleItemIndex,list.firstVisibleItemScrollOffset,list.isScrollInProgress)}
             .distinctUntilChanged().collect{(index,offset,scrolling)->
                 if(!scrolling){
                     val previous=latestSession ?: return@collect
@@ -73,9 +76,33 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
             finally{saving=false}
         }
     }
+    if(confirm) AlertDialog(onDismissRequest={confirm=false},title={Text("Переместить выбранные файлы в корзину?")},
+        text={Text("Похожие файлы могут различаться. Сохраняемый экземпляр будет повторно проверен. Окончательное удаление не выполняется.")},
+        confirmButton={TextButton({confirm=false;trash=current?.takeIf{it.selected.isNotEmpty()}}){Text("Переместить")}},
+        dismissButton={TextButton({confirm=false}){Text("Отмена")}})
+    trash?.let { snapshot ->
+        val request=remember(snapshot){
+            val groups=snapshot.result.groups.filter{g->g.files.any{it.id in snapshot.selected}}.map{g->
+                DuplicateGroup(g.files.map{f->
+                    val name=byId[f.id]?.item?.originalName?:f.id
+                    DuplicateTrack(f.id,name,null,name,f.uri,f.bytes,f.modified,f.sha,null,f.durationMs,null,null)
+                },g.reason.name,g.reason.name)
+            }
+            DuplicateTrashSelection(groups,snapshot.selected,snapshot.selected,emptyMap())
+        }
+        val fingerprints=remember(snapshot){snapshot.result.groups.flatMap{it.files}.associateBy{it.id}}
+        DuplicateTrashHost(request,byId,null,onAppTrash,
+            onTrashed={uris->
+                val previous=latestSession ?: snapshot
+                val next=previous.removeConfirmed(uris)
+                session=next
+                check(VisualDuplicateSessionStore.save(context,next)){"Не удалось сохранить результат корзины"}
+            },
+            onClose={trash=null;onRefresh()},visual=fingerprints)
+    }
     Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Row(verticalAlignment=Alignment.CenterVertically){
-            TextButton(onBack){Text("Назад")}
+            TextButton(onBack,enabled=trash==null){Text("Назад")}
             Text("Дубликаты фото и видео",style=MaterialTheme.typography.titleLarge)
         }
         if(!ready||!loaded) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -85,7 +112,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
             OutlinedButton({VisualDuplicateBackgroundScan.cancel(context)},enabled=!status.committing){Text("Отменить поиск")}
         }else{
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button({VisualDuplicateBackgroundScan.start(context,refs)},enabled=ready&&loaded&&!saving){Text("Новый поиск")}
+                Button({VisualDuplicateBackgroundScan.start(context,refs)},enabled=ready&&loaded&&!saving&&trash==null){Text("Новый поиск")}
                 OutlinedButton({scope.launch{
                     val previous=VisualDuplicateSessionStore.load(context)
                     session=previous?.reconcile(refs);restored=false
@@ -97,6 +124,9 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
         if(!ready||!loaded)return@Column
         if(current==null){Text("Запустите поиск точных и похожих файлов.");return@Column}
         Text("Групп: ${current.result.groups.size} · пропущено: ${current.result.skipped} · выбрано: ${current.selected.size}")
+        Button({confirm=true},enabled=current.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,modifier=Modifier.fillMaxWidth()){
+            Text("В корзину: ${current.selected.size}")
+        }
         Text("Похожие файлы могут различаться. Проверьте каждый экземпляр.",style=MaterialTheme.typography.bodySmall)
         LazyColumn(state=list,modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){
             items(current.result.groups,key={it.files.first().id}){group->
@@ -115,7 +145,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
                                 Checkbox(file.id in current.selected,{checked->
                                     val selected=if(checked)current.selected+file.id else current.selected-file.id
                                     persist(current.copy(selected=selected,index=list.firstVisibleItemIndex,offset=list.firstVisibleItemScrollOffset))
-                                },enabled=ready&&!saving&&!status.running&&ref!=null&&(file.id in current.selected||group.files.count{it.id !in current.selected}>1))
+                                },enabled=ready&&!saving&&!status.running&&trash==null&&ref!=null&&(file.id in current.selected||group.files.count{it.id !in current.selected}>1))
                             }
                         }
                     }

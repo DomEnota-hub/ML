@@ -1483,7 +1483,8 @@ fun MediaLoaderApp(
             composable("visual-duplicates") {
                 com.domenota.medialoader.ui.screens.gallery.VisualDuplicatesScreen(
                     organizationRefs, organizationReady && phoneGallery.loaded,
-                    onBack={navController.popBackStack()})
+                    onBack={navController.popBackStack()},onAppTrash=viewModel::trashVerifiedAlbumMedia,
+                    onRefresh={libraryModel.refresh(AppMode.GALLERY, force = true)})
             }
             composable("music-duplicates") {
                 if (!libraryIndex.ready || libraryPrivateKeys == null || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded)) {
