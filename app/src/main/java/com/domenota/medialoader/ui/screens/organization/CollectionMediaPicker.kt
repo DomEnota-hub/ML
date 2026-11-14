@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -204,7 +205,10 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
     }
     photo?.let{ref->Dialog({photo=null},properties=DialogProperties(usePlatformDefaultWidth=false)){
         Box(Modifier.fillMaxSize().background(Color.Black)){
-            androidx.compose.foundation.Image(painter=coil.compose.rememberAsyncImagePainter(ref.item.savedUri),contentDescription="Предпросмотр фото",modifier=Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Fit)
+            var image by remember(ref.key){mutableStateOf<android.graphics.Bitmap?>(null)}
+            LaunchedEffect(ref.key){image=withContext(Dispatchers.IO){runCatching{CollectionCoverStore(context).decode(ref.item.savedUri)}.getOrNull()}}
+            DisposableEffect(image){val owned=image;onDispose{owned?.recycle()}}
+            image?.let{androidx.compose.foundation.Image(bitmap=it.asImageBitmap(),contentDescription="Предпросмотр фото",modifier=Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Fit)}
             IconButton({photo=null},Modifier.align(Alignment.TopStart).statusBarsPadding()){Icon(Icons.Rounded.Close,"Закрыть предпросмотр",tint=Color.White)}
             PickerMark(collectionPickerKey(ref) in selected||collectionPickerKey(ref) in existingKeys,collectionPickerKey(ref) in existingKeys,Modifier.align(Alignment.TopEnd).statusBarsPadding(),!busy){toggle(collectionPickerKey(ref))}
         }
