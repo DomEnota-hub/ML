@@ -80,6 +80,8 @@ data class PreviewState(
     val fullSongSessionId: Long = 0L,
     val fullSongSource: FullSongSource = FullSongSource.HITMOZ,
     val duplicateMatches: List<DuplicateMatch> = emptyList(),
+    val recoveryIdentityFailure:Boolean=false,
+    val recoveryCandidates:List<MediaItem> = emptyList(),
 )
 
 class MediaLoaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -105,38 +107,56 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     fun retryBulkFailed() = repository.bulk.retryFailed()
     private val deferredStore = com.domenota.medialoader.data.deferred.DeferredLinkStore(application)
     val deferredLinks = deferredStore.links
+    val deferredEntries=deferredStore.entries
     private val _deferredActive = MutableStateFlow<String?>(null)
     val deferredActive = _deferredActive.asStateFlow()
     private val _deferredMessage = MutableStateFlow<String?>(null)
     val deferredMessage = _deferredMessage.asStateFlow()
     private var deferredJob: Job? = null
-    fun deferLink(url: String) {
-        if (deferredStore.add(url)) Toast.makeText(getApplication(), "Добавлено в отложенное", Toast.LENGTH_SHORT).show()
+    fun deferLink(url:String,recoveryHistoryId:String?=null):Boolean {
+        val saved=deferredStore.add(url,recoveryHistoryId)
+        Toast.makeText(getApplication(),if(saved)"Добавлено в отложенное" else "Не удалось сохранить ссылку",Toast.LENGTH_SHORT).show()
+        return saved
     }
-    fun removeDeferredLink(url: String) = deferredStore.remove(url)
+    fun openDeferredLink(id:String) {
+        val entry=deferredEntries.value.firstOrNull{it.id==id}?:return
+        analyze(entry.url,entry.recoveryHistoryId)
+    }
+    fun removeDeferredLink(id:String) { deferredStore.remove(id) }
     fun stopDeferred() { deferredJob?.cancel() }
     fun retryDeferred() {
         if (deferredJob?.isActive == true) return
-        val snapshot = deferredLinks.value.toList()
+        val snapshot = deferredEntries.value.toList()
         deferredJob = viewModelScope.launch {
             _deferredMessage.value = null
             var failed = 0
             try {
-                for (url in snapshot) {
-                    if (url !in deferredLinks.value) continue
-                    _deferredActive.value = url
+                for(entry in snapshot){
+                    if(entry !in deferredEntries.value)continue
+                    _deferredActive.value=entry.id
+                    val url=entry.url
                     try {
+                        val recovery=entry.recoveryHistoryId
+                        if(recovery!=null){
+                            if(!repository.recoveryAlreadyAvailable(recovery)){
+                                val candidates=analyzeMedia(url)
+                                ActiveDownloadService.start(getApplication())
+                                repository.restoreMissingFile(recovery,candidates)
+                            }
+                            check(deferredStore.remove(entry.id)){"Не удалось обновить отложенное"}
+                            continue
+                        }
                         val items = analyzeMedia(url)
                         val selected = items.defaultSelectedIds()
                         val chosen = items.filter { it.id in selected }
                         check(chosen.isNotEmpty()) { "Медиа не найдено" }
                         val fresh = chosen.filter { repository.findDownloaded(it) == null }
-                        if (fresh.isEmpty()) { deferredStore.remove(url); continue }
+                        if (fresh.isEmpty()) { deferredStore.remove(entry.id); continue }
                         ActiveDownloadService.start(getApplication())
                         val rows = queueMedia(fresh)
                         check(rows.isNotEmpty()) { "Не удалось добавить загрузку" }
                         // Once accepted, the ordinary download history owns retries.
-                        deferredStore.remove(url)
+                        deferredStore.remove(entry.id)
                         val ids = rows.map { it.id }.toSet()
                         val started = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
                             repository.downloads.first { records -> records.any {
@@ -148,7 +168,11 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                             break
                         }
                     } catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { failed++; _deferredMessage.value = "Не удалось обработать ссылок: $failed. Они сохранены для повтора." }
+                    catch(error:Exception){
+                        failed++
+                        val detail=if(error is com.domenota.medialoader.data.download.MissingRecoveryFailure)" ${error.message}" else ""
+                        _deferredMessage.value="Не удалось обработать ссылок: $failed. Они сохранены для повтора.$detail"
+                    }
                 }
             } finally { _deferredActive.value = null }
         }
@@ -731,13 +755,19 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         _preview.value = PreviewState(analysis = AnalysisUiState.ANALYZING, url = link, recoveryHistoryId = recoveryHistoryId)
         analysisJob = viewModelScope.launch {
             try {
+                if(recoveryHistoryId!=null&&repository.recoveryAlreadyAvailable(recoveryHistoryId)){
+                    deferredStore.complete(link,recoveryHistoryId)
+                    _preview.value=PreviewState(analysis=AnalysisUiState.ERROR,url=link,recoveryHistoryId=recoveryHistoryId,
+                        recoveryIdentityFailure=true,message="Файл уже доступен. Восстановление не требуется.")
+                    return@launch
+                }
                 val resolved = analyzeMedia(link)
                 val items = if (recoveryHistoryId == null) resolved else {
                     val exact = repository.missingRecoveryCandidate(recoveryHistoryId, resolved)
                     if (exact == null) {
                         _preview.value = PreviewState(analysis = AnalysisUiState.ERROR, url = link,
-                            recoveryHistoryId = recoveryHistoryId,
-                            message = "Не удалось точно определить отсутствующий файл. Исходная запись сохранена")
+                            recoveryHistoryId = recoveryHistoryId,recoveryIdentityFailure=true,
+                            message = "Медиа найдено, но не удалось точно определить отсутствующий файл. Исходная запись сохранена.")
                         return@launch
                     }
                     listOf(exact)
@@ -750,7 +780,8 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     url = link,
                     recoveryHistoryId = recoveryHistoryId,
                     items = items,
-                    selectedIds = items.defaultSelectedIds(),
+                    selectedIds=if(recoveryHistoryId!=null)items.map{it.id}.toSet() else items.defaultSelectedIds(),
+                    recoveryCandidates=if(recoveryHistoryId!=null)resolved else emptyList(),
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -775,12 +806,14 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                         ProviderException.Reason.RATE_LIMITED -> error.message ?: "Instagram ограничил запросы. Попробуйте позже."
                     },
                 )
-            } catch (_: Exception) {
+            } catch(error:Exception) {
+                val failure=error as? com.domenota.medialoader.data.download.MissingRecoveryFailure
                 _preview.value = PreviewState(
                     analysis = AnalysisUiState.ERROR,
                     url = link,
                     recoveryHistoryId = recoveryHistoryId,
-                    message = "Не удалось проверить ссылку. Попробуйте ещё раз.",
+                    recoveryIdentityFailure=failure!=null,
+                    message = failure?.message ?: "Не удалось проверить ссылку. Попробуйте ещё раз.",
                 )
             }
         }
@@ -792,7 +825,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
      */
     fun findFullSong() {
         val state = _preview.value
-        if (state.analysis != AnalysisUiState.PREVIEW_READY || state.fullSongOpen) return
+        if (state.analysis != AnalysisUiState.PREVIEW_READY || state.fullSongOpen || state.recoveryHistoryId!=null) return
         val provider = state.items.firstOrNull()?.providerId ?: return
         if (!MusicLookupPolicy.supports(provider)) return
         val items = state.items.filter { it.providerId == provider }
@@ -884,7 +917,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         val chosen = state.items.filter { it.id in state.selectedIds }
         if (chosen.isEmpty() || state.enqueuing) return
         val renamed = try {
-            chosen.map { item ->
+            if(state.recoveryHistoryId!=null)chosen else chosen.map { item ->
                 item.copy(
                     originalName = StorageNaming.customName(
                         names[item.id] ?: item.originalName,
@@ -902,9 +935,10 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
             try {
                 if (state.recoveryHistoryId != null) {
                     ActiveDownloadService.start(getApplication())
-                    repository.restoreMissingFile(state.recoveryHistoryId, state.items)
+                    val restored=repository.restoreMissingFile(state.recoveryHistoryId,state.recoveryCandidates)
+                    deferredStore.complete(state.url,state.recoveryHistoryId)
                     _preview.update { it.copy(enqueuing = false, duplicateMatches = emptyList(),
-                        message = "Файл восстановлен на прежнем месте") }
+                        message = if(restored)"Файл восстановлен в исходной записи" else "Файл уже доступен") }
                     onQueued()
                     return@launch
                 }
@@ -942,7 +976,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
 
                 ActiveDownloadService.start(getApplication())
                 queueMedia(toQueue)
-                deferredStore.remove(state.url)
+                deferredStore.complete(state.url,null)
                 _preview.update { it.copy(enqueuing = false, duplicateMatches = emptyList()) }
                 onQueued()
             } catch (cancelled: CancellationException) {
@@ -953,7 +987,8 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(
                         enqueuing = false,
                         duplicateMatches = emptyList(),
-                        message = if (state.recoveryHistoryId != null) "Не удалось восстановить файл. Исходная запись сохранена. Повторите."
+                        message = if (state.recoveryHistoryId != null)
+                            (error as? com.domenota.medialoader.data.download.MissingRecoveryFailure)?.message ?: "Не удалось восстановить файл. Исходная запись сохранена. Повторите."
                             else "Не удалось добавить загрузку. Повторите.",
                     )
                 }
@@ -1052,7 +1087,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         if (success && state.analysis == AnalysisUiState.ACCESS_REQUIRED && state.url.isNotBlank() &&
             YouTubeLinkParser.parse(state.url) == null && VkLinkParser.parse(state.url) == null &&
             RutubeLinkParser.parse(state.url) == null) {
-            analyze(state.url)
+            analyze(state.url,state.recoveryHistoryId)
         }
     }
 
@@ -1062,7 +1097,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         val state = _preview.value
         if (success && repository.hasYouTubeCookies && state.analysis == AnalysisUiState.ACCESS_REQUIRED &&
             state.url.isNotBlank() && YouTubeLinkParser.parse(state.url) != null) {
-            analyze(state.url)
+            analyze(state.url,state.recoveryHistoryId)
         }
     }
 
@@ -1071,7 +1106,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         val state = _preview.value
         if (success && repository.hasVkCookies && state.analysis == AnalysisUiState.ACCESS_REQUIRED &&
             state.url.isNotBlank() && VkLinkParser.parse(state.url) != null) {
-            analyze(state.url)
+            analyze(state.url,state.recoveryHistoryId)
         }
     }
 
@@ -1080,7 +1115,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         val state = _preview.value
         if (success && repository.hasRutubeSession && state.analysis == AnalysisUiState.ACCESS_REQUIRED &&
             state.url.isNotBlank() && RutubeLinkParser.parse(state.url) != null) {
-            analyze(state.url)
+            analyze(state.url,state.recoveryHistoryId)
         }
     }
 
@@ -1116,7 +1151,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         if (state.analysis == AnalysisUiState.ACCESS_REQUIRED && state.url.isNotBlank() &&
             YouTubeLinkParser.parse(state.url) == null && VkLinkParser.parse(state.url) == null &&
             RutubeLinkParser.parse(state.url) == null) {
-            analyze(state.url)
+            analyze(state.url,state.recoveryHistoryId)
         }
     }.isSuccess
 }
