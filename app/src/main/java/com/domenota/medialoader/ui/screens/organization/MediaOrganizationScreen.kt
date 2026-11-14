@@ -52,9 +52,9 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
     // Only the two displayed cards resolve member identities; opening the full
     // screen performs the complete projection on a worker thread.
     val shown=remember(collections){collections.take(2)}
-    val covers by produceState(emptyMap<String,LibraryMediaRef>(),shown,refs) {
-        val projection = withContext(Dispatchers.Default) { MediaOrganizationPolicy.resolve(shown.flatMap { it.members }, refs) }
-        this.value = projection
+    var covers by remember(shown,refs) { mutableStateOf(emptyMap<String,LibraryMediaRef>()) }
+    LaunchedEffect(shown,refs) {
+        covers = withContext(Dispatchers.Default) { MediaOrganizationPolicy.resolve(shown.flatMap { it.members }, refs) }
     }
     Column(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
@@ -133,8 +133,9 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     var busy by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
     val byId=remember(refs){refs.associateBy{it.key}}
-    val resolved by produceState(emptyMap<String,LibraryMediaRef>(),collections,refs,ready){
-        value=if(!ready)emptyMap() else withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(collections.flatMap{it.members},refs)}
+    var resolved by remember(collections,refs,ready) { mutableStateOf(emptyMap<String,LibraryMediaRef>()) }
+    LaunchedEffect(collections,refs,ready) {
+        resolved = if(!ready) emptyMap() else withContext(Dispatchers.Default) { MediaOrganizationPolicy.resolve(collections.flatMap { it.members },refs) }
     }
     val collection=collections.firstOrNull{it.record.id==selected}
     fun mutate(action:suspend ()->Unit){scope.launch{
@@ -333,8 +334,9 @@ internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>
         if(ref==null){Text("Файл недоступен",Modifier.padding(16.dp));return@Column}
         val row=ref.item
         val passport=remember(ref,refs){MediaOrganizationPolicy.passport(ref,refs)}
-        val membership by produceState(emptyList<MediaCollection>(),ref,collections,refs){
-            value=withContext(Dispatchers.Default){
+        var membership by remember(ref,collections,refs) { mutableStateOf(emptyList<MediaCollection>()) }
+        LaunchedEffect(ref,collections,refs) {
+            membership = withContext(Dispatchers.Default) {
                 val matches=MediaOrganizationPolicy.resolve(collections.flatMap{it.members},refs)
                 collections.filter{collection->collection.members.any{matches[it.id]?.key==ref.key}}
             }
