@@ -88,9 +88,9 @@ class PhotoEditor(private val context: Context) {
             resolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it, null, bounds) }
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0)
                 throw IOException("Не удалось открыть изображение.")
-            val exif = if (batch != null) resolver.openInputStream(source)?.use {
+            val exif = resolver.openInputStream(source)?.use {
                 runCatching { android.media.ExifInterface(it) }.getOrNull()
-            } else null
+            }
             val orientation = exif?.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION,1) ?: 1
             val (orientedW,orientedH) = PhotoSourceOrientation.dimensions(bounds.outWidth,bounds.outHeight,orientation)
             val target = batch?.dimensions(orientedW,orientedH) ?: (orientedW to orientedH)
@@ -117,7 +117,10 @@ class PhotoEditor(private val context: Context) {
                     inMutable = spec.inpaintOverlayPath != null
                 })
             } ?: throw IOException("Не удалось открыть изображение.")
+            replace(PhotoSourceOrientation.apply(image(),orientation))
             if (spec.inpaintOverlayPath != null) {
+                // The AI preview uses the same EXIF-oriented plane as the export.
+                if (!image().isMutable) replace(image().copy(Bitmap.Config.ARGB_8888,true))
                 val permittedDir = File(context.cacheDir, "inpainting-overlays").canonicalFile
                 val overlayFile = File(spec.inpaintOverlayPath).canonicalFile
                 if (overlayFile.parentFile != permittedDir || !overlayFile.isFile ||
@@ -131,7 +134,6 @@ class PhotoEditor(private val context: Context) {
                 } finally { overlay.recycle() }
             }
             if (batch != null) {
-                replace(PhotoSourceOrientation.apply(image(), orientation))
                 if (image().width != target.first || image().height != target.second)
                     replace(Bitmap.createScaledBitmap(image(),target.first,target.second,true))
             }

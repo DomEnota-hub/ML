@@ -15,8 +15,8 @@ object PhotoBatchCrop {
             VideoCropMath.centerCrop(referenceWidth,referenceHeight,preset) else target
         val zoom = minOf(crop.keptWidth/reference.keptWidth,crop.keptHeight/reference.keptHeight)
             .coerceIn(.05f,1f)
-        val w = (target.keptWidth * zoom).coerceIn(.05f,1f)
-        val h = (target.keptHeight * zoom).coerceIn(.05f,1f)
+        val w = (target.keptWidth * zoom).coerceIn(.050001f,1f)
+        val h = (target.keptHeight * zoom).coerceIn(.050001f,1f)
         val cx = ((crop.left + 1f - crop.right)/2f).coerceIn(w/2f,1f-w/2f)
         val cy = ((crop.top + 1f - crop.bottom)/2f).coerceIn(h/2f,1f-h/2f)
         return CropFractions((cx-w/2f).coerceAtLeast(0f),(1f-cx-w/2f).coerceAtLeast(0f),

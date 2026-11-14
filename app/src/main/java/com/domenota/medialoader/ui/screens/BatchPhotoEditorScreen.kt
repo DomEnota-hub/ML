@@ -31,7 +31,7 @@ fun BatchPhotoEditorScreen(rows:List<DownloadEntity>,state:BatchPhotoState,busy:
 internal fun BatchPhotoFilmstrip(rows: List<DownloadEntity>, index:Int, enabled:Boolean,
     compare:Boolean,onCompare:()->Unit,onSelect:(Int)->Unit) {
     val context=LocalContext.current
-    val cache=remember { BatchPhotoPreviewCache() }
+    val cache=remember(rows.map { it.id to it.savedUri }) { BatchPhotoPreviewCache() }
     DisposableEffect(cache) { onDispose { cache.clear() } }
     Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
         Text("${index.coerceIn(0,(rows.size-1).coerceAtLeast(0))+1} / ${rows.size}",color=Color.White,

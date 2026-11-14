@@ -278,8 +278,13 @@ private fun PhotoEditorContent(
     )
     LaunchedEffect(uri,item.sizeBytes,item.createdAtEpochMillis) {
         if (uri != null) {
-            originalInfo = withContext(Dispatchers.IO) { readPhotoSource(context, uri, batch != null) }
-            if (originalInfo == null) previewError = "Не удалось открыть изображение."
+            var pending:PhotoSourceInfo?=null
+            try {
+                withContext(Dispatchers.IO) { pending=readPhotoSource(context,uri,true) }
+                originalInfo=pending
+                pending=null
+                if(originalInfo==null)previewError="Не удалось открыть изображение."
+            } finally { pending?.preview?.recycle() }
         }
     }
 
@@ -302,7 +307,6 @@ private fun PhotoEditorContent(
             cropColorPreview = null
             return@LaunchedEffect
         }
-        if (currentTab != PhotoWorkspaceTab.CROP) return@LaunchedEffect
         val source = info?.preview ?: return@LaunchedEffect
         delay(35L)
         cropColorPreview = withContext(Dispatchers.Default) {

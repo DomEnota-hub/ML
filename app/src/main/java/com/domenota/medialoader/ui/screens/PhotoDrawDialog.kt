@@ -42,6 +42,22 @@ internal data class PhotoCanvasRect(val x: Float, val y: Float, val width: Float
     fun inside(px: Float, py: Float) = px >= x && py >= y && px <= x + width && py <= y + height
     fun normalize(px: Float, py: Float): PhotoPoint =
         PhotoDrawing.clamp((px - x) / width, (py - y) / height)
+
+    /** Clip the actual pointer segment. Never connect separate visits through letterbox space. */
+    fun clipSegment(from: Offset,to: Offset): Pair<PhotoPoint,PhotoPoint>? {
+        val dx=to.x-from.x;val dy=to.y-from.y
+        var start=0f;var end=1f
+        fun edge(p:Float,q:Float):Boolean {
+            if(kotlin.math.abs(p)<1e-6f)return q>=0f
+            val r=q/p
+            if(p<0f)start=maxOf(start,r) else end=minOf(end,r)
+            return start<=end
+        }
+        if(!edge(-dx,from.x-x)||!edge(dx,x+width-from.x)||
+            !edge(-dy,from.y-y)||!edge(dy,y+height-from.y))return null
+        return normalize(from.x+dx*start,from.y+dy*start) to
+            normalize(from.x+dx*end,from.y+dy*end)
+    }
 }
 
 internal fun photoCanvasRect(viewWidth: Float, viewHeight: Float, imageWidth: Int, imageHeight: Int): PhotoCanvasRect {
@@ -94,6 +110,8 @@ internal fun PhotoDrawDialog(
     var marks by remember(initial) { mutableStateOf(initial) }
     var selected by remember { mutableIntStateOf(-1) }
     var active by remember { mutableStateOf<List<PhotoPoint>>(emptyList()) }
+    var eraserPointer by remember { mutableStateOf<PhotoPoint?>(null) }
+    var rawEraserPosition by remember { mutableStateOf<Offset?>(null) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var panelOpen by remember { mutableStateOf(false) }
     var paletteOpen by remember { mutableStateOf(false) }
@@ -111,6 +129,19 @@ internal fun PhotoDrawDialog(
     }
     fun change(next: List<PhotoMark>) {
         if (next != marks) { val before = marks; marks = next; push(before) }
+    }
+    fun flushErasePath() {
+        if(active.isNotEmpty() && marks.size<PhotoDrawing.MAX_MARKS)
+            marks=marks+PhotoMark(PhotoMarkKind.ERASER,active,thickness=thickness)
+        active=emptyList()
+    }
+    fun appendErase(point:PhotoPoint) {
+        if(marks.size>=PhotoDrawing.MAX_MARKS || active.lastOrNull()==point)return
+        if(active.size>=900) {
+            val previous=active.last()
+            flushErasePath()
+            if(marks.size<PhotoDrawing.MAX_MARKS)active=listOf(previous,point)
+        } else active=active+point
     }
     fun replaceSelected(update: (PhotoMark) -> PhotoMark) {
         if (selected in marks.indices) {
@@ -174,7 +205,12 @@ internal fun PhotoDrawDialog(
                             preview.width, preview.height)
                         detectDragGestures(
                             onDragStart = { at ->
-                                if (!rect.inside(at.x, at.y)) {
+                                if(tool==DrawingTool.ERASER) {
+                                    beforeGesture=marks;selected=-1;rawEraserPosition=at
+                                    active=emptyList()
+                                    eraserPointer=if(rect.inside(at.x,at.y))rect.normalize(at.x,at.y) else null
+                                    eraserPointer?.let(::appendErase)
+                                } else if (!rect.inside(at.x, at.y)) {
                                     active = emptyList()
                                     beforeGesture = null
                                 } else {
@@ -209,7 +245,7 @@ internal fun PhotoDrawDialog(
                             },
                             onDrag = { change, dragAmount ->
                                 if (!rect.inside(change.position.x, change.position.y) &&
-                                    tool != DrawingTool.SELECT) return@detectDragGestures
+                                    tool != DrawingTool.SELECT && tool != DrawingTool.ERASER) return@detectDragGestures
                                 val point = rect.normalize(change.position.x, change.position.y)
                                 when (tool) {
                                     DrawingTool.SELECT -> {
@@ -228,20 +264,17 @@ internal fun PhotoDrawDialog(
                                         }
                                     }
                                     DrawingTool.ERASER -> {
-                                        if (active.isNotEmpty()) {
-                                            val previous = active.last()
-                                            if (previous != point) {
-                                                // Retain the continuous CLEAR path, not fragmented
-                                                // vector approximations. Chunk only at the model bound.
-                                                if (active.size < 900) active = active + point
-                                                else if (marks.size < PhotoDrawing.MAX_MARKS - 1) {
-                                                    marks = marks + PhotoMark(PhotoMarkKind.ERASER,
-                                                        active, thickness = thickness)
-                                                    active = listOf(previous, point)
-                                                }
-                                            }
-                                            change.consume()
+                                        val from=rawEraserPosition ?: change.position
+                                        val segment=rect.clipSegment(from,change.position)
+                                        if(segment!=null) {
+                                            if(active.isNotEmpty()&&active.last()!=segment.first)flushErasePath()
+                                            appendErase(segment.first);appendErase(segment.second)
                                         }
+                                        if(!rect.inside(change.position.x,change.position.y)) {
+                                            flushErasePath();eraserPointer=null
+                                        } else eraserPointer=point
+                                        rawEraserPosition=change.position
+                                        change.consume()
                                     }
                                     else -> {
                                         if (active.isNotEmpty()) {
@@ -265,11 +298,13 @@ internal fun PhotoDrawDialog(
                                 beforeGesture?.let(::push)
                                 beforeGesture = null
                                 active = emptyList()
+                                eraserPointer=null;rawEraserPosition=null
                             },
                             onDragCancel = {
                                 // An interrupted gesture must not create half a shape.
                                 beforeGesture?.let { marks = it }
                                 beforeGesture = null; active = emptyList()
+                                eraserPointer=null;rawEraserPosition=null
                             },
                         )
                     }) {
@@ -308,8 +343,9 @@ internal fun PhotoDrawDialog(
                                 bounds.top * preview.height, radius, handle)
                         }
                         canvas.restoreToCount(save)
-                        if (tool == DrawingTool.ERASER && active.isNotEmpty()) {
-                            val point = active.last()
+                        val cursor=eraserPointer
+                        if (tool == DrawingTool.ERASER && cursor!=null && marks.size<PhotoDrawing.MAX_MARKS) {
+                            val point = cursor
                             val px = rect.x + point.x * rect.width
                             val py = rect.y + point.y * rect.height
                             val radius = (min(preview.width, preview.height) * thickness)
