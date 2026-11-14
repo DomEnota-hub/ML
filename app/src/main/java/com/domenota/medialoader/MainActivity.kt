@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
     private var openDuplicates by mutableStateOf(false)
     private fun acceptModeShortcut(incoming: Intent?) {
         com.domenota.medialoader.data.library.ModeShortcuts.mode(incoming?.action)?.let {
-            openDuplicates = incoming?.action == com.domenota.medialoader.data.library.DuplicateBackgroundScan.OPEN_ACTION
+            openDuplicates = incoming?.action == com.domenota.medialoader.data.library.DuplicateBackgroundScan.OPEN_ACTION || incoming?.action == com.domenota.medialoader.data.library.VisualDuplicateBackgroundScan.OPEN_ACTION
             shortcutMode = it; shortcutGeneration++
         }
     }

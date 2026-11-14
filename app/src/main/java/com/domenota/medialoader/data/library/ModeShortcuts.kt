@@ -16,7 +16,7 @@ import com.domenota.medialoader.R
 internal object ModeShortcuts {
     private const val GALLERY = "com.domenota.medialoader.OPEN_GALLERY"
     private const val MUSIC = "com.domenota.medialoader.OPEN_MUSIC"
-    fun mode(action: String?): AppMode? = when (action) { GALLERY -> AppMode.GALLERY; MUSIC, DuplicateBackgroundScan.OPEN_ACTION -> AppMode.MUSIC; else -> null }
+    fun mode(action: String?): AppMode? = when (action) { GALLERY, VisualDuplicateBackgroundScan.OPEN_ACTION -> AppMode.GALLERY; MUSIC, DuplicateBackgroundScan.OPEN_ACTION -> AppMode.MUSIC; else -> null }
     fun id(mode: AppMode): String = when (mode) { AppMode.GALLERY -> "ml_gallery"; AppMode.MUSIC -> "ml_music"; else -> error("Unsupported mode") }
     fun supported(context: Context) = ShortcutManagerCompat.isRequestPinShortcutSupported(context)
     fun pinned(context: Context): Set<String> = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_PINNED).map { it.id }.toSet()
