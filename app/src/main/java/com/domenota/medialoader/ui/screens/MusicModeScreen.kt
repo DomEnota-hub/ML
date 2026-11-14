@@ -178,7 +178,7 @@ internal fun MusicModeScreen(
             var candidates=smartCandidates
             var result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays,interval=statsIntervals.lastOrNull())
             while(true) {
-                val ids=when(smartPage){SmartMusicPage.FORGOTTEN->result.forgotten;SmartMusicPage.MIX->result.mix;SmartMusicPage.STATS->result.topTracks;null->emptyList()}.map {it.rowId}
+                val ids=when(smartPage){SmartMusicPage.FORGOTTEN->result.forgotten;SmartMusicPage.MIX->result.mix;SmartMusicPage.STATS->result.playedTracks;null->emptyList()}.map {it.rowId}
                 if(ids.isEmpty()) break
                 val valid=validateFrequent(ids,false)
                 val missing=ids.filterNot(valid::contains).toSet()
@@ -310,9 +310,12 @@ internal fun MusicModeScreen(
             smartLoading||loading,smartError,currentPlayingId,playing,favoriteIds,{smartPage=null},{mixNonce++},
             onPlayFrequent,onPreview?:onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport,
             statsInterval=statsIntervals.lastOrNull(),onStatsDrill={point->
-                val interval=statsIntervals.lastOrNull() ?: com.domenota.medialoader.data.playback.SmartStatsInterval.overview(smartStatsPeriod,System.currentTimeMillis(),java.time.ZoneId.systemDefault())
+                val interval=statsIntervals.lastOrNull() ?: smartSnapshot.statsInterval ?: com.domenota.medialoader.data.playback.SmartStatsInterval.overview(smartStatsPeriod,System.currentTimeMillis(),java.time.ZoneId.systemDefault())
                 point.date?.let { interval.drill(it) }?.let { statsIntervals=statsIntervals+it }
-            },onStatsBack={statsIntervals=statsIntervals.dropLast(1)})
+            },onStatsBack={statsIntervals=statsIntervals.dropLast(1)},onStatsDay={date->
+                if(statsIntervals.lastOrNull()?.isSingleDay==true && !date.isAfter(java.time.LocalDate.now()))
+                    statsIntervals=statsIntervals.dropLast(1)+com.domenota.medialoader.data.playback.SmartStatsInterval.day(date)
+            })
     } else if (frequentOpen && onPlayFrequent != null && onSaveFrequent != null) {
         FrequentListeningScreen(listeningSelection,frequentRows,listeningPeriod,{listeningPeriod=it},listeningLoading||loading,listeningError,
             currentPlayingId,playing,favoriteIds,listeningStore,{frequentOpen=false},onPlayFrequent,

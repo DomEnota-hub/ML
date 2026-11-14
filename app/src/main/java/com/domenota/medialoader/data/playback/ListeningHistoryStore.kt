@@ -191,11 +191,12 @@ internal class ListeningHistoryStore private constructor(context: Context) {
             val totals=HashMap<String,Totals>()
             val sessionWall=HashMap<String,Long>()
             val approximate=HashSet<String>()
+            val firstMinute=HashMap<String,Long>()
             fun addWall(sessionId:String,track:String,at:Long,wall:Long,legacy:Boolean=false){
                 if(wall<=0||at<cutoff||at>=end)return
                 totals.getOrPut(track){Totals()}.wall+=wall
                 point(at)?.let{it[1]+=wall}
-                if(selected.isSingleDay){sessionWall[sessionId]=(sessionWall[sessionId]?:0L)+wall;if(legacy)approximate+=sessionId}
+                if(selected.isSingleDay){sessionWall[sessionId]=(sessionWall[sessionId]?:0L)+wall;if(legacy)approximate+=sessionId else firstMinute[sessionId]=minOf(firstMinute[sessionId]?:at,at)}
             }
             for(s in sessions){
                 val t=totals.getOrPut(s.track){Totals()}
@@ -219,8 +220,8 @@ internal class ListeningHistoryStore private constructor(context: Context) {
             val daySessions=if(selected.isSingleDay)sessions.mapNotNull{s->
                 val credit=s.credit?.takeIf{it>=cutoff&&it<end}
                 val wall=sessionWall[s.id]?:0L
-                if(credit==null&&wall==0L)null else SmartDaySession(s.id,rowByTrack.getValue(s.track),s.start,s.last,credit,wall,s.id in approximate)
-            }.sortedWith(compareByDescending<SmartDaySession>{it.creditedAt?:it.lastAt}.thenBy{it.sessionId}) else emptyList()
+                if(credit==null&&wall==0L)null else SmartDaySession(s.id,rowByTrack.getValue(s.track),s.start,s.last,credit,wall,s.id in approximate,firstMinute[s.id])
+            }.sortedWith(compareBy<SmartDaySession>{it.firstMinute?:it.creditedAt?:it.lastAt}.thenBy{it.sessionId}) else emptyList()
             SmartMusicPolicy.snapshot(rows,now,seed,diversity,forgottenDays).copy(
                 chart=timeline.map{(day,value)->SmartChartPoint(selected.label(day),value[0],value[1],day)},
                 statsInterval=selected,statsPeriod=period,daySessions=daySessions)

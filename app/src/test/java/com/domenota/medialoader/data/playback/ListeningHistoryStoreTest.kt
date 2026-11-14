@@ -90,4 +90,32 @@ class ListeningHistoryStoreTest {
         val empty=november.copy(first=java.time.LocalDate.of(2026,10,1),end=java.time.LocalDate.of(2026,11,1))
         assertEquals(0L,store.smartSnapshot(candidates,SmartStatsPeriod.ALL,now,zone=zone,interval=empty).plays)
     }
+
+    @Test fun newTimedListeningSplitsMidnightAndResumingDoesNotDuplicateBuckets()=runBlocking{
+        val zone=java.time.ZoneId.of("UTC")
+        val midnight=java.time.Instant.parse("2026-11-15T00:00:00Z").toEpochMilli()
+        val p=requireNotNull(store.begin(setOf("app:night"),0,midnight-5000))
+        val counter=ListeningCounter(p,0,0,true,1f,10_000)
+        counter.sample(4000,4000,midnight-1000,true,1f)
+        counter.sample(8000,8000,midnight+3000,true,1f)
+        store.save(counter.progress);store.save(counter.progress)
+        val candidates=listOf(SmartTrackCandidate("night",setOf("app:night"),"Artist",false))
+        val prev=SmartStatsInterval.day(java.time.LocalDate.of(2026,11,14));val next=SmartStatsInterval.day(prev.first.plusDays(1))
+        val first=store.smartSnapshot(candidates,SmartStatsPeriod.MONTH,midnight+10000,zone=zone,interval=prev)
+        val second=store.smartSnapshot(candidates,SmartStatsPeriod.MONTH,midnight+10000,zone=zone,interval=next)
+        assertEquals(5000L,first.wallMs);assertEquals(3000L,second.wallMs)
+        assertEquals(0L,first.plays);assertEquals(1L,second.plays)
+        assertTrue(first.topArtists.isEmpty());assertEquals(1,first.tracksPlayed)
+        assertEquals("night",first.daySessions.single().rowId)
+        assertEquals(5000L,first.daySessions.single().wallMs)
+        assertEquals(3000L,second.daySessions.single().wallMs)
+        val resumed=requireNotNull(store.begin(setOf("app:night"),8000,midnight+4000))
+        assertEquals(p.sessionId,resumed.sessionId);assertEquals(counter.progress.wallMinutes,resumed.wallMinutes)
+        val c=ListeningCounter(resumed,8000,0,true,1f,10_000)
+        c.sample(9000,1000,midnight+5000,true,1f);store.save(c.progress)
+        val after=store.smartSnapshot(candidates,SmartStatsPeriod.MONTH,midnight+10000,zone=zone,interval=next)
+        assertEquals(4000L,after.wallMs);assertEquals(1L,after.plays)
+        store.clearHistory()
+        assertTrue(store.smartSnapshot(candidates,SmartStatsPeriod.MONTH,midnight+10000,zone=zone,interval=next).daySessions.isEmpty())
+    }
 }

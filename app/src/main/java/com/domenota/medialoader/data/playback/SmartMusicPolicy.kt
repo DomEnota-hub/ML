@@ -33,7 +33,7 @@ internal enum class SmartStatsPeriod(val label: String) {
     fun label(date: LocalDate): String = date.format(DateTimeFormatter.ofPattern(when(this){YEAR->"MM.yyyy"; ALL->"yyyy"; else->"dd.MM"},Locale.ROOT))
 }
 internal data class SmartDaySession(val sessionId:String,val rowId:String,val startedAt:Long,val lastAt:Long,
-    val creditedAt:Long?,val wallMs:Long,val legacyAttribution:Boolean)
+    val creditedAt:Long?,val wallMs:Long,val legacyAttribution:Boolean,val firstMinute:Long?=null)
 internal data class SmartMusicSnapshot(val forgotten: List<SmartTrackHistory> = emptyList(),
     val mix: List<SmartTrackHistory> = emptyList(), val topTracks: List<SmartTrackHistory> = emptyList(),
     val topArtists: List<SmartArtistRank> = emptyList(), val plays: Long = 0, val wallMs: Long = 0,

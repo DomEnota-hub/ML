@@ -60,11 +60,12 @@ class SmartMusicPolicyTest {
         assertEquals(1,stats.artistsPlayed); assertEquals(5L,stats.topArtists.single().plays)
         assertEquals("b",stats.topTracks.first().rowId); assertFalse(stats.mix.any { it.excluded })
     }
-    @Test fun partialListeningArtistsAndTracksUseSameCriterionAsTheirTops() {
+    @Test fun partialListeningCountsAsActivityButNotAsCreditedRanking() {
         val partial=row("partial",0,1,"Other").copy(periodWallMs=5_000)
         val stats=SmartMusicPolicy.snapshot(listOf(row("credited",1,1),partial),now)
         assertEquals(2,stats.artistsPlayed);assertEquals(2,stats.tracksPlayed)
-        assertEquals(2,stats.topArtists.size);assertEquals(2,stats.topTracks.size)
+        assertEquals(1,stats.topArtists.size);assertEquals(1,stats.topTracks.size)
+        assertEquals(2,stats.playedTracks.size);assertTrue(stats.topArtists.all{it.plays>0})
         assertEquals(1L,stats.plays)
     }
 }
