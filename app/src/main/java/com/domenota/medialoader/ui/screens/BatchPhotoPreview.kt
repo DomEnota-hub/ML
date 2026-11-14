@@ -46,13 +46,13 @@ internal suspend fun batchPhotoSourceRevision(context: Context, uri: Uri): Strin
     "unknown"
 }
 
-internal suspend fun decodeBatchPreview(context: Context, uri: Uri): Bitmap = withContext(Dispatchers.IO) {
+internal suspend fun decodeBatchPreview(context: Context, uri: Uri, limit:Int=1280): Bitmap = withContext(Dispatchers.IO) {
     val resolver = context.contentResolver
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
     require(bounds.outWidth > 0 && bounds.outHeight > 0)
     var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1280) sample *= 2
+    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > limit) sample *= 2
     val decoded = requireNotNull(resolver.openInputStream(uri)?.use {
         BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
             inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888

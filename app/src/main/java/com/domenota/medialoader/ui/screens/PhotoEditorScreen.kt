@@ -22,7 +22,11 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import com.domenota.medialoader.ui.components.EditorSlider as Slider
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.verticalScroll
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,9 +76,11 @@ internal enum class PhotoLevelControl(val title: String) {
 private enum class PhotoHslControl(val title: String) {
     HUE("Оттенок"), SATURATION("Насыщенность"), LIGHTNESS("Светлота")
 }
-private data class PhotoEditSnapshot(
+internal data class PhotoEditSnapshot(
     val crop: CropFractions = CropFractions(),
     val cropPreset: CropAspectPreset = CropAspectPreset.FREE,
+    val cropReferenceWidth: Int = 0,
+    val cropReferenceHeight: Int = 0,
     val geometry: PhotoGeometry = PhotoGeometry(),
     val rotation: Int = 0,
     val mirrorHorizontal: Boolean = false,
@@ -90,6 +96,43 @@ private data class PhotoEditSnapshot(
     val fullFrameCorrection: Boolean = false,
     val inpaintPreview: Bitmap? = null,
 )
+
+/** The destination-scoped draft retains the shared edits and undo stack across rotation.
+ * No photo pixels or private URIs are persisted by this holder. */
+internal class PhotoBatchDraftViewModel : ViewModel() {
+    val edit = mutableStateOf(PhotoEditSnapshot())
+    val undo = mutableStateListOf<PhotoEditSnapshot>()
+    val redo = mutableStateListOf<PhotoEditSnapshot>()
+    var index by mutableIntStateOf(0)
+    var format by mutableStateOf(BatchPhotoFormat.JPEG)
+    var removeGps by mutableStateOf(true)
+    var removeExif by mutableStateOf(false)
+}
+
+private data class PhotoBatchWorkspace(
+    val rows: List<DownloadEntity>, val state: BatchPhotoState,
+    val busy: Boolean, val ready: Boolean, val draft: PhotoBatchDraftViewModel,
+    val onStart: (List<DownloadEntity>, BatchPhotoSpec) -> Unit,
+)
+
+@Composable
+internal fun SharedBatchPhotoWorkspace(rows: List<DownloadEntity>, state: BatchPhotoState,
+    busy: Boolean, ready: Boolean, onBack: () -> Unit,
+    onStart: (List<DownloadEntity>, BatchPhotoSpec) -> Unit, onCancel: () -> Unit) {
+    val draft: PhotoBatchDraftViewModel = viewModel()
+    val publicRows = rows.filter { !it.isPrivate && !it.hidden && it.savedUri != null }
+    val row = publicRows.getOrNull(draft.index.coerceIn(0,(publicRows.size-1).coerceAtLeast(0)))
+    MaterialTheme(colorScheme = com.domenota.medialoader.ui.theme.editorColorScheme()) {
+        if (row == null) {
+            Column(Modifier.fillMaxSize().background(Color.Black).padding(16.dp)) {
+                TextButton(onBack) { Text("Назад") }
+                Text("Выбранные фотографии недоступны.",color=Color.White)
+                if (state.running) Button(onCancel) { Text("Отменить обработку") }
+            }
+        } else PhotoEditorContent(row, EditorExportState(), onBack, {}, onCancel,
+            PhotoBatchWorkspace(publicRows,state,busy,ready && publicRows.size==rows.size,draft,onStart))
+    }
+}
 
 @Composable
 fun PhotoEditorScreen(
@@ -111,28 +154,65 @@ private fun PhotoEditorContent(
     onBack: () -> Unit,
     onExport: (PhotoEditSpec) -> Unit,
     onCancelExport: () -> Unit,
+    batch: PhotoBatchWorkspace? = null,
 ) {
     val context = LocalContext.current
     val uri = item.savedUri?.let(Uri::parse)
-    val ownExport = exportState.exporting && exportState.sourceId == item.id
-    val busyWithOther = exportState.exporting && exportState.sourceId != null && exportState.sourceId != item.id
-    val locked = ownExport || busyWithOther
-    var originalInfo by remember(uri) { mutableStateOf<PhotoSourceInfo?>(null) }
-    var edit by remember(item.id) { mutableStateOf(PhotoEditSnapshot()) }
-    val undoHistory = remember(item.id) { mutableStateListOf<PhotoEditSnapshot>() }
-    val redoHistory = remember(item.id) { mutableStateListOf<PhotoEditSnapshot>() }
+    val ownExport = batch?.state?.running ?: (exportState.exporting && exportState.sourceId == item.id)
+    val busyWithOther = if (batch != null) batch.busy && !ownExport else
+        exportState.exporting && exportState.sourceId != null && exportState.sourceId != item.id
+    val locked = ownExport || busyWithOther || (batch != null && !batch.ready)
+    val workspaceKey: Any = batch?.draft ?: item.id
+    var originalInfo by remember(uri,item.sizeBytes,item.createdAtEpochMillis) { mutableStateOf<PhotoSourceInfo?>(null) }
+    val localEdit = remember(item.id) { mutableStateOf(PhotoEditSnapshot()) }
+    var edit by (batch?.draft?.edit ?: localEdit)
+    val localUndo = remember(item.id) { mutableStateListOf<PhotoEditSnapshot>() }
+    val localRedo = remember(item.id) { mutableStateListOf<PhotoEditSnapshot>() }
+    val undoHistory = batch?.draft?.undo ?: localUndo
+    val redoHistory = batch?.draft?.redo ?: localRedo
+    val activeCrop = if (batch != null && originalInfo != null) PhotoBatchCrop.adapt(
+        edit.crop,edit.cropPreset,edit.cropReferenceWidth,edit.cropReferenceHeight,
+        requireNotNull(originalInfo).width,requireNotNull(originalInfo).height) else edit.crop
+    var batchCompare by remember(item.id) { mutableStateOf(false) }
+    var batchExportDialog by rememberSaveable { mutableStateOf(false) }
+    var batchReportDialog by rememberSaveable { mutableStateOf(false) }
+    var batchExitDialog by remember { mutableStateOf(false) }
+
+    // Editing other parameters must not re-anchor the canonical crop on a new photo.
+    fun fromWorkspace(next: PhotoEditSnapshot): PhotoEditSnapshot {
+        if (batch == null) return next
+        if (next.crop == activeCrop && next.cropPreset == edit.cropPreset)
+            return next.copy(crop=edit.crop,cropReferenceWidth=edit.cropReferenceWidth,
+                cropReferenceHeight=edit.cropReferenceHeight)
+        val source = originalInfo ?: return next
+        return next.copy(cropReferenceWidth=source.width,cropReferenceHeight=source.height)
+    }
+    fun sharedBatchSpec(): BatchPhotoSpec {
+        val draft = requireNotNull(batch).draft
+        return BatchPhotoSpec(maxSide=0,format=draft.format,quality=95,
+            removeGps=draft.removeGps,removeExif=draft.removeExif,
+            editSpec=PhotoEditSpec(cropLeft=edit.crop.left,cropRight=edit.crop.right,
+                cropTop=edit.crop.top,cropBottom=edit.crop.bottom,
+                rotationDegrees=edit.rotation,mirrorHorizontal=edit.mirrorHorizontal,
+                mirrorVertical=edit.mirrorVertical,geometry=edit.geometry,
+                colorAdjustments=edit.color,textLayers=edit.textLayers,
+                drawing=edit.drawing,localEffects=edit.localEffects,
+                graphicWatermark=edit.graphicWatermark),
+            cropPreset=edit.cropPreset,cropReferenceWidth=edit.cropReferenceWidth,
+            cropReferenceHeight=edit.cropReferenceHeight)
+    }
     var pendingGesture by remember(item.id) { mutableStateOf<PhotoEditSnapshot?>(null) }
     var textEditorOpen by remember(item.id) { mutableStateOf(false) }
     var drawingEditorOpen by remember(item.id) { mutableStateOf(false) }
     var localEffectEditorOpen by remember(item.id) { mutableStateOf(false) }
     var geometryEditorOpen by remember(item.id) { mutableStateOf(false) }
     var removeObjects by remember(item.id) { mutableStateOf(false) }
-    var currentTab by remember(item.id) { mutableStateOf(PhotoWorkspaceTab.CROP) }
-    var activeLevel by remember(item.id) { mutableStateOf(PhotoLevelControl.BRIGHTNESS) }
-    var activeHslRange by remember(item.id) { mutableStateOf(HslRange.RED) }
-    var activeHslControl by remember(item.id) { mutableStateOf(PhotoHslControl.HUE) }
-    var cropTool by remember(item.id) { mutableStateOf("ratio") }
-    var toolPanelOpen by remember(item.id) { mutableStateOf(false) }
+    var currentTab by rememberSaveable(workspaceKey) { mutableStateOf(PhotoWorkspaceTab.CROP) }
+    var activeLevel by rememberSaveable(workspaceKey) { mutableStateOf(PhotoLevelControl.BRIGHTNESS) }
+    var activeHslRange by rememberSaveable(workspaceKey) { mutableStateOf(HslRange.RED) }
+    var activeHslControl by rememberSaveable(workspaceKey) { mutableStateOf(PhotoHslControl.HUE) }
+    var cropTool by rememberSaveable(workspaceKey) { mutableStateOf("ratio") }
+    var toolPanelOpen by rememberSaveable(workspaceKey) { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var composedPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     var cropColorPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
@@ -192,11 +272,14 @@ private fun PhotoEditorContent(
     }
     val dirty = edit != PhotoEditSnapshot()
     val requestExit = rememberEditorExitRequest(
-        hasUnsavedChanges = dirty && !ownExport, onExit = onBack
+        hasUnsavedChanges = dirty && !ownExport, onExit = {
+            if (batch != null && ownExport) batchExitDialog = true else onBack()
+        }
     )
-    LaunchedEffect(uri) {
+    LaunchedEffect(uri,item.sizeBytes,item.createdAtEpochMillis) {
         if (uri != null) {
-            originalInfo = withContext(Dispatchers.IO) { readPhotoSource(context, uri) }
+            originalInfo = withContext(Dispatchers.IO) { readPhotoSource(context, uri, batch != null) }
+            if (originalInfo == null) previewError = "Не удалось открыть изображение."
         }
     }
 
@@ -226,7 +309,7 @@ private fun PhotoEditorContent(
             PhotoColorMath.apply(source, edit.color)
         }
     }
-    LaunchedEffect(edit.crop, edit.rotation, edit.mirrorHorizontal,
+    LaunchedEffect(activeCrop, edit.rotation, edit.mirrorHorizontal,
         edit.mirrorVertical, edit.geometry) {
         photoViewport.reset()
     }
@@ -262,9 +345,9 @@ private fun PhotoEditorContent(
     // All non-crop tabs show the *actual* edited geometry, color and text.
     // Debounced previews are calculated away from the UI thread; full-resolution
     // export applies the same operations in the same order.
-    LaunchedEffect(info, edit.crop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
+    LaunchedEffect(info, activeCrop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
         edit.geometry, edit.color, edit.textLayers, edit.drawing, edit.localEffects,
-        bakedGraphic, currentTab, activeLevel, rgbFastPreview) {
+        bakedGraphic, currentTab, activeLevel, rgbFastPreview, batch?.draft?.format) {
         val source = info?.preview
         if (source == null || currentTab == PhotoWorkspaceTab.CROP) {
             composedPreview = null
@@ -277,7 +360,7 @@ private fun PhotoEditorContent(
         try {
             val rendered = withContext(Dispatchers.Default) {
                 val input = if (rapidCurves) rgbFastPreview ?: source else source
-                val transformed = PhotoGeometryMath.preview(input, edit.crop, edit.rotation,
+                val transformed = PhotoGeometryMath.preview(input, activeCrop, edit.rotation,
                     edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
                 val colored = try { PhotoColorMath.apply(transformed, edit.color) }
                     catch (error: Throwable) { transformed.recycle(); throw error }
@@ -288,13 +371,19 @@ private fun PhotoEditorContent(
                         throw error
                     }
                 // Pixelate the photo before compositing text or vector drawings.
-                val hasOverlays = bakedGraphic != null ||
+                val flatten = batch?.draft?.format == BatchPhotoFormat.JPEG
+                val hasOverlays = flatten || bakedGraphic != null ||
                     edit.drawing.isNotEmpty() || edit.textLayers.isNotEmpty()
-                val output = if (hasOverlays) localized.copy(Bitmap.Config.ARGB_8888, true)
+                val output = if (flatten) Bitmap.createBitmap(localized.width,localized.height,Bitmap.Config.ARGB_8888)
+                    else if (hasOverlays) localized.copy(Bitmap.Config.ARGB_8888, true)
                     else localized
                 try {
                     if (hasOverlays) {
                         val canvas = android.graphics.Canvas(output)
+                        if (flatten) {
+                            canvas.drawColor(android.graphics.Color.WHITE)
+                            canvas.drawBitmap(localized,0f,0f,null)
+                        }
                         bakedGraphic?.let {
                             PhotoGraphicWatermarkRenderer.draw(context, canvas, output.width, output.height, it)
                         }
@@ -302,7 +391,7 @@ private fun PhotoEditorContent(
                             PhotoDrawing.draw(canvas, output.width, output.height, edit.drawing)
                         if (edit.textLayers.isNotEmpty())
                             TextLayerRenderer.draw(context, canvas, output.width, output.height,
-                                edit.textLayers, includeAll = true)
+                                edit.textLayers, includeAll = true, fitInside = batch != null)
                     }
                     output
                 } catch (error: Throwable) {
@@ -332,7 +421,7 @@ private fun PhotoEditorContent(
         EditorTextDialog(
             initial = edit.textLayers,
             loadPreview = { _: Long -> withContext(Dispatchers.Default) {
-                val transformed = PhotoGeometryMath.preview(info.preview, edit.crop, edit.rotation,
+                val transformed = PhotoGeometryMath.preview(info.preview, activeCrop, edit.rotation,
                     edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
                 val colored = PhotoColorMath.apply(transformed, edit.color)
                 if (colored !== transformed) transformed.recycle()
@@ -340,18 +429,19 @@ private fun PhotoEditorContent(
             } },
             onApply = { layers -> commit(edit.copy(textLayers = layers)); textEditorOpen = false },
             onDismiss = { textEditorOpen = false },
+            fitInside = batch != null,
         )
     }
 
     // Build a clean drawing canvas rather than painting on the already baked
     // marks. Existing vectors stay selectable across reopening the editor.
     var drawingBackground by remember(item.id) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(drawingEditorOpen, info, edit.crop, edit.rotation, edit.mirrorHorizontal,
+    LaunchedEffect(drawingEditorOpen, info, activeCrop, edit.rotation, edit.mirrorHorizontal,
         edit.mirrorVertical, edit.geometry, edit.color, edit.graphicWatermark) {
         if (!drawingEditorOpen) { drawingBackground = null; return@LaunchedEffect }
         val source = info?.preview ?: return@LaunchedEffect
         drawingBackground = withContext(Dispatchers.Default) {
-            val transformed = PhotoGeometryMath.preview(source, edit.crop, edit.rotation,
+            val transformed = PhotoGeometryMath.preview(source, activeCrop, edit.rotation,
                 edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
             val colored = PhotoColorMath.apply(transformed, edit.color)
             if (colored !== transformed) transformed.recycle()
@@ -380,6 +470,7 @@ private fun PhotoEditorContent(
             preview = requireNotNull(drawingBackground),
             initial = edit.drawing,
             textLayers = edit.textLayers,
+            fitInside = batch != null,
             onApply = { marks ->
                 commit(edit.copy(drawing = marks))
                 drawingEditorOpen = false
@@ -391,12 +482,12 @@ private fun PhotoEditorContent(
     // Local effect masks are edited on the clean, color-adjusted photograph.
     // Existing text and drawings remain vector overlays above the effect.
     var effectBackground by remember(item.id) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(localEffectEditorOpen, info, edit.crop, edit.rotation,
+    LaunchedEffect(localEffectEditorOpen, info, activeCrop, edit.rotation,
         edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry, edit.color) {
         if (!localEffectEditorOpen) { effectBackground = null; return@LaunchedEffect }
         val src = info?.preview ?: return@LaunchedEffect
         effectBackground = withContext(Dispatchers.Default) {
-            val transformed = PhotoGeometryMath.preview(src, edit.crop, edit.rotation,
+            val transformed = PhotoGeometryMath.preview(src, activeCrop, edit.rotation,
                 edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
             val colored = PhotoColorMath.apply(transformed, edit.color)
             if (colored !== transformed) transformed.recycle()
@@ -420,12 +511,12 @@ private fun PhotoEditorContent(
     }
 
     var geometryBackground by remember(item.id) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(geometryEditorOpen, info, edit.crop, edit.rotation,
+    LaunchedEffect(geometryEditorOpen, info, activeCrop, edit.rotation,
         edit.mirrorHorizontal, edit.mirrorVertical) {
         if (!geometryEditorOpen) { geometryBackground = null; return@LaunchedEffect }
         val original = info?.preview ?: return@LaunchedEffect
         geometryBackground = withContext(Dispatchers.Default) {
-            TextLayerRenderer.preview(original, edit.crop, edit.rotation,
+            TextLayerRenderer.preview(original, activeCrop, edit.rotation,
                 edit.mirrorHorizontal, edit.mirrorVertical)
         }
     }
@@ -466,7 +557,9 @@ private fun PhotoEditorContent(
                     Icon(Icons.Rounded.Redo, "Повторить", tint = if (redoHistory.isNotEmpty()) Color.White else Color.Gray)
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(
+                if (batch != null) {
+                    Text("Пакетный редактор", color = Color.White, fontSize = 13.sp)
+                } else TextButton(
                     onClick = {
                         onExport(PhotoEditSpec(
                             cropLeft = edit.crop.left, cropRight = edit.crop.right,
@@ -525,10 +618,16 @@ private fun PhotoEditorContent(
             return@Scaffold
         }
         Column(Modifier.fillMaxSize().padding(padding).background(Color.Black)) {
-            Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 10.dp, vertical = 10.dp),
+            if (batch != null) BatchPhotoFilmstrip(batch.rows,batch.draft.index,
+                enabled = !locked, compare = batchCompare, onCompare = { batchCompare = !batchCompare },
+                onSelect = { next -> finishGesture(); batch.draft.index = next; batchCompare = false })
+            Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 10.dp, vertical = 10.dp)
+                .then(if(batch!=null) Modifier.testTag("batch-preview") else Modifier),
                 contentAlignment = Alignment.Center) {
                 if (info == null) {
-                    Text("Открываем изображение…", color = Color.LightGray)
+                    Text(previewError ?: "Открываем изображение…", color = Color.LightGray)
+                } else if (batch != null && batchCompare) {
+                    Image(info.preview.asImageBitmap(),"Оригинал",Modifier.fillMaxSize(),contentScale=ContentScale.Fit)
                 } else if (currentTab != PhotoWorkspaceTab.CROP &&
                     composedPreview != null) {
                     PhotoZoomViewport(
@@ -548,17 +647,17 @@ private fun PhotoEditorContent(
                     )
                 } else {
                     PhotoWorkspacePreview(
-                        info = info, edit = edit, colorPreview = cropColorPreview,
+                        info = info, edit = edit.copy(crop=activeCrop), colorPreview = cropColorPreview,
                         cropFrameVisible = currentTab == PhotoWorkspaceTab.CROP && !locked,
                         onCropChange = {
                             if (pendingGesture == null) pendingGesture = edit
-                            edit = edit.copy(crop = it)
+                            edit = fromWorkspace(edit.copy(crop = it))
                         },
                         onCropFinished = ::finishGesture,
                     )
                 }
             }
-            if (ownExport) {
+            if (ownExport && batch == null) {
                 // One shared ML loading symbol instead of an unrelated purple
                 // export line and a second "Экспорт фото" caption.
                 Row(
@@ -596,7 +695,8 @@ private fun PhotoEditorContent(
                     cropTool = cropTool, onCropTool = {
                         cropTool = it; toolPanelOpen = (it == "ratio")
                     },
-                    edit = edit, info = info, locked = locked,
+                    edit = edit.copy(crop=activeCrop), info = info, locked = locked,
+                    allowAi = batch == null,
                     activeLevel = activeLevel, onActiveLevel = {
                         activeLevel = it; toolPanelOpen = true
                     },
@@ -606,10 +706,11 @@ private fun PhotoEditorContent(
                     activeHslControl = activeHslControl, onHslControl = {
                         activeHslControl = it; toolPanelOpen = true
                     },
-                    onEdit = ::commit,
+                    onEdit = { next -> commit(fromWorkspace(next)); batchCompare = false },
                     onLiveEdit = { update ->
                         if (pendingGesture == null) pendingGesture = edit
-                        edit = update
+                        edit = fromWorkspace(update)
+                        batchCompare = false
                     },
                     onEditFinished = ::finishGesture,
                     onText = { textEditorOpen = true },
@@ -617,8 +718,25 @@ private fun PhotoEditorContent(
                     onMosaic = { localEffectEditorOpen = true },
                     onGeometry = { geometryEditorOpen = true },
                     onPickGraphic = { graphicPicker.launch(arrayOf("image/png", "image/jpeg", "image/webp")) },
-                    onLaMa = { removeObjects = true },
+                    onLaMa = { if (batch == null) removeObjects = true },
                 )
+            }
+            if (batch != null) {
+                if (!batch.ready) Text("Не все выбранные фотографии доступны.",color=Color.LightGray,
+                    modifier=Modifier.padding(horizontal=12.dp))
+                if (batch.state.total > 0) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal=10.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Text("Сохранено: ${batch.state.outcomes.count { it.error == null }} / ${batch.state.total}",
+                            color=Color.White,modifier=Modifier.weight(1f))
+                        TextButton({batchReportDialog=true}) { Text("Отчёт") }
+                    }
+                }
+                if (ownExport) {
+                    LinearProgressIndicator(progress={batch.state.outcomes.size.toFloat()/batch.state.total.coerceAtLeast(1)},
+                        modifier=Modifier.fillMaxWidth())
+                    Button(onCancelExport,Modifier.fillMaxWidth().padding(horizontal=10.dp)) { Text("Отменить обработку") }
+                } else Button({ batchExportDialog=true },Modifier.fillMaxWidth().padding(horizontal=10.dp).testTag("batch-export"),
+                    enabled=!locked && info!=null) { Text("Обработать ${batch.rows.size} фото") }
             }
             previewError?.let { Text(it, color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 3.dp)) }
@@ -628,6 +746,51 @@ private fun PhotoEditorContent(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) }
         }
     }
+    if (batch != null && batchExportDialog) {
+        val draft = batch.draft
+        AlertDialog(onDismissRequest={batchExportDialog=false}, title={Text("Экспорт фотографий")},
+            text={
+                Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    Text("Исходное разрешение с учётом кадрирования и поворота. Оригиналы сохраняются.")
+                    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                        BatchPhotoFormat.entries.forEach { format ->
+                            FilterChip(selected=draft.format==format,onClick={draft.format=format},label={Text(format.name)})
+                        }
+                    }
+                    if(draft.format==BatchPhotoFormat.JPEG) {
+                        Row(verticalAlignment=Alignment.CenterVertically) {
+                            Checkbox(draft.removeGps,{draft.removeGps=it},enabled=!draft.removeExif)
+                            Text("Удалить GPS")
+                        }
+                        Row(verticalAlignment=Alignment.CenterVertically) {
+                            Checkbox(draft.removeExif,{draft.removeExif=it})
+                            Text("Удалить EXIF")
+                        }
+                        Text("Сохраняются основные данные камеры и даты; ориентация исправляется.")
+                    } else Text("PNG и WebP сохраняются без исходных метаданных.")
+                }
+            },confirmButton={TextButton({
+                batchExportDialog=false
+                if(!locked) batch.onStart(batch.rows,sharedBatchSpec())
+            },enabled=!locked,modifier=Modifier.testTag("batch-confirm-export")) { Text("Обработать ${batch.rows.size} фото") }},
+            dismissButton={TextButton({batchExportDialog=false}){Text("Отмена")}})
+    }
+    if(batch != null && batchReportDialog) {
+        AlertDialog(onDismissRequest={batchReportDialog=false},title={Text("Результаты обработки")},
+            text={Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("Сохранено: ${batch.state.outcomes.count { it.error == null }} / ${batch.state.total}")
+                if(batch.state.cancelled) Text("Обработка отменена. Готовые копии сохранены.")
+                batch.state.failed.forEach { Text("${it.name}: ${it.error}",color=MaterialTheme.colorScheme.error) }
+            }},confirmButton={TextButton({batchReportDialog=false}){Text("Готово")}},
+            dismissButton={if(!locked && batch.state.failed.isNotEmpty()) TextButton({
+                batchReportDialog=false
+                batch.onStart(batch.rows.filter { row->batch.state.failed.any { it.id==row.id } },sharedBatchSpec())
+            }) { Text("Повторить ошибки") }})
+    }
+    if(batchExitDialog) AlertDialog(onDismissRequest={batchExitDialog=false},title={Text("Обработка продолжается")},
+        text={Text("Можно вернуться в галерею. Обработка продолжится в фоне.")},
+        confirmButton={TextButton({batchExitDialog=false;onBack()}){Text("В галерею")}},
+        dismissButton={TextButton({batchExitDialog=false}){Text("Остаться")}})
 }
 
 @Composable
@@ -666,6 +829,7 @@ private fun PhotoWorkspaceTools(
     panelOpen: Boolean, onPanelOpen: (Boolean) -> Unit,
     cropTool: String, onCropTool: (String) -> Unit,
     edit: PhotoEditSnapshot, info: PhotoSourceInfo?, locked: Boolean,
+    allowAi: Boolean,
     activeLevel: PhotoLevelControl, onActiveLevel: (PhotoLevelControl) -> Unit,
     activeHslRange: HslRange, onHslRange: (HslRange) -> Unit,
     activeHslControl: PhotoHslControl, onHslControl: (PhotoHslControl) -> Unit,
@@ -1098,7 +1262,7 @@ private fun PhotoWorkspaceTools(
         Row(Modifier.fillMaxWidth().height(50.dp).horizontalScroll(rememberScrollState())
             .padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            PhotoWorkspaceTab.entries.forEach { category ->
+            PhotoWorkspaceTab.entries.filter { allowAi || it != PhotoWorkspaceTab.AI }.forEach { category ->
                 PhotoCategoryTab(
                     title = category.title,
                     icon = when (category) {
@@ -1231,7 +1395,7 @@ internal fun PhotoToolCard(label: String, icon: androidx.compose.ui.graphics.vec
     }
 }
 
-private fun readPhotoSource(context: android.content.Context, uri: Uri): PhotoSourceInfo? =
+private fun readPhotoSource(context: android.content.Context, uri: Uri, orient: Boolean = false): PhotoSourceInfo? =
     runCatching {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use {
@@ -1247,5 +1411,12 @@ private fun readPhotoSource(context: android.content.Context, uri: Uri): PhotoSo
                 BitmapFactory.Options().apply { inSampleSize = sample },
             )
         } ?: return@runCatching null
-        PhotoSourceInfo(bounds.outWidth, bounds.outHeight, preview)
+        val orientation = if (orient) context.contentResolver.openInputStream(uri)?.use {
+            runCatching { android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION,1) }
+                .getOrDefault(1)
+        } ?: 1 else 1
+        val oriented = PhotoSourceOrientation.apply(preview,orientation)
+        if (oriented !== preview) preview.recycle()
+        val (width,height) = PhotoSourceOrientation.dimensions(bounds.outWidth,bounds.outHeight,orientation)
+        PhotoSourceInfo(width,height,oriented)
     }.getOrNull()

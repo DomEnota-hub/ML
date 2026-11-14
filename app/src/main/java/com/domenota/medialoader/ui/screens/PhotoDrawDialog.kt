@@ -81,6 +81,7 @@ internal fun PhotoDrawDialog(
     preview: Bitmap,
     initial: List<PhotoMark> = emptyList(),
     textLayers: List<TextLayer> = emptyList(),
+    fitInside: Boolean = false,
     onApply: (List<PhotoMark>) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -285,7 +286,7 @@ internal fun PhotoDrawDialog(
                         PhotoDrawing.draw(canvas, preview.width, preview.height, current)
                         if (textLayers.isNotEmpty()) {
                             TextLayerRenderer.draw(context, canvas, preview.width, preview.height,
-                                textLayers, includeAll = true)
+                                textLayers, includeAll = true, fitInside = fitInside)
                         }
                         if (tool == DrawingTool.SELECT && selected in marks.indices) {
                             val bounds = PhotoMarkEdits.bounds(marks[selected])
@@ -338,7 +339,7 @@ internal fun PhotoDrawDialog(
                             canvas.drawBitmap(preview, 0f, 0f, AndroidPaint(AndroidPaint.FILTER_BITMAP_FLAG))
                             PhotoDrawing.draw(canvas, preview.width, preview.height, current)
                             if (textLayers.isNotEmpty()) TextLayerRenderer.draw(context, canvas,
-                                preview.width, preview.height, textLayers, includeAll = true)
+                                preview.width, preview.height, textLayers, includeAll = true, fitInside = fitInside)
                             canvas.restoreToCount(lensSave)
                             canvas.drawRoundRect(lens, 6.dp.toPx(), 6.dp.toPx(), outline)
                             canvas.drawCircle(lens.centerX(), lens.centerY(), radius * 2.5f, outline)
