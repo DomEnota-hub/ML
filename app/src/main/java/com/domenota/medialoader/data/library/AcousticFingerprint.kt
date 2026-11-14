@@ -10,6 +10,7 @@ internal data class AcousticFingerprint(val landmarks: List<AcousticLandmark>) {
     companion object { const val VERSION = 2 }
 }
 internal data class AcousticLandmark(val hash: Int, val frame: Int)
+internal data class AcousticAlignment(val firstMs:Long,val secondMs:Long)
 internal object AcousticFingerprints {
     const val RATE = 8000
     private const val N = 1024
@@ -106,6 +107,24 @@ internal object AcousticFingerprints {
         }
         return votes.any { (offset, hashes) -> hashes.size >= 90 &&
             spans.getValue(offset).let { (lo,hi) -> (hi-lo)*HOP >= RATE*6 } }
+    }
+    /** Only expose a seek target when a strong, unambiguous offset is supported. */
+    fun alignment(a:AcousticFingerprint,b:AcousticFingerprint):AcousticAlignment?{
+        val byHash=b.landmarks.groupBy{it.hash}
+        val votes=HashMap<Int,MutableSet<Int>>();val spans=HashMap<Int,Pair<Int,Int>>()
+        for(mark in a.landmarks)for(other in byHash[mark.hash].orEmpty().take(12)){
+            val offset=other.frame-mark.frame
+            votes.getOrPut(offset){HashSet()}.add(mark.hash)
+            val old=spans[offset];spans[offset]=minOf(old?.first?:mark.frame,mark.frame) to maxOf(old?.second?:mark.frame,mark.frame)
+        }
+        val best=votes.maxByOrNull{it.value.size}?:return null
+        val span=spans.getValue(best.key)
+        if(best.value.size<90||(span.second-span.first).toLong()*HOP<RATE*6)return null
+        val competitor=votes.filterKeys{k->kotlin.math.abs(k-best.key)>2}.values.maxOfOrNull{it.size}?:0
+        if(competitor*5>=best.value.size*4)return null
+        val second=span.first.toLong()+best.key
+        if(second<0)return null
+        return AcousticAlignment(span.first.toLong()*HOP*1000/RATE,second*HOP*1000/RATE)
     }
     /** Inverted index avoids testing every library pair. Oversubscribed hashes are ignored. */
     fun candidatePairs(input: Map<String,AcousticFingerprint>, checkActive: () -> Unit = {}): Set<Pair<String,String>> {

@@ -28,6 +28,7 @@ internal object VisualDuplicatePolicy {
             else->null
         }
     }
+    fun selectExact(groups:List<VisualDuplicateGroup>):Set<String> = groups.filter{it.reason==VisualMatch.EXACT}.flatMap{g->g.files.drop(1).map{it.id}}.toSet()
     /** Complete-link groups: no A~B~C chaining when A and C disagree.
      * Exact groups are separate from approximate candidates. */
     fun groups(input:List<VisualFingerprint>,cancelCheck:()->Unit={}):List<VisualDuplicateGroup>{
