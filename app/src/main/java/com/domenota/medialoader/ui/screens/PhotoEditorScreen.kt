@@ -358,54 +358,21 @@ private fun PhotoEditorContent(
             activeLevel == PhotoLevelControl.RGB_CURVES
         if (!rapidCurves) delay(35L)
         try {
-            val rendered = withContext(Dispatchers.Default) {
-                val input = if (rapidCurves) rgbFastPreview ?: source else source
-                val transformed = PhotoGeometryMath.preview(input, activeCrop, edit.rotation,
-                    edit.mirrorHorizontal, edit.mirrorVertical, edit.geometry)
-                val colored = try { PhotoColorMath.apply(transformed, edit.color) }
-                    catch (error: Throwable) { transformed.recycle(); throw error }
-                val localized = try { PhotoLocalEffects.apply(colored, edit.localEffects) }
-                    catch (error: Throwable) {
-                        if (colored !== transformed) colored.recycle()
-                        transformed.recycle()
-                        throw error
-                    }
-                // Pixelate the photo before compositing text or vector drawings.
-                val flatten = batch?.draft?.format == BatchPhotoFormat.JPEG
-                val hasOverlays = flatten || bakedGraphic != null ||
-                    edit.drawing.isNotEmpty() || edit.textLayers.isNotEmpty()
-                val output = if (flatten) Bitmap.createBitmap(localized.width,localized.height,Bitmap.Config.ARGB_8888)
-                    else if (hasOverlays) localized.copy(Bitmap.Config.ARGB_8888, true)
-                    else localized
-                try {
-                    if (hasOverlays) {
-                        val canvas = android.graphics.Canvas(output)
-                        if (flatten) {
-                            canvas.drawColor(android.graphics.Color.WHITE)
-                            canvas.drawBitmap(localized,0f,0f,null)
-                        }
-                        bakedGraphic?.let {
-                            PhotoGraphicWatermarkRenderer.draw(context, canvas, output.width, output.height, it)
-                        }
-                        if (edit.drawing.isNotEmpty())
-                            PhotoDrawing.draw(canvas, output.width, output.height, edit.drawing)
-                        if (edit.textLayers.isNotEmpty())
-                            TextLayerRenderer.draw(context, canvas, output.width, output.height,
-                                edit.textLayers, includeAll = true, fitInside = batch != null)
-                    }
-                    output
-                } catch (error: Throwable) {
-                    if (output !== localized && !output.isRecycled) output.recycle()
-                    throw error
-                } finally {
-                    // The output is owned by the screen; all intermediate buffers are freed.
-                    if (localized !== output && !localized.isRecycled) localized.recycle()
-                    if (colored !== output && colored !== localized && !colored.isRecycled) colored.recycle()
-                    if (transformed !== output && transformed !== colored &&
-                        transformed !== localized && !transformed.isRecycled) transformed.recycle()
+            var pending: Bitmap? = null
+            val previewSpec = PhotoEditSpec(rotationDegrees=edit.rotation,
+                mirrorHorizontal=edit.mirrorHorizontal,mirrorVertical=edit.mirrorVertical,
+                geometry=edit.geometry,colorAdjustments=edit.color,textLayers=edit.textLayers,
+                drawing=edit.drawing,localEffects=edit.localEffects,graphicWatermark=bakedGraphic)
+            try {
+                withContext(Dispatchers.Default) {
+                    val input = if(rapidCurves) rgbFastPreview ?: source else source
+                    val rendered=PhotoRenderPipeline.render(context,input,activeCrop,previewSpec,
+                        fitInside=batch!=null,flatten=batch?.draft?.format==BatchPhotoFormat.JPEG)
+                    pending=if(rendered===input) input.copy(Bitmap.Config.ARGB_8888,false) else rendered
                 }
-            }
-            composedPreview = rendered
+                composedPreview=pending
+                pending=null
+            } finally { pending?.recycle() }
             previewError = null
         } catch (error: CancellationException) {
             // Expected when a newer adjustment supersedes this preview.
@@ -784,7 +751,8 @@ private fun PhotoEditorContent(
             }},confirmButton={TextButton({batchReportDialog=false}){Text("Готово")}},
             dismissButton={if(!locked && batch.state.failed.isNotEmpty()) TextButton({
                 batchReportDialog=false
-                batch.onStart(batch.rows.filter { row->batch.state.failed.any { it.id==row.id } },sharedBatchSpec())
+                batch.onStart(batch.rows.filter { row->batch.state.failed.any { it.id==row.id } },
+                    batch.state.spec ?: sharedBatchSpec())
             }) { Text("Повторить ошибки") }})
     }
     if(batchExitDialog) AlertDialog(onDismissRequest={batchExitDialog=false},title={Text("Обработка продолжается")},

@@ -42,7 +42,8 @@ data class BatchPhotoSpec(
 }
 data class BatchPhotoOutcome(val id:String,val name:String,val error:String?=null)
 data class BatchPhotoState(val running:Boolean=false,val total:Int=0,
-    val outcomes:List<BatchPhotoOutcome> = emptyList(),val cancelled:Boolean=false) {
+    val outcomes:List<BatchPhotoOutcome> = emptyList(),val cancelled:Boolean=false,
+    val spec:BatchPhotoSpec?=null) {
     val failed get()=outcomes.filter{it.error!=null}
 }
 

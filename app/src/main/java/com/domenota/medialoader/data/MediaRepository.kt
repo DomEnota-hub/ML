@@ -1135,6 +1135,29 @@ class MediaRepository private constructor(context: Context) {
             }
     }
 
+    /** Batch editing is always public. Revalidate live identity and revocation both
+     * before decoding and under the same gate as a private move before publishing. */
+    internal suspend fun requirePublicBatchPhoto(source:DownloadEntity,epoch:Long):String {
+        val uri=requireNotNull(source.savedUri){"Исходный файл недоступен"}
+        check(source.mediaType==MediaType.PHOTO&&source.state==DownloadState.COMPLETED&&
+            !source.hidden&&!source.isPrivate&&Uri.parse(uri).scheme in setOf("file","content")&&
+            !privateFiles.owns(uri)){"Фото недоступно"}
+        val current=history.byId(source.id)
+        check(if(current==null)source.providerId=="device" else
+            current.savedUri==uri&&!current.hidden&&!current.isPrivate&&
+                current.state==DownloadState.COMPLETED&&current.mediaType==MediaType.PHOTO){"Фото изменилось"}
+        val identities=PublicMediaIdentity.capture(appContext,uri)
+        val blocked=privateMediaIds.first()
+        check(source.id !in blocked&&identities.none(blocked::contains)&&
+            DuplicatePrivacyGuard.accepts(appContext,epoch,source.id,identities)){"Фото больше недоступно"}
+        return uri
+    }
+    internal suspend fun publishBatchEditedPhoto(source:DownloadEntity,file:java.io.File,
+        name:String,mime:String,epoch:Long):DownloadEntity = musicPostProcessGate.withPermit {
+        requirePublicBatchPhoto(source,epoch)
+        publishDerived(source,file,name,MediaType.PHOTO,mime,operation="Пакетная обработка фото")
+    }
+
     suspend fun publishEditedFile(
         source: DownloadEntity,
         file: java.io.File,

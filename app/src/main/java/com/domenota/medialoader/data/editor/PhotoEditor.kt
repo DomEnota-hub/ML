@@ -103,8 +103,10 @@ class PhotoEditor(private val context: Context) {
                 val pixels = (bounds.outWidth.toLong()/sample) * (bounds.outHeight/sample)
                 val runtime = Runtime.getRuntime()
                 val available = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())
-                val estimated = pixels * 16L
-                require(pixels <= 24_000_000L && estimated < available - 12L*1024*1024) {
+                val complex = !spec.colorAdjustments.isNeutral() || !spec.geometry.isNeutral() ||
+                    spec.localEffects.isNotEmpty() || spec.drawing.isNotEmpty()
+                val estimated = pixels * (if(complex) 16L else 8L)
+                require(pixels <= 100_000_000L && estimated < available - 12L*1024*1024) {
                     "Недостаточно памяти для обработки исходного разрешения."
                 }
             }
@@ -137,39 +139,9 @@ class PhotoEditor(private val context: Context) {
             onProgress(25)
             val crop = batch?.cropFor(orientedW,orientedH) ?: CropFractions(
                 spec.cropLeft,spec.cropRight,spec.cropTop,spec.cropBottom)
-            if (crop != CropFractions() || spec.rotationDegrees % 360 != 0 ||
-                spec.mirrorHorizontal || spec.mirrorVertical || !spec.geometry.isNeutral()) {
-                replace(PhotoGeometryMath.preview(image(),crop,spec.rotationDegrees,
-                    spec.mirrorHorizontal,spec.mirrorVertical,spec.geometry))
-            }
-            currentCoroutineContext().ensureActive()
-            onProgress(50)
-            if (!spec.colorAdjustments.isNeutral())
-                replace(PhotoColorMath.apply(image(),spec.colorAdjustments))
-            if (spec.localEffects.isNotEmpty())
-                replace(PhotoLocalEffects.apply(image(),spec.localEffects))
-            currentCoroutineContext().ensureActive()
-            onProgress(75)
-            val flatten = batch != null && format == BatchPhotoFormat.JPEG
-            if (flatten || spec.graphicWatermark != null || spec.drawing.isNotEmpty() || spec.textLayers.isNotEmpty()) {
-                val base = image()
-                val composed = if (flatten) Bitmap.createBitmap(base.width,base.height,Bitmap.Config.ARGB_8888)
-                    else base.copy(Bitmap.Config.ARGB_8888,true)
-                try {
-                    val canvas = Canvas(composed)
-                    if (flatten) {
-                        canvas.drawColor(android.graphics.Color.WHITE)
-                        canvas.drawBitmap(base,0f,0f,null)
-                    }
-                    spec.graphicWatermark?.let {
-                        PhotoGraphicWatermarkRenderer.draw(context,canvas,composed.width,composed.height,it)
-                    }
-                    if (spec.drawing.isNotEmpty()) PhotoDrawing.draw(canvas,composed.width,composed.height,spec.drawing)
-                    if (spec.textLayers.isNotEmpty()) TextLayerRenderer.draw(context,canvas,
-                        composed.width,composed.height,spec.textLayers,includeAll=true,fitInside=batch!=null)
-                } catch (error: Throwable) { composed.recycle(); throw error }
-                replace(composed)
-            }
+            replace(PhotoRenderPipeline.render(context,image(),crop,spec,
+                fitInside=batch!=null,flatten=batch!=null&&format==BatchPhotoFormat.JPEG,
+                retainSource=false,onProgress=onProgress))
             currentCoroutineContext().ensureActive()
             val encoder = when (format) {
                 BatchPhotoFormat.JPEG -> Bitmap.CompressFormat.JPEG
