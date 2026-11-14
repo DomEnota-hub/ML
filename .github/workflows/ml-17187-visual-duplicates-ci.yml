@@ -3,18 +3,24 @@ on:
   push:
     branches:
       - feature/ml-17187-visual-duplicates-20261114
+  pull_request:
+    branches:
+      - feature/ml-17187-media-organization-20261114
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: ml-17187-visual-duplicates
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   verify:
+    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17187-visual-duplicates-20261114'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
