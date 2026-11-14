@@ -32,7 +32,9 @@ class MissingFileRecoveryPolicyTest {
 
     @Test fun legacyRowsNeedSingleVerifiedPublicationAndCannotGuessCarouselPosition() {
         val legacy = row.copy(bulkMediaKey = null, groupId = null, sourcePageUrl = item.sourcePageUrl)
-        assertEquals(item, MissingFileRecoveryPolicy.match(legacy, listOf(item)))
+        val single=item.copy(id="ABCdef123",sourceGroupId="ABCdef123",position=null)
+        assertEquals(single,MissingFileRecoveryPolicy.match(legacy,listOf(single)))
+        assertNull(MissingFileRecoveryPolicy.match(legacy,listOf(item)))
         assertNull(MissingFileRecoveryPolicy.match(legacy, listOf(item, item.copy(id = "another"))))
         assertNull(MissingFileRecoveryPolicy.match(legacy.copy(groupId = "old-carousel"), listOf(item)))
         assertNull(MissingFileRecoveryPolicy.match(legacy, listOf(item.copy(sourcePageUrl = "https://www.instagram.com/p/Other123/"))))
@@ -47,5 +49,26 @@ class MissingFileRecoveryPolicyTest {
             formatSelector = "format-1")
         assertEquals(youtube, MissingFileRecoveryPolicy.match(previous, listOf(youtube)))
         assertNull(MissingFileRecoveryPolicy.match(previous, listOf(youtube.copy(formatSelector = "format-2"))))
+    }
+
+    @Test fun singleReelWithExtractedAudioDoesNotBecomeAmbiguous(){
+        val url="https://www.instagram.com/reel/DfJq2fdoCdM/"
+        val reel=item.copy(id="DfJq2fdoCdM",sourceGroupId="DfJq2fdoCdM",position=null,type=MediaType.VIDEO,sourcePageUrl=url)
+        val audio=com.domenota.medialoader.core.provider.DefaultMediaResolver.audioTrackOf(reel).copy(sourcePageUrl=url)
+        val legacy=row.copy(mediaType=MediaType.VIDEO,bulkMediaKey=null,groupId=null,sourcePageUrl=url)
+        assertEquals(reel,MissingFileRecoveryPolicy.match(legacy,listOf(audio,reel)))
+        assertNull(MissingFileRecoveryPolicy.match(legacy,listOf(reel.copy(position=1),audio)))
+        assertNull(MissingFileRecoveryPolicy.match(legacy,listOf(reel,reel.copy(id="sibling",position=2))))
+        assertNull(MissingFileRecoveryPolicy.match(legacy.copy(mediaType=MediaType.AUDIO),listOf(reel,audio)))
+        assertEquals(audio,MissingFileRecoveryPolicy.match(legacy.copy(mediaType=MediaType.AUDIO,sourceUrl=reel.downloadUrl),listOf(reel,audio)))
+    }
+    @Test fun uniqueYoutubeFormatCanBeSelectedWithoutGuessing(){
+        val url="https://youtu.be/abcdefghijk"
+        val a=item.copy(providerId="youtube",type=MediaType.VIDEO,sourcePageUrl=url,formatSelector="137")
+        val b=a.copy(id="other",formatSelector="136")
+        val previous=row.copy(providerId="youtube",mediaType=MediaType.VIDEO,bulkMediaKey=null,groupId=null,sourcePageUrl=url,formatSelector="137")
+        assertEquals(a,MissingFileRecoveryPolicy.match(previous,listOf(a,b)))
+        assertNull(MissingFileRecoveryPolicy.match(previous,listOf(b)))
+        assertNull(MissingFileRecoveryPolicy.match(previous,listOf(a,a.copy(id="duplicate"))))
     }
 }
