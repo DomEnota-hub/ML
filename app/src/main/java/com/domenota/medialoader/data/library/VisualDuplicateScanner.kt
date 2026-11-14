@@ -80,6 +80,27 @@ internal object VisualDuplicateScanner {
         return VisualFingerprint(ref.key,uri.toString(),row.mediaType,before.bytes,before.modified,hash,width,height,duration,
             frames.map{it.hash},frames.isNotEmpty()&&frames.all{it.informative})
     }
+    /** Cheap catalog reconciliation is not authorization to trash a file. */
+    fun matchesCatalog(snapshot:VisualFingerprint,ref:LibraryMediaRef):Boolean {
+        val row=ref.item
+        return ref.key==snapshot.id && row.savedUri==snapshot.uri &&
+            row.mediaType==snapshot.type && row.state==DownloadState.COMPLETED &&
+            !row.isPrivate && !row.hidden && row.sizeBytes==snapshot.bytes
+    }
+
+    /** Re-read the entire file immediately before a destructive operation.
+     * A missing timestamp is not treated as proof of identity. */
+    suspend fun verify(context:Context,snapshot:VisualFingerprint,ref:LibraryMediaRef):Boolean=withContext(Dispatchers.IO){
+        if(!matchesCatalog(snapshot,ref)||snapshot.sha.isBlank())return@withContext false
+        try {
+            val uri=Uri.parse(snapshot.uri)
+            val before=stamp(context,uri)
+            if(before.bytes!=snapshot.bytes || before.modified!=snapshot.modified)return@withContext false
+            val hash=sha(context,uri)
+            hash==snapshot.sha && before==stamp(context,uri)
+        }catch(e:CancellationException){throw e}catch(_:Exception){false}
+    }
+
     suspend fun scan(context:Context,refs:List<LibraryMediaRef>,progress:(Int,Int)->Unit={ _, _ -> }):VisualScanResult=withContext(Dispatchers.IO){
         val candidates=refs.filter{val r=it.item;!r.isPrivate&&!r.hidden&&r.state==DownloadState.COMPLETED&&r.mediaType!=MediaType.AUDIO&&!r.savedUri.isNullOrBlank()}
             .distinctBy{it.item.savedUri}
