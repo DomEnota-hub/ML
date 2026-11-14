@@ -1163,16 +1163,22 @@ private fun PhotoEffectCard(
     onFavorite: () -> Unit, onClick: () -> Unit,
 ) {
     val source = info?.preview
-    // Cache an actual filtered thumbnail for each preset; a color matrix
-    // alone cannot preview grain, matte film and other nonlinear treatments.
-    val thumbnail = remember(source, effect) {
-        if (source == null) null else try {
-            val sample = Bitmap.createScaledBitmap(source, 96, 96, true)
-            val rendered = PhotoColorMath.apply(sample,
-                PhotoColorAdjustments(effect = effect))
-            if (sample !== rendered) sample.recycle()
-            rendered
-        } catch (_: Throwable) { null }
+    // Bounded, aspect-preserving samples; expensive preset rendering is off-main.
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val edge = (94 * density).roundToInt().coerceIn(256, 384)
+    var thumbnail by remember(source, effect, edge) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(source, effect, edge) {
+        if (source == null) return@LaunchedEffect
+        var pending: Bitmap? = null
+        try {
+            withContext(Dispatchers.Default) {
+                pending = PhotoFilterThumbnail.render(source, effect, edge)
+            }
+            thumbnail = pending
+            pending = null
+        } catch (error: CancellationException) { throw error }
+        catch (_: Exception) { thumbnail = null }
+        finally { pending?.recycle() }
     }
     DisposableEffect(thumbnail) {
         onDispose { if (thumbnail != null && thumbnail !== source && !thumbnail.isRecycled)
@@ -1186,7 +1192,7 @@ private fun PhotoEffectCard(
             contentAlignment = Alignment.BottomCenter) {
             thumbnail?.let {
                 Image(it.asImageBitmap(), contentDescription = null,
-                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             }
             Box(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .67f)),
                 contentAlignment = Alignment.Center) {
