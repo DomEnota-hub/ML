@@ -385,9 +385,25 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     var evidence by remember(targetId){mutableStateOf<AcousticAlignment?>(null)}
     fun choose(t:DuplicateTrack){active=t.id;if(t.id!=reference.id)targetId=t.id;onPlay(t,0L)}
     LaunchedEffect(active){
+        val job=kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
         waveform=withContext(Dispatchers.IO){
             if(!DuplicatePrivacyGuard.accepts(context,track.privacyEpoch,track.id))FloatArray(0)
-            else try{loadAudioWaveform(context,Uri.parse(track.uri))}catch(e:CancellationException){throw e}catch(_:Exception){FloatArray(0)}
+            else try{
+                val uri=Uri.parse(track.uri)
+                val duration=runCatching{
+                    val retriever=android.media.MediaMetadataRetriever()
+                    try{retriever.setDataSource(context,uri);retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()}
+                    finally{retriever.release()}
+                }.getOrNull()?.takeIf{it>0}?:track.duration?.takeIf{it>0}
+                if(duration==null)FloatArray(0) else {
+                    // Share the player/editor's PCM RMS v6 cache and cancellation gate.
+                    // The legacy packet-size fallback is not a true audio waveform.
+                    val cached=com.domenota.medialoader.ui.components.readCachedAudioWaveform(context,uri,duration)
+                    val peaks=cached?:loadAudioWaveform(context,uri,duration,isCancelled={job?.isActive==false})
+                    if(peaks.isEmpty()||!DuplicatePrivacyGuard.accepts(context,track.privacyEpoch,track.id))FloatArray(0)
+                    else com.domenota.medialoader.ui.components.waveformColumnPeaks(peaks,256)
+                }
+            }catch(e:CancellationException){throw e}catch(_:Exception){FloatArray(0)}
         }
     }
     LaunchedEffect(targetId){
