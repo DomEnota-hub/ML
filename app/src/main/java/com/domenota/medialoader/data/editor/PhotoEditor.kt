@@ -6,7 +6,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
-import android.graphics.Matrix
 import android.net.Uri
 import java.io.File
 import java.io.FileOutputStream
@@ -16,7 +15,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import kotlin.math.roundToInt
 
 data class PhotoEditSpec(
     val cropLeft: Float = 0f,
@@ -58,27 +56,62 @@ class PhotoEditor(private val context: Context) {
         source: Uri,
         spec: PhotoEditSpec,
         onProgress: (Int) -> Unit = {},
+    ): PhotoExportResult = exportInternal(source, spec, null, onProgress)
+
+    suspend fun exportBatch(source: Uri, batch: BatchPhotoSpec): PhotoExportResult {
+        val spec = batch.photoEdit()
+        require(spec.inpaintOverlayPath == null) { "AI недоступен в пакетном режиме." }
+        return exportInternal(source, spec, batch, {})
+    }
+
+    /** One processing pipeline for both modes; only batch encoding, orientation and fitting differ. */
+    private suspend fun exportInternal(
+        source: Uri, spec: PhotoEditSpec, batch: BatchPhotoSpec?,
+        onProgress: (Int) -> Unit,
     ): PhotoExportResult = withContext(Dispatchers.IO) {
         currentCoroutineContext().ensureActive()
         onProgress(5)
-
-        val mime = context.contentResolver.getType(source).orEmpty()
-        val png = mime.equals("image/png", ignoreCase = true)
-        val extension = if (png) "png" else "jpg"
-        val outputMime = if (png) "image/png" else "image/jpeg"
-        val output = File(context.cacheDir, "photo-edit-${UUID.randomUUID()}.$extension")
-
-        var sourceBitmap: Bitmap? = null
-        var cropped: Bitmap? = null
-        var transformed: Bitmap? = null
-        var geometric: Bitmap? = null
-        var withColor: Bitmap? = null
-        var localized: Bitmap? = null
-        var composed: Bitmap? = null
+        val resolver = context.contentResolver
+        val mime = resolver.getType(source).orEmpty()
+        val format = batch?.format ?: if (mime.equals("image/png", true))
+            BatchPhotoFormat.PNG else BatchPhotoFormat.JPEG
+        val output = File(context.cacheDir, "photo-edit-${UUID.randomUUID()}.${format.extension}")
+        var owned: Bitmap? = null
+        fun image(): Bitmap = requireNotNull(owned)
+        fun replace(next: Bitmap) {
+            val old = owned
+            owned = next
+            if (old != null && old !== next && !old.isRecycled) old.recycle()
+        }
         try {
-            sourceBitmap = context.contentResolver.openInputStream(source)?.use { input ->
-                BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            resolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0)
+                throw IOException("Не удалось открыть изображение.")
+            val exif = if (batch != null) resolver.openInputStream(source)?.use {
+                runCatching { android.media.ExifInterface(it) }.getOrNull()
+            } else null
+            val orientation = exif?.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION,1) ?: 1
+            val (orientedW,orientedH) = PhotoSourceOrientation.dimensions(bounds.outWidth,bounds.outHeight,orientation)
+            val target = batch?.dimensions(orientedW,orientedH) ?: (orientedW to orientedH)
+            var sample = 1
+            while (orientedW/(sample*2) >= target.first && orientedH/(sample*2) >= target.second)
+                sample *= 2
+            if (batch != null) {
+                // Full-resolution requests are never silently downscaled. Reject only
+                // unsafe allocations; a failure affects this photo, not the whole batch.
+                val pixels = (bounds.outWidth.toLong()/sample) * (bounds.outHeight/sample)
+                val runtime = Runtime.getRuntime()
+                val available = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())
+                val estimated = pixels * 16L
+                require(pixels <= 24_000_000L && estimated < available - 12L*1024*1024) {
+                    "Недостаточно памяти для обработки исходного разрешения."
+                }
+            }
+            owned = resolver.openInputStream(source)?.use {
+                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
                     inPreferredConfig = Bitmap.Config.ARGB_8888
+                    inSampleSize = sample
                     inMutable = spec.inpaintOverlayPath != null
                 })
             } ?: throw IOException("Не удалось открыть изображение.")
@@ -86,131 +119,91 @@ class PhotoEditor(private val context: Context) {
                 val permittedDir = File(context.cacheDir, "inpainting-overlays").canonicalFile
                 val overlayFile = File(spec.inpaintOverlayPath).canonicalFile
                 if (overlayFile.parentFile != permittedDir || !overlayFile.isFile ||
-                    !overlayFile.name.endsWith(".png")
-                ) throw IOException("Не удалось прочитать рабочую маску редактора.")
+                    !overlayFile.name.endsWith(".png")) throw IOException("Не удалось прочитать рабочую маску редактора.")
                 val overlay = BitmapFactory.decodeFile(overlayFile.absolutePath)
                     ?: throw IOException("Рабочая маска повреждена.")
                 try {
-                    val original = requireNotNull(sourceBitmap)
-                    // Transparent mask areas leave original full-resolution pixels untouched.
-                    Canvas(original).drawBitmap(overlay,
-                        Rect(0, 0, overlay.width, overlay.height),
-                        Rect(0, 0, original.width, original.height),
+                    Canvas(image()).drawBitmap(overlay, Rect(0,0,overlay.width,overlay.height),
+                        Rect(0,0,image().width,image().height),
                         Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
-                } finally {
-                    overlay.recycle()
-                }
+                } finally { overlay.recycle() }
+            }
+            if (batch != null) {
+                replace(PhotoSourceOrientation.apply(image(), orientation))
+                if (image().width != target.first || image().height != target.second)
+                    replace(Bitmap.createScaledBitmap(image(),target.first,target.second,true))
             }
             currentCoroutineContext().ensureActive()
             onProgress(25)
-
-            val width = sourceBitmap.width
-            val height = sourceBitmap.height
-            val left = (width * spec.cropLeft).roundToInt().coerceIn(0, width - 1)
-            val top = (height * spec.cropTop).roundToInt().coerceIn(0, height - 1)
-            val right = (width * (1f - spec.cropRight)).roundToInt().coerceIn(left + 1, width)
-            val bottom = (height * (1f - spec.cropBottom)).roundToInt().coerceIn(top + 1, height)
-
-            cropped = if (left == 0 && top == 0 && right == width && bottom == height) {
-                sourceBitmap
-            } else {
-                Bitmap.createBitmap(sourceBitmap, left, top, right - left, bottom - top)
+            val crop = batch?.cropFor(orientedW,orientedH) ?: CropFractions(
+                spec.cropLeft,spec.cropRight,spec.cropTop,spec.cropBottom)
+            if (crop != CropFractions() || spec.rotationDegrees % 360 != 0 ||
+                spec.mirrorHorizontal || spec.mirrorVertical || !spec.geometry.isNeutral()) {
+                replace(PhotoGeometryMath.preview(image(),crop,spec.rotationDegrees,
+                    spec.mirrorHorizontal,spec.mirrorVertical,spec.geometry))
             }
-            if (cropped !== sourceBitmap) {
-                sourceBitmap.recycle()
-                sourceBitmap = null
-            }
-
             currentCoroutineContext().ensureActive()
             onProgress(50)
-            val rotation = ((spec.rotationDegrees % 360) + 360) % 360
-            val needsTransform = rotation != 0 || spec.mirrorHorizontal || spec.mirrorVertical
-            transformed = if (needsTransform) {
-                val matrix = Matrix().apply {
-                    if (spec.mirrorHorizontal || spec.mirrorVertical) {
-                        postScale(
-                            if (spec.mirrorHorizontal) -1f else 1f,
-                            if (spec.mirrorVertical) -1f else 1f,
-                        )
-                    }
-                    if (rotation != 0) postRotate(rotation.toFloat())
-                }
-                Bitmap.createBitmap(
-                    requireNotNull(cropped),
-                    0,
-                    0,
-                    requireNotNull(cropped).width,
-                    requireNotNull(cropped).height,
-                    matrix,
-                    true,
-                )
-            } else {
-                cropped
-            }
-            if (transformed !== cropped) {
-                cropped?.recycle()
-                cropped = null
-            }
-
+            if (!spec.colorAdjustments.isNeutral())
+                replace(PhotoColorMath.apply(image(),spec.colorAdjustments))
+            if (spec.localEffects.isNotEmpty())
+                replace(PhotoLocalEffects.apply(image(),spec.localEffects))
             currentCoroutineContext().ensureActive()
             onProgress(75)
-            geometric = if (spec.geometry.isNeutral()) null
-                else PhotoGeometryMath.apply(requireNotNull(transformed), spec.geometry)
-            // Apply geometry before photo color and overlays, identically to previews.
-            withColor = if (spec.colorAdjustments.isNeutral()) null
-                else PhotoColorMath.apply(requireNotNull(geometric ?: transformed),
-                    spec.colorAdjustments)
-            // Local mosaic is applied before drawing/text overlays, using the same
-            // normalized masks as the preview, never touching the source file.
-            if (spec.localEffects.isNotEmpty())
-                localized = PhotoLocalEffects.apply(
-                    requireNotNull(withColor ?: geometric ?: transformed),
-                    spec.localEffects)
-            // A single mutable output for all overlays: importing a watermark should
-            // not require 3–4 extra full-resolution bitmap copies.
-            val needLayers = spec.graphicWatermark != null ||
-                spec.drawing.isNotEmpty() || spec.textLayers.isNotEmpty()
-            if (needLayers) {
-                val base = requireNotNull(localized ?: withColor ?: geometric ?: transformed)
-                composed = base.copy(Bitmap.Config.ARGB_8888, true)
-                val canvas = Canvas(requireNotNull(composed))
-                spec.graphicWatermark?.let { mark ->
-                    PhotoGraphicWatermarkRenderer.draw(context, canvas,
-                        requireNotNull(composed).width, requireNotNull(composed).height, mark)
-                }
-                if (spec.drawing.isNotEmpty()) {
-                    PhotoDrawing.draw(canvas, requireNotNull(composed).width,
-                        requireNotNull(composed).height, spec.drawing)
-                }
-                if (spec.textLayers.isNotEmpty()) {
-                    TextLayerRenderer.draw(context, canvas, requireNotNull(composed).width,
-                        requireNotNull(composed).height, spec.textLayers, includeAll = true)
-                }
+            val flatten = batch != null && format == BatchPhotoFormat.JPEG
+            if (flatten || spec.graphicWatermark != null || spec.drawing.isNotEmpty() || spec.textLayers.isNotEmpty()) {
+                val base = image()
+                val composed = if (flatten) Bitmap.createBitmap(base.width,base.height,Bitmap.Config.ARGB_8888)
+                    else base.copy(Bitmap.Config.ARGB_8888,true)
+                try {
+                    val canvas = Canvas(composed)
+                    if (flatten) {
+                        canvas.drawColor(android.graphics.Color.WHITE)
+                        canvas.drawBitmap(base,0f,0f,null)
+                    }
+                    spec.graphicWatermark?.let {
+                        PhotoGraphicWatermarkRenderer.draw(context,canvas,composed.width,composed.height,it)
+                    }
+                    if (spec.drawing.isNotEmpty()) PhotoDrawing.draw(canvas,composed.width,composed.height,spec.drawing)
+                    if (spec.textLayers.isNotEmpty()) TextLayerRenderer.draw(context,canvas,
+                        composed.width,composed.height,spec.textLayers,includeAll=true,fitInside=batch!=null)
+                } catch (error: Throwable) { composed.recycle(); throw error }
+                replace(composed)
             }
-            FileOutputStream(output).use { stream ->
-                val ok = requireNotNull(composed ?: localized ?: withColor ?: geometric ?: transformed).compress(
-                    if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
-                    if (png) 100 else 95,
-                    stream,
-                )
-                if (!ok) throw IOException("Не удалось сохранить изображение.")
+            currentCoroutineContext().ensureActive()
+            val encoder = when (format) {
+                BatchPhotoFormat.JPEG -> Bitmap.CompressFormat.JPEG
+                BatchPhotoFormat.PNG -> Bitmap.CompressFormat.PNG
+                BatchPhotoFormat.WEBP -> if (android.os.Build.VERSION.SDK_INT >= 30)
+                    Bitmap.CompressFormat.WEBP_LOSSY else @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
             }
-            if (!output.exists() || output.length() == 0L) throw IOException("Файл изображения пуст.")
+            FileOutputStream(output).use {
+                if (!image().compress(encoder,if(format==BatchPhotoFormat.PNG)100 else batch?.quality ?: 95,it))
+                    throw IOException("Не удалось сохранить изображение.")
+            }
+            if (batch != null && format==BatchPhotoFormat.JPEG && !batch.removeExif && exif!=null)
+                copyBatchExif(exif,output,batch.removeGps)
+            currentCoroutineContext().ensureActive()
+            if (output.length()==0L) throw IOException("Файл изображения пуст.")
             onProgress(100)
-            PhotoExportResult(output, extension, outputMime)
+            PhotoExportResult(output,format.extension,format.mime)
         } catch (error: Throwable) {
             output.delete()
             throw error
-        } finally {
-            composed?.recycle()
-            localized?.recycle()
-            withColor?.recycle()
-            geometric?.recycle()
-            if (transformed != null && transformed !== cropped && transformed !== sourceBitmap) {
-                transformed?.recycle()
-            }
-            if (cropped != null && cropped !== sourceBitmap) cropped?.recycle()
-            sourceBitmap?.recycle()
+        } finally { owned?.takeUnless { it.isRecycled }?.recycle() }
+    }
+
+    private fun copyBatchExif(source: android.media.ExifInterface, output: File, removeGps: Boolean) {
+        val dest = android.media.ExifInterface(output.absolutePath)
+        // Preserve the existing batch metadata contract: basic camera/date fields only.
+        val tags = listOf("Make","Model","DateTime","DateTimeOriginal","ExposureTime","FNumber",
+            "FocalLength","ISOSpeedRatings","WhiteBalance")
+        tags.forEach { tag -> source.getAttribute(tag)?.let { dest.setAttribute(tag,it) } }
+        if (!removeGps) listOf("GPSLatitude","GPSLatitudeRef","GPSLongitude","GPSLongitudeRef",
+            "GPSAltitude","GPSAltitudeRef","GPSDateStamp","GPSTimeStamp").forEach { tag ->
+            source.getAttribute(tag)?.let { dest.setAttribute(tag,it) }
         }
+        dest.setAttribute(android.media.ExifInterface.TAG_ORIENTATION,"1")
+        dest.saveAttributes()
     }
 }
