@@ -14,6 +14,11 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.AspectRatio
+import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -116,7 +121,8 @@ internal fun GalleryVideoHeader(
                     Triple("trash", "Удалить", onDelete),
                 ).filterNot { !showFavorite && it.first == "heart" }
                     .forEach { (asset, label, action) ->
-                    IconButton(onClick = action, modifier = Modifier.size(if (compactLandscape) 36.dp else 43.dp)
+                    IconButton(onClick = action, modifier = Modifier.size(
+                        if (asset == "share") 48.dp else if (compactLandscape) 36.dp else 43.dp)
                         .semantics { contentDescription = label }) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             if (asset == "heart") {
@@ -126,7 +132,7 @@ internal fun GalleryVideoHeader(
                                     modifier = Modifier.size(if (compactLandscape) 24.dp else 28.dp),
                                     tint = if (isFavorite) Color(0xFFF04452) else Color.White,
                                 )
-                            } else if (asset == "share") GalleryShareIcon(Modifier.size(if (compactLandscape) 25.dp else 28.dp))
+                            } else if (asset == "share") GalleryShareIcon(Modifier.size(if (compactLandscape) 23.dp else 25.dp).testTag("gallery-share-glyph"))
                             else GalleryV10Icon(asset, Modifier.size(if (compactLandscape) 24.dp else 28.dp))
                         }
                     }
@@ -178,7 +184,7 @@ internal fun GalleryV10Bottom(
                         modifier = Modifier.size(30.dp),
                         tint = if (isFavorite) Color(0xFFF04452) else Color.White,
                     )
-                } else if (key == "share") GalleryShareIcon(Modifier.size(30.dp))
+                } else if (key == "share") GalleryShareIcon(Modifier.size(26.dp).testTag("gallery-share-glyph"))
                 else GalleryV10Icon(key, Modifier.size(30.dp))
             }
         }
@@ -210,9 +216,9 @@ private val v10VideoRows = listOf(
     V10MenuRow("cast", "Транслировать", "cast"),
     V10MenuRow("loop", "Зациклить одно видео", "loop"),
     V10MenuRow("speed", "Скорость воспроизведения", "speed", true),
-    V10MenuRow("aspect", "Пропорции видео", "open"),
+    V10MenuRow("aspect", "Пропорции видео", "aspect"),
     V10MenuRow("tracks", "Звуковые дорожки", "music"),
-    V10MenuRow("time", "Перейти ко времени", "speed"),
+    V10MenuRow("time", "Перейти ко времени", "time"),
     V10MenuRow("song", "Найти трек", "music"),
     V10MenuRow("divider2", "", ""),
     V10MenuRow("copy", "Копировать", "copy"),
@@ -220,6 +226,22 @@ private val v10VideoRows = listOf(
     V10MenuRow("divider3", "", ""),
     V10MenuRow("private", "Переместить в личное", "lock"),
 )
+
+/** Three separate vector glyphs, also used by the nested speed surface. */
+internal fun galleryVideoMenuGlyph(id: String): ImageVector? = when (id) {
+    "speed" -> Icons.Rounded.Speed
+    "aspect" -> Icons.Rounded.AspectRatio
+    "time" -> Icons.Rounded.AccessTime
+    else -> null
+}
+
+@Composable
+private fun GalleryVideoMenuIcon(id: String, fallback: String, modifier: Modifier = Modifier) {
+    val glyph = galleryVideoMenuGlyph(id)
+    if (glyph != null) Icon(glyph, contentDescription = null, tint = Color.White,
+        modifier = modifier.testTag("gallery-menu-icon-$id"))
+    else GalleryV10Icon(fallback, modifier)
+}
 
 /** Stable labels are verified against the approved photo/video action lists. */
 internal fun galleryV10ActionLabels(isPhoto: Boolean): List<String> =
@@ -286,7 +308,7 @@ internal fun GalleryV10Popup(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         Box(Modifier.size(29.dp), contentAlignment = Alignment.Center) {
-                            GalleryV10Icon(row.icon, Modifier.size(if (row.id == "open") 23.dp else 29.dp))
+                            GalleryVideoMenuIcon(row.id, row.icon, Modifier.size(if (row.id == "open" || galleryVideoMenuGlyph(row.id) != null) 23.dp else 29.dp))
                         }
                         Text(row.title, modifier = Modifier.weight(1f), color = Color.White,
                             fontSize = if (row.id == "open") 13.3.sp else 14.sp,
@@ -322,7 +344,8 @@ internal fun GalleryV10Popup(
             ) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 55.dp).padding(horizontal = 18.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(15.dp)) {
-                    GalleryV10Icon(if (secondary == "extract") "extract" else "speed", Modifier.size(22.dp))
+                    GalleryVideoMenuIcon(if (secondary == "extract") "extract" else "speed",
+                        if (secondary == "extract") "extract" else "speed", Modifier.size(22.dp))
                     Text(if (secondary == "extract") "Извлечь текст" else "Скорость воспроизведения",
                         fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
                         modifier = Modifier.weight(1f))

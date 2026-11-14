@@ -1,8 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
 import android.graphics.Bitmap
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,24 +8,29 @@ import androidx.compose.material3.*
 import com.domenota.medialoader.ui.components.AppSlider as Slider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.editor.VideoColorAdjustments
 import com.domenota.medialoader.data.editor.VideoColorGrade
-import com.domenota.medialoader.data.editor.VideoFilterGroup
 import com.domenota.medialoader.data.editor.VideoFilterPreset
 import com.domenota.medialoader.data.editor.PhotoEffect
 import com.domenota.medialoader.data.editor.PhotoEffectCategory
 import com.domenota.medialoader.data.editor.SharedVideoFilterCatalog
 import com.domenota.medialoader.data.editor.VideoClipDraft
 import java.util.Locale
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.platform.testTag
+import kotlin.math.roundToInt
+
+internal fun videoFilterHasIntensity(color: VideoColorGrade): Boolean =
+    color.photoEffect?.let { it != PhotoEffect.NONE } ?: (color.preset != VideoFilterPreset.ORIGINAL)
+
+internal fun videoFilterSelected(color: VideoColorGrade, effect: PhotoEffect): Boolean =
+    color.photoEffect == effect || (color.photoEffect == null &&
+        color.preset == VideoFilterPreset.ORIGINAL && effect == PhotoEffect.NONE)
 
 /** Only the active clip is edited; filters and manual color changes compose non-destructively. */
 @Composable
@@ -51,69 +54,47 @@ internal fun VideoColorPanel(
             .getStringSet("selected", emptySet()).orEmpty()
             .mapNotNull { name -> PhotoEffect.entries.find { it.name == name } }.toSet()
     }
-    var thumbs by remember(clip?.sourceUri, clip?.inMs) {
-        mutableStateOf<Map<PhotoEffect, Bitmap>>(emptyMap())
-    }
-    // Render true per-preset photo thumbnails off the main thread. Both editors
-    // enumerate the same PhotoEffectCatalog; no Xiaomi demo list or fake icons.
-    LaunchedEffect(clip?.sourceUri, clip?.inMs, group) {
+    val edge = (94 * androidx.compose.ui.platform.LocalDensity.current.density)
+        .roundToInt().coerceIn(256, 384)
+    // One source frame for the entire strip, scoped to this editor panel. Never retain
+    // private pixels in the global thumbnail cache. Changing clips or trim resets it.
+    val frameKey = clip?.let { VideoFilterFrame.key(it, edge) }
+    var frame by remember(frameKey) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(frameKey) {
         val active = clip ?: return@LaunchedEffect
-        val selection = SharedVideoFilterCatalog.forCategory(group, favoriteEffects)
-        thumbs = withContext(Dispatchers.IO) {
-            selection.mapNotNull { effect ->
-                VideoThumbnailMemoryCache.photo(context, active, effect)
-                    ?.let { effect to it }
-            }.toMap()
+        var pending: Bitmap? = null
+        try {
+            withContext(Dispatchers.IO) { pending = VideoFilterFrame.read(context, active, edge) }
+            frame = pending
+            pending = null
+        } finally { pending?.recycle() }
+    }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        PhotoEffectCategory.entries.filter { it != PhotoEffectCategory.POPULAR }.forEach { category ->
+            FilterChip(selected = group == category, enabled = enabled,
+                onClick = { group = category }, label = { Text(category.label) })
         }
     }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            PhotoEffectCategory.entries.filter { it != PhotoEffectCategory.POPULAR }.forEach { category ->
-                FilterChip(selected = group == category, enabled = enabled,
-                    onClick = { group = category }, label = { Text(category.label) })
-            }
+    // Lazily render only visible cards using the exact common photo preset renderer.
+    LazyRow(Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(SharedVideoFilterCatalog.forCategory(group, favoriteEffects), key = { it.name }) { effect ->
+            EditorFilterCard(effect = effect, source = frame,
+                selected = videoFilterSelected(color, effect), enabled = enabled,
+                onClick = { onColorChange(color.copy(photoEffect = effect)) })
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-            .padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SharedVideoFilterCatalog.forCategory(group, favoriteEffects).forEach { effect ->
-                val chosen = (color.photoEffect ?: PhotoEffect.NONE) == effect
-                Surface(
-                    onClick = { onColorChange(color.copy(photoEffect = effect)) },
-                    enabled = enabled,
-                    color = if (chosen) videoToolYellow else Color(0xFF2C2C2C),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.width(82.dp).height(87.dp),
-                ) {
-                    Column(Modifier.fillMaxSize().padding(2.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally) {
-                        val thumb = thumbs[effect]
-                        if (thumb != null) {
-                            Image(bitmap = thumb.asImageBitmap(), contentDescription = effect.label,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxWidth().height(59.dp)
-                                    .background(Color(0xFF171717)))
-                        } else {
-                            Box(Modifier.fillMaxWidth().height(59.dp)
-                                .background(Color(0xFF252525))) {
-                                Text(effect.label.take(1), Modifier.align(Alignment.Center),
-                                    color = Color.LightGray)
-                            }
-                        }
-                        Text(effect.label,
-                            maxLines = 1, color = if (chosen) Color.Black else Color.White,
-                            style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
-        }
-        val percent = (color.intensity * 100).toInt()
+    }
+    // Original has no strength to adjust. Hide rather than show a misleading,
+    // faded 100% control. A legacy non-original preset still supports intensity.
+    if (videoFilterHasIntensity(color)) {
+        val percent = (color.intensity * 100).roundToInt()
         Text("Сила фильтра: $percent %", style = MaterialTheme.typography.bodySmall)
         Slider(value = color.intensity, onValueChange = {
             onColorChange(color.copy(intensity = it))
-        }, enabled = enabled && (color.photoEffect != null &&
-            color.photoEffect != PhotoEffect.NONE ||
-            color.photoEffect == null && color.preset != VideoFilterPreset.ORIGINAL),
-            valueRange = 0f..1f)
+        }, enabled = enabled, valueRange = 0f..1f,
+            modifier = Modifier.testTag("video-filter-intensity"), accentColor = videoToolYellow)
+    }
 
 }
 

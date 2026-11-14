@@ -1,4 +1,4 @@
-name: ML 1.7.189 stages 1-4 verification
+name: ML 1.7.189 stages 1-5 verification
 on:
   push:
     branches: [feature/ml-17189-qa-rework]
@@ -53,6 +53,9 @@ jobs:
       - name: Shared photo editor, full resolution and drawing regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Photo*Test' --tests '*BatchWatermarkTest' --tests '*BatchTextDraftRestorationTest' --tests '*TextLayer*Test' --tests '*EditorTextDialogLayoutTest' --stacktrace
+      - name: Video editor filters and viewer regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Video*Test' --tests '*GalleryStage5ViewerTest' --tests '*GalleryViewer*Test' --tests '*PrivateViewerChromeTest' --tests '*EditorPaletteTest' --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint

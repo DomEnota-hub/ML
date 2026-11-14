@@ -1298,7 +1298,15 @@ private fun PhotoEffectCard(
     selected: Boolean, favorite: Boolean, enabled: Boolean,
     onFavorite: () -> Unit, onClick: () -> Unit,
 ) {
-    val source = info?.preview
+    EditorFilterCard(effect, info?.preview, selected, enabled, favorite, onFavorite, onClick)
+}
+
+/** Shared photo/batch/video filter card. Video keeps the existing read-only favorites category. */
+@Composable
+internal fun EditorFilterCard(
+    effect: PhotoEffect, source: Bitmap?, selected: Boolean, enabled: Boolean,
+    favorite: Boolean = false, onFavorite: (() -> Unit)? = null, onClick: () -> Unit,
+) {
     // Bounded, aspect-preserving samples; expensive preset rendering is off-main.
     val density = androidx.compose.ui.platform.LocalDensity.current.density
     val edge = (94 * density).roundToInt().coerceIn(256, 384)
@@ -1321,7 +1329,7 @@ private fun PhotoEffectCard(
         onDispose { if (owned != null && owned !== source && !owned.isRecycled)
             owned.recycle() }
     }
-    Surface(modifier = Modifier.width(94.dp).height(67.dp),
+    Surface(modifier = Modifier.width(94.dp).height(67.dp).testTag("editor-filter-${effect.name}"),
         onClick = onClick, enabled = enabled,
         shape = RoundedCornerShape(13.dp),
         color = if (selected) PhotoEditorGold else Color(0xFF232328)) {
@@ -1335,7 +1343,7 @@ private fun PhotoEffectCard(
                 contentAlignment = Alignment.Center) {
                 Text(effect.label, fontSize = 10.sp, color = Color.White, maxLines = 1)
             }
-            if (effect != PhotoEffect.NONE) {
+            if (effect != PhotoEffect.NONE && onFavorite != null) {
                 IconButton(onClick = onFavorite, enabled = enabled,
                     modifier = Modifier.align(Alignment.TopEnd).size(30.dp)) {
                     Icon(if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
