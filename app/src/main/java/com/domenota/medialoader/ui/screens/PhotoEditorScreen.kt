@@ -1317,8 +1317,9 @@ private fun PhotoEffectCard(
         finally { pending?.recycle() }
     }
     DisposableEffect(thumbnail) {
-        onDispose { if (thumbnail != null && thumbnail !== source && !thumbnail.isRecycled)
-            thumbnail.recycle() }
+        val owned = thumbnail
+        onDispose { if (owned != null && owned !== source && !owned.isRecycled)
+            owned.recycle() }
     }
     Surface(modifier = Modifier.width(94.dp).height(67.dp),
         onClick = onClick, enabled = enabled,
