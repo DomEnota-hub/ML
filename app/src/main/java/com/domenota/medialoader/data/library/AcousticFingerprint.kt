@@ -130,9 +130,19 @@ internal object AcousticFingerprints {
         if(best.value.size<90||(span.second-span.first).toLong()*HOP<RATE*6)return null
         val competitor=votes.filterKeys{k->kotlin.math.abs(k-best.key)>2}.values.maxOfOrNull{it.size}?:0
         if(competitor*5>=best.value.size*4)return null
-        val second=span.first.toLong()+best.key
-        if(second<0)return null
-        return AcousticAlignment(span.first.toLong()*HOP*1000/RATE,second*HOP*1000/RATE)
+        // A seek position must be supported by one continuous region, not
+        // just by unrelated landmarks in widely separated sample windows.
+        val aligned=a.landmarks.filter{mark->byHash[mark.hash].orEmpty().take(12).any{it.frame-mark.frame==best.key}}.sortedBy{it.frame}
+        val local=mutableSetOf<Int>();var start=-1;var last=-1
+        for(mark in aligned){
+            if(last<0||mark.frame-last>40){start=mark.frame;local.clear()}
+            local.add(mark.hash);last=mark.frame
+            if(local.size>=90&&(last-start).toLong()*HOP>=RATE*6){
+                val second=start.toLong()+best.key
+                if(second>=0)return AcousticAlignment(start.toLong()*HOP*1000/RATE,second*HOP*1000/RATE)
+            }
+        }
+        return null
     }
     /** Capped primitive postings: same >=90 distinct-hash admission rule, no all-pairs scan. */
     private class Posting {

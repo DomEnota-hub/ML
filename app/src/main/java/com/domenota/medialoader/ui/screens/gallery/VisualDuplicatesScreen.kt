@@ -57,6 +57,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     var confirm by remember { mutableStateOf(false) }
     var trash by remember { mutableStateOf<VisualDuplicateSession?>(null) }
     var journal by remember{mutableStateOf(false)}
+    var showPartial by remember{mutableStateOf(false)}
     var history by remember{mutableStateOf(emptyList<VisualDuplicateSession>())}
     var storedPartial by remember{mutableStateOf<VisualDuplicateSession?>(null)}
     var filter by remember{mutableStateOf<VisualMatch?>(null)}
@@ -206,9 +207,18 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
         }
     }
     if(journal)DuplicateJournalDialog("Журнал Галереи",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size})},
-        storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size},"Незавершённый поиск")},
+        storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size} ,VisualDuplicateBackgroundScan.journalStatus(context))},
         onOpen={at->journal=false;if(!status.running&&ready)history.firstOrNull{it.scannedAt==at}?.let{persist(it.reconcile(refs));restored=false}},
-        onResume={journal=false;if(!status.running&&ready)VisualDuplicateBackgroundScan.start(context,refs)},onDismiss={journal=false})
+        onResume={journal=false;if(!status.running&&ready)VisualDuplicateBackgroundScan.start(context,refs)},onDismiss={journal=false},
+        onPartial={journal=false;showPartial=true},resumeEnabled=!status.running&&ready)
+    if(showPartial&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
+        text={LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            item{Text("Только просмотр. Удаление доступно после завершения.")}
+            items(partial.groups,key={it.files.first().id}){g->Column{
+                Text("Точные копии · ${g.files.size} файлов")
+                g.files.forEach{f->byId[f.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(f,it)}?.let{row->Text(row.item.originalName,style=MaterialTheme.typography.bodySmall)}}
+            }}
+        }},confirmButton={TextButton({showPartial=false}){Text("Закрыть")}})
     preview?.let{(g,id)->
         val pages=g.files.mapNotNull{f->byId[f.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(f,it)}}
         if(pages.isNotEmpty())VisualDuplicatePreview(pages,id){preview=null}

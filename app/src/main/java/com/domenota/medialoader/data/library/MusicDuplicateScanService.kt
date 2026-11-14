@@ -30,6 +30,9 @@ internal object DuplicateBackgroundScan {
     private var nextToken = 0L
     private fun prefs(context: Context) = context.getSharedPreferences("duplicate_background_scan",Context.MODE_PRIVATE)
     fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false)
+    fun journalStatus(context:Context):String=if(state.value.running)"Выполняется" else when(prefs(context).getString("journalStatus",null)){
+        "paused"->"Приостановлен";"stopped"->"Остановлен";"failed"->"Прерван";else->"Незавершённый поиск"
+    }
     fun resumeExpanded(context:Context)=prefs(context).getBoolean("expanded",false)
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
     @Synchronized fun start(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?,expanded:Boolean=false) {
@@ -39,6 +42,7 @@ internal object DuplicateBackgroundScan {
         val now=android.os.SystemClock.elapsedRealtime()
         mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now)
         prefs(context).edit().putBoolean("expanded",expanded).apply()
+        prefs(context).edit().putString("journalStatus","running").apply()
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,MusicDuplicateScanService::class.java)) }
         catch (e: Exception) { pending = null; mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
@@ -67,6 +71,7 @@ internal object DuplicateBackgroundScan {
     @Synchronized fun finish(context: Context, token: Long, session: DuplicateSession?,error: String? = null, cancelled: Boolean = false) {
         if (mutable.value.token != token || !mutable.value.running) return
         if (session != null || cancelled) mark(context,false)
+        prefs(context).edit().putString("journalStatus",when{session!=null->"completed";cancelled->"stopped";error?.contains("приостановлен")==true->"paused";else->"failed"}).apply()
         mutable.value = Status(session = session,error = error,token = token,partial=if(session==null)mutable.value.partial else null)
     }
     fun pause(context:Context){

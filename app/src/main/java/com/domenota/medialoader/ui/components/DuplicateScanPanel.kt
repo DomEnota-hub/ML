@@ -53,7 +53,7 @@ internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,star
 
 @Composable
 internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,partial:DuplicateJournalRow?,
-    onOpen:(Long)->Unit,onResume:()->Unit,onDismiss:()->Unit){
+    onOpen:(Long)->Unit,onResume:()->Unit,onDismiss:()->Unit,onPartial:(()->Unit)?=null,resumeEnabled:Boolean=true){
     AlertDialog(onDismissRequest=onDismiss,title={Text(title)},text={
         LazyColumn(Modifier.heightIn(max=420.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             if(partial!=null)item{
@@ -61,7 +61,10 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                     Text(partial.status,style=MaterialTheme.typography.titleMedium)
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(partial.at)))
                     Text("Групп: ${partial.groups} · файлов: ${partial.files}")
-                    TextButton(onResume){Text("Продолжить поиск")}
+                    Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){
+                        TextButton(onResume,enabled=resumeEnabled){Text("Продолжить")}
+                        onPartial?.let{TextButton(it){Text("Результаты")}}
+                    }
                 }}
             }
             if(rows.isEmpty()&&partial==null)item{Text("Журнал пока пуст")}
