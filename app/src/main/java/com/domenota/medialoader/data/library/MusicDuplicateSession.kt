@@ -83,7 +83,7 @@ internal object MusicDuplicateSessionStore {
                     t.lng("duration"),t.lng("bitrate"),t.str("folder"),t.getBoolean("linked"),t.getBoolean("current"),
                     if (t.optInt("acousticVersion") == AcousticFingerprint.VERSION) t.optJSONArray("landmarks")?.let { array ->
                         require(array.length() <= 6000)
-                        AcousticFingerprint((0 until array.length()).map { i -> array.getJSONArray(i).let { AcousticLandmark(it.getInt(0),it.getInt(1)) } })
+                        AcousticFingerprint(packedAcousticLandmarks((0 until array.length()).map { i -> array.getJSONArray(i).let { AcousticLandmark(it.getInt(0),it.getInt(1)) } }))
                     } else null, t.optLong("privacyEpoch",0))
     }
     fun encode(session: DuplicateSession): String {

@@ -11,6 +11,14 @@ internal data class AcousticFingerprint(val landmarks: List<AcousticLandmark>) {
 }
 internal data class AcousticLandmark(val hash: Int, val frame: Int)
 internal data class AcousticAlignment(val firstMs:Long,val secondMs:Long)
+/** Keep large libraries in primitive storage; list equality and the serialized format are unchanged. */
+internal fun packedAcousticLandmarks(values:List<AcousticLandmark>):List<AcousticLandmark>{
+    val hashes=IntArray(values.size){values[it].hash};val frames=IntArray(values.size){values[it].frame}
+    return object:AbstractList<AcousticLandmark>(){
+        override val size:Int get()=hashes.size
+        override fun get(index:Int)=AcousticLandmark(hashes[index],frames[index])
+    }
+}
 internal object AcousticFingerprints {
     const val RATE = 8000
     private const val N = 1024
@@ -59,7 +67,7 @@ internal object AcousticFingerprints {
             frame++
             samples.copyInto(samples,0,HOP,N); filled = N-HOP
         }
-        fun finish() = AcousticFingerprint(reservoir.map { it.second }.sortedBy { it.frame })
+        fun finish() = AcousticFingerprint(packedAcousticLandmarks(reservoir.map { it.second }.sortedBy { it.frame }))
     }
     private fun peaks(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray): IntArray {
         for(i in 0 until N) re[i]=samples[i]*window[i]
@@ -126,18 +134,34 @@ internal object AcousticFingerprints {
         if(second<0)return null
         return AcousticAlignment(span.first.toLong()*HOP*1000/RATE,second*HOP*1000/RATE)
     }
-    /** Inverted index avoids testing every library pair. Oversubscribed hashes are ignored. */
+    /** Capped primitive postings: same >=90 distinct-hash admission rule, no all-pairs scan. */
+    private class Posting {
+        private var values=IntArray(2)
+        var size=0;private set
+        private var last=-1
+        fun add(track:Int){
+            if(track==last||size>=41)return
+            if(size==values.size)values=values.copyOf(minOf(41,values.size*2))
+            values[size++]=track;last=track
+        }
+        operator fun get(index:Int)=values[index]
+    }
     fun candidatePairs(input: Map<String,AcousticFingerprint>, checkActive: () -> Unit = {}): Set<Pair<String,String>> {
-        val index = HashMap<Int,MutableSet<String>>()
-        input.forEach { (id,fp) -> checkActive(); fp.landmarks.forEach { mark -> index.getOrPut(mark.hash) { HashSet() }.let { if (it.size <= 40) it.add(id) } } }
-        val counts = HashMap<Pair<String,String>,Int>()
-        for (ids in index.values) { checkActive(); if (ids.size in 2..40) {
-            val sorted = ids.sorted()
-            for (i in sorted.indices) for (j in i+1 until sorted.size) {
-                val pair = sorted[i] to sorted[j]; counts[pair] = (counts[pair] ?: 0)+1
+        val ids=input.keys.sorted()
+        val index=HashMap<Int,Posting>()
+        ids.forEachIndexed{track,id->
+            checkActive()
+            input.getValue(id).landmarks.forEach{mark->index.getOrPut(mark.hash){Posting()}.add(track)}
+        }
+        val counts=HashMap<Long,Int>()
+        for(posting in index.values){
+            checkActive()
+            if(posting.size !in 2..40)continue
+            for(i in 0 until posting.size)for(j in i+1 until posting.size){
+                val key=(posting[i].toLong() shl 32) or (posting[j].toLong() and 0xffffffffL)
+                counts[key]=(counts[key]?:0)+1
             }
         }
-        }
-        return counts.filterValues { it >= 90 }.keys
+        return counts.filterValues{it>=90}.keys.mapTo(HashSet()){key->ids[(key ushr 32).toInt()] to ids[key.toInt()]}
     }
 }

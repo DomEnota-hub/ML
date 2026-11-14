@@ -107,26 +107,28 @@ internal object MusicDuplicateScanner {
         check(DuplicatePrivacyGuard.accepts(context,epoch,row.id)) { "Поиск устарел после изменения приватности" }
         val value = requireNotNull(row.savedUri); val uri = Uri.parse(value); val before = metrics.measure("metadata_stamp"){stamp(context,uri)}
         val cacheKey=value+if(expanded)"#full" else "#sampled"
-        val old = synchronized(cache) { cache[cacheKey] } ?: loadCheckpoint(context,value,before,expanded)
-            ?: if(expanded)loadCheckpoint(context,value,before,false)?.let{Cached(it.stamp,it.track.copy(acoustic=null))} else null
+        val old = metrics.measure("checkpoint_read"){
+            synchronized(cache) { cache[cacheKey] } ?: loadCheckpoint(context,value,before,expanded)
+                ?: if(expanded)loadCheckpoint(context,value,before,false)?.let{Cached(it.stamp,it.track.copy(acoustic=null))} else null
+        }
         if (before.modified != null && old != null && old.stamp == before && old.track.privacyEpoch == epoch && old.track.filename == row.originalName) return old.track.copy(id = row.id, linked = linked, current = current,
             title = row.recognizedTitle ?: row.sourceAudioTitle ?: old.track.title, artist = row.recognizedArtist ?: row.sourceAudioArtist ?: old.track.artist)
         var title = row.recognizedTitle ?: row.sourceAudioTitle
         var artist = row.recognizedArtist ?: row.sourceAudioArtist
         var duration = row.durationMs; var bitrate: Long? = null
         val r = MediaMetadataRetriever()
-        try {
+        metrics.measure("metadata_tags") { try {
             r.setDataSource(context,uri)
             title = title?.takeIf(String::isNotBlank) ?: r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
             artist = artist?.takeIf(String::isNotBlank) ?: r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
             duration = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: duration
             bitrate = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toLongOrNull()
-        } catch (e: CancellationException) { throw e } catch (_: Exception) { /* filename fallback */ } finally { r.release() }
+        } catch (e: CancellationException) { throw e } catch (_: Exception) { /* filename fallback */ } finally { r.release() } }
         val sha = metrics.measure("sha256"){hash(context,uri)}; val encoded = metrics.measure("encoded_payload"){payload(context,uri)}
         // The first pass deliberately does not decode audio; exact groups become available first.
         check(stamp(context,uri) == before) { "Файл изменился во время проверки" }
         val track = DuplicateTrack(row.id,title?.takeIf(String::isNotBlank) ?: row.originalName.substringBeforeLast('.'),artist,row.originalName,value,before.size,before.modified,sha,encoded,duration,bitrate,before.folder,linked,current,null,epoch)
-        if (before.modified != null) {
+        if (before.modified != null) metrics.measure("checkpoint_write") {
             synchronized(DuplicatePrivacyGuard.lock) {
                 check(DuplicatePrivacyGuard.accepts(context,epoch,row.id)) { "Поиск устарел после изменения приватности" }
                 synchronized(cache) { cache[cacheKey] = Cached(before,track) }
@@ -145,11 +147,11 @@ internal object MusicDuplicateScanner {
             catch(e:CancellationException){throw e}catch(_:Exception){null}
         check(stamp(context,uri)==before)
         val next=t.copy(acoustic=fingerprint)
-        if(fingerprint!=null&&before.modified!=null)synchronized(DuplicatePrivacyGuard.lock){
+        if(fingerprint!=null&&before.modified!=null)metrics.measure("checkpoint_write") { synchronized(DuplicatePrivacyGuard.lock){
             check(DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id))
             synchronized(cache){cache[t.uri+if(expanded)"#full" else "#sampled"]=Cached(before,next)}
             saveCheckpoint(context,next,expanded)
-        }
+        }}
         return next
     }
     suspend fun scan(context: Context, rows: List<DownloadEntity>, linkedIds: Set<String>, currentId: String?,expanded:Boolean=false,
@@ -170,7 +172,7 @@ internal object MusicDuplicateScanner {
         usable.forEachIndexed { index,row ->
             coroutineContext.ensureActive(); check(DuplicatePrivacyGuard.generation(context) == epoch) { "Поиск прерван изменением приватности" }; progress(index, usable.size)
             try {
-                val keys = PublicMediaIdentity.capture(context, requireNotNull(row.savedUri))
+                val keys = metrics.measure("identity"){PublicMediaIdentity.capture(context, requireNotNull(row.savedUri))}
                 check(DuplicatePrivacyGuard.accepts(context,epoch,row.id,keys)) { "Файл перенесён в Личное" }
                 if (keys.any { it in seen }) return@forEachIndexed
                 val t = read(context,row,row.id in linkedIds,row.id == currentId,epoch,metrics,expanded)

@@ -1,4 +1,4 @@
-name: ML 1.7.189 stage 1 collections verification
+name: ML 1.7.189 stages 1-2 verification
 on:
   push:
     branches: [feature/ml-17189-qa-rework]
@@ -44,6 +44,9 @@ jobs:
       - name: Collection regression tests
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --stacktrace
+      - name: Duplicate scan and acoustic regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint

@@ -14,12 +14,15 @@ import java.nio.ByteOrder
 internal object AcousticAudioDecoder {
     suspend fun fingerprint(context:Context,uri:Uri,durationMs:Long?=null,expanded:Boolean=false):AcousticFingerprint? {
         val active=coroutineContext
-        val builder=AcousticFingerprints.Builder{active.ensureActive()}
-        for(window in AcousticScanPlan.windows(durationMs,expanded)){
-            active.ensureActive()
-            if(!decodeWindow(context,uri,window,builder))return null
+        suspend fun decode(windows:List<AcousticWindow>):AcousticFingerprint?{
+            val builder=AcousticFingerprints.Builder{active.ensureActive()}
+            for(window in windows){active.ensureActive();if(!decodeWindow(context,uri,window,builder))return null}
+            return builder.finish()
         }
-        return builder.finish()
+        val windows=AcousticScanPlan.windows(durationMs,expanded)
+        val first=try{decode(windows)}catch(e:kotlinx.coroutines.CancellationException){throw e}catch(e:Exception){if(windows.size==1)throw e else null}
+        // Some providers/codecs cannot seek reliably; do not silently omit their acoustic analysis.
+        return first ?: if(windows.size>1)decode(listOf(AcousticWindow(0,null))) else null
     }
     private suspend fun decodeWindow(context:Context,uri:Uri,window:AcousticWindow,builder:AcousticFingerprints.Builder):Boolean {
         val active = coroutineContext
@@ -74,17 +77,19 @@ internal object AcousticAudioDecoder {
                             val buffer = requireNotNull(codec.getOutputBuffer(index)).order(ByteOrder.LITTLE_ENDIAN)
                             buffer.position(info.offset); buffer.limit(info.offset+info.size)
                             val sampleBytes = when (encoding) { AudioFormat.ENCODING_PCM_16BIT -> 2; AudioFormat.ENCODING_PCM_FLOAT -> 4; else -> error("Unsupported PCM encoding") }
-                            var sampleIndex=0L
-                            while (buffer.remaining() >= sampleBytes*channels) {
-                                val pts=info.presentationTimeUs+sampleIndex++*1_000_000L/rate
-                                if(endUs!=null&&pts>=endUs){windowDone=true;break}
+                            val frameBytes=sampleBytes*channels
+                            val frames=buffer.remaining()/frameBytes
+                            val skip=((startUs-info.presentationTimeUs).coerceAtLeast(0)*rate/1_000_000L).coerceAtMost(frames.toLong()).toInt()
+                            val until=if(endUs==null)frames else ((endUs-info.presentationTimeUs).coerceAtLeast(0)*rate/1_000_000L).coerceAtMost(frames.toLong()).toInt()
+                            buffer.position(buffer.position()+skip*frameBytes)
+                            if(!started&&until>skip){builder.beginWindow((info.presentationTimeUs+skip*1_000_000L/rate)/1000);started=true}
+                            repeat((until-skip).coerceAtLeast(0)) {
                                 var mono = 0.0
                                 repeat(channels) { mono += if (sampleBytes == 2) buffer.short/32768.0 else buffer.float.toDouble() }
-                                if(pts<startUs)continue
-                                if(!started){builder.beginWindow(pts/1000);started=true}
                                 sum += mono/channels; count++; phase += AcousticFingerprints.RATE
                                 if (phase >= rate) { builder.accept((sum/count).toFloat());accepted++; phase -= rate; sum = 0.0; count = 0 }
                             }
+                            if(endUs!=null&&until<frames)windowDone=true
                         } finally { codec.releaseOutputBuffer(index,false) }
                         if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
                     }
