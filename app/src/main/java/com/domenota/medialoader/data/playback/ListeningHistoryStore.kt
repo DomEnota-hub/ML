@@ -228,6 +228,30 @@ internal class ListeningHistoryStore private constructor(context: Context) {
         }
     }
 
+    /** Only called after a verified, same-locator MP3 tag replacement.
+     * Never merge two existing track identities; old resume keys remain valid. */
+    suspend fun relinkVerifiedEdit(before:Set<String>,after:Set<String>)=withContext(Dispatchers.IO){
+        require(before.isNotEmpty()&&after.isNotEmpty())
+        mutex.withLock{
+            val db=helper.writableDatabase
+            db.beginTransaction()
+            try{
+                val aliases=aliasMap(db)
+                val old=before.mapNotNull(aliases::get).distinct()
+                val fresh=after.mapNotNull(aliases::get).distinct()
+                check(old.size<=1&&fresh.size<=1&&(fresh.isEmpty()||old==fresh)){"Неоднозначная история трека"}
+                val track=old.singleOrNull()?:UUID.randomUUID().toString().also{id->
+                    db.insertOrThrow("tracks",null,ContentValues().apply{put("id",id)})
+                }
+                for(key in before+after)if(key !in aliases)db.insertOrThrow("aliases",null,ContentValues().apply{
+                    put("alias",key);put("track_id",track)
+                })
+                db.setTransactionSuccessful()
+            }finally{db.endTransaction()}
+            changed()
+        }
+    }
+
     suspend fun resolveResume(sessions:List<ResumeQueueSession>,candidates:List<SmartTrackCandidate>):List<ResolvedResumeQueue> =
         withContext(Dispatchers.IO) { mutex.withLock {
             val aliases=aliasMap(helper.readableDatabase)
