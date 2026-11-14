@@ -9,6 +9,7 @@ import android.net.Uri
 import android.widget.MediaController
 import android.widget.VideoView
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -92,13 +93,14 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
     var error by remember{mutableStateOf<String?>(null)}
     var albumMenu by remember{mutableStateOf(false)}
     var sortMenu by remember{mutableStateOf(false)}
+    var photo by remember{mutableStateOf<LibraryMediaRef?>(null)}
     var video by remember{mutableStateOf<LibraryMediaRef?>(null)}
     var audition by remember{mutableStateOf<String?>(null)}
     val context=LocalContext.current
     val audio=remember(context){CollectionAudioPreview(context)}
     val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     DisposableEffect(audio,lifecycle){
-        val observer=androidx.lifecycle.LifecycleEventObserver{_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_STOP){audio.stop();audition=null;video=null}}
+        val observer=androidx.lifecycle.LifecycleEventObserver{_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_STOP){audio.stop();audition=null;video=null;photo=null}}
         lifecycle.addObserver(observer)
         onDispose{lifecycle.removeObserver(observer);audio.stop()}
     }
@@ -120,7 +122,7 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
     val visibleKeys=if(tab==3)visibleLinks.map{"LINK:$it"} else visible.map(::collectionPickerKey)
     val grid=rememberLazyGridState()
     fun toggle(key:String){if(!busy&&key !in existingKeys)selection=ArrayList(if(key in selected)selected-key else selected+key)}
-    BackHandler{if(!busy){if(video!=null)video=null else onBack()}}
+    BackHandler{if(!busy){if(photo!=null)photo=null else if(video!=null)video=null else onBack()}}
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("collection-media-picker")) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
             IconButton(onBack,enabled=!busy){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
@@ -156,9 +158,9 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
             },contentPadding=PaddingValues(8.dp),horizontalArrangement=Arrangement.spacedBy(3.dp),verticalArrangement=Arrangement.spacedBy(3.dp)) {
                 items(visible,key=::collectionPickerKey){ref->
                     val key=collectionPickerKey(ref)
-                    Box(Modifier.fillMaxWidth().aspectRatio(1f).clickable(enabled=!busy){toggle(key)}.testTag("picker-$key")) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(1f).clickable(enabled=!busy){audio.stop();audition=null;if(tab==0)photo=ref else video=ref}.testTag("picker-$key")) {
                         DownloadThumbnail(ref.item.savedUri,ref.item.previewUrl,if(tab==0)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.fillMaxSize())
-                        PickerMark(key in selected||key in existingKeys,key in existingKeys,Modifier.align(Alignment.TopEnd))
+                        PickerMark(key in selected||key in existingKeys,key in existingKeys,Modifier.align(Alignment.TopEnd),!busy){toggle(key)}
                         if(tab==1)Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha=.6f)),verticalAlignment=Alignment.CenterVertically){
                             IconButton({audio.stop();audition=null;video=ref},Modifier.size(36.dp)){Icon(Icons.Rounded.PlayArrow,"Предпросмотр видео",tint=Color.White)}
                             ref.item.durationMs?.let{Text("${it/60000}:${"%02d".format(it/1000%60)}",color=Color.White,style=MaterialTheme.typography.labelSmall)}
@@ -200,16 +202,26 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
             }}){Text("Добавить (${selected.size})")}
         }}
     }
+    photo?.let{ref->Dialog({photo=null},properties=DialogProperties(usePlatformDefaultWidth=false)){
+        Box(Modifier.fillMaxSize().background(Color.Black)){
+            androidx.compose.foundation.Image(painter=coil.compose.rememberAsyncImagePainter(ref.item.savedUri),contentDescription="Предпросмотр фото",modifier=Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Fit)
+            IconButton({photo=null},Modifier.align(Alignment.TopStart).statusBarsPadding()){Icon(Icons.Rounded.Close,"Закрыть предпросмотр",tint=Color.White)}
+            PickerMark(collectionPickerKey(ref) in selected||collectionPickerKey(ref) in existingKeys,collectionPickerKey(ref) in existingKeys,Modifier.align(Alignment.TopEnd).statusBarsPadding(),!busy){toggle(collectionPickerKey(ref))}
+        }
+    }}
     video?.let{ref->Dialog({video=null},properties=DialogProperties(usePlatformDefaultWidth=false)){
         Box(Modifier.fillMaxSize().background(Color.Black)){
             AndroidView(factory={ctx->VideoView(ctx).apply{setMediaController(MediaController(ctx).also{it.setAnchorView(this)});setVideoURI(Uri.parse(ref.item.savedUri));setOnPreparedListener{start()}}},modifier=Modifier.fillMaxSize(),onRelease={it.stopPlayback()})
-            IconButton({video=null},Modifier.align(Alignment.TopEnd).statusBarsPadding()){Icon(Icons.Rounded.Close,"Закрыть предпросмотр",tint=Color.White)}
+            PickerMark(collectionPickerKey(ref) in selected||collectionPickerKey(ref) in existingKeys,collectionPickerKey(ref) in existingKeys,Modifier.align(Alignment.TopEnd).statusBarsPadding(),!busy){toggle(collectionPickerKey(ref))}
+            IconButton({video=null},Modifier.align(Alignment.TopStart).statusBarsPadding()){Icon(Icons.Rounded.Close,"Закрыть предпросмотр",tint=Color.White)}
         }
     }}
 }
 @Composable
-private fun PickerMark(selected:Boolean,existing:Boolean,modifier:Modifier=Modifier) {
-    Box(modifier.padding(6.dp).size(26.dp).clip(CircleShape).background(if(selected)MaterialTheme.colorScheme.primary else Color.Black.copy(alpha=.4f)),contentAlignment=Alignment.Center){
-        Icon(if(selected)Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,if(existing)"Уже добавлено" else if(selected)"Выбрано" else "Выбрать",tint=if(selected)MaterialTheme.colorScheme.onPrimary else Color.White)
+private fun PickerMark(selected:Boolean,existing:Boolean,modifier:Modifier=Modifier,enabled:Boolean=true,onToggle:()->Unit) {
+    Box(modifier.size(48.dp).clickable(enabled=enabled&&!existing,onClick=onToggle),contentAlignment=Alignment.Center){
+        Box(Modifier.size(24.dp).clip(CircleShape).background(if(selected)MaterialTheme.colorScheme.primary else Color.Black.copy(alpha=.4f)).border(1.dp,if(selected)MaterialTheme.colorScheme.primary else Color.White,CircleShape),contentAlignment=Alignment.Center){
+            if(selected)Icon(Icons.Rounded.Check,if(existing)"Уже добавлено" else "Выбрано",Modifier.size(16.dp),tint=MaterialTheme.colorScheme.onPrimary)
+        }
     }
 }
