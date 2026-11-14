@@ -42,7 +42,7 @@ internal suspend fun confirmedSystemTrash(context: Context, uri: Uri): Boolean =
 /** Duplicate-only recoverable cleanup. No permanent deletion request or automatic permission bypass. */
 @Composable
 internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<String,LibraryMediaRef>, currentId: String?,
-    onAppTrash: suspend (String,String) -> Unit, onTrashed: suspend (Set<String>) -> Unit, onClose: () -> Unit) {
+    onAppTrash: suspend (String,String) -> Unit, onTrashed: suspend (Set<String>) -> Unit, onClose: () -> Unit, visual: Map<String,VisualFingerprint>? = null) {
     val context = LocalContext.current
     val latestRefs by rememberUpdatedState(refs)
     val latestCurrent by rememberUpdatedState(currentId)
@@ -56,7 +56,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
     var consentResult by remember(request) { mutableStateOf<Int?>(null) }
     var finished by remember(request) { mutableStateOf(false) }
     var revision by remember(request) { mutableIntStateOf(0) }
-    var batchLimit by remember(request) { mutableIntStateOf(50) }
+    var batchLimit by remember(request) { mutableIntStateOf(if (visual == null) 50 else 1) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         consentResult = it.resultCode
         waiting = false
@@ -81,7 +81,22 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
         val current = latestRefs[w.track.id]
         check(current != null && current.key != latestCurrent && w.track.id != latestCurrent &&
             current.item.savedUri == w.track.uri && current.appDownloadId == w.appId &&
-            !current.item.hidden && !current.item.isPrivate && current.item.mediaType == MediaType.AUDIO) { "Запись или текущий трек изменились" }
+            !current.item.hidden && !current.item.isPrivate && current.item.mediaType == (visual?.get(w.track.id)?.type ?: MediaType.AUDIO)) { "Запись или текущий трек изменились" }
+        if (visual != null) {
+            val snapshot = requireNotNull(visual[w.track.id])
+            check(VisualDuplicateScanner.verify(context,snapshot,requireNotNull(current))) { "Файл изменился" }
+            var safe = false
+            for (keeper in w.group.tracks.filter { it.id !in request.selected }) {
+                val fingerprint = visual[keeper.id] ?: continue
+                val ref = latestRefs[keeper.id] ?: continue
+                if (fingerprint.uri != snapshot.uri && VisualDuplicateScanner.verify(context,fingerprint,ref) &&
+                    latestRefs[keeper.id]?.let { VisualDuplicateScanner.matchesCatalog(fingerprint,it) } == true) { safe = true; break }
+            }
+            check(safe) { "Сохраняемый экземпляр не прошёл проверку" }
+            val live = latestRefs[w.track.id]
+            check(live != null && live.appDownloadId == w.appId && VisualDuplicateScanner.matchesCatalog(snapshot,live)) { "Каталог изменился" }
+            return
+        }
         val keepers = w.group.tracks.filter { it.id !in request.selected && latestRefs[it.id]?.item?.savedUri == it.uri }
         val checkGroup = w.group.copy(tracks = listOf(w.track) + keepers)
         val rows = checkGroup.tracks.mapNotNull { latestRefs[it.id]?.item?.copy(id = it.id) }
@@ -101,7 +116,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
         queue = request.groups.flatMap { group ->
             group.tracks.filter { it.id in request.verified }.mapNotNull { t ->
                 val ref = latestRefs[t.id]
-                if (ref == null || ref.item.savedUri != t.uri || ref.item.isPrivate || ref.item.hidden || ref.item.mediaType != MediaType.AUDIO) {
+                if (ref == null || ref.item.savedUri != t.uri || ref.item.isPrivate || ref.item.hidden || ref.item.mediaType != (visual?.get(t.id)?.type ?: MediaType.AUDIO)) {
                     outcomes[t.id] = Outcome(t.filename,false,"Запись изменилась"); null
                 } else Work(t,ref.appDownloadId,group)
             }
@@ -194,6 +209,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
     if (finished) {
         val ok = outcomes.values.count { it.success }
         val failed = outcomes.values.filterNot { it.success }
+        val warnings = outcomes.values.filter { it.success && it.reason != "Перемещено" }
         AlertDialog(onDismissRequest = onClose, title = { Text("Результат перемещения") }, text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Перемещено в корзину: $ok")
@@ -203,6 +219,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                     Text(row.name, style = MaterialTheme.typography.bodyMedium)
                     Text(row.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                warnings.forEach { row -> Text("${row.name}: ${row.reason}", color = MaterialTheme.colorScheme.error) }
                 if (failed.isNotEmpty()) Text("Оставшиеся доступны в последнем поиске. Повтор — после проверки выбранных файлов.", style = MaterialTheme.typography.bodySmall)
             }
         }, confirmButton = { TextButton(onClose) { Text("Вернуться к дубликатам") } })

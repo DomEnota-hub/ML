@@ -1,0 +1,136 @@
+name: ML 1.7.187 stage 4 integration checkpoint (no distribution)
+on:
+  push:
+    branches:
+      - feature/ml-17187-visual-duplicates-20261114
+  pull_request:
+    branches:
+      - feature/ml-17187-media-organization-20261114
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17187-visual-duplicates
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17187-visual-duplicates-20261114'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle and SDK
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Validate exact app identity
+        run: |
+          grep -Eq 'versionCode 247$' app/build.gradle
+          grep -Fq "versionName '1.7.187'" app/build.gradle
+          grep -Fq "applicationId 'com.domenota.medialoader'" app/build.gradle
+      - name: Verify retired gallery classifier
+        run: |
+          test ! -f app/src/main/java/com/domenota/medialoader/data/library/SmartAlbumIndex.kt
+          test ! -f app/src/main/java/com/domenota/medialoader/ui/screens/gallery/SmartAlbumsPanel.kt
+          ! grep -q 'mlkit:face-detection' app/build.gradle
+          ! grep -R -E 'SmartAlbumIndex|SmartAlbumsPanel|readPageQuick' app/src/main/java
+      - name: Audit hardcoded UI palette
+        run: python3 scripts/audit_ui_palette.py
+      - name: Focused media organization and existing regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*AccentPaletteTest' \
+            --tests '*SettingsIconPaletteTest' \
+            --tests '*Equalizer*Test' \
+            --tests '*MusicDuplicatePolicyTest' \
+            --tests '*MusicDuplicateSessionTest' \
+            --tests '*DuplicateResultsFooterTest' \
+            --tests '*GapiKeyStoreTest' \
+            --tests '*AlbumTrashMembershipTest' \
+            --tests '*ModeShortcutsTest' \
+            --tests '*MusicStopTimerPolicyTest' \
+            --tests '*GalleryViewerOverlayPolicyTest' \
+            --tests '*GalleryVideoChromeTest' \
+            --tests '*GalleryViewerPhotoUiTest' \
+            --tests '*MusicFastScrollPolicyTest' \
+            --tests '*OldDownloadsPolicyTest' \
+            --tests '*AudioReplacePolicyTest' \
+            --tests '*AudioPlaybackMetadataTest' \
+            --tests '*AudioQueuePlaybackTest' \
+            --tests '*AudioPlaybackModesTest' \
+            --tests '*PrivatePlaybackPolicyTest' \
+            --tests '*PrivatePlaybackAliasTest' \
+            --tests '*HiddenMusicPreviewTest' \
+            --tests '*MusicTrackVisibilityTest' \
+            --tests '*InstagramProviderTest' \
+            --tests '*InstagramApiFailureTest' \
+            --tests '*GapiInstagramClientTest' \
+            --tests '*GapiInstagramProviderTest' \
+            --tests '*StorageNamingTest' \
+            --tests '*PrivateViewerQueueTest' \
+            --tests '*PrivateViewerChromeTest' \
+            --tests '*GalleryViewerStateTest' \
+            --tests '*OcrLineCandidatePolicyTest' \
+            --tests '*GlyphContentMaskTest' \
+            --tests '*LocalTextOcrFallbackTest' \
+            --tests '*LaMaCompositionTest' \
+            --tests '*LargePersonBackgroundRecoveryTest' \
+            --tests '*MediaStoragePolicyTest' \
+            --tests '*StorageSettingsPicturesTest' \
+            --tests '*LegacyMediaMigrationHistoryTest' \
+            --tests '*DownloadQueueTest' \
+            --tests '*GalleryLibraryStateTest' \
+            --tests '*EditorPaletteTest' \
+            --tests '*VideoAudioLaneGestureTest' \
+            --tests '*PhysicalAlbumPolicyTest' \
+            --tests '*GalleryBulkAlbumMoveTest' \
+            --tests '*ExternalMediaCatalogRepositoryTest' \
+            --tests '*ListeningHistoryPolicyTest' \
+            --tests '*ListeningHistoryStoreTest' \
+            --tests '*SmartMusicPolicyTest' \
+            --tests '*ResumeQueuePolicyTest' \
+            --tests '*ResumeQueueStoreTest' \
+            --tests '*ResumeQueueRecorderTest' \
+            --tests '*SmartMusicScreenTest' \
+            --tests '*MusicSummaryImageTest' \
+            --tests '*MediaOrganizationRepositoryTest' \
+            --tests '*MediaOrganizationMigrationTest' \
+            --tests '*MediaOrganizationScreenTest' \
+            --tests '*DownloadQueueTest' \
+            --tests '*PrivateHistoryMigrationTest' \
+            --tests '*VisualDuplicatePolicyTest' \
+            --tests '*VisualDuplicateSessionTest' \
+            --stacktrace
+      - name: Full JVM suite
+        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
+      - name: Android lint
+        if: success()
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: ARM64 release compilation
+        if: success()
+        run: |
+          ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          test "$(unzip -Z1 app/build/outputs/apk/release/app-release-unsigned.apk | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+      - name: Verify internal ARM64 APK (no handoff)
+        if: success()
+        run: |
+          set -euo pipefail
+          input=app/build/outputs/apk/release/app-release-unsigned.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='247' versionName='1.7.187'"
+          git rev-parse HEAD
+          sha256sum "$input"

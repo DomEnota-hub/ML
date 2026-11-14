@@ -1106,7 +1106,8 @@ fun MediaLoaderApp(
             popUpTo(AppDestination.Home.route) { inclusive = false }
             launchSingleTop = true
         }
-        if (shortcutDuplicates) duplicateRequest++
+        if (shortcutDuplicates && mode == AppMode.GALLERY) navController.navigate("visual-duplicates") { launchSingleTop = true }
+        else if (shortcutDuplicates) duplicateRequest++
         onShortcutConsumed()
     }
     LaunchedEffect(sharedText, sharedTextGeneration) {
@@ -1168,7 +1169,7 @@ fun MediaLoaderApp(
         containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
             else MaterialTheme.colorScheme.background,
         contentWindowInsets = when {
-            currentRoute == "music-duplicates" -> WindowInsets.safeDrawing
+            currentRoute in setOf("music-duplicates", "visual-duplicates") -> WindowInsets.safeDrawing
             fullBleedGalleryViewer -> WindowInsets(0, 0, 0, 0)
             galleryHomeOverlay -> WindowInsets.statusBars
             else -> ScaffoldDefaults.contentWindowInsets
@@ -1179,7 +1180,7 @@ fun MediaLoaderApp(
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
                 currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" &&
-                currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates") {
+                currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
                     // Gallery intentionally has no player chrome. Playback is
@@ -1317,7 +1318,12 @@ fun MediaLoaderApp(
                         libraryModel.externalCatalog.removeFolder(folderId)
                     }, onShare = shareLibraryFile,
                     onTrashFolderContents = requestAlbumTrash,
-                    collectionContent={CollectionGalleryStrip(collections,organizationRefs){openCollections(it)}},
+                    collectionContent={
+                        Column {
+                            CollectionGalleryStrip(collections,organizationRefs){openCollections(it)}
+                            TextButton({navController.navigate("visual-duplicates"){launchSingleTop=true}}){Text("Дубликаты фото и видео")}
+                        }
+                    },
                     onAddCollection=::addToCollection,
                      onTrashDeviceAlbum = requestDeviceAlbumTrash,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
@@ -1473,6 +1479,12 @@ fun MediaLoaderApp(
                 val playlistNames=ref?.let{r->playlists.filter{p->p.trackIds.any{it==r.key||it in r.aliases}}.map{it.name}}.orEmpty()
                 MediaPassportScreen(ref?.takeIf{candidate->organizationRefs.any{it.key==candidate.key}},organizationRefs,collections,ops,names,playlistNames,
                     {navController.popBackStack()},openDownloadWithQueue,::openOrganizationLink,{openCollections(it)})
+            }
+            composable("visual-duplicates") {
+                com.domenota.medialoader.ui.screens.gallery.VisualDuplicatesScreen(
+                    organizationRefs, organizationReady && phoneGallery.loaded,
+                    onBack={navController.popBackStack()},onAppTrash=viewModel::trashVerifiedAlbumMedia,
+                    onRefresh={libraryModel.refresh(AppMode.GALLERY, force = true)})
             }
             composable("music-duplicates") {
                 if (!libraryIndex.ready || libraryPrivateKeys == null || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded)) {
