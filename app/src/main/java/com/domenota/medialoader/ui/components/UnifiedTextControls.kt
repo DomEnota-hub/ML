@@ -1,17 +1,12 @@
 package com.domenota.medialoader.ui.components
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -184,8 +179,7 @@ private fun TextStyleToggle(title: String, symbol: String, selected: Boolean, en
     }
 }
 
-/** 30dp touch region with a thin horizontal visual track and round yellow thumb.
- * Does not inherit Material 3's tall purple vertical thumb or track spacing. */
+/** Shared accessible round slider for the compact text controls. */
 @Composable
 internal fun CompactTextSlider(
     value: Float,
@@ -194,43 +188,6 @@ internal fun CompactTextSlider(
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val latestChange by rememberUpdatedState(onValueChange)
-    Canvas(modifier.height(30.dp).pointerInput(valueRange.start, valueRange.endInclusive, enabled) {
-        if (!enabled) return@pointerInput
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false)
-            fun update(x: Float) {
-                val inset = 8.dp.toPx()
-                val usable = (size.width - inset * 2f).coerceAtLeast(1f)
-                val fraction = ((x - inset) / usable).coerceIn(0f, 1f)
-                val next = valueRange.start +
-                    fraction * (valueRange.endInclusive - valueRange.start)
-                latestChange(next)
-            }
-            update(down.position.x)
-            down.consume()
-            do {
-                val event = awaitPointerEvent()
-                val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
-                if (pointer.pressed) {
-                    update(pointer.position.x)
-                    pointer.consume()
-                } else { pointer.consume(); break }
-            } while (event.changes.any { it.pressed })
-        }
-    }) {
-        val inset = 8.dp.toPx()
-        val left = inset
-        val right = (size.width - inset).coerceAtLeast(left)
-        val y = size.height / 2
-        val fraction = ((value - valueRange.start) /
-            (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
-        val x = left + (right - left) * fraction
-        drawLine(Color(0xFF52515A), Offset(left, y), Offset(right, y),
-            strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
-        drawLine(if (enabled) textEditorAccent else Color.Gray, Offset(left, y),
-            Offset(x, y), strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
-        drawCircle(if (enabled) textEditorAccent else Color.Gray,
-            radius = 7.dp.toPx(), center = Offset(x, y))
-    }
+    EditorSlider(value=value,onValueChange=onValueChange,valueRange=valueRange,
+        enabled=enabled,modifier=modifier)
 }

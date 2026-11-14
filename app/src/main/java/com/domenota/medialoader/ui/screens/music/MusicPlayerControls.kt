@@ -58,7 +58,7 @@ internal fun MusicPlayerControls(
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         Column(Modifier.fillMaxWidth().padding(start = 27.dp, end = 27.dp, top = 25.dp, bottom = 8.dp)) {
             AppSlider(value = scrub ?: positionMs.toFloat().coerceIn(0f, durationMs.coerceAtLeast(1).toFloat()),
-                onValueChange = { scrub = it }, modifier = Modifier.fillMaxWidth().height(28.dp), enabled = player != null && durationMs > 0,
+                onValueChange = { scrub = it }, modifier = Modifier.fillMaxWidth().height(48.dp), enabled = player != null && durationMs > 0,
                 valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(), onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
                 accentColor = musicPlaybackAccent)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

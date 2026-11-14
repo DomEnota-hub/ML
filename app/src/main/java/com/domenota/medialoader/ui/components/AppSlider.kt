@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,9 +33,9 @@ fun AppSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier =
     // become inactive when a band is locked. Values remain unchanged.
     val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 0.3f else 0.14f)
     val zeroColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) .95f else .38f)
-    Slider(value = value, onValueChange = onValueChange, modifier = modifier, enabled = enabled,
+    Slider(value = value, onValueChange = onValueChange, modifier = modifier.heightIn(min = 48.dp), enabled = enabled,
         valueRange = valueRange, onValueChangeFinished = onValueChangeFinished, steps = steps,
-        thumb = { Box(Modifier.size(20.dp).background(color, CircleShape)) },
+        thumb = { Box(Modifier.size(16.dp).background(color, CircleShape)) },
         track = { state ->
             Canvas(Modifier.fillMaxWidth().height(16.dp)) {
                 val full = (valueRange.endInclusive - valueRange.start).coerceAtLeast(.0001f)

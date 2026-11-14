@@ -22,6 +22,8 @@ import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.ZoomOut
 import com.domenota.medialoader.ui.components.EditorSlider as Slider
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
@@ -62,12 +64,18 @@ internal fun EditorTextDialog(
     loadPreview: suspend (Long) -> Bitmap,
     onApply: (List<TextLayer>) -> Unit,
     onDismiss: () -> Unit,
+    fitInside: Boolean = false,
 ) {
     val context = LocalContext.current
     val softKeyboard = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
-    var layers by remember { mutableStateOf(initial) }
-    var selectedId by remember { mutableStateOf(initial.firstOrNull()?.id) }
+    val draftSaver = remember { Saver<List<TextLayer>,String>(
+        save = { BatchWatermarkDraft.encode(it) }, restore = { BatchWatermarkDraft.decode(it) }) }
+    // Batch watermark sessions opt into primitive-only saved state. Preview pixels stay ephemeral.
+    var layers by if (fitInside) rememberSaveable(stateSaver = draftSaver) { mutableStateOf(initial) }
+        else remember { mutableStateOf(initial) }
+    var selectedId by if (fitInside) rememberSaveable { mutableStateOf(initial.firstOrNull()?.id) }
+        else remember { mutableStateOf(initial.firstOrNull()?.id) }
     var position by remember { mutableStateOf(initialPositionMs.coerceIn(0L, (durationMs ?: 0L).coerceAtLeast(0L))) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var previewPosition by remember { mutableStateOf<Long?>(null) }
@@ -87,8 +95,10 @@ internal fun EditorTextDialog(
     var playing by remember { mutableStateOf(false) }
     var intervalEnd by remember { mutableStateOf<Long?>(null) }
     var timingTab by remember { mutableStateOf(false) }
-    var sheetOpen by remember { mutableStateOf(false) }
-    var textToolTab by remember { mutableStateOf(UnifiedTextTab.KEYBOARD) }
+    var sheetOpen by if (fitInside) rememberSaveable { mutableStateOf(false) }
+        else remember { mutableStateOf(false) }
+    var textToolTab by if (fitInside) rememberSaveable { mutableStateOf(UnifiedTextTab.KEYBOARD) }
+        else remember { mutableStateOf(UnifiedTextTab.KEYBOARD) }
     var previewZoom by remember { mutableStateOf(PreviewZoom()) }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     fun seek(time: Long) {
@@ -135,7 +145,12 @@ internal fun EditorTextDialog(
     val selected = layers.firstOrNull { it.id == selectedId }
     val currentSelected by rememberUpdatedState(selected)
     LaunchedEffect(selectedId) { pickColor = false; inspectedColor = null }
-    fun update(layer: TextLayer) { layers = layers.map { if (it.id == layer.id) layer else it } }
+    fun update(layer: TextLayer) {
+        val image = preview
+        val next = if (fitInside && image != null)
+            TextLayerFitting.centered(context,image.width,image.height,layer) else layer
+        layers = layers.map { if (it.id == layer.id) next else it }
+    }
     fun close() { if (layers != initial) confirmExit = true else onDismiss() }
     suspend fun matchSample(source: Bitmap, text: String, targetId: String?) {
         val found = FontSampleMatcher.match(context, source, text)
@@ -234,11 +249,14 @@ internal fun EditorTextDialog(
                                         val top = (size.height - image.height * scale) / 2f
                                         val x = (offset.x - left) / (image.width * scale)
                                         val y = (offset.y - top) / (image.height * scale)
+                                        fun effective(layer: TextLayer) = if (fitInside)
+                                            TextLayerFitting.centered(context,image.width,image.height,layer) else layer
                                         val nearest = layers.filter { durationMs == null || it.visibleAt(position) }
-                                            .minByOrNull { (it.centerX - x) * (it.centerX - x) +
-                                                (it.centerY - y) * (it.centerY - y) }
-                                        if (nearest != null &&
-                                            kotlin.math.hypot(nearest.centerX - x, nearest.centerY - y) < .22f) {
+                                            .minByOrNull { item -> effective(item).let { (it.centerX - x) * (it.centerX - x) +
+                                                (it.centerY - y) * (it.centerY - y) } }
+                                        val center = nearest?.let(::effective)
+                                        if (nearest != null && center != null &&
+                                            kotlin.math.hypot(center.centerX - x, center.centerY - y) < .22f) {
                                             selectedId = nearest.id
                                             sheetOpen = false
                                         }
@@ -284,7 +302,7 @@ internal fun EditorTextDialog(
                                 native.translate(left, top); native.scale(scale, scale)
                                 native.clipRect(0, 0, image.width, image.height)
                                 if (!pickColor) TextLayerRenderer.draw(context, native, image.width, image.height, layers,
-                                    positionMs = position, includeAll = durationMs == null)
+                                    positionMs = position, includeAll = durationMs == null, fitInside = fitInside)
                                 native.restoreToCount(save)
                                 if (selectSample) sampleBounds?.let { bounds ->
                                     drawRect(Color.Yellow, Offset(left + bounds.left * image.width * scale,
@@ -296,6 +314,7 @@ internal fun EditorTextDialog(
                             selected?.takeIf { !selectSample && !pickColor && !playing &&
                                 (it.text.isBlank() || durationMs == null || it.visibleAt(position)) }?.let { layer ->
                                 TextLayerSelectionOverlay(image.width, image.height, layer, ::update, previewZoom,
+                                    fitInside = fitInside,
                                     onTap = { sheetOpen = true; textToolTab = UnifiedTextTab.KEYBOARD },
                                     onDuplicate = {
                                         if (layers.size < 8) {

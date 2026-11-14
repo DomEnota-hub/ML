@@ -34,32 +34,32 @@ internal fun CutoutBrushSlider(
     val accent = Color(0xFFFFD34F)
     val neutral = Color(0xFF646464)
     Canvas(
-        modifier.fillMaxWidth().height(42.dp)
+        modifier.fillMaxWidth().height(48.dp)
             .semantics { progressBarRangeInfo = ProgressBarRangeInfo(value, lower..upper) }
             .pointerInput(lower, upper) {
                 detectTapGestures { point ->
-                    val v = cutoutSliderTouchFraction(point.x, size.width.toFloat(), 11.dp.toPx())
+                    val v = cutoutSliderTouchFraction(point.x, size.width.toFloat(), 8.dp.toPx())
                     callback(lower + (upper - lower) * v)
                 }
             }
             .pointerInput(lower, upper) {
                 detectDragGestures(
                     onDragStart = { point ->
-                        val v = cutoutSliderTouchFraction(point.x, size.width.toFloat(), 11.dp.toPx())
+                        val v = cutoutSliderTouchFraction(point.x, size.width.toFloat(), 8.dp.toPx())
                         callback(lower + (upper - lower) * v)
                     },
                     onDrag = { change, _ ->
                         change.consume()
-                        val v = cutoutSliderTouchFraction(change.position.x, size.width.toFloat(), 11.dp.toPx())
+                        val v = cutoutSliderTouchFraction(change.position.x, size.width.toFloat(), 8.dp.toPx())
                         callback(lower + (upper - lower) * v)
                     },
                 )
             }
     ) {
         val middle = size.height / 2f
-        val thickness = 6.dp.toPx()
+        val thickness = 4.dp.toPx()
         val fraction = ((value - lower) / (upper - lower)).coerceIn(0f, 1f)
-        val thumbRadius = 11.dp.toPx().coerceAtMost(size.width / 2f)
+        val thumbRadius = 8.dp.toPx().coerceAtMost(size.width / 2f)
         val (trackStart, trackEnd) = cutoutSliderTrackBounds(size.width, thumbRadius)
         val trackWidth = trackEnd - trackStart
         val corner = CornerRadius(thickness / 2f)

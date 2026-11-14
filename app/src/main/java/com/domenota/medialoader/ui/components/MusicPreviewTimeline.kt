@@ -20,7 +20,7 @@ internal fun MusicPreviewTimeline(preview: MusicPreviewPlayer) {
             value = preview.positionMs.coerceIn(0L, preview.durationMs).toFloat(),
             onValueChange = { preview.seekTo(it.toLong()) },
             valueRange = 0f..preview.durationMs.toFloat(),
-            modifier = Modifier.fillMaxWidth().height(32.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
             accentColor = com.domenota.medialoader.ui.theme.musicPlaybackAccent,
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
