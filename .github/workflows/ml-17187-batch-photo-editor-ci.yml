@@ -5,7 +5,7 @@ on:
       - feature/ml-17187-batch-photo-editor-20261114
   pull_request:
     branches:
-      - feature/ml-17187-batch-photo-editor-20261114
+      - feature/ml-17187-visual-duplicates-20261114
   workflow_dispatch:
 permissions:
   contents: read
@@ -115,6 +115,8 @@ jobs:
             --tests '*VisualDuplicatePolicyTest' \
             --tests '*VisualDuplicateSessionTest' \
             --tests '*BatchPhotoSpecTest' \
+            --tests '*PublicationIdentityTest' \
+            --tests '*UsedInstagramLinkTest' \
             --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
