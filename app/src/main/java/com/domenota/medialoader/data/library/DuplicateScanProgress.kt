@@ -11,7 +11,8 @@ internal object DuplicateProgressPolicy {
     fun fraction(phase:DuplicateScanPhase,done:Int,total:Int,music:Boolean):Float?{
         if(phase==DuplicateScanPhase.GROUPING||phase==DuplicateScanPhase.SAVING||total<=0)return null
         val f=done.coerceIn(0,total).toFloat()/total
-        return (if(music)when(phase){DuplicateScanPhase.METADATA->f*.35f;DuplicateScanPhase.ACOUSTIC->.35f+f*.55f;else->0f}else f*.9f).coerceIn(0f,.9f)
+        // This is progress of the current measured phase, not a fabricated total percentage.
+        return f
     }
     fun etaMs(done:Int,total:Int,elapsedMs:Long):Long?{
         if(done<5||total<=done||elapsedMs<5_000)return null

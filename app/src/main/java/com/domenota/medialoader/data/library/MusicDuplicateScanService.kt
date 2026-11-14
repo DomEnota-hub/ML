@@ -30,6 +30,7 @@ internal object DuplicateBackgroundScan {
     private var nextToken = 0L
     private fun prefs(context: Context) = context.getSharedPreferences("duplicate_background_scan",Context.MODE_PRIVATE)
     fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false)
+    fun resumeExpanded(context:Context)=prefs(context).getBoolean("expanded",false)
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
     @Synchronized fun start(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?,expanded:Boolean=false) {
         if (mutable.value.running) return
@@ -37,6 +38,7 @@ internal object DuplicateBackgroundScan {
         pending = Request(token,rows.toList(),linked.toSet(),current,expanded)
         val now=android.os.SystemClock.elapsedRealtime()
         mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now)
+        prefs(context).edit().putBoolean("expanded",expanded).apply()
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,MusicDuplicateScanService::class.java)) }
         catch (e: Exception) { pending = null; mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
@@ -95,7 +97,7 @@ class MusicDuplicateScanService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == CANCEL||intent?.action==PAUSE) {
             if (DuplicateBackgroundScan.state.value.committing) return START_NOT_STICKY
-            explicitCancel=intent.action==CANCEL
+            explicitCancel=intent?.action==CANCEL
             cancelReason=if(explicitCancel)"Поиск остановлен. Проверенные файлы сохранены." else "Поиск приостановлен. Можно продолжить."
             if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); DuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = explicitCancel) }
             return START_NOT_STICKY
@@ -108,13 +110,17 @@ class MusicDuplicateScanService : Service() {
         else startForeground(ID,notice(0,request?.rows?.size ?: 0))
         if (request == null) { terminal = true; DuplicateBackgroundScan.finish(this,token,null,"Поиск прерван. Запустите его снова."); stopSelf(); return START_NOT_STICKY }
         val scanToken = request.token
+        val scanAt=System.currentTimeMillis()
         wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"MediaLoader:duplicate-scan").apply {
             setReferenceCounted(false); acquire(6L*60*60*1000)
         }
         job = scope.launch {
             try {
                 val result = MusicDuplicateScanner.scan(this@MusicDuplicateScanService,request.rows,request.linked,request.current,request.expanded,
-                    onPhase={DuplicateBackgroundScan.phase(scanToken,it)},onPartial={DuplicateBackgroundScan.partial(scanToken,it)}) { done,total ->
+                    onPhase={DuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
+                        DuplicateBackgroundScan.partial(scanToken,partial)
+                        MusicDuplicateSessionStore.savePartial(this@MusicDuplicateScanService,DuplicateSession(partial,emptySet(),emptyMap(),0,0,scanAt))
+                    }) { done,total ->
                     DuplicateBackgroundScan.progress(scanToken,done,total)
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (DuplicateBackgroundScan.state.value.token == scanToken && DuplicateBackgroundScan.state.value.running && (now - lastNotice >= 1000 || done == total)) {
@@ -124,8 +130,9 @@ class MusicDuplicateScanService : Service() {
                 }
                 ensureActive()
                 if (!DuplicateBackgroundScan.beginCommit(scanToken)) return@launch
-                val session = DuplicateSession(result,emptySet(),result.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) },0,0,System.currentTimeMillis())
+                val session = DuplicateSession(result,emptySet(),result.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) },0,0,scanAt)
                 check(MusicDuplicateSessionStore.save(this@MusicDuplicateScanService,session)) { "Не удалось сохранить поиск" }
+                synchronized(DuplicatePrivacyGuard.lock){DuplicateReportJournal.clearPartial(this@MusicDuplicateScanService,"music")}
                 terminal = true
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 notifyAllowed(DONE_ID,notificationBase().setContentTitle("Поиск дубликатов завершён")

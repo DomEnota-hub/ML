@@ -91,7 +91,7 @@ class VisualDuplicateScanService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == CANCEL||intent?.action==PAUSE) {
             if (VisualDuplicateBackgroundScan.state.value.committing) return START_NOT_STICKY
-            explicitCancel=intent.action==CANCEL
+            explicitCancel=intent?.action==CANCEL
             cancelReason=if(explicitCancel)"Поиск остановлен. Проверенные файлы сохранены." else "Поиск приостановлен. Можно продолжить."
             if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); VisualDuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = explicitCancel) }
             return START_NOT_STICKY
@@ -104,12 +104,16 @@ class VisualDuplicateScanService : Service() {
         else startForeground(ID,notice(0,request?.rows?.size ?: 0))
         if (request == null) { terminal = true; VisualDuplicateBackgroundScan.finish(this,token,null,"Поиск прерван. Запустите его снова."); stopSelf(); return START_NOT_STICKY }
         val scanToken = request.token
+        val scanAt=System.currentTimeMillis()
         wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"MediaLoader:visual-duplicate-scan").apply {
             setReferenceCounted(false); acquire(6L*60*60*1000)
         }
         job = scope.launch {
             try {
-                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={VisualDuplicateBackgroundScan.partial(scanToken,it)}) { done,total ->
+                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
+                        VisualDuplicateBackgroundScan.partial(scanToken,partial)
+                        VisualDuplicateSessionStore.savePartial(this@VisualDuplicateScanService,VisualDuplicateSession(partial,emptySet(),0,0,scanAt))
+                    }) { done,total ->
                     VisualDuplicateBackgroundScan.progress(scanToken,done,total)
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (VisualDuplicateBackgroundScan.state.value.token == scanToken && VisualDuplicateBackgroundScan.state.value.running && (now - lastNotice >= 1000 || done == total)) {
@@ -119,8 +123,9 @@ class VisualDuplicateScanService : Service() {
                 }
                 ensureActive()
                 if (!VisualDuplicateBackgroundScan.beginCommit(scanToken)) return@launch
-                val session = VisualDuplicateSession(result,emptySet(),0,0,System.currentTimeMillis())
+                val session = VisualDuplicateSession(result,emptySet(),0,0,scanAt)
                 check(VisualDuplicateSessionStore.save(this@VisualDuplicateScanService,session)) { "Не удалось сохранить поиск" }
+                synchronized(DuplicatePrivacyGuard.lock){DuplicateReportJournal.clearPartial(this@VisualDuplicateScanService,"gallery")}
                 terminal = true
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 notifyAllowed(DONE_ID,notificationBase().setContentTitle("Поиск фото и видео завершён")

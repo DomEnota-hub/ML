@@ -18,18 +18,26 @@ internal data class DuplicateSession(
 internal object MusicDuplicateSessionStore {
     private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "music-duplicates-v1.json"))
     private val lock = DuplicatePrivacyGuard.lock
-    fun clearForPrivacy(context: Context) { val target = file(context); target.delete(); check(!target.baseFile.exists()) { "Не удалось очистить отчёт дубликатов" } }
+    fun clearForPrivacy(context: Context) { DuplicateReportJournal.clear(context,"music");val target = file(context); target.delete(); check(!target.baseFile.exists()) { "Не удалось очистить отчёт дубликатов" } }
     private fun permitted(context: Context, session: DuplicateSession): Boolean = session.result.groups.all { group ->
         group.tracks.all { DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) }
     }
     suspend fun load(context: Context): DuplicateSession? = withContext(Dispatchers.IO) {
         synchronized(lock) { runCatching { decode(file(context).openRead().bufferedReader().use { it.readText() }).takeIf { permitted(context,it) } }.getOrNull() }
     }
+    suspend fun history(context:Context):List<DuplicateSession> = withContext(Dispatchers.IO){synchronized(lock){
+        val current=runCatching{decode(file(context).openRead().bufferedReader().use{it.readText()})}.getOrNull()
+        (listOfNotNull(current)+DuplicateReportJournal.history(context,"music").mapNotNull{runCatching{decode(it)}.getOrNull()}).filter{permitted(context,it)}.distinctBy{it.scannedAt}.sortedByDescending{it.scannedAt}
+    }}
+    fun savePartial(context:Context,session:DuplicateSession){synchronized(lock){if(permitted(context,session))runCatching{DuplicateReportJournal.savePartial(context,"music",encode(session))}}}
+    suspend fun partial(context:Context):DuplicateSession?=withContext(Dispatchers.IO){synchronized(lock){runCatching{DuplicateReportJournal.partial(context,"music")?.let(::decode)?.takeIf{permitted(context,it)}}.getOrNull()}}
     suspend fun save(context: Context, session: DuplicateSession): Boolean = withContext(Dispatchers.IO + NonCancellable) {
         synchronized(lock) {
             if (!permitted(context,session)) return@synchronized false
             val target = file(context)
             runCatching {
+                val previous=runCatching{decode(target.openRead().bufferedReader().use{it.readText()})}.getOrNull()
+                if(previous!=null&&previous.scannedAt!=session.scannedAt&&permitted(context,previous))DuplicateReportJournal.archive(context,"music",previous.scannedAt,encode(previous))
                 val bytes = encode(session).toByteArray(Charsets.UTF_8)
                 val stream = target.startWrite()
                 try { stream.write(bytes); target.finishWrite(stream) }
