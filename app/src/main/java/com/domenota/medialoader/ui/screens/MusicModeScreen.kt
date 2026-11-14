@@ -244,42 +244,11 @@ internal fun MusicModeScreen(
     val folders = remember(tracks, deviceMusicFolders) {
         tracks.groupBy { MusicFolderRules.key(it, deviceMusicFolders) }.filterKeys { it != null }
     }
-    if (folderOpen != null) {
-        val folder = folderOpen!!
-        val folderTracks = folders[folder].orEmpty()
-        AlertDialog(onDismissRequest = { folderOpen = null }, title = { Text(MusicFolderRules.title(folder), color = MaterialTheme.colorScheme.onSurface) },
-            text = { Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = {
-                        val exclude = folder !in excludedFolders
-                        excludedFolders = if (exclude) excludedFolders + folder else excludedFolders - folder
-                        folderPrefs.edit().putStringSet("excluded", excludedFolders).apply()
-                    }) {
-                        Icon(if (folder in excludedFolders) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (folder in excludedFolders) "Отобразить в общем списке" else "Скрыть из общего списка")
-                    }
-                }
-                val folderListState = rememberLazyListState()
-                Box(Modifier.heightIn(max = 320.dp)) {
-                androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().padding(end = if (folderTracks.size > 4) musicFastScrollLaneWidth else 0.dp), state = folderListState) {
-                    items(folderTracks, key = { it.id }) { track ->
-                        TextButton(onClick = { (onPreview ?: onOpen)(track.id, folderTracks.map { it.id }) }) {
-                            com.domenota.medialoader.ui.components.DownloadThumbnail(track.savedUri, track.previewUrl, track.toUi().kind, Modifier.size(44.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                }
-                MusicFastScroll(folderListState, folderTracks.map { musicGroupLetter(musicDisplayTitle(it)) }, Modifier.align(Alignment.CenterEnd))
-                }
-            } }, confirmButton = { TextButton(onClick = { folderOpen = null }) { Text("Готово") } })
-    }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
-    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen) }
+    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
-    BackHandler(resumeOpen || smartPage != null || frequentOpen || playlist != null || tab == 1) { if(resumeOpen)resumeOpen=false else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
+    BackHandler(folderOpen != null || resumeOpen || smartPage != null || frequentOpen || playlist != null || tab == 1) { if(folderOpen!=null)folderOpen=null else if(resumeOpen)resumeOpen=false else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
         PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, available.values.toList(), emptyMap(),
@@ -321,7 +290,17 @@ internal fun MusicModeScreen(
         if (playlist != null && onOpenFromPlaylist != null) onOpenFromPlaylist(id,queue,playlist.id)
         else onOpen(id,queue)
     }
-    if(resumeOpen&&onResumeSelection!=null) {
+    if(folderOpen!=null) {
+        val folder=requireNotNull(folderOpen)
+        val folderTracks=remember(folders,folder,hiddenTrackKeys,sort){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,hiddenTrackKeys)},sort)}
+        val folderIds=remember(folderTracks){folderTracks.map{it.id}}
+        MusicFolderScreen(MusicFolderRules.title(folder),folderTracks,folder in excludedFolders,currentPlayingId,playing,{folderOpen=null},
+            onToggleVisibility={val exclude=folder !in excludedFolders;excludedFolders=if(exclude)excludedFolders+folder else excludedFolders-folder;folderPrefs.edit().putStringSet("excluded",excludedFolders).apply()},
+            onPlay={shuffle->if(onPlayFrequent!=null)onPlayFrequent(folderIds,shuffle) else (onPreview?:onOpen)(if(shuffle)folderIds.random() else folderIds.first(),if(shuffle)folderIds.shuffled() else folderIds)},
+            onPreview={id->(onPreview?:onOpen)(id,folderIds)},
+            actions={track->val id=track.id;MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},{onOpen(id,folderIds)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,
+                onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}})})
+    } else if(resumeOpen&&onResumeSelection!=null) {
         ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},resumeLoading||loading,
             resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore)
     } else if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
