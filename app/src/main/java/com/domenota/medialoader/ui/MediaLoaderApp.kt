@@ -268,6 +268,22 @@ fun MediaLoaderApp(
     val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
     val organizationReady=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
     val organizationUsable=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.usable
+    var trackRecognitionTarget by remember{mutableStateOf<Pair<String,Long?>?>(null)}
+    fun openTrackRecognition(id:String,position:Long?=null,expectedUri:String?=null){
+        val ref=libraryRefsByAlias[id] ?: expectedUri?.let{uri->publicLibraryRefs.singleOrNull{it.item.savedUri==uri}}
+        if(!organizationUsable||ref==null||ref.item.isPrivate||ref.item.hidden||ref.item.mediaType!=MediaType.AUDIO||
+            (expectedUri!=null&&ref.item.savedUri!=expectedUri)){
+            Toast.makeText(context,"Трек недоступен",Toast.LENGTH_SHORT).show();return
+        }
+        trackRecognitionTarget=ref.key to position
+    }
+    trackRecognitionTarget?.let{(id,position)->
+        val row=publicLibraryRefs.firstOrNull{it.key==id}?.item
+        if(libraryPrivateKeys!=null&&row!=null&&!row.isPrivate&&!row.hidden&&row.mediaType==MediaType.AUDIO)
+            com.domenota.medialoader.ui.screens.music.TrackRecognitionDialog(row,position,
+                onDismiss={trackRecognitionTarget=null},onUpdated={libraryModel.refresh(AppMode.MUSIC,force=true)})
+        else LaunchedEffect(id,libraryPrivateKeys){trackRecognitionTarget=null}
+    }
 
     fun openCollections(id:String?=null,audioOnly:Boolean=false,ids:List<String> = emptyList(),link:String?=null,create:Boolean=false){
         collectionInitial=id;collectionAudioOnly=audioOnly;collectionAddIds=ids;collectionLink=link;collectionCreate=create
@@ -1456,6 +1472,7 @@ fun MediaLoaderApp(
                     onTrashDuplicates = trashDuplicates,
                     onOpenDuplicates = { navController.navigate("music-duplicates") { launchSingleTop = true } },
                     onOpenCollections={openCollections(audioOnly=true)},onAddCollection=::addToCollection,onPassport=::openPassport,
+                    onRecognize={id->openTrackRecognition(id)},
                     listeningKeys = remember(publicLibraryRefs,fileStatuses) {
                         publicLibraryRefs.filter { ref -> ref.item.mediaType == MediaType.AUDIO &&
                             fileStatuses[ref.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE) }
@@ -2097,6 +2114,7 @@ fun MediaLoaderApp(
                             catch (_: Exception) { Toast.makeText(context, "Не удалось изменить избранное", Toast.LENGTH_SHORT).show() }
                         } },
                         onAudioCurrentItemChanged = { entry.savedStateHandle["audio_current_id"] = it.id },
+                        onAudioRecognize={selected,position->openTrackRecognition(selected.id,position,selected.savedUri)},
                         onEdit = { selected ->
                             val selectedId = libraryRefsByAlias[selected.id]?.key
                                 ?: currentLibraryAudioId?.takeIf { selected.mediaType == MediaType.AUDIO && selected.id == libraryAudioState.currentId }

@@ -90,6 +90,7 @@ fun BackgroundAudioPlayer(
     libraryLayout: Boolean = false, metadataLookup: List<DownloadEntity> = emptyList(), blockedIdentities: Set<String> = emptySet(),
     onBack: () -> Unit = {}, onEqualizer: (() -> Unit)? = null,
     favoriteIds: Set<String> = emptySet(), onFavorite: ((DownloadEntity) -> Unit)? = null, onEdit: ((DownloadEntity) -> Unit)? = null,
+    onRecognize:((DownloadEntity,Long)->Unit)?=null,
 ) {
     val context = LocalContext.current
     val playableQueue = remember(item.id, queue) {
@@ -307,7 +308,8 @@ fun BackgroundAudioPlayer(
         } else androidx.compose.foundation.layout.Box(modifier) {
             MusicPlayerControls(currentItem, controller, positionMs, durationMs, isPlaying, shuffleEnabled, repeatMode, playbackSpeed,
                 onBack, onEqualizer, { queueOpen = true }, onFavorite?.let { action -> { action(currentItem) } },
-                favorite = currentItem.id in favoriteIds, onEdit = onEdit?.let { action -> { action(currentItem) } })
+                favorite = currentItem.id in favoriteIds, onEdit = onEdit?.let { action -> { action(currentItem) } },
+                onRecognize=onRecognize?.takeIf{!currentItem.isPrivate&&!currentItem.hidden&&controller!=null}?.let{action->{action(currentItem,controller?.currentPosition?.coerceAtLeast(0L)?:positionMs)}})
         }
         if (queueOpen && !blocked) ModalBottomSheet(onDismissRequest = { queueOpen = false }) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()

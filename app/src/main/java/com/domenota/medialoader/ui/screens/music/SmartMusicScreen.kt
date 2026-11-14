@@ -116,7 +116,7 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
     onSave:suspend (String,List<String>)->Unit,onAdd:(String)->Unit,onShare:(String)->Unit,onDelete:(String)->Unit,
     onEnqueue:((String,Boolean)->Unit)?,onFavorite:(suspend (String,Boolean)->Unit)?,
     onCollection:((List<String>)->Unit)?=null,onPassport:((String)->Unit)?=null,statsInterval:SmartStatsInterval?=null,
-    onStatsDrill:(SmartChartPoint)->Unit={},onStatsBack:()->Unit={},onStatsDay:(java.time.LocalDate)->Unit={}) {
+    onStatsDrill:(SmartChartPoint)->Unit={},onStatsBack:()->Unit={},onStatsDay:(java.time.LocalDate)->Unit={},onRecognize:((String)->Unit)?=null) {
     val scope=rememberCoroutineScope()
     val context=LocalContext.current
     val palette=MaterialTheme.colorScheme
@@ -262,7 +262,7 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                 MusicTrackActions(row,onEnqueue?.let { action->{ next:Boolean->action(id,next) } },
                     {onOpen(id,ids)},{onAdd(id)},{onShare(id)},{onDelete(id)},null,null,null,
                     favorite=id in favoriteIds,onFavorite=onFavorite?.let { action->{mutate {action(id,id !in favoriteIds)}} },
-                    onCollection=onCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}})
+                    onCollection=onCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})
             }
         }
     }

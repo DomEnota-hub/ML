@@ -33,7 +33,7 @@ internal fun MusicPlayerControls(
     item: DownloadEntity, player: Player?, positionMs: Long, durationMs: Long, playing: Boolean,
     shuffle: Boolean, repeatMode: Int, speed: Float,
     onBack: () -> Unit, onEqualizer: (() -> Unit)?, onQueue: () -> Unit, onFavorite: (() -> Unit)?,
-    favorite: Boolean = false, onEdit: (() -> Unit)? = null,
+    favorite: Boolean = false, onEdit: (() -> Unit)? = null, onRecognize:(()->Unit)?=null,
 ) {
     var scrub by remember(item.id) { mutableStateOf<Float?>(null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -83,13 +83,14 @@ internal fun MusicPlayerControls(
                     tint = if (repeatMode == Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.onSurfaceVariant else musicPlaybackAccent)
             }
         }
-        Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             IconButton(onClick = { onFavorite?.invoke() }, enabled = onFavorite != null) {
                 Icon(if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Избранное",
                     tint = if (favorite) androidx.compose.ui.graphics.Color(0xFFF04452) else MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = { onEqualizer?.invoke() }, enabled = onEqualizer != null) { Icon(Icons.Rounded.Equalizer, "Эквалайзер") }
             IconButton(onQueue, enabled = player != null) { Icon(Icons.Rounded.QueueMusic, "Очередь") }
+            if(onRecognize!=null)IconButton(onRecognize){TrackRecognitionIcon()}
             MusicSpeedAction(currentSpeed = speed, enabled = player != null,
                 onSpeedChange = { player?.setPlaybackSpeed(it) })
         }
@@ -100,4 +101,14 @@ private fun time(value: Long): String {
     val seconds = value.coerceAtLeast(0) / 1000
     return if (seconds >= 3600) "${seconds / 3600}:${((seconds % 3600) / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}"
         else "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+}
+
+/** Compact magnifier containing the waveform, with one accessible action. */
+@Composable
+internal fun TrackRecognitionIcon(description:String?="Распознать композицию"){
+    val tint=MaterialTheme.colorScheme.onSurface
+    Box(Modifier.size(24.dp),contentAlignment=Alignment.Center){
+        Icon(Icons.Rounded.Search,description,Modifier.fillMaxSize(),tint=tint)
+        Icon(Icons.Rounded.GraphicEq,null,Modifier.align(Alignment.TopStart).padding(3.dp).size(10.dp),tint=tint)
+    }
 }
