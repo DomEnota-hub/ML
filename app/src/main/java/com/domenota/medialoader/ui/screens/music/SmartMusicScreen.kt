@@ -124,6 +124,7 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
     var exporting by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
     var exported by remember { mutableStateOf(false) }
+    LaunchedEffect(statsInterval,period){exported=false;problem=null}
     val saveImage=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
         val data=exportPending;exportPending=null
         if(uri!=null&&data!=null)scope.launch {

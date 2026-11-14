@@ -67,6 +67,17 @@ internal fun MusicDayStatsScreen(interval:SmartStatsInterval,snapshot:SmartMusic
                             }
                         }
                     }
+                    val ranked=actual.topTracks.filter{it.rowId in rows}
+                    if(ranked.isNotEmpty()){
+                        Text("Топ треков",style=MaterialTheme.typography.titleMedium)
+                        ranked.take(5).forEachIndexed{index,entry->
+                            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                                Text("${index+1}. ${audioTitle(rows.getValue(entry.rowId))}",Modifier.weight(1f),maxLines=2,
+                                    overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                Text(entry.periodPlays.toString(),color=MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
                     OutlinedButton(onExport,Modifier.fillMaxWidth(),enabled=!exporting&&(actual.plays>0||actual.wallMs>0)){
                         Icon(Icons.Rounded.Save,null);Spacer(Modifier.width(8.dp));Text("Сохранить итог изображением")
                     }

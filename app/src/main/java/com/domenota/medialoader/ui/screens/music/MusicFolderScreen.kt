@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.database.DownloadEntity
+import com.domenota.medialoader.ui.screens.audioTitle
 
 @Composable
 internal fun MusicFolderScreen(title:String,tracks:List<DownloadEntity>,excluded:Boolean,currentId:String?,playing:Boolean,
@@ -45,10 +46,13 @@ internal fun MusicFolderScreen(title:String,tracks:List<DownloadEntity>,excluded
             OutlinedButton({onPlay(true)},Modifier.weight(1f),enabled=tracks.isNotEmpty()){Icon(Icons.Rounded.Shuffle,null);Text("Перемешать")}
         }
         if(tracks.isEmpty())Text("В папке нет доступных треков",Modifier.padding(16.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=list,contentPadding=PaddingValues(bottom=12.dp)){
-            items(tracks,key={it.id}){track->
-                MusicLibraryTrackRow(track,{onPreview(track.id)},track.id==currentId,playing){actions(track)}
+        Box(Modifier.weight(1f).fillMaxWidth()){
+            LazyColumn(Modifier.fillMaxSize().padding(end=if(tracks.size>5)musicFastScrollLaneWidth else 0.dp),state=list,contentPadding=PaddingValues(bottom=12.dp)){
+                items(tracks,key={it.id}){track->
+                    MusicLibraryTrackRow(track,{onPreview(track.id)},track.id==currentId,playing){actions(track)}
+                }
             }
+            MusicFastScroll(list,tracks.map{audioTitle(it).take(1).uppercase()},Modifier.align(Alignment.CenterEnd))
         }
     }
 }

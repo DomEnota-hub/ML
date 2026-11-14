@@ -133,7 +133,12 @@ internal fun MusicModeScreen(
             MusicFolderRules.visible(row,excludedFolders,deviceMusicFolders) }
     }
     val frequentKeys = remember(frequentRows,listeningKeys) { listeningKeys.filterKeys { it in frequentRows } }
-    var statsIntervals by remember { mutableStateOf<List<com.domenota.medialoader.data.playback.SmartStatsInterval>>(emptyList()) }
+    var statsIntervals by rememberSaveable(stateSaver=androidx.compose.runtime.saveable.listSaver<List<com.domenota.medialoader.data.playback.SmartStatsInterval>,String>(
+        save={list->list.flatMap{interval->listOf(interval.first.toString(),interval.end.toString(),interval.granularity.name,interval.title)}},
+        restore={values->values.chunked(4).mapNotNull{parts->if(parts.size!=4)null else runCatching{
+            com.domenota.medialoader.data.playback.SmartStatsInterval(java.time.LocalDate.parse(parts[0]),java.time.LocalDate.parse(parts[1]),
+                com.domenota.medialoader.data.playback.StatsGranularity.valueOf(parts[2]),parts[3])
+        }.getOrNull()}})){mutableStateOf(emptyList())}
     var smartStatsPeriod by rememberSaveable { mutableStateOf(SmartStatsPeriod.MONTH) }
     val smartPrefs = remember(context) { context.getSharedPreferences("smart_music",0) }
     var mixDiversity by remember { mutableIntStateOf(smartPrefs.getInt("diversity",50).coerceIn(0,100)/5*5) }
@@ -249,7 +254,7 @@ internal fun MusicModeScreen(
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
-    BackHandler(folderOpen != null || resumeOpen || smartPage != null || frequentOpen || playlist != null || tab == 1) { if(folderOpen!=null)folderOpen=null else if(resumeOpen)resumeOpen=false else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
+    BackHandler(folderOpen != null || resumeOpen || smartPage != null || frequentOpen || playlist != null || tab == 1) { if(folderOpen!=null)folderOpen=null else if(resumeOpen)resumeOpen=false else if(smartPage==SmartMusicPage.STATS&&statsIntervals.isNotEmpty()) statsIntervals=statsIntervals.dropLast(1) else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
         PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, available.values.toList(), emptyMap(),
