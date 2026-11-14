@@ -1128,7 +1128,7 @@ fun MediaLoaderApp(
 
     var usedLinkPrompt by rememberSaveable { mutableStateOf<String?>(null) }
     var clipboardLookup by remember { mutableStateOf<Job?>(null) }
-    fun sameLink(a:String,b:String)=com.domenota.medialoader.core.provider.UsedInstagramLink.same(a,b)
+    fun sameLink(a:String,b:String)=com.domenota.medialoader.core.provider.PublicationIdentity.same(a,b)
     fun checkExplicitLink(link:String) {
         clipboardLookup?.cancel()
         lastHandledLink=link
@@ -1139,17 +1139,18 @@ fun MediaLoaderApp(
     }
     usedLinkPrompt?.let{link->
         AlertDialog(onDismissRequest={usedLinkPrompt=null},title={Text("Ссылка уже использовалась")},
-            text={Text("Публикация есть в истории. Повторная проверка расходует запрос GAPI.")},
+            text={Text("Публикация есть в истории. Повторная проверка может расходовать сетевые запросы.")},
             confirmButton={TextButton({usedLinkPrompt=null;viewModel.analyze(link);showPicker=true}){Text("Проверить заново")}},
             dismissButton={TextButton({usedLinkPrompt=null;goToDownloads()}){Text("История")}})
     }
     // Read only while the downloader is visible. Never replace a link the user typed herself.
-    DisposableEffect(lifecycleOwner, currentRoute, sharedText, appMode) {
+    val clipboardView=androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(lifecycleOwner, currentRoute, sharedText, appMode, clipboardView) {
         fun importSupportedLink() {
-            if (currentRoute != AppDestination.Home.route || sharedText != null || appMode != AppMode.DOWNLOADER) return
+            if (currentRoute != AppDestination.Home.route || sharedText != null || appMode != AppMode.DOWNLOADER || !clipboardView.hasWindowFocus()) return
             val firstCheck = !checkedClipboardAtLaunch
-            checkedClipboardAtLaunch = true
             val candidate = clipboardManager.getText()?.text?.let(::extractFirstUrl) ?: return
+            checkedClipboardAtLaunch = true
             if (InstagramLinkParser.parse(candidate) == null && YouTubeLinkParser.parse(candidate) == null &&
                 VkLinkParser.parse(candidate) == null && RutubeLinkParser.parse(candidate) == null) return
             if (sameLink(candidate,dismissedClipboard)) return
@@ -1173,9 +1174,11 @@ fun MediaLoaderApp(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) importSupportedLink()
         }
+        val focus=android.view.ViewTreeObserver.OnWindowFocusChangeListener{if(it)importSupportedLink()}
         lifecycleOwner.lifecycle.addObserver(observer)
+        clipboardView.viewTreeObserver.addOnWindowFocusChangeListener(focus)
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) importSupportedLink()
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); clipboardLookup?.cancel() }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); if(clipboardView.viewTreeObserver.isAlive)clipboardView.viewTreeObserver.removeOnWindowFocusChangeListener(focus) }
     }
 
     val checkingPhoneAccess = if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)

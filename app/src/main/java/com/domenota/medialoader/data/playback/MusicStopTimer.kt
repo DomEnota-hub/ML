@@ -47,6 +47,7 @@ internal class MusicStopTimer(private val player: ExoPlayer, private val scope: 
     private var playlistId: String? = null
     private var repeatBefore: Int? = null
     private var changingRepeat = false
+    internal fun isTemporaryRepeat(mode:Int)=mode==Player.REPEAT_MODE_OFF && repeatBefore!=null
     private var ticker: Job? = null
     var stopGeneration = 0L
         private set

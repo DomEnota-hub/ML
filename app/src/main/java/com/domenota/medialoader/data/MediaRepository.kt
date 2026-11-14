@@ -350,11 +350,11 @@ class MediaRepository private constructor(context: Context) {
     }
 
     suspend fun wasInstagramDownloaded(url:String):Boolean {
-        val key=com.domenota.medialoader.core.provider.UsedInstagramLink.key(url)?:return false
+        val key=com.domenota.medialoader.core.provider.PublicationIdentity.key(url)?:return false
         return history.all().any { row ->
-            row.providerId=="instagram" && row.state==DownloadState.COMPLETED &&
+            !row.isPrivate && !row.hidden && row.state==DownloadState.COMPLETED &&
                 listOfNotNull(row.sourcePageUrl,row.sourceUrl).any{
-                    com.domenota.medialoader.core.provider.UsedInstagramLink.key(it)==key
+                    com.domenota.medialoader.core.provider.PublicationIdentity.key(it)==key
                 }
         }
     }
