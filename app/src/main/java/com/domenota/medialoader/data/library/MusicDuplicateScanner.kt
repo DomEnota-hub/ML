@@ -20,7 +20,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
-internal data class DuplicateScanResult(val groups: List<DuplicateGroup>, val skipped: Int)
+internal data class DuplicateScanResult(val groups: List<DuplicateGroup>, val skipped: Int, val acousticUnavailable:Int=0, val expanded:Boolean=false, val privacyEpoch:Long=0)
 internal object MusicDuplicateScanner {
     private data class Stamp(val size: Long, val modified: Long?, val folder: String?)
     private data class Cached(val stamp: Stamp, val track: DuplicateTrack)
@@ -111,8 +111,8 @@ internal object MusicDuplicateScanner {
             synchronized(cache) { cache[cacheKey] } ?: loadCheckpoint(context,value,before,expanded)
                 ?: if(expanded)loadCheckpoint(context,value,before,false)?.let{Cached(it.stamp,it.track.copy(acoustic=null))} else null
         }
-        if (before.modified != null && old != null && old.stamp == before && old.track.privacyEpoch == epoch && old.track.filename == row.originalName) return old.track.copy(id = row.id, linked = linked, current = current,
-            title = row.recognizedTitle ?: row.sourceAudioTitle ?: old.track.title, artist = row.recognizedArtist ?: row.sourceAudioArtist ?: old.track.artist)
+        if (before.modified != null && old != null && old.stamp == before && old.track.privacyEpoch == epoch && old.track.filename == row.originalName) { metrics.hit("metadata_cache"); return old.track.copy(id = row.id, linked = linked, current = current,
+            title = row.recognizedTitle ?: row.sourceAudioTitle ?: old.track.title, artist = row.recognizedArtist ?: row.sourceAudioArtist ?: old.track.artist) }
         var title = row.recognizedTitle ?: row.sourceAudioTitle
         var artist = row.recognizedArtist ?: row.sourceAudioArtist
         var duration = row.durationMs; var bitrate: Long? = null
@@ -138,11 +138,11 @@ internal object MusicDuplicateScanner {
         return track
     }
     private suspend fun acoustic(context:Context,t:DuplicateTrack,expanded:Boolean,metrics:DuplicateScanMetrics):DuplicateTrack{
-        if(t.acoustic!=null)return t
         val uri=Uri.parse(t.uri)
         check(DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id))
         val before=stamp(context,uri)
         check(before.size==t.bytes&&before.modified==t.modified&&before.folder==t.folder)
+        if(t.acoustic!=null){metrics.hit("acoustic_cache");return t}
         val fingerprint=try{metrics.measure("acoustic_decode_fft"){AcousticAudioDecoder.fingerprint(context,uri,t.duration,expanded)}}
             catch(e:CancellationException){throw e}catch(_:Exception){null}
         check(stamp(context,uri)==before)
@@ -168,7 +168,14 @@ internal object MusicDuplicateScanner {
         // Keep a bounded disk cache; it is never trusted for deletion.
         val files = cacheDirectory(context,expanded).listFiles().orEmpty()
         if (files.size > 6000) files.sortedBy { it.lastModified() }.take(files.size - 4000).forEach { it.delete() }
+        val active=coroutineContext
+        fun checkActive(){active.ensureActive();check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск устарел"}}
+        fun publishPartial(){
+            val groups=MusicDuplicatePolicy.groups(tracks.map{it.copy(acoustic=null)},::checkActive)
+            onPartial(DuplicateScanResult(groups,skipped,expanded=expanded,privacyEpoch=epoch))
+        }
         onPhase(DuplicateScanPhase.METADATA)
+        onPartial(DuplicateScanResult(emptyList(),0,expanded=expanded,privacyEpoch=epoch))
         usable.forEachIndexed { index,row ->
             coroutineContext.ensureActive(); check(DuplicatePrivacyGuard.generation(context) == epoch) { "Поиск прерван изменением приватности" }; progress(index, usable.size)
             try {
@@ -178,19 +185,26 @@ internal object MusicDuplicateScanner {
                 val t = read(context,row,row.id in linkedIds,row.id == currentId,epoch,metrics,expanded)
                 seen += keys; tracks += t
             } catch (e: CancellationException) { throw e } catch (_: Exception) { skipped++ }
+            progress(index+1,usable.size)
+            if((index+1)%100==0){publishPartial();metrics.report("metadata",index+1,skipped)}
         }
-        val active = coroutineContext
-        fun checkActive(){active.ensureActive();check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск устарел"}}
-        val partial=MusicDuplicatePolicy.groups(tracks.map{it.copy(acoustic=null)},::checkActive)
-        onPartial(DuplicateScanResult(partial,skipped));onPhase(DuplicateScanPhase.ACOUSTIC)
+        publishPartial();onPhase(DuplicateScanPhase.ACOUSTIC)
+        var acousticUnavailable=0
+        val validTracks=ArrayList<DuplicateTrack>(tracks.size)
         for(index in tracks.indices){
             checkActive();progress(index,tracks.size)
-            try{tracks[index]=acoustic(context,tracks[index],expanded,metrics)}catch(e:CancellationException){throw e}catch(_:Exception){skipped++}
+            try{
+                val track=acoustic(context,tracks[index],expanded,metrics)
+                if(track.acoustic==null)acousticUnavailable++
+                validTracks+=track
+            }catch(e:CancellationException){throw e}catch(_:Exception){skipped++}
+            if((index+1)%100==0)metrics.report("acoustic",index+1,skipped)
         }
         progress(tracks.size,tracks.size);onPhase(DuplicateScanPhase.GROUPING)
-        val groups=metrics.measure("grouping"){MusicDuplicatePolicy.groups(tracks) { active.ensureActive(); check(DuplicatePrivacyGuard.generation(context) == epoch) { "Поиск устарел" } }}
-        metrics.report()
-        DuplicateScanResult(groups,skipped)
+        val groups=metrics.measure("grouping"){MusicDuplicatePolicy.groups(validTracks,::checkActive)}
+        checkActive()
+        metrics.report("completed",usable.size,skipped)
+        DuplicateScanResult(groups,skipped,acousticUnavailable,expanded,epoch)
     }
     /** Restore only still-identical public rows; no audio decoding or hashing here. */
     suspend fun restore(context: Context, saved: DuplicateScanResult, rows: List<DownloadEntity>,
@@ -209,7 +223,7 @@ internal object MusicDuplicateScanner {
             }
             if (valid.size >= 2) group.copy(tracks = valid) else null
         }
-        DuplicateScanResult(groups, saved.skipped + stale)
+        saved.copy(groups=groups,skipped=saved.skipped+stale)
     }
     suspend fun verify(context: Context, groups: List<DuplicateGroup>, selected: Set<String>, currentRows: List<DownloadEntity>): Unit = withContext(Dispatchers.IO) {
         check(MusicDuplicatePolicy.validSelection(groups,selected)) { "Недопустимое выделение" }

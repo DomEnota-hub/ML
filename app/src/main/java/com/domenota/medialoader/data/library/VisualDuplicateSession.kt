@@ -45,7 +45,7 @@ internal data class VisualDuplicateSession(
 /** Private atomic checkpoint; cancellation of a new scan leaves the previous result intact. */
 internal object VisualDuplicateSessionStore {
     private val lock=DuplicatePrivacyGuard.lock
-    fun clearForPrivacy(context:Context){DuplicateReportJournal.clear(context,"gallery");file(context).delete()}
+    fun clearForPrivacy(context:Context){DuplicateReportJournal.clear(context,"gallery");val target=file(context);target.delete();check(!target.baseFile.exists()){"Не удалось очистить отчёт Галереи"}}
     private fun permitted(context:Context,session:VisualDuplicateSession)=session.result.privacyEpoch==DuplicatePrivacyGuard.generation(context)&&session.result.groups.all{g->g.files.all{DuplicatePrivacyGuard.accepts(context,session.result.privacyEpoch,it.id)}}
     private fun file(context:Context)=AtomicFile(File(context.noBackupFilesDir,"visual-duplicates-v1.json"))
     suspend fun load(context:Context):VisualDuplicateSession?=withContext(Dispatchers.IO){

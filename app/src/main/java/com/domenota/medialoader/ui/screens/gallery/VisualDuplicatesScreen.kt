@@ -68,7 +68,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     // Render only a projection validated against the current complete public catalog.
     val current=remember(session,refs,ready,privacyEpoch){if(ready)session?.takeIf{it.result.privacyEpoch==privacyEpoch}?.reconcile(refs) else null}
     val latestSession by rememberUpdatedState(session)
-    val partial=(status.partial?:storedPartial?.result)?.takeIf{it.privacyEpoch==privacyEpoch}
+    val partial=(if(status.running)status.partial else status.partial?:storedPartial?.result)?.takeIf{it.privacyEpoch==privacyEpoch}
     fun exactBytes(value:List<VisualDuplicateGroup>)=value.filter{it.reason==VisualMatch.EXACT}.sumOf{g->g.files.sumOf{it.bytes}-(g.files.firstOrNull()?.bytes?:0L)}
     LaunchedEffect(privacyEpoch) {
         session=VisualDuplicateSessionStore.load(context)
@@ -162,7 +162,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
             Text("Предварительные результаты · удаление после завершения")
             LazyColumn(Modifier.weight(1f)){items(partial.groups,key={it.files.first().id}){g->
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    g.files.take(3).forEach{f->if(byId[f.id]!=null)DownloadThumbnail(f.uri,null,if(f.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(54.dp).clickable{preview=g to f.id})}
+                    g.files.take(3).forEach{f->if(byId[f.id]?.let{VisualDuplicateScanner.matchesCatalog(f,it)}==true)DownloadThumbnail(f.uri,null,if(f.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(54.dp).clickable{preview=g to f.id})}
                     Text("${g.files.size} файлов",Modifier.padding(8.dp))
                 }
             }};return@Column

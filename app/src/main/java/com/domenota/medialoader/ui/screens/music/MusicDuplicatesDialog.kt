@@ -109,7 +109,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }
     // Notification or another controller can resume the main player. Do not play two streams.
     LaunchedEffect(mainPlaying) { if (mainPlaying && previewId != null) stopPreview(restore = false) }
-    fun admissible(value: DuplicateScanResult?): Boolean = value != null && value.groups.all { group ->
+    fun admissible(value: DuplicateScanResult?): Boolean = value != null && value.privacyEpoch==DuplicatePrivacyGuard.generation(context) && value.groups.all { group ->
         group.tracks.all { DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) }
     }
     LaunchedEffect(privacyRevision,result,previous) {
@@ -189,11 +189,12 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     // Filter during composition as well as async admission; effects may run before a suspended restore returns.
     val groups = result?.takeIf(::admissible)?.groups.orEmpty()
     val displayPrevious = previous?.takeIf { admissible(it.result) }
-    val partial=(background.partial?:storedPartial?.result)?.takeIf(::admissible)
+    val partial=(if(background.running)background.partial else background.partial?:storedPartial?.result)?.takeIf(::admissible)
     val visibleGroups=groups.filter{filter==null||it.kind==filter}
     fun resume(){stopPreview();expandedScan=DuplicateBackgroundScan.resumeExpanded(context);scanRevision++}
     fun exactBytes(value:List<DuplicateGroup>)=value.filter{it.kind==DuplicateKind.EXACT}.sumOf{g->g.tracks.sumOf{it.bytes}-(g.tracks.firstOrNull()?.bytes?:0L)}
-    val allSelected = MusicDuplicatePolicy.selectAll(groups,kept)
+    val allSelected = MusicDuplicatePolicy.selectAll(groups,kept).filterNot{it==currentId}.toSet()
+    LaunchedEffect(currentId){currentId?.let{selected=selected-it}}
     val size = groups.sumOf { g -> g.tracks.filter { it.id in selected }.sumOf { it.bytes } }
     fun close() {
         stopPreview()
@@ -253,6 +254,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                     TextButton({stopPreview();expandedScan=true;scanRevision++},enabled=!verifying){Text("Расширенный поиск по всему аудио")}
                     Text("Быстрый поиск проверяет фрагменты длинных треков; расширенный проверяет аудио целиком.",style=MaterialTheme.typography.bodySmall)
+                    result?.let{r->Text(if(r.expanded)"Режим: расширенный" else "Режим: быстрый",style=MaterialTheme.typography.labelMedium)
+                        if(r.acousticUnavailable>0)Text("Без акустического отпечатка: ${r.acousticUnavailable}. Точные совпадения сохранены.",style=MaterialTheme.typography.bodySmall)}
                     if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     previewError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
