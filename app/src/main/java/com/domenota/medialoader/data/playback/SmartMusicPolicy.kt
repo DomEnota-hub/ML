@@ -14,7 +14,7 @@ internal data class SmartTrackHistory(val rowId: String, val trackId: String?, v
     val plays: Long = 0, val lastPlayed: Long = 0, val periodPlays: Long = 0, val periodWallMs: Long = 0,
     val excluded: Boolean = false)
 internal data class SmartArtistRank(val artist: String, val plays: Long, val wallMs: Long)
-internal data class SmartChartPoint(val label: String,val plays: Long,val wallMs: Long)
+internal data class SmartChartPoint(val label: String,val plays: Long,val wallMs: Long,val date: LocalDate? = null)
 internal enum class SmartStatsPeriod(val label: String) {
     WEEK("Неделя"), MONTH("Месяц"), YEAR("Год"), ALL("Всё время");
     fun date(now: Long,zone: ZoneId) = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
@@ -35,7 +35,8 @@ internal enum class SmartStatsPeriod(val label: String) {
 internal data class SmartMusicSnapshot(val forgotten: List<SmartTrackHistory> = emptyList(),
     val mix: List<SmartTrackHistory> = emptyList(), val topTracks: List<SmartTrackHistory> = emptyList(),
     val topArtists: List<SmartArtistRank> = emptyList(), val plays: Long = 0, val wallMs: Long = 0,
-    val tracksPlayed: Int = 0, val artistsPlayed: Int = 0, val chart: List<SmartChartPoint> = emptyList())
+    val tracksPlayed: Int = 0, val artistsPlayed: Int = 0, val chart: List<SmartChartPoint> = emptyList(),
+    val statsInterval:SmartStatsInterval?=null,val statsPeriod:SmartStatsPeriod?=null)
 
 internal object SmartMusicPolicy {
     const val LIMIT = 30
@@ -125,7 +126,7 @@ internal object SmartMusicPolicy {
     }
 
     fun snapshot(rows: List<SmartTrackHistory>, now: Long, seed: Long = now / DAY_MS, diversity: Int = 50, forgottenDays: Long = FORGOTTEN_DAYS): SmartMusicSnapshot {
-        val played = rows.filter { it.periodPlays > 0 }
+        val played = rows.filter { it.periodPlays > 0 || it.periodWallMs > 0 }
         val artists = rows.filter { it.periodPlays > 0 || it.periodWallMs > 0 }
             .mapNotNull { row -> artistKey(row.artist)?.let { it to row } }.groupBy({it.first},{it.second})
         val artistRanks = artists.values.map { group ->
@@ -134,6 +135,6 @@ internal object SmartMusicPolicy {
         return SmartMusicSnapshot(forgotten(rows,now,forgottenDays),mix(rows,now,seed,diversity),
             played.sortedWith(compareByDescending<SmartTrackHistory> { it.periodPlays }.thenByDescending { it.lastPlayed }.thenBy { it.rowId }).take(LIMIT),
             artistRanks.take(LIMIT),rows.sumOf { it.periodPlays },rows.sumOf { it.periodWallMs },played.size,
-            artists.values.count { group -> group.any { it.periodPlays > 0 } })
+            artists.size)
     }
 }

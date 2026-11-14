@@ -4,6 +4,11 @@ import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.*
@@ -49,5 +54,33 @@ class SmartMusicScreenTest {
         val session=ResumeQueueSession("q",null,listOf(setOf("app:a")),0,10_000,180_000,false,0,1f,100)
         compose.setContent{MaterialTheme{ResumeMusicScreen(listOf(ResolvedResumeQueue(session,listOf(null))),emptyMap(),emptyMap(),false,false,{},{error("Must not resume")})}}
         compose.onNodeWithText("Продолжить").assertIsNotEnabled()
+    }
+    @Test fun graphStartsAtLatestAndKeepsManualScrollAcrossMetricAndRefresh() {
+        var byTime by mutableStateOf(true)
+        var period by mutableStateOf("month")
+        var points by mutableStateOf((1..30).map { SmartChartPoint("$it.11",it.toLong(),it*1000L) })
+        compose.setContent {MaterialTheme {Box(Modifier.width(300.dp)) {HistoryGraph(points,byTime,period,{})}}}
+        fun range()=compose.onNodeWithTag("stats-history-graph").fetchSemanticsNode().config[SemanticsProperties.HorizontalScrollAxisRange]
+        compose.waitForIdle()
+        val initial=range()
+        assertTrue(initial.value()>0);assertEquals(initial.maxValue(),initial.value(),1f)
+        compose.onNodeWithTag("stats-history-graph").performTouchInput {swipeRight()}
+        compose.waitForIdle()
+        val manual=range().value()
+        assertTrue(manual<range().maxValue())
+        compose.runOnIdle {byTime=false;points=points.map {it.copy(plays=it.plays+1)}}
+        compose.waitForIdle()
+        assertEquals(manual,range().value(),1f)
+        compose.runOnIdle {period="year"}
+        compose.waitForIdle()
+        val changed=range()
+        assertEquals(changed.maxValue(),changed.value(),1f)
+    }
+    @Test fun zeroYearBucketCanBeSelectedForDrilldown() {
+        val date=java.time.LocalDate.of(2026,1,1)
+        var selected:SmartChartPoint?=null
+        compose.setContent {MaterialTheme {HistoryGraph(listOf(SmartChartPoint("2026",0,0,date)),true,"all",{selected=it})}}
+        compose.onNodeWithTag("stats-bucket-2026-01-01").performClick()
+        compose.runOnIdle {assertEquals(date,selected?.date)}
     }
 }

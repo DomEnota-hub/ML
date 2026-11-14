@@ -2,6 +2,7 @@ package com.domenota.medialoader.ui.screens.music
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.domenota.medialoader.ui.components.AppSlider as Slider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -67,14 +68,22 @@ private fun listeningTime(ms: Long): String {
 }
 
 @Composable
-private fun HistoryGraph(points: List<SmartChartPoint>,byTime:Boolean) {
+internal fun HistoryGraph(points: List<SmartChartPoint>,byTime:Boolean,intervalKey:Any,onPoint:(SmartChartPoint)->Unit,ready:Boolean=true) {
+    val scroll=rememberScrollState()
+    var positioned by remember(intervalKey) { mutableStateOf(false) }
+    LaunchedEffect(intervalKey,scroll.maxValue,points.isNotEmpty(),ready) {
+        if(ready && !positioned && points.isNotEmpty()) {
+            withFrameNanos { }
+            scroll.scrollTo(scroll.maxValue); positioned=true
+        }
+    }
     val maximum=points.maxOfOrNull { if(byTime) it.wallMs else it.plays }?.coerceAtLeast(1L) ?: 1L
     val barWidth=if(points.any {it.label.length>5}) 66.dp else 42.dp
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(5.dp),verticalAlignment=Alignment.Bottom) {
+    Row(Modifier.fillMaxWidth().testTag("stats-history-graph").horizontalScroll(scroll),horizontalArrangement=Arrangement.spacedBy(5.dp),verticalAlignment=Alignment.Bottom) {
         points.forEach { point ->
             val value=if(byTime) point.wallMs else point.plays
             val fraction=(value.toDouble()/maximum).coerceIn(0.0,1.0).toFloat()
-            Column(Modifier.width(barWidth).semantics { contentDescription="${point.label}: ${if(byTime) listeningTime(value) else "$value прослушиваний"}" },
+            Column(Modifier.width(barWidth).clickable(enabled=ready) { onPoint(point) }.testTag("stats-bucket-${point.date ?: point.label}").semantics { contentDescription="${point.label}: ${if(byTime) listeningTime(value) else "$value прослушиваний"}" },
                 horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
                 Box(Modifier.height(100.dp).fillMaxWidth(),contentAlignment=Alignment.BottomCenter) {
                     Box(Modifier.width(15.dp).height((if(value>0) (100*fraction).coerceAtLeast(2f) else 1f).dp)
@@ -104,7 +113,8 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
     onPlay:(List<String>,Boolean)->Unit,onPreview:(String,List<String>)->Unit,onOpen:(String,List<String>)->Unit,
     onSave:suspend (String,List<String>)->Unit,onAdd:(String)->Unit,onShare:(String)->Unit,onDelete:(String)->Unit,
     onEnqueue:((String,Boolean)->Unit)?,onFavorite:(suspend (String,Boolean)->Unit)?,
-    onCollection:((List<String>)->Unit)?=null,onPassport:((String)->Unit)?=null) {
+    onCollection:((List<String>)->Unit)?=null,onPassport:((String)->Unit)?=null,statsInterval:SmartStatsInterval?=null,
+    onStatsDrill:(SmartChartPoint)->Unit={},onStatsBack:()->Unit={}) {
     val scope=rememberCoroutineScope()
     val context=LocalContext.current
     val palette=MaterialTheme.colorScheme
@@ -142,10 +152,11 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
         try {action(); problem=null} catch(e:CancellationException){throw e}
         catch(_:Exception){problem="Не удалось выполнить действие"}
     } }
+    androidx.activity.compose.BackHandler(page==SmartMusicPage.STATS && statsInterval!=null,onStatsBack)
     LazyColumn(Modifier.fillMaxSize().testTag("smart-music-${page.name}"),contentPadding=PaddingValues(bottom=12.dp)) {
         item(key="header") {
             Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically) {
-                IconButton(onBack){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
+                IconButton({if(page==SmartMusicPage.STATS && statsInterval!=null)onStatsBack() else onBack()}){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
                 Text(page.label,Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
                 if(page==SmartMusicPage.MIX) IconButton(onRefreshMix,enabled=!loading) { Icon(Icons.Rounded.Refresh,"Обновить микс") }
             }
@@ -165,8 +176,6 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                             Text("Больше любимого",style=MaterialTheme.typography.bodySmall)
                             Text("Больше нового",style=MaterialTheme.typography.bodySmall)
                         }
-                        val q=SmartMusicPolicy.quotas(slider.roundToInt())
-                        Text("Цель: ${q[0]} привычных · ${q[1]} других · ${q[2]} забытых. При нехватке треков группы дополняются.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     SmartMusicPage.STATS -> {
                         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)) {
@@ -185,7 +194,9 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                             FilterChip(selected=byTime,onClick={byTime=true},label={Text("Время")})
                             FilterChip(selected=!byTime,onClick={byTime=false},label={Text("Прослушивания")})
                         }
-                        HistoryGraph(snapshot.chart,byTime)
+                        Text(statsInterval?.title ?: period.label,style=MaterialTheme.typography.titleMedium)
+                        HistoryGraph(snapshot.chart,byTime,statsInterval ?: period,onStatsDrill,
+                            ready=!loading && snapshot.statsPeriod==period && (statsInterval==null || snapshot.statsInterval==statsInterval))
                         Text("Время учитывается по последней дате записи сеанса. Статистика относится к доступной публичной медиатеке.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                         if(snapshot.topArtists.isNotEmpty()) {
                             Text("Топ исполнителей",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
@@ -197,7 +208,7 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                             }
                         }
                         OutlinedButton(onClick={
-                            exportPending=MusicSummaryExport(period.label+" · "+java.time.LocalDate.now(),snapshot,
+                            exportPending=MusicSummaryExport((statsInterval?.title ?: period.label)+" · "+java.time.LocalDate.now(),snapshot,
                                 snapshot.topTracks.firstOrNull()?.rowId?.let(rows::get)?.let(::audioTitle),
                                 palette.background.toArgb(),palette.surfaceVariant.toArgb(),palette.onBackground.toArgb(),
                                 palette.onSurfaceVariant.toArgb(),palette.primary.toArgb())

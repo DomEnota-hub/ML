@@ -14,6 +14,8 @@ internal class ResumeQueueRecorder(private val player:Player,private val scope:C
     private var lastWritten:ResumeQueueSession?=null
     private var queueItems:List<MediaItem> = emptyList()
     private var queueKeys:List<Set<String>> = emptyList()
+    private var contextLease=0L
+    private var leasedContext:String?=null
     private var contextId:String?=null
     private var playlistId:String?=null
     fun attach(){player.addListener(this);refresh()}
@@ -32,22 +34,25 @@ internal class ResumeQueueRecorder(private val player:Player,private val scope:C
         // Avoid pointless writes while paused and never store an unopened queue.
         val prior=lastWritten
         if(prior!=null&&prior.copy(updatedAt=value.updatedAt)==value)return
-        store.submit(value);lastWritten=value
+        store.submit(value,contextLease);lastWritten=value
     }
     fun refresh(forceQueue:Boolean=true) {
         captureQueue(forceQueue)
         val id=contextId
         val index=player.currentMediaItemIndex
         val valid=id!=null&&index in queueKeys.indices&&identity.keys(player.currentMediaItem).isNotEmpty()
-        if(!valid) {persist(current);current=null;ticker?.cancel();ticker=null;return}
+        if(!valid) {persist(current);current=null;leasedContext=null;ticker?.cancel();ticker=null;return}
         if(current?.id!=id){persist(current);current=null}
+        if(leasedContext!=id || (forceQueue && current!=null && current?.entries!=queueKeys)) {contextLease=store.lease(id!!);leasedContext=id}
         if(player.playbackState==Player.STATE_ENDED){
-            store.finish(id!!);current=null;lastWritten=null;ticker?.cancel();ticker=null;return
+            store.finish(id!!,contextLease);current=null;lastWritten=null;ticker?.cancel();ticker=null;return
         }
         val position=player.currentPosition.coerceAtLeast(0L)
         if(current!=null||player.isPlaying&&(position>0L||index>0)) {
             current=ResumeQueueSession(id!!,playlistId,queueKeys,index,position,player.duration,
-                player.shuffleModeEnabled,player.repeatMode,player.playbackParameters.speed.coerceIn(.25f,4f),System.currentTimeMillis())
+                player.shuffleModeEnabled,player.repeatMode,player.playbackParameters.speed.coerceIn(.25f,4f),System.currentTimeMillis(),
+                store.sessions.value.firstOrNull { it.id==id && it.entries==queueKeys }?.occurrenceIds
+                    ?: queueKeys.indices.map { "$id:$it" })
             persist(current)
         }
         if(player.isPlaying&&ticker?.isActive!=true) ticker=scope.launch{

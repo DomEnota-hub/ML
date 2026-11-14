@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
+import androidx.media3.common.MediaItem
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.domenota.medialoader.data.library.LibraryMediaRef
@@ -19,7 +20,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 internal data class AudioPreviewState(val currentId: String? = null, val playing: Boolean = false, val identities: Set<String> = emptySet(),
-    val queue: List<androidx.media3.common.MediaItem> = emptyList())
+    val queue: List<androidx.media3.common.MediaItem> = emptyList(),val connected:Boolean=false,val currentItem:MediaItem?=null)
 
 /** One controller owned by the library ViewModel, not by the add-tracks route. */
 internal class LibraryAudioPreview(context: Context) {
@@ -33,13 +34,22 @@ internal class LibraryAudioPreview(context: Context) {
     }
     private fun sync(player: Player) {
         mutableState.value = if (player.currentMediaItem?.mediaMetadata?.extras?.getBoolean("private_media") == true)
-            AudioPreviewState() else AudioPreviewState(player.currentMediaItem?.mediaId, player.playWhenReady,
+            AudioPreviewState(connected=true) else AudioPreviewState(player.currentMediaItem?.mediaId, player.playWhenReady,
                 player.currentMediaItem?.mediaMetadata?.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty().toSet(),
-                (0 until player.mediaItemCount).map { player.getMediaItemAt(it) })
+                (0 until player.mediaItemCount).map { player.getMediaItemAt(it) },connected=true,currentItem=player.currentMediaItem)
     }
     private suspend fun controller(): MediaController = withContext(Dispatchers.Main.immediate) {
         val pending = future ?: MediaController.Builder(context,
-            SessionToken(context, ComponentName(context, AudioPlaybackService::class.java))).buildAsync().also { future = it }
+            SessionToken(context, ComponentName(context, AudioPlaybackService::class.java)))
+            .setListener(object:MediaController.Listener {
+                override fun onDisconnected(controller:MediaController) {
+                    if(connected===controller) {
+                        connected=null;future=null
+                        // Disconnection confirms no attached current item; never route stale metadata.
+                        mutableState.value=AudioPreviewState(connected=true)
+                    }
+                }
+            }).buildAsync().also { future = it }
         val controller = suspendCancellableCoroutine<MediaController> { continuation ->
             pending.addListener({
                 if (continuation.isActive) try { continuation.resume(pending.get()) }
@@ -54,13 +64,14 @@ internal class LibraryAudioPreview(context: Context) {
         sync(controller)
         controller
     }
-    private fun queueItems(refs:List<LibraryMediaRef>,playlistId:String?=null,contextId:String?=null):List<androidx.media3.common.MediaItem> {
+    private fun queueItems(refs:List<LibraryMediaRef>,playlistId:String?=null,contextId:String?=null,preserveOccurrences:Boolean=false):List<androidx.media3.common.MediaItem> {
         val public=refs.filter{!it.item.isPrivate&&!it.item.hidden&&it.item.mediaType==MediaType.AUDIO&&
-            it.item.state==DownloadState.COMPLETED&&!it.item.savedUri.isNullOrBlank()}.distinctBy{it.key}
+            it.item.state==DownloadState.COMPLETED&&!it.item.savedUri.isNullOrBlank()}.let { if(preserveOccurrences)it else it.distinctBy { row->row.key } }
         val tag=contextId?:ResumeQueuePolicy.contextId(playlistId,public.map{ListeningHistoryPolicy.keys(it.item,it.aliases)})
         return public.map{AudioPlaybackMetadata.item(it.item,it.aliases,playlistId,tag)}
     }
     suspend fun observe() { controller() }
+    suspend fun observeCurrent() { controller() }
     suspend fun preview(refs: List<LibraryMediaRef>, requestedId: String, playlistId: String? = null) = update(refs, requestedId, true, playlistId)
     suspend fun open(refs: List<LibraryMediaRef>, requestedId: String, playlistId: String? = null) = update(refs, requestedId, false, playlistId)
     private suspend fun update(refs: List<LibraryMediaRef>, requestedId: String, toggleCurrent: Boolean, playlistId: String?) {
@@ -87,7 +98,7 @@ internal class LibraryAudioPreview(context: Context) {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val current=resolved.currentId?:error("Исходный трек недоступен")
         require(refs.map{it.key}==resolved.availableIds && refs.getOrNull(resolved.currentIndex)?.key==current){"Очередь изменилась"}
-        val items=withContext(Dispatchers.IO){queueItems(refs,resolved.session.playlistId,resolved.session.id)}
+        val items=withContext(Dispatchers.IO){queueItems(refs,resolved.session.playlistId,resolved.session.id,preserveOccurrences=true)}
         check(items.size==refs.size){"Часть файлов недоступна"}
         val position=ResumeQueuePolicy.clampedPosition(resolved.session,refs[resolved.currentIndex].item.durationMs)
         withContext(Dispatchers.Main.immediate){

@@ -22,24 +22,26 @@ internal class ResumeQueueStore private constructor(context:Context,fileName:Str
     val sessions=state.asStateFlow()
     private val error=MutableStateFlow(false)
     val failed=error.asStateFlow()
+    private val revisions=java.util.concurrent.ConcurrentHashMap<String,Long>()
+    fun lease(id:String):Long=revisions[id] ?: 0L
     private var loaded=false
     private sealed interface Command {
-        data class Save(val value:ResumeQueueSession):Command
-        data class Finish(val id:String):Command
+        data class Save(val value:ResumeQueueSession,val lease:Long):Command
+        data class Finish(val id:String,val lease:Long):Command
     }
     private val commands=Channel<Command>(Channel.UNLIMITED)
     init {
         scope.launch {
             try {mutex.withLock{load()}} catch(_:Exception){error.value=true}
             for(command in commands) {
-                try {when(command){is Command.Save->save(command.value);is Command.Finish->remove(command.id)};error.value=false}
+                try {when(command){is Command.Save->save(command.value,command.lease);is Command.Finish->remove(command.id,command.lease)};error.value=false}
                 catch(e:CancellationException){throw e}
                 catch(_:Exception){error.value=true}
             }
         }
     }
-    fun submit(snapshot:ResumeQueueSession) {commands.trySend(Command.Save(snapshot))}
-    fun finish(id:String) {commands.trySend(Command.Finish(id))}
+    fun submit(snapshot:ResumeQueueSession,lease:Long=this.lease(snapshot.id)) {commands.trySend(Command.Save(snapshot,lease))}
+    fun finish(id:String,lease:Long=this.lease(id)) {commands.trySend(Command.Finish(id,lease))}
     private fun load() {
         if(loaded)return
         if(file.baseFile.exists()||File(file.baseFile.path+".bak").exists()) {
@@ -53,7 +55,9 @@ internal class ResumeQueueStore private constructor(context:Context,fileName:Str
                 }
                 ResumeQueueSession(row.getString("id"),row.optString("playlistId").takeIf{it.isNotBlank()&&it!="null"},
                     entries,row.getInt("index"),row.getLong("position"),row.getLong("duration"),row.getBoolean("shuffle"),
-                    row.getInt("repeat"),row.getDouble("speed").toFloat(),row.getLong("updated"))
+                    row.getInt("repeat"),row.getDouble("speed").toFloat(),row.getLong("updated"),
+                    row.optJSONArray("occurrences")?.let { ids -> (0 until ids.length()).map { ids.getString(it) } }
+                        ?: entries.indices.map { "${row.getString("id")}:$it" })
             }.distinctBy{it.id}.take(ResumeQueuePolicy.MAX_SESSIONS)
         }
         loaded=true
@@ -63,7 +67,7 @@ internal class ResumeQueueStore private constructor(context:Context,fileName:Str
         records.forEach { r ->
             val queue=JSONArray();r.entries.forEach{queue.put(JSONArray(it.sorted()))}
             array.put(JSONObject().put("id",r.id).put("playlistId",r.playlistId ?: JSONObject.NULL)
-                .put("entries",queue).put("index",r.index).put("position",r.positionMs).put("duration",r.durationMs)
+                .put("entries",queue).put("occurrences",JSONArray(r.occurrenceIds)).put("index",r.index).put("position",r.positionMs).put("duration",r.durationMs)
                 .put("shuffle",r.shuffle).put("repeat",r.repeat).put("speed",r.speed.toDouble()).put("updated",r.updatedAt))
         }
         val out=file.startWrite()
@@ -71,11 +75,29 @@ internal class ResumeQueueStore private constructor(context:Context,fileName:Str
         catch(e:Exception){file.failWrite(out);throw e}
         state.value=records
     }
-    internal suspend fun save(snapshot:ResumeQueueSession)=withContext(Dispatchers.IO){mutex.withLock{
-        load();val result=ResumeQueuePolicy.keep(state.value,snapshot);if(result!=state.value)write(result)
+    internal suspend fun save(snapshot:ResumeQueueSession,lease:Long?=null)=withContext(Dispatchers.IO){mutex.withLock{
+        load();if(lease==null || lease==this@ResumeQueueStore.lease(snapshot.id)) {
+            val result=ResumeQueuePolicy.keep(state.value,snapshot);if(result!=state.value)write(result)
+        }
     }}
-    internal suspend fun remove(id:String)=withContext(Dispatchers.IO){mutex.withLock{
-        load();val result=state.value.filterNot{it.id==id};if(result!=state.value)write(result)
+    internal suspend fun remove(id:String,lease:Long?=null)=withContext(Dispatchers.IO){mutex.withLock{
+        load();if(lease==null || lease==this@ResumeQueueStore.lease(id)) {
+            val result=state.value.filterNot{it.id==id};if(result!=state.value)write(result)
+        }
+    }}
+    /** Optimistic equality prevents a stale editor from overwriting a newer checkpoint.
+     * Successful edits invalidate old recorder leases without touching its player. */
+    suspend fun edit(expected:ResumeQueueSession,remove:Set<String>,resolved:ResolvedResumeQueue)=withContext(Dispatchers.IO){mutex.withLock {
+        load();check(state.value.firstOrNull { it.id==expected.id }==expected) { "Сеанс изменился. Откройте очередь заново" }
+        val replacement=ResumeQueuePolicy.removeOccurrences(resolved,remove)
+        val result=state.value.mapNotNull { if(it.id==expected.id)replacement else it }
+        if(result!=state.value) { write(result);revisions[expected.id]=lease(expected.id)+1 }
+    }}
+    suspend fun deleteSaved(id:String)=withContext(Dispatchers.IO){mutex.withLock {
+        load();write(state.value.filterNot { it.id==id });revisions[id]=lease(id)+1
+    }}
+    suspend fun clearSaved()=withContext(Dispatchers.IO){mutex.withLock {
+        load();val ids=state.value.map { it.id };write(emptyList());ids.forEach { revisions[it]=lease(it)+1 }
     }}
     internal suspend fun readForTest()=withContext(Dispatchers.IO){mutex.withLock{load();state.value}}
     internal fun closeForTest(){commands.close();scope.cancel()}

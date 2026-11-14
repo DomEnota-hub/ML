@@ -73,4 +73,25 @@ class ResumeQueueRecorderTest {
             assertEquals("playlist:one",remaining.single().id)
         } finally{recorder.release();scope.cancel();store.closeForTest()}
     }
+    @Test fun editingSavedQueueWhilePlayingDoesNotTouchPlayerOrRecreateRemovedOccurrence()=runBlocking {
+        val store=ResumeQueueStore.forTest(context,name)
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
+        val fake=Fake().apply {queue=listOf(item("a","one"),item("a","one"),item("b","one"));index=1;position=50_000;playing=true}
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true})
+        try {
+            recorder.attach()
+            val saved=withTimeout(5000){store.sessions.first {it.isNotEmpty()}}.single()
+            store.edit(saved,setOf(saved.occurrenceIds[0]),ResolvedResumeQueue(saved,listOf("a","a","b")))
+            val edited=store.readForTest().single()
+            fake.position=60_000;recorder.refresh(false)
+            recorder.release()
+            // A barrier through the same channel waits until the old checkpoint and finish commands are consumed.
+            fake.status=Player.STATE_ENDED;recorder.refresh(false)
+            store.submit(edited.copy(id="barrier"),store.lease("barrier"))
+            withTimeout(5000){store.sessions.first {records->records.any {it.id=="barrier"}}}
+            assertEquals(edited,store.readForTest().first {it.id==saved.id})
+            assertEquals(3,fake.queue.size);assertEquals(1,fake.index)
+            assertEquals(60_000L,fake.position);assertTrue(fake.playing)
+        } finally {scope.cancel();store.closeForTest()}
+    }
 }

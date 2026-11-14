@@ -68,4 +68,26 @@ class ListeningHistoryStoreTest {
         assertNotNull(store.begin(setOf("app:b"),0,2000))
         assertNull(store.begin(setOf("app:a","app:b"),0,3000))
     }
+    @Test fun calendarDrilldownUsesHalfOpenBoundsAndNeverLeakesUnavailableHistory()=runBlocking {
+        val zone=java.time.ZoneId.of("UTC")
+        fun at(date:String)=java.time.Instant.parse(date).toEpochMilli()
+        suspend fun record(keys:Set<String>,time:Long,wall:Long) {
+            val progress=requireNotNull(store.begin(keys,0,time))
+            store.save(progress.copy(lastAt=time,creditedAt=time,mediaMs=30_000,wallMs=wall,closed=true))
+        }
+        val keys=setOf("app:public")
+        record(keys,at("2026-11-01T00:00:00Z"),10_000)
+        record(keys,at("2026-12-01T00:00:00Z"),20_000)
+        record(setOf("app:unavailable"),at("2001-01-01T00:00:00Z"),99_000)
+        val candidates=listOf(SmartTrackCandidate("public",keys,"Artist",false))
+        val now=at("2026-12-02T12:00:00Z")
+        val november=SmartStatsInterval(java.time.LocalDate.of(2026,11,1),java.time.LocalDate.of(2026,12,1),StatsGranularity.DAY,"Ноябрь 2026")
+        val stats=store.smartSnapshot(candidates,SmartStatsPeriod.ALL,now,zone=zone,interval=november)
+        assertEquals(1L,stats.plays);assertEquals(10_000L,stats.wallMs)
+        assertEquals(30,stats.chart.size);assertEquals(stats.plays,stats.chart.sumOf { it.plays })
+        assertEquals(stats.wallMs,stats.chart.sumOf { it.wallMs });assertEquals(1,stats.artistsPlayed)
+        assertEquals(listOf(2026),store.smartSnapshot(candidates,SmartStatsPeriod.ALL,now,zone=zone).chart.map { it.date!!.year })
+        val empty=november.copy(first=java.time.LocalDate.of(2026,10,1),end=java.time.LocalDate.of(2026,11,1))
+        assertEquals(0L,store.smartSnapshot(candidates,SmartStatsPeriod.ALL,now,zone=zone,interval=empty).plays)
+    }
 }

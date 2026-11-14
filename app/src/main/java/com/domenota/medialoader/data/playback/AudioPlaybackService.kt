@@ -147,7 +147,8 @@ class AudioPlaybackService : MediaSessionService() {
         }
         privateScope.launch { equalizerSettings.state.collect { refreshEqualizer() } }
 
-        mediaSession = MediaSession.Builder(this, player).build()
+        mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(CurrentPlayerRequest.pendingIntent(this)).build()
         liveSession = mediaSession
         liveTimer = MusicStopTimer(player,privateScope).also { it.attach() }
         val access = PrivateAccessManager.get(this)
