@@ -21,6 +21,20 @@ internal data class VisualDuplicateSession(
         }.toSet()
         return copy(selected=allowed,index=index.coerceIn(0,(result.groups.size-1).coerceAtLeast(0)),offset=offset.coerceAtLeast(0))
     }
+    /** Reconcile only against a complete public catalog. Never use this to
+     * authorize a trash operation; that requires a fresh full fingerprint. */
+    fun reconcile(refs:List<LibraryMediaRef>):VisualDuplicateSession {
+        val byId=refs.groupBy{it.key}
+        val groups=result.groups.mapNotNull{group->
+            val remaining=group.files.filter{snapshot->
+                val ref=byId[snapshot.id]?.singleOrNull()
+                ref!=null && VisualDuplicateScanner.matchesCatalog(snapshot,ref)
+            }
+            if(remaining.size>=2)group.copy(files=remaining) else null
+        }
+        return copy(result=result.copy(groups=groups)).normalized()
+    }
+
     fun removeConfirmed(uris:Set<String>):VisualDuplicateSession =
         copy(result=result.copy(groups=result.groups.mapNotNull{g->
             val remaining=g.files.filter{it.uri !in uris}
