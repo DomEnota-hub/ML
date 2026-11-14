@@ -421,7 +421,7 @@ fun MediaLoaderApp(
     val pickerState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val preview by viewModel.preview.collectAsStateWithLifecycle()
-    val deferredLinks by viewModel.deferredLinks.collectAsStateWithLifecycle()
+    val deferredEntries by viewModel.deferredEntries.collectAsStateWithLifecycle()
     val deferredActive by viewModel.deferredActive.collectAsStateWithLifecycle()
     val deferredMessage by viewModel.deferredMessage.collectAsStateWithLifecycle()
     val bulk by viewModel.bulkState.collectAsStateWithLifecycle()
@@ -845,10 +845,14 @@ fun MediaLoaderApp(
         else viewModel.downloadSelected(pendingNames, afterDownload)
     }
     val requestDownload: () -> Unit = {
-        pendingNames = BatchFileNames.defaults(preview.items.filter { it.id in preview.selectedIds }
-            .map { it.id to it.originalName })
-        batchName = ""
-        if (pendingNames.isNotEmpty()) showNameDialog = true
+        if(preview.recoveryHistoryId!=null){
+            pendingNames=emptyMap();confirmDownload()
+        }else{
+            pendingNames = BatchFileNames.defaults(preview.items.filter { it.id in preview.selectedIds }
+                .map { it.id to it.originalName })
+            batchName = ""
+            if (pendingNames.isNotEmpty()) showNameDialog = true
+        }
     }
     val selectedNameItems = preview.items.filter { it.id in preview.selectedIds }
     val resetNames = BatchFileNames.platformDefaults(selectedNameItems)
@@ -1378,8 +1382,10 @@ fun MediaLoaderApp(
                     onCheckClick = {
                         checkExplicitLink(pendingUrl)
                     },
-                    deferredLinks = deferredLinks, deferredActive = deferredActive, deferredMessage = deferredMessage,
-                    onDeferredOpen = { link -> pendingUrl = link; lastHandledLink = link; viewModel.analyze(link); showPicker = true },
+                    deferredEntries = deferredEntries, deferredActive = deferredActive, deferredMessage = deferredMessage,
+                    onDeferredOpen = { id -> deferredEntries.firstOrNull{it.id==id}?.let{entry->
+                        pendingUrl=entry.url;lastHandledLink=entry.url;viewModel.openDeferredLink(id);showPicker=true
+                    } },
                     onDeferredRemove = viewModel::removeDeferredLink, onDeferredRetryAll = retryDeferred, onDeferredStop = viewModel::stopDeferred,
                     onOpenDownloads = goToDownloads,
                     onAddCollection=::addToCollection,onPassport=::openPassport,
@@ -2238,7 +2244,10 @@ fun MediaLoaderApp(
                     busy = preview.enqueuing,
                     onLogin = startLoginForCurrentUrl,
                     onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
-                    onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
+                    recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
+                    onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
+                        showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
+                    } },
                 )
             }
         }
@@ -2276,7 +2285,10 @@ fun MediaLoaderApp(
                 busy = preview.enqueuing,
                 onLogin = startLoginForCurrentUrl,
                 onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
-                    onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
+                    recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
+                    onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
+                        showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
+                    } },
                 asSheet = true,
             )
         }
