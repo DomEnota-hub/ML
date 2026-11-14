@@ -392,6 +392,8 @@ class MediaRepository private constructor(context: Context) {
             published.fileName to published.uri.toString()
         },
         requireConfigured = { check(privateAccess.state.value.mode != com.domenota.medialoader.data.privatevault.PrivateAccessMode.UNCONFIGURED) { "Сначала настройте личное" } },
+        revokePublicDuplicates = { id -> com.domenota.medialoader.data.library.DuplicatePrivacyGuard.revoke(appContext,id,movingPublicAliases[id].orEmpty()) },
+        restorePublicDuplicates = { id -> com.domenota.medialoader.data.library.DuplicatePrivacyGuard.restored(appContext,id) },
         publishedSize = { uri ->
             val fd = appContext.contentResolver.openFileDescriptor(Uri.parse(uri), "r")
                 ?: error("Возвращённый файл не открывается для проверки размера")

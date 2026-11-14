@@ -8,9 +8,10 @@ internal data class DuplicateTrack(
     val id: String, val title: String, val artist: String?, val filename: String, val uri: String,
     val bytes: Long, val modified: Long?, val sha: String, val payloadSha: String?,
     val duration: Long?, val bitrate: Long?, val folder: String?, val linked: Boolean = false,
-    val current: Boolean = false,
+    val current: Boolean = false, val acoustic: AcousticFingerprint? = null, val privacyEpoch: Long = 0,
 )
-internal data class DuplicateGroup(val tracks: List<DuplicateTrack>, val title: String, val reason: String) {
+internal enum class DuplicateKind { EXACT, ACOUSTIC, POSSIBLE }
+internal data class DuplicateGroup(val tracks: List<DuplicateTrack>, val title: String, val reason: String, val kind: DuplicateKind = DuplicateKind.POSSIBLE) {
     val key: String get() = tracks.map { it.id }.sorted().joinToString("|")
 }
 internal object MusicDuplicatePolicy {
@@ -53,6 +54,18 @@ internal object MusicDuplicatePolicy {
     }
     private fun sameRecording(a: DuplicateTrack, b: DuplicateTrack): Boolean =
         a.sha.isNotBlank() && a.sha == b.sha || a.payloadSha != null && a.payloadSha == b.payloadSha
+    private fun candidateTitle(a: DuplicateTrack, b: DuplicateTrack): Boolean {
+        val at = baseTitle(a); val bt = baseTitle(b)
+        val aw = at.split(" ").filter { it.length >= 2 }.toSet()
+        val bw = bt.split(" ").filter { it.length >= 2 }.toSet()
+        val sharedArtist = possibleArtists(a).intersect(possibleArtists(b)).isNotEmpty()
+        if (at.isBlank() || bt.isBlank()) return false
+        val overlap = aw.intersect(bw)
+        // A short single title is only a candidate with a known shared performer.
+        return sharedArtist && overlap.isNotEmpty() &&
+            ((at == bt) || (minOf(aw.size,bw.size) == 1 && (aw.all { it in bw } || bw.all { it in aw })) ||
+                overlap.size >= 2 && overlap.size.toDouble()/minOf(aw.size,bw.size) >= 0.67)
+    }
     fun matches(a: DuplicateTrack, b: DuplicateTrack): Boolean {
         if (sameRecording(a,b)) return true
         val at = baseTitle(a); val bt = baseTitle(b)
@@ -61,36 +74,75 @@ internal object MusicDuplicatePolicy {
         val combined = (aa + ba).flatMap { if (it == "король и шут") listOf(it,"киш","korol i shut") else listOf(it) }.toSet()
         val titleMatches = at.isNotBlank() && bt.isNotBlank() &&
             (at == bt || removeArtistAffix(at, combined) == removeArtistAffix(bt, combined))
-        if (!titleMatches) return false
+        if (!titleMatches) return candidateTitle(a,b)
         // Covers may have a different artist and every version may have a different duration.
         return sharedArtist || aa.isEmpty() || ba.isEmpty() || cover(a) || cover(b)
     }
-    fun groups(input: List<DuplicateTrack>): List<DuplicateGroup> {
+    fun groups(input: List<DuplicateTrack>, checkActive: () -> Unit = {}): List<DuplicateGroup> {
         val rows = input.distinctBy { it.id }.sortedWith(compareByDescending<DuplicateTrack> { it.current }.thenByDescending { it.linked }.thenBy { it.id })
         // Index exact content and normalized title, then test all members before combining.
         val content = rows.groupBy { it.sha }.filterKeys { it.isNotBlank() }
         val payload = rows.filter { it.payloadSha != null }.groupBy { it.payloadSha }
         val title = rows.groupBy(::baseTitle)
+        val tokens = HashMap<String,MutableList<DuplicateTrack>>()
+        rows.forEach { row -> baseTitle(row).split(" ").filter { it.length >= 2 }.distinct().forEach { tokens.getOrPut(it) { mutableListOf() }.add(row) } }
+        val fingerprints = rows.mapNotNull { t -> t.acoustic?.let { t.id to it } }.toMap()
+        val acoustic = AcousticFingerprints.candidatePairs(fingerprints,checkActive).filter { (a,b) ->
+            AcousticFingerprints.matches(fingerprints.getValue(a), fingerprints.getValue(b),checkActive)
+        }.toSet()
+        fun acousticMatch(a: DuplicateTrack,b: DuplicateTrack) = (minOf(a.id,b.id) to maxOf(a.id,b.id)) in acoustic
+        val byId = rows.associateBy { it.id }
+        val acousticNeighbors = HashMap<String,MutableSet<String>>()
+        acoustic.forEach { (a,b) -> acousticNeighbors.getOrPut(a) { HashSet() }.add(b); acousticNeighbors.getOrPut(b) { HashSet() }.add(a) }
         val assigned = mutableSetOf<String>()
         val output = mutableListOf<DuplicateGroup>()
-        for (seed in rows) {
-            if (seed.id in assigned) continue
-            val names = baseTitle(seed)
-            val seedArtists = possibleArtists(seed)
-            val options = linkedMapOf<String, DuplicateTrack>()
+        // Strong groups are formed first. A metadata candidate must never absorb an exact group.
+        for (kind in DuplicateKind.entries) for (seed in rows) {
+            checkActive()
+            if (seed.id in assigned) {
+                if (kind == DuplicateKind.ACOUSTIC) {
+                    val groupIndex = output.indexOfFirst { group -> group.kind == DuplicateKind.EXACT && group.tracks.first().id == seed.id }
+                    if (groupIndex >= 0) {
+                        val original = output[groupIndex]
+                        val members = original.tracks.toMutableList()
+                        acousticNeighbors[seed.id].orEmpty().mapNotNull { byId[it] }.filter { it.id !in assigned }.forEach { candidate ->
+                            if (members.all { sameRecording(it,candidate) || acousticMatch(it,candidate) }) members += candidate
+                        }
+                        if (members.size > original.tracks.size) {
+                            assigned += members.map { it.id }
+                            output[groupIndex] = original.copy(tracks = members, kind = DuplicateKind.ACOUSTIC, reason = "Акустическое совпадение фрагментов · сравните версии")
+                        }
+                    }
+                }
+                continue
+            }
+            val options = linkedMapOf<String,DuplicateTrack>()
             fun add(items: List<DuplicateTrack>?) { items.orEmpty().forEach { options[it.id] = it } }
-            add(content[seed.sha]); add(payload[seed.payloadSha]); add(title[names])
-            // Unknown-tag filenames can contain an artist suffix/prefix. Index these alternate keys as well.
-            for (a in seedArtists.flatMap { if (it == "король и шут") listOf(it,"киш","korol i shut") else listOf(it) }) {
-                add(title["$a $names"]); add(title["$names $a"])
+            when (kind) {
+                DuplicateKind.EXACT -> { add(content[seed.sha]); add(payload[seed.payloadSha]) }
+                DuplicateKind.ACOUSTIC -> add(acousticNeighbors[seed.id].orEmpty().mapNotNull { byId[it] })
+                DuplicateKind.POSSIBLE -> {
+                    add(title[baseTitle(seed)])
+                    baseTitle(seed).split(" ").filter { it.length >= 2 }.forEach { token ->
+                        // Bound extremely common metadata tokens. Exact normalized titles remain indexed.
+                        tokens[token]?.takeIf { it.size <= 200 }?.let(::add)
+                    }
+                }
             }
             val members = mutableListOf(seed)
-            for (candidate in options.values) if (candidate.id != seed.id && candidate.id !in assigned && members.all { matches(it,candidate) }) members += candidate
+            for (candidate in options.values) if (candidate.id != seed.id && candidate.id !in assigned && members.all {
+                when (kind) { DuplicateKind.EXACT -> sameRecording(it,candidate)
+                    DuplicateKind.ACOUSTIC -> sameRecording(it,candidate) || acousticMatch(it,candidate)
+                    DuplicateKind.POSSIBLE -> matches(it,candidate) }
+            }) members += candidate
             if (members.size < 2) continue
             assigned += members.map { it.id }
-            val identical = members.all { sameRecording(seed,it) }
-            val reason = if (identical) "Совпадает содержимое записи" else if (members.any { version(it) != null }) "Разные версии композиции" else "Возможные совпадения · название и исполнитель"
-            output += DuplicateGroup(members, seed.title, reason)
+            val reason = when (kind) {
+                DuplicateKind.EXACT -> "Совпадает содержимое записи"
+                DuplicateKind.ACOUSTIC -> "Акустическое совпадение фрагментов · сравните версии"
+                DuplicateKind.POSSIBLE -> if (members.any { version(it) != null }) "Разные версии композиции" else "Возможные совпадения · название и исполнитель"
+            }
+            output += DuplicateGroup(members,seed.title,reason,kind)
         }
         return output.sortedBy { it.title.lowercase(Locale.ROOT) }
     }
@@ -98,7 +150,7 @@ internal object MusicDuplicatePolicy {
         compareByDescending<DuplicateTrack> { it.current }.thenByDescending { it.linked }
             .thenByDescending { version(it) == null }.thenByDescending { it.bitrate ?: 0 }.thenByDescending { it.duration ?: 0 }
             .thenByDescending { it.artist?.isNotBlank() == true }.thenBy { it.id }).first().id
-    fun selectAll(groups: List<DuplicateGroup>, keep: Map<String,String>): Set<String> = groups.flatMap { group ->
+    fun selectAll(groups: List<DuplicateGroup>, keep: Map<String,String>): Set<String> = groups.filter { it.kind == DuplicateKind.EXACT }.flatMap { group ->
         val retained = keep[group.key]?.takeIf { id -> group.tracks.any { it.id == id } } ?: recommended(group)
         group.tracks.map { it.id }.filter { it != retained }
     }.toSet()

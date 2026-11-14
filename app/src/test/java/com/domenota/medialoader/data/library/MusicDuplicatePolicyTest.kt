@@ -27,12 +27,12 @@ class MusicDuplicatePolicyTest {
         assertEquals(2,MusicDuplicatePolicy.groups(listOf(t("a","One","A",payload="same-encoded"),t("b","Two","B",payload="same-encoded"))).single().tracks.size)
     }
     @Test fun selectAllRetainsOnePerGroupAndCanChangeKeeper() {
-        val groups = MusicDuplicatePolicy.groups(listOf(t("a","Song","A",linked=true),t("b","Song (Live)","A"),t("c","Song (Cover)","B"),t("d","Other","A"),t("e","Other","A")))
+        val groups = MusicDuplicatePolicy.groups(listOf(t("a","Song","A",linked=true),t("b","Song (Live)","A"),t("c","Song (Cover)","B"),t("d","Other","A",sha="same"),t("e","Other","A",sha="same")))
         assertEquals(2,groups.size)
         val g = groups.first { it.tracks.size == 3 }
         assertEquals("a",MusicDuplicatePolicy.recommended(g))
         val selected = MusicDuplicatePolicy.selectAll(groups,mapOf(g.key to "b"))
-        assertEquals(3,selected.size); assertFalse("b" in selected); assertTrue(MusicDuplicatePolicy.validSelection(groups,selected))
+        assertEquals(1,selected.size); assertFalse("b" in selected); assertTrue(MusicDuplicatePolicy.validSelection(groups,selected))
         assertFalse(MusicDuplicatePolicy.validSelection(groups,g.tracks.map{it.id}.toSet()))
         assertTrue(MusicDuplicatePolicy.validSelection(groups,selected-"a"))
     }
@@ -43,6 +43,19 @@ class MusicDuplicatePolicyTest {
         assertEquals(selection,MusicDuplicatePolicy.switchKeeper(group,selection,"2","2"))
         assertEquals(setOf("other"),MusicDuplicatePolicy.switchKeeper(group,setOf("3","other"),"2","3"))
         assertEquals(selection,MusicDuplicatePolicy.switchKeeper(group,selection,"2","invalid"))
+    }
+    @Test fun evaExtendedTitleIsCandidateWithoutDurationGate() {
+        val g = MusicDuplicatePolicy.groups(listOf(t("a","Ева","Винтаж",duration=251000),t("b","Ева, Я Любила Тебя","Винтаж",duration=196000))).single()
+        assertEquals(DuplicateKind.POSSIBLE,g.kind)
+        assertTrue(MusicDuplicatePolicy.selectAll(listOf(g),emptyMap()).isEmpty())
+    }
+    @Test fun unicodePunctuationAndVersionCandidatesAreNeverBulkSelected() {
+        val g = MusicDuplicatePolicy.groups(listOf(t("a","Ｓｏｎｇ!","A"),t("b","Song (remix)","A"))).single()
+        assertEquals(DuplicateKind.POSSIBLE,g.kind)
+        assertTrue(MusicDuplicatePolicy.selectAll(listOf(g),emptyMap()).isEmpty())
+    }
+    @Test fun differentSongsWithOneCommonWordAreNotCandidates() {
+        assertTrue(MusicDuplicatePolicy.groups(listOf(t("a","Love Again","A"),t("b","Love Forever","A"))).isEmpty())
     }
     @Test fun unknownArtistDoesNotBridgeDifferentKnownArtists() {
         val groups = MusicDuplicatePolicy.groups(listOf(t("a","Same","A"),t("b","Same",null),t("c","Same","C")))

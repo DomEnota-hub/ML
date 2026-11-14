@@ -19,6 +19,8 @@ class PrivateMediaOperations(
     private val publish: suspend (DownloadEntity) -> Pair<String, String>,
     private val requireConfigured: () -> Unit = requireUnlocked,
     private val publishedSize: suspend (String) -> Long? = { null },
+    private val revokePublicDuplicates: suspend (String) -> Unit = {},
+    private val restorePublicDuplicates: (String) -> Unit = {},
 ) {
     suspend fun move(id: String) {
         requireConfigured()
@@ -30,7 +32,7 @@ class PrivateMediaOperations(
         val uri = importCopy("${UUID.randomUUID()}.$extension", source)
         withContext(NonCancellable) {
             val privateRow = row.copy(isPrivate = true, savedUri = uri, privateSourceUri = source)
-            try { save(privateRow) }
+            try { revokePublicDuplicates(id); save(privateRow) }
             catch (error: Throwable) { runCatching { removePrivate(uri) }; throw error }
             cleanupPublicSource(privateRow)
         }
@@ -60,7 +62,7 @@ class PrivateMediaOperations(
         withContext(NonCancellable) {
             val (name, uri) = publish(row)
             try { save(row.copy(originalName = name, savedUri = uri, isPrivate = false, privateSourceUri = null,
-                sizeBytes = publishedSize(uri) ?: row.sizeBytes)) }
+                sizeBytes = publishedSize(uri) ?: row.sizeBytes)); restorePublicDuplicates(id) }
             catch (error: Throwable) { runCatching { removePublic(uri) }; throw error }
             if (!removePrivate(requireNotNull(row.savedUri))) throw IOException("Файл восстановлен; не удалось удалить старую приватную копию")
         }
