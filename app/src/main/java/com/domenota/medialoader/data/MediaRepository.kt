@@ -349,6 +349,15 @@ class MediaRepository private constructor(context: Context) {
         }
     }
 
+    suspend fun wasInstagramDownloaded(url:String):Boolean {
+        val key=com.domenota.medialoader.core.provider.PublicationIdentity.key(url)?:return false
+        return history.all().any { row ->
+            !row.isPrivate && !row.hidden && row.state==DownloadState.COMPLETED &&
+                listOfNotNull(row.sourcePageUrl,row.sourceUrl).any{
+                    com.domenota.medialoader.core.provider.PublicationIdentity.key(it)==key
+                }
+        }
+    }
     val downloads: Flow<List<DownloadEntity>> = history.observeAll()
     // Buffer identities survive successful public deletion for the lifetime of this process.
     // Restrict them to rows still private so a later public restore is playable normally.

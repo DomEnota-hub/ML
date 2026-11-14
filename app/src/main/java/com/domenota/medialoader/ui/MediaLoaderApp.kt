@@ -187,9 +187,9 @@ fun MediaLoaderApp(
     val currentRoute = backStackEntry?.destination?.route
     var pendingUrl by rememberSaveable { mutableStateOf("") }
     var downloadsScrollToTopRequest by rememberSaveable { mutableIntStateOf(0) }
-    var lastImportedClipboard by remember { mutableStateOf("") }
-    var dismissedClipboard by remember { mutableStateOf("") }
-    var checkedClipboardAtLaunch by remember { mutableStateOf(false) }
+    var lastImportedClipboard by rememberSaveable { mutableStateOf("") }
+    var dismissedClipboard by rememberSaveable { mutableStateOf("") }
+    var checkedClipboardAtLaunch by rememberSaveable { mutableStateOf(false) }
     var showPicker by rememberSaveable { mutableStateOf(false) }
     val uiPrefs = remember(context) { context.getSharedPreferences("ui", 0) }
     val libraryModel: LibraryViewModel = viewModel()
@@ -213,6 +213,7 @@ fun MediaLoaderApp(
     var galleryTab by rememberSaveable { mutableIntStateOf(0) }
     var galleryTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDetailOpen by remember { mutableStateOf(false) }
+    var batchPhotoIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var galleryAlbumRequest by remember { mutableStateOf<GalleryAlbumRequest?>(null) }
     var openingAlbumKey by remember { mutableStateOf<String?>(null) }
     var openingPlaylistId by remember { mutableStateOf<String?>(null) }
@@ -1125,22 +1126,47 @@ fun MediaLoaderApp(
         }
     }
 
-    // Read only while the app is visible. Never replace a link the user typed herself.
-    DisposableEffect(lifecycleOwner, currentRoute, sharedText) {
+    var usedLinkPrompt by rememberSaveable { mutableStateOf<String?>(null) }
+    var clipboardLookup by remember { mutableStateOf<Job?>(null) }
+    fun sameLink(a:String,b:String)=com.domenota.medialoader.core.provider.PublicationIdentity.same(a,b)
+    fun checkExplicitLink(link:String) {
+        clipboardLookup?.cancel()
+        lastHandledLink=link
+        clipboardLookup=fileActionScope.launch {
+            val used=try{viewModel.wasInstagramDownloaded(link)}catch(e:CancellationException){throw e}catch(e:Exception){false}
+            if(used)usedLinkPrompt=link else {viewModel.analyze(link);showPicker=true}
+        }
+    }
+    usedLinkPrompt?.let{link->
+        AlertDialog(onDismissRequest={usedLinkPrompt=null},title={Text("Ссылка уже использовалась")},
+            text={Text("Публикация есть в истории. Повторная проверка может расходовать сетевые запросы.")},
+            confirmButton={TextButton({usedLinkPrompt=null;viewModel.analyze(link);showPicker=true}){Text("Проверить заново")}},
+            dismissButton={TextButton({usedLinkPrompt=null;goToDownloads()}){Text("История")}})
+    }
+    // Read only while the downloader is visible. Never replace a link the user typed herself.
+    val clipboardView=androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(lifecycleOwner, currentRoute, sharedText, appMode, clipboardView) {
         fun importSupportedLink() {
-            if (currentRoute != AppDestination.Home.route || sharedText != null) return
+            if (currentRoute != AppDestination.Home.route || sharedText != null || appMode != AppMode.DOWNLOADER || !clipboardView.hasWindowFocus()) return
             val firstCheck = !checkedClipboardAtLaunch
-            checkedClipboardAtLaunch = true
             val candidate = clipboardManager.getText()?.text?.let(::extractFirstUrl) ?: return
+            checkedClipboardAtLaunch = true
             if (InstagramLinkParser.parse(candidate) == null && YouTubeLinkParser.parse(candidate) == null &&
                 VkLinkParser.parse(candidate) == null && RutubeLinkParser.parse(candidate) == null) return
-            if (candidate == dismissedClipboard) return
+            if (sameLink(candidate,dismissedClipboard)) return
             if (firstCheck || pendingUrl.isBlank() || pendingUrl == lastImportedClipboard) {
                 pendingUrl = candidate
-                if (candidate != lastHandledLink) {
-                    showPicker = true
-                    viewModel.analyze(candidate)
-                    lastHandledLink = candidate
+                if (!sameLink(candidate,lastHandledLink)) {
+                    lastHandledLink=candidate
+                    clipboardLookup?.cancel()
+                    clipboardLookup=fileActionScope.launch {
+                        val used=try{viewModel.wasInstagramDownloaded(candidate)}catch(e:CancellationException){throw e}catch(e:Exception){true}
+                        if(!used && pendingUrl==candidate && appMode==AppMode.DOWNLOADER &&
+                            navController.currentDestination?.route==AppDestination.Home.route){
+                            showPicker=true
+                            viewModel.analyze(candidate)
+                        }
+                    }
                 }
                 lastImportedClipboard = candidate
             }
@@ -1148,9 +1174,11 @@ fun MediaLoaderApp(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) importSupportedLink()
         }
+        val focus=android.view.ViewTreeObserver.OnWindowFocusChangeListener{if(it)importSupportedLink()}
         lifecycleOwner.lifecycle.addObserver(observer)
+        clipboardView.viewTreeObserver.addOnWindowFocusChangeListener(focus)
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) importSupportedLink()
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); if(clipboardView.viewTreeObserver.isAlive)clipboardView.viewTreeObserver.removeOnWindowFocusChangeListener(focus) }
     }
 
     val checkingPhoneAccess = if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)
@@ -1169,7 +1197,7 @@ fun MediaLoaderApp(
         containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
             else MaterialTheme.colorScheme.background,
         contentWindowInsets = when {
-            currentRoute in setOf("music-duplicates", "visual-duplicates") -> WindowInsets.safeDrawing
+            currentRoute in setOf("music-duplicates", "visual-duplicates", "batch-photo-editor") -> WindowInsets.safeDrawing
             fullBleedGalleryViewer -> WindowInsets(0, 0, 0, 0)
             galleryHomeOverlay -> WindowInsets.statusBars
             else -> ScaffoldDefaults.contentWindowInsets
@@ -1180,7 +1208,7 @@ fun MediaLoaderApp(
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
                 currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" &&
-                currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates") {
+                currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
                     // Gallery intentionally has no player chrome. Playback is
@@ -1272,9 +1300,7 @@ fun MediaLoaderApp(
                         clipboardManager.getText()?.text?.takeIf { it.isNotBlank() }?.let { pendingUrl = it }
                     },
                     onCheckClick = {
-                        lastHandledLink = pendingUrl
-                        viewModel.analyze(pendingUrl)
-                        showPicker = true
+                        checkExplicitLink(pendingUrl)
                     },
                     deferredLinks = deferredLinks, deferredActive = deferredActive, deferredMessage = deferredMessage,
                     onDeferredOpen = { link -> pendingUrl = link; lastHandledLink = link; viewModel.analyze(link); showPicker = true },
@@ -1325,6 +1351,11 @@ fun MediaLoaderApp(
                         }
                     },
                     onAddCollection=::addToCollection,
+                    onBatchPhotoEdit={ids->
+                        val coordinator=com.domenota.medialoader.data.editor.EditorExportCoordinator.get(context)
+                        if(!coordinator.batch.value.running){coordinator.clearBatchReport();batchPhotoIds=ArrayList(ids)}
+                        navController.navigate("batch-photo-editor"){launchSingleTop=true}
+                    },
                      onTrashDeviceAlbum = requestDeviceAlbumTrash,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
                     onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY, force = true) },
@@ -1479,6 +1510,16 @@ fun MediaLoaderApp(
                 val playlistNames=ref?.let{r->playlists.filter{p->p.trackIds.any{it==r.key||it in r.aliases}}.map{it.name}}.orEmpty()
                 MediaPassportScreen(ref?.takeIf{candidate->organizationRefs.any{it.key==candidate.key}},organizationRefs,collections,ops,names,playlistNames,
                     {navController.popBackStack()},openDownloadWithQueue,::openOrganizationLink,{openCollections(it)})
+            }
+            composable("batch-photo-editor") {
+                val coordinator=remember(context){com.domenota.medialoader.data.editor.EditorExportCoordinator.get(context)}
+                val batch by coordinator.batch.collectAsStateWithLifecycle()
+                val rows=batchPhotoIds.mapNotNull{libraryRefsByAlias[it]?.item}.distinctBy{it.savedUri}
+                    .filter{it.mediaType==MediaType.PHOTO&&!it.isPrivate&&!it.hidden&&it.savedUri!=null}
+                com.domenota.medialoader.ui.screens.BatchPhotoEditorScreen(rows,batch,editorExport.exporting,
+                    ready=libraryIndex.ready && rows.size==batchPhotoIds.size,
+                    onBack={navController.popBackStack()},
+                    onStart=coordinator::startBatchPhotos,onCancel={coordinator.cancel()})
             }
             composable("visual-duplicates") {
                 com.domenota.medialoader.ui.screens.gallery.VisualDuplicatesScreen(

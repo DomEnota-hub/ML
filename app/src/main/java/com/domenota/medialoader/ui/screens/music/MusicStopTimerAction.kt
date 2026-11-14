@@ -1,6 +1,11 @@
 package com.domenota.medialoader.ui.screens.music
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
@@ -46,9 +51,10 @@ internal fun MusicStopTimerAction(enabled: Boolean) {
         MusicStopCriterion.TRACKS -> MusicStopRequest(criterion,tracks.toLongOrNull() ?: 0)
         else -> MusicStopRequest(criterion)
     }
-    ModalBottomSheet(onDismissRequest = { open = false }) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = { open = false }, sheetState = sheetState) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Остановка воспроизведения", style = MaterialTheme.typography.titleLarge)
             if (status.request != null) {
                 val label = when (status.request?.criterion) {
@@ -104,8 +110,14 @@ internal fun MusicStopTimerAction(enabled: Boolean) {
         }
     }
 }
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun TimerNumber(value:String,change:(String)->Unit,label:String,modifier:Modifier,digits:Int) {
-    OutlinedTextField(value,{ if (it.length<=digits && it.all(Char::isDigit)) change(it) },modifier,
+    val requester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
+    OutlinedTextField(value,{ if (it.length<=digits && it.all(Char::isDigit)) change(it) },modifier
+        .bringIntoViewRequester(requester).onFocusChanged { focus ->
+            if (focus.isFocused) scope.launch { delay(350); requester.bringIntoView() }
+        },
         label={ Text(label) },singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))
 }
