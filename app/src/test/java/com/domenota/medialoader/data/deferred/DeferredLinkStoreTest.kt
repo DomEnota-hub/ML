@@ -31,4 +31,21 @@ class DeferredLinkStoreTest {
         assertEquals("Instagram", DeferredLinkStore.source("https://m.instagram.com/reel/1"))
         assertEquals("instagram.com.example.org", DeferredLinkStore.source("https://instagram.com.example.org/1"))
     }
+
+    @Test fun migratesLegacyAndPreservesIndependentRecoveryTargetsAcrossRecreation(){
+        val url="https://www.instagram.com/reel/DfJq2fdoCdM/"
+        context.getSharedPreferences("deferred_download_links",Context.MODE_PRIVATE).edit()
+            .putString("links",org.json.JSONArray(listOf(url)).toString()).commit()
+        val store=DeferredLinkStore(context)
+        assertTrue(store.add(url,"history-a"));assertTrue(store.add(url,"history-b"))
+        assertTrue(store.add(url,"history-a"));assertTrue(store.add(url))
+        val restored=DeferredLinkStore(context)
+        assertEquals(3,restored.entries.value.size)
+        assertEquals(setOf(null,"history-a","history-b"),restored.entries.value.map{it.recoveryHistoryId}.toSet())
+        assertTrue(restored.complete(url,"history-a"))
+        val after=DeferredLinkStore(context)
+        assertEquals(setOf(null,"history-b"),after.entries.value.map{it.recoveryHistoryId}.toSet())
+        assertTrue(after.complete(url,null))
+        assertEquals("history-b",DeferredLinkStore(context).entries.value.single().recoveryHistoryId)
+    }
 }
