@@ -44,13 +44,15 @@ internal data class VisualDuplicateSession(
 
 /** Private atomic checkpoint; cancellation of a new scan leaves the previous result intact. */
 internal object VisualDuplicateSessionStore {
-    private val lock=Any()
+    private val lock=DuplicatePrivacyGuard.lock
+    fun clearForPrivacy(context:Context){file(context).delete()}
+    private fun permitted(context:Context,session:VisualDuplicateSession)=session.result.privacyEpoch==DuplicatePrivacyGuard.generation(context)&&session.result.groups.all{g->g.files.all{DuplicatePrivacyGuard.accepts(context,session.result.privacyEpoch,it.id)}}
     private fun file(context:Context)=AtomicFile(File(context.noBackupFilesDir,"visual-duplicates-v1.json"))
     suspend fun load(context:Context):VisualDuplicateSession?=withContext(Dispatchers.IO){
-        synchronized(lock){runCatching{decode(file(context).openRead().bufferedReader().use{it.readText()})}.getOrNull()}
+        synchronized(lock){runCatching{decode(file(context).openRead().bufferedReader().use{it.readText()}).takeIf{permitted(context,it)}}.getOrNull()}
     }
     suspend fun save(context:Context,session:VisualDuplicateSession):Boolean=withContext(Dispatchers.IO+NonCancellable){
-        synchronized(lock){runCatching{
+        synchronized(lock){if(!permitted(context,session))return@synchronized false;runCatching{
             val target=file(context);val stream=target.startWrite()
             try{stream.write(encode(session.normalized()).toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
             catch(e:Exception){target.failWrite(stream);throw e}
@@ -91,7 +93,7 @@ internal object VisualDuplicateSessionStore {
                 .put("frames",JSONArray(f.frames)).put("informative",f.informative))}
             groups.put(JSONObject().put("reason",g.reason.name).put("files",files))
         }
-        return JSONObject().put("schema",1).put("groups",groups).put("skipped",session.result.skipped)
+        return JSONObject().put("schema",1).put("groups",groups).put("skipped",session.result.skipped).put("privacyEpoch",session.result.privacyEpoch)
             .put("selected",JSONArray(session.selected.toList())).put("index",session.index)
             .put("offset",session.offset).put("scannedAt",session.scannedAt).toString()
     }
@@ -113,7 +115,7 @@ internal object VisualDuplicateSessionStore {
         }
         require(rows.flatMap{it.files}.map{it.id}.let{it.size==it.distinct().size})
         val selected=json.getJSONArray("selected")
-        return VisualDuplicateSession(VisualScanResult(rows,json.getInt("skipped")),
+        return VisualDuplicateSession(VisualScanResult(rows,json.getInt("skipped"),json.optLong("privacyEpoch",0)),
             (0 until selected.length()).map{selected.getString(it)}.toSet(),json.getInt("index"),
             json.getInt("offset"),json.getLong("scannedAt")).normalized()
     }

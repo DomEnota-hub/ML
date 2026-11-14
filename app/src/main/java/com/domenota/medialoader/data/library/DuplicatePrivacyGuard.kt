@@ -34,8 +34,12 @@ internal object DuplicatePrivacyGuard {
             MusicDuplicateScanner.clearForPrivacy(context)
             MusicDuplicateSessionStore.clearForPrivacy(context)
             DuplicateBackgroundScan.invalidateForPrivacy()
+            VisualDuplicateScanner.clearForPrivacy(context)
+            VisualDuplicateSessionStore.clearForPrivacy(context)
+            VisualDuplicateBackgroundScan.invalidateForPrivacy()
         }
         context.stopService(Intent(context,MusicDuplicateScanService::class.java))
+        context.stopService(Intent(context,VisualDuplicateScanService::class.java))
     }
     fun restored(context: Context, id: String) = synchronized(lock) { state(context).restored(id) }
 }

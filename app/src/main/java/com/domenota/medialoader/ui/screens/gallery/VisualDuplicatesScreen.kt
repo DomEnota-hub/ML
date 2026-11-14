@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit) {
     val context=LocalContext.current
     val status by VisualDuplicateBackgroundScan.state.collectAsStateWithLifecycle()
+    val privacyEpoch by DuplicatePrivacyGuard.changes.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
     var session by remember { mutableStateOf<VisualDuplicateSession?>(null) }
     var loaded by remember { mutableStateOf(false) }
@@ -35,9 +36,9 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     val list=rememberLazyListState()
     val byId=remember(refs,ready){if(ready)refs.groupBy{it.key}.mapNotNull{(id,rows)->rows.singleOrNull()?.let{id to it}}.toMap() else emptyMap()}
     // Render only a projection validated against the current complete public catalog.
-    val current=remember(session,refs,ready){if(ready)session?.reconcile(refs) else null}
+    val current=remember(session,refs,ready,privacyEpoch){if(ready)session?.takeIf{it.result.privacyEpoch==privacyEpoch}?.reconcile(refs) else null}
     val latestSession by rememberUpdatedState(session)
-    LaunchedEffect(Unit) {
+    LaunchedEffect(privacyEpoch) {
         session=VisualDuplicateSessionStore.load(context)
         loaded=true
     }
