@@ -60,6 +60,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     var verifying by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var scanRevision by remember { mutableIntStateOf(0) }
+    var expandedScan by remember { mutableStateOf(false) }
     var kept by remember { mutableStateOf<Map<String,String>>(emptyMap()) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirm by remember { mutableStateOf(false) }
@@ -117,7 +118,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     val saved = MusicDuplicateSessionStore.load(context)
                     if (saved != null && admissible(saved.result)) { previous = saved; return@LaunchedEffect }
                 }
-                DuplicateBackgroundScan.start(context,latestRows,linkedIds,latestCurrent)
+                DuplicateBackgroundScan.start(context,latestRows,linkedIds,latestCurrent,expandedScan)
             }
             val finished = DuplicateBackgroundScan.state.first { !it.running }
             val saved = finished.session
@@ -182,7 +183,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ close() }, enabled = !verifying) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
                     Text("Дубликаты треков", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                    IconButton({ stopPreview(); scanRevision++ }, enabled = !scanning && !verifying) { Icon(Icons.Rounded.Refresh, "Повторить поиск") }
+                    IconButton({ stopPreview(); expandedScan=false;scanRevision++ }, enabled = !scanning && !verifying) { Icon(Icons.Rounded.Refresh, "Повторить поиск") }
                 }
                 if (scanning) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -203,11 +204,14 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     Text("Выбрано: ${saved.selected.size} · ${android.text.format.Formatter.formatFileSize(context,savedBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button({ restorePrevious(saved) }, Modifier.fillMaxWidth()) { Text("Продолжить проверку") }
-                    OutlinedButton({ scanRevision++ }, Modifier.fillMaxWidth()) { Text(if (DuplicateBackgroundScan.interrupted(context)) "Продолжить незавершённый поиск" else "Новый поиск") }
+                    OutlinedButton({ expandedScan=false;scanRevision++ }, Modifier.fillMaxWidth()) { Text(if (DuplicateBackgroundScan.interrupted(context)) "Продолжить незавершённый поиск" else "Новый поиск") }
+                    OutlinedButton({expandedScan=true;scanRevision++},Modifier.fillMaxWidth()){Text("Расширенный поиск по всему аудио")}
                     }
                 } else {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     Text("Групп: ${groups.size} · файлов: ${groups.sumOf { it.tracks.size }}", style = MaterialTheme.typography.bodyMedium)
+                    TextButton({stopPreview();expandedScan=true;scanRevision++},enabled=!verifying){Text("Расширенный поиск по всему аудио")}
+                    Text("Быстрый поиск проверяет фрагменты длинных треков; расширенный проверяет аудио целиком.",style=MaterialTheme.typography.bodySmall)
                     if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     previewError?.let { Text(it, color = MaterialTheme.colorScheme.error) }

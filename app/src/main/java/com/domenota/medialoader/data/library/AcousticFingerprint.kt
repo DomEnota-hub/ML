@@ -7,7 +7,7 @@ import kotlin.math.*
  * Fingerprints indicate matching fragments, never that two whole recordings are interchangeable.
  */
 internal data class AcousticFingerprint(val landmarks: List<AcousticLandmark>) {
-    companion object { const val VERSION = 1 }
+    companion object { const val VERSION = 2 }
 }
 internal data class AcousticLandmark(val hash: Int, val frame: Int)
 internal object AcousticFingerprints {
@@ -30,10 +30,15 @@ internal object AcousticFingerprints {
         private val anchors = ArrayDeque<Pair<Int,IntArray>>()
         // Deterministic reservoir ranks by content/time; bounds retained memory without truncating endings.
         private val reservoir = java.util.PriorityQueue<Pair<Long,AcousticLandmark>>(compareByDescending { it.first })
+        fun beginWindow(startMs:Long){
+            filled=0;anchors.clear();frame=(startMs.coerceAtLeast(0)*RATE/1000/HOP).coerceAtMost(Int.MAX_VALUE.toLong()-N).toInt()
+        }
         fun accept(value: Float) {
             samples[filled++] = value
             if (filled != N) return
             checkActive()
+            // Only frames at delta 4/8 from an anchor can contribute landmarks.
+            if(frame%4==0){
             val peaks = peaks(samples,re,im,power)
             for ((time, previous) in anchors) {
                 val delta = frame-time
@@ -49,6 +54,7 @@ internal object AcousticFingerprints {
             }
             if (frame % 8 == 0) anchors.addLast(frame to peaks)
             while (anchors.isNotEmpty() && frame-anchors.first().first >= 8) anchors.removeFirst()
+            }
             frame++
             samples.copyInto(samples,0,HOP,N); filled = N-HOP
         }

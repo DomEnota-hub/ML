@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Main-thread admission, one service-owned scan. The screen only observes progress. */
 internal object DuplicateBackgroundScan {
     const val OPEN_ACTION = "com.domenota.medialoader.OPEN_DUPLICATES"
-    data class Request(val token: Long, val rows: List<DownloadEntity>, val linked: Set<String>, val current: String?)
+    data class Request(val token: Long, val rows: List<DownloadEntity>, val linked: Set<String>, val current: String?,val expanded:Boolean=false)
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
         val session: DuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false)
     private val mutable = MutableStateFlow(Status())
@@ -30,10 +30,10 @@ internal object DuplicateBackgroundScan {
     private fun prefs(context: Context) = context.getSharedPreferences("duplicate_background_scan",Context.MODE_PRIVATE)
     fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false)
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
-    @Synchronized fun start(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?) {
+    @Synchronized fun start(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?,expanded:Boolean=false) {
         if (mutable.value.running) return
         val token = ++nextToken
-        pending = Request(token,rows.toList(),linked.toSet(),current)
+        pending = Request(token,rows.toList(),linked.toSet(),current,expanded)
         mutable.value = Status(running = true,total = rows.size,token = token)
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,MusicDuplicateScanService::class.java)) }
@@ -100,7 +100,7 @@ class MusicDuplicateScanService : Service() {
         }
         job = scope.launch {
             try {
-                val result = MusicDuplicateScanner.scan(this@MusicDuplicateScanService,request.rows,request.linked,request.current) { done,total ->
+                val result = MusicDuplicateScanner.scan(this@MusicDuplicateScanService,request.rows,request.linked,request.current,request.expanded) { done,total ->
                     DuplicateBackgroundScan.progress(scanToken,done,total)
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (DuplicateBackgroundScan.state.value.token == scanToken && DuplicateBackgroundScan.state.value.running && (now - lastNotice >= 1000 || done == total)) {
