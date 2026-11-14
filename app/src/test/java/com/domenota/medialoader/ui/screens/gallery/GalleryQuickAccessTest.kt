@@ -39,6 +39,19 @@ class GalleryQuickAccessTest {
                 "Телефон", 19, null)))
     }
 
+    @Test fun allFilesShortcutCountsPhotosAndVideosAndKeepsItsRouteIdentity() {
+        val photo=com.domenota.medialoader.core.database.DownloadEntity("p","device","p.jpg",com.domenota.medialoader.core.model.MediaType.PHOTO,com.domenota.medialoader.core.model.DownloadState.COMPLETED,"content://media/p",100,100)
+        val video=photo.copy(id="v",mediaType=com.domenota.medialoader.core.model.MediaType.VIDEO)
+        val audio=photo.copy(id="a",mediaType=com.domenota.medialoader.core.model.MediaType.AUDIO)
+        val visible=GalleryLibraryState.filter(listOf(photo,video,audio,photo.copy(id="private",isPrivate=true)),emptyList(),"all","",emptyMap())
+        val shortcut=galleryDefaultQuickItems(emptyList(), visible, listOf(video), emptyList()).first()
+        assertEquals(2,shortcut.count)
+        assertEquals(listOf("p","v"),visible.map{it.id})
+        assertEquals("Все файлы",shortcut.title)
+        assertEquals("all",shortcut.key)
+        assertEquals(GalleryQuickKind.ALL,shortcut.kind)
+    }
+
     @Test fun missingSystemAlbumsHaveNoUnopenableShortcut() {
         assertEquals(listOf("all", "videos", "favorites"),
             galleryDefaultQuickItems(albums, emptyList(), emptyList(), emptyList()).map { it.key })

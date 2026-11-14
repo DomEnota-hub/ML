@@ -30,6 +30,8 @@ class PhoneMediaLibrary(context: Context) {
         protectedPhysicalKeys: Set<String> = emptySet(),
         onProgress: suspend (PhoneMediaSnapshot) -> Unit = {},
     ): PhoneMediaSnapshot = withContext(Dispatchers.IO) {
+        com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
+            com.domenota.medialoader.core.logging.LibraryWork.MEDIASTORE_SCAN)
         val editedAudio = AudioEditedTags.marked(context)
         val identities = mutableMapOf<String, Set<String>>()
         val fingerprints = mutableMapOf<String, String>()
@@ -62,6 +64,8 @@ class PhoneMediaLibrary(context: Context) {
             else projection += listOf("bucket_display_name", "bucket_id")
             val rows = mutableListOf<DownloadEntity>()
             try {
+                com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
+                    com.domenota.medialoader.core.logging.LibraryWork.MEDIASTORE_QUERY)
                 context.contentResolver.query(uri, projection.toTypedArray(), null, null, "date_added DESC, _id DESC")?.use { cursor ->
                     while (cursor.moveToNext()) {
                         coroutineContext.ensureActive()

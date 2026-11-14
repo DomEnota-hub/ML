@@ -18,9 +18,15 @@ enum class BatchPhotoFormat(val extension:String,val mime:String) {
 data class BatchPhotoSpec(
     val maxSide:Int=1920, val format:BatchPhotoFormat=BatchPhotoFormat.JPEG,
     val quality:Int=85, val removeGps:Boolean=true, val removeExif:Boolean=false,
-    val effect:PhotoEffect=PhotoEffect.NONE, val watermark:String=""
+    val effect:PhotoEffect=PhotoEffect.NONE, val watermark:String="",
+    val effectStrength:Float=100f,
+    val watermarkLayers:List<TextLayer> = emptyList()
 ) {
-    init { require(maxSide in 0..8192 && quality in 1..100 && watermark.length<=100) }
+    init { require(maxSide in 0..8192 && quality in 1..100 && watermark.length<=100 && effectStrength.isFinite() && effectStrength in 0f..100f && watermarkLayers.size<=8) }
+    fun colorAdjustments() = PhotoColorAdjustments(effect=effect,effectStrength=effectStrength)
+    /** Old saved callers retain the bottom-center string watermark. Rich drafts take precedence. */
+    fun textLayers(): List<TextLayer> = if(watermarkLayers.isNotEmpty()) watermarkLayers else
+        if(watermark.isNotBlank()) listOf(TextLayer(text=watermark,centerX=.5f,centerY=.9f,size=.045f,opacity=.8f)) else emptyList()
     fun dimensions(w:Int,h:Int):Pair<Int,Int> {
         require(w>0 && h>0)
         val scale=if(maxSide==0) 1.0 else minOf(1.0,maxSide.toDouble()/maxOf(w,h))
@@ -64,14 +70,14 @@ class BatchPhotoEditor(private val context:Context) {
             if(bitmap.width!=target.first || bitmap.height!=target.second)
                 bitmap=Bitmap.createScaledBitmap(bitmap,target.first,target.second,true).also{owned.add(it)}
             currentCoroutineContext().ensureActive()
-            if(spec.effect!=PhotoEffect.NONE) bitmap=PhotoColorMath.apply(bitmap,PhotoColorAdjustments(effect=spec.effect)).also{owned.add(it)}
-            if(spec.watermark.isNotBlank() || spec.format==BatchPhotoFormat.JPEG){
+            if(spec.effect!=PhotoEffect.NONE) bitmap=PhotoColorMath.apply(bitmap,spec.colorAdjustments()).also{owned.add(it)}
+            if(spec.textLayers().any{it.text.isNotBlank()} || spec.format==BatchPhotoFormat.JPEG){
                 val copy=Bitmap.createBitmap(bitmap.width,bitmap.height,Bitmap.Config.ARGB_8888).also{owned.add(it)}
                 val canvas=Canvas(copy)
                 if(spec.format==BatchPhotoFormat.JPEG)canvas.drawColor(Color.WHITE)
                 canvas.drawBitmap(bitmap,0f,0f,null)
-                if(spec.watermark.isNotBlank()) TextLayerRenderer.draw(context,canvas,copy.width,copy.height,
-                    listOf(TextLayer(text=spec.watermark,centerX=.5f,centerY=.9f,size=.045f,opacity=.8f)),includeAll=true)
+                TextLayerRenderer.draw(context,canvas,copy.width,copy.height,
+                    spec.textLayers(),includeAll=true,fitInside=true)
                 bitmap=copy
             }
             currentCoroutineContext().ensureActive()

@@ -54,6 +54,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     var previous by remember { mutableStateOf<DuplicateSession?>(null) }
     var scannedAt by remember { mutableLongStateOf(0L) }
     val background by DuplicateBackgroundScan.state.collectAsState()
+    val privacyRevision by DuplicatePrivacyGuard.changes.collectAsState()
     val progress = background.done to background.total
     var scanning by remember { mutableStateOf(true) }
     var verifying by remember { mutableStateOf(false) }
@@ -85,7 +86,18 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }
     // Notification or another controller can resume the main player. Do not play two streams.
     LaunchedEffect(mainPlaying) { if (mainPlaying && previewId != null) stopPreview(restore = false) }
+    fun admissible(value: DuplicateScanResult?): Boolean = value != null && value.groups.all { group ->
+        group.tracks.all { DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) }
+    }
+    LaunchedEffect(privacyRevision,result,previous) {
+        if (result?.groups?.any { g -> g.tracks.any { !DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) } } == true ||
+            previous?.result?.groups?.any { g -> g.tracks.any { !DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) } } == true) {
+            stopPreview(); result = null; previous = null; selected = emptySet(); kept = emptyMap()
+            error = "Поиск сброшен после переноса в Личное"
+        }
+    }
     fun play(t: DuplicateTrack) {
+        if (!DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id)) { stopPreview(); return }
         previewError = null
         if (previewId == t.id) {
             if (player.playWhenReady) player.pause() else { if (player.playbackState == Player.STATE_ENDED) player.seekTo(0); player.play() }
@@ -103,7 +115,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             if (!DuplicateBackgroundScan.state.value.running) {
                 if (scanRevision == 0) {
                     val saved = MusicDuplicateSessionStore.load(context)
-                    if (saved != null) { previous = saved; return@LaunchedEffect }
+                    if (saved != null && admissible(saved.result)) { previous = saved; return@LaunchedEffect }
                 }
                 DuplicateBackgroundScan.start(context,latestRows,linkedIds,latestCurrent)
             }
@@ -111,16 +123,17 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             val saved = finished.session
             if (saved == null) {
                 error = finished.error
-                previous = MusicDuplicateSessionStore.load(context)
+                previous = MusicDuplicateSessionStore.load(context)?.takeIf { admissible(it.result) }
                 return@LaunchedEffect
             }
             val r = MusicDuplicateScanner.restore(context,saved.result,latestRows,linkedIds,latestCurrent)
+            check(admissible(r)) { "Поиск сброшен после переноса в Личное" }
             scannedAt = saved.scannedAt
             kept = r.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) }; result = r
         } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message ?: "Ошибка проверки" }
         finally { scanning = false }
     }
-    fun snapshot(): DuplicateSession? = result?.let { DuplicateSession(it,selected,kept,listState.firstVisibleItemIndex,listState.firstVisibleItemScrollOffset,scannedAt) }
+    fun snapshot(): DuplicateSession? = result?.takeIf(::admissible)?.let { DuplicateSession(it,selected,kept,listState.firstVisibleItemIndex,listState.firstVisibleItemScrollOffset,scannedAt) }
     LaunchedEffect(result) {
         if (result == null) return@LaunchedEffect
         snapshotFlow { snapshot() }.debounce(350L).collect { saved ->
@@ -134,6 +147,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             try {
                 check(latestRows.isNotEmpty() || saved.result.groups.isEmpty()) { "Библиотека ещё не загружена" }
                 val r = MusicDuplicateScanner.restore(context,saved.result,latestRows,linkedIds,latestCurrent)
+                check(admissible(r)) { "Поиск сброшен после переноса в Личное" }
                 val oldKeys = saved.result.groups.map { it.key }.toSet()
                 val recommendations = r.groups.associate { g -> g.key to (saved.kept[g.key]?.takeIf { id -> g.tracks.any { it.id == id } }
                     ?: MusicDuplicatePolicy.recommended(g)) }
@@ -147,7 +161,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             finally { scanning = false }
         }
     }
-    val groups = result?.groups.orEmpty()
+    // Filter during composition as well as async admission; effects may run before a suspended restore returns.
+    val groups = result?.takeIf(::admissible)?.groups.orEmpty()
+    val displayPrevious = previous?.takeIf { admissible(it.result) }
     val allSelected = MusicDuplicatePolicy.selectAll(groups,kept)
     val size = groups.sumOf { g -> g.tracks.filter { it.id in selected }.sumOf { it.bytes } }
     fun close() {
@@ -177,9 +193,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         TextButton({ DuplicateBackgroundScan.cancel(context) }, enabled = !background.committing) { Text("Отменить поиск") }
                     } else TextButton({ close() }) { Text("Закрыть") }
                     }
-                } else if (previous != null) {
+                } else if (displayPrevious != null) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                    val saved = previous!!
+                    val saved = displayPrevious
                     Text("Последний поиск", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(saved.scannedAt)))
                     Text("Групп: ${saved.result.groups.size} · файлов: ${saved.result.groups.sumOf { it.tracks.size }}")
@@ -196,8 +212,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     previewError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (groups.isEmpty() && error == null) Text("Совпадений не найдено", Modifier.padding(vertical = 24.dp))
-                    if (groups.isNotEmpty()) {
-                        OutlinedButton({ selected = if (selected == allSelected) emptySet() else allSelected }, Modifier.fillMaxWidth(), enabled = !verifying) { Text(if (selected == allSelected) "Снять выделение" else "Выделить все") }
+                    if (groups.any { it.kind != DuplicateKind.EXACT }) Text("Акустические и возможные совпадения выбирайте вручную после прослушивания.", style = MaterialTheme.typography.bodySmall)
+                    if (allSelected.isNotEmpty() || selected.isNotEmpty()) {
+                        OutlinedButton({ selected = if (selected == allSelected || allSelected.isEmpty()) emptySet() else allSelected }, Modifier.fillMaxWidth(), enabled = !verifying) { Text(if (selected == allSelected || allSelected.isEmpty()) "Снять выделение" else "Выделить точные") }
                     }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -208,7 +225,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp)) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(group.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                    Text("${group.tracks.size} файлов · ${group.reason}", style = MaterialTheme.typography.bodySmall, color = musicPlaybackAccent)
+                                    Text("${when (group.kind) { DuplicateKind.EXACT -> "Точные"; DuplicateKind.ACOUSTIC -> "Акустические"; DuplicateKind.POSSIBLE -> "Возможные / версии" }} · ${group.tracks.size} файлов · ${group.reason}", style = MaterialTheme.typography.bodySmall, color = musicPlaybackAccent)
                                     group.tracks.forEach { t ->
                                         HorizontalDivider()
                                         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -48,8 +48,8 @@ class ActiveDownloadService : Service() {
         ForegroundServiceObservation.onForegroundStarted()
         if (observer == null) observer = scope.launch {
             val repository = MediaRepository.get(applicationContext)
-            combine(repository.downloads, repository.recognitionActive, repository.bulk.state) { rows, recognition, bulk ->
-                Triple(rows.count { it.state == DownloadState.QUEUED || it.state == DownloadState.RUNNING },
+            combine(repository.downloads, repository.recognitionActive, repository.bulk.state, repository.missingRecoveryActive) { rows, recognition, bulk, recovering ->
+                Triple(rows.count { it.state == DownloadState.QUEUED || it.state == DownloadState.RUNNING } + recovering,
                     recognition, bulk.phase == BulkPhase.ANALYZING || bulk.phase == BulkPhase.QUEUING)
             }.collect { (downloads, recognition, bulkActive) ->
                 val active = downloads + recognition + if (bulkActive) 1 else 0

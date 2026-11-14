@@ -209,4 +209,15 @@ class AudioQueuePlaybackTest {
         } finally { player.release() }
     }
 
+    @Test fun savedQueueResumePreservesDuplicateOccurrencesAndTheirSelectedIndex() {
+        val player=ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            val session=ResumeQueueSession("saved",null,listOf(setOf("app:a"),setOf("app:a"),setOf("app:b")),1,1234,8000,true,2,1.5f,100)
+            assertTrue(AudioQueuePlayback.resume(player,listOf(item("a"),item("a"),item("b")),1,session,1234))
+            assertEquals(listOf("a","a","b"),(0 until player.mediaItemCount).map {player.getMediaItemAt(it).mediaId})
+            assertEquals(1,player.currentMediaItemIndex);assertEquals(1234L,player.currentPosition)
+            assertTrue(player.shuffleModeEnabled);assertEquals(2,player.repeatMode)
+            assertEquals(1.5f,player.playbackParameters.speed,.001f)
+        } finally {player.release()}
+    }
 }

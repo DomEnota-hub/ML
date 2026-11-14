@@ -86,6 +86,7 @@ fun BackgroundAudioPlayer(
     queue: List<DownloadEntity>,
     onCurrentItemChanged: (DownloadEntity) -> Unit = {},
     modifier: Modifier = Modifier,
+    currentSessionOnly: Boolean = false,
     libraryLayout: Boolean = false, metadataLookup: List<DownloadEntity> = emptyList(), blockedIdentities: Set<String> = emptySet(),
     onBack: () -> Unit = {}, onEqualizer: (() -> Unit)? = null,
     favoriteIds: Set<String> = emptySet(), onFavorite: ((DownloadEntity) -> Unit)? = null, onEdit: ((DownloadEntity) -> Unit)? = null,
@@ -158,8 +159,11 @@ fun BackgroundAudioPlayer(
         }
     }
 
-    LaunchedEffect(controller, item.id, playableQueue, libraryLayout) {
+    LaunchedEffect(controller, item.id, playableQueue, libraryLayout, currentSessionOnly) {
         val active = controller ?: return@LaunchedEffect
+        // Notification entry only observes the service, including an empty/ended queue.
+        // A race with service shutdown must never initialize a replacement queue.
+        if (currentSessionOnly) { syncSession(active); return@LaunchedEffect }
         if (libraryLayout && active.mediaItemCount > 0) { syncSession(active); return@LaunchedEffect }
         val desiredItems = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             playableQueue.map { entry ->

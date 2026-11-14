@@ -33,7 +33,7 @@ internal fun VideoReferenceAdjustmentsPanel(settings: VideoReferenceAdjustments,
         }
         EditorSlider(value = current, onValueChange = { onChange(settings.changed(selected, it)) },
             valueRange = selected.minimum..100f, enabled = enabled,
-            modifier = Modifier.fillMaxWidth().height(34.dp))
+            modifier = Modifier.fillMaxWidth().height(48.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             listOf("Тон", "Цвет", "Детализация").forEach { group ->
                 TextButton(onClick = { selected = VideoReferenceAdjustment.entries.first { it.group == group } },

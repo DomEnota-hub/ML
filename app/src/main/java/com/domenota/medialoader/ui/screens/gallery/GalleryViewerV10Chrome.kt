@@ -240,6 +240,7 @@ internal fun GalleryV10Popup(
     repeatOne: Boolean,
     speed: Float,
     allowPrivate: Boolean,
+    audioTrackCount: Int = 0,
     onDismiss: () -> Unit,
     onAction: (String) -> Unit,
     onSpeed: (Float) -> Unit,
@@ -256,7 +257,7 @@ internal fun GalleryV10Popup(
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .55f)).clickable(onClick = onDismiss))
         val menuWidth = minOf(287.dp, maxWidth - 32.dp)
         val bodyHeight = maxHeight * .65f
-        val menuRows = (if (isPhoto) v10PhotoRows else v10VideoRows).filter { allowPrivate || it.id != "private" }
+        val menuRows = (if (isPhoto) v10PhotoRows else v10VideoRows).filter { (allowPrivate || it.id != "private") && (it.id != "tracks" || com.domenota.medialoader.ui.screens.GalleryAudioTrackPolicy.showSelector(audioTrackCount)) }
         Column(
             modifier = Modifier.align(Alignment.TopEnd).offset(x = (-16).dp, y = maxHeight * .23f)
                 .width(menuWidth).heightIn(max = bodyHeight).clip(RoundedCornerShape(17.dp))

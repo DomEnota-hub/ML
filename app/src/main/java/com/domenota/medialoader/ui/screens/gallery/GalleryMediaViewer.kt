@@ -93,6 +93,7 @@ internal fun GalleryMediaViewer(
     var fullscreen by rememberSaveable { mutableStateOf(false) }
     var locked by rememberSaveable(current.id) { mutableStateOf(false) }
     var landscape by rememberSaveable(current.id) { mutableStateOf(false) }
+    var audioTrackCount by remember(current.id, current.savedUri) { mutableIntStateOf(0) }
     var menu by remember(current.id) { mutableStateOf(false) }
     var wallpaperChoice by remember(current.id) { mutableStateOf(false) }
     var photoTool by remember(current.id) { mutableStateOf<String?>(null) }
@@ -262,6 +263,7 @@ internal fun GalleryMediaViewer(
                         },
                         floatingWindowRequest = if (page == pager.currentPage) floatingRequest else 0,
                         galleryCommand = if (page == pager.currentPage) playerCommand else null,
+                        onAudioTrackCountChanged = { count -> if (row.id == current.id) audioTrackCount = count },
                     )
                 } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (poster != null) VideoViewerPoster(poster, Modifier.fillMaxSize())
@@ -338,6 +340,7 @@ internal fun GalleryMediaViewer(
             repeatOne = loopVideo,
             speed = videoSpeed,
             allowPrivate = !privateMode && current.providerId != "device",
+            audioTrackCount = audioTrackCount,
             onDismiss = { menu = false },
             onSpeed = { selected -> videoSpeed = selected; menu = false },
             onAction = { action ->

@@ -164,6 +164,27 @@ class DownloadQueue(
         queued
     }
 
+    /** Restore-only transfer. The old completed row remains untouched until verified commit. */
+    suspend fun restoreMissing(previous: DownloadEntity, item: MediaItem,
+        commit: suspend (DownloadResult) -> Unit) {
+        val job = kotlinx.coroutines.currentCoroutineContext()[Job] ?: error("Нет операции восстановления")
+        val name = enqueueLock.withLock {
+            check(history.byId(previous.id) == previous && MissingFileRecoveryPolicy.eligible(previous)) {
+                "Запись изменилась. Откройте восстановление заново"
+            }
+            check(running.putIfAbsent(previous.id, job) == null) { "Восстановление уже выполняется" }
+            try { StorageNaming.availableName(previous.originalName, existingNames() + history.reservedNames()) }
+            catch (error: Throwable) { running.remove(previous.id, job); throw error }
+        }
+        try {
+            val task = DownloadTask(previous.id, item, name)
+            val result = engine.download(task) { _, _ -> }
+            commit(if (result.fileName == null) result.copy(fileName = name) else result)
+        } finally {
+            running.remove(previous.id, job)
+        }
+    }
+
     /** Retry in place: keeping the row ID also keeps its original carousel group. */
     suspend fun retry(previous: DownloadEntity) = enqueueLock.withLock {
         recoverInterruptedLocked()

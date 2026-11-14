@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -470,4 +471,59 @@ class DownloadQueueTest {
             assertEquals(listOf("long.jpg", "next.jpg"), engine.started.toList())
         }
     }
+    @Test fun restoreUsesOriginalIdentityWithoutPublishingANewHistoryRow() {
+        withQueue(FakeEngine(durationMs = 0)) { dao, queue ->
+            val original = DownloadEntity("stable", "instagram", "photo.jpg", MediaType.PHOTO,
+                DownloadState.COMPLETED, "content://missing", 5, 123, groupId = "carousel")
+            dao.upsert(original)
+            queue.restoreMissing(original, item("photo.jpg")) { result ->
+                assertEquals(listOf(original), dao.all())
+                assertEquals("content://saved/photo.jpg", result.savedUri)
+                HistoryRepository(dao).restoreMissingFile(original, result.savedUri, "photo.jpg", 10)
+            }
+            assertEquals(listOf(original.copy(savedUri = "content://saved/photo.jpg", sizeBytes = 10)), dao.all())
+        }
+    }
+
+    @Test fun failedRestoreKeepsOriginalCompletedMissingRowForAnotherAttempt() {
+        withQueue(FakeEngine(durationMs = 0, failing = setOf("photo.jpg"))) { dao, queue ->
+            val original = DownloadEntity("stable", "instagram", "photo.jpg", MediaType.PHOTO,
+                DownloadState.COMPLETED, "content://missing", 5, 123, groupId = "carousel")
+            dao.upsert(original)
+            repeat(2) {
+                val failure = runCatching {
+                    queue.restoreMissing(original, item("photo.jpg")) { error("No failed file may commit") }
+                }.exceptionOrNull()
+                assertTrue(failure is DownloadFailure)
+                assertEquals(listOf(original), dao.all())
+            }
+        }
+    }
+
+    @Test fun cancelledRestoreLeavesOriginalAndReleasesItsRunningSlot() {
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val engine = object : DownloadEngine {
+            override suspend fun download(task: DownloadTask, onProgress: suspend (Long, Long?) -> Unit): DownloadResult {
+                started.complete(Unit)
+                delay(60_000)
+                error("Cancelled transfer cannot complete")
+            }
+        }
+        withQueue(engine) { dao, queue ->
+            val original = DownloadEntity("stable", "instagram", "photo.jpg", MediaType.PHOTO,
+                DownloadState.COMPLETED, "content://missing", 5, 123)
+            dao.upsert(original)
+            kotlinx.coroutines.coroutineScope {
+                val recovery = launch {
+                    queue.restoreMissing(original, item("photo.jpg")) { error("Cancelled file cannot commit") }
+                }
+                started.await()
+                queue.cancel(original.id)
+                recovery.join()
+                assertTrue(recovery.isCancelled)
+            }
+            assertEquals(listOf(original), dao.all())
+        }
+    }
+
 }

@@ -164,6 +164,7 @@ fun MediaViewerScreen(
     trashReadOnly: Boolean = false,
     onRestoreFromTrash: ((DownloadEntity) -> Unit)? = null,
     onDeleteFromTrash: ((DownloadEntity) -> Unit)? = null,
+    currentAudioSessionOnly: Boolean = false,
     modernAudioLayout: Boolean = false, audioMetadataRows: List<DownloadEntity> = emptyList(),
     audioBlockedIdentities: Set<String> = emptySet(), audioFavoriteIds: Set<String> = emptySet(),
     onAudioFavorite: ((DownloadEntity) -> Unit)? = null, onEqualizer: (() -> Unit)? = null,
@@ -333,6 +334,7 @@ fun MediaViewerScreen(
                 queue = audioQueue,
                 onCurrentItemChanged = { displayedItem = it; onAudioCurrentItemChanged(it) },
                 modifier = Modifier.fillMaxSize().padding(padding),
+                currentSessionOnly = currentAudioSessionOnly,
                 libraryLayout = modernAudioLayout, metadataLookup = audioMetadataRows, blockedIdentities = audioBlockedIdentities,
                 onBack = onBack, onEqualizer = onEqualizer, favoriteIds = audioFavoriteIds, onFavorite = onAudioFavorite, onEdit = onEdit,
             )
@@ -366,6 +368,7 @@ internal fun LocalVideoPlayer(
     onControlsVisibilityChanged: ((Boolean) -> Unit)? = null,
     floatingWindowRequest: Int = 0,
     galleryCommand: Pair<Int, String>? = null,
+    onAudioTrackCountChanged: (Int) -> Unit = {},
 ) {
     val context = LocalContext.current
     val gestureThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
@@ -403,6 +406,8 @@ internal fun LocalVideoPlayer(
     var showTimePicker by remember(uri) { mutableStateOf(false) }
     var showPlayerSettings by remember(uri) { mutableStateOf(false) }
     var showGalleryTracks by remember(uri) { mutableStateOf(false) }
+    var supportedAudioTrackCount by remember(uri) { mutableStateOf(0) }
+    val notifyAudioTrackCount by rememberUpdatedState(onAudioTrackCountChanged)
     var playableDurationMs by remember(uri) { mutableStateOf(0L) }
     var isPlaying by remember(uri) { mutableStateOf(false) }
     var playbackSpeed by remember(uri) { mutableStateOf(1f) }
@@ -501,13 +506,22 @@ internal fun LocalVideoPlayer(
         when (galleryCommand?.second) {
             "aspect" -> aspectPanelOpen = true
             "time" -> showTimePicker = true
-            "tracks" -> showGalleryTracks = true
+            "tracks" -> if (GalleryAudioTrackPolicy.showSelector(supportedAudioTrackCount)) showGalleryTracks = true
         }
     }
 
 
     DisposableEffect(player, lifecycleOwner, itemId) {
+        fun updateAudioTracks(tracks: androidx.media3.common.Tracks) {
+            supportedAudioTrackCount = GalleryAudioTrackPolicy.availableCount(
+                tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                    .map { group -> (0 until group.length).map { group.isTrackSupported(it) } })
+            notifyAudioTrackCount(supportedAudioTrackCount)
+            if (supportedAudioTrackCount < 2) showGalleryTracks = false
+        }
+        updateAudioTracks(player.currentTracks)
         val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { updateAudioTracks(tracks) }
             override fun onRenderedFirstFrame() {
                 renderedFirstFrame = true
                 posterView?.visibility = android.view.View.GONE
@@ -648,7 +662,7 @@ internal fun LocalVideoPlayer(
     )
     // Media3 remains the playback engine; its track information is rendered
     // as Compose options, without bringing back the overlapping native UI.
-    if (showGalleryTracks) AlertDialog(
+    if (showGalleryTracks && GalleryAudioTrackPolicy.showSelector(supportedAudioTrackCount)) AlertDialog(
         onDismissRequest = { showGalleryTracks = false },
         title = { Text("Звуковые дорожки") },
         text = {
@@ -670,7 +684,12 @@ internal fun LocalVideoPlayer(
                             if (group.isTrackSupported(index)) {
                                 val format = group.getTrackFormat(index)
                                 val language = format.language?.takeUnless { it == "und" }
-                                val title = format.label ?: language ?: "Дорожка ${index + 1}"
+                                val title = audioTrackDescription(
+                                    format.label, language, format.codecs, format.channelCount,
+                                    groups.takeWhile { it !== group }.sumOf { g ->
+                                        (0 until g.length).count { g.isTrackSupported(it) }
+                                    } + (0..index).count { group.isTrackSupported(it) },
+                                )
                                 val selected = group.isTrackSelected(index)
                                 TextButton(onClick = {
                                     player.trackSelectionParameters = player.trackSelectionParameters

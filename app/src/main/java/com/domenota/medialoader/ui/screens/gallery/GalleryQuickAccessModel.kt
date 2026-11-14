@@ -47,7 +47,7 @@ internal fun galleryDefaultQuickItems(
     val camera = standard.firstOrNull { galleryStandardAlbumKind(it) == GalleryQuickKind.CAMERA }
     val screenshots = standard.firstOrNull { galleryStandardAlbumKind(it) == GalleryQuickKind.SCREENSHOTS }
     return buildList {
-        add(GalleryQuickItem("all", "Все фото", GalleryQuickKind.ALL, visibleAll.size,
+        add(GalleryQuickItem("all", "Все файлы", GalleryQuickKind.ALL, visibleAll.size,
             visibleAll.maxByOrNull { it.createdAtEpochMillis }))
         if (camera != null) add(GalleryQuickItem(camera.key, "Камера", GalleryQuickKind.CAMERA,
             camera.count, camera.cover))

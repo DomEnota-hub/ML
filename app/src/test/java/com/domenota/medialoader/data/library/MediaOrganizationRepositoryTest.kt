@@ -36,6 +36,15 @@ class MediaOrganizationRepositoryTest {
         store.delete(a);assertTrue(db.organizationDao().members(a).isEmpty())
         assertEquals(original,history.byId("a"));assertEquals(1,db.organizationDao().members(b).size)
     }
+    @Test fun mixedPickerSelectionIsAtomicAndIdempotent()=runBlocking {
+        val original=row("selected");history.save(original)
+        val id=store.create("Picker")
+        assertTrue(runCatching{store.addSelection(id,listOf(ref(original)),listOf("file:///bad"))}.isFailure)
+        assertTrue(db.organizationDao().members(id).isEmpty())
+        repeat(2){store.addSelection(id,listOf(ref(original),ref(original)),listOf("https://example.com/one","https://example.com/one"))}
+        assertEquals(2,db.organizationDao().members(id).size)
+        assertEquals(original,history.byId(original.id))
+    }
     @Test fun inboxOnlyRecordsRealCompletionAndNeverRequeuesReviewed()=runBlocking {
         history.save(row("old"))
         history.save(row("new",DownloadState.RUNNING))

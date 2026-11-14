@@ -5,6 +5,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,41 +52,6 @@ internal fun OrganizationEntry(title:String,description:String,onOpen:()->Unit,m
     }
 }
 @Composable
-internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit) {
-    // Only the two displayed cards resolve member identities; opening the full
-    // screen performs the complete projection on a worker thread.
-    val shown=remember(collections){collections.take(2)}
-    var covers by remember(shown,refs) { mutableStateOf(emptyMap<String,LibraryMediaRef>()) }
-    LaunchedEffect(shown,refs) {
-        covers = withContext(Dispatchers.Default) { MediaOrganizationPolicy.resolve(shown.flatMap { it.members }, refs) }
-    }
-    Column(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-            Text("Коллекции",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
-            TextButton({onOpen(null)}){Text("Все коллекции")}
-        }
-        if(shown.isEmpty()) OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",{onOpen(null)})
-        else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            shown.forEach { collection ->
-                val live=remember(refs){refs.associateBy{it.key}}
-                val displayed=collection.members.mapNotNull{member->covers[member.id]?.let{candidate->live[candidate.key]?.item}}
-                val cover=displayed.firstOrNull()
-                Surface(Modifier.weight(1f).clickable{onOpen(collection.record.id)},shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){
-                    Column(Modifier.padding(8.dp)){
-                        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){
-                            if(cover!=null)DownloadThumbnail(cover.savedUri,cover.previewUrl,cover.mediaType.kind(),Modifier.fillMaxSize())
-                            else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
-                        }
-                        Text(collection.record.name,maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.titleSmall)
-                        Text("Фото: ${displayed.count{it.mediaType==MediaType.PHOTO}} · Видео: ${displayed.count{it.mediaType==MediaType.VIDEO}}",style=MaterialTheme.typography.labelSmall)
-                        Text("Музыка: ${displayed.count{it.mediaType==MediaType.AUDIO}} · Ссылки: ${collection.members.count{it.link!=null}}",style=MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
-        }
-    }
-}
-@Composable
 private fun Header(title:String,onBack:()->Unit,actions:@Composable RowScope.()->Unit={}) {
     Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically){
         IconButton(onBack){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
@@ -120,22 +89,22 @@ private fun ValueDialog(title:String,initial:String,label:String,onDismiss:()->U
 internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,repository:MediaOrganizationRepository,
     initialCollection:String?,audioOnly:Boolean,initialAdd:List<String>,initialLink:String?,ready:Boolean,onBack:()->Unit,
     onOpen:(String,List<String>)->Unit,onPlay:(List<String>)->Unit,onLink:(String)->Unit,onPassport:(String)->Unit,
-    onAddComplete:()->Unit) {
+    onAddComplete:()->Unit,usable:Boolean=ready) {
     var selected by rememberSaveable(initialCollection){mutableStateOf(initialCollection)}
     var filter by rememberSaveable(audioOnly){mutableStateOf(if(audioOnly)"Музыка" else "Всё")}
     var create by remember{mutableStateOf(false)}
-    var rename by remember{mutableStateOf(false)}
+    var rename by rememberSaveable{mutableStateOf(false)}
     var remove by remember{mutableStateOf(false)}
     var linkDialog by remember{mutableStateOf(false)}
-    var picker by remember{mutableStateOf(false)}
+    var picker by rememberSaveable{mutableStateOf(false)}
     var choosing by remember(initialAdd,initialLink){mutableStateOf(initialAdd.isNotEmpty()||initialLink!=null)}
     var error by remember{mutableStateOf<String?>(null)}
     var busy by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
     val byId=remember(refs){refs.associateBy{it.key}}
-    var resolved by remember(collections,refs,ready) { mutableStateOf(emptyMap<String,LibraryMediaRef>()) }
+    var resolved by remember { mutableStateOf(emptyMap<String,LibraryMediaRef>()) }
     LaunchedEffect(collections,refs,ready) {
-        resolved = if(!ready) emptyMap() else withContext(Dispatchers.Default) { MediaOrganizationPolicy.resolve(collections.flatMap { it.members },refs) }
+        resolved = if(refs.isEmpty()) emptyMap() else withContext(Dispatchers.Default) { MediaOrganizationPolicy.resolve(collections.flatMap { it.members },refs) }
     }
     val collection=collections.firstOrNull{it.record.id==selected}
     fun mutate(action:suspend ()->Unit){scope.launch{
@@ -150,6 +119,19 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         initialLink?.let{repository.addLink(id,it)}
         choosing=false;onAddComplete();selected=id
     }}
+    val context=androidx.compose.ui.platform.LocalContext.current
+    if(picker&&collection!=null){
+        val existing=collection.members.mapNotNull{resolved[it.id]?.let{candidate->byId[candidate.key]}}.map(::collectionPickerKey).toSet()
+        CollectionMediaPicker(collection.record.name,refs,existing,collections.flatMap{it.members}.mapNotNull{it.link},collection.members.mapNotNull{it.link}.toSet(),audioOnly,{picker=false}){files,links->
+            check(ready){"Библиотека обновляется. Повторите добавление после обновления"}
+            repository.addSelection(collection.record.id,files,links);picker=false
+        }
+        return
+    }
+    if(rename&&collection!=null){
+        CollectionCoverEditor(collection,refs,{rename=false}){repository.rename(collection.record.id,it)}
+        return
+    }
     BackHandler(selected!=null&&!choosing){selected=null}
     Column(Modifier.fillMaxSize().testTag("collections-screen")){
         Header(if(choosing)"Добавить в коллекцию" else collection?.record?.name?:"Коллекции",{
@@ -157,20 +139,18 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         }){
             if(collection==null||choosing)IconButton({create=true},enabled=!busy&&(!choosing||ready)){Icon(Icons.Rounded.Add,"Создать коллекцию")}
             else {
-                IconButton({rename=true},enabled=!busy){Icon(Icons.Rounded.Edit,"Переименовать коллекцию")}
+                IconButton({rename=true},enabled=!busy){Icon(Icons.Rounded.Edit,"Редактировать коллекцию")}
                 IconButton({remove=true},enabled=!busy){Icon(Icons.Rounded.DeleteOutline,"Удалить коллекцию")}
             }
         }
-        if(!ready||busy)LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(!usable||busy)LinearProgressIndicator(Modifier.fillMaxWidth().testTag("organization-loading"))
         error?.let{Text(it,Modifier.padding(12.dp),color=MaterialTheme.colorScheme.error)}
         if(collection==null||choosing){
-            LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
-                if(collections.isEmpty())item{Text("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.")}
+            LazyVerticalGrid(GridCells.Fixed(2),Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                if(collections.isEmpty())item(span={GridItemSpan(2)}){Text("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.")}
                 items(collections,key={it.record.id}){c->
-                    val visible=c.members.mapNotNull{resolved[it.id]?.let{ref->byId[ref.key]}}
-                    val count=if(audioOnly)visible.count{it.item.mediaType==MediaType.AUDIO} else visible.size
-                    OrganizationEntry(c.record.name,if(audioOnly)"Музыка · $count треков" else "${c.members.size} материалов",
-                        {if(choosing){if(ready&&!busy)addInitial(c.record.id)}else selected=c.record.id})
+                    val cover=c.members.firstNotNullOfOrNull{resolved[it.id]?.let{candidate->byId[candidate.key]}}
+                    CollectionCard(c,cover,{if(choosing){if(ready&&!busy)addInitial(c.record.id)}else selected=c.record.id},Modifier.fillMaxWidth())
                 }
             }
         } else {
@@ -182,9 +162,15 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             val missing=collection.members.count{it.link==null&&it.id !in resolved}
             LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                 item{
-                    Text(if(audioOnly)"Треков: ${audio.size}" else "Фото: ${visible.count{it.second.item.mediaType==MediaType.PHOTO}} · Видео: ${visible.count{it.second.item.mediaType==MediaType.VIDEO}} · Музыка: ${audio.size} · Ссылки: ${links.size}")
+                    val typeLabels=buildList {
+                        MediaType.entries.forEach{type->val count=visible.count{it.second.item.mediaType==type};if(count>0)add("${type.caption()}: $count")}
+                        if(links.isNotEmpty())add("Ссылки: ${links.size}")
+                    }
+                    Text(if(audioOnly)"Треков: ${audio.size}" else typeLabels.joinToString(" · ").ifEmpty{"Пустая"})
                     if(!audioOnly)Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                        listOf("Всё","Фото","Видео","Музыка","Ссылки").forEach{label->FilterChip(filter==label,{filter=label},{Text(label)})}
+                        val available=listOf("Всё")+MediaType.entries.filter{type->visible.any{it.second.item.mediaType==type}}.map{it.caption()}+if(links.isNotEmpty())listOf("Ссылки") else emptyList()
+                        LaunchedEffect(available){if(filter !in available)filter="Всё"}
+                        available.forEach{label->FilterChip(filter==label,{filter=label},{Text(label)})}
                     }
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
                         OutlinedButton({picker=true},enabled=ready&&!busy,modifier=Modifier.weight(1f)){Text("Добавить файлы")}
@@ -224,48 +210,18 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         if(choosing){choosing=false;onAddComplete()}
         selected=id
     }
-    if(rename&&collection!=null)ValueDialog("Переименовать",collection.record.name,"Название",{rename=false}){repository.rename(collection.record.id,it)}
     if(linkDialog&&collection!=null)ValueDialog("Добавить ссылку","","HTTP(S) ссылка",{linkDialog=false}){repository.addLink(collection.record.id,it)}
     if(remove&&collection!=null)AlertDialog(onDismissRequest={remove=false},title={Text("Удалить коллекцию?")},
         text={Text("Будет удалена только подборка «${collection.record.name}». Все файлы, альбомы и плейлисты останутся.")},
-        confirmButton={TextButton({remove=false;mutate{repository.delete(collection.record.id);selected=null}}){Text("Удалить",color=MaterialTheme.colorScheme.error)}},
+        confirmButton={TextButton({remove=false;mutate{repository.delete(collection.record.id);withContext(Dispatchers.IO){CollectionCoverStore(context).automatic(collection.record.id)};selected=null}}){Text("Удалить",color=MaterialTheme.colorScheme.error)}},
         dismissButton={TextButton({remove=false}){Text("Отмена")}})
-    if(picker&&collection!=null)MediaPicker(refs.filter{!audioOnly||it.item.mediaType==MediaType.AUDIO},{picker=false}){ids->
-        repository.addMedia(collection.record.id,ids.map{byId[it]?:error("Файл недоступен")});picker=false
-    }
-}
-@Composable
-private fun MediaPicker(refs:List<LibraryMediaRef>,onDismiss:()->Unit,onSave:suspend (List<String>)->Unit) {
-    var search by remember{mutableStateOf("")}
-    var selected by remember{mutableStateOf<Set<String>>(emptySet())}
-    var busy by remember{mutableStateOf(false)}
-    var error by remember{mutableStateOf<String?>(null)}
-    val scope=rememberCoroutineScope()
-    val matching=remember(refs,search){refs.filter{it.item.originalName.contains(search,true)}}
-    AlertDialog(onDismissRequest={if(!busy)onDismiss()},title={Text("Выбрать файлы")},text={
-        Column{
-            OutlinedTextField(search,{search=it},label={Text("Поиск")},singleLine=true)
-            Text("Выбрано: ${selected.size}")
-            LazyColumn(Modifier.heightIn(max=330.dp)){
-                items(matching,key={it.key}){ref->
-                    Row(Modifier.fillMaxWidth().clickable{selected=if(ref.key in selected)selected-ref.key else selected+ref.key},verticalAlignment=Alignment.CenterVertically){
-                        Checkbox(ref.key in selected,{checked->selected=if(checked)selected+ref.key else selected-ref.key})
-                        Text(ref.item.originalName,maxLines=2,overflow=TextOverflow.Ellipsis)
-                    }
-                }
-            }
-            error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        }
-    },confirmButton={TextButton(enabled=selected.isNotEmpty()&&!busy,onClick={scope.launch{
-        busy=true;try{onSave(selected.toList())}catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Не удалось добавить"}finally{busy=false}
-    }}){Text("Добавить")}},dismissButton={TextButton(onDismiss,enabled=!busy){Text("Отмена")}})
 }
 
 @Composable
 internal fun ReviewScreen(entries:List<MediaReviewEntity>,refs:List<LibraryMediaRef>,folders:List<CatalogFolderEntity>,
     favorites:Set<String>,repository:MediaOrganizationRepository,ready:Boolean,onBack:()->Unit,onOpen:(String,List<String>)->Unit,
     onEdit:(DownloadEntity)->Unit,onTrash:(String)->Unit,onAddCollection:(List<String>)->Unit,onPassport:(String)->Unit,
-    onFavorite:suspend (String,Boolean)->Unit,onFolder:suspend (String,String?)->Unit,onPlaylist:(String)->Unit) {
+    onFavorite:suspend (String,Boolean)->Unit,onFolder:suspend (String,String?)->Unit,onPlaylist:(String)->Unit,usable:Boolean=ready) {
     val byDownload=remember(refs){refs.mapNotNull{it.appDownloadId?.let{id->id to it}}.toMap()}
     val visible=remember(entries,byDownload){entries.mapNotNull{entry->byDownload[entry.downloadId]?.let{entry to it}}}
     val scope=rememberCoroutineScope()
@@ -276,7 +232,7 @@ internal fun ReviewScreen(entries:List<MediaReviewEntity>,refs:List<LibraryMedia
         try{action()}catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Не удалось выполнить действие"}finally{busy=false}}}
     Column(Modifier.fillMaxSize().testTag("review-screen")){
         Header("На разбор",onBack)
-        if(!ready||busy)LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(!usable||busy)LinearProgressIndicator(Modifier.fillMaxWidth().testTag("organization-loading"))
         error?.let{Text(it,Modifier.padding(12.dp),color=MaterialTheme.colorScheme.error)}
         LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
             item{Text("Новые загрузки: ${visible.size}. Файлы остаются на своих местах.",color=MaterialTheme.colorScheme.onSurfaceVariant)}

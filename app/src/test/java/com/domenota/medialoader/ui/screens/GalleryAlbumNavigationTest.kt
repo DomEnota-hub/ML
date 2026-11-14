@@ -23,6 +23,18 @@ import org.robolectric.annotation.*
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class GalleryAlbumNavigationTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @Test fun allFilesShortcutAndOpenedHeaderUseSameMixedMediaName() {
+        val tab=mutableIntStateOf(1)
+        compose.setContent{MaterialTheme{
+            GalleryModeScreen(emptyList(),LibrarySource.APP,false,null,emptyList(),emptyList(),
+                {Text("Главная шапка")},{_,_->},{},{_,_->},{_,_->},{"new"},{},{},{_,_->},{},
+                searchVisible=false,tabOverride=tab.intValue,onTabChange={tab.intValue=it})
+        }}
+        compose.onNodeWithText("Все файлы").performClick()
+        compose.onNodeWithText("Все файлы").assertIsDisplayed()
+        compose.onNodeWithText("Все фото").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Все альбомы").assertIsDisplayed()
+    }
     @Test fun albumHasOwnHeaderHidesDockAndRestoresItsSelection() {
         val restoration = StateRestorationTester(compose)
         val photo = DownloadEntity("a", "device", "Photo.jpg", MediaType.PHOTO, DownloadState.COMPLETED, "file:///a.jpg", null, 0)

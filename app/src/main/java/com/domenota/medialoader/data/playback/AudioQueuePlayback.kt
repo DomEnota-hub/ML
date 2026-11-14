@@ -92,7 +92,7 @@ internal object AudioQueuePlayback {
     /** A deliberate resume never toggles/replaces by a stale UI index. */
     fun resume(player:Player,items:List<MediaItem>,index:Int,session:ResumeQueueSession,position:Long):Boolean {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
-        if(index !in items.indices||items.any(PrivatePlaybackPolicy::isPrivate)||items.map{it.mediaId}.distinct().size!=items.size)return false
+        if(index !in items.indices||items.any(PrivatePlaybackPolicy::isPrivate))return false
         val sameQueue=player.mediaItemCount==items.size&&player.currentMediaItemIndex==index&&
             (0 until player.mediaItemCount).all { i -> isSameFile(items[i],player.getMediaItemAt(i)) }&&
             player.currentMediaItem?.mediaMetadata?.extras?.getString(AudioPlaybackMetadata.RESUME_CONTEXT)==session.id

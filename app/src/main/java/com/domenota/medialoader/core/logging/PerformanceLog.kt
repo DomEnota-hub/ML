@@ -70,6 +70,7 @@ object PerformanceLog {
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
     fun stop() {
+        if (active) AppLog.i("Perf", "LIBRARY_WORK · ${LibraryWorkCounters.summary()}")
         active = false; epoch.incrementAndGet(); task?.cancel(false); task = null
         Choreographer.getInstance().removeFrameCallback(frameCallback)
     }

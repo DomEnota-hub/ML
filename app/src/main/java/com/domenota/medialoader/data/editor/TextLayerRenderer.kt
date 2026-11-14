@@ -76,13 +76,17 @@ internal object TextLayerRenderer {
     }
 
     fun draw(context: Context, canvas: Canvas, width: Int, height: Int,
-        layers: List<TextLayer>, positionMs: Long = 0L, includeAll: Boolean = false) {
+        layers: List<TextLayer>, positionMs: Long = 0L, includeAll: Boolean = false,
+        fitInside: Boolean = false) {
         layers.filter { it.opacity > 0f && (includeAll && it.text.isNotBlank() || it.visibleAt(positionMs)) }.forEach { layer ->
             val layout = layout(context, width, height, layer)
             val paint = layout.paint
             val saved = canvas.save()
-            canvas.translate(width * layer.centerX, height * layer.centerY)
+            val placement = if (fitInside) TextLayerFitting.placement(context,width,height,layer) else null
+            canvas.translate(placement?.centerX ?: width * layer.centerX,
+                placement?.centerY ?: height * layer.centerY)
             canvas.rotate(layer.rotation)
+            placement?.let { canvas.scale(it.scale,it.scale) }
             canvas.translate(-layout.width / 2f, -layout.height / 2f)
             if (layer.outline > 0f) {
                 paint.style = Paint.Style.STROKE

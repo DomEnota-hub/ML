@@ -29,4 +29,25 @@ class ResumeQueuePolicyTest {
         assertEquals(8,all.size);assertEquals("12",all.first().id)
         all=ResumeQueuePolicy.keep(all,session("10"));assertEquals(8,all.size);assertEquals("10",all.first().id)
     }
+    @Test fun duplicateTracksRemainSeparateOccurrencesAndRemovalPreservesCurrentPosition() {
+        val saved=session().copy(entries=listOf(setOf("app:a"),setOf("app:a"),setOf("app:c")))
+        val resolved=ResumeQueuePolicy.resolve(saved,listOf(c("a","app:a"),c("c","app:c")),emptyMap())
+        assertEquals(listOf("a","a","c"),resolved.ids)
+        val edited=requireNotNull(ResumeQueuePolicy.removeOccurrences(resolved,setOf(saved.occurrenceIds[0])))
+        assertEquals(0,edited.index);assertEquals(102_000L,edited.positionMs)
+        assertEquals(saved.occurrenceIds.drop(1),edited.occurrenceIds)
+        assertEquals(listOf(setOf("app:a"),setOf("app:c")),edited.entries)
+    }
+    @Test fun removingCurrentChoosesNextAvailableThenPreviousAndResetsOnlyChangedPosition() {
+        val saved=session(index=0)
+        val resolved=ResolvedResumeQueue(saved,listOf("a",null,"c"))
+        val next=requireNotNull(ResumeQueuePolicy.removeOccurrences(resolved,setOf(saved.occurrenceIds[0])))
+        assertEquals(1,next.index);assertEquals(0L,next.positionMs)
+        val last=session(index=2)
+        val previous=requireNotNull(ResumeQueuePolicy.removeOccurrences(ResolvedResumeQueue(last,listOf("a",null,"c")),setOf(last.occurrenceIds[2])))
+        assertEquals(0,previous.index)
+        assertNull(ResumeQueuePolicy.removeOccurrences(resolved,saved.occurrenceIds.toSet()))
+        assertEquals(saved,ResumeQueuePolicy.removeOccurrences(resolved,emptySet()))
+        assertEquals(saved.shuffle,next.shuffle);assertEquals(saved.repeat,next.repeat)
+    }
 }

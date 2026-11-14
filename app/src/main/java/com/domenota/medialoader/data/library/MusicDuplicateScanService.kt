@@ -39,6 +39,10 @@ internal object DuplicateBackgroundScan {
         try { ContextCompat.startForegroundService(context,Intent(context,MusicDuplicateScanService::class.java)) }
         catch (e: Exception) { pending = null; mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
     }
+    @Synchronized fun invalidateForPrivacy() {
+        pending = null
+        mutable.value = Status(error = "Поиск сброшен после переноса в Личное",token = ++nextToken)
+    }
     @Synchronized fun claim(): Request? = pending.also { pending = null }
     @Synchronized fun progress(token: Long, done: Int,total: Int) {
         if (mutable.value.token == token && mutable.value.running && !mutable.value.committing)

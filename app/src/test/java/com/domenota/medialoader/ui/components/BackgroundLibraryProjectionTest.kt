@@ -41,4 +41,25 @@ class BackgroundLibraryProjectionTest {
         catch (error: Exception) { throw AssertionError("shown=$shown ready=$ready keys=$privateKeys", error) }
         assertFalse(leaks.any { it })
     }
+    @Test fun playbackOnlyRecompositionDoesNotRestartProjectionOrLoseReadyEmptyData() {
+        var tick by mutableIntStateOf(0)
+        val builds = java.util.concurrent.atomic.AtomicInteger()
+        val input = emptyList<String>()
+        var usable = false
+        var ready = false
+        compose.setContent {
+            val projected = backgroundLibraryProjection(emptyList<String>(), emptySet(), input) {
+                builds.incrementAndGet()
+                input
+            }
+            SideEffect { usable = projected.usable; ready = projected.ready }
+            Text("${tick}:${projected.value.size}")
+        }
+        compose.waitUntil(5000) { ready }
+        repeat(20) { compose.runOnIdle { tick++ }; compose.waitForIdle() }
+        assertEquals(1, builds.get())
+        assertTrue(usable)
+        assertTrue(ready)
+    }
+
 }

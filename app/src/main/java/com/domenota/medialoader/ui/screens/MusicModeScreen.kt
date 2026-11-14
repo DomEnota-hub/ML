@@ -132,6 +132,7 @@ internal fun MusicModeScreen(
             MusicFolderRules.visible(row,excludedFolders,deviceMusicFolders) }
     }
     val frequentKeys = remember(frequentRows,listeningKeys) { listeningKeys.filterKeys { it in frequentRows } }
+    var statsIntervals by remember { mutableStateOf<List<com.domenota.medialoader.data.playback.SmartStatsInterval>>(emptyList()) }
     var smartStatsPeriod by rememberSaveable { mutableStateOf(SmartStatsPeriod.MONTH) }
     val smartPrefs = remember(context) { context.getSharedPreferences("smart_music",0) }
     var mixDiversity by remember { mutableIntStateOf(smartPrefs.getInt("diversity",50).coerceIn(0,100)/5*5) }
@@ -168,14 +169,14 @@ internal fun MusicModeScreen(
     // Read only when a smart screen is open. Don't turn every playback tick into a
     // database scan or restart a real playback queue when recommendations change.
     val smartRefresh = if(smartPage==SmartMusicPage.STATS) smartRevision else listeningRevision
-    LaunchedEffect(smartPage,smartCandidates,smartRefresh,smartStatsPeriod,mixDiversity,forgottenDays,mixNonce,smartDay) {
+    LaunchedEffect(smartPage,smartCandidates,smartRefresh,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay) {
         if(smartPage==null||!listeningEnabled) return@LaunchedEffect
         smartLoading=true;smartError=null
         try {
             val now=System.currentTimeMillis()
             val seed=smartDay+mixNonce
             var candidates=smartCandidates
-            var result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays)
+            var result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays,interval=statsIntervals.lastOrNull())
             while(true) {
                 val ids=when(smartPage){SmartMusicPage.FORGOTTEN->result.forgotten;SmartMusicPage.MIX->result.mix;SmartMusicPage.STATS->result.topTracks;null->emptyList()}.map {it.rowId}
                 if(ids.isEmpty()) break
@@ -183,7 +184,7 @@ internal fun MusicModeScreen(
                 val missing=ids.filterNot(valid::contains).toSet()
                 if(missing.isEmpty()) break
                 candidates=candidates.filterNot {it.rowId in missing}
-                result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays)
+                result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays,interval=statsIntervals.lastOrNull())
             }
             smartSnapshot=result
         } catch(e:CancellationException){throw e}
@@ -322,13 +323,17 @@ internal fun MusicModeScreen(
     }
     if(resumeOpen&&onResumeSelection!=null) {
         ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},resumeLoading||loading,
-            resumeFailed||resumeError,{resumeOpen=false},onResumeSelection)
+            resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore)
     } else if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
-        SmartMusicScreen(smartPage!!,smartSnapshot,frequentRows,smartStatsPeriod,{smartStatsPeriod=it},
+        SmartMusicScreen(smartPage!!,smartSnapshot,frequentRows,smartStatsPeriod,{smartStatsPeriod=it;statsIntervals=emptyList()},
             mixDiversity,{mixDiversity=it;smartPrefs.edit().putInt("diversity",it).apply()},
             forgottenDays,{forgottenDays=it;smartPrefs.edit().putLong("forgotten_days",it).apply()},
             smartLoading||loading,smartError,currentPlayingId,playing,favoriteIds,{smartPage=null},{mixNonce++},
-            onPlayFrequent,onPreview?:onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport)
+            onPlayFrequent,onPreview?:onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport,
+            statsInterval=statsIntervals.lastOrNull(),onStatsDrill={point->
+                val interval=statsIntervals.lastOrNull() ?: com.domenota.medialoader.data.playback.SmartStatsInterval.overview(smartStatsPeriod,System.currentTimeMillis(),java.time.ZoneId.systemDefault())
+                point.date?.let { interval.drill(it) }?.let { statsIntervals=statsIntervals+it }
+            },onStatsBack={statsIntervals=statsIntervals.dropLast(1)})
     } else if (frequentOpen && onPlayFrequent != null && onSaveFrequent != null) {
         FrequentListeningScreen(listeningSelection,frequentRows,listeningPeriod,{listeningPeriod=it},listeningLoading||loading,listeningError,
             currentPlayingId,playing,favoriteIds,listeningStore,{frequentOpen=false},onPlayFrequent,

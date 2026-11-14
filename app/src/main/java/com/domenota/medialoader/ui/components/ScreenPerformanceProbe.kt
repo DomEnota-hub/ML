@@ -8,7 +8,11 @@ import com.domenota.medialoader.core.logging.PerformanceLog
 internal fun ScreenPerformanceProbe(screen: String, ready: Boolean) {
     val started = remember(screen) { PerformanceLog.begin("screen_enter:$screen") }
     var readinessReported by remember(screen) { mutableStateOf(false) }
-    SideEffect { PerformanceLog.screen(screen) }
+    SideEffect {
+        PerformanceLog.screen(screen)
+        com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
+            com.domenota.medialoader.core.logging.LibraryWork.COMPOSITION)
+    }
     LaunchedEffect(screen) {
         withFrameNanos { }
         PerformanceLog.end("screen_first_compose_frame:$screen", started)

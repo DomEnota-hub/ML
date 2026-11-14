@@ -14,7 +14,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Videocam
-import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Error
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -334,10 +334,10 @@ fun DownloadRow(
                 tint = Color.White,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
                     .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(5.dp)).padding(3.dp).size(16.dp))
-            if (missing || inaccessible || item.state != DownloadUiState.COMPLETED) Icon(Icons.Rounded.ErrorOutline,
+            if (missing || inaccessible || item.state != DownloadUiState.COMPLETED) Icon(Icons.Rounded.Error,
                 contentDescription = statusText, tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
-                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(5.dp)).size(20.dp))
+                    .size(20.dp))
             VideoWatchStripe(item, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp))
             fileMenu()
         }

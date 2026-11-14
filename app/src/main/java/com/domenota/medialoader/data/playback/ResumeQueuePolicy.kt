@@ -5,10 +5,12 @@ import java.security.MessageDigest
 /** Only public physical identity keys (which may contain locators); no copied title or audio data.
  * Session state is separate from listening counts and cannot credit a play. */
 internal data class ResumeQueueSession(val id:String,val playlistId:String?,val entries:List<Set<String>>,
-    val index:Int,val positionMs:Long,val durationMs:Long,val shuffle:Boolean,val repeat:Int,val speed:Float,val updatedAt:Long) {
+    val index:Int,val positionMs:Long,val durationMs:Long,val shuffle:Boolean,val repeat:Int,val speed:Float,val updatedAt:Long,
+    val occurrenceIds:List<String> = entries.indices.map { "$id:$it" }) {
     init {
         require(id.isNotBlank() && entries.isNotEmpty() && entries.size<=ResumeQueuePolicy.MAX_QUEUE &&
             entries.all { it.isNotEmpty() } && index in entries.indices && positionMs>=0L &&
+            occurrenceIds.size==entries.size && occurrenceIds.distinct().size==entries.size &&
             repeat in 0..2 && speed.isFinite() && speed in .25f..4f)
     }
 }
@@ -45,15 +47,27 @@ internal object ResumeQueuePolicy {
         val rows=SmartMusicPolicy.resolve(candidates,aliases)
         val keyIndex=rows.flatMap { (row,_)->row.keys.map {it to row.rowId} }.groupBy({it.first},{it.second})
         val trackIndex=rows.mapNotNull { (row,track)->track?.let{it to row.rowId} }.groupBy({it.first},{it.second})
-        val seen=hashSetOf<String>()
         val ids=session.entries.map { keys ->
             val known=keys.mapNotNull(aliases::get).distinct()
             if(known.size>1) null else {
                 val matches=(keys.flatMap{keyIndex[it].orEmpty()}+known.flatMap{trackIndex[it].orEmpty()}).distinct()
-                matches.singleOrNull()?.takeIf(seen::add)
+                matches.singleOrNull()
             }
         }
         return ResolvedResumeQueue(session,ids)
+    }
+    /** Remove occurrences, never track IDs: the same track may appear repeatedly. */
+    fun removeOccurrences(resolved:ResolvedResumeQueue,remove:Set<String>):ResumeQueueSession? {
+        val saved=resolved.session
+        val remaining=saved.entries.indices.filter { saved.occurrenceIds[it] !in remove }
+        if(remaining.isEmpty())return null
+        val current=if(saved.index in remaining) saved.index else
+            remaining.firstOrNull { it > saved.index && resolved.ids.getOrNull(it)!=null }
+                ?: remaining.lastOrNull { it < saved.index && resolved.ids.getOrNull(it)!=null }
+                ?: remaining.firstOrNull { it > saved.index } ?: remaining.last()
+        val same=current==saved.index
+        return saved.copy(entries=remaining.map { saved.entries[it] },occurrenceIds=remaining.map { saved.occurrenceIds[it] },
+            index=remaining.indexOf(current),positionMs=if(same)saved.positionMs else 0L,durationMs=if(same)saved.durationMs else 0L)
     }
     fun clampedPosition(session:ResumeQueueSession,liveDuration:Long?):Long =
         session.positionMs.coerceAtMost(liveDuration?.takeIf{it>0}?.minus(1) ?: Long.MAX_VALUE)

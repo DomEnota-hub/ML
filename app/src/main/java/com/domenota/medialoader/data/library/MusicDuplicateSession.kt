@@ -17,12 +17,17 @@ internal data class DuplicateSession(
 /** One private, non-backed-up snapshot. Atomic replacement preserves the previous successful scan. */
 internal object MusicDuplicateSessionStore {
     private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "music-duplicates-v1.json"))
-    private val lock = Any()
+    private val lock = DuplicatePrivacyGuard.lock
+    fun clearForPrivacy(context: Context) { val target = file(context); target.delete(); check(!target.baseFile.exists()) { "Не удалось очистить отчёт дубликатов" } }
+    private fun permitted(context: Context, session: DuplicateSession): Boolean = session.result.groups.all { group ->
+        group.tracks.all { DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) }
+    }
     suspend fun load(context: Context): DuplicateSession? = withContext(Dispatchers.IO) {
-        synchronized(lock) { runCatching { decode(file(context).openRead().bufferedReader().use { it.readText() }) }.getOrNull() }
+        synchronized(lock) { runCatching { decode(file(context).openRead().bufferedReader().use { it.readText() }).takeIf { permitted(context,it) } }.getOrNull() }
     }
     suspend fun save(context: Context, session: DuplicateSession): Boolean = withContext(Dispatchers.IO + NonCancellable) {
         synchronized(lock) {
+            if (!permitted(context,session)) return@synchronized false
             val target = file(context)
             runCatching {
                 val bytes = encode(session).toByteArray(Charsets.UTF_8)
@@ -56,14 +61,22 @@ internal object MusicDuplicateSessionStore {
                     put("modified", t.modified ?: JSONObject.NULL); put("sha", t.sha)
                     put("payload", t.payloadSha ?: JSONObject.NULL); put("duration", t.duration ?: JSONObject.NULL)
                     put("bitrate", t.bitrate ?: JSONObject.NULL); put("folder", t.folder ?: JSONObject.NULL)
-                    put("linked", t.linked); put("current", t.current)
+                    put("linked", t.linked); put("current", t.current); put("privacyEpoch",t.privacyEpoch)
+                    t.acoustic?.let { fp ->
+                        put("acousticVersion", AcousticFingerprint.VERSION)
+                        put("landmarks", JSONArray().apply { fp.landmarks.forEach { put(JSONArray().put(it.hash).put(it.frame)) } })
+                    }
     }
     internal fun decodeTrack(t: JSONObject): DuplicateTrack {
         fun JSONObject.str(key: String): String? = if (isNull(key)) null else getString(key)
         fun JSONObject.lng(key: String): Long? = if (isNull(key)) null else getLong(key)
         return DuplicateTrack(t.getString("id"),t.getString("title"),t.str("artist"),t.getString("filename"),
                     t.getString("uri"),t.getLong("bytes"),t.lng("modified"),t.getString("sha"),t.str("payload"),
-                    t.lng("duration"),t.lng("bitrate"),t.str("folder"),t.getBoolean("linked"),t.getBoolean("current"))
+                    t.lng("duration"),t.lng("bitrate"),t.str("folder"),t.getBoolean("linked"),t.getBoolean("current"),
+                    if (t.optInt("acousticVersion") == AcousticFingerprint.VERSION) t.optJSONArray("landmarks")?.let { array ->
+                        require(array.length() <= 6000)
+                        AcousticFingerprint((0 until array.length()).map { i -> array.getJSONArray(i).let { AcousticLandmark(it.getInt(0),it.getInt(1)) } })
+                    } else null, t.optLong("privacyEpoch",0))
     }
     fun encode(session: DuplicateSession): String {
         val groups = JSONArray()
@@ -72,7 +85,7 @@ internal object MusicDuplicateSessionStore {
             g.tracks.forEach { t ->
                 tracks.put(encodeTrack(t))
             }
-            groups.put(JSONObject().put("title", g.title).put("reason", g.reason).put("tracks", tracks))
+            groups.put(JSONObject().put("title", g.title).put("reason", g.reason).put("kind",g.kind.name).put("tracks", tracks))
         }
         val keep = JSONObject(); session.kept.forEach { (k,v) -> keep.put(k,v) }
         return JSONObject().put("schema",1).put("groups",groups).put("skipped",session.result.skipped)
@@ -88,7 +101,8 @@ internal object MusicDuplicateSessionStore {
                 decodeTrack(ta.getJSONObject(j))
             }
             require(tracks.size >= 2)
-            DuplicateGroup(tracks,g.getString("title"),g.getString("reason"))
+            DuplicateGroup(tracks,g.getString("title"),g.getString("reason"),
+                runCatching { DuplicateKind.valueOf(g.getString("kind")) }.getOrDefault(DuplicateKind.POSSIBLE))
         }
         val ka = json.getJSONObject("kept"); val keep = ka.keys().asSequence().associateWith { ka.getString(it) }
         val sa = json.getJSONArray("selected"); val selected = (0 until sa.length()).map { sa.getString(it) }.toSet()

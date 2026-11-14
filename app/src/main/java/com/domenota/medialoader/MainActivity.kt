@@ -22,6 +22,15 @@ import com.domenota.medialoader.data.share.InstagramShareActivity
 import com.domenota.medialoader.data.share.InstagramShareRouting
 
 class MainActivity : ComponentActivity() {
+    private var currentPlayerRequests by mutableStateOf(com.domenota.medialoader.data.playback.CurrentPlayerRequestState())
+    private fun acceptCurrentPlayer(incoming:Intent?) {
+        val next=currentPlayerRequests.accept(incoming?.action)
+        if(next!=currentPlayerRequests) {
+            currentPlayerRequests=next
+            // Consume the incoming action before any recreation; pending state is saved separately.
+            setIntent(Intent(this,MainActivity::class.java).setAction(Intent.ACTION_MAIN))
+        }
+    }
     private var sharedText by mutableStateOf<String?>(null)
     private var sharedTextGeneration by mutableIntStateOf(0)
     private var wasForeground = false
@@ -40,6 +49,8 @@ class MainActivity : ComponentActivity() {
         AppLog.init(applicationContext)
         com.domenota.medialoader.core.logging.PerformanceLog.begin("activity_create")
         super.onCreate(savedInstanceState)
+        currentPlayerRequests=com.domenota.medialoader.data.playback.CurrentPlayerRequestState.restore(savedInstanceState)
+        acceptCurrentPlayer(intent)
         lifecycleScope.launch(Dispatchers.IO) { ProcessExitDiagnostics.recordPreviousExits(applicationContext) }
         lifecycleScope.launch(Dispatchers.IO) {
             // Remove only the retired 1.7.182 derived index, never original media.
@@ -68,6 +79,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             MediaLoaderTheme {
                 MediaLoaderApp(
+                    currentPlayerRequest = currentPlayerRequests.pending,
+                    onCurrentPlayerRequestConsumed = { request -> currentPlayerRequests=currentPlayerRequests.consume(request) },
                     shortcutMode = shortcutMode,
                     shortcutGeneration = shortcutGeneration,
                     shortcutDuplicates = openDuplicates,
@@ -90,6 +103,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        acceptCurrentPlayer(intent)
         if (forwardAutomaticShare(intent, !wasForeground)) return
         acceptModeShortcut(intent)
         textFrom(intent)?.let {
@@ -97,6 +111,11 @@ class MainActivity : ComponentActivity() {
             sharedTextGeneration++
             AppLog.i("App", "Received shared text intent · generation=$sharedTextGeneration")
         }
+    }
+
+    override fun onSaveInstanceState(outState:Bundle) {
+        currentPlayerRequests.save(outState)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onStart() {

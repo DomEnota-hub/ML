@@ -8,6 +8,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PrivateMediaOperationsTest {
+    @Test fun duplicateRevocationCompletesBeforePrivateRowCanBeCommitted() = runBlocking {
+        val events = mutableListOf<String>()
+        var saved = row()
+        val ops = PrivateMediaOperations({}, { saved }, { events += "save:${it.isPrivate}"; saved = it }, {},
+            { _, _ -> "file:///private/id.mp4" }, { true }, { events += "remove-public"; true },
+            { error("unused") }, revokePublicDuplicates = { events += "revoke:$it" })
+        ops.move("id")
+        assertEquals(listOf("revoke:id","save:true","remove-public","save:true"),events)
+    }
+    @Test fun failedDuplicateRevocationPreventsPrivateCommitAndRemovesOnlyNewCopy() = runBlocking {
+        var committed = false
+        val removed = mutableListOf<String>()
+        val ops = PrivateMediaOperations({}, { row() }, { committed = true }, {},
+            { _, _ -> "file:///private/id.mp4" }, { removed += it; true }, { error("must remain public") },
+            { error("unused") }, revokePublicDuplicates = { error("cannot scrub report") })
+        assertTrue(runCatching { ops.move("id") }.isFailure)
+        assertFalse(committed)
+        assertEquals(listOf("file:///private/id.mp4"),removed)
+    }
+
     @Test fun restoreUsesActualPublishedSizeAndKeepsOriginalIdentityAndDate() = runBlocking {
         val original = row().copy(isPrivate = true, savedUri = "file:///private/id.mp4")
         var saved = original

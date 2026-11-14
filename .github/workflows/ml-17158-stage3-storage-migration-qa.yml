@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ml-17158-stage3-storage
+  group: ml-17158-stage3-storage-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -58,6 +60,8 @@ jobs:
             --tests '*PersonInstancePolicyTest' \
             --tests '*LaMaCompositionTest' \
             --stacktrace
+      - name: Shared UI regression guard
+        run: python3 scripts/check-round-sliders.py
       - name: Android lint
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Unsigned ARM64 Release compilation
