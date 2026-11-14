@@ -56,6 +56,18 @@ internal object VisualDuplicateSessionStore {
             catch(e:Exception){target.failWrite(stream);throw e}
         }.isSuccess}
     }
+    /** Update only position, preserving a newer selection or scan written concurrently. */
+    suspend fun savePosition(context:Context,scannedAt:Long,index:Int,offset:Int):Boolean=withContext(Dispatchers.IO+NonCancellable){
+        synchronized(lock){runCatching{
+            val target=file(context)
+            val previous=decode(target.openRead().bufferedReader().use{it.readText()})
+            if(previous.scannedAt==scannedAt){
+                val stream=target.startWrite()
+                try{stream.write(encode(previous.copy(index=index,offset=offset).normalized()).toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
+                catch(e:Exception){target.failWrite(stream);throw e}
+            }
+        }.isSuccess}
+    }
     internal fun encode(session:VisualDuplicateSession):String {
         val groups=JSONArray()
         session.result.groups.forEach{g->

@@ -15,7 +15,8 @@ import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.model.MediaKind
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @Composable
@@ -30,6 +31,9 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     var saving by remember { mutableStateOf(false) }
     val list=rememberLazyListState()
     val byId=remember(refs){refs.associateBy{it.key}}
+    // Render only a projection validated against the current complete public catalog.
+    val current=remember(session,refs,ready){if(ready)session?.reconcile(refs) else null}
+    val latestSession by rememberUpdatedState(session)
     LaunchedEffect(Unit) {
         session=VisualDuplicateSessionStore.load(context)
         loaded=true
@@ -42,16 +46,24 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     LaunchedEffect(ready,refs,loaded,status.running) {
         if(ready&&loaded&&!status.running) session=session?.reconcile(refs)
     }
-    LaunchedEffect(session?.scannedAt,loaded,ready) {
-        if(loaded&&ready&&!restored){
-            session?.let{list.scrollToItem(it.index,it.offset)}
+    LaunchedEffect(current?.scannedAt,loaded,ready,restored) {
+        if(loaded&&ready&&!restored&&current!=null){
+            list.scrollToItem(current.index,current.offset)
             restored=true
         }
     }
-    LaunchedEffect(list,restored,status.running) {
-        if(restored&&!status.running) snapshotFlow{list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset}.collectLatest{(index,offset)->
-            session=session?.copy(index=index,offset=offset)
-        }
+    LaunchedEffect(list,restored,status.running,saving,current?.scannedAt,ready) {
+        if(restored&&ready&&!status.running&&!saving&&current!=null) snapshotFlow{Triple(list.firstVisibleItemIndex,list.firstVisibleItemScrollOffset,list.isScrollInProgress)}
+            .distinctUntilChanged().collect{(index,offset,scrolling)->
+                if(!scrolling){
+                    val previous=latestSession ?: return@collect
+                    if(previous.index!=index||previous.offset!=offset){
+                        val next=previous.copy(index=index,offset=offset).normalized()
+                        session=next
+                        if(!VisualDuplicateSessionStore.savePosition(context,next.scannedAt,next.index,next.offset))error="Не удалось сохранить позицию"
+                    }
+                }
+            }
     }
     fun persist(next:VisualDuplicateSession){
         session=next.normalized()
@@ -77,13 +89,12 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
                 OutlinedButton({scope.launch{
                     val previous=VisualDuplicateSessionStore.load(context)
                     session=previous?.reconcile(refs);restored=false
-                    if(previous!=null){list.scrollToItem(session?.index?:0,session?.offset?:0);restored=true}
                 }},enabled=ready&&loaded&&!saving){Text("Последний поиск")}
             }
         }
         status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        val current=session
+        if(!ready||!loaded)return@Column
         if(current==null){Text("Запустите поиск точных и похожих файлов.");return@Column}
         Text("Групп: ${current.result.groups.size} · пропущено: ${current.result.skipped} · выбрано: ${current.selected.size}")
         Text("Похожие файлы могут различаться. Проверьте каждый экземпляр.",style=MaterialTheme.typography.bodySmall)
