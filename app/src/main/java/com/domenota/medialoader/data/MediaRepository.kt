@@ -1034,19 +1034,39 @@ class MediaRepository private constructor(context: Context) {
     private val _missingRecoveryActive = kotlinx.coroutines.flow.MutableStateFlow(0)
     val missingRecoveryActive = _missingRecoveryActive.asStateFlow()
 
+    private suspend fun requireRecoveryRow(id:String):DownloadEntity{
+        val row=history.byId(id)?:throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Исходная запись отсутствует.")
+        if(!com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.eligible(row)||
+            row.savedUri?.let(privateFiles::owns)==true)
+            throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Запись недоступна для публичного восстановления.")
+        return row
+    }
+
+    suspend fun recoveryAlreadyAvailable(id:String):Boolean=withContext(Dispatchers.IO){
+        val row=requireRecoveryRow(id)
+        when(savedFileStatus(row.savedUri)){
+            SavedFileStatus.PRESENT->true
+            SavedFileStatus.MISSING->false
+            else->throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Нет доступа к исходному файлу. Запись сохранена.")
+        }
+    }
+
     suspend fun missingRecoveryCandidate(id: String, items: List<MediaItem>): MediaItem? = withContext(Dispatchers.IO) {
-        val row = history.byId(id) ?: return@withContext null
-        if (savedFileStatus(row.savedUri) != com.domenota.medialoader.data.storage.SavedFileStatus.MISSING)
-            return@withContext null
-        com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.match(row, items)
+        val row=requireRecoveryRow(id)
+        if(recoveryAlreadyAvailable(id))return@withContext null
+        com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.match(row, items).also{
+            AppLog.i("MissingRecovery","Candidate verification · provider=${row.providerId} · type=${row.mediaType} · candidates=${items.size} · stableKey=${row.bulkMediaKey!=null} · matched=${it!=null}")
+        }
     }
 
     /** Reuses the normal transfer engine, with a separate verified publication commit. */
-    suspend fun restoreMissingFile(id: String, candidates: List<MediaItem>): Unit = withContext(Dispatchers.IO) {
+    suspend fun restoreMissingFile(id: String, candidates: List<MediaItem>): Boolean = withContext(Dispatchers.IO) {
+        musicPostProcessGate.withPermit {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
-        val row = history.byId(id) ?: error("Исходная запись отсутствует")
+        val row = requireRecoveryRow(id)
+        if(recoveryAlreadyAvailable(id))return@withPermit false
         val item = missingRecoveryCandidate(id, candidates)
-            ?: error("Не удалось точно определить отсутствующий файл. Исходная запись сохранена")
+            ?: throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Медиа найдено, но не удалось точно определить отсутствующий файл. Исходная запись сохранена.")
         require(resolver.canDownload(item)) { "Недопустимый адрес файла" }
         _missingRecoveryActive.update { it + 1 }
         try {
@@ -1081,13 +1101,19 @@ class MediaRepository private constructor(context: Context) {
                             retriever.setDataSource(appContext, Uri.parse(result.savedUri))
                             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
                             require(duration != null && duration > 0) { "Восстановленный медиафайл повреждён" }
+                            val kind=if(row.mediaType==MediaType.VIDEO)MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO else MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO
+                            require(retriever.extractMetadata(kind)=="yes"){"Тип восстановленного файла не совпадает"}
                         } finally { retriever.release() }
                     }
                     require(savedFileStatus(row.savedUri) == com.domenota.medialoader.data.storage.SavedFileStatus.MISSING) {
                         "Исходный файл снова доступен. Запись сохранена"
                     }
-                    committed = history.restoreMissingFile(row, result.savedUri, result.fileName ?: row.originalName, bytes)
-                    check(committed) { "Запись изменилась. Восстановление не применено" }
+                    // A successful database commit must not be rolled back by cleanup
+                    // merely because cancellation arrived at the return boundary.
+                    withContext(NonCancellable) {
+                        committed = history.restoreMissingFile(row, result.savedUri, result.fileName ?: row.originalName, bytes)
+                        check(committed) { "Запись изменилась. Восстановление не применено" }
+                    }
                 } finally {
                     if (!committed && result.savedUri != row.savedUri) withContext(NonCancellable) {
                         // Delete only this newly published result, never a prior file or another row's URI.
@@ -1097,6 +1123,8 @@ class MediaRepository private constructor(context: Context) {
                 }
             }
         } finally { _missingRecoveryActive.update { (it - 1).coerceAtLeast(0) } }
+        true
+        }
     }
 
     suspend fun enqueue(items: List<MediaItem>): List<DownloadEntity> {
