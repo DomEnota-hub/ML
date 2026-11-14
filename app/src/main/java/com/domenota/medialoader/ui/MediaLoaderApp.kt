@@ -187,9 +187,9 @@ fun MediaLoaderApp(
     val currentRoute = backStackEntry?.destination?.route
     var pendingUrl by rememberSaveable { mutableStateOf("") }
     var downloadsScrollToTopRequest by rememberSaveable { mutableIntStateOf(0) }
-    var lastImportedClipboard by remember { mutableStateOf("") }
-    var dismissedClipboard by remember { mutableStateOf("") }
-    var checkedClipboardAtLaunch by remember { mutableStateOf(false) }
+    var lastImportedClipboard by rememberSaveable { mutableStateOf("") }
+    var dismissedClipboard by rememberSaveable { mutableStateOf("") }
+    var checkedClipboardAtLaunch by rememberSaveable { mutableStateOf(false) }
     var showPicker by rememberSaveable { mutableStateOf(false) }
     val uiPrefs = remember(context) { context.getSharedPreferences("ui", 0) }
     val libraryModel: LibraryViewModel = viewModel()
@@ -1126,22 +1126,46 @@ fun MediaLoaderApp(
         }
     }
 
-    // Read only while the app is visible. Never replace a link the user typed herself.
-    DisposableEffect(lifecycleOwner, currentRoute, sharedText) {
+    var usedLinkPrompt by rememberSaveable { mutableStateOf<String?>(null) }
+    var clipboardLookup by remember { mutableStateOf<Job?>(null) }
+    fun sameLink(a:String,b:String)=com.domenota.medialoader.core.provider.UsedInstagramLink.same(a,b)
+    fun checkExplicitLink(link:String) {
+        clipboardLookup?.cancel()
+        lastHandledLink=link
+        clipboardLookup=fileActionScope.launch {
+            val used=try{viewModel.wasInstagramDownloaded(link)}catch(e:CancellationException){throw e}catch(e:Exception){false}
+            if(used)usedLinkPrompt=link else {viewModel.analyze(link);showPicker=true}
+        }
+    }
+    usedLinkPrompt?.let{link->
+        AlertDialog(onDismissRequest={usedLinkPrompt=null},title={Text("Ссылка уже использовалась")},
+            text={Text("Публикация есть в истории. Повторная проверка расходует запрос GAPI.")},
+            confirmButton={TextButton({usedLinkPrompt=null;viewModel.analyze(link);showPicker=true}){Text("Проверить заново")}},
+            dismissButton={TextButton({usedLinkPrompt=null;goToDownloads()}){Text("История")}})
+    }
+    // Read only while the downloader is visible. Never replace a link the user typed herself.
+    DisposableEffect(lifecycleOwner, currentRoute, sharedText, appMode) {
         fun importSupportedLink() {
-            if (currentRoute != AppDestination.Home.route || sharedText != null) return
+            if (currentRoute != AppDestination.Home.route || sharedText != null || appMode != AppMode.DOWNLOADER) return
             val firstCheck = !checkedClipboardAtLaunch
             checkedClipboardAtLaunch = true
             val candidate = clipboardManager.getText()?.text?.let(::extractFirstUrl) ?: return
             if (InstagramLinkParser.parse(candidate) == null && YouTubeLinkParser.parse(candidate) == null &&
                 VkLinkParser.parse(candidate) == null && RutubeLinkParser.parse(candidate) == null) return
-            if (candidate == dismissedClipboard) return
+            if (sameLink(candidate,dismissedClipboard)) return
             if (firstCheck || pendingUrl.isBlank() || pendingUrl == lastImportedClipboard) {
                 pendingUrl = candidate
-                if (candidate != lastHandledLink) {
-                    showPicker = true
-                    viewModel.analyze(candidate)
-                    lastHandledLink = candidate
+                if (!sameLink(candidate,lastHandledLink)) {
+                    lastHandledLink=candidate
+                    clipboardLookup?.cancel()
+                    clipboardLookup=fileActionScope.launch {
+                        val used=try{viewModel.wasInstagramDownloaded(candidate)}catch(e:CancellationException){throw e}catch(e:Exception){true}
+                        if(!used && pendingUrl==candidate && appMode==AppMode.DOWNLOADER &&
+                            navController.currentDestination?.route==AppDestination.Home.route){
+                            showPicker=true
+                            viewModel.analyze(candidate)
+                        }
+                    }
                 }
                 lastImportedClipboard = candidate
             }
@@ -1151,7 +1175,7 @@ fun MediaLoaderApp(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) importSupportedLink()
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); clipboardLookup?.cancel() }
     }
 
     val checkingPhoneAccess = if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)
@@ -1273,9 +1297,7 @@ fun MediaLoaderApp(
                         clipboardManager.getText()?.text?.takeIf { it.isNotBlank() }?.let { pendingUrl = it }
                     },
                     onCheckClick = {
-                        lastHandledLink = pendingUrl
-                        viewModel.analyze(pendingUrl)
-                        showPicker = true
+                        checkExplicitLink(pendingUrl)
                     },
                     deferredLinks = deferredLinks, deferredActive = deferredActive, deferredMessage = deferredMessage,
                     onDeferredOpen = { link -> pendingUrl = link; lastHandledLink = link; viewModel.analyze(link); showPicker = true },
