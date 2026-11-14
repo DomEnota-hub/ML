@@ -108,6 +108,7 @@ internal object MusicDuplicateScanner {
         val value = requireNotNull(row.savedUri); val uri = Uri.parse(value); val before = metrics.measure("metadata_stamp"){stamp(context,uri)}
         val cacheKey=value+if(expanded)"#full" else "#sampled"
         val old = synchronized(cache) { cache[cacheKey] } ?: loadCheckpoint(context,value,before,expanded)
+            ?: if(expanded)loadCheckpoint(context,value,before,false)?.let{Cached(it.stamp,it.track.copy(acoustic=null))} else null
         if (before.modified != null && old != null && old.stamp == before && old.track.privacyEpoch == epoch && old.track.filename == row.originalName) return old.track.copy(id = row.id, linked = linked, current = current,
             title = row.recognizedTitle ?: row.sourceAudioTitle ?: old.track.title, artist = row.recognizedArtist ?: row.sourceAudioArtist ?: old.track.artist)
         var title = row.recognizedTitle ?: row.sourceAudioTitle
@@ -122,10 +123,9 @@ internal object MusicDuplicateScanner {
             bitrate = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toLongOrNull()
         } catch (e: CancellationException) { throw e } catch (_: Exception) { /* filename fallback */ } finally { r.release() }
         val sha = metrics.measure("sha256"){hash(context,uri)}; val encoded = metrics.measure("encoded_payload"){payload(context,uri)}
-        val fingerprint = try { metrics.measure("acoustic_decode_fft"){AcousticAudioDecoder.fingerprint(context,uri,duration,expanded)} }
-            catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+        // The first pass deliberately does not decode audio; exact groups become available first.
         check(stamp(context,uri) == before) { "Файл изменился во время проверки" }
-        val track = DuplicateTrack(row.id,title?.takeIf(String::isNotBlank) ?: row.originalName.substringBeforeLast('.'),artist,row.originalName,value,before.size,before.modified,sha,encoded,duration,bitrate,before.folder,linked,current,fingerprint,epoch)
+        val track = DuplicateTrack(row.id,title?.takeIf(String::isNotBlank) ?: row.originalName.substringBeforeLast('.'),artist,row.originalName,value,before.size,before.modified,sha,encoded,duration,bitrate,before.folder,linked,current,null,epoch)
         if (before.modified != null) {
             synchronized(DuplicatePrivacyGuard.lock) {
                 check(DuplicatePrivacyGuard.accepts(context,epoch,row.id)) { "Поиск устарел после изменения приватности" }
@@ -135,7 +135,25 @@ internal object MusicDuplicateScanner {
         }
         return track
     }
-    suspend fun scan(context: Context, rows: List<DownloadEntity>, linkedIds: Set<String>, currentId: String?,expanded:Boolean=false, progress: (Int,Int) -> Unit): DuplicateScanResult = withContext(Dispatchers.IO) {
+    private suspend fun acoustic(context:Context,t:DuplicateTrack,expanded:Boolean,metrics:DuplicateScanMetrics):DuplicateTrack{
+        if(t.acoustic!=null)return t
+        val uri=Uri.parse(t.uri)
+        check(DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id))
+        val before=stamp(context,uri)
+        check(before.size==t.bytes&&before.modified==t.modified&&before.folder==t.folder)
+        val fingerprint=try{metrics.measure("acoustic_decode_fft"){AcousticAudioDecoder.fingerprint(context,uri,t.duration,expanded)}}
+            catch(e:CancellationException){throw e}catch(_:Exception){null}
+        check(stamp(context,uri)==before)
+        val next=t.copy(acoustic=fingerprint)
+        if(fingerprint!=null&&before.modified!=null)synchronized(DuplicatePrivacyGuard.lock){
+            check(DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id))
+            synchronized(cache){cache[t.uri+if(expanded)"#full" else "#sampled"]=Cached(before,next)}
+            saveCheckpoint(context,next,expanded)
+        }
+        return next
+    }
+    suspend fun scan(context: Context, rows: List<DownloadEntity>, linkedIds: Set<String>, currentId: String?,expanded:Boolean=false,
+        onPhase:(DuplicateScanPhase)->Unit={},onPartial:(DuplicateScanResult)->Unit={}, progress: (Int,Int) -> Unit): DuplicateScanResult = withContext(Dispatchers.IO) {
         val epoch = DuplicatePrivacyGuard.generation(context)
         val usable = rows.filter { !it.hidden && !it.isPrivate && it.state == DownloadState.COMPLETED && it.mediaType == MediaType.AUDIO && !it.savedUri.isNullOrBlank() }.distinctBy { it.id }
         val publicUris = usable.mapNotNull { it.savedUri }.toSet()
@@ -148,6 +166,7 @@ internal object MusicDuplicateScanner {
         // Keep a bounded disk cache; it is never trusted for deletion.
         val files = cacheDirectory(context,expanded).listFiles().orEmpty()
         if (files.size > 6000) files.sortedBy { it.lastModified() }.take(files.size - 4000).forEach { it.delete() }
+        onPhase(DuplicateScanPhase.METADATA)
         usable.forEachIndexed { index,row ->
             coroutineContext.ensureActive(); check(DuplicatePrivacyGuard.generation(context) == epoch) { "Поиск прерван изменением приватности" }; progress(index, usable.size)
             try {
@@ -159,9 +178,16 @@ internal object MusicDuplicateScanner {
             } catch (e: CancellationException) { throw e } catch (_: Exception) { skipped++ }
         }
         val active = coroutineContext
+        fun checkActive(){active.ensureActive();check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск устарел"}}
+        val partial=MusicDuplicatePolicy.groups(tracks.map{it.copy(acoustic=null)},::checkActive)
+        onPartial(DuplicateScanResult(partial,skipped));onPhase(DuplicateScanPhase.ACOUSTIC)
+        for(index in tracks.indices){
+            checkActive();progress(index,tracks.size)
+            try{tracks[index]=acoustic(context,tracks[index],expanded,metrics)}catch(e:CancellationException){throw e}catch(_:Exception){skipped++}
+        }
+        progress(tracks.size,tracks.size);onPhase(DuplicateScanPhase.GROUPING)
         val groups=metrics.measure("grouping"){MusicDuplicatePolicy.groups(tracks) { active.ensureActive(); check(DuplicatePrivacyGuard.generation(context) == epoch) { "Поиск устарел" } }}
         metrics.report()
-        progress(usable.size,usable.size)
         DuplicateScanResult(groups,skipped)
     }
     /** Restore only still-identical public rows; no audio decoding or hashing here. */

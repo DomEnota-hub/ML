@@ -133,7 +133,7 @@ internal object VisualDuplicateScanner {
         }catch(e:CancellationException){throw e}catch(_:Exception){false}
     }
 
-    suspend fun scan(context:Context,refs:List<LibraryMediaRef>,progress:(Int,Int)->Unit={ _, _ -> }):VisualScanResult=withContext(Dispatchers.IO){
+    suspend fun scan(context:Context,refs:List<LibraryMediaRef>,onPhase:(DuplicateScanPhase)->Unit={},onPartial:(VisualScanResult)->Unit={},progress:(Int,Int)->Unit={ _, _ -> }):VisualScanResult=withContext(Dispatchers.IO){
         val candidates=refs.filter{val r=it.item;!r.isPrivate&&!r.hidden&&r.state==DownloadState.COMPLETED&&r.mediaType!=MediaType.AUDIO&&!r.savedUri.isNullOrBlank()}
             .distinctBy{it.item.savedUri}
         val metrics=DuplicateScanMetrics("gallery")
@@ -143,6 +143,7 @@ internal object VisualDuplicateScanner {
             directory(context).listFiles().orEmpty().filter{it.name !in allowed}.forEach{it.delete()}
         }
         val rows=mutableListOf<VisualFingerprint>();var skipped=0
+        onPhase(DuplicateScanPhase.VISUAL)
         for((index,ref) in candidates.withIndex()){
             coroutineContext.ensureActive()
             check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск сброшен после изменения приватности"}
@@ -152,7 +153,12 @@ internal object VisualDuplicateScanner {
                 rows+=read(context,ref,metrics,epoch)
             }catch(e:CancellationException){throw e}catch(_:Exception){skipped++}
             progress(index+1,candidates.size)
+            if((index+1)%100==0){
+                val exact=rows.filter{it.sha.isNotBlank()}.groupBy{Triple(it.type,it.bytes,it.sha)}.values.filter{it.size>1}.map{VisualDuplicateGroup(it,VisualMatch.EXACT)}
+                check(DuplicatePrivacyGuard.generation(context)==epoch);onPartial(VisualScanResult(exact,skipped,epoch))
+            }
         }
+        onPhase(DuplicateScanPhase.GROUPING)
         val ctx=coroutineContext
         val groups=metrics.measure("grouping"){VisualDuplicatePolicy.groups(rows){ctx.ensureActive();check(DuplicatePrivacyGuard.generation(context)==epoch)}}
         metrics.report()

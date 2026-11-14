@@ -21,7 +21,8 @@ internal object VisualDuplicateBackgroundScan {
     const val OPEN_ACTION = "com.domenota.medialoader.OPEN_VISUAL_DUPLICATES"
     data class Request(val token: Long, val rows: List<LibraryMediaRef>)
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
-        val session: VisualDuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false)
+        val session: VisualDuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false,
+        val phase:DuplicateScanPhase=DuplicateScanPhase.VISUAL,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:VisualScanResult?=null)
     private val mutable = MutableStateFlow(Status())
     val state = mutable.asStateFlow()
     private var pending: Request? = null
@@ -33,7 +34,8 @@ internal object VisualDuplicateBackgroundScan {
         if (mutable.value.running) return
         val token = ++nextToken
         pending = Request(token,rows.toList())
-        mutable.value = Status(running = true,total = rows.size,token = token)
+        val now=android.os.SystemClock.elapsedRealtime()
+        mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now)
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,VisualDuplicateScanService::class.java)) }
         catch (e: Exception) { pending = null; mark(context,false); mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
@@ -42,18 +44,28 @@ internal object VisualDuplicateBackgroundScan {
     @Synchronized fun claim(): Request? = pending.also { pending = null }
     @Synchronized fun progress(token: Long, done: Int,total: Int) {
         if (mutable.value.token == token && mutable.value.running && !mutable.value.committing)
-            mutable.value = Status(true,done,total,token = token)
+            mutable.value = mutable.value.copy(done=done,total=total)
+    }
+    @Synchronized fun phase(token:Long,phase:DuplicateScanPhase){
+        val s=mutable.value;if(s.token==token&&s.running)mutable.value=s.copy(phase=phase,done=0,total=0,phaseStartedAt=android.os.SystemClock.elapsedRealtime())
+    }
+    @Synchronized fun partial(token:Long,result:VisualScanResult){
+        val s=mutable.value;if(s.token==token&&s.running)mutable.value=s.copy(partial=result)
     }
     @Synchronized fun beginCommit(token: Long): Boolean {
         val s = mutable.value
         if (s.token != token || !s.running) return false
-        mutable.value = s.copy(committing = true)
+        mutable.value = s.copy(committing = true,phase=DuplicateScanPhase.SAVING)
         return true
     }
     @Synchronized fun finish(context: Context, token: Long, session: VisualDuplicateSession?,error: String? = null, cancelled: Boolean = false) {
         if (mutable.value.token != token || !mutable.value.running) return
         if (session != null || cancelled) mark(context,false)
-        mutable.value = Status(session = session,error = error,token = token)
+        mutable.value = Status(session = session,error = error,token = token,partial=if(session==null)mutable.value.partial else null)
+    }
+    fun pause(context:Context){
+        if(!state.value.running||state.value.committing)return
+        runCatching{context.startService(Intent(context,VisualDuplicateScanService::class.java).setAction(VisualDuplicateScanService.PAUSE))}
     }
     fun cancel(context: Context) {
         if (!state.value.running || state.value.committing) return
@@ -77,10 +89,11 @@ class VisualDuplicateScanService : Service() {
     }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == CANCEL) {
+        if (intent?.action == CANCEL||intent?.action==PAUSE) {
             if (VisualDuplicateBackgroundScan.state.value.committing) return START_NOT_STICKY
-            cancelReason = "Поиск отменён"; explicitCancel = true
-            if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); VisualDuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = true) }
+            explicitCancel=intent.action==CANCEL
+            cancelReason=if(explicitCancel)"Поиск остановлен. Проверенные файлы сохранены." else "Поиск приостановлен. Можно продолжить."
+            if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); VisualDuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = explicitCancel) }
             return START_NOT_STICKY
         }
         if (job != null && job?.isActive == true) return START_NOT_STICKY
@@ -96,7 +109,7 @@ class VisualDuplicateScanService : Service() {
         }
         job = scope.launch {
             try {
-                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows) { done,total ->
+                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={VisualDuplicateBackgroundScan.partial(scanToken,it)}) { done,total ->
                     VisualDuplicateBackgroundScan.progress(scanToken,done,total)
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (VisualDuplicateBackgroundScan.state.value.token == scanToken && VisualDuplicateBackgroundScan.state.value.running && (now - lastNotice >= 1000 || done == total)) {
@@ -149,14 +162,16 @@ class VisualDuplicateScanService : Service() {
             .setOnlyAlertOnce(true)
     }
     private fun notice(done: Int,total: Int): Notification {
+        val phase=VisualDuplicateBackgroundScan.state.value.phase
         val cancel = PendingIntent.getService(this,ID,Intent(this,VisualDuplicateScanService::class.java).setAction(CANCEL),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return notificationBase().setContentTitle("Поиск дубликатов фото и видео").setContentText("Проверено $done из $total")
+        return notificationBase().setContentTitle("Поиск дубликатов фото и видео").setContentText("${phase.caption} · $done из $total")
             .setProgress(total,done,total == 0).setOngoing(true).addAction(0,"Отменить",cancel).build()
     }
     companion object {
         private const val CHANNEL = "visual_duplicate_scan"
         private const val ID = 8393
         private const val DONE_ID = 8394
+        internal const val PAUSE = "pause_visual_duplicates"
         internal const val CANCEL = "cancel_visual_duplicate_scan"
     }
 }
