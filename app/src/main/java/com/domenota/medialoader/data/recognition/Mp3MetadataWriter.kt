@@ -15,28 +15,29 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 class Mp3MetadataWriter(private val context: Context) {
-    suspend fun write(
-        input: File,
-        result: MusicRecognitionResult,
-    ): File = withContext(Dispatchers.IO) {
+    internal data class Tagged(val file:File,val newArtworkApplied:Boolean)
+    suspend fun write(input:File,result:MusicRecognitionResult):File=writeInternal(input,result,false).file
+    internal suspend fun writePreserving(input:File,result:MusicRecognitionResult):Tagged=writeInternal(input,result,true)
+
+    private suspend fun writeInternal(input:File,result:MusicRecognitionResult,preserveExistingArtwork:Boolean):Tagged = withContext(Dispatchers.IO) {
         val output = File.createTempFile("recognized-", ".mp3", context.cacheDir)
         val artwork = result.artworkUrl?.let { downloadArtwork(it) }
         try {
             // Tagging must not fail completely just because an optional remote cover
             // cannot be embedded. Keep the downloaded MP3 untouched until a valid
             // replacement has been produced.
-            val firstPass = executeCommand(buildCommand(input, output, result, artwork))
+            val firstPass = executeCommand(buildCommand(input, output, result, artwork,preserveExistingArtwork))
             if (firstPass && output.isFile && output.length() > 0L) {
-                output
+                Tagged(output,artwork!=null)
             } else if (artwork != null) {
                 AppLog.w("Recognition", "MP3 cover/tag pass failed; retrying tags without artwork")
                 output.delete()
-                val tagsOnly = executeCommand(buildCommand(input, output, result, artwork = null))
+                val tagsOnly = executeCommand(buildCommand(input, output, result, artwork = null,preserveExistingArtwork=preserveExistingArtwork))
                 if (!tagsOnly || !output.isFile || output.length() == 0L) {
                     throw IOException("Не удалось записать MP3-теги даже без обложки.")
                 }
-                AppLog.i("Recognition", "MP3 metadata saved without optional cover")
-                output
+                AppLog.i("Recognition", "MP3 metadata saved without optional new cover")
+                Tagged(output,false)
             } else {
                 throw IOException("Не удалось записать метаданные MP3 без обложки.")
             }
@@ -63,6 +64,7 @@ class Mp3MetadataWriter(private val context: Context) {
         output: File,
         result: MusicRecognitionResult,
         artwork: File?,
+        preserveExistingArtwork:Boolean,
     ): String {
         val inputs = buildString {
             append("-i ").append(quote(input.absolutePath)).append(' ')
@@ -72,6 +74,8 @@ class Mp3MetadataWriter(private val context: Context) {
             "-map 0:a:0 -map 1:v:0 -c:a copy -c:v mjpeg " +
                 "-metadata:s:v title=${quote("Album cover")} " +
                 "-metadata:s:v comment=${quote("Cover (front)")} "
+        } else if(preserveExistingArtwork){
+            "-map 0:a:0 -map 0:v? -c copy "
         } else {
             "-map 0:a:0 -c:a copy "
         }

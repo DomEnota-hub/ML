@@ -55,7 +55,7 @@ internal object MusicDuplicateScanner {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
     /** Hash encoded audio samples, independent of outer metadata tags. NOT a cross-codec acoustic fingerprint. */
-    private suspend fun payload(context: Context, uri: Uri): String? {
+    internal suspend fun payload(context: Context, uri: Uri): String? {
         val ex = MediaExtractor()
         try {
             ex.setDataSource(context, uri, null)

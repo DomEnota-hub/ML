@@ -37,6 +37,7 @@ internal object DuplicatePrivacyGuard {
             VisualDuplicateScanner.clearForPrivacy(context)
             VisualDuplicateSessionStore.clearForPrivacy(context)
             VisualDuplicateBackgroundScan.invalidateForPrivacy()
+            com.domenota.medialoader.data.recognition.TrackRecognitionCache.clearForPrivacy(context)
         }
         context.stopService(Intent(context,MusicDuplicateScanService::class.java))
         context.stopService(Intent(context,VisualDuplicateScanService::class.java))

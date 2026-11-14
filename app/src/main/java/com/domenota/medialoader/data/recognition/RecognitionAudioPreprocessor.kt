@@ -24,43 +24,50 @@ import kotlin.coroutines.resume
  * At most the middle 12 seconds are decoded, so recognition never needs the whole MP3 in memory.
  */
 class RecognitionAudioPreprocessor(private val context: Context) {
-    /** Decode only a short window from a saved video, including SAF content URIs. */
-    suspend fun decodeVideo(savedUri: String): ShortArray = withContext(Dispatchers.IO) {
-        val uri = Uri.parse(savedUri)
-        val output = File.createTempFile("video-recognition-", ".pcm", context.cacheDir)
-        try {
-            val durationMs = MediaMetadataRetriever().let { retriever ->
-                try {
-                    retriever.setDataSource(context, uri)
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                } catch (_: Exception) { null }
-                finally { retriever.release() }
-            }
-            val targetMs = RecognitionAudioSpec.TARGET_SECONDS * 1000L
-            val startMs = RecognitionWindowPlanner.startMs(durationMs, targetMs, 0) ?: 0L
-            val source = when (uri.scheme) {
-                "content" -> FFmpegKitConfig.getSafParameterForRead(context, uri)
-                "file" -> uri.path ?: throw IOException("Файл недоступен")
-                else -> throw IOException("Файл недоступен")
-            }
-            fun quote(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-            val command = "-nostdin -hide_banner -loglevel error -y " +
-                "-ss ${startMs / 1000.0} -i ${quote(source)} -t ${targetMs / 1000.0} " +
-                "-vn -ac 1 -ar ${RecognitionAudioSpec.SAMPLE_RATE_HZ} " +
-                "-acodec pcm_s16le -f s16le ${quote(output.absolutePath)}"
-            val succeeded = suspendCancellableCoroutine<Boolean> { continuation ->
-                val session = FFmpegKit.executeAsync(command) { completed ->
-                    val success = ReturnCode.isSuccess(completed.returnCode)
-                    if (!success) AppLog.e("VideoRecognition",
-                        "Audio extraction failed · code=${completed.returnCode} · detail=${completed.allLogsAsString.takeLast(2000)}")
-                    if (continuation.isActive) continuation.resume(success)
-                }
-                continuation.invokeOnCancellation { FFmpegKit.cancel(session.sessionId) }
-            }
-            if (!succeeded || output.length() < 2L) throw IOException("Не удалось прочитать звук видео")
-            rawPcmToShorts(output)
-        } finally { output.delete() }
+    internal suspend fun savedDurationMs(savedUri:String):Long?=withContext(Dispatchers.IO){
+        val retriever=MediaMetadataRetriever()
+        try{
+            retriever.setDataSource(context,Uri.parse(savedUri))
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.takeIf{it>0}
+        }catch(_:Exception){null}finally{retriever.release()}
     }
+
+    /** Reuse the bounded SAF/FFmpeg decoder for both saved videos and local audio. */
+    suspend fun decodeVideo(savedUri: String): ShortArray {
+        val duration=savedDurationMs(savedUri)
+        val start=RecognitionWindowPlanner.startMs(duration,RecognitionAudioSpec.TARGET_SECONDS*1000L,0)?:0L
+        return decodeSavedWindow(savedUri,start,true)
+    }
+    internal suspend fun decodeTrackWindow(savedUri:String,startMs:Long):ShortArray=decodeSavedWindow(savedUri,startMs,false)
+
+    private suspend fun decodeSavedWindow(savedUri:String,startMs:Long,video:Boolean):ShortArray=withContext(Dispatchers.IO){
+        require(startMs>=0)
+        val uri=Uri.parse(savedUri)
+        val output=File.createTempFile(if(video)"video-recognition-" else "track-recognition-", ".pcm",context.cacheDir)
+        try{
+            val source=when(uri.scheme){
+                "content"->FFmpegKitConfig.getSafParameterForRead(context,uri)
+                "file"->uri.path?:throw IOException("Файл недоступен")
+                else->throw IOException("Файл недоступен")
+            }
+            fun quote(value:String)="\""+value.replace("\\","\\\\").replace("\"","\\\"")+"\""
+            val command="-nostdin -hide_banner -loglevel error -y "+
+                "-ss ${startMs/1000.0} -i ${quote(source)} -t ${RecognitionAudioSpec.TARGET_SECONDS} "+
+                "-vn -ac 1 -ar ${RecognitionAudioSpec.SAMPLE_RATE_HZ} -acodec pcm_s16le -f s16le ${quote(output.absolutePath)}"
+            val succeeded=suspendCancellableCoroutine<Boolean>{continuation->
+                val session=FFmpegKit.executeAsync(command){completed->
+                    val success=ReturnCode.isSuccess(completed.returnCode)
+                    if(!success)AppLog.w(if(video)"VideoRecognition" else "TrackRecognition","Audio window extraction failed · code=${completed.returnCode}")
+                    if(continuation.isActive)continuation.resume(success)
+                }
+                continuation.invokeOnCancellation{FFmpegKit.cancel(session.sessionId)}
+            }
+            if(!succeeded||output.length()<2L||output.length()>RecognitionAudioSpec.TARGET_SAMPLES*2L+4096L)
+                throw IOException(if(video)"Не удалось прочитать звук видео" else "Не удалось прочитать звук трека")
+            rawPcmToShorts(output)
+        }finally{output.delete()}
+    }
+
     suspend fun decode(savedUri: String): ShortArray = withContext(Dispatchers.IO) {
         val source = File.createTempFile("recognition-source-", ".mp3", context.cacheDir)
         try {
