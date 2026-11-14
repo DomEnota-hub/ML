@@ -26,14 +26,14 @@ class MusicPlayerControlsTest {
     @Test fun playerActionsReachSessionAndSecondaryControlsRemainReachable() {
         val player = ExoPlayer.Builder(compose.activity).build()
         val track = DownloadEntity("a", "device", "Track", MediaType.AUDIO, DownloadState.COMPLETED, "content://media/42", null, 0)
-        var eq = 0; var queue = 0; var favorite = 0; var editor = 0
+        var eq = 0; var queue = 0; var favorite = 0; var editor = 0; var recognition=0
         try {
             player.setMediaItems(listOf(MediaItem.Builder().setMediaId("a").setUri("file:///a.mp3").build(),
                 MediaItem.Builder().setMediaId("b").setUri("file:///b.mp3").build()))
             compose.setContent { MaterialTheme {
                 MusicPlayerControls(track, player, 60_000, 180_000, false, false, Player.REPEAT_MODE_OFF, 1f,
                     onBack = {}, onEqualizer = { eq++ }, onQueue = { queue++ },
-                    onFavorite = { favorite++ }, onEdit = { editor++ })
+                    onFavorite = { favorite++ }, onEdit = { editor++ },onRecognize={recognition++})
             } }
             compose.onNodeWithContentDescription("Перемешать").performClick()
             assertTrue(player.shuffleModeEnabled)
@@ -43,6 +43,9 @@ class MusicPlayerControlsTest {
             compose.onNodeWithContentDescription("Очередь").performClick()
             compose.onNodeWithContentDescription("Избранное").performClick()
             compose.onNodeWithContentDescription("Редактировать").performClick()
+            compose.onNodeWithContentDescription("Распознать композицию").performScrollTo().performClick()
+            assertEquals(1,recognition)
+            assertEquals(2,player.mediaItemCount)
             compose.onNodeWithContentDescription("Дополнительно").assertDoesNotExist()
             compose.onNodeWithContentDescription("Скорость воспроизведения: 1.0×").performScrollTo().performClick()
             compose.onNodeWithText("1.25×").assertExists()

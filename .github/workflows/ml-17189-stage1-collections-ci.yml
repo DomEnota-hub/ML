@@ -1,4 +1,4 @@
-name: ML 1.7.189 stages 1-2 verification
+name: ML 1.7.189 stages 1-3 verification
 on:
   push:
     branches: [feature/ml-17189-qa-rework]
@@ -47,6 +47,9 @@ jobs:
       - name: Duplicate scan and acoustic regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace
+      - name: Music folders, daily history and recognition regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*ResumeQueue*Test' --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint

@@ -118,4 +118,46 @@ class ListeningHistoryStoreTest {
         store.clearHistory()
         assertTrue(store.smartSnapshot(candidates,SmartStatsPeriod.MONTH,midnight+10000,zone=zone,interval=next).daySessions.isEmpty())
     }
+    @Test fun verifiedTagEditRelinksPhoneTrackWithoutMergingExistingIdentities()=runBlocking{
+        val original=setOf("locator:old","file-stat:old")
+        val revised=setOf("locator:new","file-stat:new")
+        val p=requireNotNull(store.begin(original,0,1000))
+        store.save(p.copy(lastAt=31_000,creditedAt=31_000,mediaMs=30_000,wallMs=30_000,closed=true))
+        store.relinkVerifiedEdit(original,revised)
+        val row=SmartTrackCandidate("phone:a",revised,"Artist",false)
+        assertEquals(1L,store.smartSnapshot(listOf(row),SmartStatsPeriod.ALL,40_000).plays)
+        val next=requireNotNull(store.begin(revised,0,40_000))
+        assertEquals(p.trackId,next.trackId)
+        val unrelated=requireNotNull(store.begin(setOf("another"),0,50_000))
+        assertNotEquals(p.trackId,unrelated.trackId)
+        try{store.relinkVerifiedEdit(revised,setOf("another"));fail("must reject conflicting identity")}
+        catch(_:IllegalStateException){}
+        assertEquals(unrelated.trackId,requireNotNull(store.begin(setOf("another"),0,60_000)).trackId)
+    }
+
+    @Test fun migrationFromV1RetainsOriginalTimestampAndCredits()=runBlocking{
+        store.closeForTest()
+        val context=RuntimeEnvironment.getApplication()
+        context.deleteDatabase("listening_history.db")
+        val db=android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath("listening_history.db"),null)
+        db.execSQL("CREATE TABLE tracks (id TEXT PRIMARY KEY)")
+        db.execSQL("CREATE TABLE aliases (alias TEXT PRIMARY KEY, track_id TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX alias_track ON aliases(track_id)")
+        db.execSQL("CREATE TABLE sessions (id TEXT PRIMARY KEY, track_id TEXT NOT NULL, started_at INTEGER NOT NULL, last_at INTEGER NOT NULL, media_ms INTEGER NOT NULL, wall_ms INTEGER NOT NULL, credited_at INTEGER, position INTEGER NOT NULL, closed INTEGER NOT NULL)")
+        db.execSQL("CREATE INDEX session_credit ON sessions(credited_at,track_id)")
+        db.execSQL("CREATE INDEX session_track ON sessions(track_id,closed,last_at)")
+        db.execSQL("CREATE TABLE excluded (track_id TEXT PRIMARY KEY)")
+        db.execSQL("INSERT INTO tracks VALUES ('t')")
+        db.execSQL("INSERT INTO aliases VALUES ('app:a','t')")
+        val midnight=java.time.Instant.parse("2026-11-15T00:00:00Z").toEpochMilli()
+        db.execSQL("INSERT INTO sessions VALUES ('s','t',?,?,?,?,?,?,1)",arrayOf(midnight-10_000,midnight+20_000,30_000,30_000,midnight+20_000,30_000))
+        db.version=1;db.close()
+        store=ListeningHistoryStore.forTest(context)
+        val row=SmartTrackCandidate("a",setOf("app:a"),"Artist",false)
+        val today=SmartStatsInterval.day(java.time.LocalDate.of(2026,11,15))
+        val snap=store.smartSnapshot(listOf(row),SmartStatsPeriod.ALL,midnight+30_000,zone=java.time.ZoneId.of("UTC"),interval=today)
+        assertEquals(1L,snap.plays);assertEquals(30_000L,snap.wallMs)
+        assertTrue(snap.daySessions.single().legacyAttribution)
+        assertEquals(0L,store.smartSnapshot(listOf(row),SmartStatsPeriod.ALL,midnight+30_000,zone=java.time.ZoneId.of("UTC"),interval=SmartStatsInterval.day(today.first.minusDays(1))).wallMs)
+    }
 }
