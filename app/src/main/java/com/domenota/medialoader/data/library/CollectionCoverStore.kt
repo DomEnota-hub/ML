@@ -61,11 +61,13 @@ internal class CollectionCoverStore(context:Context) {
         val file=File(dir,"${UUID.randomUUID()}.jpg")
         val bounded=crop.bounded(bitmap.width,bitmap.height)
         val rect=bounded.rect(bitmap.width,bitmap.height)
-        val result=Bitmap.createBitmap(640,800,Bitmap.Config.ARGB_8888)
+        val targetWidth=minOf(800,rect.width.toInt().coerceAtLeast(1), (rect.height*.8f).toInt().coerceAtLeast(1))
+        val targetHeight=(targetWidth/.8f).toInt().coerceAtLeast(1)
+        val result=Bitmap.createBitmap(targetWidth,targetHeight,Bitmap.Config.ARGB_8888)
         val atomic=AtomicFile(File(dir,"cover.json"))
         try {
             Canvas(result).drawBitmap(bitmap,android.graphics.Rect(rect.left.toInt(),rect.top.toInt(),(rect.left+rect.width).toInt(),(rect.top+rect.height).toInt()),
-                RectF(0f,0f,640f,800f),Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                RectF(0f,0f,targetWidth.toFloat(),targetHeight.toFloat()),Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
             file.outputStream().use{check(result.compress(Bitmap.CompressFormat.JPEG,88,it)){"Не удалось сохранить обложку"};it.fd.sync()}
             currentCoroutineContext().ensureActive()
             val json=JSONObject().put("file",file.name).put("source",source).put("x",bounded.centerX).put("y",bounded.centerY).put("zoom",bounded.zoom)

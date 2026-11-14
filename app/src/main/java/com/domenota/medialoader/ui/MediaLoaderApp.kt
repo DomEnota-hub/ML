@@ -207,6 +207,7 @@ fun MediaLoaderApp(
     }
     val reviewEntries by reviewFlow.collectAsStateWithLifecycle(initialValue=emptyList())
     var collectionInitial by rememberSaveable{mutableStateOf<String?>(null)}
+    var collectionCreate by rememberSaveable{mutableStateOf(false)}
     var collectionAudioOnly by rememberSaveable{mutableStateOf(false)}
     var collectionAddIds by remember{mutableStateOf<List<String>>(emptyList())}
     var collectionLink by rememberSaveable{mutableStateOf<String?>(null)}
@@ -268,8 +269,8 @@ fun MediaLoaderApp(
     val organizationReady=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
     val organizationUsable=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.usable
 
-    fun openCollections(id:String?=null,audioOnly:Boolean=false,ids:List<String> = emptyList(),link:String?=null){
-        collectionInitial=id;collectionAudioOnly=audioOnly;collectionAddIds=ids;collectionLink=link
+    fun openCollections(id:String?=null,audioOnly:Boolean=false,ids:List<String> = emptyList(),link:String?=null,create:Boolean=false){
+        collectionInitial=id;collectionAudioOnly=audioOnly;collectionAddIds=ids;collectionLink=link;collectionCreate=create
         navController.navigate("collections"){launchSingleTop=true}
     }
     fun addToCollection(ids:List<String>){
@@ -1257,7 +1258,7 @@ fun MediaLoaderApp(
             else MaterialTheme.colorScheme.background,
         contentWindowInsets = when {
             currentRoute in setOf("music-duplicates", "visual-duplicates", "batch-photo-editor") -> WindowInsets.safeDrawing
-            fullBleedGalleryViewer -> WindowInsets(0, 0, 0, 0)
+            fullBleedGalleryViewer || currentRoute == "collections" -> WindowInsets(0, 0, 0, 0)
             galleryHomeOverlay -> WindowInsets.statusBars
             else -> ScaffoldDefaults.contentWindowInsets
         },
@@ -1266,7 +1267,7 @@ fun MediaLoaderApp(
                 currentRoute != BULK_ROUTE && currentRoute != MEDIA_VIEWER_ROUTE &&
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
-                currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" &&
+                currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" && currentRoute != "collections" &&
                 currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
@@ -1405,7 +1406,7 @@ fun MediaLoaderApp(
                     onTrashFolderContents = requestAlbumTrash,
                     collectionContent={
                         Column {
-                            CollectionGalleryStrip(collections,organizationRefs){openCollections(it)}
+                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)})
                             TextButton({navController.navigate("visual-duplicates"){launchSingleTop=true}}){Text("Дубликаты фото и видео")}
                         }
                     },
@@ -1540,7 +1541,7 @@ fun MediaLoaderApp(
                                 libraryModel.audioPreview.playSelection(valid,false)
                             }catch(e:CancellationException){throw e}catch(_:Exception){Toast.makeText(context,"Нет доступных треков",Toast.LENGTH_SHORT).show()}
                         }
-                    },onLink=::openOrganizationLink,onPassport=::openPassport,onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable)
+                    },onLink=::openOrganizationLink,onPassport=::openPassport,onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable,initialCreate=collectionCreate)
             }
             composable("media-review"){
                 var playlistTarget by remember{mutableStateOf<String?>(null)}

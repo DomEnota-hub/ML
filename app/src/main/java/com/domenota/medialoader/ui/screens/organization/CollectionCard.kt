@@ -62,13 +62,13 @@ private fun CreateCollectionCard(onOpen:()->Unit,modifier:Modifier=Modifier) {
     }
 }
 @Composable
-internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit) {
+internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit,onCreate:()->Unit={onOpen(null)}) {
     var covers by remember{mutableStateOf(emptyMap<String,LibraryMediaRef>())}
     LaunchedEffect(collections,refs){covers=withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(collections.flatMap{it.members},refs)}}
     val live=remember(refs){refs.associateBy{it.key}}
     Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("Коллекции",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium);TextButton({onOpen(null)}){Text("Все коллекции")}}
-        if(collections.isEmpty())OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",{onOpen(null)})
+        if(collections.isEmpty())OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",onCreate)
         else BoxWithConstraints(Modifier.fillMaxWidth()) {
             val width=collectionCardWidth(maxWidth.value).dp
             LazyRow(Modifier.testTag("collection-gallery-strip"),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -76,7 +76,7 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
                     val cover=collection.members.firstNotNullOfOrNull{covers[it.id]?.let{candidate->live[candidate.key]}}
                     CollectionCard(collection,cover,{onOpen(collection.record.id)},Modifier.width(width))
                 }
-                if(collections.size==1)item("create") {CreateCollectionCard({onOpen(null)},Modifier.width(width))}
+                if(collections.size==1)item("create") {CreateCollectionCard(onCreate,Modifier.width(width))}
             }
         }
     }
@@ -88,8 +88,9 @@ internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modif
     val kind=when(ref.item.mediaType){com.domenota.medialoader.core.model.MediaType.PHOTO->MediaKind.IMAGE;com.domenota.medialoader.core.model.MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO}
     var bitmap by remember(ref.item.savedUri){mutableStateOf<android.graphics.Bitmap?>(null)}
     LaunchedEffect(ref.item.savedUri,kind){
-        bitmap=withContext(Dispatchers.IO){
-            com.domenota.medialoader.ui.components.prepareDownloadThumbnail(context,ref.item.savedUri,kind,ref.item.previewUrl,side=1000)
+        val uri=ref.item.savedUri
+        bitmap=if(uri.isNullOrBlank())null else withContext(Dispatchers.IO){
+            com.domenota.medialoader.ui.components.prepareDownloadThumbnail(context,uri,kind,ref.item.previewUrl,side=1000)
         }
     }
     Box(modifier,contentAlignment=Alignment.Center){

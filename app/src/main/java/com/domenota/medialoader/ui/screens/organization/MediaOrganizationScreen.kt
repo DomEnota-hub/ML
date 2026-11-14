@@ -89,11 +89,10 @@ private fun ValueDialog(title:String,initial:String,label:String,onDismiss:()->U
 internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,repository:MediaOrganizationRepository,
     initialCollection:String?,audioOnly:Boolean,initialAdd:List<String>,initialLink:String?,ready:Boolean,onBack:()->Unit,
     onOpen:(String,List<String>)->Unit,onPlay:(List<String>)->Unit,onLink:(String)->Unit,onPassport:(String)->Unit,
-    onAddComplete:()->Unit,usable:Boolean=ready) {
+    onAddComplete:()->Unit,usable:Boolean=ready,initialCreate:Boolean=false) {
     var selected by rememberSaveable(initialCollection){mutableStateOf(initialCollection)}
     var filter by rememberSaveable(audioOnly){mutableStateOf(if(audioOnly)"Музыка" else "Всё")}
-    var create by rememberSaveable{mutableStateOf(false)}
-    var newName by rememberSaveable{mutableStateOf("")}
+    var create by rememberSaveable(initialCreate){mutableStateOf(initialCreate)}
     var rename by rememberSaveable{mutableStateOf(false)}
     var remove by remember{mutableStateOf(false)}
     var linkDialog by remember{mutableStateOf(false)}
@@ -134,25 +133,23 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         return
     }
     if(create){
-        BackHandler{if(!busy)create=false}
-        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp).testTag("collection-create-editor")){
-            Header("Новая коллекция",{if(!busy)create=false})
-            OutlinedTextField(newName,{newName=it},Modifier.fillMaxWidth(),singleLine=true,label={Text("Название")},enabled=!busy)
-            Text("Автоматическая обложка",Modifier.padding(vertical=16.dp),style=MaterialTheme.typography.titleMedium)
-            Text("Обложку можно выбрать после создания коллекции.")
-            error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-            Spacer(Modifier.weight(1f))
-            Button(enabled=!busy&&newName.isNotBlank(),modifier=Modifier.fillMaxWidth(),onClick={mutate{
+        CollectionCoverEditor(null,refs,{if(initialCreate&&selected==null)onBack() else create=false},
+            onCreate={name,source,image,crop->
                 val files=if(choosing)initialAdd.distinct().map{byId[it]?:error("Файл недоступен")} else emptyList()
-                val id=repository.create(newName,files,if(choosing)initialLink else null)
+                val id=repository.create(name,files,if(choosing)initialLink else null)
+                try {
+                    if(source!=null&&image!=null)withContext(Dispatchers.IO){CollectionCoverStore(context).save(id,source,image,crop)}
+                }catch(e:Exception){
+                    withContext(kotlinx.coroutines.NonCancellable){repository.delete(id);withContext(Dispatchers.IO){CollectionCoverStore(context).automatic(id)}}
+                    throw e
+                }
                 if(choosing){choosing=false;onAddComplete()}
-                selected=id;create=false;newName=""
-            }}){Text("Создать коллекцию")}
-        }
+                selected=id;filter=if(audioOnly)"Музыка" else "Всё";create=false
+            },onRename={})
         return
     }
     BackHandler(selected!=null&&!choosing){selected=null}
-    Column(Modifier.fillMaxSize().testTag("collections-screen")){
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("collections-screen")){
         Header(if(choosing)"Добавить в коллекцию" else collection?.record?.name?:"Коллекции",{
             if(selected!=null&&!choosing)selected=null else onBack()
         }){

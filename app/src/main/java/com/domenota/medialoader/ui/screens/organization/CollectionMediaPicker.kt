@@ -17,6 +17,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.domenota.medialoader.ui.screens.ZoomablePhoto
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -94,14 +99,13 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
     var error by remember{mutableStateOf<String?>(null)}
     var albumMenu by remember{mutableStateOf(false)}
     var sortMenu by remember{mutableStateOf(false)}
-    var photo by remember{mutableStateOf<LibraryMediaRef?>(null)}
-    var video by remember{mutableStateOf<LibraryMediaRef?>(null)}
+    var previewKey by rememberSaveable{mutableStateOf<String?>(null)}
     var audition by remember{mutableStateOf<String?>(null)}
     val context=LocalContext.current
     val audio=remember(context){CollectionAudioPreview(context)}
     val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     DisposableEffect(audio,lifecycle){
-        val observer=androidx.lifecycle.LifecycleEventObserver{_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_STOP){audio.stop();audition=null;video=null;photo=null}}
+        val observer=androidx.lifecycle.LifecycleEventObserver{_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_STOP){audio.stop();audition=null;previewKey=null}}
         lifecycle.addObserver(observer)
         onDispose{lifecycle.removeObserver(observer);audio.stop()}
     }
@@ -123,8 +127,8 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
     val visibleKeys=if(tab==3)visibleLinks.map{"LINK:$it"} else visible.map(::collectionPickerKey)
     val grid=rememberLazyGridState()
     fun toggle(key:String){if(!busy&&key !in existingKeys)selection=ArrayList(if(key in selected)selected-key else selected+key)}
-    BackHandler{if(!busy){if(photo!=null)photo=null else if(video!=null)video=null else onBack()}}
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("collection-media-picker")) {
+    BackHandler{if(!busy){if(previewKey!=null)previewKey=null else onBack()}}
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding().testTag("collection-media-picker")) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
             IconButton(onBack,enabled=!busy){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
             Text("Добавить в $title",Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.titleLarge)
@@ -133,12 +137,12 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
         if(!audioOnly)TabRow(tab){listOf("Фото","Видео","Музыка","Ссылки").forEachIndexed{i,label->Tab(tab==i,{tab=i;album=null;audio.stop();audition=null},text={Text(label)})}}
         Row(Modifier.fillMaxWidth().padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically){
             if(tab!=3) {
-                Box{TextButton({albumMenu=true},enabled=!busy){Text(albums.firstOrNull{it.first==album}?.second?:"Все альбомы")}
+                Box(Modifier.weight(1f)){TextButton({albumMenu=true},enabled=!busy){Text(albums.firstOrNull{it.first==album}?.second?:"Все альбомы",maxLines=1,overflow=TextOverflow.Ellipsis)}
                     DropdownMenu(albumMenu,{albumMenu=false}){DropdownMenuItem({Text("Все альбомы")},{album=null;albumMenu=false});albums.forEach{(id,name)->DropdownMenuItem({Text(name)},{album=id;albumMenu=false})}}}
                 Box{IconButton({sortMenu=true},enabled=!busy){Icon(Icons.Rounded.Sort,"Сортировка")}
                     DropdownMenu(sortMenu,{sortMenu=false}){GalleryAlbumFileSort.entries.forEach{sort->DropdownMenuItem({Text(sort.label)},{sortName=sort.name;sortMenu=false})}}}
             }
-            Spacer(Modifier.weight(1f))
+            if(tab==3)Spacer(Modifier.weight(1f))
             TextButton({selection=ArrayList(selected+visibleKeys.filterNot(existingKeys::contains))},enabled=!busy&&visibleKeys.isNotEmpty()){Text("Выбрать все")}
         }
         error?.let{Text(it,Modifier.padding(horizontal=12.dp),color=MaterialTheme.colorScheme.error)}
@@ -159,11 +163,11 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
             },contentPadding=PaddingValues(8.dp),horizontalArrangement=Arrangement.spacedBy(3.dp),verticalArrangement=Arrangement.spacedBy(3.dp)) {
                 items(visible,key=::collectionPickerKey){ref->
                     val key=collectionPickerKey(ref)
-                    Box(Modifier.fillMaxWidth().aspectRatio(1f).clickable(enabled=!busy){audio.stop();audition=null;if(tab==0)photo=ref else video=ref}.testTag("picker-$key")) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(1f).clickable(enabled=!busy){audio.stop();audition=null;previewKey=key}.testTag("picker-$key")) {
                         DownloadThumbnail(ref.item.savedUri,ref.item.previewUrl,if(tab==0)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.fillMaxSize())
-                        PickerMark(key in selected||key in existingKeys,key in existingKeys,Modifier.align(Alignment.TopEnd),!busy){toggle(key)}
+                        PickerMark(key in selected||key in existingKeys,key in existingKeys,Modifier.align(Alignment.TopEnd).testTag("picker-select-$key"),!busy){toggle(key)}
                         if(tab==1)Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha=.6f)),verticalAlignment=Alignment.CenterVertically){
-                            IconButton({audio.stop();audition=null;video=ref},Modifier.size(36.dp)){Icon(Icons.Rounded.PlayArrow,"Предпросмотр видео",tint=Color.White)}
+                            IconButton({audio.stop();audition=null;previewKey=key},Modifier.size(36.dp)){Icon(Icons.Rounded.PlayArrow,"Предпросмотр видео",tint=Color.White)}
                             ref.item.durationMs?.let{Text("${it/60000}:${"%02d".format(it/1000%60)}",color=Color.White,style=MaterialTheme.typography.labelSmall)}
                         }
                     }
@@ -174,7 +178,7 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
             if(tab==2)items(visible,key=::collectionPickerKey){ref->
                 val key=collectionPickerKey(ref)
                 MusicLibraryTrackRow(ref.item,onPlay={audio.play(ref,{error="Не удалось прослушать трек";audition=null},{audition=null});audition=audio.current},isCurrent=audition==ref.key,isPlaying=audition==ref.key) {
-                    Checkbox(key in selected||key in existingKeys,{toggle(key)},enabled=!busy&&key !in existingKeys)
+                    PickerMark(key in selected||key in existingKeys,key in existingKeys,enabled=!busy){toggle(key)}
                 }
             } else items(visibleLinks,key={it}){link->
                 val key="LINK:$link"
@@ -183,7 +187,7 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
                     if(metadata!=null)DownloadThumbnail(metadata.savedUri,metadata.previewUrl,when(metadata.mediaType){MediaType.PHOTO->MediaKind.IMAGE;MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO},Modifier.size(48.dp))
                     else Icon(Icons.Rounded.Link,null)
                     Column(Modifier.weight(1f).padding(8.dp)){Text(metadata?.originalName?:link,maxLines=2,overflow=TextOverflow.Ellipsis);Text(runCatching{java.net.URI(link).host}.getOrNull().orEmpty(),style=MaterialTheme.typography.labelSmall)}
-                    Checkbox(key in selected||key in existingKeys,{toggle(key)},enabled=!busy&&key !in existingKeys)
+                    PickerMark(key in selected||key in existingKeys,key in existingKeys,enabled=!busy){toggle(key)}
                 }
             }
             if(visibleKeys.isEmpty())item{Text("Нет доступных материалов",Modifier.padding(20.dp))}
@@ -203,29 +207,37 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
             }}){Text("Добавить (${selected.size})")}
         }}
     }
-    photo?.let{ref->Dialog({photo=null},properties=DialogProperties(usePlatformDefaultWidth=false)){
-        Box(Modifier.fillMaxSize().background(Color.Black)){
-            var image by remember(ref.key){mutableStateOf<android.graphics.Bitmap?>(null)}
-            LaunchedEffect(ref.key){image=withContext(Dispatchers.IO){runCatching{CollectionCoverStore(context).decode(ref.item.savedUri)}.getOrNull()}}
-            DisposableEffect(image){val owned=image;onDispose{owned?.recycle()}}
-            image?.let{androidx.compose.foundation.Image(bitmap=it.asImageBitmap(),contentDescription="Предпросмотр фото",modifier=Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Fit)}
-            IconButton({photo=null},Modifier.align(Alignment.TopStart).statusBarsPadding()){Icon(Icons.Rounded.Close,"Закрыть предпросмотр",tint=Color.White)}
-            PickerMark(collectionPickerKey(ref) in selected||collectionPickerKey(ref) in existingKeys,collectionPickerKey(ref) in existingKeys,Modifier.align(Alignment.TopEnd).statusBarsPadding(),!busy){toggle(collectionPickerKey(ref))}
+    previewKey?.let{key->
+        val pages=visible.filter{!it.item.savedUri.isNullOrBlank()}
+        val initial=pages.indexOfFirst{collectionPickerKey(it)==key}
+        if(initial>=0)Dialog({previewKey=null},properties=DialogProperties(usePlatformDefaultWidth=false)){
+            val pager=rememberPagerState(initialPage=initial,pageCount={pages.size})
+            var zoomed by remember{mutableStateOf(false)}
+            LaunchedEffect(pager.settledPage){zoomed=false}
+            Box(Modifier.fillMaxSize().background(Color.Black)){
+                HorizontalPager(state=pager,userScrollEnabled=!zoomed,key={collectionPickerKey(pages[it])},modifier=Modifier.fillMaxSize()){page->
+                    val ref=pages[page]
+                    val uri=ref.item.savedUri?.let(Uri::parse)
+                    if(uri!=null&&ref.item.mediaType==MediaType.PHOTO){
+                        ZoomablePhoto(ref.item,uri,page+1,pages.size,{value->if(pager.currentPage==page)zoomed=value},Modifier.fillMaxSize(),active=pager.settledPage==page)
+                    }else if(uri!=null&&pager.settledPage==page){
+                        AndroidView(factory={ctx->VideoView(ctx).apply{setMediaController(MediaController(ctx).also{it.setAnchorView(this)});setVideoURI(uri);setOnPreparedListener{start()}}},modifier=Modifier.fillMaxSize(),onRelease={it.stopPlayback()})
+                    }
+                }
+                IconButton({previewKey=null},Modifier.align(Alignment.TopStart).statusBarsPadding()){Icon(Icons.Rounded.Close,"Закрыть предпросмотр",tint=Color.White)}
+                pages.getOrNull(pager.currentPage)?.let{ref->
+                    val current=collectionPickerKey(ref)
+                    PickerMark(current in selected||current in existingKeys,current in existingKeys,Modifier.align(Alignment.TopEnd).statusBarsPadding(),!busy){toggle(current)}
+                }
+            }
         }
-    }}
-    video?.let{ref->Dialog({video=null},properties=DialogProperties(usePlatformDefaultWidth=false)){
-        Box(Modifier.fillMaxSize().background(Color.Black)){
-            AndroidView(factory={ctx->VideoView(ctx).apply{setMediaController(MediaController(ctx).also{it.setAnchorView(this)});setVideoURI(Uri.parse(ref.item.savedUri));setOnPreparedListener{start()}}},modifier=Modifier.fillMaxSize(),onRelease={it.stopPlayback()})
-            PickerMark(collectionPickerKey(ref) in selected||collectionPickerKey(ref) in existingKeys,collectionPickerKey(ref) in existingKeys,Modifier.align(Alignment.TopEnd).statusBarsPadding(),!busy){toggle(collectionPickerKey(ref))}
-            IconButton({video=null},Modifier.align(Alignment.TopStart).statusBarsPadding()){Icon(Icons.Rounded.Close,"Закрыть предпросмотр",tint=Color.White)}
-        }
-    }}
+    }
 }
 @Composable
 private fun PickerMark(selected:Boolean,existing:Boolean,modifier:Modifier=Modifier,enabled:Boolean=true,onToggle:()->Unit) {
-    Box(modifier.size(48.dp).clickable(enabled=enabled&&!existing,onClick=onToggle),contentAlignment=Alignment.Center){
+    Box(modifier.size(48.dp).semantics{contentDescription=if(existing)"Уже добавлено" else if(selected)"Снять выбор" else "Выбрать"}.clickable(enabled=enabled&&!existing,onClick=onToggle),contentAlignment=Alignment.Center){
         Box(Modifier.size(24.dp).clip(CircleShape).background(if(selected)MaterialTheme.colorScheme.primary else Color.Black.copy(alpha=.4f)).border(1.dp,if(selected)MaterialTheme.colorScheme.primary else Color.White,CircleShape),contentAlignment=Alignment.Center){
-            if(selected)Icon(Icons.Rounded.Check,if(existing)"Уже добавлено" else "Выбрано",Modifier.size(16.dp),tint=MaterialTheme.colorScheme.onPrimary)
+            if(selected)Icon(Icons.Rounded.Check,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.onPrimary)
         }
     }
 }
