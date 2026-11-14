@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -61,6 +62,7 @@ fun BatchPhotoEditorScreen(rows:List<DownloadEntity>,state:BatchPhotoState,busy:
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
                 Text("Выбрано: ${rows.size} фото")
+                if(busy&&!state.running)Text("Другой экспорт уже выполняется")
                 if(!ready&&!state.running)Text("Не все выбранные файлы доступны. Вернитесь в галерею.")
                 preview?.let{Image(it.asImageBitmap(),"Предпросмотр результата",Modifier.fillMaxWidth().height(220.dp))}
                 if(previewError)Text("Предпросмотр недоступен")
@@ -70,12 +72,12 @@ fun BatchPhotoEditorScreen(rows:List<DownloadEntity>,state:BatchPhotoState,busy:
                     TextButton({index=(index+1).coerceAtMost(rows.lastIndex)},enabled=index<rows.lastIndex){Text("Следующее")}
                 }
                 Text("Максимальная сторона")
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)){
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)){
                     listOf(0,1080,1920,3840).forEach{n->FilterChip(selected=side==n,onClick={side=n},enabled=!busy,
                         label={Text(if(n==0)"Исх." else n.toString())})}
                 }
                 Text("Формат")
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                     BatchPhotoFormat.entries.forEach{f->FilterChip(selected=format==f.name,onClick={format=f.name},enabled=!busy,label={Text(f.name)})}
                 }
                 if(format!="PNG"){Text("Качество: $quality%");Slider(quality.toFloat(),{quality=it.toInt()},valueRange=10f..100f,enabled=!busy)}
@@ -85,10 +87,10 @@ fun BatchPhotoEditorScreen(rows:List<DownloadEntity>,state:BatchPhotoState,busy:
                     Text("Сохраняются только основные данные камеры и даты; ориентация исправляется.")
                 }else Text("PNG и WebP сохраняются без исходных метаданных.")
                 Text("Цветовой пресет")
-                Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)){
                     listOf(PhotoEffect.NONE,PhotoEffect.MONO,PhotoEffect.VIVID).forEach{f->FilterChip(selected=effect==f.name,onClick={effect=f.name},enabled=!busy,label={Text(f.label)})}
                 }
-                Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)){
                     listOf(PhotoEffect.WARM,PhotoEffect.COOL,PhotoEffect.FILM_FADED).forEach{f->FilterChip(selected=effect==f.name,onClick={effect=f.name},enabled=!busy,label={Text(f.label)})}
                 }
                 OutlinedTextField(watermark,{watermark=it.take(100)},label={Text("Текст водяного знака")},enabled=!busy,modifier=Modifier.fillMaxWidth())
@@ -98,7 +100,7 @@ fun BatchPhotoEditorScreen(rows:List<DownloadEntity>,state:BatchPhotoState,busy:
                     LinearProgressIndicator(progress={state.outcomes.size.toFloat()/state.total},modifier=Modifier.fillMaxWidth())
                     if(state.cancelled)Text("Обработка отменена. Готовые копии сохранены.")
                     state.failed.forEach{Text("${it.name}: ${it.error}",color=MaterialTheme.colorScheme.error)}
-                    if(!busy&&state.failed.isNotEmpty())TextButton({onStart(rows.filter{r->state.failed.any{it.id==r.id}},spec)}){Text("Повторить ошибки")}
+                    if(ready&&!busy&&state.failed.any{f->rows.any{it.id==f.id}})TextButton({onStart(rows.filter{r->state.failed.any{it.id==r.id}},spec)}){Text("Повторить ошибки")}
                 }
             }
             if(state.running)Button(onCancel,Modifier.fillMaxWidth()){Text("Отменить обработку")}

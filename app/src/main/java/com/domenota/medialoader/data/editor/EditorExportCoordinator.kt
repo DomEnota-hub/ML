@@ -369,6 +369,7 @@ class EditorExportCoordinator private constructor(context: Context) {
 
     private val _batch = MutableStateFlow(BatchPhotoState())
     val batch = _batch.asStateFlow()
+    fun clearBatchReport(){if(!_batch.value.running)_batch.value=BatchPhotoState()}
     fun startBatchPhotos(sources:List<DownloadEntity>,spec:BatchPhotoSpec) {
         if (_state.value.exporting || job!=null) return
         val rows=sources.distinctBy{it.savedUri}

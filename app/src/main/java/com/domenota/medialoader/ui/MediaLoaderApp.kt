@@ -1352,7 +1352,8 @@ fun MediaLoaderApp(
                     },
                     onAddCollection=::addToCollection,
                     onBatchPhotoEdit={ids->
-                        batchPhotoIds=ArrayList(ids)
+                        val coordinator=com.domenota.medialoader.data.editor.EditorExportCoordinator.get(context)
+                        if(!coordinator.batch.value.running){coordinator.clearBatchReport();batchPhotoIds=ArrayList(ids)}
                         navController.navigate("batch-photo-editor"){launchSingleTop=true}
                     },
                      onTrashDeviceAlbum = requestDeviceAlbumTrash,
