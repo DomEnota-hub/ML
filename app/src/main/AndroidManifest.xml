@@ -77,6 +77,9 @@
         <activity
             android:name=".ui.RutubeLoginActivity"
             android:exported="false" />
+        <service android:name=".data.library.VisualDuplicateScanService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <service android:name=".data.library.MusicDuplicateScanService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
