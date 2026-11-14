@@ -3,18 +3,21 @@ on:
   push:
     branches:
       - feature/ml-17187-visual-duplicates-20261114
+      - feature/ml-17187-batch-photo-editor-20261114
+      - feature/ml-17187-final-qa-20261114
   pull_request:
     branches:
       - feature/ml-17187-media-organization-20261114
+      - feature/ml-17187-visual-duplicates-20261114
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: ml-17187-visual-duplicates
+  group: ml-17187-full-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: false
 jobs:
   verify:
-    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17187-visual-duplicates-20261114'
+    if: github.event_name != 'pull_request' || (github.head_ref == 'feature/ml-17187-visual-duplicates-20261114' || github.head_ref == 'feature/ml-17187-batch-photo-editor-20261114' || github.head_ref == 'feature/ml-17187-final-qa-20261114')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -114,6 +117,8 @@ jobs:
             --tests '*PrivateHistoryMigrationTest' \
             --tests '*VisualDuplicatePolicyTest' \
             --tests '*VisualDuplicateSessionTest' \
+            --tests '*BatchPhotoSpecTest' \
+            --tests '*UsedInstagramLinkTest' \
             --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
@@ -134,3 +139,24 @@ jobs:
           "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='247' versionName='1.7.187'"
           git rev-parse HEAD
           sha256sum "$input"
+      - name: Prepare exact unsigned QA handoff
+        if: success()
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          mkdir -p handoff/tools handoff/source
+          "$bt/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk handoff/ML_1.7.187_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -c -P 16 -v 4 handoff/ML_1.7.187_ARM64_ALIGNED_UNSIGNED.apk
+          cp "$bt/lib/apksigner.jar" handoff/tools/apksigner.jar
+          git archive --format=zip -o handoff/source/ML_1.7.187_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/source/DELIVERY_COMMIT_SHA.txt
+          (cd handoff && sha256sum ML_1.7.187_ARM64_ALIGNED_UNSIGNED.apk tools/apksigner.jar source/ML_1.7.187_SOURCES_EXACT_COMMIT.zip > UNSIGNED_HANDOFF_SHA256.txt)
+      - name: Temporary unsigned handoff (not a release)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.187_PRIVATE_UNSIGNED_LOCAL_SIGNING
+          path: handoff/
+          retention-days: 2
+          if-no-files-found: error
+          compression-level: 0
