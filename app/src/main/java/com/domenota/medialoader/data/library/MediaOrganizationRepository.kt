@@ -3,6 +3,8 @@ package com.domenota.medialoader.data.library
 import androidx.room.withTransaction
 import com.domenota.medialoader.core.database.*
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onEach
 import java.util.UUID
 
 internal data class MediaCollection(val record:MediaCollectionEntity,val members:List<MediaCollectionMemberEntity>)
@@ -12,8 +14,14 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
     val collections=combine(dao.observeCollections(),dao.observeMembers()){collections,members->
         val grouped=members.groupBy{it.collectionId}
         collections.map{MediaCollection(it,grouped[it.id].orEmpty())}
-    }
-    val review=dao.observeReview()
+    }.onEach {
+        com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
+            com.domenota.medialoader.core.logging.LibraryWork.COLLECTION_EMISSION)
+    }.distinctUntilChanged()
+    val review=dao.observeReview().onEach {
+        com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
+            com.domenota.medialoader.core.logging.LibraryWork.REVIEW_EMISSION)
+    }.distinctUntilChanged()
     fun operations(id:String)=dao.observeOperations(id)
     suspend fun create(name:String,refs:List<LibraryMediaRef> = emptyList(),link:String?=null):String = db.withTransaction {
         val id=UUID.randomUUID().toString()
@@ -39,6 +47,10 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
                 existing+=identity
             }
         }
+    }
+    suspend fun addSelection(collectionId:String,refs:List<LibraryMediaRef>,links:List<String>)=db.withTransaction {
+        addMedia(collectionId,refs)
+        links.forEach{addLink(collectionId,it)}
     }
     suspend fun addLink(collectionId:String,raw:String)=db.withTransaction {
         val link=MediaOrganizationPolicy.link(raw)
