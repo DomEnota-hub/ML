@@ -100,6 +100,8 @@ fun DownloadRow(
     allowSharing: Boolean = true,
     privateDeletion: Boolean = false,
     compact: Boolean = false,
+    onAddCollection: (() -> Unit)? = null,
+    onPassport: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     LaunchedEffect(item.id, item.state, item.previewUrl) {
@@ -247,6 +249,12 @@ fun DownloadRow(
                             leadingIcon = { Icon(Icons.Rounded.FolderOpen, contentDescription = null) },
                             text = { Text("Вернуть в загрузки") },
                             onClick = { menuExpanded = false; onRestoreFromPrivate() })
+                        if (!missing && !inaccessible && !privateDeletion && onAddCollection != null) DropdownMenuItem(
+                            leadingIcon = { Icon(Icons.Rounded.CollectionsBookmark,null) },text={Text("В коллекцию")},
+                            onClick={menuExpanded=false;onAddCollection()})
+                        if (!missing && !inaccessible && !privateDeletion && onPassport != null) DropdownMenuItem(
+                            leadingIcon = { Icon(Icons.Rounded.Info,null) },text={Text("Паспорт файла")},
+                            onClick={menuExpanded=false;onPassport()})
                         if (sourceUrl != null) {
                             DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },

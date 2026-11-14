@@ -53,7 +53,7 @@ internal fun FrequentListeningScreen(selection: ListeningSelection, rows: Map<St
     onPreview: (String,List<String>)->Unit, onOpen: (String,List<String>)->Unit,
     onSave: suspend (String,List<String>)->Unit, onAdd: (String)->Unit,
     onShare: (String)->Unit, onDelete: (String)->Unit, onEnqueue: ((String,Boolean)->Unit)?,
-    onFavorite: (suspend (String,Boolean)->Unit)?) {
+    onFavorite: (suspend (String,Boolean)->Unit)?,onCollection:((List<String>)->Unit)?=null,onPassport:((String)->Unit)?=null) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var menu by remember { mutableStateOf(false) }
@@ -132,7 +132,8 @@ internal fun FrequentListeningScreen(selection: ListeningSelection, rows: Map<St
                     MusicTrackActions(track,onEnqueue?.let { action->{ next:Boolean->action(id,next) } },
                         {onOpen(id,ids)},{onAdd(id)},{onShare(id)},{onDelete(id)},null,null,null,
                         onExclude={exclude(entry)},favorite=id in favoriteIds,
-                        onFavorite=onFavorite?.let { action->{mutate { action(id,id !in favoriteIds) }} })
+                        onFavorite=onFavorite?.let { action->{mutate { action(id,id !in favoriteIds) }} },
+                        onCollection=onCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}})
                 }
             }
         }

@@ -321,7 +321,8 @@ class DownloadQueue(
         val current = history.byId(id) ?: return
         val changed = change(current)
         if (changed != current) {
-            history.save(changed)
+            if (changed.state == DownloadState.COMPLETED && current.state != DownloadState.COMPLETED)
+                history.completeDownload(changed,clock()) else history.save(changed)
             if (changed.state != current.state) refreshBatch(changed)
         }
     }

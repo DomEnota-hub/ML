@@ -24,6 +24,8 @@ import com.domenota.medialoader.ui.components.MediaManagementAccessPrompt
 import com.domenota.medialoader.ui.components.label
 import com.domenota.medialoader.ui.screens.GalleryModeScreen
 import com.domenota.medialoader.ui.screens.MusicModeScreen
+import com.domenota.medialoader.ui.screens.organization.*
+import com.domenota.medialoader.data.MediaRepository
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -191,6 +193,13 @@ fun MediaLoaderApp(
     var showPicker by rememberSaveable { mutableStateOf(false) }
     val uiPrefs = remember(context) { context.getSharedPreferences("ui", 0) }
     val libraryModel: LibraryViewModel = viewModel()
+    val organization=remember(context){MediaRepository.get(context).organization}
+    val collections by organization.collections.collectAsStateWithLifecycle(initialValue=emptyList())
+    val reviewEntries by organization.review.collectAsStateWithLifecycle(initialValue=emptyList())
+    var collectionInitial by rememberSaveable{mutableStateOf<String?>(null)}
+    var collectionAudioOnly by rememberSaveable{mutableStateOf(false)}
+    var collectionAddIds by remember{mutableStateOf<List<String>>(emptyList())}
+    var collectionLink by rememberSaveable{mutableStateOf<String?>(null)}
     DisposableEffect(libraryModel, currentRoute) {
         libraryModel.holdAutomaticMediaIndexing(currentRoute == VIDEO_EDITOR_ROUTE ||
             currentRoute == AUDIO_EDITOR_ROUTE || currentRoute == PHOTO_EDITOR_ROUTE)
@@ -240,6 +249,27 @@ fun MediaLoaderApp(
     } }
     val libraryRefsByAlias = libraryAliasProjection.value
     val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
+    val organizationReady=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
+
+    fun openCollections(id:String?=null,audioOnly:Boolean=false,ids:List<String> = emptyList(),link:String?=null){
+        collectionInitial=id;collectionAudioOnly=audioOnly;collectionAddIds=ids;collectionLink=link
+        navController.navigate("collections"){launchSingleTop=true}
+    }
+    fun addToCollection(ids:List<String>){
+        if(!organizationReady){Toast.makeText(context,"Медиатека ещё загружается",Toast.LENGTH_SHORT).show();return}
+        val stable=ids.distinct().mapNotNull{libraryRefsByAlias[it]?.key}
+        if(stable.size!=ids.distinct().size||stable.isEmpty()){Toast.makeText(context,"Часть файлов недоступна",Toast.LENGTH_SHORT).show();return}
+        openCollections(ids=stable)
+    }
+    fun openPassport(id:String){
+        val ref=libraryRefsByAlias[id]
+        if(!organizationReady||ref==null||ref.item.isPrivate||ref.item.hidden){Toast.makeText(context,"Файл недоступен",Toast.LENGTH_SHORT).show();return}
+        navController.navigate("media-passport/"+android.net.Uri.encode(ref.key))
+    }
+    fun openOrganizationLink(raw:String){
+        try{val link=MediaOrganizationPolicy.link(raw);context.startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse(link)))}
+        catch(_:Exception){Toast.makeText(context,"Не удалось открыть ссылку",Toast.LENGTH_SHORT).show()}
+    }
     val currentLibraryAudioId = libraryAudioState.currentId?.let { id -> libraryRefsByAlias[id]?.key
         ?: libraryAudioState.identities.firstNotNullOfOrNull { libraryRefsByAlias[it]?.key } ?: id }
     val externalCatalog by libraryModel.externalCatalog.entries.collectAsStateWithLifecycle()
@@ -288,6 +318,9 @@ fun MediaLoaderApp(
     fun refreshPhoneLibraries(force: Boolean = false) {
         val needed = mutableSetOf<AppMode>()
         editorLibraryMode?.let { needed += it }
+        if(currentRoute=="collections"||currentRoute=="media-review"||currentRoute=="media-passport/{mediaId}"){
+            needed+=AppMode.GALLERY;needed+=AppMode.MUSIC
+        }
         if (appMode == AppMode.GALLERY && (librarySource == LibrarySource.PHONE ||
                 externalCatalog.any { it.ref.item.mediaType != MediaType.AUDIO })) needed += AppMode.GALLERY
         if (appMode == AppMode.MUSIC) needed += AppMode.MUSIC
@@ -625,6 +658,22 @@ fun MediaLoaderApp(
             completedUris.associate { (id, uri) -> id to availabilityCache.get(uri) }
         }
     }
+    val musicVisibilityPrefs=remember(context){context.getSharedPreferences("music_folder_visibility",0)}
+    var organizationHidden by remember{mutableStateOf(musicVisibilityPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty().toSet())}
+    DisposableEffect(musicVisibilityPrefs){
+        val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,key->
+            if(key=="hidden_tracks"||key==null)organizationHidden=musicVisibilityPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty().toSet()
+        }
+        musicVisibilityPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose{musicVisibilityPrefs.unregisterOnSharedPreferenceChangeListener(listener)}
+    }
+    val organizationRefs=remember(publicLibraryRefs,organizationReady,fileStatuses,organizationHidden){
+        if(!organizationReady)emptyList() else publicLibraryRefs.filter{
+            fileStatuses[it.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE)&&
+                (it.item.mediaType!=MediaType.AUDIO||!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,organizationHidden))
+        }
+    }
+    val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
     val downloadItems = remember(downloads, fileStatuses) {
         downloads.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
     }
@@ -1230,6 +1279,13 @@ fun MediaLoaderApp(
                     onDeferredOpen = { link -> pendingUrl = link; lastHandledLink = link; viewModel.analyze(link); showPicker = true },
                     onDeferredRemove = viewModel::removeDeferredLink, onDeferredRetryAll = retryDeferred, onDeferredStop = viewModel::stopDeferred,
                     onOpenDownloads = goToDownloads,
+                    onAddCollection=::addToCollection,onPassport=::openPassport,
+                    organizationContent={ Column {
+                        OrganizationEntry("На разбор","Новых загрузок: $reviewCount",{navController.navigate("media-review")})
+                        OrganizationEntry("Коллекции","Сохранённые материалы и ссылки",{openCollections()},Modifier.padding(top=8.dp))
+                        if(pendingUrl.isNotBlank()&&runCatching{MediaOrganizationPolicy.link(pendingUrl)}.isSuccess)
+                            TextButton({openCollections(link=pendingUrl)}){Text("Сохранить ссылку в коллекцию")}
+                    } },
                     onOpenSource = { source ->
                         showPicker = false
                         navController.navigate("browser/$source")
@@ -1261,6 +1317,8 @@ fun MediaLoaderApp(
                         libraryModel.externalCatalog.removeFolder(folderId)
                     }, onShare = shareLibraryFile,
                     onTrashFolderContents = requestAlbumTrash,
+                    collectionContent={CollectionGalleryStrip(collections,organizationRefs){openCollections(it)}},
+                    onAddCollection=::addToCollection,
                      onTrashDeviceAlbum = requestDeviceAlbumTrash,
                     onDelete = deleteLibraryFile, onDeleteSelected = deleteLibraryFiles,
                     onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY, force = true) },
@@ -1300,6 +1358,7 @@ fun MediaLoaderApp(
                     onShare = shareLibraryFile, onDeleteFile = deleteLibraryFile,
                     onTrashDuplicates = trashDuplicates,
                     onOpenDuplicates = { navController.navigate("music-duplicates") { launchSingleTop = true } },
+                    onOpenCollections={openCollections(audioOnly=true)},onAddCollection=::addToCollection,onPassport=::openPassport,
                     listeningKeys = remember(publicLibraryRefs,fileStatuses) {
                         publicLibraryRefs.filter { ref -> ref.item.mediaType == MediaType.AUDIO &&
                             fileStatuses[ref.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE) }
@@ -1372,6 +1431,48 @@ fun MediaLoaderApp(
                     onDetailChange = { musicDetailOpen = it }, currentPlayingId = currentLibraryAudioId,
                     playing = libraryAudioState.playing)
                 }
+            }
+            composable("collections") {
+                CollectionsScreen(collections,organizationRefs,organization,collectionInitial,collectionAudioOnly,collectionAddIds,collectionLink,
+                    organizationReady,{navController.popBackStack()},openDownloadWithQueue,
+                    onPlay={ids->
+                        libraryPreviewJob?.cancel()
+                        libraryPreviewJob=fileActionScope.launch {
+                            try{
+                                val candidates=ids.map{libraryRefsByAlias[it]?.takeIf{ref->ref.key==it&&!ref.item.isPrivate&&ref.item.mediaType==MediaType.AUDIO}?:error("Файл недоступен")}
+                                val valid=withContext(Dispatchers.IO){candidates.filter{availabilityCache.get(it.item.savedUri,fresh=true)==SavedFileStatus.PRESENT}}
+                                libraryModel.audioPreview.playSelection(valid,false)
+                            }catch(e:CancellationException){throw e}catch(_:Exception){Toast.makeText(context,"Нет доступных треков",Toast.LENGTH_SHORT).show()}
+                        }
+                    },onLink=::openOrganizationLink,onPassport=::openPassport,onAddComplete={collectionAddIds=emptyList();collectionLink=null})
+            }
+            composable("media-review"){
+                var playlistTarget by remember{mutableStateOf<String?>(null)}
+                ReviewScreen(reviewEntries,organizationRefs,catalogFolders,
+                    libraryCatalogAssignments.filter{it.isFavorite}.mapTo(mutableSetOf()){it.downloadId},
+                    organization,organizationReady,{navController.popBackStack()},openDownloadWithQueue,
+                    onEdit={row->navController.navigate(when(row.mediaType){MediaType.PHOTO->"photo-editor/";MediaType.VIDEO->"video-editor/";MediaType.AUDIO->"audio-editor/"}+android.net.Uri.encode(row.id))},
+                    onTrash=deleteLibraryFile,onAddCollection=::addToCollection,onPassport=::openPassport,
+                    onFavorite=setLibraryFavorite,onFolder=setLibraryFolder,onPlaylist={playlistTarget=it})
+                playlistTarget?.let{id->AlertDialog(onDismissRequest={playlistTarget=null},title={Text("В плейлист")},
+                    text={Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState())){
+                        playlists.forEach{p->TextButton({playlistTarget=null;fileActionScope.launch{
+                            try{libraryModel.playlistRepository.addTracksResolved(p.id,listOf(id),libraryAliases)}
+                            catch(e:CancellationException){throw e}catch(_:Exception){Toast.makeText(context,"Не удалось добавить трек",Toast.LENGTH_SHORT).show()}
+                        }}){Text(p.name)}}
+                    }},confirmButton={TextButton({playlistTarget=null}){Text("Закрыть")}})}
+            }
+            composable("media-passport/{mediaId}"){entry->
+                val ref=entry.arguments?.getString("mediaId")?.let{if(organizationReady)libraryRefsByAlias[it] else null}
+                val ops by remember(ref?.appDownloadId){organization.operations(ref?.appDownloadId.orEmpty())}.collectAsStateWithLifecycle(initialValue=emptyList())
+                val names=ref?.let{r->
+                    val ids=r.aliases+r.key
+                    val folders=libraryCatalogAssignments.filter{it.downloadId in ids}.mapNotNull{a->catalogFolders.firstOrNull{it.id==a.folderId}?.name}
+                    (folders+listOfNotNull(r.deviceAlbumName)).distinct()
+                }.orEmpty()
+                val playlistNames=ref?.let{r->playlists.filter{p->p.trackIds.any{it==r.key||it in r.aliases}}.map{it.name}}.orEmpty()
+                MediaPassportScreen(ref?.takeIf{candidate->organizationRefs.any{it.key==candidate.key}},organizationRefs,collections,ops,names,playlistNames,
+                    {navController.popBackStack()},openDownloadWithQueue,::openOrganizationLink,{openCollections(it)})
             }
             composable("music-duplicates") {
                 if (!libraryIndex.ready || libraryPrivateKeys == null || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded)) {
@@ -1455,6 +1556,7 @@ fun MediaLoaderApp(
             composable(AppDestination.Downloads.route) {
                 DownloadsScreen(
                     items = downloadItems,
+                    onAddCollection=::addToCollection,onPassport=::openPassport,
                     onOpenPrivate = { viewModel.privateAccess.lock(); pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false; privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onMoveToPrivate = { id -> requestPrivateMove(listOf(id)) },
                     onMoveGroupToPrivate = ::requestPrivateMove,
@@ -1825,6 +1927,8 @@ fun MediaLoaderApp(
                         },
                         onCurrentItemChanged = { entry.savedStateHandle["gallery_current_id"] = it.id },
                         privateMode = item.isPrivate,
+                        onPassport=if(item.isPrivate)null else { selected->openPassport(selected.id) },
+                        onAddCollection=if(item.isPrivate)null else { selected->addToCollection(listOf(selected.id)) },
                         albumLinks = { selected ->
                             val ref = libraryRefsByAlias[selected.id]
                             if (selected.isPrivate || ref == null) emptyList() else GalleryLibraryState.albumLinks(ref.item, catalogFolders, libraryCatalogAssignments,

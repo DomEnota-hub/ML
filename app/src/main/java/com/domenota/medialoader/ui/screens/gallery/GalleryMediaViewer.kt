@@ -72,6 +72,8 @@ internal fun GalleryMediaViewer(
     privateMode: Boolean = false,
     albumLinks: (DownloadEntity) -> List<GalleryAlbumLink> = { emptyList() },
     onOpenAlbum: ((GalleryAlbumLink, DownloadEntity) -> Unit)? = null,
+    onPassport: ((DownloadEntity)->Unit)? = null,
+    onAddCollection: ((DownloadEntity)->Unit)? = null,
 ) {
     val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
     DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
@@ -438,6 +440,10 @@ internal fun GalleryMediaViewer(
                 PhotoInfoRow(Icons.Rounded.InsertDriveFile, "Имя файла", current.originalName)
                 PhotoInfoRow(Icons.Rounded.AspectRatio, "Разрешение", dimensions)
                 PhotoInfoRow(Icons.Rounded.Storage, "Размер", current.sizeBytes?.let { android.text.format.Formatter.formatFileSize(context, it) } ?: "Неизвестно")
+                if(!privateMode&&!current.isPrivate){
+                    if(onPassport!=null) TextButton({info=false;onPassport(current)}){Text("Паспорт медиафайла")}
+                    if(onAddCollection!=null) TextButton({info=false;onAddCollection(current)}){Text("Добавить в коллекцию")}
+                }
                 if (current.mediaType == MediaType.PHOTO && !privateMode && !current.isPrivate) {
                     val links = albumLinks(current)
                     if (links.isEmpty()) PhotoInfoRow(Icons.Rounded.PhotoLibrary, "Альбом", "Без альбома")

@@ -76,6 +76,8 @@ fun GalleryModeScreen(
     albumRequest: GalleryAlbumRequest? = null,
     onAlbumRequestHandled: () -> Unit = {},
     onOpenFromAlbum: ((String, List<String>, String?) -> Unit)? = null,
+    collectionContent: (@Composable () -> Unit)? = null,
+    onAddCollection: ((List<String>)->Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -309,6 +311,9 @@ fun GalleryModeScreen(
             IconButton({ selectedIds = if (selectedIds.size == queue.size) arrayListOf() else ArrayList(queue) }) {
                 Icon(Icons.Rounded.SelectAll, "Выбрать все")
             }
+            if(onAddCollection!=null) IconButton({ onAddCollection(queue.filter { it in selectedSet }) }) {
+                Icon(Icons.Rounded.CollectionsBookmark, "Добавить в коллекцию")
+            }
             IconButton({ moveSnapshot = orderedDisplayed.filter { it.id in selectedSet } }) {
                 Icon(Icons.Rounded.DriveFileMove, "Переместить выбранные в альбом")
             }
@@ -446,6 +451,7 @@ fun GalleryModeScreen(
                 }
             }
             if (tab == 1) {
+                if(collectionContent!=null)item(key="collections",span={GridItemSpan(maxLineSpan)}){collectionContent()}
                 item(key = "quick-title", span = { GridItemSpan(maxLineSpan) }) { GallerySectionTitle("Быстрый доступ") }
                 itemsIndexed(defaultQuickItems, key = { _, shortcut -> "quick:${shortcut.key}" },
                     span = { _, _ -> GridItemSpan(3) }) { index, shortcut ->

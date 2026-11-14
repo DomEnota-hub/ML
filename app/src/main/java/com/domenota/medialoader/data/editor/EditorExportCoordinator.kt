@@ -86,7 +86,7 @@ class EditorExportCoordinator private constructor(context: Context) {
                     file = requireNotNull(temp),
                     preferredName = "${stem}_edit.mp4",
                     mediaType = MediaType.VIDEO,
-                    mimeType = "video/mp4",
+                    mimeType = "video/mp4", operation = "Редактирование видео",
                 )
                 _state.value = EditorExportState(
                     exporting = false,
@@ -142,7 +142,7 @@ class EditorExportCoordinator private constructor(context: Context) {
                     file = requireNotNull(temp),
                     preferredName = "${stem}_frame.jpg",
                     mediaType = MediaType.PHOTO,
-                    mimeType = "image/jpeg",
+                    mimeType = "image/jpeg", operation = "Сохранение кадра видео",
                 )
                 _state.value = EditorExportState(
                     exporting = false,
@@ -210,7 +210,7 @@ class EditorExportCoordinator private constructor(context: Context) {
                     file = requireNotNull(temp),
                     preferredName = "${stem}_audio.mp3",
                     mediaType = MediaType.AUDIO,
-                    mimeType = "audio/mpeg",
+                    mimeType = "audio/mpeg", operation = "Извлечение аудио из видео",
                 )
                 _state.value = EditorExportState(
                     exporting = false,
@@ -341,7 +341,7 @@ class EditorExportCoordinator private constructor(context: Context) {
                     file = result.file,
                     preferredName = "${stem}_edit.${result.extension}",
                     mediaType = MediaType.PHOTO,
-                    mimeType = result.mimeType,
+                    mimeType = result.mimeType, operation = "Редактирование фото",
                 )
                 _state.value = EditorExportState(
                     exporting = false,

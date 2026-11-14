@@ -64,6 +64,9 @@ fun HomeScreen(
     deferredLinks: List<String> = emptyList(), deferredActive: String? = null, deferredMessage: String? = null,
     onDeferredOpen: (String) -> Unit = {}, onDeferredRemove: (String) -> Unit = {},
     onDeferredRetryAll: () -> Unit = {}, onDeferredStop: () -> Unit = {},
+    organizationContent: (@Composable () -> Unit)? = null,
+    onAddCollection: ((List<String>)->Unit)? = null,
+    onPassport: ((String)->Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
@@ -149,6 +152,7 @@ fun HomeScreen(
         }
         Spacer(Modifier.height(24.dp))
         MusicHomeSection()
+        if(organizationContent!=null){Spacer(Modifier.height(18.dp));organizationContent()}
         if (recentDownloads.isNotEmpty()) {
             Spacer(Modifier.height(26.dp))
             SectionTitle(title = "Последние загрузки", action = "Все", onActionClick = onOpenDownloads)
@@ -160,7 +164,9 @@ fun HomeScreen(
                     onReanalyzeMissing = { onReanalyzeMissing(item.id) },
                     onRename = { onRenameDownload(item.id, it) },
                     recognitionEnabled = recognitionEnabled,
-                    onRecognize = { onRecognizeDownload(item.id) })
+                    onRecognize = { onRecognizeDownload(item.id) },
+                    onAddCollection=onAddCollection?.let{action->{action(listOf(item.id))}},
+                    onPassport=onPassport?.let{action->{action(item.id)}})
                 Spacer(Modifier.height(8.dp))
             }
         }
