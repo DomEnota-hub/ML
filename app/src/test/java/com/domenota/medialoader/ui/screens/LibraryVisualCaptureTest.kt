@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.media3.exoplayer.ExoPlayer
@@ -87,10 +88,13 @@ class LibraryVisualCaptureTest {
                 listOf("gallery", "albums", "album", "viewer", "music", "playlists", "playlist", "add", "player", "eq").forEach { page ->
                     compose.runOnIdle { dark = theme; screen = page }
                     compose.waitForIdle()
-                    if (page in listOf("albums", "album")) compose.onNodeWithContentDescription("Альбомы").performClick()
-                    if (page == "album") compose.onNodeWithText("Путешествия").performScrollTo().performClick()
-                    if (page in listOf("playlists", "playlist")) compose.onNodeWithContentDescription("Плейлисты").performClick()
-                    if (page == "playlist") compose.onNodeWithText("В дороге").performClick()
+                    // This test captures visual states, not touch dispatch. Invoke the same
+                    // accessible click action without attaching a lazy ripple node on a
+                    // second Robolectric thread after native View.draw().
+                    if (page in listOf("albums", "album")) compose.onNodeWithContentDescription("Альбомы").performSemanticsAction(SemanticsActions.OnClick) { it() }
+                    if (page == "album") compose.onNodeWithText("Путешествия").performScrollTo().performSemanticsAction(SemanticsActions.OnClick) { it() }
+                    if (page in listOf("playlists", "playlist")) compose.onNodeWithContentDescription("Плейлисты").performSemanticsAction(SemanticsActions.OnClick) { it() }
+                    if (page == "playlist") compose.onNodeWithText("В дороге").performSemanticsAction(SemanticsActions.OnClick) { it() }
                     if (page == "viewer") compose.waitUntil(5000) { compose.onAllNodesWithContentDescription("Фото 0.jpg").fetchSemanticsNodes().isNotEmpty() }
                     // PixelCopy captureToImage requires a display redraw callback unavailable in
                     // Robolectric. Draw the real native View tree into its software Canvas instead.
