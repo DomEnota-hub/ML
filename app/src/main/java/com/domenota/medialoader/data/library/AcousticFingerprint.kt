@@ -15,8 +15,16 @@ internal object AcousticFingerprints {
     private const val N = 1024
     private const val HOP = 256
     private const val LIMIT = 6000
+    // Identical FFT coefficients, calculated once rather than for every frame.
+    private val window = DoubleArray(N) { 0.5-0.5*cos(2*PI*it/(N-1)) }
+    private val twiddleCos = Array(11) { stage -> val length=2 shl stage; DoubleArray(length/2) { cos(-2*PI/length*it) } }
+    private val twiddleSin = Array(11) { stage -> val length=2 shl stage; DoubleArray(length/2) { sin(-2*PI/length*it) } }
+    private val bands = arrayOf(8..24,25..56,57..112,113..224,225..480)
     class Builder(private val checkActive: () -> Unit = {}) {
         private val samples = FloatArray(N)
+        private val re = DoubleArray(N)
+        private val im = DoubleArray(N)
+        private val power = DoubleArray(N/2)
         private var filled = 0
         private var frame = 0
         private val anchors = ArrayDeque<Pair<Int,IntArray>>()
@@ -26,7 +34,7 @@ internal object AcousticFingerprints {
             samples[filled++] = value
             if (filled != N) return
             checkActive()
-            val peaks = peaks(samples)
+            val peaks = peaks(samples,re,im,power)
             for ((time, previous) in anchors) {
                 val delta = frame-time
                 if (delta == 4 || delta == 8) for (a in previous) for (b in peaks) {
@@ -46,29 +54,33 @@ internal object AcousticFingerprints {
         }
         fun finish() = AcousticFingerprint(reservoir.map { it.second }.sortedBy { it.frame })
     }
-    private fun peaks(samples: FloatArray): IntArray {
-        val re = DoubleArray(N) { samples[it]* (0.5-0.5*cos(2*PI*it/(N-1))) }
-        val im = DoubleArray(N)
+    private fun peaks(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray): IntArray {
+        for(i in 0 until N) re[i]=samples[i]*window[i]
+        im.fill(0.0)
         var j = 0
         for (i in 1 until N) { var bit = N shr 1; while (j and bit != 0) { j = j xor bit; bit = bit shr 1 }; j = j xor bit
             if (i < j) { val v = re[i]; re[i] = re[j]; re[j] = v }
         }
         var length = 2
+        var stage = 0
         while (length <= N) {
-            val angle = -2*PI/length
+            val cosines=twiddleCos[stage]; val sines=twiddleSin[stage]
             for (start in 0 until N step length) for (k in 0 until length/2) {
-                val c = cos(angle*k); val s = sin(angle*k); val a = start+k; val b = a+length/2
+                val c = cosines[k]; val s = sines[k]; val a = start+k; val b = a+length/2
                 val tr = re[b]*c-im[b]*s; val ti = re[b]*s+im[b]*c
                 re[b] = re[a]-tr; im[b] = im[a]-ti; re[a] += tr; im[a] += ti
-            }; length *= 2
+            }; length *= 2; stage++
         }
-        val power = DoubleArray(N/2) { re[it]*re[it]+im[it]*im[it] }
+        for(i in power.indices) power[i]=re[i]*re[i]+im[i]*im[i]
         if (power.maxOrNull()!! < 1e-9) return intArrayOf()
         // One strongest local peak per broad band, exact bin landmark (not amplitude).
-        return listOf(8..24,25..56,57..112,113..224,225..480).mapNotNull { band ->
-            band.filter { power[it] > power[it-1] && power[it] >= power[it+1] }
-                .maxByOrNull { power[it] }?.takeIf { power[it] > 1e-8 }
-        }.toIntArray()
+        val result=IntArray(bands.size); var count=0
+        for(band in bands){
+            var best=-1
+            for(i in band) if(power[i]>power[i-1] && power[i]>=power[i+1] && (best<0 || power[i]>power[best])) best=i
+            if(best>=0 && power[best]>1e-8) result[count++]=best
+        }
+        return result.copyOf(count)
     }
     /** Offset voting; repeated stationary tones cannot establish enough distinct evidence. */
     fun matches(a: AcousticFingerprint, b: AcousticFingerprint, checkActive: () -> Unit = {}): Boolean {
