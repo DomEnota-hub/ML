@@ -9,7 +9,7 @@ private class ProjectionInputs(private val refs: List<Any?>) {
         refs.size == other.refs.size && refs.indices.all { refs[it] === other.refs[it] }
     override fun hashCode() = refs.fold(1) { hash, ref -> 31 * hash + System.identityHashCode(ref) }
 }
-internal data class BackgroundLibraryValue<T>(val value: T, val ready: Boolean)
+internal data class BackgroundLibraryValue<T>(val value: T, val ready: Boolean, val usable: Boolean = ready)
 private data class PublishedLibraryValue<T>(val inputs: ProjectionInputs, val privacy: Set<String>?, val value: T)
 
 /** Retain valid public data during updates, but fail closed synchronously on a privacy change. */
@@ -19,6 +19,8 @@ internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, va
     val key = ProjectionInputs(inputs.toList() + listOf(privacy))
     var published by remember { mutableStateOf<PublishedLibraryValue<T>?>(null) }
     LaunchedEffect(key) {
+        com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
+            com.domenota.medialoader.core.logging.LibraryWork.BACKGROUND_PROJECTION)
         val snapshot = androidx.compose.runtime.snapshots.Snapshot.takeSnapshot()
         val value = try { withContext(Dispatchers.Default) { snapshot.enter { build() } } }
             finally { snapshot.dispose() }
@@ -26,6 +28,6 @@ internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, va
     }
     val current = published
     return if (current != null && current.privacy == privacy)
-        BackgroundLibraryValue(current.value, current.inputs == key)
+        BackgroundLibraryValue(current.value, current.inputs == key, usable = true)
     else BackgroundLibraryValue(empty, false)
 }

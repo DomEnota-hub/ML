@@ -240,6 +240,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             // MediaStore's DATE_ADDED changes after a copied legacy download.
             // The matching app history still has the pre-migration timestamp.
             // Reconcile only identical URI/type pairs, never by name or size.
+            com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
+                com.domenota.medialoader.core.logging.LibraryWork.LIBRARY_INDEX_BUILD)
             val phoneRows = PhoneLibraryChronology.reconcile(
                 pictures.items + audio.items, app.orEmpty().map { it.item })
             LibraryIndex(true, UnifiedMediaLibrary.merge(app.orEmpty(),

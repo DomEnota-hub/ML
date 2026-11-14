@@ -230,6 +230,8 @@ private fun decodeLocalThumbnail(
     kind: MediaKind,
     side: Int,
 ): Bitmap? = runCatching {
+    com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
+        com.domenota.medialoader.core.logging.LibraryWork.THUMBNAIL_DECODE)
     when (kind) {
         MediaKind.VIDEO -> {
             val system = if (Build.VERSION.SDK_INT >= 29 && uri.scheme == "content" && uri.authority == "media")
