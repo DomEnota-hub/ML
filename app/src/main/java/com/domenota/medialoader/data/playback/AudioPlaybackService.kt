@@ -122,6 +122,7 @@ class AudioPlaybackService : MediaSessionService() {
                 true,
             )
             .setHandleAudioBecomingNoisy(true)
+            .setMaxSeekToPreviousPositionMs(PreviousTrackPolicy.RESTART_THRESHOLD_MS)
             .build()
 
         val playbackModes = getSharedPreferences("audio_playback_modes", MODE_PRIVATE)
@@ -147,7 +148,7 @@ class AudioPlaybackService : MediaSessionService() {
         }
         privateScope.launch { equalizerSettings.state.collect { refreshEqualizer() } }
 
-        mediaSession = MediaSession.Builder(this, player)
+        mediaSession = MediaSession.Builder(this, MusicPreviousPlayer(player))
             .setSessionActivity(CurrentPlayerRequest.pendingIntent(this)).build()
         liveSession = mediaSession
         liveTimer = MusicStopTimer(player,privateScope).also { it.attach() }

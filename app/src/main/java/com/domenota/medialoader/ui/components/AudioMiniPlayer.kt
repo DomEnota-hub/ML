@@ -177,7 +177,7 @@ fun AudioMiniPlayer(
                         if (!artist.isNullOrBlank()) Text(artist.orEmpty(), Modifier.padding(top = 3.dp), fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    if (!compact) IconButton({ controller?.seekToPreviousMediaItem() }, Modifier.size(40.dp), enabled = mediaCount > 1) {
+                    if (!compact) IconButton({ controller?.seekToPrevious() }, Modifier.size(40.dp), enabled = mediaCount > 0) {
                         Icon(Icons.Rounded.SkipPrevious, "Предыдущий трек", Modifier.size(22.dp))
                     }
                     IconButton({ controller?.let { com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it) } }, Modifier.size(40.dp)) {

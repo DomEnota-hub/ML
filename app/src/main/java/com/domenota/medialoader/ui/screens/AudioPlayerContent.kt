@@ -411,8 +411,8 @@ fun BackgroundAudioPlayer(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 IconButton(
-                    onClick = { controller?.seekToPreviousMediaItem() },
-                    enabled = playableQueue.size > 1,
+                    onClick = { controller?.seekToPrevious() },
+                    enabled = playableQueue.isNotEmpty(),
                     modifier = Modifier.size(52.dp),
                 ) {
                     Icon(

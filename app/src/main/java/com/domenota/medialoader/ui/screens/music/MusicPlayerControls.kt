@@ -71,7 +71,7 @@ internal fun MusicPlayerControls(
             IconButton({ player?.shuffleModeEnabled = !shuffle }, enabled = player != null) {
                 Icon(Icons.Rounded.Shuffle, "Перемешать", tint = if (shuffle) musicPlaybackAccent else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton({ player?.seekToPreviousMediaItem() }, enabled = player?.hasPreviousMediaItem() == true) { Icon(Icons.Rounded.SkipPrevious, "Предыдущий трек") }
+            IconButton({ player?.seekToPrevious() }, enabled = player!=null && player.mediaItemCount>0) { Icon(Icons.Rounded.SkipPrevious, "Предыдущий трек") }
             FilledIconButton(onClick = { player?.let { com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it) } },
                 enabled = player != null, modifier = Modifier.size(65.dp), shape = CircleShape) {
                 Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Пауза" else "Воспроизвести", Modifier.size(30.dp))
