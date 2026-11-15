@@ -88,7 +88,7 @@ fun HomeScreen(
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val fontScale = LocalDensity.current.fontScale
-            if (maxWidth >= 320.dp && fontScale <= 1.15f) {
+            if (maxWidth >= ((205f + 112f) * fontScale.coerceAtLeast(1f) + 8f).dp) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.weight(1f)) {

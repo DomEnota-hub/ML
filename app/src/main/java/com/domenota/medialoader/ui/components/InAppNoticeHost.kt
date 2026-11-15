@@ -103,12 +103,12 @@ internal fun NoticeDialog(onDismissRequest: () -> Unit, properties: DialogProper
 }
 
 @Composable
-private fun NoticeCard(entry: NoticeEntry, departingAt: Long?) {
+internal fun NoticeCard(entry: NoticeEntry, departingAt: Long?, onDismiss: (Long) -> Unit = AppNotice::dismiss) {
     val duration = NoticePolicy.TRANSITION_MS
     val now = SystemClock.uptimeMillis()
     val age = (now - entry.shownAt).coerceAtLeast(0)
     val fadeFraction = ((now - entry.fadeAt).toFloat() / duration).coerceIn(0f, 1f)
-    val alpha = remember(entry.id) { Animatable(1f - fadeFraction) }
+    val opacity = remember(entry.id) { Animatable(1f - fadeFraction) }
     val shift = remember(entry.id) { Animatable((1f - age.toFloat() / duration).coerceIn(0f, 1f)) }
     val scope = rememberCoroutineScope()
     var horizontal by remember(entry.id) { mutableFloatStateOf(0f) }
@@ -120,13 +120,13 @@ private fun NoticeCard(entry: NoticeEntry, departingAt: Long?) {
             val remaining = (departingAt + duration - SystemClock.uptimeMillis()).coerceIn(0L, duration).toInt()
             coroutineScope {
                 launch { shift.animateTo(-1f, tween(remaining)) }
-                launch { alpha.animateTo(0f, tween(remaining)) }
+                launch { opacity.animateTo(0f, tween(remaining)) }
             }
         } else {
             val remaining = (entry.shownAt + duration - SystemClock.uptimeMillis()).coerceIn(0L, duration).toInt()
             shift.animateTo(0f, tween(remaining))
             delay((entry.fadeAt - SystemClock.uptimeMillis()).coerceAtLeast(0))
-            alpha.animateTo(0f, tween((entry.expiresAt - SystemClock.uptimeMillis()).coerceIn(0L, duration).toInt()))
+            opacity.animateTo(0f, tween((entry.expiresAt - SystemClock.uptimeMillis()).coerceIn(0L, duration).toInt()))
         }
     }
     val colors = MaterialTheme.colorScheme
@@ -145,7 +145,7 @@ private fun NoticeCard(entry: NoticeEntry, departingAt: Long?) {
     Surface(
         modifier = Modifier.widthIn(max = 540.dp).fillMaxWidth()
             .graphicsLayer {
-                this.alpha = alpha.value
+                this.alpha = opacity.value
                 translationY = shift.value * (size.height + 8.dp.toPx())
                 translationX = horizontal
             }
@@ -158,7 +158,7 @@ private fun NoticeCard(entry: NoticeEntry, departingAt: Long?) {
                                 val end = if (dismiss) (if (horizontal < 0f) -swipeDistance else swipeDistance) else 0f
                                 scope.launch {
                                     animate(horizontal, end, animationSpec = tween(180)) { value, _ -> horizontal = value }
-                                    if (dismiss) AppNotice.dismiss(entry.id)
+                                    if (dismiss) onDismiss(entry.id)
                                 }
                             },
                             onDragCancel = { horizontal = 0f },
@@ -178,7 +178,7 @@ private fun NoticeCard(entry: NoticeEntry, departingAt: Long?) {
                 Text(entry.message.title, style = MaterialTheme.typography.bodyMedium)
                 entry.message.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
             }
-            if (!outgoing) IconButton(onClick = { AppNotice.dismiss(entry.id) }, modifier = Modifier.size(48.dp)) {
+            if (!outgoing) IconButton(onClick = { onDismiss(entry.id) }, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Rounded.Close, "Закрыть уведомление", Modifier.size(20.dp), tint = colors.onSurfaceVariant)
             } else Spacer(Modifier.size(48.dp))
         }

@@ -2276,7 +2276,7 @@ fun MediaLoaderApp(
         }
         }
         val noticeExtra = when {
-            currentRoute == "collections" -> 104.dp
+            currentRoute == "collections" && libraryAudioState.currentId != null -> 104.dp
             galleryHomeOverlay -> 76.dp
             currentRoute in setOf(MEDIA_VIEWER_ROUTE, VIDEO_EDITOR_ROUTE, AUDIO_EDITOR_ROUTE, PHOTO_EDITOR_ROUTE, "batch-photo-editor", "trash-viewer/{downloadId}") -> 100.dp
             else -> 0.dp

@@ -3,6 +3,11 @@ package com.domenota.medialoader.ui.screens
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
+import com.domenota.medialoader.ui.components.AppNotice
+import com.domenota.medialoader.ui.components.NoticeForeground
+import com.domenota.medialoader.ui.components.NoticeMessage
+import com.domenota.medialoader.ui.components.NoticeTone
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.domenota.medialoader.ui.model.*
@@ -54,7 +59,11 @@ class DownloadsGroupActionsUiTest {
         val rows = listOf(DownloadUiState.COMPLETED, DownloadUiState.FAILED, DownloadUiState.DOWNLOADING).mapIndexed { index, state ->
             DownloadUiItem("$index", "Image $index", "Фото", null, state = state, groupId = "active-post") }
         val deleted = mutableListOf<String>()
-        compose.setContent { MaterialTheme { DownloadsScreen(rows, onDeleteGroupFile = { deleted += it },
+        val notices = mutableListOf<NoticeMessage>()
+        compose.setContent { MaterialTheme {
+            NoticeForeground()
+            LaunchedEffect(Unit) { AppNotice.state.collect { state -> state.active?.message?.let(notices::add) } }
+            DownloadsScreen(rows, onDeleteGroupFile = { deleted += it },
             onOpenDownload = {}, onCancelDownload = {}, onShareDownload = {}, onHideDownload = {},
             onRetryDownload = {}, onReanalyzeMissing = {}, onRenameDownload = { _, _ -> }) } }
         compose.onNodeWithContentDescription("Действия с группой").performScrollTo().performClick()
@@ -62,7 +71,12 @@ class DownloadsGroupActionsUiTest {
         compose.onNodeWithText("В корзину").performClick()
         compose.waitForIdle()
         assertEquals(listOf("0"), deleted)
-        assertEquals("Успешно: 1 · Ошибок: 2", org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+        compose.runOnIdle {
+            val result = notices.last()
+            assertEquals("Результат операции", result.title)
+            assertEquals("Обработано: 1 файл · Ошибок: 2", result.detail)
+            assertEquals(NoticeTone.WARNING, result.tone)
+        }
     }
 
 }

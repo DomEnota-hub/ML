@@ -41,6 +41,7 @@ jobs:
           grep -Fq "versionName '1.7.190'" app/build.gradle
           python3 scripts/audit_ui_palette.py
           python3 scripts/check-round-sliders.py
+          python3 scripts/check-in-app-notices.py
       - name: Collection regression tests
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --stacktrace
@@ -59,6 +60,9 @@ jobs:
       - name: Missing file restoration and deferred routing regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*MissingFileRecovery*Test' --tests '*MissingRecovery*Test' --tests '*DeferredLinkStoreTest' --tests '*DownloadQueueTest' --tests '*RecoveryHistoryCasTest' --tests '*SavedFilePresenceTest' --stacktrace
+      - name: In-app notices and Instagram mode regression tests
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*NoticePolicyTest' --tests '*AppNoticeControllerTest' --tests '*NoticeCardInteractionTest' --tests '*InstagramModeToggleTest' --tests '*InstagramShareRoutingTest' --tests '*DownloadsGroupActionsUiTest' --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint
