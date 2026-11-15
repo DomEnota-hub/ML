@@ -4,7 +4,7 @@ import android.app.Activity
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -61,7 +61,7 @@ internal fun PhoneTrashController(
         catch (error: CancellationException) { throw error }
         catch (_: Exception) {
             phoneItems = emptyList()
-            Toast.makeText(context, "Не удалось прочитать системную корзину", Toast.LENGTH_SHORT).show()
+            AppNotice.post(context, "Не удалось прочитать системную корзину")
         }
     }
 
@@ -99,7 +99,7 @@ internal fun PhoneTrashController(
         } catch (_: Exception) {
             request = null
             refresh++
-            Toast.makeText(context, "Операция с корзиной не выполнена", Toast.LENGTH_LONG).show()
+            AppNotice.post(context, "Операция с корзиной не выполнена")
         }
     }
 

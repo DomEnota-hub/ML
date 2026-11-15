@@ -1,0 +1,8 @@
+# ML 1.7.190 stage 3 — QA-189-05 / QA-189-10
+
+- User approved continuation after stages 1–2, equal icon sizes and stable button position.
+- Existing Instagram preference, one-tap toggle; 20dp icons, fixed width and height, no mode dialog on home, no change to ordinary paste, other providers, queued downloads or naming.
+- Foreground-only shared notice state, one current and at most one departing, 300ms slide/fade, 2000ms default visible hold, accessibility timeout. New events replace immediately; stale expiry and dismiss actions are ID-checked. Swipe both ways / X. Uses current MaterialTheme. Root, preview sheet, and full-screen search/photo-tool dialogs share state. Root uses measured scaffold padding plus route-specific control clearance; IME/system bars respected.
+- Migrated short in-app Toast calls. The two failure Toasts in the transparent Android ACTION_SEND receiver are deliberately retained: there is no open ML window, and switching the user into the app would break the automatic share contract. Existing system notifications/foreground services unchanged.
+- Batch result banners preserve real failures and use Russian file counts, omit zero errors. Private actions use generic failure text, URLs removed from transient message text.
+- Tests: timing, rapid 20-event burst, stale IDs, replacement during fade, classification, actual Compose toggle preference and equal button/icon bounds. Physical Xiaomi validation remains necessary for gestures, window focus, modal stacking, placement, all themes, process restart and Instagram share routing; final CI must pass on exact HEAD before signing.

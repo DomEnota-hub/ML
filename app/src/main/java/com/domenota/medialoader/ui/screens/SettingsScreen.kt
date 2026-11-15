@@ -9,7 +9,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
 import android.provider.MediaStore
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -107,7 +107,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import com.domenota.medialoader.ui.components.NoticeDialog as Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -293,7 +293,7 @@ fun SettingsScreen(
     var advancedDownloadToolsVisible by remember {
         mutableStateOf(prefs.getBoolean("bulk_visible", false))
     }
-    var automaticInstagram by remember { mutableStateOf(InstagramShareSettings.isAutomatic(context)) }
+    val automaticInstagram = InstagramShareSettings.rememberAutomatic()
     var notificationsEnabled by remember { mutableStateOf(prefs.getBoolean("notifications", true)) }
     var systemNotificationsAllowed by remember { mutableStateOf(false) }
 
@@ -348,10 +348,10 @@ fun SettingsScreen(
                     }
                 }
                 result.onSuccess {
-                    Toast.makeText(context, "Лог сохранён", Toast.LENGTH_SHORT).show()
+                    AppNotice.post(context, "Лог сохранён")
                 }.onFailure { error ->
                     AppLog.e("Logs", "Log export failed: ${error.message}", error)
-                    Toast.makeText(context, "Не удалось сохранить лог", Toast.LENGTH_LONG).show()
+                    AppNotice.post(context, "Не удалось сохранить лог")
                 }
             }
         }
@@ -360,7 +360,7 @@ fun SettingsScreen(
         ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             if (migrationInventoryBusy || migrationInventoryJson.isBlank()) {
-                Toast.makeText(context, "Сначала завершите аудит", Toast.LENGTH_SHORT).show()
+                AppNotice.post(context, "Сначала завершите аудит")
             } else gestureScope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
@@ -370,9 +370,8 @@ fun SettingsScreen(
                         } ?: error("Нет доступа к файлу отчёта")
                     }
                 }
-                Toast.makeText(context, if (result.isSuccess)
-                    "Полный JSON-аудит сохранён" else "Не удалось сохранить отчёт",
-                    Toast.LENGTH_LONG).show()
+                AppNotice.post(context, if (result.isSuccess)
+                    "Полный JSON-аудит сохранён" else "Не удалось сохранить отчёт")
             }
         }
     }
@@ -474,11 +473,9 @@ fun SettingsScreen(
             .remove("logs_unlocked")
             .apply()
         AppLog.i("Settings", if (developerVisible) "Developer section enabled" else "Developer section disabled")
-        Toast.makeText(
+        AppNotice.post(
             context,
-            if (developerVisible) "Режим для разработки включён" else "Режим для разработки выключен",
-            Toast.LENGTH_SHORT,
-        ).show()
+            if (developerVisible) "Режим для разработки включён" else "Режим для разработки выключен")
     }
 
     val aboutGestureModifier = Modifier.pointerInput(developerVisible) {
@@ -722,7 +719,6 @@ fun SettingsScreen(
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             InstagramShareSettings.setAutomatic(context, automatic)
-                            automaticInstagram = automatic
                             instagramModeDialog = false
                         }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -731,8 +727,7 @@ fun SettingsScreen(
                             selected = automaticInstagram == automatic,
                             onClick = {
                                 InstagramShareSettings.setAutomatic(context, automatic)
-                                automaticInstagram = automatic
-                                instagramModeDialog = false
+                                    instagramModeDialog = false
                             },
                         )
                         Column(Modifier.padding(start = 8.dp)) {
@@ -915,11 +910,11 @@ fun SettingsScreen(
                     delay(3_000)
                     advancedDownloadToolsVisible = !advancedDownloadToolsVisible
                     prefs.edit().putBoolean("bulk_visible", advancedDownloadToolsVisible).apply()
-                    Toast.makeText(context, if (advancedDownloadToolsVisible) {
+                    AppNotice.post(context, if (advancedDownloadToolsVisible) {
                         "Дополнительные загрузки открыты"
                     } else {
                         "Дополнительные загрузки скрыты"
-                    }, Toast.LENGTH_SHORT).show()
+                    })
                 }
                 tryAwaitRelease()
                 longPress.cancel()
@@ -1232,7 +1227,7 @@ fun SettingsScreen(
                     iconTone = SettingIconTone.MEDIA_MANAGEMENT, onClick = {
                         try { context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,
                             Uri.parse("package:${context.packageName}"))) }
-                        catch (_: Exception) { Toast.makeText(context, "Настройка недоступна на этом устройстве", Toast.LENGTH_SHORT).show() }
+                        catch (_: Exception) { AppNotice.post(context, "Настройка недоступна на этом устройстве") }
                     })
                 GroupDivider()
             }

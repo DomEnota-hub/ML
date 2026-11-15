@@ -27,6 +27,21 @@ class ResumeQueueStoreTest {
             restored.remove("two");assertEquals(listOf("one"),restored.readForTest().map{it.id})
         } finally{restored.closeForTest()}
     }
+    @Test fun tenSessionsSurviveRestartAndOnlyOldestIsEvicted()=runBlocking{
+        val seed=ResumeQueueSession("q","p",listOf(setOf("app:a")),0,1234,180_000,true,2,1.5f,100)
+        val store=ResumeQueueStore.forTest(context,name)
+        for(i in 1..8)store.save(seed.copy(id="q$i",updatedAt=i.toLong()))
+        assertEquals(8,store.readForTest().size)
+        for(i in 9..11)store.save(seed.copy(id="q$i",updatedAt=i.toLong()))
+        assertEquals((11 downTo 2).map{"q$it"},store.readForTest().map{it.id})
+        store.closeForTest()
+        val restored=ResumeQueueStore.forTest(context,name)
+        try{
+            val rows=restored.readForTest()
+            assertEquals((11 downTo 2).map{"q$it"},rows.map{it.id})
+            assertTrue(rows.all{it.positionMs==1234L&&it.shuffle&&it.repeat==2})
+        }finally{restored.closeForTest()}
+    }
     @Test fun editedAndDeletedSnapshotsCannotBeResurrectedByOldRecorderLease()=runBlocking {
         val saved=ResumeQueueSession("q",null,listOf(setOf("a"),setOf("a"),setOf("b")),1,50_000,180_000,true,2,1.5f,100)
         val store=ResumeQueueStore.forTest(context,name)

@@ -112,6 +112,7 @@ fun PreviewScreen(
     recoveryMode:Boolean=false,
     recoveryIdentityFailure:Boolean=false,
     onCancelRecovery:()->Unit={},
+    recoveryProgress:com.domenota.medialoader.data.download.RecoveryTransferProgress?=null,
 ) {
     var viewingId by rememberSaveable { mutableStateOf<String?>(null) }
     val openPreview: (String) -> Unit = { viewingId = it }
@@ -237,7 +238,7 @@ fun PreviewScreen(
                 "rutube" -> "RUTUBE"
                 else -> "Медиа"
             }
-            Text("$providerLabel · ${if(recoveryMode)items.size else items.count { it.kind != MediaKind.AUDIO }} файлов",
+            Text("$providerLabel · ${com.domenota.medialoader.core.model.RussianCounts.files(if(recoveryMode)items.size else items.count { it.kind != MediaKind.AUDIO })}",
                 style = MaterialTheme.typography.bodyMedium)
         }
 
@@ -262,7 +263,25 @@ fun PreviewScreen(
                 GradientActionButton(text=if(busy)"Восстанавливаем…" else "Восстановить файл",
                     onClick=onDownloadSelected,enabled=!busy&&items.size==1&&items.single().selected,
                     leadingIcon=Icons.Rounded.Download)
-                if(busy)TextButton(onCancelRecovery,Modifier.fillMaxWidth()){Text("Отменить восстановление")}
+                if(busy){
+                    val progress=recoveryProgress
+                    if(progress!=null){
+                        val total=progress.total?.takeIf{it>0}
+                        val phase=when(progress.phase){
+                            com.domenota.medialoader.data.download.RecoveryTransferPhase.TRANSFER->"Скачивание"
+                            com.domenota.medialoader.data.download.RecoveryTransferPhase.RETRY_WAIT->"Повторяем загрузку"
+                            com.domenota.medialoader.data.download.RecoveryTransferPhase.REFRESH_URL->"Обновляем ссылку"
+                            com.domenota.medialoader.data.download.RecoveryTransferPhase.VERIFY_SAVE->"Проверяем и сохраняем"
+                        }
+                        Text("$phase · попытка ${progress.attempt} из 3",style=MaterialTheme.typography.bodySmall)
+                        if(total!=null&&progress.phase==com.domenota.medialoader.data.download.RecoveryTransferPhase.TRANSFER){
+                            val fraction=(progress.bytes.toDouble()/total).coerceIn(0.0,1.0)
+                            androidx.compose.material3.LinearProgressIndicator(progress={fraction.toFloat()},modifier=Modifier.fillMaxWidth())
+                            Text("${(fraction*100).toInt()}%",style=MaterialTheme.typography.bodySmall)
+                        }else androidx.compose.material3.LinearProgressIndicator(modifier=Modifier.fillMaxWidth())
+                    }
+                    TextButton(onCancelRecovery,Modifier.fillMaxWidth()){Text("Отменить восстановление")}
+                }
                 else if(onDefer!=null)TextButton(onDefer,Modifier.fillMaxWidth()){Text("Добавить в отложенное")}
                 errorMessage?.let{Text(it,color=MaterialTheme.colorScheme.error)}
             }else MediaList(
@@ -621,7 +640,7 @@ private fun MediaList(
     }
 
     Spacer(Modifier.height(16.dp))
-    if (photos.isNotEmpty()) Text("Выбрано: $selectedCount файлов", style = MaterialTheme.typography.bodyMedium)
+    if (photos.isNotEmpty()) Text("Выбрано: ${com.domenota.medialoader.core.model.RussianCounts.files(selectedCount)}", style = MaterialTheme.typography.bodyMedium)
     GradientActionButton(
         text = when {
             busy -> "Добавляем…"

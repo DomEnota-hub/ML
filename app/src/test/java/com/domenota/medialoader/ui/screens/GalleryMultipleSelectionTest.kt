@@ -52,4 +52,23 @@ class GalleryMultipleSelectionTest {
     }
     private fun row(id: String) = DownloadEntity(id, "device", "$id.jpg", MediaType.PHOTO,
         DownloadState.COMPLETED, "content://media/external/images/media/$id", null, 1_000_000)
+    @Test fun batchEditorAppearsOnlyWithTwoAvailableSelectedPhotos() {
+        val rows=listOf(row("a"),row("b"),row("video").copy(mediaType=MediaType.VIDEO,originalName="video.mp4"))
+        var chosen:List<String>?=null
+        compose.runOnUiThread {host.get().setContent {MaterialTheme{
+            GalleryModeScreen(rows,LibrarySource.PHONE,false,null,emptyList(),emptyList(),{},
+                {_,_->},{},{_,_->},{_,_->},{"folder"},{},{},{_,_->},{},
+                searchVisible=false,onBatchPhotoEdit={chosen=it})
+        }}}
+        compose.onNodeWithContentDescription("a.jpg").performTouchInput{longClick()}
+        compose.onNodeWithText("Пакетный редактор").assertDoesNotExist()
+        compose.onNodeWithContentDescription("video.mp4").performClick()
+        compose.onNodeWithText("Пакетный редактор").assertDoesNotExist()
+        compose.onNodeWithContentDescription("b.jpg").performClick()
+        compose.onNodeWithText("Пакетный редактор").assertExists()
+        compose.onNodeWithText("Пакетный редактор").performClick()
+        compose.runOnIdle{assertEquals(listOf("a","b"),chosen)}
+        compose.onNodeWithContentDescription("b.jpg").performClick()
+        compose.onNodeWithText("Пакетный редактор").assertDoesNotExist()
+    }
 }

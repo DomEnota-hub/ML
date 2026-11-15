@@ -2,6 +2,7 @@ package com.domenota.medialoader.ui
 
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.ScaffoldDefaults
@@ -36,7 +37,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -80,6 +81,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -184,6 +186,7 @@ fun MediaLoaderApp(
     val navController = rememberNavController()
     val clipboardManager = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    com.domenota.medialoader.ui.components.NoticeForeground()
     val fileActionScope = rememberCoroutineScope()
     val availabilityCache = remember(viewModel) { SavedFileStatusCache(viewModel::savedFileStatus) }
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -273,7 +276,7 @@ fun MediaLoaderApp(
         val ref=libraryRefsByAlias[id] ?: expectedUri?.let{uri->publicLibraryRefs.singleOrNull{it.item.savedUri==uri}}
         if(!organizationUsable||ref==null||ref.item.isPrivate||ref.item.hidden||ref.item.mediaType!=MediaType.AUDIO||
             (expectedUri!=null&&ref.item.savedUri!=expectedUri)){
-            Toast.makeText(context,"Трек недоступен",Toast.LENGTH_SHORT).show();return
+            AppNotice.post(context,"Трек недоступен");return
         }
         trackRecognitionTarget=ref.key to position
     }
@@ -290,19 +293,19 @@ fun MediaLoaderApp(
         navController.navigate("collections"){launchSingleTop=true}
     }
     fun addToCollection(ids:List<String>){
-        if(!organizationReady){Toast.makeText(context,"Медиатека ещё загружается",Toast.LENGTH_SHORT).show();return}
+        if(!organizationReady){AppNotice.post(context,"Медиатека ещё загружается");return}
         val stable=ids.distinct().mapNotNull{libraryRefsByAlias[it]?.key}
-        if(stable.size!=ids.distinct().size||stable.isEmpty()){Toast.makeText(context,"Часть файлов недоступна",Toast.LENGTH_SHORT).show();return}
+        if(stable.size!=ids.distinct().size||stable.isEmpty()){AppNotice.post(context,"Часть файлов недоступна");return}
         openCollections(ids=stable)
     }
     fun openPassport(id:String){
         val ref=libraryRefsByAlias[id]
-        if(!organizationReady||ref==null||ref.item.isPrivate||ref.item.hidden){Toast.makeText(context,"Файл недоступен",Toast.LENGTH_SHORT).show();return}
+        if(!organizationReady||ref==null||ref.item.isPrivate||ref.item.hidden){AppNotice.post(context,"Файл недоступен");return}
         navController.navigate("media-passport/"+android.net.Uri.encode(ref.key))
     }
     fun openOrganizationLink(raw:String){
         try{val link=MediaOrganizationPolicy.link(raw);context.startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse(link)))}
-        catch(_:Exception){Toast.makeText(context,"Не удалось открыть ссылку",Toast.LENGTH_SHORT).show()}
+        catch(_:Exception){AppNotice.post(context,"Не удалось открыть ссылку")}
     }
     val currentLibraryAudioId = libraryAudioState.currentId?.let { id -> libraryRefsByAlias[id]?.key
         ?: libraryAudioState.identities.firstNotNullOfOrNull { libraryRefsByAlias[it]?.key } ?: id }
@@ -405,7 +408,7 @@ fun MediaLoaderApp(
             viewModel.onMusicSourceChanged(previous, next)
         } else {
             AppLog.w("MusicSource", "Could not persist manual music-source selection")
-            Toast.makeText(context, "Не удалось сохранить музыкальный источник", Toast.LENGTH_LONG).show()
+            AppNotice.post(context, "Не удалось сохранить музыкальный источник")
         }
     }
     var closePickerAfterDownload by rememberSaveable {
@@ -504,7 +507,7 @@ fun MediaLoaderApp(
     LaunchedEffect(privateMoveStatus.result, privateMoveStatus.busy) {
         val result = privateMoveStatus.result
         if (!privateMoveStatus.busy && result != null) {
-            Toast.makeText(context, "Перенос в личное · ${result.summary}", Toast.LENGTH_LONG).show()
+            AppNotice.postBatch(context, "Перенос в личное", result, "Перемещено")
             viewModel.consumePrivateMoveResult(privateMoveStatus.revision)
             if (phoneGallery.loaded || phoneGallery.loading) libraryModel.refresh(AppMode.GALLERY, force = true)
             if (phoneMusic.loaded || phoneMusic.loading) libraryModel.refresh(AppMode.MUSIC, force = true)
@@ -522,7 +525,7 @@ fun MediaLoaderApp(
         val activeMove = viewModel.privateMoveState.value
         if (returnAfterPrivateSetup && pendingPrivateMoves.isEmpty() && !activeMove.busy && activeMove.result == null) {
             returnAfterPrivateSetup = false
-            Toast.makeText(context, "Перенос был прерван. Проверьте файлы в загрузках и личном.", Toast.LENGTH_LONG).show()
+            AppNotice.post(context, "Перенос был прерван. Проверьте файлы в загрузках и личном.")
             navController.popBackStack()
             viewModel.privateAccess.lock()
             privateNavigation = false
@@ -717,7 +720,7 @@ fun MediaLoaderApp(
         try { libraryModel.audioPreview.observeCurrent() }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
-            Toast.makeText(context, "Текущий плеер недоступен", Toast.LENGTH_SHORT).show()
+            AppNotice.post(context, "Текущий плеер недоступен")
             consumePlayerRequest(request)
         }
     }
@@ -736,7 +739,7 @@ fun MediaLoaderApp(
         when (decision) {
             com.domenota.medialoader.data.playback.CurrentPlayerDestination.Wait -> Unit
             com.domenota.medialoader.data.playback.CurrentPlayerDestination.Unavailable -> {
-                Toast.makeText(context, "Текущий плеер недоступен", Toast.LENGTH_SHORT).show()
+                AppNotice.post(context, "Текущий плеер недоступен")
                 consumePlayerRequest(request)
             }
             is com.domenota.medialoader.data.playback.CurrentPlayerDestination.Open -> {
@@ -777,8 +780,7 @@ fun MediaLoaderApp(
             if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
         }else if (musicLookupAvailable && !closePickerAfterDownload) {
             // Keep analyzed assets available for both audio choices without another analysis.
-            Toast.makeText(context, "Добавлено в загрузки. Можно выбрать второй вариант.",
-                Toast.LENGTH_LONG).show()
+            AppNotice.post(context, "Добавлено в загрузки. Можно выбрать второй вариант.")
         } else if (musicLookupAvailable && showPicker) {
             showPicker = false
         } else if (currentRoute == BROWSER_ROUTE) {
@@ -927,9 +929,9 @@ fun MediaLoaderApp(
             fileStatuses = fileStatuses + (id to status)
             if (status == SavedFileStatus.MISSING) {
                 AppLog.w("History", "Open prevented · saved file missing · id=$id")
-                Toast.makeText(context, "Файл удалён с устройства", Toast.LENGTH_SHORT).show()
+                AppNotice.post(context, "Файл удалён с устройства")
             } else if (status == SavedFileStatus.INACCESSIBLE) {
-                Toast.makeText(context, "Нет доступа к файлу", Toast.LENGTH_SHORT).show()
+                AppNotice.post(context, "Нет доступа к файлу")
             } else if ((internalViewerEnabled || item.isPrivate || appMode != AppMode.DOWNLOADER || queueIds.isNotEmpty()) && item.state == DownloadState.COMPLETED && item.savedUri != null) {
                 if (item.mediaType == MediaType.AUDIO && !item.isPrivate) {
                     val selectedRows = LibraryAudioQueue.resolve(queueIds, publicLibraryRows, false, fileStatuses)
@@ -944,7 +946,7 @@ fun MediaLoaderApp(
                     try { libraryModel.audioPreview.open(if (queue.any { it.key == ref.key }) queue.map { if (it.key == ref.key) ref else it } else listOf(ref) + queue, ref.key, originPlaylistId) }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) {
-                        Toast.makeText(context, "Не удалось подключиться к музыкальному плееру", Toast.LENGTH_SHORT).show()
+                        AppNotice.post(context, "Не удалось подключиться к музыкальному плееру")
                         return@launch
                     }
                 }
@@ -1011,7 +1013,7 @@ fun MediaLoaderApp(
                 row.item.mediaType !in setOf(MediaType.PHOTO, MediaType.VIDEO) ||
                 (row.aliases + row.key + listOfNotNull(row.appDownloadId)).none { it in members }
             }) {
-            Toast.makeText(context,"Состав альбома изменился или загружен не полностью. Файлы не перемещены.",Toast.LENGTH_LONG).show()
+            AppNotice.post(context,"Состав альбома изменился или загружен не полностью. Файлы не перемещены.")
         } else albumTrash = com.domenota.medialoader.ui.components.AlbumTrashRequest(folderId,resolved,members)
     }
     val requestDeviceAlbumTrash: (String,List<String>) -> Unit = { bucket, ids ->
@@ -1022,7 +1024,7 @@ fun MediaLoaderApp(
             members.isEmpty() || resolved.map { it.key }.toSet() != members || resolved.size != ids.distinct().size ||
             resolved.any { it.item.savedUri.isNullOrBlank() || it.item.hidden || it.item.isPrivate ||
                 it.item.mediaType !in setOf(MediaType.PHOTO,MediaType.VIDEO) }) {
-            Toast.makeText(context,"Состав папки не подтверждён. Файлы не перемещены.",Toast.LENGTH_LONG).show()
+            AppNotice.post(context,"Состав папки не подтверждён. Файлы не перемещены.")
         } else albumTrash = com.domenota.medialoader.ui.components.AlbumTrashRequest(bucket,resolved,members,physical = true)
     }
     albumTrash?.let { request ->
@@ -1096,13 +1098,13 @@ fun MediaLoaderApp(
             try {
                 val status = withContext(Dispatchers.IO) { availabilityCache.get(ref.item.savedUri, fresh = true) }
                 if (status != SavedFileStatus.PRESENT) {
-                    Toast.makeText(context, "Трек недоступен. Проверьте файл и разрешения.", Toast.LENGTH_SHORT).show()
+                    AppNotice.post(context, "Трек недоступен. Проверьте файл и разрешения.")
                 } else {
                     val queue = ids.mapNotNull(libraryRefsByAlias::get).distinctBy { it.key }
                     libraryModel.audioPreview.preview(queue, ref.key, playlistId)
                 }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { Toast.makeText(context, "Не удалось начать воспроизведение", Toast.LENGTH_SHORT).show() }
+            catch (_: Exception) { AppNotice.post(context, "Не удалось начать воспроизведение") }
         }
     }
 
@@ -1165,8 +1167,7 @@ fun MediaLoaderApp(
                 VkLinkParser.parse(candidate) != null || RutubeLinkParser.parse(candidate) != null
         }
         if (link == null) {
-            Toast.makeText(context, "Исходная ссылка недоступна — повторный поиск невозможен",
-                Toast.LENGTH_LONG).show()
+            AppNotice.post(context, "Исходная ссылка недоступна — повторный поиск невозможен")
         } else {
             pendingUrl = link
             lastHandledLink = link
@@ -1263,6 +1264,11 @@ fun MediaLoaderApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer); if(clipboardView.viewTreeObserver.isAlive)clipboardView.viewTreeObserver.removeOnWindowFocusChangeListener(focus) }
     }
 
+    var collectionNoticeFooterPx by remember { mutableIntStateOf(0) }
+    val noticeDensity = LocalDensity.current
+    val collectionNoticeBottom = with(noticeDensity) {
+        (collectionNoticeFooterPx + WindowInsets.navigationBars.getBottom(noticeDensity)).toDp()
+    }
     val checkingPhoneAccess = if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)
         visibleLibraryValidationPending(appMode, libraryIndex, phoneGallery, phoneMusic)
     else phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
@@ -1356,6 +1362,7 @@ fun MediaLoaderApp(
             }
         },
     ) { innerPadding ->
+        Box(Modifier.fillMaxSize()) {
         LibraryRefreshShield(
             checkingPhoneAccess && currentRoute != AppDestination.Settings.route &&
                 !(appMode == AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route),
@@ -1504,7 +1511,7 @@ fun MediaLoaderApp(
                                 } }
                                 libraryModel.audioPreview.playSelection(valid,shuffle)
                             } catch (e:CancellationException) { throw e }
-                            catch (_:Exception) { Toast.makeText(context,"Нет доступных треков или плеер недоступен",Toast.LENGTH_SHORT).show() }
+                            catch (_:Exception) { AppNotice.post(context,"Нет доступных треков или плеер недоступен") }
                         }
                     },
                     onResumeSelection = { resolved ->
@@ -1526,7 +1533,7 @@ fun MediaLoaderApp(
                                 check(present) { "Часть файлов недоступна. Открой подборку заново." }
                                 libraryModel.audioPreview.resumeSelection(refs,resolved)
                             } catch(e:CancellationException){throw e}
-                            catch(e:Exception){Toast.makeText(context,e.message?:"Не удалось продолжить сеанс",Toast.LENGTH_LONG).show()}
+                            catch(e:Exception){AppNotice.post(context,"Не удалось продолжить сеанс")}
                         }
                     },
                     onSaveFrequent = { name,ids -> libraryModel.playlistRepository.createFromTracks(name,ids,libraryAliases); Unit },
@@ -1543,7 +1550,7 @@ fun MediaLoaderApp(
                             val ref = libraryRefsByAlias[id] ?: return@launch
                             try { libraryModel.audioPreview.enqueue(ref, next) }
                             catch (e: CancellationException) { throw e }
-                            catch (_: Exception) { Toast.makeText(context, "Не удалось добавить трек в очередь", Toast.LENGTH_SHORT).show() }
+                            catch (_: Exception) { AppNotice.post(context, "Не удалось добавить трек в очередь") }
                         }
                     },
                     onPreview = previewLibraryAudio,
@@ -1555,18 +1562,39 @@ fun MediaLoaderApp(
                 }
             }
             composable("collections") {
+                fun playCollection(ids:List<String>,requestedId:String?=null){
+                    libraryPreviewJob?.cancel()
+                    libraryPreviewJob=fileActionScope.launch {
+                        try{
+                            val candidates=ids.mapNotNull{id->libraryRefsByAlias[id]?.takeIf{ref->
+                                ref.key==id&&!ref.item.isPrivate&&!ref.item.hidden&&ref.item.mediaType==MediaType.AUDIO
+                            }}
+                            val valid=withContext(Dispatchers.IO){candidates.filter{availabilityCache.get(it.item.savedUri,fresh=true)==SavedFileStatus.PRESENT}}
+                            libraryModel.audioPreview.playSelection(valid,false,requestedId)
+                        }catch(e:CancellationException){throw e}catch(_:Exception){AppNotice.post(context,"Нет доступных треков")}
+                    }
+                }
                 CollectionsScreen(collections,organizationRefs,organization,collectionInitial,collectionAudioOnly,collectionAddIds,collectionLink,
                     organizationReady,{navController.popBackStack()},openDownloadWithQueue,
-                    onPlay={ids->
-                        libraryPreviewJob?.cancel()
-                        libraryPreviewJob=fileActionScope.launch {
-                            try{
-                                val candidates=ids.map{libraryRefsByAlias[it]?.takeIf{ref->ref.key==it&&!ref.item.isPrivate&&ref.item.mediaType==MediaType.AUDIO}?:error("Файл недоступен")}
-                                val valid=withContext(Dispatchers.IO){candidates.filter{availabilityCache.get(it.item.savedUri,fresh=true)==SavedFileStatus.PRESENT}}
-                                libraryModel.audioPreview.playSelection(valid,false)
-                            }catch(e:CancellationException){throw e}catch(_:Exception){Toast.makeText(context,"Нет доступных треков",Toast.LENGTH_SHORT).show()}
-                        }
-                    },onLink=::openOrganizationLink,onPassport=::openPassport,onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable,initialCreate=collectionCreate)
+                    onPlay={ids->playCollection(ids)},onLink=::openOrganizationLink,onPassport=::openPassport,
+                    onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable,initialCreate=collectionCreate,
+                    onPlayTrack={id,ids->playCollection(ids,id)},currentPlayingId=currentLibraryAudioId,playing=libraryAudioState.playing,
+                    onNoticeFooterHeight={collectionNoticeFooterPx=it},
+                    miniPlayer={
+                        AudioMiniPlayer(interactiveSeek=true,onOpen={
+                            val decision=com.domenota.medialoader.data.playback.CurrentPlayerNavigation.resolve(
+                                controllerReady=libraryAudioState.connected,
+                                catalogReady=libraryIndex.ready&&indexedLibraryProjection.ready&&libraryAliasProjection.ready,
+                                privateReady=libraryPrivateKeys!=null,currentItem=libraryAudioState.currentItem,
+                                rows=publicLibraryRows,blockedIdentities=libraryPrivateKeys.orEmpty()+organizationHidden)
+                            if(decision is com.domenota.medialoader.data.playback.CurrentPlayerDestination.Open){
+                                navController.navigate("viewer/${android.net.Uri.encode(decision.row.id)}"){launchSingleTop=true}
+                                navController.currentBackStackEntry?.savedStateHandle?.apply{
+                                    set("private_viewer",false);set("gallery_presentation",false);set("current_audio_session_only",true)
+                                }
+                            }else AppNotice.post(context,"Текущий плеер недоступен")
+                        })
+                    })
             }
             composable("media-review"){
                 var playlistTarget by remember{mutableStateOf<String?>(null)}
@@ -1580,7 +1608,7 @@ fun MediaLoaderApp(
                     text={Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState())){
                         playlists.forEach{p->TextButton({playlistTarget=null;fileActionScope.launch{
                             try{libraryModel.playlistRepository.addTracksResolved(p.id,listOf(id),libraryAliases)}
-                            catch(e:CancellationException){throw e}catch(_:Exception){Toast.makeText(context,"Не удалось добавить трек",Toast.LENGTH_SHORT).show()}
+                            catch(e:CancellationException){throw e}catch(_:Exception){AppNotice.post(context,"Не удалось добавить трек")}
                         }}){Text(p.name)}}
                     }},confirmButton={TextButton({playlistTarget=null}){Text("Закрыть")}})}
             }
@@ -1914,7 +1942,7 @@ fun MediaLoaderApp(
                     onBack = { navController.popBackStack() },
                     onOpenApp = { id ->
                         if (viewModel.trashedUri(id) == null) {
-                            Toast.makeText(context, "Файл в корзине недоступен", Toast.LENGTH_SHORT).show()
+                            AppNotice.post(context, "Файл в корзине недоступен")
                         } else navController.navigate("trash-viewer/$id")
                     },
                     onRestoreApp = viewModel::restoreHidden,
@@ -1927,7 +1955,7 @@ fun MediaLoaderApp(
                 val privateUri = id?.let(viewModel::trashedUri)
                 if (original == null || privateUri == null) {
                     LaunchedEffect(id) {
-                        Toast.makeText(context, "Файл в корзине недоступен", Toast.LENGTH_SHORT).show()
+                        AppNotice.post(context, "Файл в корзине недоступен")
                         navController.popBackStack()
                     }
                 } else {
@@ -2119,7 +2147,7 @@ fun MediaLoaderApp(
                             }
                             try { setLibraryFavorite(canonicalId, !wasFavorite) }
                             catch (e: CancellationException) { throw e }
-                            catch (_: Exception) { Toast.makeText(context, "Не удалось изменить избранное", Toast.LENGTH_SHORT).show() }
+                            catch (_: Exception) { AppNotice.post(context, "Не удалось изменить избранное") }
                         } },
                         onAudioCurrentItemChanged = { entry.savedStateHandle["audio_current_id"] = it.id },
                         onAudioRecognize={selected,position->openTrackRecognition(selected.id,position,selected.savedUri)},
@@ -2247,13 +2275,24 @@ fun MediaLoaderApp(
                     onLogin = startLoginForCurrentUrl,
                     onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
                     recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
-                    onCancelRecovery=viewModel::cancelRecoveryDownload,
+                    onCancelRecovery=viewModel::cancelRecoveryDownload,recoveryProgress=preview.recoveryProgress,
                     onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
                         showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
                     } },
                 )
             }
         }
+        }
+        val noticeExtra = when {
+            currentRoute == "collections" -> collectionNoticeBottom
+            galleryHomeOverlay -> 76.dp
+            currentRoute in setOf(MEDIA_VIEWER_ROUTE, VIDEO_EDITOR_ROUTE, AUDIO_EDITOR_ROUTE, PHOTO_EDITOR_ROUTE, "batch-photo-editor", "trash-viewer/{downloadId}") -> 100.dp
+            else -> 0.dp
+        }
+        com.domenota.medialoader.ui.components.InAppNoticeHost(
+            Modifier.align(Alignment.BottomCenter),
+            bottomPadding = innerPadding.calculateBottomPadding() + noticeExtra,
+        )
         }
     }
     }
@@ -2264,6 +2303,7 @@ fun MediaLoaderApp(
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
+        Box {
             PreviewScreen(
                 url = preview.url.ifBlank { pendingUrl },
                 state = preview.analysis,
@@ -2289,12 +2329,15 @@ fun MediaLoaderApp(
                 onLogin = startLoginForCurrentUrl,
                 onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
                     recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
-                    onCancelRecovery=viewModel::cancelRecoveryDownload,
+                    onCancelRecovery=viewModel::cancelRecoveryDownload,recoveryProgress=preview.recoveryProgress,
                     onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
                         showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
                     } },
                 asSheet = true,
             )
+            com.domenota.medialoader.ui.components.InAppNoticeHost(
+                Modifier.align(Alignment.BottomCenter), bottomPadding = 88.dp)
+        }
         }
     }
 }

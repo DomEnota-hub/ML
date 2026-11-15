@@ -77,7 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.ui.components.AppCard
 import com.domenota.medialoader.ui.components.DownloadRow
@@ -249,7 +249,7 @@ fun DownloadsScreen(
         scope.launch {
             try {
                 val result = runFileBatch(ids, operation)
-                Toast.makeText(context, result.summary, Toast.LENGTH_LONG).show()
+                AppNotice.postBatch(context, "Результат операции", result, "Обработано")
             } finally { groupBusy = false }
         }
     }
@@ -291,7 +291,7 @@ fun DownloadsScreen(
             if (folderGroupTargets.isEmpty()) onSetFolder(id, folder)
             else {
                 val result = runFileBatch(folderGroupTargets) { onSetFolder(it, folder) }
-                Toast.makeText(context, result.summary, Toast.LENGTH_LONG).show()
+                AppNotice.postBatch(context, "Результат операции", result, "Обработано")
                 check(result.failed == 0) { result.summary }
             }
         },
@@ -666,8 +666,7 @@ fun DownloadsScreen(
                 assignmentById, folderNames,
                 onFavorite = { id -> scope.launch {
                     runCatching { onToggleFavorite(id) }.onFailure {
-                        Toast.makeText(context, it.message ?: "Не удалось изменить избранное",
-                            Toast.LENGTH_SHORT).show()
+                        AppNotice.post(context, it.message ?: "Не удалось изменить избранное")
                     }
                 } },
                 onChooseFolder = { id -> folderTargetId = id; folderGroupTargets = emptyList(); folderSheetOpen = true },

@@ -2,6 +2,20 @@ package com.domenota.medialoader.ui.screens.organization
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.delay
+import com.domenota.medialoader.core.model.RussianCounts
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
 import com.domenota.medialoader.ui.screens.music.MusicLibraryTrackRow
@@ -92,9 +106,13 @@ private fun ValueDialog(title:String,initial:String,label:String,onDismiss:()->U
 internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,repository:MediaOrganizationRepository,
     initialCollection:String?,audioOnly:Boolean,initialAdd:List<String>,initialLink:String?,ready:Boolean,onBack:()->Unit,
     onOpen:(String,List<String>)->Unit,onPlay:(List<String>)->Unit,onLink:(String)->Unit,onPassport:(String)->Unit,
-    onAddComplete:()->Unit,usable:Boolean=ready,initialCreate:Boolean=false) {
+    onAddComplete:()->Unit,usable:Boolean=ready,initialCreate:Boolean=false,
+    onPlayTrack:(String,List<String>)->Unit=onOpen,currentPlayingId:String?=null,playing:Boolean=false,
+    miniPlayer:@Composable ()->Unit={}, onNoticeFooterHeight:(Int)->Unit={}) {
     var selected by rememberSaveable(initialCollection){mutableStateOf(initialCollection)}
-    var filter by rememberSaveable(audioOnly){mutableStateOf(if(audioOnly)"Музыка" else "Всё")}
+    var filter by rememberSaveable(selected){mutableStateOf("Всё")}
+    var musicExpanded by rememberSaveable(selected){mutableStateOf(audioOnly)}
+    var ordering by rememberSaveable(selected){mutableStateOf(false)}
     var create by rememberSaveable(initialCreate){mutableStateOf(initialCreate)}
     var rename by rememberSaveable{mutableStateOf(false)}
     var remove by remember{mutableStateOf(false)}
@@ -115,6 +133,9 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         resolved = if(refs.isEmpty()) emptyMap() else withContext(Dispatchers.Default) { MediaOrganizationPolicy.resolve(collections.flatMap { it.members },refs) }
     }
     val collection=collections.firstOrNull{it.record.id==selected}
+    LaunchedEffect(collection?.record?.id,choosing,picker,rename,create) {
+        if(collection==null||choosing||picker||rename||create) onNoticeFooterHeight(0)
+    }
     fun mutate(action:suspend ()->Unit){scope.launch{
         busy=true;error=null
         try{action()}catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Не удалось выполнить действие"}finally{busy=false}
@@ -152,14 +173,14 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                     throw e
                 }
                 if(choosing){choosing=false;onAddComplete()}
-                selected=id;filter=if(audioOnly)"Музыка" else "Всё";create=false
+                selected=id;filter="Всё";create=false
             },onRename={})
         return
     }
-    BackHandler(selected!=null&&!choosing){if(selecting){selecting=false;chosenMembers=arrayListOf()}else if(initialCreate||initialCollection!=null)onBack() else selected=null}
+    BackHandler(selected!=null&&!choosing){if(ordering){ordering=false}else if(selecting){selecting=false;chosenMembers=arrayListOf()}else if(initialCreate||initialCollection!=null)onBack() else selected=null}
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("collections-screen")){
         Header(if(choosing)"Добавить в коллекцию" else if(collection!=null)"Коллекция" else "Коллекции",{
-            if(selecting){selecting=false;chosenMembers=arrayListOf()}else if(selected!=null&&!choosing&&!initialCreate&&initialCollection==null)selected=null else onBack()
+            if(ordering){ordering=false}else if(selecting){selecting=false;chosenMembers=arrayListOf()}else if(selected!=null&&!choosing&&!initialCreate&&initialCollection==null)selected=null else onBack()
         }){
             if(collection==null||choosing)IconButton({create=true},enabled=!busy&&(!choosing||ready)){Icon(Icons.Rounded.Add,"Создать коллекцию")}
             else {
@@ -168,7 +189,10 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                     IconButton({detailMenu=true},enabled=!busy){Icon(Icons.Rounded.MoreVert,"Меню коллекции")}
                     DropdownMenu(detailMenu,{detailMenu=false}){
                         DropdownMenuItem({Text(if(largeCards)"Компактная сетка" else "Крупные карточки")},{largeCards=!largeCards;detailMenu=false})
-                        DropdownMenuItem({Text("Выбрать материалы")},{selecting=true;chosenMembers=arrayListOf();detailMenu=false})
+                        DropdownMenuItem({Text("Выбрать файлы и ссылки")},{ordering=false;selecting=true;chosenMembers=arrayListOf();detailMenu=false})
+                        if(!audioOnly)DropdownMenuItem({Text(if(ordering)"Завершить сортировку" else "Изменить порядок")},{
+                            ordering=!ordering;selecting=false;chosenMembers=arrayListOf();detailMenu=false
+                        },enabled=ready&&!busy)
                         DropdownMenuItem({Text("Удалить коллекцию")},{remove=true;detailMenu=false})
                     }
                 }
@@ -187,20 +211,69 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         } else {
             val visible=collection.members.mapNotNull{member->resolved[member.id]?.let{byId[it.key]}?.let{member to it}}
             val audio=visible.filter{it.second.item.mediaType==MediaType.AUDIO}.map{it.second.key}.distinct()
-            val filtered=visible.filter{!audioOnly||it.second.item.mediaType==MediaType.AUDIO}
-                .filter{filter=="Всё"||it.second.item.mediaType.caption()==filter}
+            val allVisual=visible.filter{it.second.item.mediaType!=MediaType.AUDIO}
+            val availableFilters=listOf("Всё")+listOf(MediaType.PHOTO,MediaType.VIDEO).filter{type->allVisual.any{it.second.item.mediaType==type}}.map{it.caption()}
+            LaunchedEffect(availableFilters){if(filter !in availableFilters)filter="Всё"}
+            val filtered=allVisual.filter{!audioOnly&&(filter=="Всё"||it.second.item.mediaType.caption()==filter)}
             val links=collection.members.filter{it.link!=null}
             val missing=collection.members.count{it.link==null&&it.id !in resolved}
             val columns=if(largeCards)2 else 3
             val cover=visible.firstOrNull()?.second
-            val visual=filtered.filter{it.second.item.mediaType!=MediaType.AUDIO}
-            val tracks=filtered.filter{it.second.item.mediaType==MediaType.AUDIO}
-            val visibleLinks=if(!audioOnly&&(filter=="Всё"||filter=="Ссылки"))links else emptyList()
+            val tracks=visible.filter{it.second.item.mediaType==MediaType.AUDIO}
+            val visibleLinks=if(!audioOnly)links else emptyList()
             val unavailable=if(!audioOnly&&filter=="Всё"&&ready)collection.members.filter{it.link==null&&it.id !in resolved} else emptyList()
+            val visualIds=filtered.map{it.first.id}
+            val grid=rememberLazyGridState()
+            var draft by remember(collection.record.id,visualIds){mutableStateOf<List<String>?>(null)}
+            var dragged by remember(collection.record.id,visualIds){mutableStateOf<String?>(null)}
+            var pointer by remember{mutableStateOf(Offset.Zero)}
+            var grab by remember{mutableStateOf(Offset.Zero)}
+            val edge=with(LocalDensity.current){48.dp.toPx()}
+            val canOrder=ordering&&ready&&!busy&&visualIds.size>1
+            val orderedRows=(draft?:visualIds).mapNotNull{id->filtered.firstOrNull{it.first.id==id}}
+            fun hit(point:Offset)=grid.layoutInfo.visibleItemsInfo.firstOrNull{
+                it.key.toString() in visualIds && point.x>=it.offset.x && point.x<it.offset.x+it.size.width &&
+                    point.y>=it.offset.y && point.y<it.offset.y+it.size.height
+            }
+            fun moveAt(point:Offset){
+                val id=dragged?:return
+                val target=hit(point)?.key as? String?:return
+                val order=draft?:visualIds
+                draft=moveCollectionMember(order,id,target)
+            }
+            fun saveOrder(order:List<String>){
+                if(order==visualIds){draft=null;return}
+                mutate{try{repository.reorder(collection.record.id,visualIds,order)}finally{draft=null}}
+            }
+            LaunchedEffect(dragged,canOrder){
+                while(dragged!=null&&canOrder){
+                    val height=grid.layoutInfo.viewportSize.height.toFloat()
+                    val delta=when{
+                        pointer.y<edge -> -((edge-pointer.y)/edge).coerceIn(0f,1f)*18f
+                        pointer.y>height-edge -> ((pointer.y-height+edge)/edge).coerceIn(0f,1f)*18f
+                        else -> 0f
+                    }
+                    if(delta!=0f){grid.scrollBy(delta);moveAt(pointer)}
+                    delay(16)
+                }
+            }
             fun toggleMember(id:String){chosenMembers=ArrayList(if(id in chosenMembers)chosenMembers-id else chosenMembers+id)}
             fun openMember(ref:LibraryMediaRef){onOpen(ref.key,visible.filter{it.second.item.mediaType==ref.item.mediaType}.map{it.second.key})}
             fun removeMember(id:String){mutate{repository.remove(collection.record.id,id)}}
-            LazyVerticalGrid(GridCells.Fixed(columns),Modifier.weight(1f).testTag("collection-detail-grid"),
+            LazyVerticalGrid(GridCells.Fixed(columns),state=grid,modifier=Modifier.weight(1f).testTag("collection-detail-grid")
+                .pointerInput(canOrder,visualIds){
+                    if(canOrder)detectDragGesturesAfterLongPress(
+                        onDragStart={point->
+                            hit(point)?.let{item->
+                                dragged=item.key as String;pointer=point
+                                grab=point-Offset(item.offset.x.toFloat(),item.offset.y.toFloat())
+                                draft=visualIds
+                            }
+                        },
+                        onDragCancel={dragged=null;draft=null},
+                        onDragEnd={val order=draft;dragged=null;if(order!=null)saveOrder(order)}
+                    ){change,delta->if(dragged!=null){change.consume();pointer+=delta;moveAt(pointer)}}
+                },
                 contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp),
                 horizontalArrangement=Arrangement.spacedBy(4.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                 item(span={GridItemSpan(maxLineSpan)}){
@@ -209,7 +282,9 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                             CollectionCoverImage(collection,cover,Modifier.width(78.dp).aspectRatio(.8f).clip(RoundedCornerShape(10.dp)).clickable{rename=true})
                             Column(Modifier.weight(1f)){
                                 Text(collection.record.name,style=MaterialTheme.typography.titleLarge)
-                                Text(collectionMaterialCount(collection.members.size),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                val files=collection.members.count{it.link==null}
+                                if(files>0||links.isEmpty())Text(RussianCounts.files(files),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                if(links.isNotEmpty())Text(RussianCounts.links(links.size),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -219,35 +294,95 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                             }
                         }
                         if(!audioOnly)TextButton({linkDialog=true},enabled=!busy){Text("Добавить ссылку")}
-                        if(!audioOnly)Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                            val available=listOf("Всё")+MediaType.entries.filter{type->visible.any{it.second.item.mediaType==type}}.map{it.caption()}+if(links.isNotEmpty())listOf("Ссылки") else emptyList()
-                            LaunchedEffect(available){if(filter !in available)filter="Всё"}
-                            available.forEach{label->FilterChip(filter==label,{filter=label},{Text(label)})}
-                        }
+
                         if(missing>0&&!audioOnly&&ready)Text("Недоступно файлов: $missing. Связи сохранены.",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                        if(collection.members.isEmpty())Text("Пока нет материалов",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(collection.members.isEmpty())Text("Пока нет файлов и ссылок",color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                items(visual,key={it.first.id}){(member,ref)->
+                if(tracks.isNotEmpty()){
+                    item(key="music-header",span={GridItemSpan(maxLineSpan)}){
+                        Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surfaceVariant,
+                            modifier=Modifier.fillMaxWidth().testTag("collection-music-toggle").clickable{musicExpanded=!musicExpanded}){
+                            Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                                Icon(Icons.Rounded.MusicNote,null,tint=MaterialTheme.colorScheme.primary)
+                                Column(Modifier.weight(1f)){
+                                    Text("Музыка",style=MaterialTheme.typography.titleMedium)
+                                    Text(RussianCounts.files(tracks.size),style=MaterialTheme.typography.bodySmall)
+                                }
+                                Icon(if(musicExpanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                    if(musicExpanded)"Свернуть музыку" else "Развернуть музыку")
+                            }
+                        }
+                    }
+                    if(musicExpanded)items(tracks,key={it.first.id},span={GridItemSpan(maxLineSpan)}){(member,ref)->
+                        MusicLibraryTrackRow(ref.item,onPlay={if(selecting)toggleMember(member.id) else onPlayTrack(ref.key,audio)},
+                            isCurrent=currentPlayingId==ref.key,isPlaying=playing&&currentPlayingId==ref.key){
+                            if(selecting)PickerMark(member.id in chosenMembers,false,enabled=!busy){toggleMember(member.id)}
+                            else CollectionMemberMenu({onPassport(ref.key)},{removeMember(member.id)},!busy)
+                        }
+                    }
+                }
+                if(!audioOnly&&allVisual.isNotEmpty())item(key="visual-header",span={GridItemSpan(maxLineSpan)}){
+                    Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                            Text("Фото и видео",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
+                            IconButton({ordering=!ordering;selecting=false;chosenMembers=arrayListOf()},enabled=ready&&!busy&&allVisual.size>1){
+                                Icon(if(ordering)Icons.Rounded.Check else Icons.Rounded.SwapVert,if(ordering)"Завершить сортировку" else "Изменить порядок")
+                            }
+                            IconButton({largeCards=!largeCards},enabled=dragged==null){Icon(Icons.Rounded.GridView,"Изменить размер сетки")}
+                        }
+                        Surface(shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceVariant){
+                            Row(Modifier.padding(4.dp),horizontalArrangement=Arrangement.spacedBy(3.dp)){
+                                availableFilters.forEach{label->
+                                    val active=filter==label
+                                    Surface(modifier=Modifier.weight(1f).heightIn(min=48.dp).clickable(enabled=dragged==null&&!busy){filter=label},
+                                        shape=RoundedCornerShape(9.dp),color=if(active)MaterialTheme.colorScheme.primaryContainer else Color.Transparent){
+                                        Row(Modifier.padding(horizontal=4.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){
+                                            Icon(when(label){"Фото"->Icons.Rounded.Image;"Видео"->Icons.Rounded.Videocam;else->Icons.Rounded.GridView},null,Modifier.size(18.dp),
+                                                tint=if(active)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(label,style=MaterialTheme.typography.labelMedium,color=if(active)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if(ordering)Text("Удержание и перетаскивание. Порядок сохраняется в коллекции.",style=MaterialTheme.typography.bodySmall)
+                    }
+                }
+                items(orderedRows,key={it.first.id}){(member,ref)->
                     val row=ref.item
-                    Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(6.dp)).clickable{
-                        if(selecting)toggleMember(member.id) else openMember(ref)
-                    }.testTag("collection-media-"+member.id)){
+                    val dragging=dragged==member.id
+                    Box(Modifier.fillMaxWidth().aspectRatio(1f).zIndex(if(dragging)2f else 0f)
+                        .graphicsLayer{
+                            if(dragging){
+                                grid.layoutInfo.visibleItemsInfo.firstOrNull{it.key==member.id}?.let{
+                                    translationX=pointer.x-grab.x-it.offset.x
+                                    translationY=pointer.y-grab.y-it.offset.y
+                                }
+                                scaleX=1.04f;scaleY=1.04f;alpha=.92f
+                            }else{translationX=0f;translationY=0f;scaleX=1f;scaleY=1f;alpha=1f}
+                        }.clip(RoundedCornerShape(6.dp)).clickable(enabled=!ordering){
+                            if(selecting)toggleMember(member.id) else openMember(ref)
+                        }.semantics{
+                            if(canOrder){
+                                val i=visualIds.indexOf(member.id)
+                                customActions=buildList{
+                                    if(i>0)add(CustomAccessibilityAction("Переместить назад"){saveOrder(moveCollectionMember(visualIds,member.id,visualIds[i-1]));true})
+                                    if(i<visualIds.lastIndex)add(CustomAccessibilityAction("Переместить вперёд"){saveOrder(moveCollectionMember(visualIds,member.id,visualIds[i+1]));true})
+                                }
+                            }
+                        }.testTag("collection-media-"+member.id)){
                         DownloadThumbnail(row.savedUri,row.previewUrl,row.mediaType.kind(),Modifier.fillMaxSize())
                         if(row.mediaType==MediaType.VIDEO)Row(Modifier.align(Alignment.BottomStart).background(Color.Black.copy(alpha=.6f)).padding(4.dp),verticalAlignment=Alignment.CenterVertically){
                             Icon(Icons.Rounded.PlayArrow,null,Modifier.size(16.dp),tint=Color.White)
                             row.durationMs?.let{Text("${it/60000}:${"%02d".format(it/1000%60)}",color=Color.White,style=MaterialTheme.typography.labelSmall)}
                         }
                         Box(Modifier.align(Alignment.TopEnd)){
-                            if(selecting)PickerMark(member.id in chosenMembers,false,enabled=!busy){toggleMember(member.id)}
+                            if(ordering)Icon(Icons.Rounded.DragHandle,"Перетащить",Modifier.background(Color.Black.copy(alpha=.6f)).padding(6.dp),tint=Color.White)
+                            else if(selecting)PickerMark(member.id in chosenMembers,false,enabled=!busy){toggleMember(member.id)}
                             else CollectionMemberMenu({onPassport(ref.key)},{removeMember(member.id)},!busy)
                         }
-                    }
-                }
-                items(tracks,key={it.first.id},span={GridItemSpan(maxLineSpan)}){(member,ref)->
-                    MusicLibraryTrackRow(ref.item,onPlay={if(selecting)toggleMember(member.id) else onPlay(listOf(ref.key))},isCurrent=false,isPlaying=false){
-                        if(selecting)PickerMark(member.id in chosenMembers,false,enabled=!busy){toggleMember(member.id)}
-                        else CollectionMemberMenu({onPassport(ref.key)},{removeMember(member.id)},!busy)
                     }
                 }
                 items(visibleLinks,key={it.id},span={GridItemSpan(maxLineSpan)}){member->
@@ -273,6 +408,8 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                     }
                 }
             }
+            Column(Modifier.fillMaxWidth().onSizeChanged{onNoticeFooterHeight(it.height)}) {
+            miniPlayer()
             if(selecting)Surface(color=MaterialTheme.colorScheme.surface){
                 Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.CenterVertically){
                     Text("Выбрано: ${chosenMembers.size}",Modifier.weight(1f))
@@ -280,10 +417,11 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                     Button({removeMembers=true},enabled=!busy&&chosenMembers.isNotEmpty()){Text("Убрать")}
                 }
             }
+            }
 
         }
     }
-    if(removeMembers&&collection!=null)AlertDialog(onDismissRequest={removeMembers=false},title={Text("Убрать материалы?")},
+    if(removeMembers&&collection!=null)AlertDialog(onDismissRequest={removeMembers=false},title={Text("Убрать файлы и ссылки?")},
         text={Text("Будут удалены только связи с коллекцией. Файлы останутся на месте.")},
         confirmButton={TextButton({removeMembers=false;mutate{repository.removeSelection(collection.record.id,chosenMembers);chosenMembers=arrayListOf();selecting=false}}){Text("Убрать")}},
         dismissButton={TextButton({removeMembers=false}){Text("Отмена")}})
@@ -294,21 +432,17 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         dismissButton={TextButton({remove=false}){Text("Отмена")}})
 }
 
-internal fun collectionMaterialCount(count:Int):String {
-    val ending=when{
-        count%100 in 11..14->"материалов"
-        count%10==1->"материал"
-        count%10 in 2..4->"материала"
-        else->"материалов"
-    }
-    return "$count $ending"
+internal fun moveCollectionMember(order:List<String>,from:String,to:String):List<String>{
+    val source=order.indexOf(from);val target=order.indexOf(to)
+    if(source<0||target<0||source==target)return order
+    return order.toMutableList().apply{add(target,removeAt(source))}
 }
 
 @Composable
 private fun CollectionMemberMenu(onInfo:(()->Unit)?,onRemove:()->Unit,enabled:Boolean){
     var expanded by remember{mutableStateOf(false)}
     Box{
-        IconButton({expanded=true},enabled=enabled){Icon(Icons.Rounded.MoreVert,"Действия материала")}
+        IconButton({expanded=true},enabled=enabled){Icon(Icons.Rounded.MoreVert,"Действия файла")}
         DropdownMenu(expanded,{expanded=false}){
             if(onInfo!=null)DropdownMenuItem({Text("Паспорт файла")},{expanded=false;onInfo()})
             DropdownMenuItem({Text("Убрать из коллекции")},{expanded=false;onRemove()})

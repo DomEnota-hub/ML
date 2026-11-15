@@ -13,7 +13,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -65,7 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
+import com.domenota.medialoader.ui.components.NoticeDialog as Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.domenota.medialoader.core.logging.AppLog
 import com.domenota.medialoader.core.logging.SafeWebConsole
@@ -219,10 +219,10 @@ fun HitMozSearchDialog(
                     sourcePageUrl = selectedSearch,
                 )
                 AppLog.i("HitMoz", "Browser-selected MP3 queued · id=${queued.id} · requestId=$browserRequestId · channel=$channel · ${HitMozDownloadUrls.diagnosticAddress(url)}")
-                Toast.makeText(context, "Добавлено в загрузки", Toast.LENGTH_SHORT).show()
+                AppNotice.post(context, "Добавлено в загрузки")
             } catch (failure: Exception) {
                 AppLog.w("HitMoz", "Could not queue selected MP3", failure)
-                Toast.makeText(context, failure.message ?: "Не удалось начать загрузку", Toast.LENGTH_LONG).show()
+                AppNotice.post(context, failure.message ?: "Не удалось начать загрузку")
             }
         }
     }

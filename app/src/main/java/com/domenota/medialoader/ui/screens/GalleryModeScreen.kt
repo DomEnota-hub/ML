@@ -1,6 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.compose.foundation.border
 
 import androidx.activity.compose.BackHandler
@@ -159,7 +159,7 @@ fun GalleryModeScreen(
         if (found != null && GalleryLibraryState.filter(media, assignments, found.key, "", buckets).any { it.id == request.itemId }) {
             search = ""; selection = found.key; selectionTitle = found.name; if (tab != 0) selectTab(0); jumpToMedia = request.itemId
             onAlbumRequestHandled()
-        } else if (!loading) { Toast.makeText(context, "Альбом недоступен", Toast.LENGTH_SHORT).show(); onAlbumRequestHandled() }
+        } else if (!loading) { AppNotice.post(context, "Альбом недоступен"); onAlbumRequestHandled() }
     }
     val orderedAlbums = remember(albums, albumSettings.order) { orderedGalleryAlbums(albums, albumSettings) }
     val visibleAlbums = orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
@@ -323,8 +323,8 @@ fun GalleryModeScreen(
                 Icon(Icons.Rounded.Delete, "Удалить выбранное", tint = MaterialTheme.colorScheme.error)
             }
         }
-        val batchPhotos=orderedDisplayed.filter { it.id in selectedSet && it.mediaType==MediaType.PHOTO && !it.isPrivate && !it.hidden }
-        if(onBatchPhotoEdit!=null && batchPhotos.isNotEmpty()) {
+        val batchPhotos=orderedDisplayed.filter { it.id in selectedSet && it.mediaType==MediaType.PHOTO && !it.isPrivate && !it.hidden && it.savedUri!=null }
+        if(onBatchPhotoEdit!=null && batchPhotos.size>=2) {
             val photoIds=batchPhotos.map { it.id }.toSet()
             Surface(onClick={onBatchPhotoEdit(queue.filter { it in photoIds })},
                 modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=4.dp),
@@ -690,7 +690,7 @@ fun GalleryModeScreen(
                 if (removedAlbum != null && done.size == snapshot.size)
                     saveSettings(removeGalleryAlbumSettings(albumSettings, "device:$removedAlbum"))
                 error = if (done.size == snapshot.size) null else message
-                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                AppNotice.post(context, message)
             },
         )
     }
@@ -736,7 +736,7 @@ fun GalleryModeScreen(
                         } else if (!PhysicalAlbumPolicy.fullAccess(context)) {
                             val reason = "Для удаления альбома нужен полный доступ к фото и видео Android 11+."
                             error = reason
-                            Toast.makeText(context,reason,Toast.LENGTH_LONG).show()
+                            AppNotice.post(context,reason)
                         } else if (includeContents) {
                             onTrashDeviceAlbum?.invoke(album.key.removePrefix("device:"), albumRows.map { it.id })
                         } else {

@@ -1,6 +1,9 @@
 package com.domenota.medialoader.data.share
 
 import android.content.Context
+import android.content.SharedPreferences
+import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import com.domenota.medialoader.core.model.MediaItem
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.core.provider.InstagramLinkParser
@@ -13,6 +16,26 @@ object InstagramShareSettings {
     fun isAutomatic(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY, "manual") == "automatic"
+
+    fun toggle(context: Context) {
+        setAutomatic(context, !isAutomatic(context))
+    }
+
+    @Composable
+    fun rememberAutomatic(): Boolean {
+        val context = LocalContext.current.applicationContext
+        val prefs = remember(context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+        var automatic by remember(prefs) { mutableStateOf(isAutomatic(context)) }
+        DisposableEffect(prefs) {
+            val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == KEY || key == null) automatic = isAutomatic(context)
+            }
+            prefs.registerOnSharedPreferenceChangeListener(listener)
+            automatic = isAutomatic(context)
+            onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+        }
+        return automatic
+    }
 
     fun setAutomatic(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

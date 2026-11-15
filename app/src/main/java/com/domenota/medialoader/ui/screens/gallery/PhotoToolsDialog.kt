@@ -7,7 +7,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
@@ -39,7 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.window.Dialog
+import com.domenota.medialoader.ui.components.NoticeDialog as Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.data.editor.LocalTextOcr
@@ -88,7 +88,7 @@ internal fun PhotoToolsDialog(photo: DownloadEntity, mode: String, onDismiss: ()
     DisposableEffect(maskEditor) { onDispose { maskEditor?.release() } }
     val result = if (mode == "watermark") watermarkImage else maskEditor?.preview ?: selectedMask
     @Suppress("UNUSED_VARIABLE") val maskChange = maskRevision
-    fun notify(message: String) { Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
+    fun notify(message: String) { AppNotice.post(context, message) }
     fun perform(action: suspend () -> Unit) {
         scope.launch {
             exporting = true

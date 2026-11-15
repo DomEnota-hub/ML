@@ -11,7 +11,7 @@ data class MediaCollectionEntity(@PrimaryKey val id:String,val name:String,val c
 @Entity(tableName="media_collection_members",foreignKeys=[ForeignKey(entity=MediaCollectionEntity::class,
     parentColumns=["id"],childColumns=["collectionId"],onDelete=ForeignKey.CASCADE)],indices=[Index("collectionId")])
 data class MediaCollectionMemberEntity(@PrimaryKey val id:String,val collectionId:String,val identityJson:String?,
-    val link:String?,val addedAt:Long)
+    val link:String?,val addedAt:Long,val sortOrder:Long?=null)
 
 @Entity(tableName="media_review")
 data class MediaReviewEntity(@PrimaryKey val downloadId:String,val completedAt:Long,val reviewed:Boolean=false)
@@ -23,9 +23,9 @@ data class MediaOperationEntity(@PrimaryKey val id:String,val mediaId:String,val
 interface MediaOrganizationDao {
     @Query("SELECT * FROM media_collections ORDER BY createdAt DESC,id")
     fun observeCollections():Flow<List<MediaCollectionEntity>>
-    @Query("SELECT * FROM media_collection_members ORDER BY addedAt,id")
+    @Query("SELECT * FROM media_collection_members ORDER BY COALESCE(sortOrder,addedAt),id")
     fun observeMembers():Flow<List<MediaCollectionMemberEntity>>
-    @Query("SELECT * FROM media_collection_members WHERE collectionId=:id ORDER BY addedAt,id")
+    @Query("SELECT * FROM media_collection_members WHERE collectionId=:id ORDER BY COALESCE(sortOrder,addedAt),id")
     suspend fun members(id:String):List<MediaCollectionMemberEntity>
     @Query("SELECT * FROM media_collections WHERE id=:id")
     suspend fun collection(id:String):MediaCollectionEntity?
@@ -34,6 +34,8 @@ interface MediaOrganizationDao {
     suspend fun rename(id:String,name:String):Int
     @Query("DELETE FROM media_collections WHERE id=:id")
     suspend fun deleteCollection(id:String)
+    @Query("UPDATE media_collection_members SET sortOrder=:position WHERE collectionId=:collectionId AND id=:id")
+    suspend fun updateMemberOrder(collectionId:String,id:String,position:Long):Int
     @Insert suspend fun insertMember(row:MediaCollectionMemberEntity)
     @Query("DELETE FROM media_collection_members WHERE collectionId=:collectionId AND id=:id")
     suspend fun removeMember(collectionId:String,id:String)
@@ -55,5 +57,11 @@ internal val MEDIA_ORGANIZATION_MIGRATION=object:Migration(12,13){
         db.execSQL("CREATE TABLE IF NOT EXISTS media_review (downloadId TEXT NOT NULL PRIMARY KEY, completedAt INTEGER NOT NULL, reviewed INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE IF NOT EXISTS media_operations (id TEXT NOT NULL PRIMARY KEY, mediaId TEXT NOT NULL, operation TEXT NOT NULL, occurredAt INTEGER NOT NULL)")
         db.execSQL("CREATE INDEX IF NOT EXISTS index_media_operations_mediaId ON media_operations(mediaId)")
+    }
+}
+
+internal val COLLECTION_ORDER_MIGRATION=object:Migration(13,14){
+    override fun migrate(db:SupportSQLiteDatabase){
+        db.execSQL("ALTER TABLE media_collection_members ADD COLUMN sortOrder INTEGER")
     }
 }

@@ -198,7 +198,8 @@ class MediaRepository private constructor(context: Context) {
                         "ON `catalog_assignments` (`folderId`)")
                 }
             }, com.domenota.medialoader.core.database.PRIVATE_HISTORY_MIGRATION,
-                com.domenota.medialoader.core.database.MEDIA_ORGANIZATION_MIGRATION).build()
+                com.domenota.medialoader.core.database.MEDIA_ORGANIZATION_MIGRATION,
+                com.domenota.medialoader.core.database.COLLECTION_ORDER_MIGRATION).build()
     private val history = HistoryRepository(historyDb.downloadDao(), historyDb.catalogDao(),historyDb)
     internal val organization = com.domenota.medialoader.data.library.MediaOrganizationRepository(historyDb)
     private val catalog = DownloadCatalogRepository(historyDb)
@@ -1066,27 +1067,40 @@ class MediaRepository private constructor(context: Context) {
     suspend fun missingRecoveryCandidate(id:String,items:List<MediaItem>):MediaItem?=withContext(Dispatchers.IO){
         val row=requireRecoveryRow(id)
         if(recoveryAvailable(row))return@withContext null
-        com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.match(row,items).also{
-            AppLog.i("MissingRecovery","Candidate verification · provider=${row.providerId} · type=${row.mediaType} · candidates=${items.size} · stableKey=${row.bulkMediaKey!=null} · matched=${it!=null}")
-        }
+        val policy=com.domenota.medialoader.data.download.MissingFileRecoveryPolicy
+        val match=policy.match(row,items)
+        AppLog.i("MissingRecovery","Candidate verification · provider=${row.providerId} · type=${row.mediaType} · candidates=${items.size} · stableKey=${row.bulkMediaKey!=null} · matched=${match!=null} · candidateTypes=${items.groupingBy{it.type}.eachCount()} · grouped=${row.groupId!=null}")
+        match?:throw com.domenota.medialoader.data.download.MissingRecoveryFailure(policy.mismatchMessage(row,items))
     }
 
     /** The ordinary engine downloads to its temporary file. Only recovery opts in
      * to stage validation and a durable publication journal before public bytes
      * are written. The existing history row is changed by one verified commit. */
-    suspend fun restoreMissingFile(id:String,candidates:List<MediaItem>):Boolean=withContext(Dispatchers.IO){
+    suspend fun restoreMissingFile(id:String,candidates:List<MediaItem>,
+        onProgress:suspend (com.domenota.medialoader.data.download.RecoveryTransferProgress)->Unit={}):Boolean=withContext(Dispatchers.IO){
         musicPostProcessGate.withPermit {
             com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
             reconcileMissingRecovery()
             val row=requireRecoveryRow(id)
             if(recoveryAvailable(row))return@withPermit false
             val item=com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.match(row,candidates)
-                ?:throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Медиа найдено, но не удалось точно определить отсутствующий файл. Исходная запись сохранена.")
+                ?:throw com.domenota.medialoader.data.download.MissingRecoveryFailure(
+                    com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.mismatchMessage(row,candidates))
             require(resolver.canDownload(item)){"Недопустимый адрес файла"}
             _missingRecoveryActive.update{it+1}
             try {
                 withContext(missingRecoveryJournal.publication(row)){
-                    queue.restoreMissing(row,item){result->
+                    queue.restoreMissing(row,item,onProgress=onProgress,beforeRetry={
+                        check(missingRecoveryJournal.read()==null){"Предыдущая публикация не завершена"}
+                        check(requireRecoveryRow(id)==row&&!recoveryAvailable(row)){"Исходная запись или файл изменились"}
+                    },refresh={
+                        // Use the persisted publication URL only. No retry against
+                        // a guessed page or a different carousel member.
+                        val page=row.sourcePageUrl?:return@restoreMissing null
+                        val fresh=resolve(page)
+                        com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.match(row,fresh)
+                            ?.takeIf{resolver.canDownload(it)}
+                    }){result->
                         kotlinx.coroutines.currentCoroutineContext().ensureActive()
                         require(result.savedUri!=row.savedUri){"Получен прежний адрес отсутствующего файла"}
                         val bytes=missingRecoveryJournal.verify(result.savedUri)

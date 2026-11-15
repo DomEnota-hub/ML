@@ -15,7 +15,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -198,7 +198,7 @@ fun SourceBrowserScreen(
                         if (!source.isSite(view.url)) return@post
                         val accepted = source.acceptedLink(link)
                         if (accepted == null) {
-                            Toast.makeText(context, "Откройте публикацию или видео для загрузки", Toast.LENGTH_SHORT).show()
+                            AppNotice.post(context, "Откройте публикацию или видео для загрузки")
                             return@post
                         }
                         runCatching { syncSession(source, context.applicationContext) }

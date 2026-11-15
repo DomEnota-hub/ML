@@ -2,7 +2,7 @@ package com.domenota.medialoader.ui
 
 import android.app.Application
 import android.net.Uri
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.domenota.medialoader.core.database.DownloadEntity
@@ -82,6 +82,7 @@ data class PreviewState(
     val duplicateMatches: List<DuplicateMatch> = emptyList(),
     val recoveryIdentityFailure:Boolean=false,
     val recoveryCandidates:List<MediaItem> = emptyList(),
+    val recoveryProgress:com.domenota.medialoader.data.download.RecoveryTransferProgress?=null,
 )
 
 class MediaLoaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -121,7 +122,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     private var deferredJob: Job? = null
     fun deferLink(url:String,recoveryHistoryId:String?=null):Boolean {
         val saved=deferredStore.add(url,recoveryHistoryId)
-        Toast.makeText(getApplication(),if(saved)"Добавлено в отложенное" else "Не удалось сохранить ссылку",Toast.LENGTH_SHORT).show()
+        AppNotice.post(getApplication(),if(saved)"Добавлено в отложенное" else "Не удалось сохранить ссылку")
         return saved
     }
     fun openDeferredLink(id:String) {
@@ -264,11 +265,11 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
 
     fun recognizeDownload(id: String) {
         viewModelScope.launch {
-            Toast.makeText(getApplication(), "Ищу название трека…", Toast.LENGTH_SHORT).show()
+            AppNotice.post(getApplication(), "Ищу название трека…")
             val previous = downloads.value.firstOrNull { it.id == id }
             val result = try { repository.recognizeAudio(id) }
             catch (error: IllegalStateException) {
-                Toast.makeText(getApplication(), error.message, Toast.LENGTH_LONG).show()
+                AppNotice.post(getApplication(), "Не удалось выполнить распознавание")
                 return@launch
             }
             val different = result != null && previous?.recognizedTitle != null &&
@@ -278,11 +279,9 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                 _recognitionProposal.value = RecognitionProposal(id, result)
                 return@launch
             }
-            Toast.makeText(
+            AppNotice.post(
                 getApplication(),
-                if (result == null) "Трек не удалось определить" else "${result.artist} — ${result.title}",
-                Toast.LENGTH_LONG,
-            ).show()
+                if (result == null) "Трек не удалось определить" else "${result.artist} — ${result.title}")
         }
     }
 
@@ -296,15 +295,13 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             val applied = try { repository.applyRecognizedAudio(proposed.downloadId, proposed.result) }
             catch (error: IllegalStateException) {
-                Toast.makeText(getApplication(), error.message, Toast.LENGTH_LONG).show()
+                AppNotice.post(getApplication(), "Не удалось выполнить распознавание")
                 return@launch
             }
-            Toast.makeText(
+            AppNotice.post(
                 getApplication(),
                 if (applied) "Обновлено: ${proposed.result.artist} — ${proposed.result.title}"
-                else "Не удалось обновить данные трека",
-                Toast.LENGTH_LONG,
-            ).show()
+                else "Не удалось обновить данные трека")
         }
     }
 
@@ -314,13 +311,11 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                 repository.importYouTubeCookies(uri)
                 _youTubeCookies.value = true
                 _youTubeSignedIn.value = true
-                Toast.makeText(getApplication(), "Cookies YouTube импортированы", Toast.LENGTH_SHORT).show()
+                AppNotice.post(getApplication(), "Cookies YouTube импортированы")
             } catch (error: Exception) {
-                Toast.makeText(
+                AppNotice.post(
                     getApplication(),
-                    error.message ?: "Не удалось импортировать cookies",
-                    Toast.LENGTH_LONG,
-                ).show()
+                    error.message ?: "Не удалось импортировать cookies")
             }
         }
     }
@@ -368,11 +363,10 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             try {
                 repository.savePreviewFrame(item)
-                Toast.makeText(getApplication(), "Кадр сохранён", Toast.LENGTH_SHORT).show()
+                AppNotice.post(getApplication(), "Кадр сохранён")
             } catch (error: Exception) {
                 AppLog.e("PreviewFrame", "Could not save frame", error)
-                Toast.makeText(getApplication(), error.message ?: "Не удалось сохранить кадр",
-                    Toast.LENGTH_LONG).show()
+                AppNotice.post(getApplication(), error.message ?: "Не удалось сохранить кадр")
             }
         }
     }
@@ -744,7 +738,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         runCatching { repository.selectDownloadFolder(uri) }
             .onSuccess { _downloadFolder.value = repository.storageDisplayPath }
             .onFailure {
-                Toast.makeText(getApplication(), "Не удалось выбрать папку", Toast.LENGTH_SHORT).show()
+                AppNotice.post(getApplication(), "Не удалось выбрать папку")
             }
     }
 
@@ -923,20 +917,23 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         if(state.recoveryCandidates.isEmpty())return
         fun current()=_preview.value.let{it.recoveryHistoryId==id&&it.url==state.url&&it.recoveryCandidates==state.recoveryCandidates}
         fun message(value:String){
-            _preview.update{if(current())it.copy(enqueuing=false,message=value)else it}
+            _preview.update{if(current())it.copy(enqueuing=false,message=value,recoveryProgress=null)else it}
         }
-        _preview.update{it.copy(enqueuing=true,message=null,duplicateMatches=emptyList())}
+        _preview.update{it.copy(enqueuing=true,message=null,duplicateMatches=emptyList(),
+            recoveryProgress=com.domenota.medialoader.data.download.RecoveryTransferProgress(1))}
         recoveryDownloadJob=viewModelScope.launch{
             try{
                 ActiveDownloadService.start(getApplication())
-                val restored=repository.restoreMissingFile(id,state.recoveryCandidates)
+                val restored=repository.restoreMissingFile(id,state.recoveryCandidates){progress->
+                    _preview.update{if(current())it.copy(recoveryProgress=progress)else it}
+                }
                 val removed=deferredStore.complete(state.url,id)
                 val result=if(restored)"Файл восстановлен в исходной записи" else "Файл уже доступен"
                 if(current()){
                     message(result)
-                    Toast.makeText(getApplication(),if(removed)result else "$result. Не удалось обновить отложенное.",Toast.LENGTH_LONG).show()
+                    AppNotice.post(getApplication(),if(removed)result else "$result. Не удалось обновить отложенное.")
                     onRestored()
-                }else Toast.makeText(getApplication(),result,Toast.LENGTH_LONG).show()
+                }else AppNotice.post(getApplication(),result)
             }catch(cancelled:CancellationException){
                 message("Восстановление остановлено. Исходная запись сохранена.")
                 throw cancelled
@@ -1058,8 +1055,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                 com.domenota.medialoader.core.logging.AppLog.w(
                     "History", "Delete failed · id=$id · ${error.javaClass.simpleName}: ${error.message.orEmpty().take(160)}"
                 )
-                Toast.makeText(getApplication(), "Не удалось удалить файл: ${error.message ?: "проверьте доступ"}",
-                    Toast.LENGTH_LONG).show()
+                AppNotice.post(getApplication(), "Не удалось удалить файл. Проверьте доступ")
             }
         }
     }
@@ -1076,8 +1072,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                 com.domenota.medialoader.core.logging.AppLog.w(
                     "History", "Rename failed · id=$id · ${error.javaClass.simpleName}: ${error.message.orEmpty().take(160)}"
                 )
-                Toast.makeText(getApplication(), "Не удалось переименовать: ${error.message ?: "проверьте доступ"}",
-                    Toast.LENGTH_LONG).show()
+                AppNotice.post(getApplication(), "Не удалось переименовать файл. Проверьте доступ")
             }
         }
     }
@@ -1087,7 +1082,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
             try {
                 repository.restoreHidden(ids)
             } catch (_: Exception) {
-                Toast.makeText(getApplication(), "Не удалось восстановить файл", Toast.LENGTH_SHORT).show()
+                AppNotice.post(getApplication(), "Не удалось восстановить файл")
             }
         }
     }
@@ -1098,8 +1093,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
             try {
                 repository.removeHidden(ids)
             } catch (error: Exception) {
-                Toast.makeText(getApplication(), error.message ?: "Не удалось удалить выбранные файлы",
-                    Toast.LENGTH_LONG).show()
+                AppNotice.post(getApplication(), error.message ?: "Не удалось удалить выбранные файлы")
             }
         }
     }
@@ -1109,7 +1103,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
             try {
                 repository.clearHidden()
             } catch (_: Exception) {
-                Toast.makeText(getApplication(), "Не удалось очистить корзину", Toast.LENGTH_SHORT).show()
+                AppNotice.post(getApplication(), "Не удалось очистить корзину")
             }
         }
     }

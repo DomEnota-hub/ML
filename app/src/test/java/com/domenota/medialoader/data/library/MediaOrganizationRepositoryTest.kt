@@ -45,6 +45,23 @@ class MediaOrganizationRepositoryTest {
         assertEquals(2,db.organizationDao().members(id).size)
         assertEquals(original,history.byId(original.id))
     }
+    @Test fun reorderPreservesHiddenSlotsLinksDatesAndOtherCollections()=runBlocking {
+        val c=store.create("Order");val other=store.create("Other")
+        val a=row("a");val b=row("b").copy(savedUri="content://media/b");val d=row("d").copy(savedUri="content://media/d")
+        listOf(a,b,d).forEach{history.save(it)}
+        store.addMedia(c,listOf(ref(a)));store.addLink(c,"https://example.com/one")
+        store.addMedia(c,listOf(ref(b),ref(d)));store.addMedia(other,listOf(ref(a)))
+        val before=db.organizationDao().members(c)
+        val ids=listOf(before[0].id,before[3].id)
+        store.reorder(c,ids,ids.reversed())
+        val after=db.organizationDao().members(c)
+        assertEquals(listOf(before[3].id,before[1].id,before[2].id,before[0].id),after.map{it.id})
+        assertEquals(before.associate{it.id to it.addedAt},after.associate{it.id to it.addedAt})
+        assertEquals(1,db.organizationDao().members(other).size)
+        assertTrue(runCatching{store.reorder(c,ids,ids.reversed())}.isFailure)
+        store.addLink(c,"https://example.com/new")
+        assertEquals("https://example.com/new",db.organizationDao().members(c).last().link)
+    }
     @Test fun inboxOnlyRecordsRealCompletionAndNeverRequeuesReviewed()=runBlocking {
         history.save(row("old"))
         history.save(row("new",DownloadState.RUNNING))

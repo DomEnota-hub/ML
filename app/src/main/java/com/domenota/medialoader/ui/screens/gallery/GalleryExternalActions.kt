@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.screens.gallery
 
+import com.domenota.medialoader.ui.components.AppNotice
+
 import android.app.WallpaperManager
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -45,7 +47,7 @@ internal suspend fun copyGalleryFile(context: Context, item: DownloadEntity) {
     withContext(Dispatchers.Main) {
         (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
             .setPrimaryClip(ClipData.newUri(context.contentResolver, item.originalName, uri))
-        android.widget.Toast.makeText(context, "Файл скопирован", android.widget.Toast.LENGTH_SHORT).show()
+        AppNotice.post(context, "Файл скопирован")
     }
 }
 
@@ -186,7 +188,7 @@ internal suspend fun galleryApplyWallpaper(context: Context, item: DownloadEntit
         }
     }
     withContext(Dispatchers.Main) {
-        android.widget.Toast.makeText(context, "Обои установлены", android.widget.Toast.LENGTH_SHORT).show()
+        AppNotice.post(context, "Обои установлены")
     }
 }
 

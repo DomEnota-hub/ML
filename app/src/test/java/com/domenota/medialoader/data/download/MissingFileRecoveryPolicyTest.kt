@@ -71,4 +71,20 @@ class MissingFileRecoveryPolicyTest {
         assertNull(MissingFileRecoveryPolicy.match(previous,listOf(b)))
         assertNull(MissingFileRecoveryPolicy.match(previous,listOf(a,a.copy(id="duplicate"))))
     }
+    @Test fun legacyPhotoCannotBecomeVideoOrAnUnverifiedCover(){
+        val url="https://www.instagram.com/reel/DfJq2fdoCdM/"
+        val previous=row.copy(bulkMediaKey=null,groupId=null,sourcePageUrl=url)
+        val video=item.copy(type=MediaType.VIDEO,id="DfJq2fdoCdM",sourceGroupId="DfJq2fdoCdM",
+            position=null,sourcePageUrl=url,previewUrl="https://cdn.example/cover.jpg")
+        val audio=video.copy(type=MediaType.AUDIO,id="${video.id}_audio")
+        assertNull(MissingFileRecoveryPolicy.match(previous,listOf(video,audio)))
+        assertTrue(MissingFileRecoveryPolicy.mismatchMessage(previous,listOf(video,audio)).contains("Подтверждённая фотография не найдена"))
+        assertNull(MissingFileRecoveryPolicy.match(previous,listOf(video,video.copy(type=MediaType.PHOTO,id="cover"))))
+    }
+    @Test fun recoveryOnlyRetriesRecognizedNetworkFailures(){
+        assertTrue(RecoveryTransferPolicy.networkInterrupted(java.net.ProtocolException("unexpected end of stream")))
+        assertTrue(RecoveryTransferPolicy.networkInterrupted(java.net.SocketTimeoutException()))
+        assertFalse(RecoveryTransferPolicy.networkInterrupted(java.io.IOException("disk full")))
+        assertFalse(RecoveryTransferPolicy.networkInterrupted(javax.net.ssl.SSLHandshakeException("certificate")))
+    }
 }

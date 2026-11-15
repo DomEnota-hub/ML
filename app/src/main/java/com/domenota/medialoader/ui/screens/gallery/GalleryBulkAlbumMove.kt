@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.screens.gallery
 
+import com.domenota.medialoader.ui.components.NoticeSheet as ModalBottomSheet
+
 import android.app.Activity
 import android.content.ContentValues
 import android.net.Uri

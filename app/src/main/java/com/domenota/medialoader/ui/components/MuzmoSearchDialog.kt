@@ -10,7 +10,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebChromeClient
 import android.webkit.ConsoleMessage
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,7 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import com.domenota.medialoader.ui.components.NoticeDialog as Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import com.domenota.medialoader.core.logging.AppLog
@@ -229,7 +229,7 @@ fun MuzmoSearchDialog(
                                             }
                                             val queued = repo.enqueueMuzmoMp3(link, selection.artist, selection.title,
                                                 sourcePageUrl = selection.infoUrl, artworkUrl = artwork)
-                                            Toast.makeText(context, "Добавлено в загрузки", Toast.LENGTH_SHORT).show()
+                                            AppNotice.post(context, "Добавлено в загрузки")
                                             AppLog.i("Muzmo", "Selected MP3 queued · op=$operationId · downloadId=${queued.id}")
                                         } catch (e: Exception) {
                                             problem = e.message ?: "Не удалось начать загрузку."

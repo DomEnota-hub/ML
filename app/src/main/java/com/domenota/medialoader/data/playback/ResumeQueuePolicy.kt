@@ -22,7 +22,7 @@ internal data class ResolvedResumeQueue(val session:ResumeQueueSession,val ids:L
 }
 
 internal object ResumeQueuePolicy {
-    const val MAX_SESSIONS=8
+    const val MAX_SESSIONS=10
     const val MAX_QUEUE=5000
     fun contextId(playlistId:String?,entries:List<Set<String>>):String? {
         if(entries.isEmpty()||entries.size>MAX_QUEUE||entries.any{it.isEmpty()}) return null

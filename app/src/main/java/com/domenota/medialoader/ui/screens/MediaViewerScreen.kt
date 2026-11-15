@@ -13,7 +13,7 @@ import android.os.Build
 import android.provider.Settings
 import android.widget.NumberPicker
 import android.widget.ImageView
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.annotation.OptIn
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -485,14 +485,13 @@ internal fun LocalVideoPlayer(
             activity?.moveTaskToBack(true)
         } catch (error: Exception) {
             AppLog.e("FloatingVideo", "Could not start floating window", error)
-            Toast.makeText(context, "Не удалось открыть всплывающий плеер", Toast.LENGTH_LONG).show()
+            AppNotice.post(context, "Не удалось открыть всплывающий плеер")
         }
     }
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()) {
         if (FloatingVideoService.canShow(context)) launchFloatingVideo()
-        else Toast.makeText(context, "Разрешите показ поверх других приложений",
-            Toast.LENGTH_LONG).show()
+        else AppNotice.post(context, "Разрешите показ поверх других приложений")
     }
     // Gallery's always-visible PiP icon delegates to the current player.
     LaunchedEffect(floatingWindowRequest) {

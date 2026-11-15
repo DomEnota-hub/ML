@@ -94,4 +94,38 @@ class BatchPhotoEditorGeometryTest {
             }
         } finally {file.delete()}
     }
+    @Test fun appliedGeometryRemainsInOverviewWhileSwitchingAndComparingPhotos(){
+        val (first,a)=photo("geometry-a",240,400)
+        val (second,b)=photo("geometry-b",400,240)
+        var exported:BatchPhotoSpec?=null
+        fun waitEdited(){compose.waitUntil(15000){compose.onAllNodes(hasTestTag("batch-edited-preview")).fetchSemanticsNodes().isNotEmpty()}}
+        try{
+            compose.setContent{MaterialTheme{
+                BatchPhotoEditorScreen(listOf(a,b),BatchPhotoState(),false,true,{},{_,spec->exported=spec},{})
+            }}
+            waitForPhoto()
+            compose.onNodeWithText("Геометрия").performClick()
+            compose.onNodeWithText("Свободно").performScrollTo().performClick()
+            val canvas=compose.onNodeWithTag("geometry-canvas")
+            val bounds=canvas.fetchSemanticsNode().boundsInRoot
+            val rect=photoCanvasRect(bounds.width,bounds.height,240,400)
+            val start=androidx.compose.ui.geometry.Offset(rect.x+5f,rect.y+5f)
+            val end=start+androidx.compose.ui.geometry.Offset(rect.width*.12f,rect.height*.08f)
+            canvas.performTouchInput{down(start);moveTo(end,100);up()}
+            compose.onNodeWithText("Готово").performClick()
+            waitEdited()
+            compose.onNodeWithTag("batch-photo-1").performClick()
+            waitEdited()
+            compose.onNodeWithText("2 / 2").assertExists()
+            compose.onNodeWithText("До / После").performClick()
+            compose.onNodeWithContentDescription("Оригинал").assertExists()
+            compose.onNodeWithTag("batch-photo-0").performClick()
+            compose.waitUntil(15000){compose.onAllNodes(hasContentDescription("Оригинал")).fetchSemanticsNodes().isNotEmpty()}
+            compose.onNodeWithText("До / После").performClick()
+            waitEdited()
+            compose.onNodeWithTag("batch-export").performClick()
+            compose.onNodeWithTag("batch-confirm-export").performClick()
+            compose.runOnIdle{assertFalse(requireNotNull(exported?.editSpec).geometry.isNeutral())}
+        }finally{first.delete();second.delete()}
+    }
 }
