@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * Up to three known-small photos, two HitMoz files or two RUTUBE files may overlap.
@@ -166,6 +167,9 @@ class DownloadQueue(
 
     /** Restore-only transfer. The old completed row remains untouched until verified commit. */
     suspend fun restoreMissing(previous: DownloadEntity, item: MediaItem,
+        onProgress:suspend (RecoveryTransferProgress)->Unit={},
+        beforeRetry:suspend ()->Unit={},
+        refresh:suspend ()->MediaItem?={null},
         commit: suspend (DownloadResult) -> Unit) {
         val job = kotlinx.coroutines.currentCoroutineContext()[Job] ?: error("Нет операции восстановления")
         val name = enqueueLock.withLock {
@@ -177,9 +181,41 @@ class DownloadQueue(
             catch (error: Throwable) { running.remove(previous.id, job); throw error }
         }
         try {
-            val task = DownloadTask(previous.id, item, name)
-            val result = engine.download(task) { _, _ -> }
-            commit(if (result.fileName == null) result.copy(fileName = name) else result)
+            var candidate=item
+            var attempt=1
+            while(true){
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                onProgress(RecoveryTransferProgress(attempt))
+                val result=try{
+                    engine.download(DownloadTask(previous.id,candidate,name)){bytes,total->
+                        onProgress(RecoveryTransferProgress(attempt,bytes,total))
+                    }
+                }catch(error:RecoveryTransferFailure){
+                    if(attempt>=RecoveryTransferPolicy.MAX_ATTEMPTS)throw error
+                    attempt++
+                    onProgress(RecoveryTransferProgress(attempt,phase=RecoveryTransferPhase.RETRY_WAIT))
+                    kotlinx.coroutines.delay(350L*(attempt-1))
+                    check(history.byId(previous.id)==previous&&MissingFileRecoveryPolicy.eligible(previous)){
+                        "Запись изменилась. Откройте восстановление заново"
+                    }
+                    beforeRetry()
+                    if(error.refreshUrl){
+                        onProgress(RecoveryTransferProgress(attempt,phase=RecoveryTransferPhase.REFRESH_URL))
+                        val refreshed=refresh()?:throw MissingRecoveryFailure(
+                            "Не удалось подтвердить тот же файл после обновления ссылки. Исходная запись сохранена.")
+                        if(!MissingFileRecoveryPolicy.sameCandidate(item,refreshed))throw MissingRecoveryFailure(
+                            "Найден другой файл. Исходная запись сохранена.")
+                        candidate=refreshed
+                    }
+                    AppLog.i("MissingRecovery","Retry transfer · attempt=$attempt · refreshed=${error.refreshUrl}")
+                    continue
+                }
+                // A published output may already exist. Commit/verification are
+                // deliberately outside the retry catch.
+                onProgress(RecoveryTransferProgress(attempt,result.sizeBytes?:0,result.sizeBytes,RecoveryTransferPhase.VERIFY_SAVE))
+                commit(if (result.fileName == null) result.copy(fileName = name) else result)
+                break
+            }
         } finally {
             running.remove(previous.id, job)
         }

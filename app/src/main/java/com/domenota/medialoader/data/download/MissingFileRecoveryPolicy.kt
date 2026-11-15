@@ -37,6 +37,23 @@ internal object MissingFileRecoveryPolicy {
         return item
     }
 
+    /** Re-resolve only the same original component/encoding, never a sibling. */
+    fun sameCandidate(old:MediaItem,new:MediaItem):Boolean =
+        old.providerId==new.providerId&&old.type==new.type&&old.id==new.id&&
+            old.sourceGroupId==new.sourceGroupId&&old.position==new.position&&
+            old.formatSelector==new.formatSelector&&
+            publication(old.sourcePageUrl?:old.downloadUrl)!=null&&
+            publication(old.sourcePageUrl?:old.downloadUrl)==publication(new.sourcePageUrl?:new.downloadUrl)
+
+    fun mismatchMessage(row:DownloadEntity,candidates:List<MediaItem>):String {
+        val legacyPhoto=row.providerId=="instagram"&&row.mediaType==MediaType.PHOTO&&
+            row.bulkMediaKey==null&&candidates.any{it.providerId=="instagram"&&it.type==MediaType.VIDEO}&&
+            candidates.none{it.providerId=="instagram"&&it.type==MediaType.PHOTO}
+        return if(legacyPhoto)
+            "Исходная запись содержит фотографию, но источник вернул видео. Подтверждённая фотография не найдена. Исходная запись сохранена."
+        else "Медиа найдено, но не удалось точно определить отсутствующий файл. Исходная запись сохранена."
+    }
+
     private fun sameKnownPublication(row:DownloadEntity,item:MediaItem):Boolean {
         val old=publication(row.sourcePageUrl?:row.sourceUrl.orEmpty())
         return old==null||old==publication(item.sourcePageUrl?:item.downloadUrl)

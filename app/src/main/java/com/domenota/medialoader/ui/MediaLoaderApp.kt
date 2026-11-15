@@ -2267,7 +2267,7 @@ fun MediaLoaderApp(
                     onLogin = startLoginForCurrentUrl,
                     onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
                     recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
-                    onCancelRecovery=viewModel::cancelRecoveryDownload,
+                    onCancelRecovery=viewModel::cancelRecoveryDownload,recoveryProgress=preview.recoveryProgress,
                     onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
                         showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
                     } },
@@ -2309,7 +2309,7 @@ fun MediaLoaderApp(
                 onLogin = startLoginForCurrentUrl,
                 onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
                     recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
-                    onCancelRecovery=viewModel::cancelRecoveryDownload,
+                    onCancelRecovery=viewModel::cancelRecoveryDownload,recoveryProgress=preview.recoveryProgress,
                     onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
                         showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
                     } },

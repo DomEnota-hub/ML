@@ -82,6 +82,7 @@ data class PreviewState(
     val duplicateMatches: List<DuplicateMatch> = emptyList(),
     val recoveryIdentityFailure:Boolean=false,
     val recoveryCandidates:List<MediaItem> = emptyList(),
+    val recoveryProgress:com.domenota.medialoader.data.download.RecoveryTransferProgress?=null,
 )
 
 class MediaLoaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -923,13 +924,16 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         if(state.recoveryCandidates.isEmpty())return
         fun current()=_preview.value.let{it.recoveryHistoryId==id&&it.url==state.url&&it.recoveryCandidates==state.recoveryCandidates}
         fun message(value:String){
-            _preview.update{if(current())it.copy(enqueuing=false,message=value)else it}
+            _preview.update{if(current())it.copy(enqueuing=false,message=value,recoveryProgress=null)else it}
         }
-        _preview.update{it.copy(enqueuing=true,message=null,duplicateMatches=emptyList())}
+        _preview.update{it.copy(enqueuing=true,message=null,duplicateMatches=emptyList(),
+            recoveryProgress=com.domenota.medialoader.data.download.RecoveryTransferProgress(1))}
         recoveryDownloadJob=viewModelScope.launch{
             try{
                 ActiveDownloadService.start(getApplication())
-                val restored=repository.restoreMissingFile(id,state.recoveryCandidates)
+                val restored=repository.restoreMissingFile(id,state.recoveryCandidates){progress->
+                    _preview.update{if(current())it.copy(recoveryProgress=progress)else it}
+                }
                 val removed=deferredStore.complete(state.url,id)
                 val result=if(restored)"Файл восстановлен в исходной записи" else "Файл уже доступен"
                 if(current()){

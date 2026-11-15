@@ -34,7 +34,9 @@ class HttpDownloadEngine(
                 throw error
             } catch (error: IOException) {
                 if (BuildConfig.DEBUG) Log.w("MediaLoaderDownload", "Transfer failed: ${error.javaClass.simpleName}")
-                throw DownloadFailure("Нет соединения или файл недоступен. Повторите попытку.", error)
+                val message="Нет соединения или файл недоступен. Повторите попытку."
+                if(RecoveryTransferPolicy.networkInterrupted(error))throw RecoveryTransferFailure(message,error)
+                throw DownloadFailure(message,error)
             }
             task.publishAfter?.await()
             val mime = if (task.item.type == MediaType.VIDEO) "video/mp4" else "image/jpeg"
@@ -75,9 +77,11 @@ class HttpDownloadEngine(
                     current = next
                     return@repeat
                 }
-                if (status == 401 || status == 403) throw DownloadFailure(
-                    "Доступ к файлу закрыт или ссылка устарела. Повторите анализ ссылки.",
+                if (status == 401 || status == 403) throw RecoveryTransferFailure(
+                    "Доступ к файлу закрыт или ссылка устарела. Повторите анализ ссылки.",refreshUrl=true,
                 )
+                if(status in listOf(408,500,502,503,504))throw RecoveryTransferFailure(
+                    "Файл временно недоступен. Повторите анализ ссылки.")
                 if (status !in 200..299) throw DownloadFailure("Файл недоступен. Повторите анализ ссылки.")
                 val declared = connection.contentLengthLong.takeIf { it > 0 }
                 if (declared != null && declared + 16L * 1024 * 1024 > context.cacheDir.usableSpace) {
@@ -101,7 +105,7 @@ class HttpDownloadEngine(
                     }
                 }
                 if (total == 0L || declared != null && total != declared) {
-                    throw DownloadFailure("Загрузка прервалась. Повторите анализ ссылки.")
+                    throw RecoveryTransferFailure("Загрузка прервалась. Повторите анализ ссылки.")
                 }
                 return total
             } finally {
