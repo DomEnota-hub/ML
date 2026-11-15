@@ -44,6 +44,15 @@ class GalleryViewerPhotoUiTest {
         assertEquals("Last", current)
     }
 
+    @Test fun initialMissingSelectionDoesNotPublishNeighbor() {
+        val selected = photo("MissingInitial")
+        val neighbor = photo("OtherInitial")
+        var current: String? = null
+        compose.setContent { MaterialTheme { Viewer(selected, listOf(neighbor)) { current = it.id } } }
+        compose.waitForIdle()
+        assertEquals(null, current)
+    }
+
     @Test fun reorderingQueueKeepsSelectedIdentityRatherThanNumericPage() {
         val first = photo("FirstReorder")
         val selected = photo("SelectedReorder")

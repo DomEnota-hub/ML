@@ -1102,11 +1102,22 @@ fun MediaLoaderApp(
         val originPlaylistId = openingPlaylistId
         openingAlbumKey = null
         openingPlaylistId = null
-        (accessibleDownloads.firstOrNull { it.id == id } ?: libraryRefsByAlias[id]?.item
+        // Downloads renders the current Room history, while the derived public
+        // index can still be preparing. Prefer that exact visual history row.
+        val directVisual = downloads.firstOrNull { it.id == id && it.mediaType != MediaType.AUDIO }
+        (directVisual ?: accessibleDownloads.firstOrNull { it.id == id } ?: libraryRefsByAlias[id]?.item
             ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let { libraryRefsByAlias[it]?.item })?.let { item ->
           fileActionScope.launch {
             val status = withContext(Dispatchers.IO) { availabilityCache.get(item.savedUri, fresh = true) }
             if (request != openVisualRequest) return@launch
+            val appVisual = !item.isPrivate && item.mediaType != MediaType.AUDIO &&
+                (directVisual != null || libraryRefsByAlias[id]?.appDownloadId == item.id)
+            if (appVisual && viewModel.downloads.value.none { row ->
+                    row.id == item.id && row.savedUri == item.savedUri && !row.isPrivate && !row.hidden
+                }) {
+                AppNotice.post(context, "Выбранный файл изменился или недоступен")
+                return@launch
+            }
             if (statusScanActive) statusOverrides[id] = item.savedUri to status
             fileStatusUris = fileStatusUris + (id to item.savedUri)
             fileStatuses = fileStatuses + (id to status)
@@ -1143,7 +1154,8 @@ fun MediaLoaderApp(
                 viewerEntry?.savedStateHandle?.set("grid_viewer_token", token)
                 viewerEntry?.savedStateHandle?.set("gallery_origin_album", originAlbumKey)
                 if (!item.isPrivate && item.mediaType != MediaType.AUDIO)
-                    viewerEntry?.savedStateHandle?.set("gallery_expected_uri", item.savedUri)
+                    viewerEntry?.savedStateHandle?.set("gallery_selection",
+                        arrayListOf(item.id, requireNotNull(item.savedUri), if (appVisual) "app" else "index"))
                 // Explicitly carry the vault context. The public gallery index
                 // intentionally excludes private records and must never be used
                 // to resolve a private viewer request.
@@ -2246,6 +2258,7 @@ fun MediaLoaderApp(
                 val selectedGalleryId by entry.savedStateHandle.getStateFlow<String?>("gallery_current_id", null).collectAsStateWithLifecycle()
                 val currentGalleryId = visualSelection?.getOrNull(0) ?: selectedGalleryId ?: downloadId
                 val expectedGalleryUri = visualSelection?.getOrNull(1) ?: entry.savedStateHandle.get<String>("gallery_expected_uri")
+                val selectedAppVisual = visualSelection?.getOrNull(2) == "app"
                 val collectionViewer = entry.savedStateHandle.get<Boolean>("collection_viewer") == true
                 val viewerPublicRefs = if (collectionViewer) scopedCatalog?.refs.orEmpty() else publicLibraryRefs
                 val indexedCandidates = remember(galleryPresentation, viewerPublicRefs, libraryPrivateKeys,
@@ -2276,14 +2289,16 @@ fun MediaLoaderApp(
                     addressFinished = true
                 }
                 val seed = GalleryViewerState.addressedPublic(selectedHistoryRow, addressed, addressGuard)
-                val galleryCandidates = remember(seed, indexedCandidates, selectedHistoryRow, currentGalleryId, addressGuard) {
-                    // A current app row is authoritative. Never replace it with a
-                    // stale alias while its own address or privacy is being checked.
+                val galleryCandidates = remember(seed, indexedCandidates, selectedHistoryRow, selectedAppVisual, currentGalleryId, addressGuard) {
+                    // A current app row is authoritative. A removed/moved app row
+                    // cannot reappear from a stale index or a coincident phone alias.
                     if (addressGuard == null) emptyList()
                     else (listOfNotNull(seed) + indexedCandidates.filterNot {
-                        selectedHistoryRow != null && it.id == currentGalleryId &&
-                            (selectedHistoryRow.hidden || selectedHistoryRow.isPrivate || selectedHistoryRow.id in addressGuard ||
-                                selectedHistoryRow.state != DownloadState.COMPLETED || it.savedUri != selectedHistoryRow.savedUri)
+                        it.id == currentGalleryId && (
+                            (selectedAppVisual && selectedHistoryRow == null) ||
+                            (selectedHistoryRow != null && (selectedHistoryRow.hidden || selectedHistoryRow.isPrivate ||
+                                selectedHistoryRow.id in addressGuard || selectedHistoryRow.state != DownloadState.COMPLETED ||
+                                it.savedUri != selectedHistoryRow.savedUri)))
                     }).distinctBy { it.id }
                 }
                 val privateCandidates = remember(privateViewer, privateState.unlocked,
@@ -2367,7 +2382,10 @@ fun MediaLoaderApp(
                                 openSavedFile(context, selected)
                         },
                         onCurrentItemChanged = { selected ->
-                            if (!selected.isPrivate) entry.savedStateHandle["gallery_selection"] = arrayListOf(selected.id, requireNotNull(selected.savedUri))
+                            if (!selected.isPrivate) entry.savedStateHandle["gallery_selection"] = arrayListOf(
+                                selected.id, requireNotNull(selected.savedUri),
+                                if (!collectionViewer && (downloads.any { it.id == selected.id } ||
+                                        (selected.id == currentGalleryId && selectedAppVisual))) "app" else "index")
                             else entry.savedStateHandle["gallery_current_id"] = selected.id
                         },
                         privateMode = item.isPrivate,

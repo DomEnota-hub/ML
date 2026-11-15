@@ -87,6 +87,7 @@ internal fun GalleryMediaViewer(
     var previousIds by remember { mutableStateOf(ids) }
     val pager = rememberPagerState(initialPage = ids.indexOf(currentId).coerceAtLeast(0), pageCount = { queue.size })
     var synchronizedQueue by remember(ids) { mutableStateOf(false) }
+    var initialSelectionApplied by remember { mutableStateOf(false) }
     var chrome by rememberSaveable { mutableStateOf(true) }
     var zoomed by remember { mutableStateOf(false) }
     val current = if (synchronizedQueue) queue.getOrNull(pager.currentPage) ?: item else queue.firstOrNull { it.id == currentId } ?: item
@@ -123,13 +124,18 @@ internal fun GalleryMediaViewer(
         catch (e: Exception) { error = e.message ?: "Не удалось выполнить действие" }
     } }
     LaunchedEffect(ids) {
-        val target = GalleryViewerState.neighbor(currentId, previousIds, ids.toSet()) ?: ids.first()
-        val targetIndex = ids.indexOf(target).coerceAtLeast(0)
+        // A saved pager index is not a selection. The route chooses the first
+        // item; only an already-open viewer may advance after a real removal.
+        val target = if (!initialSelectionApplied) item.id.takeIf { it in ids }
+            else GalleryViewerState.neighbor(currentId, previousIds, ids.toSet())
+        if (target == null) { onBack(); return@LaunchedEffect }
+        val targetIndex = ids.indexOf(target)
         pager.scrollToPage(targetIndex)
         currentId = target
         zoomed = false
         onCurrentItemChanged(queue[targetIndex])
         previousIds = ids
+        initialSelectionApplied = true
         synchronizedQueue = true
     }
     LaunchedEffect(ids, synchronizedQueue, pager.settledPage, pager.isScrollInProgress) {
