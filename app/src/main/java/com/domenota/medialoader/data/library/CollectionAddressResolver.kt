@@ -10,11 +10,37 @@ import kotlin.coroutines.coroutineContext
 /** One generation for the selected collection. Pending identities are not missing files. */
 internal data class AddressedCollection(val refs: List<LibraryMediaRef>, val pending: Set<String>,
     val statuses: Map<String, Pair<String?, SavedFileStatus>>, val suppressed: Set<String> = emptySet(),
-    val checkedMembers: Map<String, String?> = emptyMap(), val resolved: Map<String, LibraryMediaRef> = emptyMap()) {
+    val checkedMembers: Map<String, String?> = emptyMap(), val resolved: Map<String, LibraryMediaRef> = emptyMap(),
+    val invalidated: Set<String> = emptySet()) {
     val byKey = refs.associateBy { it.key }
     companion object { val EMPTY = AddressedCollection(emptyList(), emptySet(), emptyMap()) }
 }
 internal data class AddressedFile(val ref: LibraryMediaRef?, val status: SavedFileStatus)
+
+/** Only an ordinary same-access refresh may keep an already validated member when
+ * its new lookup is inconclusive. Confirmed absence, privacy, changed identity and
+ * recycled/ambiguous addresses always win over the retained display snapshot. */
+internal fun retainAddressedCollection(previous: AddressedCollection?, incoming: AddressedCollection): AddressedCollection {
+    if (previous == null || incoming.pending.isEmpty()) return incoming
+    val retained = mutableMapOf<String, LibraryMediaRef>()
+    val refs = incoming.byKey.toMutableMap()
+    for (id in incoming.pending) {
+        if (id in incoming.suppressed || id in incoming.invalidated || !incoming.checkedMembers.containsKey(id) ||
+            incoming.checkedMembers[id] != previous.checkedMembers[id]) continue
+        val old = previous.resolved[id] ?: continue
+        val status = old.appDownloadId?.let(incoming.statuses::get)
+        if (status != null && (status.first != old.item.savedUri || status.second == SavedFileStatus.MISSING ||
+                status.second == SavedFileStatus.INACCESSIBLE)) continue
+        val aliases = old.aliases
+        val collisions = refs.values.filter { it.key == old.key || it.aliases.any(aliases::contains) }
+        val ref = if (collisions.isEmpty()) old else collisions.singleOrNull()?.takeIf {
+            CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(incoming.checkedMembers[id]),it)
+        } ?: continue
+        refs[ref.key] = ref
+        retained[id] = ref
+    }
+    return if (retained.isEmpty()) incoming else incoming.copy(refs = refs.values.toList(), resolved = incoming.resolved + retained)
+}
 
 /** Only a stored, typed MediaStore locator is eligible for direct lookup. Its size/date or
  * physical identity must still match the saved member; a recycled URI alone is insufficient. */
@@ -40,6 +66,7 @@ internal object CollectionAddressResolver {
         phone: suspend (String) -> AddressedFile,
         hidden: (LibraryMediaRef) -> Boolean = { false }): AddressedCollection {
         val pending = mutableSetOf<String>()
+        val invalidated = mutableSetOf<String>()
         val suppressed = mutableSetOf<String>()
         val statuses = mutableMapOf<String, Pair<String?, SavedFileStatus>>()
         val refs = mutableListOf<LibraryMediaRef>()
@@ -89,6 +116,9 @@ internal object CollectionAddressResolver {
                                 if (row.isPrivate || row.hidden) suppressed += member.id
                                 else considerApp(row)
                             }
+                    } else if (result.status == SavedFileStatus.MISSING || result.status == SavedFileStatus.INACCESSIBLE) {
+                        knownUnavailable = true
+                        invalidated += member.id
                     }
                 }
             }
@@ -101,10 +131,13 @@ internal object CollectionAddressResolver {
             val conflicting = fullCurrent && (fallback?.identityIndex?.candidates(member)?.size ?: 0) > 1
             val unique = UnifiedMediaLibrary.merge(candidates, emptyList(), blocked).singleOrNull().takeUnless { conflicting }
             if (unique != null) { refs += unique; accepted += member.id }
-            else if (!knownUnavailable && !fullCurrent) pending += member.id
+            else {
+                if (candidateRefs.isNotEmpty() || conflicting) invalidated += member.id
+                if (!knownUnavailable && !fullCurrent) pending += member.id
+            }
         }
         val merged = UnifiedMediaLibrary.merge(refs.distinctBy { it.key }, emptyList(), blocked)
         val resolved = CollectionIdentityIndex.build(merged).resolve(members.filter { it.id in accepted }, merged.associateBy { it.key })
-        return AddressedCollection(merged, pending, statuses, suppressed, members.associate { it.id to it.identityJson }, resolved)
+        return AddressedCollection(merged, pending, statuses, suppressed, members.associate { it.id to it.identityJson }, resolved, invalidated)
     }
 }

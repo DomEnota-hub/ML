@@ -144,7 +144,9 @@ class PhoneMediaLibrary(context: Context) {
                 if (cursor.moveToFirst()) mapRow(cursor, type, parent).takeIf { it.savedUri == value && !cursor.moveToNext() } else null
             }
             coroutineContext.ensureActive()
-            if (indexed == null || accessLevel(type) < before)
+            if (accessLevel(type) < before)
+                return@withContext AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.INACCESSIBLE)
+            if (indexed == null)
                 return@withContext AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.UNCHECKED)
             val row = if (type == MediaType.AUDIO) AudioEditedTags.read(context, indexed, AudioEditedTags.marked(context)) else indexed
             val status = com.domenota.medialoader.data.storage.SavedFilePresence.check(context, value)
@@ -153,7 +155,8 @@ class PhoneMediaLibrary(context: Context) {
             AddressedFile(LibraryMediaRef(row.id, keys + row.id, row, null,
                 row.bulkMediaKey ?: row.groupId, row.groupId), status)
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-        catch (_: Exception) { AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.INACCESSIBLE) }
+        catch (_: SecurityException) { AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.INACCESSIBLE) }
+        catch (_: Exception) { AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.UNCHECKED) }
     }
 
     /** Database version protects against recycled IDs after a MediaStore rebuild. */

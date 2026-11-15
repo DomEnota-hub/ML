@@ -40,13 +40,17 @@ internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, va
  * immediately hides the previous generation; routine data revisions retain it. */
 @Composable
 internal fun <T> addressedLibraryProjection(empty: T, guard: Any?, vararg inputs: Any?,
-    publishWhen: Boolean = true, build: suspend () -> T): BackgroundLibraryValue<T> {
+    publishWhen: Boolean = true, retain: (T, T) -> T = { _, next -> next }, build: suspend () -> T): BackgroundLibraryValue<T> {
     val key = ProjectionInputs(inputs.toList())
     var published by remember { mutableStateOf<GuardedProjection<T>?>(null) }
     LaunchedEffect(key, guard, publishWhen) {
         if (guard == null) { published = null; return@LaunchedEffect }
         if (!publishWhen) return@LaunchedEffect
-        val value = withContext(Dispatchers.IO) { build() }
+        val previous = published?.takeIf { it.guard == guard }
+        val value = withContext(Dispatchers.IO) {
+            val next = build()
+            if (previous == null) next else retain(previous.value, next)
+        }
         published = GuardedProjection(key, guard, value)
     }
     val current = published

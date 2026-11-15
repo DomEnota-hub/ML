@@ -31,6 +31,23 @@ class CollectionAddressResolverTest {
         assertEquals(SavedFileStatus.MISSING,result.statuses["track-6"]?.second)
         assertEquals(selected.take(5).map{it.key},selected.take(5).map{result.resolved[member(it).id]?.key})
     }
+    @Test fun pendingRoutineRefreshKeepsPreviouslyConfirmedMembersButNotRealRemovalOrInvalidation()=runBlocking {
+        val refs=(1..5).map { ref(it) }; val members=refs.map(::member); val history=refs.associate { it.key to it.item }
+        suspend fun snapshot(count:Int, pending:Boolean=true)=CollectionAddressResolver.resolve(members,history,null,false,emptySet(),
+            { row -> if(row.id.substringAfterLast('-').toInt()<=count) AddressedFile(refs.first{it.key==row.id},SavedFileStatus.PRESENT)
+                else AddressedFile(null,if(pending)SavedFileStatus.UNCHECKED else SavedFileStatus.MISSING) },{error("No phone query")})
+        val original=snapshot(5)
+        for(count in listOf(1,5,4,5)){
+            val refreshed=retainAddressedCollection(original,snapshot(count))
+            assertEquals(5,refreshed.resolved.size)
+        }
+        assertEquals(4,retainAddressedCollection(original,snapshot(4,false)).resolved.size)
+        val partial=snapshot(4)
+        val lost=members.last().id
+        assertEquals(4,retainAddressedCollection(original,partial.copy(invalidated=setOf(lost))).resolved.size)
+        assertEquals(4,retainAddressedCollection(original,partial.copy(suppressed=setOf(lost))).resolved.size)
+        assertEquals(4,retainAddressedCollection(original,partial.copy(checkedMembers=partial.checkedMembers+(lost to "different"))).resolved.size)
+    }
     @Test fun directLocatorDoesNotAttachRecycledPhysicalFile()=runBlocking {
         val a=ref(1,false); val m=member(a); val recycled=a.copy(aliases=setOf("file-stat:other","uri:${a.item.savedUri}"))
         suspend fun resolve(candidate:LibraryMediaRef,complete:Boolean)=CollectionAddressResolver.resolve(listOf(m),emptyMap(),null,complete,emptySet(),

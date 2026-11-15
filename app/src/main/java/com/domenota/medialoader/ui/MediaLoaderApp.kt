@@ -775,7 +775,8 @@ fun MediaLoaderApp(
     val galleryCompleteRevision = phoneGallery.revision.takeIf { phoneGallery.complete && !phoneGallery.loading }
     val musicCompleteRevision = phoneMusic.revision.takeIf { phoneMusic.complete && !phoneMusic.loading }
     val scopedProjection = addressedLibraryProjection<AddressedCollection?>(null, scopeGuard,
-        scopeMembers, collectionHistory, collectionCatalog, fullCurrent, galleryCompleteRevision, musicCompleteRevision, fileScanEpoch, collectionRefreshEpoch) {
+        scopeMembers, collectionHistory, collectionCatalog, fullCurrent, galleryCompleteRevision, musicCompleteRevision, fileScanEpoch, collectionRefreshEpoch,
+        retain = { previous, next -> next?.let { retainAddressedCollection(previous,it) } }) {
         val started = android.os.SystemClock.elapsedRealtime()
         CollectionAddressResolver.resolve(scopeMembers, collectionHistory, collectionCatalog, fullCurrent, collectionBlocked,
             { row -> libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } },
