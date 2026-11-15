@@ -16,6 +16,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -61,7 +63,7 @@ internal fun SmartMusicCard(page: SmartMusicPage,onOpen: ()->Unit) {
     }
 }
 
-private fun listeningTime(ms: Long): String {
+internal fun listeningTime(ms: Long): String {
     val seconds=(ms/1000).coerceAtLeast(0)
     return if(seconds>=3600) "${seconds/3600} ч ${seconds/60%60} мин"
         else if(seconds>=60) "${seconds/60} мин ${seconds%60} с" else "$seconds с"
@@ -70,7 +72,7 @@ private fun listeningTime(ms: Long): String {
 @Composable
 internal fun HistoryGraph(points: List<SmartChartPoint>,byTime:Boolean,intervalKey:Any,onPoint:(SmartChartPoint)->Unit,ready:Boolean=true) {
     val scroll=rememberScrollState()
-    var positioned by remember(intervalKey) { mutableStateOf(false) }
+    var positioned by rememberSaveable(intervalKey.toString()) { mutableStateOf(false) }
     LaunchedEffect(intervalKey,scroll.maxValue,points.isNotEmpty(),ready) {
         if(ready && !positioned && points.isNotEmpty()) {
             withFrameNanos { }
@@ -96,7 +98,7 @@ internal fun HistoryGraph(points: List<SmartChartPoint>,byTime:Boolean,intervalK
 }
 
 @Composable
-private fun StatsMetric(label:String,value:String,modifier:Modifier=Modifier) {
+internal fun StatsMetric(label:String,value:String,modifier:Modifier=Modifier) {
     Surface(modifier,shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant) {
         Column(Modifier.padding(12.dp)) {
             Text(value,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold)
@@ -114,7 +116,7 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
     onSave:suspend (String,List<String>)->Unit,onAdd:(String)->Unit,onShare:(String)->Unit,onDelete:(String)->Unit,
     onEnqueue:((String,Boolean)->Unit)?,onFavorite:(suspend (String,Boolean)->Unit)?,
     onCollection:((List<String>)->Unit)?=null,onPassport:((String)->Unit)?=null,statsInterval:SmartStatsInterval?=null,
-    onStatsDrill:(SmartChartPoint)->Unit={},onStatsBack:()->Unit={}) {
+    onStatsDrill:(SmartChartPoint)->Unit={},onStatsBack:()->Unit={},onStatsDay:(java.time.LocalDate)->Unit={},onRecognize:((String)->Unit)?=null) {
     val scope=rememberCoroutineScope()
     val context=LocalContext.current
     val palette=MaterialTheme.colorScheme
@@ -122,6 +124,7 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
     var exporting by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
     var exported by remember { mutableStateOf(false) }
+    LaunchedEffect(statsInterval,period){exported=false;problem=null}
     val saveImage=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
         val data=exportPending;exportPending=null
         if(uri!=null&&data!=null)scope.launch {
@@ -143,9 +146,10 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
     var saveIds by remember { mutableStateOf<List<String>?>(null) }
     var name by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    var byTime by remember { mutableStateOf(true) }
+    var byTime by rememberSaveable { mutableStateOf(true) }
     var slider by remember(diversity) { mutableFloatStateOf(diversity.toFloat()) }
-    val tracks=when(page){SmartMusicPage.FORGOTTEN->snapshot.forgotten; SmartMusicPage.MIX->snapshot.mix; SmartMusicPage.STATS->snapshot.topTracks}
+    val shown=if(page==SmartMusicPage.STATS && (snapshot.statsPeriod!=period || (statsInterval!=null && snapshot.statsInterval!=statsInterval))) SmartMusicSnapshot() else snapshot
+    val tracks=when(page){SmartMusicPage.FORGOTTEN->shown.forgotten; SmartMusicPage.MIX->shown.mix; SmartMusicPage.STATS->shown.topTracks}
         .filter {it.rowId in rows}
     val ids=tracks.map {it.rowId}
     fun mutate(action:suspend ()->Unit) { scope.launch {
@@ -153,6 +157,20 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
         catch(_:Exception){problem="Не удалось выполнить действие"}
     } }
     androidx.activity.compose.BackHandler(page==SmartMusicPage.STATS && statsInterval!=null,onStatsBack)
+    val stateHolder=rememberSaveableStateHolder()
+    fun exportSummary(data:SmartMusicSnapshot, label:String, date:java.time.LocalDate){
+        exportPending=MusicSummaryExport(label,data,data.topTracks.firstOrNull()?.rowId?.let(rows::get)?.let(::audioTitle),
+            palette.background.toArgb(),palette.surfaceVariant.toArgb(),palette.onBackground.toArgb(),palette.onSurfaceVariant.toArgb(),palette.primary.toArgb())
+        saveImage.launch("ML_music_summary_$date.png")
+    }
+    if(page==SmartMusicPage.STATS && statsInterval?.isSingleDay==true){
+        stateHolder.SaveableStateProvider("day:"+statsInterval.first){
+            MusicDayStatsScreen(statsInterval,shown,rows,loading||shown.statsInterval!=statsInterval,error?:problem,currentId,playing,
+                onStatsBack,onStatsDay,onPreview,{exportSummary(shown,statsInterval.title,statsInterval.first)},exporting,exported)
+        }
+        return
+    }
+    stateHolder.SaveableStateProvider("screen:"+page.name+":"+period.name+":"+(statsInterval?.first?.toString()?:"overview")+":"+(statsInterval?.granularity?.name?:"")){
     LazyColumn(Modifier.fillMaxSize().testTag("smart-music-${page.name}"),contentPadding=PaddingValues(bottom=12.dp)) {
         item(key="header") {
             Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -182,12 +200,12 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                             SmartStatsPeriod.entries.forEach { p->FilterChip(selected=p==period,onClick={onPeriod(p)},label={Text(p.label)}) }
                         }
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                            StatsMetric("Время прослушивания",listeningTime(snapshot.wallMs),Modifier.weight(1f))
-                            StatsMetric("Прослушиваний",snapshot.plays.toString(),Modifier.weight(1f))
+                            StatsMetric("Время прослушивания",listeningTime(shown.wallMs),Modifier.weight(1f))
+                            StatsMetric("Прослушиваний",shown.plays.toString(),Modifier.weight(1f))
                         }
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                            StatsMetric("Треков",snapshot.tracksPlayed.toString(),Modifier.weight(1f))
-                            StatsMetric("Исполнителей",snapshot.artistsPlayed.toString(),Modifier.weight(1f))
+                            StatsMetric("Треков",shown.tracksPlayed.toString(),Modifier.weight(1f))
+                            StatsMetric("Исполнителей",shown.artistsPlayed.toString(),Modifier.weight(1f))
                         }
                         Text("Динамика",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -195,12 +213,12 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                             FilterChip(selected=!byTime,onClick={byTime=false},label={Text("Прослушивания")})
                         }
                         Text(statsInterval?.title ?: period.label,style=MaterialTheme.typography.titleMedium)
-                        HistoryGraph(snapshot.chart,byTime,statsInterval ?: period,onStatsDrill,
-                            ready=!loading && snapshot.statsPeriod==period && (statsInterval==null || snapshot.statsInterval==statsInterval))
-                        Text("Время учитывается по последней дате записи сеанса. Статистика относится к доступной публичной медиатеке.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                        if(snapshot.topArtists.isNotEmpty()) {
+                        HistoryGraph(shown.chart,byTime,statsInterval ?: period,onStatsDrill,
+                            ready=!loading && shown.statsPeriod==period && (statsInterval==null || shown.statsInterval==statsInterval))
+                        Text("Новые сеансы распределяются по календарным дням. Старые записи без разбивки учитываются по последней сохранённой дате. Только доступная публичная медиатека.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(shown.topArtists.isNotEmpty()) {
                             Text("Топ исполнителей",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
-                            snapshot.topArtists.take(10).forEachIndexed { index,artist ->
+                            shown.topArtists.take(10).forEachIndexed { index,artist ->
                                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                                     Text("${index+1}. ${artist.artist}",Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium)
                                     Text(artist.plays.toString(),color=MaterialTheme.colorScheme.primary)
@@ -208,12 +226,8 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                             }
                         }
                         OutlinedButton(onClick={
-                            exportPending=MusicSummaryExport((statsInterval?.title ?: period.label)+" · "+java.time.LocalDate.now(),snapshot,
-                                snapshot.topTracks.firstOrNull()?.rowId?.let(rows::get)?.let(::audioTitle),
-                                palette.background.toArgb(),palette.surfaceVariant.toArgb(),palette.onBackground.toArgb(),
-                                palette.onSurfaceVariant.toArgb(),palette.primary.toArgb())
-                            saveImage.launch("ML_music_summary_"+java.time.LocalDate.now()+".png")
-                        },enabled=!loading&&!exporting&&(snapshot.plays>0||snapshot.wallMs>0),modifier=Modifier.fillMaxWidth()) {
+                            exportSummary(shown,statsInterval?.title ?: period.label,java.time.LocalDate.now())
+                        },enabled=!loading&&!exporting&&(shown.plays>0||shown.wallMs>0),modifier=Modifier.fillMaxWidth()) {
                             Icon(Icons.Rounded.Save,null);Spacer(Modifier.width(8.dp));Text("Сохранить итог изображением")
                         }
                         if(exporting)LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -249,9 +263,10 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                 MusicTrackActions(row,onEnqueue?.let { action->{ next:Boolean->action(id,next) } },
                     {onOpen(id,ids)},{onAdd(id)},{onShare(id)},{onDelete(id)},null,null,null,
                     favorite=id in favoriteIds,onFavorite=onFavorite?.let { action->{mutate {action(id,id !in favoriteIds)}} },
-                    onCollection=onCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}})
+                    onCollection=onCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})
             }
         }
+    }
     }
     saveIds?.let { snapshotIds ->
         AlertDialog(onDismissRequest={if(!busy)saveIds=null},title={Text("Сохранить как плейлист")},

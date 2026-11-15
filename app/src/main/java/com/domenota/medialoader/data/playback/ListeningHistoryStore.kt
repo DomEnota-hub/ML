@@ -16,17 +16,29 @@ import java.util.concurrent.atomic.AtomicLong
 /** One local database for future listening analytics. No media files, names or artwork
  * are copied. Idempotent session updates never add another credited play. */
 internal class ListeningHistoryStore private constructor(context: Context) {
-    private val helper = object : SQLiteOpenHelper(context.applicationContext,"listening_history.db",null,1) {
+    private val helper = object : SQLiteOpenHelper(context.applicationContext,"listening_history.db",null,2) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE tracks (id TEXT PRIMARY KEY)")
             db.execSQL("CREATE TABLE aliases (alias TEXT PRIMARY KEY, track_id TEXT NOT NULL)")
             db.execSQL("CREATE INDEX alias_track ON aliases(track_id)")
-            db.execSQL("CREATE TABLE sessions (id TEXT PRIMARY KEY, track_id TEXT NOT NULL, started_at INTEGER NOT NULL, last_at INTEGER NOT NULL, media_ms INTEGER NOT NULL, wall_ms INTEGER NOT NULL, credited_at INTEGER, position INTEGER NOT NULL, closed INTEGER NOT NULL)")
+            db.execSQL("CREATE TABLE sessions (id TEXT PRIMARY KEY, track_id TEXT NOT NULL, started_at INTEGER NOT NULL, last_at INTEGER NOT NULL, media_ms INTEGER NOT NULL, wall_ms INTEGER NOT NULL, credited_at INTEGER, position INTEGER NOT NULL, closed INTEGER NOT NULL, legacy_wall_ms INTEGER NOT NULL DEFAULT 0, legacy_at INTEGER NOT NULL DEFAULT 0, timed_wall_ms INTEGER NOT NULL DEFAULT 0)")
             db.execSQL("CREATE INDEX session_credit ON sessions(credited_at,track_id)")
             db.execSQL("CREATE INDEX session_track ON sessions(track_id,closed,last_at)")
             db.execSQL("CREATE TABLE excluded (track_id TEXT PRIMARY KEY)")
+            createWallMinutes(db)
         }
-        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = error("Неизвестная версия статистики")
+        private fun createWallMinutes(db:SQLiteDatabase){
+            db.execSQL("CREATE TABLE session_wall_minutes (session_id TEXT NOT NULL, minute_at INTEGER NOT NULL, wall_ms INTEGER NOT NULL, PRIMARY KEY(session_id,minute_at))")
+            db.execSQL("CREATE INDEX wall_minute_time ON session_wall_minutes(minute_at,session_id)")
+        }
+        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            check(oldVersion==1 && newVersion==2){ "Неизвестная версия статистики" }
+            db.execSQL("ALTER TABLE sessions ADD COLUMN legacy_wall_ms INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE sessions ADD COLUMN legacy_at INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE sessions ADD COLUMN timed_wall_ms INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE sessions SET legacy_wall_ms=wall_ms,legacy_at=last_at")
+            createWallMinutes(db)
+        }
     }
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -74,7 +86,12 @@ internal class ListeningHistoryStore private constructor(context: Context) {
                     if (c.moveToFirst()) c.progress(generation) else null
                 }
                 val resumed = saved?.takeIf { ListeningHistoryPolicy.mayResume(it,position,now) }
-                val result = resumed ?: ListeningProgress(UUID.randomUUID().toString(),track,now,now,position=position,generation=generation)
+                val result = resumed?.let { previous ->
+                    val minutes=db.rawQuery("SELECT minute_at,wall_ms FROM session_wall_minutes WHERE session_id=?",arrayOf(previous.sessionId)).use{c->
+                        buildMap<Long,Long>{while(c.moveToNext())put(c.getLong(0),c.getLong(1))}
+                    }
+                    previous.copy(wallMinutes=minutes)
+                } ?: ListeningProgress(UUID.randomUUID().toString(),track,now,now,position=position,generation=generation)
                 db.execSQL("UPDATE sessions SET closed=1 WHERE closed=0 AND id<>?",arrayOf(result.sessionId))
                 if (resumed == null) db.insertOrThrow("sessions",null,ContentValues().apply {
                     put("id",result.sessionId); put("track_id",track); put("started_at",now); put("last_at",now)
@@ -101,9 +118,20 @@ internal class ListeningHistoryStore private constructor(context: Context) {
             val freshCredit = progress.creditedAt != null && db.rawQuery("SELECT credited_at FROM sessions WHERE id=?",arrayOf(progress.sessionId)).use { c ->
                 c.moveToFirst() && c.isNull(0)
             }
-            db.execSQL("UPDATE sessions SET media_ms=MAX(media_ms,?),wall_ms=MAX(wall_ms,?),credited_at=COALESCE(credited_at,?),position=CASE WHEN last_at<=? THEN ? ELSE position END,last_at=MAX(last_at,?),closed=MAX(closed,?) WHERE id=? AND track_id=?",
-                arrayOf(progress.mediaMs,progress.wallMs,progress.creditedAt,progress.lastAt,progress.position,progress.lastAt,
-                    if (progress.closed) 1 else 0,progress.sessionId,progress.trackId))
+            db.beginTransaction()
+            try {
+                db.execSQL("UPDATE sessions SET media_ms=MAX(media_ms,?),wall_ms=MAX(wall_ms,?),credited_at=COALESCE(credited_at,?),position=CASE WHEN last_at<=? THEN ? ELSE position END,last_at=MAX(last_at,?),closed=MAX(closed,?) WHERE id=? AND track_id=?",
+                    arrayOf(progress.mediaMs,progress.wallMs,progress.creditedAt,progress.lastAt,progress.position,progress.lastAt,
+                        if (progress.closed) 1 else 0,progress.sessionId,progress.trackId))
+                if(db.rawQuery("SELECT 1 FROM sessions WHERE id=? AND track_id=?",arrayOf(progress.sessionId,progress.trackId)).use{it.moveToFirst()}) {
+                    for((minute,wall) in progress.wallMinutes){
+                        db.execSQL("INSERT OR IGNORE INTO session_wall_minutes(session_id,minute_at,wall_ms) VALUES(?,?,?)",arrayOf(progress.sessionId,minute,wall))
+                        db.execSQL("UPDATE session_wall_minutes SET wall_ms=MAX(wall_ms,?) WHERE session_id=? AND minute_at=?",arrayOf(wall,progress.sessionId,minute))
+                    }
+                    db.execSQL("UPDATE sessions SET timed_wall_ms=(SELECT COALESCE(SUM(wall_ms),0) FROM session_wall_minutes WHERE session_id=?) WHERE id=?",arrayOf(progress.sessionId,progress.sessionId))
+                }
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
             if (freshCredit) changed() else smartChanges.value++
         }
     }
@@ -133,9 +161,9 @@ internal class ListeningHistoryStore private constructor(context: Context) {
         }
     }
 
-    /** Read the original schema without migration or a parallel statistics counter.
-     * Duration is real wall time, attributed to the session's last recorded date.
-     * Old sessions don't contain daily slices, so cross-midnight time is not split. */
+    /** The original sessions remain the single source of credited plays. Legacy
+     * wall time stays at its actual historical last-recorded date. New measured
+     * UTC-minute buckets split elapsed listening time at calendar boundaries. */
     suspend fun smartSnapshot(candidates: List<SmartTrackCandidate>, period: SmartStatsPeriod, now: Long,
         seed: Long = now / SmartMusicPolicy.DAY_MS, diversity: Int = 50, forgottenDays: Long = 30,
         zone: java.time.ZoneId = java.time.ZoneId.systemDefault(), interval: SmartStatsInterval? = null): SmartMusicSnapshot = withContext(Dispatchers.IO) {
@@ -145,46 +173,82 @@ internal class ListeningHistoryStore private constructor(context: Context) {
             val excluded = db.rawQuery("SELECT track_id FROM excluded",null).use { c ->
                 buildSet { while(c.moveToNext()) add(c.getString(0)) }
             }
-            data class Totals(val plays: Long,val last: Long,val periodPlays: Long,val wall: Long)
-            val known = resolved.mapNotNull { it.second }.toHashSet()
-            val earliest = db.rawQuery("SELECT track_id,credited_at,last_at,wall_ms FROM sessions",null).use { c ->
-                var at:Long?=null
-                while(c.moveToNext()) if(c.getString(0) in known) {
-                    if(!c.isNull(1) && c.getLong(1)<=now) at=minOf(at ?: c.getLong(1),c.getLong(1))
-                    if(c.getLong(3)>0 && c.getLong(2)<=now) at=minOf(at ?: c.getLong(2),c.getLong(2))
+            val known=resolved.mapNotNull{it.second}.toHashSet()
+            val rowByTrack=resolved.mapNotNull{(row,id)->id?.let{it to row.rowId}}.toMap()
+            data class Session(val id:String,val track:String,val start:Long,val last:Long,val media:Long,val wall:Long,
+                val credit:Long?,val legacy:Long,val legacyAt:Long,val timed:Long)
+            data class Totals(var plays:Long=0,var last:Long=0,var periodPlays:Long=0,var wall:Long=0)
+            val sessions=db.rawQuery("SELECT id,track_id,started_at,last_at,media_ms,wall_ms,credited_at,legacy_wall_ms,legacy_at,timed_wall_ms FROM sessions",null).use{c->
+                buildList{while(c.moveToNext())if(c.getString(1) in known)add(Session(c.getString(0),c.getString(1),c.getLong(2),c.getLong(3),c.getLong(4),c.getLong(5),if(c.isNull(6))null else c.getLong(6),c.getLong(7),c.getLong(8),c.getLong(9)))}
+            }
+            val earliest=sessions.flatMap{session->listOfNotNull(session.credit,session.legacyAt.takeIf{session.legacy>0},
+                session.last.takeIf{session.wall-session.timed-session.legacy>0},session.start.takeIf{session.timed>0})}
+                .filter{it<=now}.minOrNull()?.let{java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate()}
+            val selected=interval?:SmartStatsInterval.overview(period,now,zone,earliest)
+            val cutoff=selected.startMs(zone);val end=minOf(selected.endMs(zone),now+1)
+            val timeline=selected.buckets().associateWith{longArrayOf(0,0)}.toSortedMap()
+            fun point(at:Long)=timeline[selected.bucket(at,zone)]
+            val totals=HashMap<String,Totals>()
+            val sessionWall=HashMap<String,Long>()
+            val approximate=HashSet<String>()
+            val firstMinute=HashMap<String,Long>()
+            fun addWall(sessionId:String,track:String,at:Long,wall:Long,legacy:Boolean=false){
+                if(wall<=0||at<cutoff||at>=end)return
+                totals.getOrPut(track){Totals()}.wall+=wall
+                point(at)?.let{it[1]+=wall}
+                if(selected.isSingleDay){sessionWall[sessionId]=(sessionWall[sessionId]?:0L)+wall;if(legacy)approximate+=sessionId else firstMinute[sessionId]=minOf(firstMinute[sessionId]?:at,at)}
+            }
+            for(s in sessions){
+                val t=totals.getOrPut(s.track){Totals()}
+                s.credit?.takeIf{it<end}?.let{at->t.plays++;if(at>=cutoff){t.periodPlays++;point(at)?.let{it[0]++}}}
+                if(s.media>0&&s.last<end)t.last=maxOf(t.last,s.last)
+                addWall(s.id,s.track,s.legacyAt,s.legacy,true)
+                // Old snapshots and any untrusted wall-clock jump have no
+                // precise calendar bucket. Do not invent an interval.
+                addWall(s.id,s.track,s.last,(s.wall-s.legacy-s.timed).coerceAtLeast(0),true)
+            }
+            if(end>cutoff){
+                db.rawQuery("SELECT m.session_id,s.track_id,m.minute_at,m.wall_ms FROM session_wall_minutes m JOIN sessions s ON s.id=m.session_id WHERE m.minute_at>=? AND m.minute_at<?",
+                    arrayOf(cutoff.toString(),end.toString())).use{c->
+                    while(c.moveToNext())if(c.getString(1) in known)addWall(c.getString(0),c.getString(1),c.getLong(2),c.getLong(3))
                 }
-                at?.let { java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
             }
-            val selected = interval ?: SmartStatsInterval.overview(period,now,zone,earliest)
-            val cutoff = selected.startMs(zone).toString()
-            val end = minOf(selected.endMs(zone),now + 1).toString()
-            val history = db.rawQuery(
-                "SELECT track_id, SUM(CASE WHEN credited_at<? THEN 1 ELSE 0 END), " +
-                "MAX(CASE WHEN media_ms>0 AND last_at<? THEN last_at ELSE 0 END), " +
-                "SUM(CASE WHEN credited_at>=? AND credited_at<? THEN 1 ELSE 0 END), " +
-                "SUM(CASE WHEN last_at>=? AND last_at<? THEN wall_ms ELSE 0 END) FROM sessions GROUP BY track_id",
-                arrayOf(end,end,cutoff,end,cutoff,end)).use { c ->
-                buildMap { while(c.moveToNext()) put(c.getString(0),Totals(c.getLong(1),c.getLong(2),c.getLong(3),c.getLong(4))) }
+            val rows=resolved.map{(row,track)->
+                val data=totals[track]
+                SmartTrackHistory(row.rowId,track,row.artist,row.favorite,data?.plays?:0,data?.last?:0,data?.periodPlays?:0,data?.wall?:0,track in excluded)
             }
-            val rows = resolved.map { (row,track) ->
-                val data = history[track]
-                SmartTrackHistory(row.rowId,track,row.artist,row.favorite,data?.plays ?: 0,data?.last ?: 0,
-                    data?.periodPlays ?: 0,data?.wall ?: 0,track in excluded)
-            }
-            val timeline = selected.buckets().associateWith { longArrayOf(0,0) }.toSortedMap()
-            fun point(at:Long):LongArray? = timeline[selected.bucket(at,zone)]
-            db.rawQuery("SELECT track_id,credited_at,last_at,wall_ms FROM sessions WHERE (credited_at>=? AND credited_at<?) OR (last_at>=? AND last_at<?)",
-                arrayOf(cutoff,end,cutoff,end)).use { c ->
-                while(c.moveToNext()) if(c.getString(0) in known) {
-                    if(!c.isNull(1) && c.getLong(1) >= cutoff.toLong() && c.getLong(1) < end.toLong())
-                        point(c.getLong(1))?.let { it[0]++ }
-                    if(c.getLong(2) >= cutoff.toLong() && c.getLong(2) < end.toLong())
-                        point(c.getLong(2))?.let { it[1]+=c.getLong(3) }
-                }
-            }
+            val daySessions=if(selected.isSingleDay)sessions.mapNotNull{s->
+                val credit=s.credit?.takeIf{it>=cutoff&&it<end}
+                val wall=sessionWall[s.id]?:0L
+                if(credit==null&&wall==0L)null else SmartDaySession(s.id,rowByTrack.getValue(s.track),s.start,s.last,credit,wall,s.id in approximate,firstMinute[s.id])
+            }.sortedWith(compareBy<SmartDaySession>{it.firstMinute?:it.creditedAt?:it.lastAt}.thenBy{it.sessionId}) else emptyList()
             SmartMusicPolicy.snapshot(rows,now,seed,diversity,forgottenDays).copy(
-                chart=timeline.map { (day,value)->SmartChartPoint(selected.label(day),value[0],value[1],day) },
-                statsInterval=selected,statsPeriod=period)
+                chart=timeline.map{(day,value)->SmartChartPoint(selected.label(day),value[0],value[1],day)},
+                statsInterval=selected,statsPeriod=period,daySessions=daySessions)
+        }
+    }
+
+    /** Only called after a verified, same-locator MP3 tag replacement.
+     * Never merge two existing track identities; old resume keys remain valid. */
+    suspend fun relinkVerifiedEdit(before:Set<String>,after:Set<String>)=withContext(Dispatchers.IO){
+        require(before.isNotEmpty()&&after.isNotEmpty())
+        mutex.withLock{
+            val db=helper.writableDatabase
+            db.beginTransaction()
+            try{
+                val aliases=aliasMap(db)
+                val old=before.mapNotNull(aliases::get).distinct()
+                val fresh=after.mapNotNull(aliases::get).distinct()
+                check(old.size<=1&&fresh.size<=1&&(fresh.isEmpty()||old==fresh)){"Неоднозначная история трека"}
+                val track=old.singleOrNull()?:UUID.randomUUID().toString().also{id->
+                    db.insertOrThrow("tracks",null,ContentValues().apply{put("id",id)})
+                }
+                for(key in before+after)if(key !in aliases)db.insertOrThrow("aliases",null,ContentValues().apply{
+                    put("alias",key);put("track_id",track)
+                })
+                db.setTransactionSuccessful()
+            }finally{db.endTransaction()}
+            changed()
         }
     }
 
@@ -209,7 +273,10 @@ internal class ListeningHistoryStore private constructor(context: Context) {
         helper.writableDatabase.delete("excluded",null,null); changed()
     } }
     suspend fun clearHistory() = withContext(Dispatchers.IO) { mutex.withLock {
-        helper.writableDatabase.delete("sessions",null,null); epoch.incrementAndGet(); changed()
+        val db=helper.writableDatabase
+        db.beginTransaction()
+        try{db.delete("session_wall_minutes",null,null);db.delete("sessions",null,null);db.setTransactionSuccessful()}finally{db.endTransaction()}
+        epoch.incrementAndGet(); changed()
     } }
 
     internal fun closeForTest() { scope.cancel(); helper.close() }

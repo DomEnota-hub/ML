@@ -14,22 +14,66 @@ internal data class DuplicateSession(
     val index: Int, val offset: Int, val scannedAt: Long,
 )
 
+internal data class DuplicateTrashReportRow(val id:String,val name:String,val success:Boolean,val reason:String)
+internal data class DuplicateTrashReport(val at:Long,val epoch:Long,val rows:List<DuplicateTrashReportRow>)
+
 /** One private, non-backed-up snapshot. Atomic replacement preserves the previous successful scan. */
 internal object MusicDuplicateSessionStore {
     private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "music-duplicates-v1.json"))
     private val lock = DuplicatePrivacyGuard.lock
-    fun clearForPrivacy(context: Context) { val target = file(context); target.delete(); check(!target.baseFile.exists()) { "Не удалось очистить отчёт дубликатов" } }
-    private fun permitted(context: Context, session: DuplicateSession): Boolean = session.result.groups.all { group ->
+    private fun trashReportFile(context:Context)=AtomicFile(File(context.noBackupFilesDir,"music-duplicate-trash-v1.json"))
+    fun clearForPrivacy(context: Context) {
+        DuplicateReportJournal.clear(context,"music")
+        val target=file(context);target.delete()
+        val report=trashReportFile(context);report.delete()
+        check(!target.baseFile.exists()&&!report.baseFile.exists()){"Не удалось очистить отчёт дубликатов"}
+    }
+    private fun reportPermitted(context:Context,report:DuplicateTrashReport):Boolean =
+        report.epoch==DuplicatePrivacyGuard.generation(context)&&report.rows.all{DuplicatePrivacyGuard.accepts(context,report.epoch,it.id)}
+    suspend fun saveTrashReport(context:Context,report:DuplicateTrashReport):Boolean=withContext(Dispatchers.IO+NonCancellable){
+        synchronized(lock){
+            if(!reportPermitted(context,report))return@synchronized false
+            val json=JSONObject().put("at",report.at).put("epoch",report.epoch).put("rows",JSONArray().apply{
+                report.rows.forEach{row->put(JSONObject().put("id",row.id).put("name",row.name)
+                    .put("success",row.success).put("reason",row.reason))}
+            })
+            runCatching{write(trashReportFile(context),json.toString())}.isSuccess
+        }
+    }
+    suspend fun trashReport(context:Context):DuplicateTrashReport?=withContext(Dispatchers.IO){
+        synchronized(lock){runCatching{
+            val json=JSONObject(trashReportFile(context).openRead().bufferedReader().use{it.readText()})
+            val array=json.getJSONArray("rows")
+            DuplicateTrashReport(json.getLong("at"),json.getLong("epoch"),(0 until array.length()).map{i->
+                val row=array.getJSONObject(i)
+                DuplicateTrashReportRow(row.getString("id"),row.getString("name"),row.getBoolean("success"),row.getString("reason"))
+            }).takeIf{reportPermitted(context,it)}
+        }.getOrNull()}
+    }
+    private fun write(target:AtomicFile,encoded:String){
+        val stream=target.startWrite()
+        try{stream.write(encoded.toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
+        catch(e:Exception){target.failWrite(stream);throw e}
+    }
+    private fun permitted(context: Context, session: DuplicateSession): Boolean = session.result.privacyEpoch==DuplicatePrivacyGuard.generation(context) && session.result.groups.all { group ->
         group.tracks.all { DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) }
     }
     suspend fun load(context: Context): DuplicateSession? = withContext(Dispatchers.IO) {
         synchronized(lock) { runCatching { decode(file(context).openRead().bufferedReader().use { it.readText() }).takeIf { permitted(context,it) } }.getOrNull() }
     }
+    suspend fun history(context:Context):List<DuplicateSession> = withContext(Dispatchers.IO){synchronized(lock){
+        val current=runCatching{decode(file(context).openRead().bufferedReader().use{it.readText()})}.getOrNull()
+        (listOfNotNull(current)+DuplicateReportJournal.history(context,"music").mapNotNull{runCatching{decode(it)}.getOrNull()}).filter{permitted(context,it)}.distinctBy{it.scannedAt}.sortedByDescending{it.scannedAt}
+    }}
+    fun savePartial(context:Context,session:DuplicateSession){synchronized(lock){if(permitted(context,session))runCatching{DuplicateReportJournal.savePartial(context,"music",encode(session))}}}
+    suspend fun partial(context:Context):DuplicateSession?=withContext(Dispatchers.IO){synchronized(lock){runCatching{DuplicateReportJournal.partial(context,"music")?.let(::decode)?.takeIf{permitted(context,it)}}.getOrNull()}}
     suspend fun save(context: Context, session: DuplicateSession): Boolean = withContext(Dispatchers.IO + NonCancellable) {
         synchronized(lock) {
             if (!permitted(context,session)) return@synchronized false
             val target = file(context)
             runCatching {
+                val previous=runCatching{decode(target.openRead().bufferedReader().use{it.readText()})}.getOrNull()
+                if(previous!=null&&previous.scannedAt!=session.scannedAt&&permitted(context,previous))DuplicateReportJournal.archive(context,"music",previous.scannedAt,encode(previous))
                 val bytes = encode(session).toByteArray(Charsets.UTF_8)
                 val stream = target.startWrite()
                 try { stream.write(bytes); target.finishWrite(stream) }
@@ -37,22 +81,34 @@ internal object MusicDuplicateSessionStore {
             }.isSuccess
         }
     }
-    /** Only remove files the trash host actually confirmed. Keep cancelled/failed requests. */
-    suspend fun removeTrashed(context: Context, uris: Set<String>) = withContext(Dispatchers.IO + NonCancellable) {
-        synchronized(lock) {
-            val target = file(context)
-            val old = runCatching { decode(target.openRead().bufferedReader().use { it.readText() }) }.getOrNull() ?: return@synchronized
-            val groups = old.result.groups.mapNotNull { g ->
-                val remaining = g.tracks.filter { it.uri !in uris }
-                if (remaining.size >= 2) g.copy(tracks = remaining) else null
+    /** Only verified successes are removed, including archived and partial reports.
+     * Keep the user's remaining selections when a group still has a keeper. */
+    private fun withoutTrashed(old:DuplicateSession,uris:Set<String>):DuplicateSession{
+        val groups=old.result.groups.mapNotNull{g->
+            val remaining=g.tracks.filter{it.uri !in uris}
+            if(remaining.size>=2)g.copy(tracks=remaining)else null
+        }
+        val keep=groups.associate{g->g.key to (old.kept.entries.firstOrNull{(_,id)->g.tracks.any{it.id==id}}?.value
+            ?:MusicDuplicatePolicy.recommended(g))}
+        val selected=old.selected.intersect(groups.flatMap{g->g.tracks.filter{it.id!=keep[g.key]}.map{it.id}}.toSet())
+        return old.copy(result=old.result.copy(groups=groups),selected=selected,kept=keep,
+            index=old.index.coerceAtMost((groups.size-1).coerceAtLeast(0)))
+    }
+    suspend fun removeTrashed(context:Context,uris:Set<String>)=withContext(Dispatchers.IO+NonCancellable){
+        synchronized(lock){
+            val target=file(context)
+            val old=runCatching{decode(target.openRead().bufferedReader().use{it.readText()})}.getOrNull()
+            if(old!=null&&permitted(context,old))write(target,encode(withoutTrashed(old,uris)))
+            DuplicateReportJournal.history(context,"music").forEach{raw->
+                val saved=runCatching{decode(raw)}.getOrNull()
+                if(saved!=null&&permitted(context,saved)&&saved.result.groups.any{g->g.tracks.any{it.uri in uris}})
+                    DuplicateReportJournal.archive(context,"music",saved.scannedAt,encode(withoutTrashed(saved,uris)))
             }
-            val keep = groups.associate { g -> g.key to (old.kept.entries.firstOrNull { (_, id) -> g.tracks.any { it.id == id } }?.value ?: MusicDuplicatePolicy.recommended(g)) }
-            val selected = old.selected.intersect(groups.flatMap { g -> g.tracks.filter { it.id != keep[g.key] }.map { it.id } }.toSet())
-            val next = old.copy(result = old.result.copy(groups = groups), selected = selected, kept = keep,
-                index = old.index.coerceAtMost((groups.size - 1).coerceAtLeast(0)))
-            val stream = target.startWrite()
-            try { stream.write(encode(next).toByteArray(Charsets.UTF_8)); target.finishWrite(stream) }
-            catch (e: Exception) { target.failWrite(stream); throw e }
+            DuplicateReportJournal.partial(context,"music")?.let{raw->
+                val saved=runCatching{decode(raw)}.getOrNull()
+                if(saved!=null&&permitted(context,saved)&&saved.result.groups.any{g->g.tracks.any{it.uri in uris}})
+                    DuplicateReportJournal.savePartial(context,"music",encode(withoutTrashed(saved,uris)))
+            }
         }
     }
     internal fun encodeTrack(t: DuplicateTrack): JSONObject = JSONObject().apply {
@@ -75,7 +131,7 @@ internal object MusicDuplicateSessionStore {
                     t.lng("duration"),t.lng("bitrate"),t.str("folder"),t.getBoolean("linked"),t.getBoolean("current"),
                     if (t.optInt("acousticVersion") == AcousticFingerprint.VERSION) t.optJSONArray("landmarks")?.let { array ->
                         require(array.length() <= 6000)
-                        AcousticFingerprint((0 until array.length()).map { i -> array.getJSONArray(i).let { AcousticLandmark(it.getInt(0),it.getInt(1)) } })
+                        AcousticFingerprint(packedAcousticLandmarks((0 until array.length()).map { i -> array.getJSONArray(i).let { AcousticLandmark(it.getInt(0),it.getInt(1)) } }))
                     } else null, t.optLong("privacyEpoch",0))
     }
     fun encode(session: DuplicateSession): String {
@@ -89,6 +145,7 @@ internal object MusicDuplicateSessionStore {
         }
         val keep = JSONObject(); session.kept.forEach { (k,v) -> keep.put(k,v) }
         return JSONObject().put("schema",1).put("groups",groups).put("skipped",session.result.skipped)
+            .put("acousticUnavailable",session.result.acousticUnavailable).put("expanded",session.result.expanded).put("privacyEpoch",session.result.privacyEpoch)
             .put("selected",JSONArray(session.selected.toList())).put("kept",keep)
             .put("index",session.index).put("offset",session.offset).put("scannedAt",session.scannedAt).toString()
     }
@@ -106,7 +163,7 @@ internal object MusicDuplicateSessionStore {
         }
         val ka = json.getJSONObject("kept"); val keep = ka.keys().asSequence().associateWith { ka.getString(it) }
         val sa = json.getJSONArray("selected"); val selected = (0 until sa.length()).map { sa.getString(it) }.toSet()
-        return DuplicateSession(DuplicateScanResult(groups,json.getInt("skipped")),selected,keep,
+        return DuplicateSession(DuplicateScanResult(groups,json.getInt("skipped"),json.optInt("acousticUnavailable",0),json.optBoolean("expanded",false),json.optLong("privacyEpoch",groups.firstOrNull()?.tracks?.firstOrNull()?.privacyEpoch?:0L)),selected,keep,
             json.getInt("index").coerceAtLeast(0),json.getInt("offset").coerceAtLeast(0),json.getLong("scannedAt"))
     }
 }

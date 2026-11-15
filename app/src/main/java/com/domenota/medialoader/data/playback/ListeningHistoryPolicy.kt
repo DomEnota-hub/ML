@@ -45,7 +45,8 @@ internal object ListeningHistoryPolicy {
 
 internal data class ListeningProgress(val sessionId: String, val trackId: String, val startedAt: Long,
     val lastAt: Long, val mediaMs: Long = 0, val wallMs: Long = 0, val creditedAt: Long? = null,
-    val position: Long = 0, val closed: Boolean = false, val generation: Long = 0)
+    val position: Long = 0, val closed: Boolean = false, val generation: Long = 0,
+    val wallMinutes: Map<Long,Long> = emptyMap())
 
 /** Only continuous media-position progress while actually playing counts. A seek
  * changes the anchor, not the counter. Repeated loops get separate session IDs. */
@@ -58,6 +59,7 @@ internal class ListeningCounter(initial: ListeningProgress, position: Long, elap
     private var wasPlaying = playing
     private var previousSpeed = speed
     private var knownDuration = duration
+    private val wallMinutes = initial.wallMinutes.toMutableMap()
 
     fun sample(position: Long, elapsed: Long, now: Long, playing: Boolean, speed: Float, duration: Long = knownDuration) {
         if (duration > 0) knownDuration = duration
@@ -66,8 +68,15 @@ internal class ListeningCounter(initial: ListeningProgress, position: Long, elap
         val rate = previousSpeed.toDouble().takeIf { it.isFinite() && it > 0 } ?: 1.0
         if (wasPlaying && span in 1..10_000L && delta > 0 && delta <= (span * rate).roundToLong() + 250L) {
             val media = progress.mediaMs + delta
-            val wall = progress.wallMs + minOf(span,(delta / rate).roundToLong().coerceAtLeast(0L))
-            progress = progress.copy(mediaMs=media,wallMs=wall,
+            val added = minOf(span,(delta / rate).roundToLong().coerceAtLeast(0L))
+            val wall = progress.wallMs + added
+            // Monotonic elapsed time determines counted duration. Only use a
+            // calendar interval if the wall clock did not jump during the sample.
+            val wallSpan=now-progress.lastAt
+            if(added>0 && wallSpan>0 && kotlin.math.abs(wallSpan-span)<=1000L) {
+                ListeningWallMinutes.split(progress.lastAt,now,added).forEach{(minute,ms)->wallMinutes[minute]=(wallMinutes[minute]?:0L)+ms}
+            }
+            progress = progress.copy(mediaMs=media,wallMs=wall,wallMinutes=wallMinutes.toMap(),
                 creditedAt=progress.creditedAt ?: now.takeIf { media >= ListeningHistoryPolicy.threshold(knownDuration) })
         }
         progress = progress.copy(lastAt=maxOf(progress.lastAt,now),position=position.coerceAtLeast(0))
@@ -79,4 +88,26 @@ internal class ListeningCounter(initial: ListeningProgress, position: Long, elap
     }
 
     fun close() { progress = progress.copy(closed=true) }
+}
+
+/** UTC-minute buckets preserve measured wall duration across midnight and DST.
+ * The cumulative integer allocation conserves every millisecond; it does not
+ * interpret seek jumps or pauses as listened time. */
+internal object ListeningWallMinutes {
+    const val MINUTE=60_000L
+    fun split(start:Long,end:Long,wall:Long):Map<Long,Long>{
+        if(start<0||end<=start||wall<=0||end-start>11_000L)return emptyMap()
+        val span=end-start
+        var at=start;var allocated=0L
+        return buildMap{
+            while(at<end){
+                val minute=at-at%MINUTE
+                val until=minOf(end,minute+MINUTE)
+                val cumulative=wall*(until-start)/span
+                val portion=cumulative-allocated
+                if(portion>0)put(minute,portion)
+                allocated=cumulative;at=until
+            }
+        }
+    }
 }

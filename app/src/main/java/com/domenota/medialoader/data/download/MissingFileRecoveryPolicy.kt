@@ -3,8 +3,11 @@ package com.domenota.medialoader.data.download
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.model.MediaItem
+import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.core.provider.*
 import com.domenota.medialoader.data.bulk.BulkIdentity
+
+internal class MissingRecoveryFailure(message:String):IllegalStateException(message)
 
 /** An absent carousel component is never inferred from title, size or a list position. */
 internal object MissingFileRecoveryPolicy {
@@ -13,15 +16,30 @@ internal object MissingFileRecoveryPolicy {
     fun match(row: DownloadEntity, candidates: List<MediaItem>): MediaItem? {
         if (!eligible(row)) return null
         val exact = candidates.filter { it.providerId == row.providerId && it.type == row.mediaType &&
-            row.bulkMediaKey != null && BulkIdentity.key(it) == row.bulkMediaKey }
+            row.bulkMediaKey != null && BulkIdentity.key(it) == row.bulkMediaKey && sameKnownPublication(row,it) }
         if (row.bulkMediaKey != null) return exact.singleOrNull()
-        // Legacy rows have no component identity. Only a demonstrably single source is safe.
-        if (row.groupId != null || candidates.size != 1) return null
-        val item = candidates.single()
-        if (item.providerId != row.providerId || item.type != row.mediaType) return null
-        val original = publication(row.sourcePageUrl ?: row.sourceUrl ?: return null) ?: return null
-        val refreshed = publication(item.sourcePageUrl ?: item.downloadUrl) ?: return null
-        return item.takeIf { original == refreshed && row.formatSelector == item.formatSelector }
+        // A single Reel can resolve to video + extracted audio. Neither that
+        // synthetic choice nor alternative encodings constitute a carousel.
+        if(row.groupId!=null)return null
+        val original=publication(row.sourcePageUrl?:row.sourceUrl?:return null)?:return null
+        val item=candidates.filter{it.providerId==row.providerId&&it.type==row.mediaType&&
+            publication(it.sourcePageUrl?:it.downloadUrl)==original&&it.formatSelector==row.formatSelector}.singleOrNull()?:return null
+        if(row.providerId=="instagram"){
+            val link=InstagramLinkParser.parse(row.sourcePageUrl?:row.sourceUrl?:return null)?:return null
+            val root=candidates.filter{it.providerId=="instagram"&&it.type!=MediaType.AUDIO}.singleOrNull()?:return null
+            if(root.position!=null||root.id!=link.id||root.sourceGroupId!=link.id||
+                publication(root.sourcePageUrl?:root.downloadUrl)!=original)return null
+            if(item.type==MediaType.AUDIO){
+                // Do not confuse a publication-level music asset with extracted audio.
+                if(item.id!="${root.id}_audio"||root.type!=MediaType.VIDEO||row.sourceUrl!=root.downloadUrl)return null
+            }else if(item!=root)return null
+        }
+        return item
+    }
+
+    private fun sameKnownPublication(row:DownloadEntity,item:MediaItem):Boolean {
+        val old=publication(row.sourcePageUrl?:row.sourceUrl.orEmpty())
+        return old==null||old==publication(item.sourcePageUrl?:item.downloadUrl)
     }
 
     private fun publication(url: String): String? =

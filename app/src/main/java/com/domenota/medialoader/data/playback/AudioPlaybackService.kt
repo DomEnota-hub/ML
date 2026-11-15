@@ -40,6 +40,10 @@ class AudioPlaybackService : MediaSessionService() {
                 p.currentMediaItemIndex == saved.index && (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId } == saved.ids &&
                 kotlin.math.abs(p.currentPosition - saved.position) < 1000L) p.play()
         }
+        /** The actual service item, not a potentially stale Activity projection. */
+        internal fun isCurrentPublicUri(uri:String):Boolean=liveSession?.player?.currentMediaItem?.let{
+            AudioPlaybackMetadata.matchesPublicUri(it,uri)
+        }==true
         internal fun removeTrashedFromQueue(uris: List<String>) {
             val p = liveSession?.player ?: return
             for (index in p.mediaItemCount - 1 downTo 0) {
@@ -122,6 +126,7 @@ class AudioPlaybackService : MediaSessionService() {
                 true,
             )
             .setHandleAudioBecomingNoisy(true)
+            .setMaxSeekToPreviousPositionMs(PreviousTrackPolicy.RESTART_THRESHOLD_MS)
             .build()
 
         val playbackModes = getSharedPreferences("audio_playback_modes", MODE_PRIVATE)
@@ -147,7 +152,7 @@ class AudioPlaybackService : MediaSessionService() {
         }
         privateScope.launch { equalizerSettings.state.collect { refreshEqualizer() } }
 
-        mediaSession = MediaSession.Builder(this, player)
+        mediaSession = MediaSession.Builder(this, MusicPreviousPlayer(player))
             .setSessionActivity(CurrentPlayerRequest.pendingIntent(this)).build()
         liveSession = mediaSession
         liveTimer = MusicStopTimer(player,privateScope).also { it.attach() }

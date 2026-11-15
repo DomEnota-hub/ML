@@ -105,6 +105,20 @@ class DownloadQueueTest {
             }
             return changed
         }
+        override suspend fun updateRecognitionProvenanceWhenCurrent(id:String,uri:String,trackId:String?,source:String,artworkUrl:String?):Int{
+            var changed=0
+            rows.update{list->
+                changed=0
+                list.map{row->
+                    if(row.id==id&&row.savedUri==uri&&!row.isPrivate&&!row.hidden){
+                        changed++
+                        row.copy(recognitionTrackId=trackId?:row.recognitionTrackId,recognitionSource=source,
+                            recognitionArtworkUrl=artworkUrl?:row.recognitionArtworkUrl)
+                    }else row
+                }
+            }
+            return changed
+        }
         override suspend fun insertRecovered(item: DownloadEntity) {
             rows.update { list ->
                 check(list.none { it.id == item.id }) { "Duplicate recovered history ID" }

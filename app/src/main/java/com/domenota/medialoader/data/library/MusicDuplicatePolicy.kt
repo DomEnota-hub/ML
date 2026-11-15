@@ -154,13 +154,21 @@ internal object MusicDuplicatePolicy {
         val retained = keep[group.key]?.takeIf { id -> group.tracks.any { it.id == id } } ?: recommended(group)
         group.tracks.map { it.id }.filter { it != retained }
     }.toSet()
-    /** Transfer the only keeper's mark without changing unrelated/manual exceptions. */
-    fun switchKeeper(group: DuplicateGroup, selected: Set<String>, previous: String, next: String): Set<String> {
-        val ids = group.tracks.map { it.id }.toSet()
-        if (previous == next || next !in ids || previous !in ids) return selected
-        val retained = ids - selected
-        val changed = selected - next
-        return if (retained == setOf(previous) && next in selected) changed + previous else changed
+    /** An explicit keeper choice selects all other eligible members of this group. */
+    fun switchKeeper(group:DuplicateGroup,selected:Set<String>,previous:String,next:String,
+        eligible:Set<String> = group.tracks.map{it.id}.toSet()):Set<String>{
+        val ids=group.tracks.map{it.id}.toSet()
+        if(next !in ids||previous !in ids)return selected
+        return (selected-ids)+((ids-next).intersect(eligible))
+    }
+    fun shortReason(group:DuplicateGroup):String=when(group.kind){
+        DuplicateKind.EXACT->if(group.tracks.firstOrNull()?.sha?.let{sha->sha.isNotBlank()&&group.tracks.all{it.sha==sha}}==true)
+            "Одинаковые файлы" else if(group.tracks.firstOrNull()?.payloadSha?.let{sha->sha.isNotBlank()&&group.tracks.all{it.payloadSha==sha}}==true)
+            "Одинаковое аудио" else "Точные совпадения"
+        DuplicateKind.ACOUSTIC->"Похожее звучание"
+        DuplicateKind.POSSIBLE->if(group.tracks.any{version(it)!=null})"Разные версии композиции"
+            else if(group.tracks.map{possibleArtists(it)}.reduceOrNull{a,b->a.intersect(b)}?.isNotEmpty()==true)
+                "Похожие названия и исполнители" else "Похожие названия"
     }
     fun validSelection(groups: List<DuplicateGroup>, selected: Set<String>): Boolean = selected.isNotEmpty() &&
         selected.all { id -> groups.any { group -> group.tracks.any { it.id == id } } } &&

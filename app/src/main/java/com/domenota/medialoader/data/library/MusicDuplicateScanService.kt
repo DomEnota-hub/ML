@@ -20,21 +20,29 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Main-thread admission, one service-owned scan. The screen only observes progress. */
 internal object DuplicateBackgroundScan {
     const val OPEN_ACTION = "com.domenota.medialoader.OPEN_DUPLICATES"
-    data class Request(val token: Long, val rows: List<DownloadEntity>, val linked: Set<String>, val current: String?)
+    data class Request(val token: Long, val rows: List<DownloadEntity>, val linked: Set<String>, val current: String?,val expanded:Boolean=false)
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
-        val session: DuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false)
+        val session: DuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false,
+        val phase:DuplicateScanPhase=DuplicateScanPhase.METADATA,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:DuplicateScanResult?=null)
     private val mutable = MutableStateFlow(Status())
     val state = mutable.asStateFlow()
     private var pending: Request? = null
     private var nextToken = 0L
     private fun prefs(context: Context) = context.getSharedPreferences("duplicate_background_scan",Context.MODE_PRIVATE)
     fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false)
+    fun journalStatus(context:Context):String=if(state.value.running)"Выполняется" else when(prefs(context).getString("journalStatus",null)){
+        "paused"->"Приостановлен";"stopped"->"Остановлен";"failed"->"Прерван";else->"Незавершённый поиск"
+    }
+    fun resumeExpanded(context:Context)=prefs(context).getBoolean("expanded",false)
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
-    @Synchronized fun start(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?) {
+    @Synchronized fun start(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?,expanded:Boolean=false) {
         if (mutable.value.running) return
         val token = ++nextToken
-        pending = Request(token,rows.toList(),linked.toSet(),current)
-        mutable.value = Status(running = true,total = rows.size,token = token)
+        pending = Request(token,rows.toList(),linked.toSet(),current,expanded)
+        val now=android.os.SystemClock.elapsedRealtime()
+        mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now)
+        prefs(context).edit().putBoolean("expanded",expanded).apply()
+        prefs(context).edit().putString("journalStatus","running").apply()
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,MusicDuplicateScanService::class.java)) }
         catch (e: Exception) { pending = null; mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
@@ -46,18 +54,29 @@ internal object DuplicateBackgroundScan {
     @Synchronized fun claim(): Request? = pending.also { pending = null }
     @Synchronized fun progress(token: Long, done: Int,total: Int) {
         if (mutable.value.token == token && mutable.value.running && !mutable.value.committing)
-            mutable.value = Status(true,done,total,token = token)
+            mutable.value = mutable.value.copy(done=done,total=total)
+    }
+    @Synchronized fun phase(token:Long,phase:DuplicateScanPhase){
+        val s=mutable.value;if(s.token==token&&s.running)mutable.value=s.copy(phase=phase,done=0,total=0,phaseStartedAt=android.os.SystemClock.elapsedRealtime())
+    }
+    @Synchronized fun partial(token:Long,result:DuplicateScanResult){
+        val s=mutable.value;if(s.token==token&&s.running)mutable.value=s.copy(partial=result)
     }
     @Synchronized fun beginCommit(token: Long): Boolean {
         val s = mutable.value
         if (s.token != token || !s.running) return false
-        mutable.value = s.copy(committing = true)
+        mutable.value = s.copy(committing = true,phase=DuplicateScanPhase.SAVING)
         return true
     }
     @Synchronized fun finish(context: Context, token: Long, session: DuplicateSession?,error: String? = null, cancelled: Boolean = false) {
         if (mutable.value.token != token || !mutable.value.running) return
         if (session != null || cancelled) mark(context,false)
-        mutable.value = Status(session = session,error = error,token = token)
+        prefs(context).edit().putString("journalStatus",when{session!=null->"completed";cancelled->"stopped";error?.contains("приостановлен")==true->"paused";else->"failed"}).apply()
+        mutable.value = Status(session = session,error = error,token = token,partial=if(session==null)mutable.value.partial else null)
+    }
+    fun pause(context:Context){
+        if(!state.value.running||state.value.committing)return
+        runCatching{context.startService(Intent(context,MusicDuplicateScanService::class.java).setAction(MusicDuplicateScanService.PAUSE))}
     }
     fun cancel(context: Context) {
         if (!state.value.running || state.value.committing) return
@@ -81,10 +100,11 @@ class MusicDuplicateScanService : Service() {
     }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == CANCEL) {
+        if (intent?.action == CANCEL||intent?.action==PAUSE) {
             if (DuplicateBackgroundScan.state.value.committing) return START_NOT_STICKY
-            cancelReason = "Поиск отменён"; explicitCancel = true
-            if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); DuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = true) }
+            explicitCancel=intent?.action==CANCEL
+            cancelReason=if(explicitCancel)"Поиск остановлен. Проверенные файлы сохранены." else "Поиск приостановлен. Можно продолжить."
+            if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); DuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = explicitCancel) }
             return START_NOT_STICKY
         }
         if (job != null && job?.isActive == true) return START_NOT_STICKY
@@ -95,12 +115,17 @@ class MusicDuplicateScanService : Service() {
         else startForeground(ID,notice(0,request?.rows?.size ?: 0))
         if (request == null) { terminal = true; DuplicateBackgroundScan.finish(this,token,null,"Поиск прерван. Запустите его снова."); stopSelf(); return START_NOT_STICKY }
         val scanToken = request.token
+        val scanAt=System.currentTimeMillis()
         wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"MediaLoader:duplicate-scan").apply {
             setReferenceCounted(false); acquire(6L*60*60*1000)
         }
         job = scope.launch {
             try {
-                val result = MusicDuplicateScanner.scan(this@MusicDuplicateScanService,request.rows,request.linked,request.current) { done,total ->
+                val result = MusicDuplicateScanner.scan(this@MusicDuplicateScanService,request.rows,request.linked,request.current,request.expanded,
+                    onPhase={DuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
+                        DuplicateBackgroundScan.partial(scanToken,partial)
+                        MusicDuplicateSessionStore.savePartial(this@MusicDuplicateScanService,DuplicateSession(partial,emptySet(),emptyMap(),0,0,scanAt))
+                    }) { done,total ->
                     DuplicateBackgroundScan.progress(scanToken,done,total)
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (DuplicateBackgroundScan.state.value.token == scanToken && DuplicateBackgroundScan.state.value.running && (now - lastNotice >= 1000 || done == total)) {
@@ -110,8 +135,9 @@ class MusicDuplicateScanService : Service() {
                 }
                 ensureActive()
                 if (!DuplicateBackgroundScan.beginCommit(scanToken)) return@launch
-                val session = DuplicateSession(result,emptySet(),result.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) },0,0,System.currentTimeMillis())
+                val session = DuplicateSession(result,emptySet(),result.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) },0,0,scanAt)
                 check(MusicDuplicateSessionStore.save(this@MusicDuplicateScanService,session)) { "Не удалось сохранить поиск" }
+                synchronized(DuplicatePrivacyGuard.lock){DuplicateReportJournal.clearPartial(this@MusicDuplicateScanService,"music")}
                 terminal = true
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 notifyAllowed(DONE_ID,notificationBase().setContentTitle("Поиск дубликатов завершён")
@@ -153,14 +179,16 @@ class MusicDuplicateScanService : Service() {
             .setOnlyAlertOnce(true)
     }
     private fun notice(done: Int,total: Int): Notification {
+        val phase=DuplicateBackgroundScan.state.value.phase
         val cancel = PendingIntent.getService(this,ID,Intent(this,MusicDuplicateScanService::class.java).setAction(CANCEL),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return notificationBase().setContentTitle("Поиск дубликатов треков").setContentText("Проверено $done из $total")
+        return notificationBase().setContentTitle("Поиск дубликатов треков").setContentText("${phase.caption} · $done из $total")
             .setProgress(total,done,total == 0).setOngoing(true).addAction(0,"Отменить",cancel).build()
     }
     companion object {
         private const val CHANNEL = "duplicate_scan"
         private const val ID = 8293
         private const val DONE_ID = 8294
+        internal const val PAUSE = "pause_music_duplicates"
         internal const val CANCEL = "cancel_duplicate_scan"
     }
 }

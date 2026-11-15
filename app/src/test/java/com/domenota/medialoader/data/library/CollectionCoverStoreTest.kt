@@ -38,7 +38,7 @@ class CollectionCoverStoreTest {
         assertFalse(old.file.exists())
         val current=store.read("cover-test")!!
         val result=android.graphics.BitmapFactory.decodeFile(current.file.path)
-        assertEquals(640,result.width);assertEquals(800,result.height)
+        assertEquals(72,result.width);assertEquals(90,result.height)
         result.recycle();image.recycle()
         store.automatic("cover-test")
         assertNull(store.read("cover-test"));assertFalse(current.file.exists())

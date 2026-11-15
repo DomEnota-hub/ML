@@ -21,6 +21,20 @@ class CollectionGeometryTest {
         assertEquals(crop,CollectionCrop(crop.centerX,crop.centerY,crop.zoom).bounded(1600,900))
         assertTrue(rect.width<CollectionCrop().rect(1600,900).width)
     }
+    @Test fun fullAxisNeverProducesInvertedBounds() {
+        for (height in 1..4096) {
+            val width=height*2
+            val bounded=CollectionCrop(99f,-99f,1f).bounded(width,height)
+            assertEquals(.5f,bounded.centerY,0f)
+            val rect=bounded.rect(width,height)
+            assertTrue(rect.top>=0f && rect.top+rect.height<=height+.001f)
+            assertTrue(rect.left>=0f && rect.left+rect.width<=width+.001f)
+        }
+    }
+    @Test fun nonFiniteInputsAreNormalized() {
+        val crop=CollectionCrop(Float.NaN,Float.POSITIVE_INFINITY,Float.NaN).bounded(800,1000)
+        assertEquals(CollectionCrop(),crop)
+    }
     @Test fun singleCollectionKeepsHalfWidthAndManyHaveSameWidth() {
         for(available in listOf(240f,360f,800f))assertEquals(available,collectionCardWidth(available)*2+8f,.001f)
         assertEquals(176f,collectionCardWidth(360f),0f)

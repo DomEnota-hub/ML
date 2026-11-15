@@ -58,7 +58,9 @@ internal object AudioPlaybackMetadata {
         return item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon()
             .setTitle(row.recognizedTitle ?: row.sourceAudioTitle ?: row.originalName)
             .setArtist(row.recognizedArtist ?: row.sourceAudioArtist)
-            .setAlbumTitle(row.recognizedAlbum).build()).build()
+            .setAlbumTitle(row.recognizedAlbum)
+            .setArtworkUri((row.recognitionArtworkUrl ?: row.sourceAudioArtworkUrl ?: row.previewUrl)
+                ?.let(Uri::parse) ?: item.mediaMetadata.artworkUri).build()).build()
     }
 
     fun item(row: DownloadEntity, identities: Set<String>, playlistId: String? = null, resumeContext: String? = null): MediaItem = MediaItem.Builder()

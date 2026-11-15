@@ -69,6 +69,7 @@ internal fun MusicModeScreen(
     onOpenCollections: (() -> Unit)? = null,
     onAddCollection: ((List<String>) -> Unit)? = null,
     onPassport: ((String) -> Unit)? = null,
+    onRecognize:((String)->Unit)?=null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -132,7 +133,12 @@ internal fun MusicModeScreen(
             MusicFolderRules.visible(row,excludedFolders,deviceMusicFolders) }
     }
     val frequentKeys = remember(frequentRows,listeningKeys) { listeningKeys.filterKeys { it in frequentRows } }
-    var statsIntervals by remember { mutableStateOf<List<com.domenota.medialoader.data.playback.SmartStatsInterval>>(emptyList()) }
+    var statsIntervals by rememberSaveable(stateSaver=androidx.compose.runtime.saveable.listSaver<List<com.domenota.medialoader.data.playback.SmartStatsInterval>,String>(
+        save={list->list.flatMap{interval->listOf(interval.first.toString(),interval.end.toString(),interval.granularity.name,interval.title)}},
+        restore={values->values.chunked(4).mapNotNull{parts->if(parts.size!=4)null else runCatching{
+            com.domenota.medialoader.data.playback.SmartStatsInterval(java.time.LocalDate.parse(parts[0]),java.time.LocalDate.parse(parts[1]),
+                com.domenota.medialoader.data.playback.StatsGranularity.valueOf(parts[2]),parts[3])
+        }.getOrNull()}})){mutableStateOf(emptyList())}
     var smartStatsPeriod by rememberSaveable { mutableStateOf(SmartStatsPeriod.MONTH) }
     val smartPrefs = remember(context) { context.getSharedPreferences("smart_music",0) }
     var mixDiversity by remember { mutableIntStateOf(smartPrefs.getInt("diversity",50).coerceIn(0,100)/5*5) }
@@ -178,7 +184,7 @@ internal fun MusicModeScreen(
             var candidates=smartCandidates
             var result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays,interval=statsIntervals.lastOrNull())
             while(true) {
-                val ids=when(smartPage){SmartMusicPage.FORGOTTEN->result.forgotten;SmartMusicPage.MIX->result.mix;SmartMusicPage.STATS->result.topTracks;null->emptyList()}.map {it.rowId}
+                val ids=when(smartPage){SmartMusicPage.FORGOTTEN->result.forgotten;SmartMusicPage.MIX->result.mix;SmartMusicPage.STATS->result.playedTracks;null->emptyList()}.map {it.rowId}
                 if(ids.isEmpty()) break
                 val valid=validateFrequent(ids,false)
                 val missing=ids.filterNot(valid::contains).toSet()
@@ -244,42 +250,11 @@ internal fun MusicModeScreen(
     val folders = remember(tracks, deviceMusicFolders) {
         tracks.groupBy { MusicFolderRules.key(it, deviceMusicFolders) }.filterKeys { it != null }
     }
-    if (folderOpen != null) {
-        val folder = folderOpen!!
-        val folderTracks = folders[folder].orEmpty()
-        AlertDialog(onDismissRequest = { folderOpen = null }, title = { Text(MusicFolderRules.title(folder), color = MaterialTheme.colorScheme.onSurface) },
-            text = { Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = {
-                        val exclude = folder !in excludedFolders
-                        excludedFolders = if (exclude) excludedFolders + folder else excludedFolders - folder
-                        folderPrefs.edit().putStringSet("excluded", excludedFolders).apply()
-                    }) {
-                        Icon(if (folder in excludedFolders) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (folder in excludedFolders) "Отобразить в общем списке" else "Скрыть из общего списка")
-                    }
-                }
-                val folderListState = rememberLazyListState()
-                Box(Modifier.heightIn(max = 320.dp)) {
-                androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().padding(end = if (folderTracks.size > 4) musicFastScrollLaneWidth else 0.dp), state = folderListState) {
-                    items(folderTracks, key = { it.id }) { track ->
-                        TextButton(onClick = { (onPreview ?: onOpen)(track.id, folderTracks.map { it.id }) }) {
-                            com.domenota.medialoader.ui.components.DownloadThumbnail(track.savedUri, track.previewUrl, track.toUi().kind, Modifier.size(44.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                }
-                MusicFastScroll(folderListState, folderTracks.map { musicGroupLetter(musicDisplayTitle(it)) }, Modifier.align(Alignment.CenterEnd))
-                }
-            } }, confirmButton = { TextButton(onClick = { folderOpen = null }) { Text("Готово") } })
-    }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
-    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen) }
+    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
-    BackHandler(resumeOpen || smartPage != null || frequentOpen || playlist != null || tab == 1) { if(resumeOpen)resumeOpen=false else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
+    BackHandler(folderOpen != null || resumeOpen || smartPage != null || frequentOpen || playlist != null || tab == 1) { if(folderOpen!=null)folderOpen=null else if(resumeOpen)resumeOpen=false else if(smartPage==SmartMusicPage.STATS&&statsIntervals.isNotEmpty()) statsIntervals=statsIntervals.dropLast(1) else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
         PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, available.values.toList(), emptyMap(),
@@ -321,7 +296,17 @@ internal fun MusicModeScreen(
         if (playlist != null && onOpenFromPlaylist != null) onOpenFromPlaylist(id,queue,playlist.id)
         else onOpen(id,queue)
     }
-    if(resumeOpen&&onResumeSelection!=null) {
+    if(folderOpen!=null) {
+        val folder=requireNotNull(folderOpen)
+        val folderTracks=remember(folders,folder,hiddenTrackKeys,sort){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,hiddenTrackKeys)},sort)}
+        val folderIds=remember(folderTracks){folderTracks.map{it.id}}
+        MusicFolderScreen(MusicFolderRules.title(folder),folderTracks,folder in excludedFolders,currentPlayingId,playing,{folderOpen=null},
+            onToggleVisibility={val exclude=folder !in excludedFolders;excludedFolders=if(exclude)excludedFolders+folder else excludedFolders-folder;folderPrefs.edit().putStringSet("excluded",excludedFolders).apply()},
+            onPlay={shuffle->if(onPlayFrequent!=null)onPlayFrequent(folderIds,shuffle) else (onPreview?:onOpen)(if(shuffle)folderIds.random() else folderIds.first(),if(shuffle)folderIds.shuffled() else folderIds)},
+            onPreview={id->(onPreview?:onOpen)(id,folderIds)},
+            actions={track->val id=track.id;MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},{onOpen(id,folderIds)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,MusicTrackVisibility.hidden(track,hiddenTrackKeys),{toggleHidden(track)},
+                favorite=id in favoriteIds,onFavorite=onFavorite?.let{action->{mutate{action(id,id !in favoriteIds)}}},onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})})
+    } else if(resumeOpen&&onResumeSelection!=null) {
         ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},resumeLoading||loading,
             resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore)
     } else if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
@@ -330,14 +315,17 @@ internal fun MusicModeScreen(
             forgottenDays,{forgottenDays=it;smartPrefs.edit().putLong("forgotten_days",it).apply()},
             smartLoading||loading,smartError,currentPlayingId,playing,favoriteIds,{smartPage=null},{mixNonce++},
             onPlayFrequent,onPreview?:onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport,
-            statsInterval=statsIntervals.lastOrNull(),onStatsDrill={point->
-                val interval=statsIntervals.lastOrNull() ?: com.domenota.medialoader.data.playback.SmartStatsInterval.overview(smartStatsPeriod,System.currentTimeMillis(),java.time.ZoneId.systemDefault())
+            onRecognize=onRecognize,statsInterval=statsIntervals.lastOrNull(),onStatsDrill={point->
+                val interval=statsIntervals.lastOrNull() ?: smartSnapshot.statsInterval ?: com.domenota.medialoader.data.playback.SmartStatsInterval.overview(smartStatsPeriod,System.currentTimeMillis(),java.time.ZoneId.systemDefault())
                 point.date?.let { interval.drill(it) }?.let { statsIntervals=statsIntervals+it }
-            },onStatsBack={statsIntervals=statsIntervals.dropLast(1)})
+            },onStatsBack={statsIntervals=statsIntervals.dropLast(1)},onStatsDay={date->
+                if(statsIntervals.lastOrNull()?.isSingleDay==true && !date.isAfter(java.time.LocalDate.now()))
+                    statsIntervals=statsIntervals.dropLast(1)+com.domenota.medialoader.data.playback.SmartStatsInterval.day(date)
+            })
     } else if (frequentOpen && onPlayFrequent != null && onSaveFrequent != null) {
         FrequentListeningScreen(listeningSelection,frequentRows,listeningPeriod,{listeningPeriod=it},listeningLoading||loading,listeningError,
             currentPlayingId,playing,favoriteIds,listeningStore,{frequentOpen=false},onPlayFrequent,
-            onPreview ?: onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport)
+            onPreview ?: onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport,onRecognize=onRecognize)
     } else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         val fastLabels = remember(sections, displayedIds, tab, playlist) {
@@ -527,7 +515,7 @@ internal fun MusicModeScreen(
                                 MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } },
                                     { openTrack(id) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
                                     null, null, null, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) },
-                                    onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}})
+                                    onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})
                             }
                         }
                     }
@@ -540,7 +528,7 @@ internal fun MusicModeScreen(
                             playlist?.let { entry -> { mutate { onRemoveTrack(entry.id, id) } } },
                             playlist?.takeIf { it.trackIds.indexOf(id) > 0 }?.let { entry -> { mutate { onMoveTrack(entry.id, id, -1) } } },
                             playlist?.takeIf { it.trackIds.indexOf(id) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } }, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) },
-                                    onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}})
+                                    onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})
                     }
                 }
             }
@@ -608,7 +596,7 @@ private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDel
 internal fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> Unit)?, onOpen: () -> Unit, onAdd: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
                               onRemove: (() -> Unit)?, onUp: (() -> Unit)?, onDown: (() -> Unit)?, hidden: Boolean = false, onToggleHidden: (() -> Unit)? = null,
                               onExclude: (() -> Unit)? = null, favorite: Boolean = false, onFavorite: (() -> Unit)? = null,
-                              onCollection: (() -> Unit)? = null,onPassport: (() -> Unit)? = null) {
+                              onCollection: (() -> Unit)? = null,onPassport: (() -> Unit)? = null,onRecognize:(()->Unit)?=null) {
     var menu by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
     if (properties) MusicFilePropertiesDialog(track) { properties = false }
@@ -628,6 +616,7 @@ internal fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> U
             if (onToggleHidden != null) DropdownMenuItem({ Text(if (hidden) "Отобразить в общем списке" else "Скрыть") },
                 { menu = false; onToggleHidden() }, leadingIcon = { Icon(if (hidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null) })
             if(onCollection!=null)DropdownMenuItem({Text("В коллекцию")},{menu=false;onCollection()},leadingIcon={Icon(Icons.Rounded.CollectionsBookmark,null)})
+            if(onRecognize!=null&&!track.isPrivate&&!track.hidden)DropdownMenuItem({Text("Распознать композицию")},{menu=false;onRecognize()},leadingIcon={TrackRecognitionIcon(null)})
             if(onPassport!=null)DropdownMenuItem({Text("Паспорт файла")},{menu=false;onPassport()},leadingIcon={Icon(Icons.Rounded.Info,null)})
             DropdownMenuItem({ Text("Свойства") }, { menu = false; properties = true }, leadingIcon = { Icon(Icons.Rounded.Info, null) })
             DropdownMenuItem({ Text("Поделиться") }, { menu = false; onShare() }, leadingIcon = { Icon(Icons.Rounded.Share, null) })

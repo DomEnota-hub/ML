@@ -32,11 +32,14 @@ internal enum class SmartStatsPeriod(val label: String) {
         }
     fun label(date: LocalDate): String = date.format(DateTimeFormatter.ofPattern(when(this){YEAR->"MM.yyyy"; ALL->"yyyy"; else->"dd.MM"},Locale.ROOT))
 }
+internal data class SmartDaySession(val sessionId:String,val rowId:String,val startedAt:Long,val lastAt:Long,
+    val creditedAt:Long?,val wallMs:Long,val legacyAttribution:Boolean,val firstMinute:Long?=null)
 internal data class SmartMusicSnapshot(val forgotten: List<SmartTrackHistory> = emptyList(),
     val mix: List<SmartTrackHistory> = emptyList(), val topTracks: List<SmartTrackHistory> = emptyList(),
     val topArtists: List<SmartArtistRank> = emptyList(), val plays: Long = 0, val wallMs: Long = 0,
     val tracksPlayed: Int = 0, val artistsPlayed: Int = 0, val chart: List<SmartChartPoint> = emptyList(),
-    val statsInterval:SmartStatsInterval?=null,val statsPeriod:SmartStatsPeriod?=null)
+    val statsInterval:SmartStatsInterval?=null,val statsPeriod:SmartStatsPeriod?=null,
+    val playedTracks:List<SmartTrackHistory> = emptyList(),val daySessions:List<SmartDaySession> = emptyList())
 
 internal object SmartMusicPolicy {
     const val LIMIT = 30
@@ -131,10 +134,10 @@ internal object SmartMusicPolicy {
             .mapNotNull { row -> artistKey(row.artist)?.let { it to row } }.groupBy({it.first},{it.second})
         val artistRanks = artists.values.map { group ->
             SmartArtistRank(group.first().artist!!.trim(), group.sumOf { it.periodPlays }, group.sumOf { it.periodWallMs })
-        }.sortedWith(compareByDescending<SmartArtistRank> { it.plays }.thenByDescending { it.wallMs }.thenBy { artistKey(it.artist) })
+        }.filter{it.plays>0}.sortedWith(compareByDescending<SmartArtistRank> { it.plays }.thenByDescending { it.wallMs }.thenBy { artistKey(it.artist) })
         return SmartMusicSnapshot(forgotten(rows,now,forgottenDays),mix(rows,now,seed,diversity),
-            played.sortedWith(compareByDescending<SmartTrackHistory> { it.periodPlays }.thenByDescending { it.lastPlayed }.thenBy { it.rowId }).take(LIMIT),
+            played.filter{it.periodPlays>0}.sortedWith(compareByDescending<SmartTrackHistory> { it.periodPlays }.thenByDescending { it.lastPlayed }.thenBy { it.rowId }).take(LIMIT),
             artistRanks.take(LIMIT),rows.sumOf { it.periodPlays },rows.sumOf { it.periodWallMs },played.size,
-            artists.size)
+            artists.size,playedTracks=played.sortedWith(compareByDescending<SmartTrackHistory>{it.periodPlays}.thenByDescending{it.periodWallMs}.thenBy{it.rowId}))
     }
 }

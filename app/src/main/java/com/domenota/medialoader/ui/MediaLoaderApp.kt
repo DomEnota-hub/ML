@@ -207,6 +207,7 @@ fun MediaLoaderApp(
     }
     val reviewEntries by reviewFlow.collectAsStateWithLifecycle(initialValue=emptyList())
     var collectionInitial by rememberSaveable{mutableStateOf<String?>(null)}
+    var collectionCreate by rememberSaveable{mutableStateOf(false)}
     var collectionAudioOnly by rememberSaveable{mutableStateOf(false)}
     var collectionAddIds by remember{mutableStateOf<List<String>>(emptyList())}
     var collectionLink by rememberSaveable{mutableStateOf<String?>(null)}
@@ -267,9 +268,25 @@ fun MediaLoaderApp(
     val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
     val organizationReady=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
     val organizationUsable=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.usable
+    var trackRecognitionTarget by remember{mutableStateOf<Pair<String,Long?>?>(null)}
+    fun openTrackRecognition(id:String,position:Long?=null,expectedUri:String?=null){
+        val ref=libraryRefsByAlias[id] ?: expectedUri?.let{uri->publicLibraryRefs.singleOrNull{it.item.savedUri==uri}}
+        if(!organizationUsable||ref==null||ref.item.isPrivate||ref.item.hidden||ref.item.mediaType!=MediaType.AUDIO||
+            (expectedUri!=null&&ref.item.savedUri!=expectedUri)){
+            Toast.makeText(context,"Трек недоступен",Toast.LENGTH_SHORT).show();return
+        }
+        trackRecognitionTarget=ref.key to position
+    }
+    trackRecognitionTarget?.let{(id,position)->
+        val row=publicLibraryRefs.firstOrNull{it.key==id}?.item
+        if(libraryPrivateKeys!=null&&row!=null&&!row.isPrivate&&!row.hidden&&row.mediaType==MediaType.AUDIO)
+            com.domenota.medialoader.ui.screens.music.TrackRecognitionDialog(row,position,
+                onDismiss={trackRecognitionTarget=null},onUpdated={libraryModel.refresh(AppMode.MUSIC,force=true)})
+        else LaunchedEffect(id,libraryPrivateKeys){trackRecognitionTarget=null}
+    }
 
-    fun openCollections(id:String?=null,audioOnly:Boolean=false,ids:List<String> = emptyList(),link:String?=null){
-        collectionInitial=id;collectionAudioOnly=audioOnly;collectionAddIds=ids;collectionLink=link
+    fun openCollections(id:String?=null,audioOnly:Boolean=false,ids:List<String> = emptyList(),link:String?=null,create:Boolean=false){
+        collectionInitial=id;collectionAudioOnly=audioOnly;collectionAddIds=ids;collectionLink=link;collectionCreate=create
         navController.navigate("collections"){launchSingleTop=true}
     }
     fun addToCollection(ids:List<String>){
@@ -404,7 +421,7 @@ fun MediaLoaderApp(
     val pickerState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val preview by viewModel.preview.collectAsStateWithLifecycle()
-    val deferredLinks by viewModel.deferredLinks.collectAsStateWithLifecycle()
+    val deferredEntries by viewModel.deferredEntries.collectAsStateWithLifecycle()
     val deferredActive by viewModel.deferredActive.collectAsStateWithLifecycle()
     val deferredMessage by viewModel.deferredMessage.collectAsStateWithLifecycle()
     val bulk by viewModel.bulkState.collectAsStateWithLifecycle()
@@ -755,7 +772,10 @@ fun MediaLoaderApp(
                 (it.type == com.domenota.medialoader.core.model.MediaType.AUDIO ||
                     it.type == com.domenota.medialoader.core.model.MediaType.VIDEO)
         }
-        if (musicLookupAvailable && !closePickerAfterDownload) {
+        if(preview.recoveryHistoryId!=null){
+            showPicker=false
+            if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
+        }else if (musicLookupAvailable && !closePickerAfterDownload) {
             // Keep analyzed assets available for both audio choices without another analysis.
             Toast.makeText(context, "Добавлено в загрузки. Можно выбрать второй вариант.",
                 Toast.LENGTH_LONG).show()
@@ -828,10 +848,14 @@ fun MediaLoaderApp(
         else viewModel.downloadSelected(pendingNames, afterDownload)
     }
     val requestDownload: () -> Unit = {
-        pendingNames = BatchFileNames.defaults(preview.items.filter { it.id in preview.selectedIds }
-            .map { it.id to it.originalName })
-        batchName = ""
-        if (pendingNames.isNotEmpty()) showNameDialog = true
+        if(preview.recoveryHistoryId!=null){
+            pendingNames=emptyMap();confirmDownload()
+        }else{
+            pendingNames = BatchFileNames.defaults(preview.items.filter { it.id in preview.selectedIds }
+                .map { it.id to it.originalName })
+            batchName = ""
+            if (pendingNames.isNotEmpty()) showNameDialog = true
+        }
     }
     val selectedNameItems = preview.items.filter { it.id in preview.selectedIds }
     val resetNames = BatchFileNames.platformDefaults(selectedNameItems)
@@ -1025,20 +1049,19 @@ fun MediaLoaderApp(
                 libraryModel.refresh(AppMode.GALLERY, force = true)
             })
     }
-    var duplicateTrash by remember { mutableStateOf<com.domenota.medialoader.data.library.DuplicateTrashSelection?>(null) }
-    val trashDuplicates: (com.domenota.medialoader.data.library.DuplicateTrashSelection) -> Unit = { request ->
-        duplicateTrash = request
-    }
-    duplicateTrash?.let { request ->
+    val duplicateTrash by viewModel.duplicateTrashOperation.collectAsStateWithLifecycle()
+    val trashDuplicates: (com.domenota.medialoader.data.library.DuplicateTrashSelection) -> Unit = viewModel::startDuplicateTrash
+    duplicateTrash?.let { operation ->
         com.domenota.medialoader.ui.components.DuplicateTrashHost(
-            request = request, refs = libraryRefsByAlias, currentId = currentLibraryAudioId,
+            request = operation.request, refs = libraryRefsByAlias, currentId = currentLibraryAudioId,
+            retained=operation,catalogReady=organizationUsable,
             onAppTrash = viewModel::trashVerifiedDuplicate,
             onTrashed = { uris ->
                 com.domenota.medialoader.data.playback.AudioPlaybackService.removeTrashedFromQueue(uris.toList())
                 MusicDuplicateSessionStore.removeTrashed(context, uris)
             },
             onClose = {
-                duplicateTrash = null
+                viewModel.finishDuplicateTrash()
                 libraryModel.refresh(AppMode.GALLERY, force = true)
                 libraryModel.refresh(AppMode.MUSIC, force = true)
                 duplicateRequest++
@@ -1257,7 +1280,7 @@ fun MediaLoaderApp(
             else MaterialTheme.colorScheme.background,
         contentWindowInsets = when {
             currentRoute in setOf("music-duplicates", "visual-duplicates", "batch-photo-editor") -> WindowInsets.safeDrawing
-            fullBleedGalleryViewer -> WindowInsets(0, 0, 0, 0)
+            fullBleedGalleryViewer || currentRoute == "collections" -> WindowInsets(0, 0, 0, 0)
             galleryHomeOverlay -> WindowInsets.statusBars
             else -> ScaffoldDefaults.contentWindowInsets
         },
@@ -1266,7 +1289,7 @@ fun MediaLoaderApp(
                 currentRoute != BULK_ROUTE && currentRoute != MEDIA_VIEWER_ROUTE &&
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
-                currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" &&
+                currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" && currentRoute != "collections" &&
                 currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
@@ -1361,8 +1384,10 @@ fun MediaLoaderApp(
                     onCheckClick = {
                         checkExplicitLink(pendingUrl)
                     },
-                    deferredLinks = deferredLinks, deferredActive = deferredActive, deferredMessage = deferredMessage,
-                    onDeferredOpen = { link -> pendingUrl = link; lastHandledLink = link; viewModel.analyze(link); showPicker = true },
+                    deferredEntries = deferredEntries, deferredActive = deferredActive, deferredMessage = deferredMessage,
+                    onDeferredOpen = { id -> deferredEntries.firstOrNull{it.id==id}?.let{entry->
+                        pendingUrl=entry.url;lastHandledLink=entry.url;viewModel.openDeferredLink(id);showPicker=true
+                    } },
                     onDeferredRemove = viewModel::removeDeferredLink, onDeferredRetryAll = retryDeferred, onDeferredStop = viewModel::stopDeferred,
                     onOpenDownloads = goToDownloads,
                     onAddCollection=::addToCollection,onPassport=::openPassport,
@@ -1405,7 +1430,7 @@ fun MediaLoaderApp(
                     onTrashFolderContents = requestAlbumTrash,
                     collectionContent={
                         Column {
-                            CollectionGalleryStrip(collections,organizationRefs){openCollections(it)}
+                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)})
                             TextButton({navController.navigate("visual-duplicates"){launchSingleTop=true}}){Text("Дубликаты фото и видео")}
                         }
                     },
@@ -1455,6 +1480,7 @@ fun MediaLoaderApp(
                     onTrashDuplicates = trashDuplicates,
                     onOpenDuplicates = { navController.navigate("music-duplicates") { launchSingleTop = true } },
                     onOpenCollections={openCollections(audioOnly=true)},onAddCollection=::addToCollection,onPassport=::openPassport,
+                    onRecognize={id->openTrackRecognition(id)},
                     listeningKeys = remember(publicLibraryRefs,fileStatuses) {
                         publicLibraryRefs.filter { ref -> ref.item.mediaType == MediaType.AUDIO &&
                             fileStatuses[ref.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE) }
@@ -1540,7 +1566,7 @@ fun MediaLoaderApp(
                                 libraryModel.audioPreview.playSelection(valid,false)
                             }catch(e:CancellationException){throw e}catch(_:Exception){Toast.makeText(context,"Нет доступных треков",Toast.LENGTH_SHORT).show()}
                         }
-                    },onLink=::openOrganizationLink,onPassport=::openPassport,onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable)
+                    },onLink=::openOrganizationLink,onPassport=::openPassport,onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable,initialCreate=collectionCreate)
             }
             composable("media-review"){
                 var playlistTarget by remember{mutableStateOf<String?>(null)}
@@ -2096,6 +2122,7 @@ fun MediaLoaderApp(
                             catch (_: Exception) { Toast.makeText(context, "Не удалось изменить избранное", Toast.LENGTH_SHORT).show() }
                         } },
                         onAudioCurrentItemChanged = { entry.savedStateHandle["audio_current_id"] = it.id },
+                        onAudioRecognize={selected,position->openTrackRecognition(selected.id,position,selected.savedUri)},
                         onEdit = { selected ->
                             val selectedId = libraryRefsByAlias[selected.id]?.key
                                 ?: currentLibraryAudioId?.takeIf { selected.mediaType == MediaType.AUDIO && selected.id == libraryAudioState.currentId }
@@ -2219,7 +2246,11 @@ fun MediaLoaderApp(
                     busy = preview.enqueuing,
                     onLogin = startLoginForCurrentUrl,
                     onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
-                    onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
+                    recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
+                    onCancelRecovery=viewModel::cancelRecoveryDownload,
+                    onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
+                        showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
+                    } },
                 )
             }
         }
@@ -2257,7 +2288,11 @@ fun MediaLoaderApp(
                 busy = preview.enqueuing,
                 onLogin = startLoginForCurrentUrl,
                 onRetry = { viewModel.analyze(preview.url.ifBlank { pendingUrl }, recoveryHistoryId = preview.recoveryHistoryId) },
-                    onDefer = { viewModel.deferLink(preview.url.ifBlank { pendingUrl }); showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
+                    recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
+                    onCancelRecovery=viewModel::cancelRecoveryDownload,
+                    onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
+                        showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
+                    } },
                 asSheet = true,
             )
         }

@@ -109,6 +109,9 @@ fun PreviewScreen(
     fullSongSessionId: Long = 0L,
     musicSource: FullSongSource = FullSongSource.HITMOZ,
     resolvePlayback: suspend (String) -> PreviewPlayback = { throw IllegalArgumentException("Предпросмотр недоступен") },
+    recoveryMode:Boolean=false,
+    recoveryIdentityFailure:Boolean=false,
+    onCancelRecovery:()->Unit={},
 ) {
     var viewingId by rememberSaveable { mutableStateOf<String?>(null) }
     val openPreview: (String) -> Unit = { viewingId = it }
@@ -153,14 +156,14 @@ fun PreviewScreen(
             }
         }
     }
-    if (asSheet && state == AnalysisUiState.PREVIEW_READY &&
+    if (asSheet && !recoveryMode && state == AnalysisUiState.PREVIEW_READY &&
         items.any { it.kind == MediaKind.IMAGE } &&
         items.none { it.kind == MediaKind.VIDEO }) {
         PhotoSelectionSheet(items, onToggleItem, onToggleAllPhotos, onDownloadSelected,
             errorMessage, busy, onFindFullSong, canSearchFullSong(items), openPreview)
         return
     }
-    if (asSheet && state == AnalysisUiState.PREVIEW_READY &&
+    if (asSheet && !recoveryMode && state == AnalysisUiState.PREVIEW_READY &&
         items.isNotEmpty() && items.none { it.kind == MediaKind.IMAGE }) {
         VideoAudioSelectionSheet(url, items, onToggleItem, onDownloadSelected, errorMessage,
             busy, onFindFullSong, canSearchFullSong(items), onSaveFrame, openPreview)
@@ -194,9 +197,9 @@ fun PreviewScreen(
 
         Text(
             text = when (state) {
-                AnalysisUiState.PREVIEW_READY -> if (asSheet) "Выбранный материал" else "Найденное медиа"
+                AnalysisUiState.PREVIEW_READY -> if(recoveryMode)"Восстановление файла" else if (asSheet) "Выбранный материал" else "Найденное медиа"
                 AnalysisUiState.ACCESS_REQUIRED -> "Нужна авторизация"
-                AnalysisUiState.ERROR -> "Не удалось проверить ссылку"
+                AnalysisUiState.ERROR -> if(recoveryIdentityFailure)"Проверка исходной записи" else "Не удалось проверить ссылку"
                 else -> "Проверяем ссылку…"
             },
             style = MaterialTheme.typography.headlineMedium,
@@ -234,7 +237,7 @@ fun PreviewScreen(
                 "rutube" -> "RUTUBE"
                 else -> "Медиа"
             }
-            Text("$providerLabel · ${items.count { it.kind != MediaKind.AUDIO }} файлов",
+            Text("$providerLabel · ${if(recoveryMode)items.size else items.count { it.kind != MediaKind.AUDIO }} файлов",
                 style = MaterialTheme.typography.bodyMedium)
         }
 
@@ -242,9 +245,27 @@ fun PreviewScreen(
 
         when (state) {
             AnalysisUiState.ANALYZING -> AnalysisCard()
-            AnalysisUiState.ACCESS_REQUIRED -> AccessRequiredCard(url = url, message = errorMessage, onLogin = onLogin)
-            AnalysisUiState.ERROR -> ErrorCard(message = errorMessage, onRetry = onRetry, onDefer = onDefer)
-            AnalysisUiState.PREVIEW_READY -> MediaList(
+            AnalysisUiState.ACCESS_REQUIRED -> {
+                AccessRequiredCard(url=url,message=errorMessage,onLogin=onLogin)
+                if(recoveryMode&&onDefer!=null)TextButton(onDefer,Modifier.fillMaxWidth()){Text("Добавить в отложенное")}
+            }
+            AnalysisUiState.ERROR -> ErrorCard(message=errorMessage,onRetry=onRetry,onDefer=onDefer,
+                recoveryIdentityFailure=recoveryIdentityFailure)
+            AnalysisUiState.PREVIEW_READY -> if(recoveryMode){
+                Text("Файл будет восстановлен в исходной записи. Дата, папка медиатеки и связи сохранятся.",
+                    style=MaterialTheme.typography.bodyMedium)
+                items.singleOrNull()?.let{item->
+                    Spacer(Modifier.height(12.dp))
+                    MediaRow(item=item,onToggle={onToggleItem(item.id)},onPreview={openPreview(item.id)},singleChoice=true)
+                }
+                Spacer(Modifier.height(16.dp))
+                GradientActionButton(text=if(busy)"Восстанавливаем…" else "Восстановить файл",
+                    onClick=onDownloadSelected,enabled=!busy&&items.size==1&&items.single().selected,
+                    leadingIcon=Icons.Rounded.Download)
+                if(busy)TextButton(onCancelRecovery,Modifier.fillMaxWidth()){Text("Отменить восстановление")}
+                else if(onDefer!=null)TextButton(onDefer,Modifier.fillMaxWidth()){Text("Добавить в отложенное")}
+                errorMessage?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+            }else MediaList(
                 items = items,
                 onToggleItem = onToggleItem,
                 onToggleAllPhotos = onToggleAllPhotos,
@@ -515,10 +536,10 @@ private fun AccessRequiredCard(url: String, message: String?, onLogin: () -> Uni
 }
 
 @Composable
-private fun ErrorCard(message: String?, onRetry: () -> Unit, onDefer: (() -> Unit)?) {
+private fun ErrorCard(message: String?, onRetry: () -> Unit, onDefer: (() -> Unit)?,recoveryIdentityFailure:Boolean=false) {
     AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Text("Не удалось получить медиа", style = MaterialTheme.typography.titleMedium)
+            Text(if(recoveryIdentityFailure)"Исходная запись не изменена" else "Не удалось получить медиа", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(6.dp))
             Text(
                 message ?: "Проверьте ссылку и попробуйте ещё раз.",

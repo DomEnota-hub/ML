@@ -374,41 +374,42 @@ class EditorExportCoordinator private constructor(context: Context) {
         if (_state.value.exporting || job!=null) return
         val rows=sources.distinctBy{it.savedUri}
         if(rows.isEmpty())return
-        _batch.value=BatchPhotoState(running=true,total=rows.size)
+        _batch.value=BatchPhotoState(running=true,total=rows.size,spec=spec)
         _state.value=EditorExportState(exporting=true,operation="Пакетная обработка фото")
         try { MediaProcessingService.start(appContext) } catch(e:Exception) {
-            _batch.value=BatchPhotoState(total=rows.size,outcomes=rows.map{BatchPhotoOutcome(it.id,it.originalName,e.message?:"Не удалось запустить обработку")})
+            _batch.value=BatchPhotoState(total=rows.size,outcomes=rows.map{BatchPhotoOutcome(it.id,it.originalName,e.message?:"Не удалось запустить обработку")},spec=spec)
             _state.value=EditorExportState(message=e.message?:"Не удалось запустить обработку")
             return
         }
         job=scope.launch {
             val editor=BatchPhotoEditor(appContext)
+            val epoch=com.domenota.medialoader.data.library.DuplicatePrivacyGuard.generation(appContext)
             val outcomes=mutableListOf<BatchPhotoOutcome>()
             var cancelled=false
             try {
                 for(source in rows){
                     var result:PhotoExportResult?=null
                     try {
-                        require(source.mediaType==MediaType.PHOTO && !source.hidden)
-                        repository.requireMediaAccess(source)
-                        val uri=source.savedUri?:error("Исходный файл недоступен")
+                        val uri=repository.requirePublicBatchPhoto(source,epoch)
                         result=editor.export(Uri.parse(uri),spec)
                         val stem=StorageNaming.editableStem(source.originalName).ifBlank{"Фото"}.take(70)
                         // Publishing and recording the outcome form one non-cancellable boundary.
                         withContext(kotlinx.coroutines.NonCancellable) {
-                            repository.publishEditedFile(source,requireNotNull(result).file,"${stem}_batch.${requireNotNull(result).extension}",
-                                MediaType.PHOTO,requireNotNull(result).mimeType,operation="Пакетная обработка фото")
+                            repository.publishBatchEditedPhoto(source,requireNotNull(result).file,"${stem}_batch.${requireNotNull(result).extension}",
+                                requireNotNull(result).mimeType,epoch)
                             outcomes.add(BatchPhotoOutcome(source.id,source.originalName))
                         }
                     }catch(e:CancellationException){throw e}
                     catch(e:Exception){outcomes.add(BatchPhotoOutcome(source.id,source.originalName,e.message?:"Ошибка обработки"))}
+                    catch(e:OutOfMemoryError){outcomes.add(BatchPhotoOutcome(source.id,source.originalName,
+                        "Недостаточно памяти для исходного разрешения"))}
                     finally{result?.file?.delete()}
-                    _batch.value=BatchPhotoState(true,rows.size,outcomes.toList())
+                    _batch.value=BatchPhotoState(true,rows.size,outcomes.toList(),spec=spec)
                     _state.update{it.copy(progress=outcomes.size*100/rows.size)}
                 }
             }catch(e:CancellationException){cancelled=true;throw e}
             finally{
-                _batch.value=BatchPhotoState(false,rows.size,outcomes.toList(),cancelled)
+                _batch.value=BatchPhotoState(false,rows.size,outcomes.toList(),cancelled,spec)
                 _state.value=EditorExportState(operation="Пакетная обработка фото",progress=outcomes.size*100/rows.size,
                     message="Сохранено: ${outcomes.count{it.error==null}} из ${rows.size}")
                 job=null

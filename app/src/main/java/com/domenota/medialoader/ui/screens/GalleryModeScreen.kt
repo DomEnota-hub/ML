@@ -323,10 +323,24 @@ fun GalleryModeScreen(
                 Icon(Icons.Rounded.Delete, "Удалить выбранное", tint = MaterialTheme.colorScheme.error)
             }
         }
-        if(onBatchPhotoEdit!=null && orderedDisplayed.filter{it.id in selectedSet}.let{it.isNotEmpty() && it.all{row->row.mediaType==MediaType.PHOTO && !row.isPrivate && !row.hidden}})
-            TextButton({onBatchPhotoEdit(queue.filter{it in selectedSet})},modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Rounded.Edit,null); Spacer(Modifier.width(8.dp));Text("Пакетный редактор")
+        val batchPhotos=orderedDisplayed.filter { it.id in selectedSet && it.mediaType==MediaType.PHOTO && !it.isPrivate && !it.hidden }
+        if(onBatchPhotoEdit!=null && batchPhotos.isNotEmpty()) {
+            val photoIds=batchPhotos.map { it.id }.toSet()
+            Surface(onClick={onBatchPhotoEdit(queue.filter { it in photoIds })},
+                modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=4.dp),
+                shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant,
+                border=BorderStroke(1.dp,MaterialTheme.colorScheme.primary)) {
+                Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Layers,null,tint=MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Пакетный редактор",fontWeight=FontWeight.SemiBold)
+                        Text("${batchPhotos.size} фото",style=MaterialTheme.typography.bodySmall)
+                    }
+                    Icon(Icons.Rounded.ChevronRight,null)
+                }
             }
+        }
         }
         Box(Modifier.weight(1f)) {
         LazyVerticalGrid(columns = GridCells.Fixed(if (tab == 1) 6 else 4), state = if (tab == 1) albumGridState else mediaGridState,

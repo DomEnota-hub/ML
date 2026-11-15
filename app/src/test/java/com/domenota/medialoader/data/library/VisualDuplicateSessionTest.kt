@@ -37,6 +37,27 @@ class VisualDuplicateSessionTest {
         assertNull(VisualDuplicateSessionStore.removeConfirmed(context,session.scannedAt,setOf("content://media/a")))
         assertEquals(newer,VisualDuplicateSessionStore.load(context))
     }
+    @Test fun independentJournalRetainsCompletedAndPartial()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val first=session.copy(result=session.result.copy(privacyEpoch=epoch),scannedAt=1000)
+        val latest=first.copy(scannedAt=2000)
+        assertTrue(VisualDuplicateSessionStore.save(context,first))
+        assertTrue(VisualDuplicateSessionStore.save(context,latest))
+        val partial=first.copy(scannedAt=3000)
+        VisualDuplicateSessionStore.savePartial(context,partial)
+        assertEquals(latest,VisualDuplicateSessionStore.load(context))
+        assertEquals(partial,VisualDuplicateSessionStore.partial(context))
+        assertEquals(listOf(2000L,1000L),VisualDuplicateSessionStore.history(context).map{it.scannedAt}.take(2))
+        val music=DuplicateSession(DuplicateScanResult(emptyList(),0,privacyEpoch=epoch),emptySet(),emptyMap(),0,0,4000)
+        assertTrue(MusicDuplicateSessionStore.save(context,music))
+        assertEquals(music,MusicDuplicateSessionStore.load(context))
+        assertNull(MusicDuplicateSessionStore.partial(context))
+        VisualDuplicateSessionStore.clearForPrivacy(context)
+        assertNull(VisualDuplicateSessionStore.load(context))
+        assertTrue(VisualDuplicateSessionStore.history(context).isEmpty())
+        assertEquals(music,MusicDuplicateSessionStore.load(context))
+    }
     private fun ref(id:String)=LibraryMediaRef(id,setOf(id),
         DownloadEntity(id,"device","$id.jpg",MediaType.PHOTO,DownloadState.COMPLETED,"content://media/$id",100L,100L),null)
     @Test fun catalogIdentityRejectsChangedOrPrivateRows(){

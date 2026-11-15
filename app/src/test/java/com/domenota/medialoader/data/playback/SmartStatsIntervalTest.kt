@@ -16,7 +16,8 @@ class SmartStatsIntervalTest {
         assertEquals(LocalDate.of(2026,11,1),november.first)
         assertEquals(LocalDate.of(2026,12,1),november.end)
         assertEquals(30,november.buckets().size)
-        assertNull(november.drill(november.first))
+        val day=requireNotNull(november.drill(november.first))
+        assertTrue(day.isSingleDay);assertEquals(november.first.plusDays(1),day.end);assertNull(day.drill(day.first))
         assertEquals(year,requireNotNull(overview.drill(LocalDate.of(2026,1,1))))
     }
     @Test fun leapYearAndDstUseCalendarZoneRatherThanFixedMilliseconds() {

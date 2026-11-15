@@ -3,9 +3,6 @@ package com.domenota.medialoader.ui.screens
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
 import android.util.LruCache
@@ -46,13 +43,13 @@ internal suspend fun batchPhotoSourceRevision(context: Context, uri: Uri): Strin
     "unknown"
 }
 
-internal suspend fun decodeBatchPreview(context: Context, uri: Uri): Bitmap = withContext(Dispatchers.IO) {
+internal suspend fun decodeBatchPreview(context: Context, uri: Uri, limit:Int=1280): Bitmap = withContext(Dispatchers.IO) {
     val resolver = context.contentResolver
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
     require(bounds.outWidth > 0 && bounds.outHeight > 0)
     var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1280) sample *= 2
+    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > limit) sample *= 2
     val decoded = requireNotNull(resolver.openInputStream(uri)?.use {
         BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
             inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -63,16 +60,7 @@ internal suspend fun decodeBatchPreview(context: Context, uri: Uri): Bitmap = wi
         val orientation = resolver.openInputStream(uri)?.use {
             runCatching { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, 1) }.getOrDefault(1)
         } ?: 1
-        val matrix = Matrix().apply {
-            when (orientation) {
-                2 -> setScale(-1f, 1f); 3 -> setRotate(180f); 4 -> setScale(1f, -1f)
-                5 -> { setRotate(90f); postScale(-1f, 1f) }
-                6 -> setRotate(90f); 7 -> { setRotate(-90f); postScale(-1f, 1f) }
-                8 -> setRotate(-90f)
-            }
-        }
-        val oriented = if (matrix.isIdentity) decoded else Bitmap.createBitmap(decoded, 0, 0,
-            decoded.width, decoded.height, matrix, true)
+        val oriented = PhotoSourceOrientation.apply(decoded,orientation)
         if (oriented !== decoded) decoded.recycle()
         oriented
     } catch (error: Throwable) {
@@ -89,25 +77,14 @@ internal suspend fun renderBatchPreview(context: Context, original: Bitmap, spec
         .dimensions(original.width, original.height)
     val source = if (w == original.width && h == original.height) original else
         Bitmap.createScaledBitmap(original, w, h, true)
-    var colored: Bitmap? = null
-    var retained: Bitmap? = null
+    var result: Bitmap? = null
     try {
-        colored = PhotoColorMath.apply(source, spec.colorAdjustments())
+        val rendered=PhotoRenderPipeline.render(context,source,spec.cropFor(original.width,original.height),
+            spec.photoEdit(),fitInside=true,flatten=spec.format==BatchPhotoFormat.JPEG)
+        result=rendered
         currentCoroutineContext().ensureActive()
-        if (spec.textLayers().none{it.text.isNotBlank()} && spec.format != BatchPhotoFormat.JPEG) {
-            retained = colored
-            return@withContext requireNotNull(colored)
-        }
-        val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        Canvas(result).apply {
-            if (spec.format == BatchPhotoFormat.JPEG) drawColor(Color.WHITE)
-            drawBitmap(requireNotNull(colored), 0f, 0f, null)
-            TextLayerRenderer.draw(context, this, w, h,
-                spec.textLayers(), includeAll = true, fitInside = true)
-        }
-        result
+        rendered
     } finally {
-        if (colored !== original && colored !== source && colored !== retained) colored?.recycle()
-        if (source !== original && source !== retained) source.recycle()
+        if(source!==original && source!==result) source.recycle()
     }
 }

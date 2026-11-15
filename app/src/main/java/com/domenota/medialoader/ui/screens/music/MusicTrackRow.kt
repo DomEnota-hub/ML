@@ -9,6 +9,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -30,7 +32,7 @@ internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isC
     Row(Modifier.fillMaxWidth().background(if (isCurrent) {
         if (darkTheme) editorSliderYellow.copy(alpha = .11f) else Color(0xFFFFF2CE)
     } else Color.Transparent)
-        .clickable(onClick = onPlay).testTag("music-track-${track.id}").heightIn(min = 76.dp).padding(horizontal = 17.dp, vertical = 11.dp),
+        .clickable(onClick = onPlay).semantics { if(isCurrent) stateDescription=if(isPlaying) "Воспроизводится" else "Пауза" }.testTag("music-track-${track.id}").heightIn(min = 76.dp).padding(horizontal = 17.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         if (isCurrent) Box(Modifier.width(3.dp).height(49.dp)
             .background(editorSliderYellow, RoundedCornerShape(3.dp)))
@@ -43,7 +45,7 @@ internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isC
             Text(audioTitle(track), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (isCurrent && darkTheme) editorSliderYellow else MaterialTheme.colorScheme.onSurface)
             val artist = audioArtist(track)
-            if (artist != null || isCurrent) Text((if (isCurrent) if (isPlaying) "♪ Воспроизводится · " else "Пауза · " else "") + artist.orEmpty(),
+            if (artist != null) Text(artist,
                 Modifier.padding(top = 5.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             listeningCount?.let { Text("Прослушиваний: $it",Modifier.padding(top=4.dp),fontSize=11.sp,color=MaterialTheme.colorScheme.primary) }

@@ -40,10 +40,10 @@ object PhotoDrawing {
     const val MAX_MARKS = 150
     // The UI slider must never exceed the thickness accepted by PhotoMark.
     const val MIN_MARK_THICKNESS = .001f
-    const val MAX_MARK_THICKNESS = .16f
+    const val MAX_MARK_THICKNESS = .30f
     const val MIN_BRUSH_THICKNESS = .002f
-    const val MAX_BRUSH_THICKNESS = .05f
-    const val MAX_ERASER_THICKNESS = .15f
+    const val MAX_BRUSH_THICKNESS = .10f
+    const val MAX_ERASER_THICKNESS = .30f
     fun clamp(x: Float, y: Float): PhotoPoint = PhotoPoint(
         x.coerceIn(0f, 1f), y.coerceIn(0f, 1f)
     )

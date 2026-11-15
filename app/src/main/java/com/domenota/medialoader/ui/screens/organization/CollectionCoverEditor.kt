@@ -36,44 +36,49 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun CollectionCoverEditor(collection:MediaCollection,refs:List<LibraryMediaRef>,onBack:()->Unit,onRename:suspend (String)->Unit) {
+internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<LibraryMediaRef>,onBack:()->Unit,
+    onCreate:(suspend (String,String?,Bitmap?,CollectionCrop)->Unit)?=null,onRename:suspend (String)->Unit) {
+    val collectionId=collection?.record?.id
+    val creating=collectionId==null
     val context=LocalContext.current
     val store=remember(context){CollectionCoverStore(context)}
-    var name by rememberSaveable(collection.record.id){mutableStateOf(collection.record.name)}
-    var source by rememberSaveable(collection.record.id){mutableStateOf<String?>(null)}
-    var x by rememberSaveable(collection.record.id){mutableStateOf(.5f)}
-    var y by rememberSaveable(collection.record.id){mutableStateOf(.5f)}
-    var zoom by rememberSaveable(collection.record.id){mutableStateOf(1f)}
-    var initialized by rememberSaveable(collection.record.id){mutableStateOf(false)}
-    var automatic by rememberSaveable(collection.record.id){mutableStateOf(false)}
+    var name by rememberSaveable(collectionId){mutableStateOf(collection?.record?.name.orEmpty())}
+    var source by rememberSaveable(collectionId){mutableStateOf<String?>(null)}
+    var x by rememberSaveable(collectionId){mutableStateOf(.5f)}
+    var y by rememberSaveable(collectionId){mutableStateOf(.5f)}
+    var zoom by rememberSaveable(collectionId){mutableStateOf(1f)}
+    var initialized by rememberSaveable(collectionId){mutableStateOf(false)}
+    var automatic by rememberSaveable(collectionId){mutableStateOf(false)}
     var choosing by rememberSaveable{mutableStateOf(false)}
     var saved by remember{mutableStateOf<CollectionCover?>(null)}
-    var bitmap by remember{mutableStateOf<Bitmap?>(null)}
+    var decoded by remember{mutableStateOf<Pair<String,Bitmap>?>(null)}
+    val bitmap=decoded?.takeIf{it.first==source}?.second
     var error by remember{mutableStateOf<String?>(null)}
     var busy by remember{mutableStateOf(false)}
     var loading by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
-    DisposableEffect(bitmap){val owned=bitmap;onDispose{owned?.recycle()}}
-    val photos=remember(refs){refs.filter{it.item.mediaType==MediaType.PHOTO&&MediaOrganizationPolicy.keys(it).isNotEmpty()}}
-    var automaticCover by remember(collection.record.id){mutableStateOf<LibraryMediaRef?>(null)}
-    LaunchedEffect(collection.members,refs){
+    DisposableEffect(decoded){val owned=decoded?.second;onDispose{owned?.recycle()}}
+    val photos=remember(refs){refs.filter{it.item.mediaType==MediaType.PHOTO&&!it.item.savedUri.isNullOrBlank()&&MediaOrganizationPolicy.keys(it).isNotEmpty()}}
+    var automaticCover by remember(collectionId){mutableStateOf<LibraryMediaRef?>(null)}
+    LaunchedEffect(collection?.members.orEmpty(),refs){
         automaticCover=withContext(Dispatchers.Default){
-            val resolved=MediaOrganizationPolicy.resolve(collection.members,refs)
-            collection.members.firstNotNullOfOrNull{resolved[it.id]}
+            val resolved=MediaOrganizationPolicy.resolve(collection?.members.orEmpty(),refs)
+            collection?.members.orEmpty().firstNotNullOfOrNull{resolved[it.id]}
         }
     }
     val liveAutomatic=automaticCover?.let{candidate->refs.firstOrNull{it.key==candidate.key&&MediaOrganizationPolicy.keys(it).isNotEmpty()}}
-    LaunchedEffect(collection.record.id){
-        val cover=withContext(Dispatchers.IO){store.read(collection.record.id)}
+    LaunchedEffect(collectionId){
+        val cover=collectionId?.let{ id->withContext(Dispatchers.IO){store.read(id)}}
         saved=cover
         if(!initialized){source=cover?.source;x=cover?.crop?.centerX?:.5f;y=cover?.crop?.centerY?:.5f;zoom=cover?.crop?.zoom?:1f;automatic=cover==null;initialized=true}
     }
     LaunchedEffect(source){
         val uri=source
-        if(uri==null){bitmap=null;return@LaunchedEffect}
+        decoded=null
+        if(uri==null){loading=false;return@LaunchedEffect}
         loading=true
-        try{bitmap=withContext(Dispatchers.IO){store.decode(uri)};error=null}
-        catch(e:CancellationException){throw e}catch(e:Exception){bitmap=null;error="Исходное изображение недоступно. Сохранённая обложка остаётся."}
+        try{decoded=uri to withContext(Dispatchers.IO){store.decode(uri)};error=null}
+        catch(e:CancellationException){throw e}catch(e:Exception){decoded=null;error="Исходное изображение недоступно. Сохранённая обложка остаётся."}
         finally{loading=false}
     }
     BackHandler{if(!busy){if(choosing)choosing=false else onBack()}}
@@ -88,8 +93,8 @@ internal fun CollectionCoverEditor(collection:MediaCollection,refs:List<LibraryM
         }
         return
     }
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).testTag("collection-cover-editor")) {
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){IconButton(onBack,enabled=!busy){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")};Text("Редактировать коллекцию",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,maxLines=1,overflow=TextOverflow.Ellipsis)}
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding().testTag(if(creating)"collection-create-editor" else "collection-cover-editor")) {
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){IconButton(onBack,enabled=!busy){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")};Text(if(creating)"Новая коллекция" else "Редактировать коллекцию",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,maxLines=1,overflow=TextOverflow.Ellipsis)}
         androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             item{OutlinedTextField(name,{name=it},Modifier.fillMaxWidth(),singleLine=true,label={Text("Название")},enabled=!busy)}
             item {
@@ -99,6 +104,7 @@ internal fun CollectionCoverEditor(collection:MediaCollection,refs:List<LibraryM
                     if(image!=null&&!automatic) {
                         Canvas(viewport.testTag("collection-crop-viewport").pointerInput(image,busy){
                             if(!busy)detectTransformGestures{centroid,pan,factor,_->
+                                if(size.width<=0||size.height<=0)return@detectTransformGestures
                                 val old=CollectionCrop(x,y,zoom).bounded(image.width,image.height)
                                 val rect=old.rect(image.width,image.height)
                                 val nextZoom=(old.zoom*factor).coerceIn(1f,8f)
@@ -117,15 +123,20 @@ internal fun CollectionCoverEditor(collection:MediaCollection,refs:List<LibraryM
                     } else {
                         val cover=if(!automatic)saved?.file?.let{android.net.Uri.fromFile(it).toString()} else null
                         val auto=liveAutomatic
-                        if(cover!=null)DownloadThumbnail(cover,null,MediaKind.IMAGE,viewport)
-                        else if(auto!=null)DownloadThumbnail(auto.item.savedUri,auto.item.previewUrl,when(auto.item.mediaType){MediaType.PHOTO->MediaKind.IMAGE;MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO},viewport)
-                        else Surface(viewport,color=MaterialTheme.colorScheme.surfaceVariant){Box(contentAlignment=Alignment.Center){Text("Автоматическая обложка")}}
+                        if(cover!=null)DownloadThumbnail(cover,null,MediaKind.IMAGE,viewport.clickable(enabled=!busy){choosing=true})
+                        else if(auto!=null)CollectionOriginalCover(auto,viewport.clickable(enabled=!busy){
+                            val uri=auto.item.savedUri
+                            if(auto.item.mediaType==MediaType.PHOTO&&!uri.isNullOrBlank()){
+                                source=uri;x=.5f;y=.5f;zoom=1f;automatic=false
+                            }else choosing=true
+                        })
+                        else Surface(viewport.clickable(enabled=!busy){choosing=true},color=MaterialTheme.colorScheme.surfaceVariant){Box(contentAlignment=Alignment.Center){Text("Автоматическая обложка")}}
                     }
                 }
             }
             item {
                 if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
-                if(bitmap!=null&&!automatic)Text("Масштаб и положение",style=MaterialTheme.typography.bodySmall)
+                if(bitmap!=null&&!automatic)Text("Кадрирование: масштаб и положение",style=MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     OutlinedButton({choosing=true},enabled=!busy,modifier=Modifier.weight(1f)){Text("Выбрать изображение")}
                     OutlinedButton({x=.5f;y=.5f;zoom=1f},enabled=!busy&&bitmap!=null&&!automatic){Text("Автоподгон")}
@@ -137,15 +148,20 @@ internal fun CollectionCoverEditor(collection:MediaCollection,refs:List<LibraryM
                 error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
             }
         }
-        Button(enabled=!busy&&!loading&&initialized&&name.isNotBlank(),modifier=Modifier.fillMaxWidth().padding(16.dp),onClick={scope.launch{
+        Button(enabled=!busy&&!loading&&initialized&&name.isNotBlank()&&(automatic||bitmap!=null||(!creating&&source==saved?.source)),modifier=Modifier.fillMaxWidth().padding(16.dp),onClick={scope.launch{
             busy=true;error=null
             try {
                 if(!automatic&&source!=saved?.source)check(photos.any{it.item.savedUri==source}){"Выбранное изображение больше недоступно"}
-                onRename(name)
-                if(automatic)withContext(Dispatchers.IO){store.automatic(collection.record.id)}
-                else bitmap?.let{image->source?.let{uri->withContext(Dispatchers.IO){store.save(collection.record.id,uri,image,CollectionCrop(x,y,zoom))}}}
-                onBack()
+                if(creating){
+                    checkNotNull(onCreate)(name,source.takeUnless{automatic},bitmap.takeUnless{automatic},CollectionCrop(x,y,zoom))
+                }else{
+                    val id=checkNotNull(collectionId)
+                    onRename(name)
+                    if(automatic)withContext(Dispatchers.IO){store.automatic(id)}
+                    else bitmap?.let{image->source?.let{uri->withContext(Dispatchers.IO){store.save(id,uri,image,CollectionCrop(x,y,zoom))}}}
+                    onBack()
+                }
             }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Не удалось сохранить"}finally{busy=false}
-        }}){Text("Сохранить")}
+        }}){Text(if(creating)"Создать коллекцию" else "Сохранить")}
     }
 }

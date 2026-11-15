@@ -67,6 +67,8 @@ fun HomeScreen(
     organizationContent: (@Composable () -> Unit)? = null,
     onAddCollection: ((List<String>)->Unit)? = null,
     onPassport: ((String)->Unit)? = null,
+    deferredEntries:List<com.domenota.medialoader.data.deferred.DeferredLink> =
+        deferredLinks.map{com.domenota.medialoader.data.deferred.DeferredLink(it,it)},
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
@@ -114,22 +116,24 @@ fun HomeScreen(
              }
         }
         Spacer(Modifier.height(24.dp))
-        if (deferredLinks.isNotEmpty() || deferredActive != null) {
+        if (deferredEntries.isNotEmpty() || deferredActive != null) {
             AppCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Ожидает скачивания", style = MaterialTheme.typography.titleLarge)
-                    Text("Нажмите ссылку для выбора файлов. «Повторить всё» скачает найденные файлы с текущими настройками.",
+                    Text("Нажмите ссылку для выбора файлов. «Повторить всё» обработает загрузки и восстановит отсутствующие файлы в исходных записях.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    deferredLinks.forEach { link ->
-                        Row(Modifier.fillMaxWidth().clickable(enabled = deferredActive == null) { onDeferredOpen(link) }
+                    deferredEntries.forEach { entry ->
+                        val link=entry.url
+                        Row(Modifier.fillMaxWidth().clickable(enabled = deferredActive == null) { onDeferredOpen(entry.id) }
                             .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Link, null, Modifier.padding(end = 12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(com.domenota.medialoader.data.deferred.DeferredLinkStore.source(link), style = MaterialTheme.typography.titleMedium)
-                                Text(if (link == deferredActive) "Проверяем ссылку…" else link, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                Text(com.domenota.medialoader.data.deferred.DeferredLinkStore.source(link)+
+                                    if(entry.recoveryHistoryId!=null)" · Восстановление" else "", style = MaterialTheme.typography.titleMedium)
+                                Text(if (entry.id == deferredActive) "Проверяем ссылку…" else link, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            IconButton(onClick = { onDeferredRemove(link) }, enabled = deferredActive == null) {
+                            IconButton(onClick = { onDeferredRemove(entry.id) }, enabled = deferredActive == null) {
                                 Icon(Icons.Rounded.Close, "Убрать из отложенного")
                             }
                         }

@@ -31,4 +31,15 @@ class RecognitionWindowPlannerTest {
         assertEquals(0L, RecognitionWindowPlanner.startMs(null, window, 0))
         assertNull(RecognitionWindowPlanner.startMs(null, window, 2))
     }
+    @Test fun playerPositionIsFirstAndAllWindowsStayInsideSource(){
+        val starts=RecognitionWindowPlanner.playbackStarts(180_000,150_000)
+        assertEquals(144_000L,starts.first())
+        assertTrue(starts.size in 3..5)
+        assertEquals(starts.size,starts.distinct().size)
+        assertTrue(starts.all{it>=0&&it+window<=180_000})
+        assertEquals(168_000L,RecognitionWindowPlanner.playbackStarts(180_000,180_000).first())
+        assertEquals(84_000L,RecognitionWindowPlanner.playbackStarts(180_000,null).first())
+        assertEquals(listOf(0L),RecognitionWindowPlanner.playbackStarts(8000,4000))
+        assertEquals(listOf(0L),RecognitionWindowPlanner.playbackStarts(null,4000))
+    }
 }

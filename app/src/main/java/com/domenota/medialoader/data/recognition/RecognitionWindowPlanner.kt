@@ -21,4 +21,22 @@ internal object RecognitionWindowPlanner {
         if (kotlin.math.abs(chosen - center) < 4_000L) return null
         return chosen
     }
+
+    /** Start around the captured playback position, then explore independent
+     * portions. Never infer a position for a track chosen from the library. */
+    fun playbackStarts(durationMs:Long?,positionMs:Long?,windowMs:Long=12_000L):List<Long>{
+        require(windowMs>0)
+        val duration=durationMs?.takeIf{it>0}
+        if(duration==null||duration<=windowMs)return listOf(0L)
+        val available=duration-windowMs
+        val primary=positionMs?.let{(it.coerceIn(0,duration)-windowMs/2).coerceIn(0,available)}
+            ?: (available/2)
+        val candidates=listOf(primary,available/2,available/8,available*7/8,0L,available,available*3/10,available*7/10)
+        val chosen=mutableListOf<Long>()
+        for(candidate in candidates)if(chosen.none{kotlin.math.abs(it-candidate)<4_000L}){
+            chosen+=candidate
+            if(chosen.size>=5)break
+        }
+        return chosen
+    }
 }

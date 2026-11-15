@@ -65,6 +65,17 @@ import com.domenota.medialoader.data.recognition.MusicRecognitionSettings
 import com.domenota.medialoader.data.recognition.MicrophoneCapture
 import com.domenota.medialoader.data.recognition.ShazamRecognitionProvider
 import com.domenota.medialoader.data.recognition.RecognitionAudioPreprocessor
+import com.domenota.medialoader.data.recognition.LocalTrackRecognitionSearch
+import com.domenota.medialoader.data.recognition.TrackRecognitionVersion
+import com.domenota.medialoader.data.recognition.TrackRecognitionMatch
+import com.domenota.medialoader.data.recognition.TrackRecognitionOutcome
+import com.domenota.medialoader.data.recognition.TrackRecognitionProgress
+import com.domenota.medialoader.data.recognition.TrackRecognitionCache
+import com.domenota.medialoader.data.recognition.RecognitionWindowPlanner
+import com.domenota.medialoader.data.library.DuplicatePrivacyGuard
+import com.domenota.medialoader.data.library.MusicDuplicateScanner
+import com.domenota.medialoader.data.playback.ListeningHistoryPolicy
+import com.domenota.medialoader.data.playback.ListeningHistoryStore
 import com.domenota.medialoader.data.rutube.RutubeYtDlpRuntime
 import com.domenota.medialoader.data.vk.VkYtDlpRuntime
 import com.domenota.medialoader.data.youtube.YoutubeDlAndroid
@@ -650,6 +661,89 @@ class MediaRepository private constructor(context: Context) {
             }
         }
 
+    /** Explicit local recognition is read-only; never call automatic post-processing here. */
+    private suspend fun requirePublicLocalTrack(source:DownloadEntity,epoch:Long):String{
+        val uri=requireNotNull(source.savedUri){"Файл недоступен"}
+        check(source.mediaType==MediaType.AUDIO&&source.state==DownloadState.COMPLETED&&!source.hidden&&!source.isPrivate&&
+            Uri.parse(uri).scheme in setOf("file","content")&&!privateFiles.owns(uri)){"Трек недоступен"}
+        val current=history.byId(source.id)
+        check(if(current==null)source.providerId=="device" else
+            current.savedUri==uri&&!current.hidden&&!current.isPrivate&&current.state==DownloadState.COMPLETED){"Трек изменился"}
+        val identities=PublicMediaIdentity.capture(appContext,uri)
+        val blocked=privateMediaIds.first()
+        check(source.id !in blocked&&identities.none(blocked::contains)&&
+            DuplicatePrivacyGuard.accepts(appContext,epoch,source.id,identities)){"Трек больше недоступен"}
+        return uri
+    }
+
+    internal suspend fun recognizeLocalTrack(source:DownloadEntity,positionMs:Long?,startIndex:Int=0,maxAttempts:Int=3,
+        onProgress:suspend (TrackRecognitionProgress)->Unit={}):TrackRecognitionOutcome{
+        beginRecognition()
+        try{
+            return musicPostProcessGate.withPermit{
+                val epoch=DuplicatePrivacyGuard.generation(appContext)
+                val uri=requirePublicLocalTrack(source,epoch)
+                val version=TrackRecognitionVersion(source.id,uri,TrackRecognitionCache.sha256(appContext,uri),epoch)
+                val starts=RecognitionWindowPlanner.playbackStarts(recognitionAudioPreprocessor.savedDurationMs(uri),positionMs)
+                val cached=withContext(Dispatchers.IO){TrackRecognitionCache.load(appContext,version)}
+                if(cached!=null)return@withPermit TrackRecognitionOutcome(TrackRecognitionMatch(version,cached),starts.size,starts.size)
+                val found=withContext(Dispatchers.Default){
+                    LocalTrackRecognitionSearch.find(starts,startIndex,maxAttempts,
+                        {at->recognitionAudioPreprocessor.decodeTrackWindow(uri,at)},liveMusicRecognizer,
+                        {progress->withContext(Dispatchers.Main.immediate){onProgress(progress)}})
+                }
+                requirePublicLocalTrack(source,epoch)
+                check(TrackRecognitionCache.sha256(appContext,uri)==version.sha256){"Файл изменился во время распознавания"}
+                val match=found.result?.let{result->
+                    withContext(Dispatchers.IO){TrackRecognitionCache.save(appContext,version,result)}
+                    TrackRecognitionMatch(version,result)
+                }
+                TrackRecognitionOutcome(match,found.nextIndex,starts.size)
+            }
+        }finally{endRecognition()}
+    }
+
+    /** Only the confirmed original is replaced. Staging never writes user media. */
+    internal suspend fun applyLocalTrackRecognition(source:DownloadEntity,match:TrackRecognitionMatch):DownloadEntity{
+        val version=match.version
+        check(source.id==version.id&&source.savedUri==version.uri){"Выбран другой трек"}
+        check(com.domenota.medialoader.data.editor.AudioReplacePolicy.eligible(source)){"Безопасная запись тегов доступна для MP3 общей медиатеки"}
+        var input:java.io.File?=null
+        var output:java.io.File?=null
+        try{
+            val staged=musicPostProcessGate.withPermit{
+                val uri=requirePublicLocalTrack(source,version.privacyEpoch)
+                val original=storage.copyDownloadToTemp(uri).also{input=it}
+                check(TrackRecognitionCache.sha256(original)==version.sha256){"Файл изменился после распознавания"}
+                val album=withContext(Dispatchers.IO){
+                    val retriever=MediaMetadataRetriever()
+                    try{
+                        retriever.setDataSource(original.absolutePath)
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                    }finally{retriever.release()}
+                }
+                val result=match.result.copy(title=match.result.title.trim(),artist=match.result.artist.trim(),
+                    album=match.result.album?.trim()?.takeIf{it.isNotEmpty()}?:album?:source.recognizedAlbum)
+                check(result.title.isNotBlank()&&result.artist.isNotBlank()){"Нет надёжного совпадения"}
+                val tagged=Mp3MetadataWriter(appContext).writePreserving(original,result).also{output=it.file}
+                withContext(Dispatchers.IO){
+                    val before=MusicDuplicateScanner.payload(appContext,Uri.fromFile(original))
+                    val after=MusicDuplicateScanner.payload(appContext,Uri.fromFile(tagged.file))
+                    check(before!=null&&before==after){"Не удалось подтвердить неизменность звуковых данных MP3"}
+                }
+                result.copy(artworkUrl=result.artworkUrl.takeIf{tagged.newArtworkApplied}) to tagged.file
+            }
+            val (result,file)=staged
+            val newSha=TrackRecognitionCache.sha256(file)
+            val changed=replaceEditedAudioFile(source,file,result.title,result.artist,result.album.orEmpty(),
+                expectedSourceSha256=version.sha256,expectedPrivacyEpoch=version.privacyEpoch,recognition=result)
+            withContext(Dispatchers.IO){
+                TrackRecognitionCache.save(appContext,version.copy(sha256=newSha),match.result)
+            }
+            return changed
+        }finally{input?.delete();output?.delete()}
+    }
+
     /** Recognize music in a saved video without creating an extracted audio download. */
     /** Resolves playback only; does not enqueue, publish a file or add a history row. */
     suspend fun previewPlayback(item: MediaItem): PreviewPlayback {
@@ -939,70 +1033,88 @@ class MediaRepository private constructor(context: Context) {
 
     private val _missingRecoveryActive = kotlinx.coroutines.flow.MutableStateFlow(0)
     val missingRecoveryActive = _missingRecoveryActive.asStateFlow()
+    private val missingRecoveryJournal=com.domenota.medialoader.data.storage.MissingRecoveryJournal(appContext)
 
-    suspend fun missingRecoveryCandidate(id: String, items: List<MediaItem>): MediaItem? = withContext(Dispatchers.IO) {
-        val row = history.byId(id) ?: return@withContext null
-        if (savedFileStatus(row.savedUri) != com.domenota.medialoader.data.storage.SavedFileStatus.MISSING)
-            return@withContext null
-        com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.match(row, items)
+    private suspend fun reconcileMissingRecovery(){
+        missingRecoveryJournal.reconcile(
+            referenceCount={uri->historyDb.downloadDao().countSavedUriReferences(uri)},
+            delete={uri->storage.deleteDownloadPermanently(uri)})
     }
 
-    /** Reuses the normal transfer engine, with a separate verified publication commit. */
-    suspend fun restoreMissingFile(id: String, candidates: List<MediaItem>): Unit = withContext(Dispatchers.IO) {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
-        val row = history.byId(id) ?: error("Исходная запись отсутствует")
-        val item = missingRecoveryCandidate(id, candidates)
-            ?: error("Не удалось точно определить отсутствующий файл. Исходная запись сохранена")
-        require(resolver.canDownload(item)) { "Недопустимый адрес файла" }
-        _missingRecoveryActive.update { it + 1 }
-        try {
-            queue.restoreMissing(row, item) { result ->
-                var committed = false
-                try {
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    require(result.savedUri != row.savedUri) { "Получен прежний адрес отсутствующего файла" }
-                    val bytes = appContext.contentResolver.openInputStream(Uri.parse(result.savedUri))?.use { input ->
-                        val buffer = ByteArray(128 * 1024)
-                        var total = 0L
-                        while (true) {
-                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            total += count
+    private suspend fun requireRecoveryRow(id:String):DownloadEntity{
+        val row=history.byId(id)?:throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Исходная запись отсутствует.")
+        if(!com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.eligible(row)||
+            row.savedUri?.let(privateFiles::owns)==true)
+            throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Запись недоступна для публичного восстановления.")
+        return row
+    }
+
+    private fun recoveryAvailable(row:DownloadEntity):Boolean=when(savedFileStatus(row.savedUri)){
+        SavedFileStatus.PRESENT->true
+        SavedFileStatus.MISSING->false
+        else->throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Нет доступа к исходному файлу. Запись сохранена.")
+    }
+
+    suspend fun recoveryAlreadyAvailable(id:String):Boolean=withContext(Dispatchers.IO){
+        musicPostProcessGate.withPermit {
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+            reconcileMissingRecovery()
+            recoveryAvailable(requireRecoveryRow(id))
+        }
+    }
+
+    suspend fun missingRecoveryCandidate(id:String,items:List<MediaItem>):MediaItem?=withContext(Dispatchers.IO){
+        val row=requireRecoveryRow(id)
+        if(recoveryAvailable(row))return@withContext null
+        com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.match(row,items).also{
+            AppLog.i("MissingRecovery","Candidate verification · provider=${row.providerId} · type=${row.mediaType} · candidates=${items.size} · stableKey=${row.bulkMediaKey!=null} · matched=${it!=null}")
+        }
+    }
+
+    /** The ordinary engine downloads to its temporary file. Only recovery opts in
+     * to stage validation and a durable publication journal before public bytes
+     * are written. The existing history row is changed by one verified commit. */
+    suspend fun restoreMissingFile(id:String,candidates:List<MediaItem>):Boolean=withContext(Dispatchers.IO){
+        musicPostProcessGate.withPermit {
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+            reconcileMissingRecovery()
+            val row=requireRecoveryRow(id)
+            if(recoveryAvailable(row))return@withPermit false
+            val item=com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.match(row,candidates)
+                ?:throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Медиа найдено, но не удалось точно определить отсутствующий файл. Исходная запись сохранена.")
+            require(resolver.canDownload(item)){"Недопустимый адрес файла"}
+            _missingRecoveryActive.update{it+1}
+            try {
+                withContext(missingRecoveryJournal.publication(row)){
+                    queue.restoreMissing(row,item){result->
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        require(result.savedUri!=row.savedUri){"Получен прежний адрес отсутствующего файла"}
+                        val bytes=missingRecoveryJournal.verify(result.savedUri)
+                        require(result.sizeBytes==null||bytes==result.sizeBytes){"Восстановленный файл неполон"}
+                        if(recoveryAvailable(row))throw com.domenota.medialoader.data.download.MissingRecoveryFailure("Исходный файл снова доступен. Запись сохранена.")
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        withContext(NonCancellable){
+                            check(history.restoreMissingFile(row,result.savedUri,result.fileName?:row.originalName,bytes)){
+                                "Запись изменилась. Восстановление не применено"
+                            }
+                            // If killed between this commit and clear(), the next
+                            // reconcile observes the history reference and never deletes it.
+                            missingRecoveryJournal.clear()
                         }
-                        total
-                    } ?: error("Восстановленный файл недоступен")
-                    require(bytes > 0L && (result.sizeBytes == null || bytes == result.sizeBytes)) {
-                        "Восстановленный файл неполон"
-                    }
-                    if (row.mediaType == MediaType.PHOTO) {
-                        val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        appContext.contentResolver.openInputStream(Uri.parse(result.savedUri))?.use {
-                            android.graphics.BitmapFactory.decodeStream(it, null, options)
-                        }
-                        require(options.outWidth > 0 && options.outHeight > 0) { "Восстановленное изображение повреждено" }
-                    } else {
-                        val retriever = MediaMetadataRetriever()
-                        try {
-                            retriever.setDataSource(appContext, Uri.parse(result.savedUri))
-                            val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                            require(duration != null && duration > 0) { "Восстановленный медиафайл повреждён" }
-                        } finally { retriever.release() }
-                    }
-                    require(savedFileStatus(row.savedUri) == com.domenota.medialoader.data.storage.SavedFileStatus.MISSING) {
-                        "Исходный файл снова доступен. Запись сохранена"
-                    }
-                    committed = history.restoreMissingFile(row, result.savedUri, result.fileName ?: row.originalName, bytes)
-                    check(committed) { "Запись изменилась. Восстановление не применено" }
-                } finally {
-                    if (!committed && result.savedUri != row.savedUri) withContext(NonCancellable) {
-                        // Delete only this newly published result, never a prior file or another row's URI.
-                        if (historyDb.downloadDao().countSavedUriReferences(result.savedUri) == 0)
-                            runCatching { storage.deleteDownloadPermanently(result.savedUri) }
                     }
                 }
+                true
+            }finally{
+                withContext(NonCancellable){
+                    try{reconcileMissingRecovery()}
+                    catch(error:Exception){
+                        // Keep an unverifiable journal for fail-closed retry.
+                        AppLog.w("MissingRecovery","Recovery output cleanup remains pending")
+                    }
+                    _missingRecoveryActive.update{(it-1).coerceAtLeast(0)}
+                }
             }
-        } finally { _missingRecoveryActive.update { (it - 1).coerceAtLeast(0) } }
+        }
     }
 
     suspend fun enqueue(items: List<MediaItem>): List<DownloadEntity> {
@@ -1039,6 +1151,29 @@ class MediaRepository private constructor(context: Context) {
                     }
                 }
             }
+    }
+
+    /** Batch editing is always public. Revalidate live identity and revocation both
+     * before decoding and under the same gate as a private move before publishing. */
+    internal suspend fun requirePublicBatchPhoto(source:DownloadEntity,epoch:Long):String {
+        val uri=requireNotNull(source.savedUri){"Исходный файл недоступен"}
+        check(source.mediaType==MediaType.PHOTO&&source.state==DownloadState.COMPLETED&&
+            !source.hidden&&!source.isPrivate&&Uri.parse(uri).scheme in setOf("file","content")&&
+            !privateFiles.owns(uri)){"Фото недоступно"}
+        val current=history.byId(source.id)
+        check(if(current==null)source.providerId=="device" else
+            current.savedUri==uri&&!current.hidden&&!current.isPrivate&&
+                current.state==DownloadState.COMPLETED&&current.mediaType==MediaType.PHOTO){"Фото изменилось"}
+        val identities=PublicMediaIdentity.capture(appContext,uri)
+        val blocked=privateMediaIds.first()
+        check(source.id !in blocked&&identities.none(blocked::contains)&&
+            DuplicatePrivacyGuard.accepts(appContext,epoch,source.id,identities)){"Фото больше недоступно"}
+        return uri
+    }
+    internal suspend fun publishBatchEditedPhoto(source:DownloadEntity,file:java.io.File,
+        name:String,mime:String,epoch:Long):DownloadEntity = musicPostProcessGate.withPermit {
+        requirePublicBatchPhoto(source,epoch)
+        publishDerived(source,file,name,MediaType.PHOTO,mime,operation="Пакетная обработка фото")
     }
 
     suspend fun publishEditedFile(
@@ -1167,8 +1302,12 @@ class MediaRepository private constructor(context: Context) {
         title: String,
         artist: String,
         album: String,
+        expectedSourceSha256:String?=null,
+        expectedPrivacyEpoch:Long?=null,
+        recognition:MusicRecognitionResult?=null,
     ): DownloadEntity = musicPostProcessGate.withPermit {
         requireMediaAccess(source)
+        if(expectedPrivacyEpoch!=null)requirePublicLocalTrack(source,expectedPrivacyEpoch)
         require(com.domenota.medialoader.data.editor.AudioReplacePolicy.eligible(source)) {
             "Заменить можно только исходный MP3 в общей медиатеке. Сохраните копию."
         }
@@ -1182,6 +1321,8 @@ class MediaRepository private constructor(context: Context) {
         check(PublicMediaIdentity.capture(appContext, uri.toString()).none(privateKeys::contains)) {
             "Файл связан с приватной медиатекой"
         }
+        val oldListeningKeys=if(recognition!=null&&target.historyRow==null)
+            ListeningHistoryPolicy.keys(latest,PublicMediaIdentity.capture(appContext,uri.toString())) else emptySet()
         val sourceMetadata = withContext(Dispatchers.IO) {
             val resolver = appContext.contentResolver
             val columns = arrayOf("_display_name", "mime_type", "_size", "title", "artist", "album")
@@ -1244,6 +1385,7 @@ class MediaRepository private constructor(context: Context) {
                 if (backup.length() <= 0L)
                     throw java.io.IOException("Резервная копия исходного MP3 пуста.")
                 val originalSha = sha256(backup.inputStream())
+                check(expectedSourceSha256==null||expectedSourceSha256==originalSha){"Файл изменился после распознавания"}
                 val outputSha = sha256(file.inputStream())
                 journal.writeText("id=${latest.id}\nuri=$uri\nsha256=$originalSha\n")
                 // Critical byte replacement and history update must finish
@@ -1263,7 +1405,10 @@ class MediaRepository private constructor(context: Context) {
                             throw java.io.IOException("Проверка MP3 после записи не прошла.")
                         val changed = latest.copy(sizeBytes = file.length(), durationMs = newDuration,
                             recognizedTitle = expectedTags[0], recognizedArtist = expectedTags[1], recognizedAlbum = expectedTags[2],
-                            sourceAudioTitle = expectedTags[0], sourceAudioArtist = expectedTags[1])
+                            sourceAudioTitle = expectedTags[0], sourceAudioArtist = expectedTags[1],
+                            recognitionTrackId=recognition?.trackId?:latest.recognitionTrackId,
+                            recognitionSource=recognition?.source?.name?:latest.recognitionSource,
+                            recognitionArtworkUrl=recognition?.artworkUrl?:latest.recognitionArtworkUrl)
                         val meta = android.content.ContentValues().apply {
                             put(android.provider.MediaStore.Audio.Media.TITLE, title)
                             put(android.provider.MediaStore.Audio.Media.ARTIST, artist)
@@ -1286,9 +1431,15 @@ class MediaRepository private constructor(context: Context) {
                                 check(historyDb.downloadDao().byId(old.id) == old) { "История трека изменилась" }
                                 check(historyDb.downloadDao().updateEditedAudioWhenCurrent(old.id,
                                     requireNotNull(old.savedUri), file.length(), newDuration, expectedTags[0], expectedTags[1], expectedTags[2]) == 1)
+                                if(recognition!=null)check(historyDb.downloadDao().updateRecognitionProvenanceWhenCurrent(old.id,
+                                    requireNotNull(old.savedUri),recognition.trackId,recognition.source.name,recognition.artworkUrl)==1)
                                 historyDb.organizationDao().insertOperation(com.domenota.medialoader.core.database.MediaOperationEntity(
-                                    UUID.randomUUID().toString(),old.id,"Редактирование исходного аудио",System.currentTimeMillis()))
+                                    UUID.randomUUID().toString(),old.id,if(recognition!=null)"Распознавание трека" else "Редактирование исходного аудио",System.currentTimeMillis()))
                             }
+                        }
+                        if(oldListeningKeys.isNotEmpty()){
+                            val newKeys=ListeningHistoryPolicy.keys(changed,PublicMediaIdentity.capture(appContext,uri.toString()))
+                            ListeningHistoryStore.get(appContext).relinkVerifiedEdit(oldListeningKeys,newKeys)
                         }
                         committed = changed
                         playbackSafe = true
@@ -1472,10 +1623,15 @@ class MediaRepository private constructor(context: Context) {
         check(!item.hidden && !item.isPrivate && item.state == DownloadState.COMPLETED &&
             item.mediaType in types && item.savedUri == expectedUri) { "Запись изменилась" }
         check(withContext(Dispatchers.IO) { savedFileStatus(expectedUri) } == SavedFileStatus.PRESENT) { "Файл недоступен" }
-        storage.moveToTrash(id, expectedUri)
-        check(storage.hasTrashed(id)) { "Копия в корзине не подтверждена" }
-        history.save(item.copy(hidden = true, savedUri = null))
-        AppLog.i("Trash", "Verified move completed · id=$id")
+        if(item.mediaType==MediaType.AUDIO)check(!withContext(Dispatchers.Main.immediate){
+            com.domenota.medialoader.data.playback.AudioPlaybackService.isCurrentPublicUri(expectedUri)
+        }){"Текущий трек защищён"}
+        withContext(NonCancellable){
+            storage.moveToTrash(id, expectedUri)
+            check(storage.hasTrashed(id)) { "Копия в корзине не подтверждена" }
+            history.save(item.copy(hidden = true, savedUri = null))
+        }
+        AppLog.i("Trash", "Verified move completed")
     }
 
     /** Gallery-only deletion: never stage bytes or metadata in either trash. */

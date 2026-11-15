@@ -260,6 +260,8 @@ class StorageManager(
         fileMillis: Long? = historicalMillis): PublishedFile =
         withContext(Dispatchers.IO) {
             HistoricalRecoverySignals.requireIdle()
+            val recovery=currentCoroutineContext()[MissingRecoveryPublication]
+            recovery?.prepare(source,mimeType)
             val initialNames = existingNames().toMutableSet()
             selectedFolder()?.let { folder ->
                 if (!folder.canWrite()) throw IOException("Выбранная папка недоступна")
@@ -267,6 +269,7 @@ class StorageManager(
                 val document = folder.createFile(mimeType, actualName)
                     ?: throw IOException("Не удалось создать файл в выбранной папке")
                 try {
+                    recovery?.created(document.uri)
                     val output = context.contentResolver.openOutputStream(document.uri, "w")
                         ?: throw IOException("Не удалось открыть выбранную папку")
                     output.use { out -> source.inputStream().use { it.copyTo(out) } }
@@ -292,16 +295,20 @@ class StorageManager(
                     val uri = resolver.insert(collection, values)
                         ?: throw IOException("Не удалось создать файл")
                     try {
+                        recovery?.created(uri)
                         val output = resolver.openOutputStream(uri)
                             ?: throw IOException("Не удалось открыть файл для записи")
                         output.use { out -> source.inputStream().use { it.copyTo(out) } }
                         values.clear()
                         values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                        resolver.update(uri, values, null, null)
+                        val published=resolver.update(uri, values, null, null)
+                        if(recovery!=null)check(published==1){"Не удалось подтвердить публикацию восстановленного файла"}
                         if (historicalMillis != null) confirmPrivateDate(uri, source, mimeType, historicalMillis, fileMillis!!)
                         return@withContext PublishedFile(uri, actualName)
                     } catch (error: Exception) {
-                        resolver.delete(uri, null, null)
+                        val removed=resolver.delete(uri,null,null)
+                        if(recovery!=null&&removed!=1&&SavedFilePresence.check(context,uri.toString())!=SavedFileStatus.MISSING)
+                            throw IOException("Не удалось очистить незавершённую копию восстановления",error)
                         val nameCollision = error is IllegalStateException &&
                             error.message?.contains("Failed to build unique file", ignoreCase = true) == true
                         if (!nameCollision) throw error
@@ -314,6 +321,18 @@ class StorageManager(
                 if (!folder.exists() && !folder.mkdirs()) throw IOException("Не удалось создать папку")
                 val actualName = StorageNaming.availableName(fileName, initialNames)
                 val target = File(folder, actualName)
+                if(recovery!=null){
+                    // Recovery needs a durable, exclusive locator before writing bytes.
+                    // On legacy Android the file locator remains stable across scanner callbacks.
+                    check(target.createNewFile()){"Имя файла уже занято"}
+                    val uri=Uri.fromFile(target)
+                    try{
+                        recovery.created(uri)
+                        source.inputStream().use{input->target.outputStream().use{input.copyTo(it)}}
+                        MediaScannerConnection.scanFile(context,arrayOf(target.absolutePath),arrayOf(mimeType),null)
+                        return@withContext PublishedFile(uri,actualName)
+                    }catch(error:Throwable){target.delete();throw error}
+                }
                 source.copyTo(target, overwrite = false)
                 val uri = suspendCancellableCoroutine { cont ->
                     MediaScannerConnection.scanFile(context, arrayOf(target.absolutePath), arrayOf(mimeType)) { _, uri ->

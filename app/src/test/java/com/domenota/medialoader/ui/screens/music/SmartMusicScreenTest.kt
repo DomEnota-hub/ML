@@ -83,4 +83,28 @@ class SmartMusicScreenTest {
         compose.onNodeWithTag("stats-bucket-2026-01-01").performClick()
         compose.runOnIdle {assertEquals(date,selected?.date)}
     }
+    @Test fun dayDetailShowsOnlySelectedDateAndNavigationDoesNotPlay(){
+        val day=SmartStatsInterval.day(java.time.LocalDate.of(2026,11,14))
+        var current by mutableStateOf(day)
+        var playback=0;var back=0;var exports=0
+        val a=track("a").copy(sourceAudioArtist="Artist")
+        val history=SmartTrackHistory("a","t","Artist",false,3,10,1,5000)
+        compose.setContent{MaterialTheme{
+            val data=if(current==day)SmartMusicSnapshot(topTracks=listOf(history),topArtists=listOf(SmartArtistRank("Artist",1,5000)),
+                plays=1,wallMs=5000,tracksPlayed=1,artistsPlayed=1,statsInterval=day,statsPeriod=SmartStatsPeriod.MONTH,
+                playedTracks=listOf(history)) else SmartMusicSnapshot(statsInterval=current,statsPeriod=SmartStatsPeriod.MONTH)
+            MusicDayStatsScreen(current,data,mapOf("a" to a),false,null,null,false,{back++},{current=SmartStatsInterval.day(it)},
+                {_,_->playback++},{exports++},false,false)
+        }}
+        compose.onNodeWithTag("music-stats-day").assertExists()
+        compose.onNodeWithText("Топ исполнителей").assertExists()
+        compose.onNodeWithText("Топ треков").assertExists()
+        compose.onNodeWithText("Сохранить итог изображением").performScrollTo().performClick()
+        assertEquals(1,exports)
+        compose.onNodeWithContentDescription("Предыдущий день").performScrollTo().performClick()
+        compose.onNodeWithText("За этот день нет данных о прослушивании").assertExists()
+        compose.onNodeWithText("Сохранить итог изображением").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Назад").performClick()
+        assertEquals(1,back);assertEquals(0,playback)
+    }
 }

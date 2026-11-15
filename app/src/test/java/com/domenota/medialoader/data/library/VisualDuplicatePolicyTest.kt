@@ -25,6 +25,11 @@ class VisualDuplicatePolicyTest {
         assertNull(VisualDuplicatePolicy.match(a,b.copy(durationMs=12000)))
         assertNull(VisualDuplicatePolicy.match(a,b.copy(frames=listOf(0,0,0,0,-1L))))
     }
+    @Test fun automaticSelectionKeepsOneAndNeverSelectsApproximate(){
+        val exact=VisualDuplicateGroup(listOf(f("a",sha="same"),f("b",sha="same")),VisualMatch.EXACT)
+        val similar=VisualDuplicateGroup(listOf(f("c"),f("d")),VisualMatch.SIMILAR_PHOTO)
+        assertEquals(setOf("b"),VisualDuplicatePolicy.selectExact(listOf(exact,similar)))
+    }
     @Test fun excludesBlankAndSameLocator(){
         val a=f("a")
         assertNull(VisualDuplicatePolicy.match(a,f("b",informative=false)))

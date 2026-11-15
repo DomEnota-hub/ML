@@ -121,6 +121,10 @@ interface DownloadDao {
     suspend fun updateEditedAudioWhenCurrent(id: String, uri: String, bytes: Long, duration: Long?,
         title: String, artist: String, album: String): Int
 
+    @Query("UPDATE downloads SET recognitionTrackId=COALESCE(:trackId,recognitionTrackId), recognitionSource=:source, " +
+        "recognitionArtworkUrl=COALESCE(:artworkUrl,recognitionArtworkUrl) WHERE id=:id AND savedUri=:uri AND isPrivate=0 AND hidden=0")
+    suspend fun updateRecognitionProvenanceWhenCurrent(id:String,uri:String,trackId:String?,source:String,artworkUrl:String?):Int
+
     @Query("UPDATE downloads SET durationMs = :duration WHERE id = :id")
     suspend fun setDuration(id: String, duration: Long)
 

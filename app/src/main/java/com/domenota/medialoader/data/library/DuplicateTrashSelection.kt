@@ -5,3 +5,6 @@ internal data class DuplicateTrashSelection(
     val groups: List<DuplicateGroup>, val selected: Set<String>, val verified: Set<String>,
     val failures: Map<String,String>,
 )
+
+/** Terminal reports must account for every explicitly requested ID. */
+internal fun DuplicateTrashSelection.unaccounted(outcomes:Set<String>):Set<String> = selected-outcomes
