@@ -76,11 +76,12 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     var result by remember { mutableStateOf<DuplicateScanResult?>(null) }
     val listState = rememberLazyListState()
     val preliminaryListState=rememberLazyListState()
-    val previewIndex by produceState<Pair<List<DownloadEntity>,Map<String,DownloadEntity>>?>(null,rows){
+    val previewGeneration=remember(rows){Any()}
+    val previewIndex by produceState<Pair<Any,Map<String,DownloadEntity>>?>(null,previewGeneration){
         val source=rows
-        value=withContext(Dispatchers.Default){source to source.filter{!it.isPrivate&&!it.hidden}.associateBy{it.id}}
+        value=withContext(Dispatchers.Default){previewGeneration to source.filter{!it.isPrivate&&!it.hidden}.associateBy{it.id}}
     }
-    val previewRows=previewIndex?.takeIf{it.first===rows}?.second.orEmpty()
+    val previewRows=previewIndex?.takeIf{it.first===previewGeneration}?.second.orEmpty()
     var previous by remember { mutableStateOf<DuplicateSession?>(null) }
     var scannedAt by remember { mutableLongStateOf(0L) }
     val background by DuplicateBackgroundScan.state.collectAsState()
@@ -630,9 +631,7 @@ private fun PreliminaryMusicGroup(group:DuplicateGroup,rows:Map<String,DownloadE
     val hide=LocalFileNameDisplay.current.hide
     val artist=remember(group.tracks){group.tracks.mapNotNull{it.artist?.trim()?.takeIf{a->a.isNotEmpty()}}.distinct().singleOrNull()}
     val shape=RoundedCornerShape(14.dp)
-    val artwork=remember(group.tracks,rows){group.tracks.firstNotNullOfOrNull{track->
-        rows[track.id]?.takeIf{row->row.savedUri==track.uri&&!row.isPrivate&&!row.hidden}
-    }}
+    val artwork=remember(group.tracks,rows){group.tracks.firstNotNullOfOrNull{track->preliminaryArtworkRow(track,rows)}}
     Surface(Modifier.fillMaxWidth().clip(shape),shape=shape,color=MaterialTheme.colorScheme.surfaceVariant){
         Column{
             Row(Modifier.fillMaxWidth().testTag("music-preliminary-${group.key}").clickable{open=!open}
@@ -674,3 +673,10 @@ private fun PreliminaryMusicGroup(group:DuplicateGroup,rows:Map<String,DownloadE
             }
         }},confirmButton={TextButton({allOpen=false}){Text("Закрыть")}})
 }
+
+/** Metadata is for display only; never use a stale or non-public row to select cached artwork. */
+internal fun preliminaryArtworkRow(track:DuplicateTrack,rows:Map<String,DownloadEntity>):DownloadEntity? =
+    rows[track.id]?.takeIf{row->row.id==track.id&&row.savedUri==track.uri&&row.originalName==track.filename&&
+        row.mediaType==com.domenota.medialoader.core.model.MediaType.AUDIO&&
+        row.state==com.domenota.medialoader.core.model.DownloadState.COMPLETED&&
+        !row.isPrivate&&!row.hidden&&(row.sizeBytes==null||row.sizeBytes==track.bytes)}

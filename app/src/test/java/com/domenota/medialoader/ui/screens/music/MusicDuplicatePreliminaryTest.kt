@@ -50,4 +50,15 @@ class MusicDuplicatePreliminaryTest {
         compose.onNodeWithTag("music-preliminary-all-files").performScrollToNode(hasText("track-f14.mp3"))
         compose.onNodeWithText("track-f14.mp3").assertIsDisplayed()
     }
+    @Test fun cachedArtworkRequiresCurrentPublicMatchingRow(){
+        val t=track("a")
+        val row=com.domenota.medialoader.core.database.DownloadEntity(t.id,"device",t.filename,
+            com.domenota.medialoader.core.model.MediaType.AUDIO,com.domenota.medialoader.core.model.DownloadState.COMPLETED,t.uri,t.bytes,1)
+        assertEquals(row,preliminaryArtworkRow(t,mapOf(t.id to row)))
+        assertNull(preliminaryArtworkRow(t,mapOf(t.id to row.copy(savedUri="content://other"))))
+        assertNull(preliminaryArtworkRow(t,mapOf(t.id to row.copy(sizeBytes=200))))
+        assertNull(preliminaryArtworkRow(t,mapOf(t.id to row.copy(originalName="different.mp3"))))
+        assertNull(preliminaryArtworkRow(t,mapOf(t.id to row.copy(isPrivate=true))))
+        assertNull(preliminaryArtworkRow(t,mapOf(t.id to row.copy(hidden=true))))
+    }
 }

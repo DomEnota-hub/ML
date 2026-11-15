@@ -2,6 +2,13 @@ package com.domenota.medialoader.ui.screens.music
 
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -54,5 +61,18 @@ class MusicOverviewUiTest {
         assertTrue(positions.zipWithNext().all{(a,b)->a<b})
         compose.onNodeWithTag("music-collections").performClick()
         compose.runOnIdle{assertEquals(1,opened)}
+    }
+    @Test fun largerFontGrowsCardInsteadOfClippingThePeriod(){
+        compose.setContent{MaterialTheme{
+            val density=LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density,1.6f)){
+                Box(Modifier.width(320.dp)){FrequentListeningCard(163,ListeningPeriod.MONTH){}}
+            }
+        }}
+        val card=compose.onNodeWithTag("frequent-playlist-card").fetchSemanticsNode().boundsInRoot
+        val count=compose.onNodeWithText("163 трека",useUnmergedTree=true).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val period=compose.onNodeWithText("30 дней",useUnmergedTree=true).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(count.top<period.top&&period.bottom<=card.bottom)
+        assertTrue(count.left>=card.left&&period.right<=card.right)
     }
 }
