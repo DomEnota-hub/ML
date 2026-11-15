@@ -1,6 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddToHomeScreen
 import androidx.compose.material.icons.rounded.Collections
@@ -28,7 +28,7 @@ internal fun ModeShortcutsSection() {
     fun changeStyle(enabled: Boolean) {
         val updated = runCatching { ModeShortcuts.setBranded(context,enabled) }.getOrDefault(false)
         branded = ModeShortcuts.branded(context)
-        if (!updated) Toast.makeText(context, "Стиль сохранён. Лаунчер не подтвердил обновление ярлыков.", Toast.LENGTH_LONG).show()
+        if (!updated) AppNotice.post(context, "Стиль сохранён. Лаунчер не подтвердил обновление ярлыков.")
     }
     fun refresh() {
         supported = runCatching { ModeShortcuts.supported(context) }.getOrDefault(false)
@@ -56,7 +56,7 @@ internal fun ModeShortcutsSection() {
                 grouped = true, nested = true, iconTone = if (mode == AppMode.GALLERY) SettingIconTone.SHORTCUT_GALLERY else SettingIconTone.SHORTCUT_MUSIC, onClick = {
                     if (added) refresh() else {
                         val accepted = runCatching { ModeShortcuts.request(context,mode) }.getOrDefault(false)
-                        Toast.makeText(context, if (accepted) "Запрос создания ярлыка отправлен" else "Создание ярлыка недоступно", Toast.LENGTH_SHORT).show()
+                        AppNotice.post(context, if (accepted) "Запрос создания ярлыка отправлен" else "Создание ярлыка недоступно")
                         refresh()
                     }
                 })

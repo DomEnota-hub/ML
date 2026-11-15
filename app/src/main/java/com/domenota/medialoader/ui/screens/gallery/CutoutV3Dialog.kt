@@ -7,7 +7,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,7 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import com.domenota.medialoader.ui.components.NoticeDialog as Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.domenota.medialoader.core.database.DownloadEntity
 import kotlinx.coroutines.CancellationException
@@ -169,7 +169,7 @@ internal fun CutoutV3Dialog(photo: DownloadEntity, onClose: () -> Unit) {
     }
 
     fun toast(message: String) {
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        AppNotice.post(context, message)
     }
 
     fun startExport(action: String, closeOnSuccess: Boolean = false) {
