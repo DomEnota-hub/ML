@@ -89,6 +89,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     var confirm by remember { mutableStateOf(false) }
     var previewId by remember { mutableStateOf<String?>(null) }
     var previewPlaying by remember { mutableStateOf(false) }
+    var previewPosition by remember { mutableLongStateOf(0L) }
+    var previewDuration by remember { mutableLongStateOf(0L) }
+    var previewSeekable by remember { mutableStateOf(false) }
     var previewError by remember { mutableStateOf<String?>(null) }
     var suspension by remember { mutableStateOf<AudioPlaybackService.Companion.ComparisonPlayback?>(null) }
     val player = remember(context) { ExoPlayer.Builder(context).build().apply {
@@ -97,6 +100,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     } }
     fun stopPreview(restore: Boolean = true) {
         player.stop(); player.clearMediaItems(); previewId = null; previewPlaying = false
+        previewPosition=0;previewDuration=0;previewSeekable=false
         if (restore) AudioPlaybackService.finishComparison(suspension)
         suspension = null
     }
@@ -120,6 +124,20 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             error = "Поиск сброшен после переноса в Личное"
         }
     }
+    LaunchedEffect(previewId) {
+        while(previewId!=null){
+            previewPosition=player.currentPosition.coerceAtLeast(0)
+            previewDuration=player.duration.takeIf{it>0}?:0L
+            previewSeekable=player.isCurrentMediaItemSeekable&&previewDuration>0
+            delay(200)
+        }
+    }
+    fun seekPreview(t:DuplicateTrack,ms:Long){
+        if(previewId!=t.id||!DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id))return
+        if(!player.isCurrentMediaItemSeekable||player.duration<=0){previewError="Перемотка недоступна";return}
+        try{player.seekTo(ms.coerceIn(0L,player.duration));previewPosition=player.currentPosition}
+        catch(_:Exception){previewError="Не удалось перемотать трек"}
+    }
     fun play(t: DuplicateTrack,seekMs:Long?=null) {
         if (!DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id)) { stopPreview(); return }
         previewError = null
@@ -130,6 +148,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         }
         try {
             if (previewId == null) suspension = AudioPlaybackService.pauseForComparison()
+            previewPosition=0;previewDuration=0;previewSeekable=false
             previewId = t.id
             player.setMediaItem(MediaItem.fromUri(Uri.parse(t.uri))); if(seekMs!=null)player.seekTo(seekMs.coerceAtLeast(0));player.prepare(); player.play()
         } catch (e: Exception) { previewError = e.message ?: "Прослушивание недоступно"; stopPreview() }
@@ -194,7 +213,18 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     val visibleGroups=groups.filter{filter==null||it.kind==filter}
     fun resume(){stopPreview();expandedScan=DuplicateBackgroundScan.resumeExpanded(context);scanRevision++}
     fun exactBytes(value:List<DuplicateGroup>)=value.filter{it.kind==DuplicateKind.EXACT}.sumOf{g->g.tracks.sumOf{it.bytes}-(g.tracks.firstOrNull()?.bytes?:0L)}
-    val allSelected = MusicDuplicatePolicy.selectAll(groups,kept).filterNot{it==currentId}.toSet()
+    val liveRows=remember(rows){rows.associateBy{it.id}}
+    fun eligible(t:DuplicateTrack):Boolean= t.id!=latestCurrent&&liveRows[t.id]?.let{row->
+        row.savedUri==t.uri&&!row.hidden&&!row.isPrivate&&
+            row.state==com.domenota.medialoader.core.model.DownloadState.COMPLETED
+    }==true&&DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id)
+    fun keepVersion(group:DuplicateGroup,id:String){
+        val before=kept[group.key]?:MusicDuplicatePolicy.recommended(group)
+        selected=MusicDuplicatePolicy.switchKeeper(group,selected,before,id,
+            group.tracks.filter(::eligible).map{it.id}.toSet())
+        kept=kept+(group.key to id)
+    }
+    val allSelected = MusicDuplicatePolicy.selectAll(groups,kept).intersect(groups.flatMap{it.tracks}.filter(::eligible).map{it.id}.toSet())
     LaunchedEffect(currentId){currentId?.let{selected=selected-it}}
     val size = groups.sumOf { g -> g.tracks.filter { it.id in selected }.sumOf { it.bytes } }
     fun close() {
@@ -274,7 +304,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp)) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(group.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                    Text("${when (group.kind) { DuplicateKind.EXACT -> "Точные"; DuplicateKind.ACOUSTIC -> "Акустические"; DuplicateKind.POSSIBLE -> "Возможные / версии" }} · ${group.tracks.size} файлов · ${group.reason}", style = MaterialTheme.typography.bodySmall, color = musicPlaybackAccent)
+                                    Text("${MusicDuplicatePolicy.shortReason(group)} · ${group.tracks.size} файлов", style = MaterialTheme.typography.bodySmall, color = musicPlaybackAccent)
                                     TextButton({comparing=group}){Text("Сравнить записи")}
                                     group.tracks.forEach { t ->
                                         HorizontalDivider()
@@ -288,14 +318,18 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                                 t.folder?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                                 MusicDuplicatePolicy.version(t)?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                                                 if (t.linked) Text("Есть связи библиотеки", style = MaterialTheme.typography.labelSmall, color = musicPlaybackAccent)
-                                                if (t.id == keep) Text("Оставить", color = musicPlaybackAccent, style = MaterialTheme.typography.labelMedium)
-                                                else TextButton({
-                                                    selected = MusicDuplicatePolicy.switchKeeper(group, selected, keep, t.id).filterNot{it==latestCurrent}.toSet()
-                                                    kept = kept + (group.key to t.id)
-                                                }, enabled = !verifying) { Text("Оставить эту версию") }
+                                                if(t.id !in selected)Text("Остаётся",color=musicPlaybackAccent,style=MaterialTheme.typography.labelLarge)
+                                                if(t.id!=keep||group.tracks.any{it.id!=t.id&&eligible(it)&&it.id !in selected})
+                                                    TextButton({keepVersion(group,t.id)},enabled=!verifying&&
+                                                        liveRows[t.id]?.let{it.savedUri==t.uri&&!it.hidden&&!it.isPrivate}==true,
+                                                        modifier=Modifier.heightIn(min=48.dp)){
+                                                        Text("Оставить эту версию",style=MaterialTheme.typography.labelMedium)
+                                                    }
+                                                if(t.id==currentId)Text("Текущий трек",style=MaterialTheme.typography.labelSmall)
+                                                else if(!eligible(t))Text("Недоступен для корзины",style=MaterialTheme.typography.labelSmall)
                                             }
                                             val checked = t.id in selected
-                                            val enabled = t.id != keep && t.id != currentId && !verifying
+                                            val enabled = t.id != keep && eligible(t) && !verifying
                                             val mark = if (checked) musicPlaybackAccent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else .55f)
                                             Box(Modifier.size(48.dp).testTag("duplicate-select-${t.id}")
                                                 .toggleable(value = checked, enabled = enabled, role = Role.Checkbox,
@@ -307,6 +341,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                                 }
                                             }
                                         }
+                                        if(previewId==t.id)DuplicatePreviewSeek(t.id,previewPosition,previewDuration,previewSeekable&&!verifying,
+                                            onSeek={seekPreview(t,it)})
                                     }
                                 }
                             }
@@ -334,8 +370,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     comparing?.takeIf{g->g.tracks.all{DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id)}}?.let{g->
         DuplicateMusicComparison(g,kept[g.key]?:MusicDuplicatePolicy.recommended(g),previewId,previewPlaying,player,
             onPlay={t,at->play(t,at)},onKeep={id->
-                val before=kept[g.key]?:MusicDuplicatePolicy.recommended(g)
-                selected=MusicDuplicatePolicy.switchKeeper(g,selected,before,id).filterNot{it==latestCurrent}.toSet();kept=kept+(g.key to id)
+                keepVersion(g,id)
             },onClose={stopPreview();comparing=null})
     }
     if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("Переместить в корзину?") }, text = {
@@ -418,7 +453,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                     IconButton(onClose){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
                     Text("Сравнение треков",style=MaterialTheme.typography.titleLarge)
                 }
-                Text(group.reason,style=MaterialTheme.typography.bodySmall)
+                Text(MusicDuplicatePolicy.shortReason(group),style=MaterialTheme.typography.bodySmall)
                 LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     items(group.tracks,key={it.id}){t->
                         Card(onClick={choose(t)}){
@@ -427,7 +462,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                 Column(Modifier.weight(1f).padding(horizontal=8.dp)){
                                     Text(t.title,maxLines=2,overflow=TextOverflow.Ellipsis)
                                     Text(listOfNotNull(t.artist,t.duration?.let{"${it/60000}:${"%02d".format(it/1000%60)}"},t.bitrate?.let{"${it/1000} кбит/с"}).joinToString(" · "),style=MaterialTheme.typography.bodySmall)
-                                    if(t.id==keeper)Text("Оставить",color=MaterialTheme.colorScheme.primary)
+                                    if(t.id==keeper)Text("Остаётся",color=MaterialTheme.colorScheme.primary)
                                 }
                                 RadioButton(t.id==active,{choose(t)})
                             }
@@ -443,7 +478,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                 Row(verticalAlignment=Alignment.CenterVertically){
                     IconButton({onPlay(track,null)}){Icon(if(previewId==active&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,"Прослушать")}
                     Text("${position/60000}:${"%02d".format(position/1000%60)}",Modifier.weight(1f))
-                    Button({onKeep(active)},enabled=keeper!=active){Text("Оставить эту запись")}
+                    Button({onKeep(active)}){Text("Оставить эту версию")}
                 }
                 evidence?.let{match->
                     Text("Подтверждённое смещение фрагмента",style=MaterialTheme.typography.labelMedium)
@@ -454,5 +489,22 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun DuplicatePreviewSeek(id:String,position:Long,duration:Long,enabled:Boolean,onSeek:(Long)->Unit){
+    var scrub by remember(id){mutableStateOf<Float?>(null)}
+    val max=duration.coerceAtLeast(1L).toFloat()
+    fun time(ms:Long)="%d:%02d".format(ms.coerceAtLeast(0)/60000,ms.coerceAtLeast(0)/1000%60)
+    Column(Modifier.fillMaxWidth().testTag("duplicate-preview-seek-$id")){
+        com.domenota.medialoader.ui.components.AppSlider(value=(scrub?:position.toFloat()).coerceIn(0f,max),
+            onValueChange={scrub=it},enabled=enabled&&duration>0,valueRange=0f..max,
+            onValueChangeFinished={scrub?.let{onSeek(it.toLong())};scrub=null},accentColor=musicPlaybackAccent)
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+            Text(time(scrub?.toLong()?:position),style=MaterialTheme.typography.labelSmall)
+            Text(if(duration>0)time(duration) else "—:—",style=MaterialTheme.typography.labelSmall)
+        }
+        if(!enabled)Text("Перемотка пока недоступна",style=MaterialTheme.typography.labelSmall)
     }
 }
