@@ -16,6 +16,43 @@ import java.util.UUID
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[34])
 class MediaOrganizationMigrationTest {
+    @Test fun v13MembersKeepTheirExistingOrderAndDatesWhenMigrated()=runBlocking{
+        val context=RuntimeEnvironment.getApplication()
+        val reference=Room.inMemoryDatabaseBuilder(context,HistoryDatabase::class.java).allowMainThreadQueries().build()
+        val schema=try{reference.openHelper.writableDatabase.query(
+            "SELECT name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT IN ('room_master_table','android_metadata') ORDER BY CASE WHEN type='table' THEN 0 ELSE 1 END"
+        ).use{c->buildList{while(c.moveToNext())add(c.getString(0) to c.getString(1))}}}finally{reference.close()}
+        val name="collection-order-migration-${UUID.randomUUID()}.db"
+        val path=context.getDatabasePath(name).also{it.parentFile?.mkdirs()}
+        var opened:HistoryDatabase?=null
+        try{
+            SQLiteDatabase.openOrCreateDatabase(path,null).use{old->
+                schema.forEach{(table,sql)->
+                    old.execSQL(if(table=="media_collection_members")
+                        "CREATE TABLE media_collection_members (id TEXT NOT NULL PRIMARY KEY, collectionId TEXT NOT NULL, identityJson TEXT, link TEXT, addedAt INTEGER NOT NULL, FOREIGN KEY(collectionId) REFERENCES media_collections(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+                    else sql)
+                }
+                old.execSQL("INSERT INTO media_collections VALUES('c','Collection',100)")
+                old.execSQL("INSERT INTO media_collection_members VALUES('b','c','[]',NULL,20)")
+                old.execSQL("INSERT INTO media_collection_members VALUES('l','c',NULL,'https://example.com',15)")
+                old.execSQL("INSERT INTO media_collection_members VALUES('a','c','[]',NULL,10)")
+                old.version=13
+            }
+            fun open()=Room.databaseBuilder(context,HistoryDatabase::class.java,name).addMigrations(COLLECTION_ORDER_MIGRATION).allowMainThreadQueries().build()
+            val db=open();opened=db
+            val original=db.organizationDao().members("c")
+            assertEquals(listOf("a","l","b"),original.map{it.id})
+            assertTrue(original.all{it.sortOrder==null})
+            MediaOrganizationRepository(db).reorder("c",listOf("a","b"),listOf("b","a"))
+            db.close();opened=null
+            val restored=open();opened=restored
+            val after=restored.organizationDao().members("c")
+            assertEquals(listOf("b","l","a"),after.map{it.id})
+            assertEquals(original.associate{it.id to it.addedAt},after.associate{it.id to it.addedAt})
+            assertEquals("https://example.com",after[1].link)
+            assertEquals(14,restored.openHelper.writableDatabase.version)
+        }finally{opened?.close();context.deleteDatabase(name)}
+    }
     @Test fun v12MediaAndCatalogSurviveWithoutInventingReviewHistory()=runBlocking{
         val context=RuntimeEnvironment.getApplication()
         val reference=Room.inMemoryDatabaseBuilder(context,HistoryDatabase::class.java).allowMainThreadQueries().build()

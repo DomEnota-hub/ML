@@ -228,7 +228,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             val canOrder=ordering&&ready&&!busy&&visualIds.size>1
             val orderedRows=(draft?:visualIds).mapNotNull{id->filtered.firstOrNull{it.first.id==id}}
             fun hit(point:Offset)=grid.layoutInfo.visibleItemsInfo.firstOrNull{
-                it.key in visualIds && point.x>=it.offset.x && point.x<it.offset.x+it.size.width &&
+                it.key.toString() in visualIds && point.x>=it.offset.x && point.x<it.offset.x+it.size.width &&
                     point.y>=it.offset.y && point.y<it.offset.y+it.size.height
             }
             fun moveAt(point:Offset){

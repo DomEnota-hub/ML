@@ -124,6 +124,23 @@ class MediaOrganizationScreenTest {
         val expected=mapOf(0 to "0 файлов",1 to "1 файл",2 to "2 файла",4 to "4 файла",5 to "5 файлов",11 to "11 файлов",14 to "14 файлов",21 to "21 файл",22 to "22 файла")
         expected.forEach{(n,label)->assertEquals(label,com.domenota.medialoader.core.model.RussianCounts.files(n))}
     }
+    @Test fun collectionMusicIsCollapsedAndSelectedTrackReceivesWholeQueue(){
+        val rows=listOf("a","b").map{DownloadEntity(it,"device","$it.mp3",MediaType.AUDIO,DownloadState.COMPLETED,"content://media/$it",100,100)}
+        val refs=rows.map{LibraryMediaRef(it.id,setOf("file-stat:${it.id}"),it,null)}
+        val members=refs.map{MediaCollectionMemberEntity("m-${it.key}","c",MediaOrganizationPolicy.encode(MediaOrganizationPolicy.keys(it)),null,1)}
+        val c=MediaCollection(MediaCollectionEntity("c","Work",1),members)
+        var played:Pair<String,List<String>>?=null
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),refs,store,"c",false,emptyList(),null,true,{},{_,_->},{},{},{},{},
+            onPlayTrack={id,queue->played=id to queue},miniPlayer={androidx.compose.material3.Text("Test player slot")})}}
+        compose.waitUntil(5000){compose.onAllNodesWithTag("collection-music-toggle").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithTag("music-track-a").assertDoesNotExist()
+        compose.onNodeWithTag("collection-music-toggle").performClick()
+        compose.onNodeWithTag("music-track-b").performClick()
+        compose.runOnIdle{assertEquals("b" to listOf("a","b"),played)}
+        compose.onNodeWithTag("collection-music-toggle").performClick()
+        compose.onNodeWithTag("music-track-b").assertDoesNotExist()
+        compose.onNodeWithText("Test player slot").assertIsDisplayed()
+    }
     @Test fun collectionOrderMoveAndRussianLinkForms(){
         assertEquals(listOf("b","c","a"),moveCollectionMember(listOf("a","b","c"),"a","c"))
         assertEquals(listOf("a","b"),moveCollectionMember(listOf("a","b"),"a","missing"))
