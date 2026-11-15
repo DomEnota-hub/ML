@@ -12,6 +12,8 @@ import com.domenota.medialoader.data.editor.VideoClipDraft
 import com.domenota.medialoader.data.editor.VideoAudioTrackDraft
 import com.domenota.medialoader.data.editor.VideoAudioPreviewDeck
 import com.domenota.medialoader.data.editor.VideoPreviewQueueSync
+import com.domenota.medialoader.data.editor.VideoEditorPreviewFailurePolicy
+import com.domenota.medialoader.core.logging.AppLog
 import java.util.UUID
 import kotlinx.coroutines.delay
 import androidx.annotation.OptIn
@@ -138,6 +140,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import java.io.File
+
+/** Never pass library exception strings into the editor UI. */
+private fun videoEditorOperationFailure(operation: String, message: String, error: Throwable): String {
+    AppLog.e("VideoEditor", "Operation failed · operation=$operation", error)
+    return message
+}
 
 private data class VideoEditorUndoSnapshot(
     val project: VideoProjectDraft,
@@ -351,7 +359,7 @@ private fun VideoEditorContent(
             if (previous != null && obtained.isNotEmpty()) {
                 runCatching { previous.addAfter(selectedClipId, obtained) }
                     .onSuccess { applyProject(it, obtained.first().id) }
-                    .onFailure { clipError = it.message ?: "Не удалось добавить клипы" }
+                    .onFailure { clipError = videoEditorOperationFailure("add-clips", "Не удалось добавить клипы", it) }
             } else clipError = "Не удалось прочитать выбранные фото или видео"
         }
     }
@@ -395,7 +403,7 @@ private fun VideoEditorContent(
                 runCatching { p.replace(selectedClipId, nextUri.toString(), metadata.durationMs,
                     if (metadata.isImage) VideoClipMediaKind.IMAGE else VideoClipMediaKind.VIDEO) }
                     .onSuccess { applyProject(it) }
-                    .onFailure { clipError = it.message ?: "Не удалось заменить клип" }
+                    .onFailure { clipError = videoEditorOperationFailure("replace-clip", "Не удалось заменить клип", it) }
             } else clipError = "Не удалось прочитать выбранное фото или видео"
         }
     }
@@ -550,10 +558,18 @@ private fun VideoEditorContent(
                 }
             }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                com.domenota.medialoader.core.logging.AppLog.e("VideoPreview",
-                    "Player failure · code=${error.errorCodeName}", error)
+                val player = previewPlayer ?: return
+                // Technical diagnostics belong in the local journal, not below the timeline.
+                // Include the actual cause/stack and playback context, not the source URI.
+                AppLog.e("VideoPreview", "Player failure · code=${error.errorCodeName}" +
+                    " · cause=${error.cause?.javaClass?.simpleName ?: error.javaClass.simpleName}" +
+                    " · state=${player.playbackState} · index=${player.currentMediaItemIndex}" +
+                    " · positionMs=${player.currentPosition} · durationMs=${player.duration}" +
+                    " · speed=${player.playbackParameters.speed}", error)
                 trimFramePending = false; trimBoundaryFrame = null
-                clipError = error.message ?: "Не удалось показать видео"
+                timelineIsPlaying = false
+                player.pause()
+                audioPreviewDeck.pause()
             }
         }
         previewPlayer?.addListener(listener)
@@ -566,9 +582,10 @@ private fun VideoEditorContent(
                 previewPlayer?.pause()
                 previewPlayer?.stop()
                 audioPreviewDeck.pause()
-            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME &&
-                    previewPlayer?.playbackState == Player.STATE_IDLE && previewPlayer.mediaItemCount > 0) {
-                previewPlayer.prepare()
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                previewPlayer?.let { player ->
+                    if (VideoEditorPreviewFailurePolicy.shouldAutoPrepare(player)) player.prepare()
+                }
             }
         }
         previewLifecycle.lifecycle.addObserver(observer)
@@ -1063,7 +1080,7 @@ private fun VideoEditorContent(
                                     }
                                     clipError = null
                                 }
-                                .onFailure { clipError = it.message ?: "Недопустимые границы обрезки" }
+                                .onFailure { clipError = videoEditorOperationFailure("trim", "Недопустимые границы обрезки", it) }
                         },
                         onMove = { id, newIndex ->
                             val prior = project ?: return@VideoMultiClipTimeline
@@ -1096,7 +1113,17 @@ private fun VideoEditorContent(
                         onTogglePlayback = {
                             previewPlayer?.let {
                                 if (it.isPlaying) it.pause()
-                                else {
+                                else if (it.playerError != null) {
+                                    // One deliberate retry: recreate the failed preview graph, keep
+                                    // the draft and seek to the timeline position (or restart at EOF).
+                                    val target = VideoEditorPreviewFailurePolicy.retryTarget(activeProject, playheadMs)
+                                    if (VideoPreviewQueueSync.matches(
+                                            List(it.mediaItemCount, it::getMediaItemAt), activeProject)) {
+                                        playheadMs = target.timelineMs
+                                        selectedClipId = activeProject.clips[target.clipIndex].id
+                                        previewSession?.retryFailedPlayback(target.clipIndex, target.sourceOffsetMs)
+                                    }
+                                } else {
                                     if (playheadMs >= activeProject.durationMs - 40L) {
                                         playheadMs = 0L
                                         it.seekTo(0, 0L)
@@ -1311,7 +1338,7 @@ private fun VideoEditorContent(
                                             draft.setTransitionAfter(selectedClipId, transition)
                                         }.onSuccess { project = it; clipError = null }
                                             .onFailure {
-                                                clipError = it.message ?: "Переход не применён"
+                                                clipError = videoEditorOperationFailure("transition", "Переход не применён", it)
                                             }
                                     }
                                 },
@@ -1322,7 +1349,7 @@ private fun VideoEditorContent(
                                             draft.setSpecialFx(selectedClipId, effect)
                                         }.onSuccess { project = it; clipError = null }
                                             .onFailure {
-                                                clipError = it.message ?: "Эффект не применён"
+                                                clipError = videoEditorOperationFailure("effect", "Эффект не применён", it)
                                             }
                                     }
                                 },
@@ -1357,7 +1384,7 @@ private fun VideoEditorContent(
                                     val draft = project ?: return@VideoAudioTracksPanel
                                     runCatching { draft.editAudioTrack(id, transform) }
                                         .onSuccess { project = it; clipError = null }
-                                        .onFailure { clipError = it.message ?: "Ошибка настройки аудио" }
+                                        .onFailure { clipError = videoEditorOperationFailure("audio-edit", "Ошибка настройки аудио", it) }
                                 },
                                 onDelete = { id ->
                                     val draft = project ?: return@VideoAudioTracksPanel
@@ -1414,7 +1441,7 @@ private fun VideoEditorContent(
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (error: Exception) {
-                                reversePreviewError = error.message ?: "Не удалось создать предпросмотр реверса"
+                                reversePreviewError = videoEditorOperationFailure("reverse-preview", "Не удалось создать предпросмотр реверса", error)
                             } finally {
                                 reversePreviewBusy = false
                             }
@@ -1652,7 +1679,7 @@ private fun VideoEditorContent(
                         val id = UUID.randomUUID().toString()
                         runCatching { draft.duplicate(selectedClipId, id) }
                             .onSuccess { applyProject(it, id, chosen.inMs) }
-                            .onFailure { clipError = it.message }
+                            .onFailure { clipError = videoEditorOperationFailure("duplicate-clip", "Не удалось дублировать клип", it) }
                     }
                 },
                 onReplaceClip = {
@@ -1683,7 +1710,7 @@ private fun VideoEditorContent(
                                 selectedTool = VideoWorkspaceTool.AUDIO
                                 clipError = null
                             }.onFailure {
-                                clipError = it.message ?: "Не удалось отделить звук"
+                                clipError = videoEditorOperationFailure("detach-audio", "Не удалось отделить звук", it)
                             }
                         }
                     }
@@ -1792,8 +1819,7 @@ private fun CropVideoPreview(
                 // Attach the Surface holder BEFORE preparing a newly rebuilt paused player.
                 // Otherwise its only initial frame can be rendered before this view is bound.
                 it.player = player
-                if (player.playbackState == androidx.media3.common.Player.STATE_IDLE && player.mediaItemCount > 0)
-                    player.prepare()
+                if (VideoEditorPreviewFailurePolicy.shouldAutoPrepare(player)) player.prepare()
             },
             onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize(),

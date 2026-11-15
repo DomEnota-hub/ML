@@ -673,10 +673,17 @@ fun DownloadsScreen(
                 onChooseFolder = { id -> folderTargetId = id; folderGroupTargets = emptyList(); folderSheetOpen = true },
                 expandedGroups = expandedGroups, groupLimits = groupLimits, onExpand = toggleGroup, onMore = showMore,
                 onMoveToPrivate = onMoveToPrivate, grid = gridMode,
-                // Swipe rights are additive: unlike the overflow menu they
-                // never remove an item that was already in favorites.
                 onSwipeFavorite = { ids ->
-                    groupAction(ids) { id -> onSetFavorite(id, true) }
+                    // Single-item toggles read the actual favorite in the database transaction.
+                    // Group headers follow the menu: mixed -> all favorites, all -> none.
+                    if (ids.size == 1) scope.launch {
+                        runCatching { onToggleFavorite(ids.single()) }.onFailure {
+                            AppNotice.post(context, "Не удалось изменить избранное")
+                        }
+                    } else {
+                        val favorite = historySwipeFavoriteTarget(ids) { assignmentById[it]?.isFavorite == true }
+                        groupAction(ids) { id -> onSetFavorite(id, favorite) }
+                    }
                 },
                 onGroupFavorite = { group ->
                     val favorite = !group.all { assignmentById[it.id]?.isFavorite == true }
@@ -747,6 +754,7 @@ private fun LazyListScope.DownloadRows(
                     group.all { it.state == DownloadUiState.COMPLETED &&
                         it.fileStatus != SavedFileStatus.MISSING &&
                         it.fileStatus != SavedFileStatus.INACCESSIBLE },
+                favorite = groupIds.all { assignments[it]?.isFavorite == true },
                 onFavorite = { onSwipeFavorite?.invoke(groupIds) },
                 onPrivate = { onGroupMove(groupIds) },
             ) {
@@ -763,9 +771,10 @@ private fun LazyListScope.DownloadRows(
             if (expanded) {
                 items(group.take(visibleCount), key = { "child:${it.id}" }, contentType = { "file" }) { item ->
                     HistorySwipeRow(
-                        enabled = onSwipeFavorite != null && item.state == DownloadUiState.COMPLETED &&
+                        enabled = groupActionsEnabled && onSwipeFavorite != null && item.state == DownloadUiState.COMPLETED &&
                             item.fileStatus != SavedFileStatus.MISSING &&
                             item.fileStatus != SavedFileStatus.INACCESSIBLE,
+                        favorite = assignments[item.id]?.isFavorite == true,
                         onFavorite = { onSwipeFavorite?.invoke(listOf(item.id)) },
                         onPrivate = { onMoveToPrivate(item.id) },
                     ) {
@@ -784,9 +793,10 @@ private fun LazyListScope.DownloadRows(
           item(key = "file:${group.single().id}", contentType = "file") {
             val file = group.single()
             HistorySwipeRow(
-                enabled = onSwipeFavorite != null && file.state == DownloadUiState.COMPLETED &&
+                enabled = groupActionsEnabled && onSwipeFavorite != null && file.state == DownloadUiState.COMPLETED &&
                     file.fileStatus != SavedFileStatus.MISSING &&
                     file.fileStatus != SavedFileStatus.INACCESSIBLE,
+                favorite = assignments[file.id]?.isFavorite == true,
                 onFavorite = { onSwipeFavorite?.invoke(listOf(file.id)) },
                 onPrivate = { onMoveToPrivate(file.id) },
             ) {
