@@ -52,7 +52,7 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithText("Добавить (0)").assertIsNotEnabled()
         compose.onNodeWithText("Выбрано: 0").assertIsDisplayed()
         compose.onNodeWithText("Музыка").performClick()
-        compose.onNodeWithText("Нет доступных материалов").assertIsDisplayed()
+        compose.onNodeWithText("Нет доступных файлов и ссылок").assertIsDisplayed()
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithText("Добавить").assertIsDisplayed()
     }
@@ -121,8 +121,15 @@ class MediaOrganizationScreenTest {
         compose.runOnIdle{assertTrue(back)}
     }
     @Test fun countsUseRussianPluralForms(){
-        val expected=mapOf(0 to "0 материалов",1 to "1 материал",2 to "2 материала",4 to "4 материала",5 to "5 материалов",11 to "11 материалов",14 to "14 материалов",21 to "21 материал",22 to "22 материала")
-        expected.forEach{(n,label)->assertEquals(label,collectionMaterialCount(n))}
+        val expected=mapOf(0 to "0 файлов",1 to "1 файл",2 to "2 файла",4 to "4 файла",5 to "5 файлов",11 to "11 файлов",14 to "14 файлов",21 to "21 файл",22 to "22 файла")
+        expected.forEach{(n,label)->assertEquals(label,com.domenota.medialoader.core.model.RussianCounts.files(n))}
+    }
+    @Test fun collectionOrderMoveAndRussianLinkForms(){
+        assertEquals(listOf("b","c","a"),moveCollectionMember(listOf("a","b","c"),"a","c"))
+        assertEquals(listOf("a","b"),moveCollectionMember(listOf("a","b"),"a","missing"))
+        assertEquals("112 файлов",com.domenota.medialoader.core.model.RussianCounts.files(112))
+        assertEquals("21 ссылка",com.domenota.medialoader.core.model.RussianCounts.links(21))
+        assertEquals("14 ссылок",com.domenota.medialoader.core.model.RussianCounts.links(14))
     }
     @Test fun missingPassportDoesNotDisplayOldPrivateMetadata(){
         compose.setContent{MaterialTheme{MediaPassportScreen(null,emptyList(),emptyList(),emptyList(),emptyList(),emptyList(),{},{_,_->},{},{})}}

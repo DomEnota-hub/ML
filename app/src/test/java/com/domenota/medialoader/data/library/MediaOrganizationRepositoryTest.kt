@@ -47,7 +47,7 @@ class MediaOrganizationRepositoryTest {
     }
     @Test fun reorderPreservesHiddenSlotsLinksDatesAndOtherCollections()=runBlocking {
         val c=store.create("Order");val other=store.create("Other")
-        val a=row("a");val b=row("b");val d=row("d")
+        val a=row("a");val b=row("b").copy(savedUri="content://media/b");val d=row("d").copy(savedUri="content://media/d")
         listOf(a,b,d).forEach{history.save(it)}
         store.addMedia(c,listOf(ref(a)));store.addLink(c,"https://example.com/one")
         store.addMedia(c,listOf(ref(b),ref(d)));store.addMedia(other,listOf(ref(a)))

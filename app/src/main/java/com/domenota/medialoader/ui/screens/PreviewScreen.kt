@@ -237,7 +237,7 @@ fun PreviewScreen(
                 "rutube" -> "RUTUBE"
                 else -> "Медиа"
             }
-            Text("$providerLabel · ${if(recoveryMode)items.size else items.count { it.kind != MediaKind.AUDIO }} файлов",
+            Text("$providerLabel · ${com.domenota.medialoader.core.model.RussianCounts.files(if(recoveryMode)items.size else items.count { it.kind != MediaKind.AUDIO })}",
                 style = MaterialTheme.typography.bodyMedium)
         }
 
@@ -621,7 +621,7 @@ private fun MediaList(
     }
 
     Spacer(Modifier.height(16.dp))
-    if (photos.isNotEmpty()) Text("Выбрано: $selectedCount файлов", style = MaterialTheme.typography.bodyMedium)
+    if (photos.isNotEmpty()) Text("Выбрано: ${com.domenota.medialoader.core.model.RussianCounts.files(selectedCount)}", style = MaterialTheme.typography.bodyMedium)
     GradientActionButton(
         text = when {
             busy -> "Добавляем…"

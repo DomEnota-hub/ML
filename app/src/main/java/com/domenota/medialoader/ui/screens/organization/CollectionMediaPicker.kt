@@ -190,7 +190,7 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
                     PickerMark(key in selected||key in existingKeys,key in existingKeys,enabled=!busy){toggle(key)}
                 }
             }
-            if(visibleKeys.isEmpty())item{Text("Нет доступных материалов",Modifier.padding(20.dp))}
+            if(visibleKeys.isEmpty())item{Text("Нет доступных файлов и ссылок",Modifier.padding(20.dp))}
         }
         Surface(color=MaterialTheme.colorScheme.surface){Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             Text("Выбрано: ${selected.size}",Modifier.weight(1f),style=MaterialTheme.typography.labelLarge)
