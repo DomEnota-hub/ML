@@ -78,6 +78,12 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     var scanRevision by remember { mutableIntStateOf(0) }
     var expandedScan by remember { mutableStateOf(false) }
     var journal by remember{mutableStateOf(false)}
+    var trashReport by remember{mutableStateOf<DuplicateTrashReport?>(null)}
+    var showTrashReport by remember{mutableStateOf(false)}
+    LaunchedEffect(privacyRevision){
+        showTrashReport=false
+        trashReport=MusicDuplicateSessionStore.trashReport(context)
+    }
     var showPartial by remember{mutableStateOf(false)}
     var history by remember{mutableStateOf(emptyList<DuplicateSession>())}
     var storedPartial by remember{mutableStateOf<DuplicateSession?>(null)}
@@ -243,6 +249,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ close() }, enabled = !verifying) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
                     Text("Дубликаты треков", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    if(trashReport!=null)IconButton({showTrashReport=true},enabled=!verifying){
+                        Icon(Icons.Rounded.DeleteOutline,"Последнее перемещение")
+                    }
                     IconButton({journal=true},enabled=!verifying){Icon(Icons.Rounded.History,"Журнал поиска")}
                     IconButton({ stopPreview(); expandedScan=false;scanRevision++ }, enabled = !scanning && !verifying) { Icon(Icons.Rounded.Refresh, "Повторить поиск") }
                 }
@@ -357,6 +366,20 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                 }
             }
         }
+    }
+    if(showTrashReport)trashReport?.takeIf{it.epoch==privacyRevision&&
+        it.rows.all{row->DuplicatePrivacyGuard.accepts(context,it.epoch,row.id)}}?.let{report->
+        AlertDialog(onDismissRequest={showTrashReport=false},title={Text("Последнее перемещение")},text={
+            Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(report.at)))
+                Text("Перемещено в корзину: ${report.rows.count{it.success}}")
+                Text("Не перемещено: ${report.rows.count{!it.success}}")
+                report.rows.filter{!it.success||it.reason!="Перемещено"}.forEach{row->
+                    HorizontalDivider();Text(row.name,style=MaterialTheme.typography.bodyMedium)
+                    Text(row.reason,style=MaterialTheme.typography.bodySmall)
+                }
+            }
+        },confirmButton={TextButton({showTrashReport=false}){Text("Закрыть")}})
     }
     if(journal)DuplicateJournalDialog("Журнал музыки",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size})},
         storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size} ,DuplicateBackgroundScan.journalStatus(context))},
@@ -501,7 +524,8 @@ internal fun DuplicatePreviewSeek(id:String,position:Long,duration:Long,enabled:
     fun time(ms:Long)="%d:%02d".format(ms.coerceAtLeast(0)/60000,ms.coerceAtLeast(0)/1000%60)
     Column(Modifier.fillMaxWidth().testTag("duplicate-preview-seek-$id")){
         com.domenota.medialoader.ui.components.AppSlider(value=(scrub?:position.toFloat()).coerceIn(0f,max),
-            onValueChange={scrub=it},enabled=enabled&&duration>0,valueRange=0f..max,
+            onValueChange={scrub=it},modifier=Modifier.fillMaxWidth().testTag("duplicate-seek-slider-$id"),
+            enabled=enabled&&duration>0,valueRange=0f..max,
             onValueChangeFinished={scrub?.let{onSeek(it.toLong())};scrub=null},accentColor=musicPlaybackAccent)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
             Text(time(scrub?.toLong()?:position),style=MaterialTheme.typography.labelSmall)

@@ -42,6 +42,7 @@ internal class DuplicateTrashOperation(val request:DuplicateTrashSelection,visua
     val pending=mutableStateOf<List<Work>>(emptyList())
     val consentResult=mutableStateOf<Int?>(null)
     val finished=mutableStateOf(false)
+    val reportSaved=mutableStateOf(true)
     val revision=mutableIntStateOf(0)
     val batchLimit=mutableIntStateOf(if(visual)1 else 50)
 }
@@ -156,9 +157,17 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
         }
         initialized = true
         }
-        fun finishReport(){
+        suspend fun finishReport(){
             request.unaccounted(outcomes.keys).forEach{id->
                 outcomes[id]=Outcome(tracks[id]?.filename?:"Файл",false,"Перемещение не подтверждено. Проверьте файл и повторите.")
+            }
+            if(visual==null){
+                val epoch=tracks.values.firstOrNull()?.privacyEpoch?:DuplicatePrivacyGuard.generation(context)
+                operation.reportSaved.value=withContext(NonCancellable){
+                    MusicDuplicateSessionStore.saveTrashReport(context,DuplicateTrashReport(System.currentTimeMillis(),epoch,
+                        request.selected.map{id->val row=outcomes.getValue(id)
+                            DuplicateTrashReportRow(id,row.name,row.success,row.reason)}))
+                }
             }
             finished=true
         }
@@ -268,6 +277,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                 }
                 outcomes.entries.filter{it.value in warnings}.forEach { (id,row) -> Text(if(public(id))"${row.name}: ${row.reason}" else "Журнал требует обновления", color = MaterialTheme.colorScheme.error) }
                 if (failed.isNotEmpty()) Text("Оставшиеся доступны в последнем поиске. Повтор — после проверки выбранных файлов.", style = MaterialTheme.typography.bodySmall)
+                if(!operation.reportSaved.value)Text("Не удалось сохранить отчёт перемещения",color=MaterialTheme.colorScheme.error)
             }
         }, confirmButton = { TextButton(onClose) { Text("Вернуться к дубликатам") } })
     } else if (!waiting) AlertDialog(onDismissRequest = {}, title = { Text("Перемещение в корзину") },
