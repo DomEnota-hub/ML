@@ -1,4 +1,4 @@
-name: ML 1.7.189 stages 1-6 verification
+name: ML 1.7.189 stages 1-7 final QA and unsigned handoff
 on:
   push:
     branches: [feature/ml-17189-qa-rework]
@@ -49,7 +49,7 @@ jobs:
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace
       - name: Music folders, daily history and recognition regressions
         run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*ResumeQueue*Test' --stacktrace
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --stacktrace
       - name: Shared photo editor, full resolution and drawing regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Photo*Test' --tests '*BatchWatermarkTest' --tests '*BatchTextDraftRestorationTest' --tests '*TextLayer*Test' --tests '*EditorTextDialogLayoutTest' --stacktrace
@@ -65,6 +65,36 @@ jobs:
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Internal ARM64 compilation (no distribution)
         run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
+      - name: Validate final APK and prepare exact-commit unsigned handoff
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          input=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$input"
+          "$bt/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='249' versionName='1.7.189'"
+          test "$(unzip -Z1 "$input" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          mkdir -p handoff/tools handoff/source
+          aligned=handoff/ML_1.7.189_ARM64_ALIGNED_UNSIGNED.apk
+          "$bt/zipalign" -P 16 -f 4 "$input" "$aligned"
+          "$bt/zipalign" -c -P 16 -v 4 "$aligned"
+          cp "$bt/lib/apksigner.jar" handoff/tools/apksigner.jar
+          cp "$bt/zipalign" "$bt/aapt" handoff/tools/
+          if [ -d "$bt/lib64" ]; then cp -r "$bt/lib64" handoff/tools/; fi
+          git archive --format=zip -o handoff/source/ML_1.7.189_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/source/DELIVERY_COMMIT_SHA.txt
+          (cd handoff && find . -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ml189-handoff-sha256.txt)
+          cp /tmp/ml189-handoff-sha256.txt handoff/UNSIGNED_HANDOFF_SHA256.txt
+      - name: Temporary unsigned handoff for local signing (not a release)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.189_PRIVATE_UNSIGNED_LOCAL_SIGNING
+          path: handoff/
+          retention-days: 2
+          if-no-files-found: error
+          compression-level: 0
       - name: Save diagnostics only
         if: always()
         uses: actions/upload-artifact@v4
