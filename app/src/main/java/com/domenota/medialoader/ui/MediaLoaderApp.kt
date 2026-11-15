@@ -1555,18 +1555,38 @@ fun MediaLoaderApp(
                 }
             }
             composable("collections") {
+                fun playCollection(ids:List<String>,requestedId:String?=null){
+                    libraryPreviewJob?.cancel()
+                    libraryPreviewJob=fileActionScope.launch {
+                        try{
+                            val candidates=ids.mapNotNull{id->libraryRefsByAlias[id]?.takeIf{ref->
+                                ref.key==id&&!ref.item.isPrivate&&!ref.item.hidden&&ref.item.mediaType==MediaType.AUDIO
+                            }}
+                            val valid=withContext(Dispatchers.IO){candidates.filter{availabilityCache.get(it.item.savedUri,fresh=true)==SavedFileStatus.PRESENT}}
+                            libraryModel.audioPreview.playSelection(valid,false,requestedId)
+                        }catch(e:CancellationException){throw e}catch(_:Exception){Toast.makeText(context,"Нет доступных треков",Toast.LENGTH_SHORT).show()}
+                    }
+                }
                 CollectionsScreen(collections,organizationRefs,organization,collectionInitial,collectionAudioOnly,collectionAddIds,collectionLink,
                     organizationReady,{navController.popBackStack()},openDownloadWithQueue,
-                    onPlay={ids->
-                        libraryPreviewJob?.cancel()
-                        libraryPreviewJob=fileActionScope.launch {
-                            try{
-                                val candidates=ids.map{libraryRefsByAlias[it]?.takeIf{ref->ref.key==it&&!ref.item.isPrivate&&ref.item.mediaType==MediaType.AUDIO}?:error("Файл недоступен")}
-                                val valid=withContext(Dispatchers.IO){candidates.filter{availabilityCache.get(it.item.savedUri,fresh=true)==SavedFileStatus.PRESENT}}
-                                libraryModel.audioPreview.playSelection(valid,false)
-                            }catch(e:CancellationException){throw e}catch(_:Exception){Toast.makeText(context,"Нет доступных треков",Toast.LENGTH_SHORT).show()}
-                        }
-                    },onLink=::openOrganizationLink,onPassport=::openPassport,onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable,initialCreate=collectionCreate)
+                    onPlay={ids->playCollection(ids)},onLink=::openOrganizationLink,onPassport=::openPassport,
+                    onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable,initialCreate=collectionCreate,
+                    onPlayTrack={id,ids->playCollection(ids,id)},currentPlayingId=currentLibraryAudioId,playing=libraryAudioState.playing,
+                    miniPlayer={
+                        AudioMiniPlayer(interactiveSeek=true,onOpen={
+                            val decision=com.domenota.medialoader.data.playback.CurrentPlayerNavigation.resolve(
+                                controllerReady=libraryAudioState.connected,
+                                catalogReady=libraryIndex.ready&&indexedLibraryProjection.ready&&libraryAliasProjection.ready,
+                                privateReady=libraryPrivateKeys!=null,currentItem=libraryAudioState.currentItem,
+                                rows=publicLibraryRows,blockedIdentities=libraryPrivateKeys.orEmpty()+organizationHidden)
+                            if(decision is com.domenota.medialoader.data.playback.CurrentPlayerDestination.Open){
+                                navController.navigate("viewer/${android.net.Uri.encode(decision.row.id)}"){launchSingleTop=true}
+                                navController.currentBackStackEntry?.savedStateHandle?.apply{
+                                    set("private_viewer",false);set("gallery_presentation",false);set("current_audio_session_only",true)
+                                }
+                            }else Toast.makeText(context,"Текущий плеер недоступен",Toast.LENGTH_SHORT).show()
+                        })
+                    })
             }
             composable("media-review"){
                 var playlistTarget by remember{mutableStateOf<String?>(null)}

@@ -45,6 +45,20 @@ class AudioQueuePlaybackTest {
             assertEquals(2,player.mediaItemCount)
         } finally { player.release() }
     }
+    @Test fun collectionTrackStartsAtSelectedIndexWithoutReorderingOrToggling(){
+        val player=ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try{
+            player.setMediaItems(listOf(item("b"),item("old")))
+            player.seekTo(0,1234);player.pause()
+            assertTrue(AudioQueuePlayback.startSelection(player,listOf(item("a"),item("b"),item("c")),false,"b"))
+            assertEquals(listOf("a","b","c"),(0 until player.mediaItemCount).map{player.getMediaItemAt(it).mediaId})
+            assertEquals(1,player.currentMediaItemIndex)
+            assertEquals(0L,player.currentPosition)
+            assertTrue(player.playWhenReady)
+            assertFalse(AudioQueuePlayback.startSelection(player,listOf(item("a")),false,"missing"))
+            assertEquals("b",player.currentMediaItem?.mediaId)
+        }finally{player.release()}
+    }
     @Test fun previewOfCurrentTrackTogglesWithoutReplacingQueueOrPosition() {
         val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
         try {

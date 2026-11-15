@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.data.playback.AudioPlaybackMetadata
@@ -56,6 +59,7 @@ fun AudioMiniPlayer(
     modifier: Modifier = Modifier,
     onOpenQueue: ((String, List<String>) -> Unit)? = null,
     compact: Boolean = false,
+    interactiveSeek: Boolean = false,
 ) {
     val context = LocalContext.current
     val token = remember {
@@ -75,6 +79,8 @@ fun AudioMiniPlayer(
     var artworkUri by remember { mutableStateOf<String?>(null) }
     var position by remember { mutableLongStateOf(0) }
     var duration by remember { mutableLongStateOf(0) }
+    var seekable by remember { mutableStateOf(false) }
+    var trackGeneration by remember { mutableLongStateOf(0) }
 
     DisposableEffect(controllerFuture) {
         controllerFuture.addListener(
@@ -112,6 +118,9 @@ fun AudioMiniPlayer(
                 savedUri = active.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PUBLIC_URI)
                     ?: mediaItem?.localConfiguration?.uri?.toString()
                 artworkUri = active.mediaMetadata.artworkUri?.toString()
+                position=active.currentPosition.coerceAtLeast(0L)
+                duration=active.duration.coerceAtLeast(0L)
+                seekable=active.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)&&active.isCurrentMediaItemSeekable
             }
 
             val listener = object : Player.Listener {
@@ -123,8 +132,11 @@ fun AudioMiniPlayer(
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    trackGeneration++
                     sync(mediaItem)
                 }
+                override fun onAvailableCommandsChanged(availableCommands: Player.Commands) { sync() }
+                override fun onPlaybackStateChanged(playbackState: Int) { sync() }
 
                 override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
                     privateMedia = mediaMetadata.extras?.getBoolean("private_media") == true
@@ -191,11 +203,39 @@ fun AudioMiniPlayer(
                     }
                 }
                 val progress = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = .08f))) {
+                if(interactiveSeek){
+                    androidx.compose.runtime.key(currentId,trackGeneration){
+                        var pending by remember { mutableStateOf<Float?>(null) }
+                        val generation=trackGeneration
+                        AppSlider(value=pending?:progress,onValueChange={pending=it},
+                            modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp).testTag("collection-mini-seek")
+                                .semantics{contentDescription="Перемотка трека"},
+                            enabled=seekable&&duration>0L,
+                            onValueChangeFinished={
+                                val fraction=pending;pending=null
+                                val active=controller
+                                if(fraction!=null&&active!=null&&generation==trackGeneration&&active.currentMediaItem?.mediaId==currentId&&
+                                    active.isCurrentMediaItemSeekable&&active.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)&&
+                                    active.duration>0&&active.currentMediaItem?.mediaMetadata?.extras?.getBoolean("private_media")!=true){
+                                    val target=(active.duration*fraction.toDouble()).toLong().coerceIn(0L,active.duration)
+                                    active.seekTo(target);position=target
+                                }
+                            },accentColor=musicPlaybackAccent)
+                        Row(Modifier.fillMaxWidth().padding(start=12.dp,end=12.dp,bottom=6.dp),horizontalArrangement=Arrangement.SpaceBetween){
+                            Text(formatMiniTime((pending?.let{(duration*it.toDouble()).toLong()}?:position)),fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if(duration>0)formatMiniTime(duration) else "—",fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }else Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = .08f))) {
                     Box(Modifier.fillMaxWidth(progress).height(3.dp).background(musicPlaybackAccent))
                 }
             }
         }
     }
 
+}
+
+private fun formatMiniTime(ms:Long):String {
+    val sec=ms.coerceAtLeast(0L)/1000
+    return if(sec>=3600) "%d:%02d:%02d".format(sec/3600,sec/60%60,sec%60) else "%d:%02d".format(sec/60,sec%60)
 }

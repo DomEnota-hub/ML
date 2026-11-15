@@ -85,12 +85,12 @@ internal class LibraryAudioPreview(context: Context) {
             sync(active)
         }
     }
-    suspend fun playSelection(refs: List<LibraryMediaRef>, shuffle: Boolean) {
+    suspend fun playSelection(refs: List<LibraryMediaRef>, shuffle: Boolean, requestedId:String?=null) {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val items = withContext(Dispatchers.IO) { queueItems(refs) }
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
-            check(AudioQueuePlayback.startSelection(active,items,shuffle)) { "Нет доступных треков" }
+            check(AudioQueuePlayback.startSelection(active,items,shuffle,requestedId)) { "Нет доступных треков" }
             sync(active)
         }
     }

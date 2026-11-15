@@ -78,13 +78,15 @@ internal object AudioQueuePlayback {
     }
     /** An explicit Play/Shuffle action starts a frozen selection, even if its
      * first track is currently playing. Ordinary preview/toggle stays unchanged. */
-    fun startSelection(player: Player, items: List<MediaItem>, shuffle: Boolean): Boolean {
+    fun startSelection(player: Player, items: List<MediaItem>, shuffle: Boolean, requestedId: String? = null): Boolean {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val public = items.filterNot { PrivatePlaybackPolicy.isPrivate(it) }.distinctBy { it.mediaId }
         if (public.isEmpty()) return false
+        val start = if(requestedId!=null) public.indexOfFirst { it.mediaId==requestedId || it.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS)?.contains(requestedId)==true } else if(shuffle) kotlin.random.Random.nextInt(public.size) else 0
+        if(start<0)return false
         nextBatches.remove(player)
         player.shuffleModeEnabled = shuffle
-        player.setMediaItems(public,if (shuffle) kotlin.random.Random.nextInt(public.size) else 0,0L)
+        player.setMediaItems(public,start,0L)
         player.prepare()
         player.play()
         return true
