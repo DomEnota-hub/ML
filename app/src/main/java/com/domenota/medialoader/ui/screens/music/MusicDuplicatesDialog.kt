@@ -165,6 +165,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         } catch (e: Exception) { previewError = e.message ?: "Прослушивание недоступно"; stopPreview() }
     }
     LaunchedEffect(scanRevision) {
+        journalGeneration = MusicDuplicateSessionStore.journalGeneration()
         scanning = true; result = null; previous = null; error = null; selected = emptySet(); kept = emptyMap()
         try {
             if (!DuplicateBackgroundScan.state.value.running) {
@@ -200,6 +201,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }
     fun restorePrevious(saved: DuplicateSession) {
         if (scanning||clearingJournal) return
+        journalGeneration = MusicDuplicateSessionStore.journalGeneration()
         scanning = true; error = null
         scope.launch {
             try {

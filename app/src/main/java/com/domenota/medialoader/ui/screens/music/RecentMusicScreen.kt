@@ -117,7 +117,7 @@ internal fun RecentMusicScreen(rows:List<DownloadEntity>,loading:Boolean,current
                             RecentMusicPolicy.calendarCells(month).chunked(7).forEach{week->Row(Modifier.fillMaxWidth()){
                                 week.forEach{date->Box(Modifier.weight(1f).height(42.dp),contentAlignment=Alignment.Center){
                                     if(date!=null){val enabled=date in dates;val selected=date==picked
-                                        Surface(Modifier.size(37.dp).clickable(enabled=enabled){chosen=date.toString()},shape=RoundedCornerShape(10.dp),
+                                        Surface(Modifier.size(37.dp).testTag("recent-date-$date").clickable(enabled=enabled){chosen=date.toString()},shape=RoundedCornerShape(10.dp),
                                             color=if(selected)MaterialTheme.colorScheme.primary else if(enabled)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant){
                                             Box(contentAlignment=Alignment.Center){Text(date.dayOfMonth.toString(),color=when{selected->MaterialTheme.colorScheme.onPrimary;enabled->MaterialTheme.colorScheme.onPrimaryContainer;else->MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=.45f)})}
                                         }
@@ -143,7 +143,7 @@ internal fun RecentMusicScreen(rows:List<DownloadEntity>,loading:Boolean,current
                 days.forEach{day->val k=key(day);val open=expanded==k||(expanded==null&&day==days.firstOrNull());val queue=day.tracks.map{it.id}
                     item(key="heading:$k"){
                         Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surfaceVariant){
-                            Row(Modifier.fillMaxWidth().clickable{expanded=if(open)"closed" else k}.padding(13.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                            Row(Modifier.fillMaxWidth().testTag("recent-day-$k").clickable{expanded=if(open)"closed" else k}.padding(13.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
                                 Icon(Icons.Rounded.CalendarToday,null,tint=MaterialTheme.colorScheme.primary)
                                 Column(Modifier.weight(1f)){Text(dateLabel(day.date),style=MaterialTheme.typography.titleMedium);Text(RussianCounts.tracks(queue.size),color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
                                 Icon(if(open)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(open)"Свернуть" else "Развернуть")

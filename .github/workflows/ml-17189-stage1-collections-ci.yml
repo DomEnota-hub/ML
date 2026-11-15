@@ -50,7 +50,7 @@ jobs:
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace
       - name: Music folders, daily history and recognition regressions
         run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*RecentMusic*Test' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --stacktrace
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --stacktrace
       - name: Shared photo editor, full resolution and drawing regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Photo*Test' --tests '*BatchWatermarkTest' --tests '*BatchTextDraftRestorationTest' --tests '*TextLayer*Test' --tests '*EditorTextDialogLayoutTest' --stacktrace

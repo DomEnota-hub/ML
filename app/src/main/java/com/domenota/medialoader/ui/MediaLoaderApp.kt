@@ -757,6 +757,41 @@ fun MediaLoaderApp(
     val missingExternalRefs = remember(externalCatalog, collectionBlocked) {
         externalCatalog.map { it.ref }.filter { it.appDownloadId == null && !collectionRefBlocked(it, collectionBlocked) }
     }
+    val currentCollectionRefs by rememberUpdatedState(collectionRefs)
+    suspend fun validCollectionRefs(ids: List<String>): List<LibraryMediaRef> {
+        val byKey = currentCollectionRefs.associateBy { it.key }
+        val candidates = ids.distinct().mapNotNull(byKey::get)
+        val (checked, statuses) = withContext(Dispatchers.IO) {
+            val statuses = mutableMapOf<String, Pair<String?, SavedFileStatus>>()
+            val checked = candidates.filter { ref ->
+                val keys = libraryModel.privateKeys.value ?: return@filter false
+                val current = ref.appDownloadId?.let { mediaRepository.downloadById(it) }
+                val status = availabilityCache.get(ref.item.savedUri, fresh = true)
+                ref.appDownloadId?.let { id -> statuses[id] = ref.item.savedUri to status }
+                val present = status == SavedFileStatus.PRESENT
+                !collectionRefBlocked(ref, keys) && present &&
+                    (ref.appDownloadId == null || current?.let { !it.isPrivate && !it.hidden && it.state == DownloadState.COMPLETED && it.savedUri == ref.item.savedUri } == true) &&
+                    (ref.item.mediaType != MediaType.AUDIO || !com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(
+                        ref.item, musicVisibilityPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty())) &&
+                    (if (ref.appDownloadId != null) true else {
+                        val identities = com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, requireNotNull(ref.item.savedUri))
+                        val strong = ref.aliases.filter { it.startsWith("file-stat:") }
+                        val known = if (strong.isNotEmpty()) strong else ref.aliases.filter { it.startsWith("uri:") || it.startsWith("media:") || it.startsWith("file:") }
+                        known.any(identities::contains) && identities.none(keys::contains)
+                    })
+            }
+            checked to statuses
+        }
+        val live = currentCollectionRefs.associateBy { it.key }
+        val keys = libraryModel.privateKeys.value ?: return emptyList()
+        val updates = statuses.filter { (id, result) -> live[id]?.item?.savedUri == result.first && id !in keys }
+        if (updates.any { (id, result) -> fileStatusUris[id] != result.first || fileStatuses[id] != result.second }) {
+            fileStatusUris = fileStatusUris + updates.mapValues { it.value.first }
+            fileStatuses = fileStatuses + updates.mapValues { it.value.second }
+            fileScanEpoch++
+        }
+        return checked.filter { ref -> live[ref.key]?.item?.savedUri == ref.item.savedUri && !collectionRefBlocked(ref, keys) }
+    }
     val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
     val consumePlayerRequest by rememberUpdatedState(onCurrentPlayerRequestConsumed)
     // Notification entry observes the existing controller only. Opening an ordinary audio row
@@ -1157,6 +1192,24 @@ fun MediaLoaderApp(
     }
 
     val previewLibraryAudio: (String,List<String>) -> Unit = { id, ids -> previewLibraryAudioInContext(id,ids,null) }
+    fun playRecentMusic(ids:List<String>,shuffle:Boolean,requestedId:String?=null,openPlayer:Boolean=false){
+        libraryPreviewJob?.cancel()
+        libraryPreviewJob=fileActionScope.launch {
+            try {
+                val valid=validCollectionRefs(ids).filter{it.item.mediaType==MediaType.AUDIO}
+                check(valid.isNotEmpty() && (requestedId==null || valid.any{it.key==requestedId})) { "Треки недоступны" }
+                if(requestedId!=null && openPlayer){
+                    libraryModel.audioPreview.open(valid,requestedId)
+                    navController.navigate("viewer/${android.net.Uri.encode(requestedId)}") { launchSingleTop=true }
+                    navController.currentBackStackEntry?.savedStateHandle?.apply{
+                        set("private_viewer",false);set("gallery_presentation",false);set("current_audio_session_only",true)
+                    }
+                } else if(requestedId!=null) libraryModel.audioPreview.preview(valid,requestedId)
+                else libraryModel.audioPreview.playSelection(valid,shuffle)
+            } catch(e:CancellationException){throw e}
+            catch(_:Exception){AppNotice.post(context,"Нет доступных треков или плеер недоступен")}
+        }
+    }
     if (preview.duplicateMatches.isNotEmpty()) {
         val duplicates = preview.duplicateMatches
         val selectedCount = preview.selectedIds.size
@@ -1526,6 +1579,9 @@ fun MediaLoaderApp(
                             ref.appDownloadId != null || ref.aliases.any { externalByAlias[it]?.folderId != null })
                     }.map { it.item } },
                     recentLoading = !collectionUsable,
+                    onRecentPlay = { ids, shuffle -> playRecentMusic(ids,shuffle) },
+                    onRecentPreview = { id, ids -> playRecentMusic(ids,false,id) },
+                    onRecentOpen = { id, ids -> playRecentMusic(ids,false,id,true) },
                     favoriteIds = libraryCatalogAssignments.filter { it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId },
                     header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneMusic.message else null,
@@ -1616,41 +1672,6 @@ fun MediaLoaderApp(
                 }
             }
             composable("collections") {
-                val currentCollectionRefs by rememberUpdatedState(collectionRefs)
-                suspend fun validCollectionRefs(ids: List<String>): List<LibraryMediaRef> {
-                    val byKey = currentCollectionRefs.associateBy { it.key }
-                    val candidates = ids.distinct().mapNotNull(byKey::get)
-                    val (checked, statuses) = withContext(Dispatchers.IO) {
-                        val statuses = mutableMapOf<String, Pair<String?, SavedFileStatus>>()
-                        val checked = candidates.filter { ref ->
-                            val keys = libraryModel.privateKeys.value ?: return@filter false
-                            val current = ref.appDownloadId?.let { mediaRepository.downloadById(it) }
-                            val status = availabilityCache.get(ref.item.savedUri, fresh = true)
-                            ref.appDownloadId?.let { id -> statuses[id] = ref.item.savedUri to status }
-                            val present = status == SavedFileStatus.PRESENT
-                            !collectionRefBlocked(ref, keys) && present &&
-                                (ref.appDownloadId == null || current?.let { !it.isPrivate && !it.hidden && it.state == DownloadState.COMPLETED && it.savedUri == ref.item.savedUri } == true) &&
-                                (ref.item.mediaType != MediaType.AUDIO || !com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(
-                                    ref.item, musicVisibilityPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty())) &&
-                                (if (ref.appDownloadId != null) true else {
-                                    val identities = com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, requireNotNull(ref.item.savedUri))
-                                    val strong = ref.aliases.filter { it.startsWith("file-stat:") }
-                                    val known = if (strong.isNotEmpty()) strong else ref.aliases.filter { it.startsWith("uri:") || it.startsWith("media:") || it.startsWith("file:") }
-                                    known.any(identities::contains) && identities.none(keys::contains)
-                                })
-                        }
-                        checked to statuses
-                    }
-                    val live = currentCollectionRefs.associateBy { it.key }
-                    val keys = libraryModel.privateKeys.value ?: return emptyList()
-                    val updates = statuses.filter { (id, result) -> live[id]?.item?.savedUri == result.first && id !in keys }
-                    if (updates.any { (id, result) -> fileStatusUris[id] != result.first || fileStatuses[id] != result.second }) {
-                        fileStatusUris = fileStatusUris + updates.mapValues { it.value.first }
-                        fileStatuses = fileStatuses + updates.mapValues { it.value.second }
-                        fileScanEpoch++
-                    }
-                    return checked.filter { ref -> live[ref.key]?.item?.savedUri == ref.item.savedUri && !collectionRefBlocked(ref, keys) }
-                }
                 fun playCollection(ids:List<String>,requestedId:String?=null){
                     libraryPreviewJob?.cancel()
                     libraryPreviewJob=fileActionScope.launch {

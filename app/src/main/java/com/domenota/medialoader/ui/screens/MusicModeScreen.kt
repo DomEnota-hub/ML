@@ -71,6 +71,9 @@ internal fun MusicModeScreen(
     onPassport: ((String) -> Unit)? = null,
     onRecognize:((String)->Unit)?=null,
     recentItems: List<DownloadEntity> = items, recentLoading: Boolean = loading,
+    onRecentPlay: ((List<String>,Boolean)->Unit)? = null,
+    onRecentPreview: ((String,List<String>)->Unit)? = null,
+    onRecentOpen: ((String,List<String>)->Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -317,11 +320,11 @@ internal fun MusicModeScreen(
     if(recentOpen) {
         recentStateHolder.SaveableStateProvider("recent-music") {
             RecentMusicScreen(recentRows, recentLoading, currentPlayingId, playing, { recentOpen=false },
-                onPlay = { ids, shuffle -> if(onPlayFrequent!=null)onPlayFrequent(ids,shuffle) else if(ids.isNotEmpty()) {
+                onPlay = { ids, shuffle -> if(onRecentPlay!=null)onRecentPlay(ids,shuffle) else if(onPlayFrequent!=null)onPlayFrequent(ids,shuffle) else if(ids.isNotEmpty()) {
                     val order=if(shuffle)ids.shuffled() else ids; (onPreview?:onOpen)(order.first(),order)
-                } }, onPreview = onPreview?:onOpen,
+                } }, onPreview = onRecentPreview?:onPreview?:onOpen,
                 actions = { track, ids -> val id=track.id; MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},
-                    {onOpen(id,ids)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,
+                    {(onRecentOpen?:onOpen)(id,ids)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,
                     onToggleHidden={toggleHidden(track)},favorite=id in favoriteIds,
                     onFavorite=onFavorite?.let{action->{mutate{action(id,id !in favoriteIds)}}},
                     onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},

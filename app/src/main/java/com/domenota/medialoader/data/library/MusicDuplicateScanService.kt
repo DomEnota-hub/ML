@@ -53,7 +53,7 @@ internal object DuplicateBackgroundScan {
             mutable.value=Status(token=++nextToken)
         }else{
             val s=mutable.value
-            if(s.outcome==Outcome.COMPLETED){prefs(context).edit().remove("journalStatus").apply();mutable.value=Status(token=++nextToken)}
+            if(!interrupted(context)&&outcome(context)==Outcome.COMPLETED){prefs(context).edit().remove("journalStatus").apply();mutable.value=Status(token=++nextToken)}
             else mutable.value=s.copy(session=null)
         };true
     }}
