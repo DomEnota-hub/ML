@@ -22,6 +22,14 @@ class RecentMusicScreenTest {
     @get:Rule val compose=createAndroidComposeRule<ComponentActivity>()
     private fun track(id:String,day:Int)=DownloadEntity(id,"device","$id.mp3",MediaType.AUDIO,DownloadState.COMPLETED,
         "content://media/external/audio/media/$id",100L,LocalDate.of(2026,11,day).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli())
+    @Test fun initialLoadingIsNotPresentedAsAnEmptyLibrary(){
+        val loading=androidx.compose.runtime.mutableStateOf(true)
+        compose.setContent{MaterialTheme{RecentMusicScreen(emptyList(),loading.value,null,false,{}, {_,_->},{_,_->},{_,_->})}}
+        compose.onNodeWithText("Загрузка музыки…").assertExists()
+        compose.onNodeWithText("0 треков").assertDoesNotExist()
+        compose.runOnIdle{loading.value=false}
+        compose.onNodeWithText("0 треков").assertExists()
+    }
     @Test fun calendarDisablesEmptyDaysAndPlaysWholeChosenDay(){
         val rows=listOf(track("a",15),track("b",15),track("c",3),track("d",3))
         var queue:List<String>?=null

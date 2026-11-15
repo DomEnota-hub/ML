@@ -25,6 +25,21 @@ class MediaOrganizationScreenTest {
     private lateinit var store:MediaOrganizationRepository
     @Before fun setup(){db=Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(),HistoryDatabase::class.java).allowMainThreadQueries().build();store=MediaOrganizationRepository(db)}
     @After fun close(){db.close()}
+    @Test fun addressedCollectionCanPlayWhileFullCatalogIsStillLoading() {
+        val row=DownloadEntity("a","device","Song.mp3",MediaType.AUDIO,DownloadState.COMPLETED,"content://media/external/audio/media/1",100,100)
+        val ref=LibraryMediaRef("a",setOf("file-stat:a"),row,null)
+        val member=MediaCollectionMemberEntity("m","c",MediaOrganizationPolicy.encode(MediaOrganizationPolicy.keys(ref)),null,1)
+        val pending=MediaCollectionMemberEntity("p","c",MediaOrganizationPolicy.encode(setOf("file-stat:pending")),null,2)
+        val c=MediaCollection(MediaCollectionEntity("c","Work",1),listOf(member,pending))
+        val scoped=AddressedCollection(listOf(ref),setOf("p"),emptyMap(),checkedMembers=mapOf("m" to member.identityJson,"p" to pending.identityJson),resolved=mapOf("m" to ref))
+        var queue:List<String>?=null
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),emptyList(),store,"c",false,emptyList(),null,false,{},{_,_->},{queue=it},{},{},{},
+            scopedDetails=true,detailCatalogId="c",detailCatalog=scoped)}}
+        compose.onNodeWithText("Добавить").assertIsEnabled()
+        compose.onNodeWithText("Слушать").assertIsEnabled().performClick()
+        compose.runOnIdle{assertEquals(listOf("a"),queue)}
+        compose.onNodeWithText("1 недоступен").assertDoesNotExist()
+    }
     @Test fun deletionClearlyStatesThatOriginalsRemain(){
         val c=MediaCollection(MediaCollectionEntity("c","Work",1),emptyList())
         compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),emptyList(),store,"c",false,emptyList(),null,true,{},{_,_->},{},{},{},{})}}

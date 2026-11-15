@@ -49,6 +49,22 @@ class CollectionAddressResolverTest {
         val hidden=CollectionAddressResolver.resolve(listOf(m),emptyMap(),full,true,setOf("file-stat:1"),{error("Private app")},{error("Private phone")})
         assertEquals(setOf(m.id),hidden.suppressed);assertTrue(hidden.refs.isEmpty())
     }
+    @Test fun directPhoneMemberUsesVerifiedAppIdentityBeforeFullCatalog()=runBlocking {
+        val phone=ref(1,false)
+        val app=phone.copy(key="app-1",appDownloadId="app-1",item=phone.item.copy(id="app-1"))
+        val m=member(phone)
+        val found=CollectionAddressResolver.resolve(listOf(m),mapOf(app.key to app.item),null,false,emptySet(),
+            { row -> assertEquals(app.key,row.id);AddressedFile(app,SavedFileStatus.PRESENT) },
+            { AddressedFile(phone,SavedFileStatus.PRESENT) })
+        assertEquals(app.key,found.resolved[m.id]?.key);assertEquals(1,found.refs.size)
+    }
+    @Test fun selectedOnlyPermissionCannotRevealMissingExternalMetadata() {
+        val selected=setOf(android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        assertTrue(PhoneMediaLibrary.canRead(MediaType.PHOTO,34,selected::contains))
+        assertFalse(PhoneMediaLibrary.canReadMissingMetadata(MediaType.PHOTO,34,selected::contains))
+        assertFalse(PhoneMediaLibrary.canReadMissingMetadata(MediaType.VIDEO,34,selected::contains))
+        assertTrue(PhoneMediaLibrary.canReadMissingMetadata(MediaType.PHOTO,34){it==android.Manifest.permission.READ_MEDIA_IMAGES})
+    }
     @Test fun metadataIsDisplayOnlyAndRequiresMatchingPublicIdentityAndReadAccess() {
         val a=ref(1,false);val m=member(a).copy(metadataJson=CollectionMemberMetadata.encode(a))
         assertEquals(a.item.originalName,CollectionMemberMetadata.display(m,emptySet()){true}?.originalName)

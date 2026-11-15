@@ -212,6 +212,17 @@ class PhoneMediaLibrary(context: Context) {
             return granted(permission) || (sdk >= 34 && type != MediaType.AUDIO && granted(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
         }
 
+        /** Missing metadata has no current item grant to verify. Selected-only visual
+         * access must not reveal historical thumbnails of a different selection. */
+        internal fun canReadMissingMetadata(type: MediaType, sdk: Int, granted: (String) -> Boolean): Boolean {
+            if (sdk < 33) return granted(Manifest.permission.READ_EXTERNAL_STORAGE)
+            return granted(when (type) {
+                MediaType.PHOTO -> Manifest.permission.READ_MEDIA_IMAGES
+                MediaType.VIDEO -> Manifest.permission.READ_MEDIA_VIDEO
+                MediaType.AUDIO -> Manifest.permission.READ_MEDIA_AUDIO
+            })
+        }
+
         internal fun mapRow(cursor: Cursor, type: MediaType, collection: Uri): DownloadEntity {
             fun string(name: String): String? = cursor.getColumnIndex(name).takeIf { it >= 0 && !cursor.isNull(it) }
                 ?.let(cursor::getString)?.trim()?.takeIf { it.isNotEmpty() && it != "<unknown>" }

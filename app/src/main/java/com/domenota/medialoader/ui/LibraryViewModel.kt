@@ -224,8 +224,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private val identityGate = Semaphore(8)
     // Stable public/history metadata input. Download byte progress cannot restart
     // collection resolution, and large history maps are assembled off the main thread.
-    val collectionHistory = mediaRepository.downloads.map { rows ->
-        val relevant = rows.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED || it.hidden || it.isPrivate }
+    private val collectionHistoryRows = mediaRepository.downloads.map { rows ->
+        rows.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED || it.hidden || it.isPrivate }
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)
+    val collectionHistory = collectionHistoryRows.map { relevant ->
         CollectionHistorySnapshot(relevant.associateBy { it.id }, relevant.asSequence().filter {
             it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED && !it.hidden && !it.isPrivate && !it.savedUri.isNullOrBlank()
         }.map { it.id to it.savedUri }.toSet(), buildSet {
@@ -237,7 +239,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
     // Active download progress is not library content. Do not cancel/restart identity indexing
     // on every byte/progress update while a gallery scan is in flight.
-    private val completedDownloads = mediaRepository.downloads.map { rows ->
+    private val completedDownloads = collectionHistoryRows.map { rows ->
         rows.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED &&
             !it.hidden && !it.isPrivate && !it.savedUri.isNullOrBlank() }
     }.distinctUntilChanged().flowOn(Dispatchers.Default).shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)

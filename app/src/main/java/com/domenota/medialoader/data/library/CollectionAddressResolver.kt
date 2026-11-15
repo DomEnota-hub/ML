@@ -65,16 +65,7 @@ internal object CollectionAddressResolver {
                 if (row.isPrivate || row.hidden || row.state != DownloadState.COMPLETED || row.savedUri.isNullOrBlank()) return
                 val result = queriedApp[row.id] ?: app(row).also { queriedApp[row.id] = it }
                 statuses[row.id] = row.savedUri to result.status
-                if (result.status == SavedFileStatus.PRESENT) result.ref?.let { phoneRef ->
-                        candidateRefs += phoneRef
-                        // Prefer the same authoritative app row when the exact phone
-                        // locator also belongs to ML, including before the full index.
-                        historyAtAddress[uri]?.singleOrNull()?.takeIf { it.mediaType == phoneRef.item.mediaType }
-                            ?.let { row ->
-                                if (row.isPrivate || row.hidden) suppressed += member.id
-                                else considerApp(row)
-                            }
-                    }
+                if (result.status == SavedFileStatus.PRESENT) result.ref?.let(candidateRefs::add)
                 else if (result.status == SavedFileStatus.MISSING || result.status == SavedFileStatus.INACCESSIBLE) knownUnavailable = true
             }
             if (historyRow != null) considerApp(historyRow)

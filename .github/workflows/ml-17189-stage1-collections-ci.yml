@@ -44,7 +44,7 @@ jobs:
           python3 scripts/check-in-app-notices.py
       - name: Collection regression tests
         run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --stacktrace
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*PhoneLibraryCacheTest' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --stacktrace
       - name: Duplicate scan and acoustic regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace

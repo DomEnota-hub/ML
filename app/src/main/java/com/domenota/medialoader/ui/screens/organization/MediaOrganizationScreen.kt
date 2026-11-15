@@ -265,7 +265,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             val unavailable=if(activeUsable)publicMembers.filter{it.link==null&&it.id !in resolved&&memberChecked(it)} else emptyList()
             val missing=unavailable.size
             val missingMetadata=remember(unavailable,history,externalHistory,blockedIdentities,detailScope){
-                fun canRead(type: MediaType) = PhoneMediaLibrary.canRead(type, android.os.Build.VERSION.SDK_INT) {
+                fun canRead(type: MediaType) = PhoneMediaLibrary.canReadMissingMetadata(type, android.os.Build.VERSION.SDK_INT) {
                     androidx.core.content.ContextCompat.checkSelfPermission(context,it)==android.content.pm.PackageManager.PERMISSION_GRANTED
                 }
                 val external=MediaOrganizationPolicy.resolve(unavailable,externalHistory.filterNot{collectionRefBlocked(it,blockedIdentities)})
