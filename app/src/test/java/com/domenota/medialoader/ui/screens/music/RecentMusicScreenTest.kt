@@ -44,4 +44,27 @@ class RecentMusicScreenTest {
         compose.onNodeWithText("Слушать").performClick()
         compose.runOnIdle{assertEquals(listOf("c","d"),queue)}
     }
+    @Test fun compactSearchFiltersAndClosingRestoresTheHistory(){
+        val rows=listOf(track("alpha",15),track("beta",3))
+        compose.setContent{MaterialTheme{RecentMusicScreen(rows,false,null,false,{}, {_,_->},{_,_->},{_,_->})}}
+        compose.onNodeWithTag("recent-search-input").assertDoesNotExist()
+        compose.onNodeWithTag("recent-search-toggle").performClick()
+        compose.onNodeWithTag("recent-search-input").performTextInput("beta")
+        compose.onNodeWithTag("recent-day-2026-11-15").assertDoesNotExist()
+        compose.onNodeWithTag("recent-day-2026-11-03").assertExists()
+        compose.onNodeWithTag("recent-search-toggle").performClick()
+        compose.onNodeWithTag("recent-search-input").assertDoesNotExist()
+        compose.onNodeWithTag("recent-day-2026-11-15").assertExists()
+    }
+
+    @Test fun dayPreviewDoesNotLimitTheQueueAndAdditionTimeIsOriginal(){
+        val rows=(1..6).map{track("t$it",15)}
+        var queue:List<String>?=null
+        compose.setContent{MaterialTheme{RecentMusicScreen(rows,false,null,false,{}, {ids,_->queue=ids},{_,_->},{_,_->})}}
+        compose.onNodeWithTag("recent-open-2026-11-15").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Слушать").performClick()
+        compose.runOnIdle{assertEquals(6,queue?.size);assertEquals(rows.map{it.id}.toSet(),queue?.toSet())}
+        assertEquals("00:00",recentAdditionTime(rows.first(),ZoneId.systemDefault()))
+        assertNull(recentAdditionTime(rows.first().copy(createdAtEpochMillis=0),ZoneId.systemDefault()))
+    }
 }

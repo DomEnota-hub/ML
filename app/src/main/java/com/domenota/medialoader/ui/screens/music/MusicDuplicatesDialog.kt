@@ -6,6 +6,11 @@ import com.domenota.medialoader.ui.model.displayFileName
 import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
+import com.domenota.medialoader.core.model.RussianCounts
+import com.domenota.medialoader.ui.components.CachedDownloadThumbnail
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -70,6 +75,12 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     val scope = rememberCoroutineScope()
     var result by remember { mutableStateOf<DuplicateScanResult?>(null) }
     val listState = rememberLazyListState()
+    val preliminaryListState=rememberLazyListState()
+    val previewIndex by produceState<Pair<List<DownloadEntity>,Map<String,DownloadEntity>>?>(null,rows){
+        val source=rows
+        value=withContext(Dispatchers.Default){source to source.filter{!it.isPrivate&&!it.hidden}.associateBy{it.id}}
+    }
+    val previewRows=previewIndex?.takeIf{it.first===rows}?.second.orEmpty()
     var previous by remember { mutableStateOf<DuplicateSession?>(null) }
     var scannedAt by remember { mutableLongStateOf(0L) }
     val background by DuplicateBackgroundScan.state.collectAsState()
@@ -276,7 +287,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                 }
                 if (scanning) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                    if(background.running)DuplicateScanPanel(background.phase,background.done,background.total,background.startedAt,background.phaseStartedAt,true,partial?.groups?.size?:0,exactBytes(partial?.groups.orEmpty()))
+                    if(background.running)DuplicateScanPanel(background.phase,background.done,background.total,background.startedAt,background.phaseStartedAt,true,partial?.groups?.size?:0,exactBytes(partial?.groups.orEmpty()),showSummary=partial==null)
                     else LinearProgressIndicator(Modifier.fillMaxWidth())
                     if (background.running) {
                         Button({ close() }, Modifier.fillMaxWidth()) { Text("Продолжить в фоне") }
@@ -284,10 +295,11 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             OutlinedButton({DuplicateBackgroundScan.pause(context)},enabled=!background.committing,modifier=Modifier.weight(1f)){Text("Пауза")}
                             TextButton({DuplicateBackgroundScan.cancel(context)},enabled=!background.committing){Text("Остановить")}
                         }
-                        if(partial?.groups?.isNotEmpty()==true)Text("Предварительные результаты · удаление после завершения",style=MaterialTheme.typography.labelMedium)
+
                     } else TextButton({ close() }) { Text("Закрыть") }
                     }
-                    if(background.running&&partial!=null)LazyColumn(Modifier.weight(1f).padding(horizontal=16.dp)){items(partial.groups,key={it.key}){g->Text(g.title+" · "+g.tracks.size+" файлов",Modifier.padding(vertical=8.dp))}}
+                    if(background.running&&partial!=null)PreliminaryMusicGroups(partial.groups,exactBytes(partial.groups),previewRows,
+                        Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
                 } else if (displayPrevious != null) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     val saved = displayPrevious
@@ -328,7 +340,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp)) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(group.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                    Text("${MusicDuplicatePolicy.shortReason(group)} · ${group.tracks.size} файлов", style = MaterialTheme.typography.bodySmall, color = musicPlaybackAccent)
+                                    Text("${MusicDuplicatePolicy.shortReason(group)} · ${RussianCounts.files(group.tracks.size)}", style = MaterialTheme.typography.bodySmall, color = musicPlaybackAccent)
                                     TextButton({comparing=group}){Text("Сравнить записи")}
                                     group.tracks.forEach { t ->
                                         HorizontalDivider()
@@ -435,13 +447,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         }
     }){Text("Очистить",color=MaterialTheme.colorScheme.error)}})
     if(showPartial&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
-        text={LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            item{Text("Только просмотр. Перемещение в корзину доступно после завершения.")}
-            items(partial.groups,key={it.key}){g->
-                val hide = LocalFileNameDisplay.current.hide
-                Column{Text(g.title,style=MaterialTheme.typography.titleMedium);Text(g.tracks.joinToString("\n"){FileNameDisplay.name(it.filename,MediaKind.AUDIO,hide)},style=MaterialTheme.typography.bodySmall)}
-            }
-        }},confirmButton={TextButton({showPartial=false}){Text("Закрыть")}})
+        text={PreliminaryMusicGroups(partial.groups,exactBytes(partial.groups),previewRows,Modifier.heightIn(max=400.dp),rememberLazyListState())},
+        confirmButton={TextButton({showPartial=false}){Text("Закрыть")}})
     comparing?.takeIf{g->g.tracks.all{DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id)}}?.let{g->
         DuplicateMusicComparison(g,kept[g.key]?:MusicDuplicatePolicy.recommended(g),previewId,previewPlaying,player,
             onPlay={t,at->play(t,at)},onKeep={id->
@@ -585,4 +592,85 @@ internal fun DuplicatePreviewSeek(id:String,position:Long,duration:Long,enabled:
         }
         if(!enabled)Text("Перемотка пока недоступна",style=MaterialTheme.typography.labelSmall)
     }
+}
+
+
+/** Provisional groups are read-only, and never trigger decoding or network artwork fetching. */
+@Composable
+internal fun PreliminaryMusicGroups(groups:List<DuplicateGroup>,exactBytes:Long,rows:Map<String,DownloadEntity>,
+    modifier:Modifier=Modifier,state:androidx.compose.foundation.lazy.LazyListState=rememberLazyListState()){
+    val context=LocalContext.current
+    LazyColumn(modifier.fillMaxWidth().testTag("music-preliminary-groups"),state=state,
+        verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=12.dp)){
+        item(key="preliminary-summary"){
+            Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                    Text("Найденные группы",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
+                    Text(groups.size.toString(),color=musicPlaybackAccent,style=MaterialTheme.typography.titleMedium)
+                }
+                Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){
+                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+                        Text("Объём точных копий",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(android.text.format.Formatter.formatFileSize(context,exactBytes),style=MaterialTheme.typography.titleLarge,color=musicPlaybackAccent)
+                        HorizontalDivider(Modifier.padding(vertical=3.dp))
+                        Text("Только просмотр. Удаление доступно после завершения проверки.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        items(groups,key={"preliminary:${it.key}"}){group->PreliminaryMusicGroup(group,rows)}
+    }
+}
+
+@Composable
+private fun PreliminaryMusicGroup(group:DuplicateGroup,rows:Map<String,DownloadEntity>){
+    val context=LocalContext.current
+    var open by rememberSaveable(group.key){mutableStateOf(false)}
+    var allOpen by rememberSaveable(group.key){mutableStateOf(false)}
+    val hide=LocalFileNameDisplay.current.hide
+    val artist=remember(group.tracks){group.tracks.mapNotNull{it.artist?.trim()?.takeIf{a->a.isNotEmpty()}}.distinct().singleOrNull()}
+    val shape=RoundedCornerShape(14.dp)
+    val artwork=remember(group.tracks,rows){group.tracks.firstNotNullOfOrNull{track->
+        rows[track.id]?.takeIf{row->row.savedUri==track.uri&&!row.isPrivate&&!row.hidden}
+    }}
+    Surface(Modifier.fillMaxWidth().clip(shape),shape=shape,color=MaterialTheme.colorScheme.surfaceVariant){
+        Column{
+            Row(Modifier.fillMaxWidth().testTag("music-preliminary-${group.key}").clickable{open=!open}
+                .heightIn(min=64.dp).padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(10.dp)).background(musicPlaybackAccent.copy(alpha=.13f)),contentAlignment=Alignment.Center){
+                    if(artwork!=null)CachedDownloadThumbnail(artwork.savedUri,artwork.recognitionArtworkUrl?:artwork.sourceAudioArtworkUrl?:artwork.previewUrl,MediaKind.AUDIO,Modifier.fillMaxSize())
+                    else Icon(Icons.Rounded.MusicNote,null,Modifier.size(24.dp),tint=musicPlaybackAccent)
+                }
+                Column(Modifier.weight(1f)){
+                    Text(group.title,style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+                    artist?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)}
+                    Text(RussianCounts.files(group.tracks.size),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(if(open)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(open)"Свернуть" else "Развернуть")
+            }
+            if(open){
+                HorizontalDivider(Modifier.padding(horizontal=12.dp))
+                group.tracks.take(12).forEach{track->
+                    androidx.compose.runtime.key(track.id){
+                        Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=7.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            Icon(Icons.Rounded.AudioFile,null,Modifier.size(22.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(Modifier.weight(1f)){
+                                Text(FileNameDisplay.name(track.filename,MediaKind.AUDIO,hide),style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                Text(listOfNotNull(track.bytes.takeIf{it>0}?.let{android.text.format.Formatter.formatFileSize(context,it)},
+                                    track.duration?.takeIf{it>0L}?.let{ms->"%d:%02d".format(ms/60000,ms/1000%60)}).joinToString(" · "),
+                                    style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+                if(group.tracks.size>12)TextButton({allOpen=true},Modifier.fillMaxWidth()) { Text("Показать все ${RussianCounts.files(group.tracks.size)}") }
+            }
+        }
+    }
+    if(allOpen)AlertDialog(onDismissRequest={allOpen=false},title={Text(group.title)},
+        text={LazyColumn(Modifier.heightIn(max=400.dp).testTag("music-preliminary-all-files"),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            items(group.tracks,key={it.id}){track->
+                Text(FileNameDisplay.name(track.filename,MediaKind.AUDIO,hide),style=MaterialTheme.typography.bodyMedium)
+            }
+        }},confirmButton={TextButton({allOpen=false}){Text("Закрыть")}})
 }

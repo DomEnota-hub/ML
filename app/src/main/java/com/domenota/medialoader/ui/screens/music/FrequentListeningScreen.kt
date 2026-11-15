@@ -28,20 +28,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun FrequentListeningCard(count: Int, period: ListeningPeriod, onOpen: () -> Unit) {
-    Surface(Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=8.dp).clickable(onClick=onOpen)
-        .testTag("frequent-playlist-card"),shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surfaceVariant) {
-        Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
-            Box(Modifier.size(72.dp).background(musicPlaybackAccent.copy(alpha=.13f),RoundedCornerShape(14.dp)),contentAlignment=Alignment.Center) {
-                Icon(Icons.Rounded.GraphicEq,null,Modifier.size(44.dp),tint=musicPlaybackAccent)
-            }
-            Column(Modifier.weight(1f)) {
-                Text("Часто слушаю",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
-                Text("Автоподборка · $count треков",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(period.label,style=MaterialTheme.typography.bodySmall,color=musicPlaybackAccent)
-            }
-            Icon(Icons.Rounded.ChevronRight,null)
-        }
-    }
+    MusicOverviewCard("Часто слушаю",com.domenota.medialoader.core.model.RussianCounts.tracks(count),
+        Icons.Rounded.GraphicEq,"frequent-playlist-card",onOpen,period.label)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -87,7 +75,7 @@ internal fun FrequentListeningScreen(selection: ListeningSelection, rows: Map<St
                     IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад") }
                     Text("Часто слушаю",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
                     Box {
-                        IconButton({ menu=true }) { Icon(Icons.Rounded.MoreVert,"Действия с автоподборкой") }
+                        IconButton({ menu=true }) { Icon(Icons.Rounded.MoreVert,"Действия с подборкой") }
                         DropdownMenu(menu,{menu=false}) {
                             DropdownMenuItem({ Text("Сохранить как плейлист") },{menu=false; name="Часто слушаю · ${period.label}"; saveIds=ids.toList(); saveOpen=true},enabled=ids.isNotEmpty()&&!loading,leadingIcon={Icon(Icons.Rounded.PlaylistAdd,null)})
                             DropdownMenuItem({ Text("Исключённые треки") },{menu=false; excludedOpen=true},leadingIcon={Icon(Icons.Rounded.VisibilityOff,null)})

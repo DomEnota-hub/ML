@@ -431,11 +431,12 @@ internal fun MusicModeScreen(
                     if(onResumeSelection!=null) item(key="resume-music-card"){ResumeMusicCard(resumeSessions.size){resumeOpen=true}}
                     item(key="recent-music-card") { RecentMusicCard { recentOpen=true } }
 
-                    if(onOpenCollections!=null)item(key="music-collections"){
-                        com.domenota.medialoader.ui.screens.organization.OrganizationEntry("Коллекции","Музыкальная часть коллекций",onOpenCollections,Modifier.padding(horizontal=17.dp,vertical=5.dp))
-                    }
                     item(key="frequent-playlist") { FrequentListeningCard(listeningSelection.ranked.size,listeningPeriod) { frequentOpen=true } }
-                    SmartMusicPage.entries.forEach { page -> item(key="smart-${page.name}") { SmartMusicCard(page){smartPage=page} } }
+                    listOf(SmartMusicPage.FORGOTTEN,SmartMusicPage.MIX).forEach { page -> item(key="smart-${page.name}") { SmartMusicCard(page){smartPage=page} } }
+                    if(onOpenCollections!=null)item(key="music-collections"){
+                        MusicOverviewCard("Коллекции","Музыка из коллекций",Icons.Rounded.CollectionsBookmark,"music-collections",onOpenCollections)
+                    }
+                    item(key="smart-${SmartMusicPage.STATS.name}"){SmartMusicCard(SmartMusicPage.STATS){smartPage=SmartMusicPage.STATS}}
                 }
                 if(!listeningEnabled) item(key="recent-music-card") { RecentMusicCard { recentOpen=true } }
                 item(key = "playlists-title") { Text("Мои плейлисты", Modifier.padding(horizontal = 17.dp, vertical = 15.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
@@ -623,7 +624,7 @@ private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDel
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия с плейлистом ${playlist.name}") }
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem({ Text("Переименовать плейлист") }, { menu = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+            DropdownMenuItem({ Text("Переименовать плейлист") }, { menu = false; onRename() }, leadingIcon = { Icon(com.domenota.medialoader.ui.components.MediaEditOutline, null) })
             DropdownMenuItem({ Text("Удалить плейлист", color = MaterialTheme.colorScheme.error) }, { menu = false; onDelete() },
                 leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) })
         }

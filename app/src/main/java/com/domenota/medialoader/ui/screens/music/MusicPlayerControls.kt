@@ -44,7 +44,7 @@ internal fun MusicPlayerControls(
             MusicStopTimerAction(player != null)
             if (onEdit != null) {
                 IconButton(onClick = onEdit) {
-                    Icon(Icons.Rounded.Edit, contentDescription = "Редактировать")
+                    Icon(com.domenota.medialoader.ui.components.MediaEditOutline, contentDescription = "Редактировать")
                 }
             }
         }

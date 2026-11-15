@@ -47,20 +47,8 @@ internal enum class SmartMusicPage(val label: String) {
 
 @Composable
 internal fun SmartMusicCard(page: SmartMusicPage,onOpen: ()->Unit) {
-    Surface(Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=5.dp).clickable(onClick=onOpen)
-        .testTag("smart-card-${page.name}"),shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surfaceVariant) {
-        Row(Modifier.padding(13.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(13.dp)) {
-            Box(Modifier.size(52.dp).background(MaterialTheme.colorScheme.primaryContainer,RoundedCornerShape(13.dp)),contentAlignment=Alignment.Center) {
-                Icon(page.icon,null,Modifier.size(30.dp),tint=MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-            Column(Modifier.weight(1f)) {
-                Text(page.label,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
-                Text(when(page){SmartMusicPage.FORGOTTEN->"Вернуться к любимой музыке"; SmartMusicPage.MIX->"Любимое и новые открытия"; SmartMusicPage.STATS->"Время, треки и исполнители"},
-                    style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Icon(Icons.Rounded.ChevronRight,null)
-        }
-    }
+    MusicOverviewCard(page.label,when(page){SmartMusicPage.FORGOTTEN->"Вернуться к любимой музыке"; SmartMusicPage.MIX->"Любимое и новые открытия"; SmartMusicPage.STATS->"Время, треки и исполнители"},
+        page.icon,"smart-card-${page.name}",onOpen)
 }
 
 internal fun listeningTime(ms: Long): String {

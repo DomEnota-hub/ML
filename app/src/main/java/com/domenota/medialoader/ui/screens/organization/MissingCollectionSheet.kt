@@ -51,7 +51,7 @@ internal fun MissingCollectionSheet(members:List<MediaCollectionMemberEntity>,me
                                 Column(Modifier.weight(1f)){
                                     Text(row?.let(::missingCollectionDisplayName)?:"Недоступный файл",maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.titleSmall)
                                     if(row!=null)Text(when(row.mediaType){MediaType.PHOTO->"Фото";MediaType.VIDEO->"Видео";MediaType.AUDIO->"Аудио"}+" · "+when(row.providerId){"instagram"->"Instagram";"youtube"->"YouTube";"vk"->"VK";"rutube"->"RUTUBE";"device"->"Устройство";else->row.providerId},style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("Файл недоступен",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
+                                    if(row==null)Text("Сведения не сохранились",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 if(selecting)PickerMark(member.id in chosen,false,Modifier.testTag("missing-select-${member.id}"),enabled){onToggle(member.id)}
                                 else Box{

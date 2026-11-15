@@ -21,6 +21,15 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.data.playback.AudioPlaybackMetadata
+import com.domenota.medialoader.data.playback.PlaybackDurationState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.disabled
 import com.domenota.medialoader.ui.model.MediaKind
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -80,7 +89,8 @@ fun AudioMiniPlayer(
     var savedUri by remember { mutableStateOf<String?>(null) }
     var artworkUri by remember { mutableStateOf<String?>(null) }
     var position by remember { mutableLongStateOf(0) }
-    var duration by remember { mutableLongStateOf(0) }
+    var durationState by remember { mutableStateOf(PlaybackDurationState()) }
+    val duration=durationState.durationMs
     var seekable by remember { mutableStateOf(false) }
     var trackGeneration by remember { mutableLongStateOf(0) }
 
@@ -123,7 +133,8 @@ fun AudioMiniPlayer(
                     ?: mediaItem?.localConfiguration?.uri?.toString()
                 artworkUri = active.mediaMetadata.artworkUri?.toString()
                 position=active.currentPosition.coerceAtLeast(0L)
-                duration=active.duration.coerceAtLeast(0L)
+                durationState=durationState.update(mediaItem?.let(AudioPlaybackMetadata::durationIdentity),active.duration,
+                    mediaItem?.mediaMetadata?.extras?.getLong(AudioPlaybackMetadata.VERIFIED_DURATION))
                 seekable=active.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)&&active.isCurrentMediaItemSeekable
             }
 
@@ -166,7 +177,9 @@ fun AudioMiniPlayer(
         val active = controller ?: return@LaunchedEffect
         while (true) {
             position = active.currentPosition.coerceAtLeast(0L)
-            duration = active.duration.coerceAtLeast(0L)
+            val item=active.currentMediaItem
+            durationState=durationState.update(item?.let(AudioPlaybackMetadata::durationIdentity),active.duration,
+                item?.mediaMetadata?.extras?.getLong(AudioPlaybackMetadata.VERIFIED_DURATION))
             delay(400)
         }
     }
@@ -209,26 +222,22 @@ fun AudioMiniPlayer(
                 }
                 val progress = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
                 if(interactiveSeek){
-                    androidx.compose.runtime.key(currentId,trackGeneration){
-                        var pending by remember { mutableStateOf<Float?>(null) }
-                        val generation=trackGeneration
-                        AppSlider(value=pending?:progress,onValueChange={pending=it},
-                            modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp).testTag("collection-mini-seek")
-                                .semantics{contentDescription="Перемотка трека"},
-                            enabled=seekable&&duration>0L,
-                            onValueChangeFinished={
-                                val fraction=pending;pending=null
-                                val active=controller
-                                if(fraction!=null&&active!=null&&generation==trackGeneration&&active.currentMediaItem?.mediaId==currentId&&
-                                    active.isCurrentMediaItemSeekable&&active.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)&&
-                                    active.duration>0&&active.currentMediaItem?.mediaMetadata?.extras?.getBoolean("private_media")!=true){
-                                    val target=(active.duration*fraction.toDouble()).toLong().coerceIn(0L,active.duration)
-                                    active.seekTo(target);position=target
-                                }
-                            },accentColor=musicPlaybackAccent)
-                        Row(Modifier.fillMaxWidth().padding(start=12.dp,end=12.dp,bottom=6.dp),horizontalArrangement=Arrangement.SpaceBetween){
-                            Text(formatMiniTime((pending?.let{(duration*it.toDouble()).toLong()}?:position)),fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(if(duration>0)formatMiniTime(duration) else "—",fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    val generation=trackGeneration
+                    val identity=durationState.identity
+                    androidx.compose.runtime.key(currentId,generation,identity){
+                        CompactAudioSeek(progress,seekable&&duration>0L&&identity!=null){fraction->
+                            val active=controller
+                            val item=active?.currentMediaItem
+                            val currentDuration=active?.duration?.takeIf{it>0L}
+                                ?: durationState.durationMs.takeIf{durationState.identity==identity&&it>0L}
+                            if(active!=null&&item!=null&&currentDuration!=null&&generation==trackGeneration&&identity==AudioPlaybackMetadata.durationIdentity(item)&&
+                                item.mediaId==currentId&&active.isCurrentMediaItemSeekable&&
+                                active.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)&&
+                                item.mediaMetadata.extras?.getBoolean("private_media")!=true&&
+                                active.mediaMetadata.extras?.getBoolean("private_media")!=true){
+                                val target=(currentDuration*fraction.toDouble()).toLong().coerceIn(0L,currentDuration)
+                                active.seekTo(target);position=target;true
+                            }else false
                         }
                     }
                 }else Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = .08f))) {
@@ -240,7 +249,32 @@ fun AudioMiniPlayer(
 
 }
 
-private fun formatMiniTime(ms:Long):String {
-    val sec=ms.coerceAtLeast(0L)/1000
-    return if(sec>=3600) "%d:%02d:%02d".format(sec/3600,sec/60%60,sec%60) else "%d:%02d".format(sec/60,sec%60)
+
+/** A visually 3dp progress line; the independent 20dp gesture strip does not overlap controls.
+ * Tap/drag commits once on release, and TalkBack has the normal SetProgress action. */
+@Composable
+internal fun CompactAudioSeek(progress:Float,enabled:Boolean,onSeek:(Float)->Boolean){
+    var pending by remember{mutableStateOf<Float?>(null)}
+    val currentSeek by rememberUpdatedState(onSeek)
+    val shown=(pending?:progress).coerceIn(0f,1f)
+    LaunchedEffect(enabled){if(!enabled)pending=null}
+    val gesture=if(enabled)Modifier.pointerInput(Unit){
+        detectTapGestures { point->currentSeek((point.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)) }
+    }.pointerInput(Unit){
+        detectHorizontalDragGestures(
+            onDragStart={point->pending=(point.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)},
+            onDragCancel={pending=null},
+            onDragEnd={val value=pending;pending=null;if(value!=null)currentSeek(value)}
+        ){change,_->pending=(change.position.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f);change.consume()}
+    }else Modifier
+    Box(Modifier.fillMaxWidth().height(20.dp).testTag("collection-mini-seek")
+        .semantics {
+            contentDescription="Перемотка трека"
+            progressBarRangeInfo=ProgressBarRangeInfo(shown,0f..1f)
+            if(enabled)setProgress{value->currentSeek(value.coerceIn(0f,1f))} else disabled()
+        }.then(gesture),contentAlignment=Alignment.BottomStart){
+        Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha=.08f))){
+            Box(Modifier.fillMaxWidth(shown).height(3.dp).background(musicPlaybackAccent))
+        }
+    }
 }

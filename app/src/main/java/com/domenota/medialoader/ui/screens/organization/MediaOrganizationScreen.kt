@@ -78,9 +78,8 @@ internal fun OrganizationEntry(title:String,description:String,onOpen:()->Unit,m
 @Composable
 private fun Header(title:String,onBack:()->Unit,compact:Boolean=false,actions:@Composable RowScope.()->Unit={}) {
     Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically){
-        if(compact)Surface(shape=RoundedCornerShape(24.dp),color=MaterialTheme.colorScheme.surfaceVariant){
-            IconButton(onBack){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад",Modifier.size(22.dp))}
-        }else IconButton(onBack){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
+        IconButton(onBack){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад",Modifier.size(if(compact)22.dp else 24.dp))}
+        if(compact)Spacer(Modifier.width(8.dp))
         Text(title,Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,maxLines=1,overflow=TextOverflow.Ellipsis)
         actions()
     }
@@ -335,16 +334,16 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp),
                 horizontalArrangement=Arrangement.spacedBy(4.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                 item(key="collection-header",span={GridItemSpan(maxLineSpan)}){
-                    Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
                         Row(verticalAlignment=Alignment.Top,horizontalArrangement=Arrangement.spacedBy(10.dp)){
                             CollectionCoverImage(collection,cover,Modifier.width(78.dp).aspectRatio(.8f).clip(RoundedCornerShape(14.dp)).clickable{rename=true},blockedIdentities.takeIf{activeUsable})
                             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
                                 Row(verticalAlignment=Alignment.CenterVertically){
                                     Text(collection.record.name,Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,
                                         fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
-                                    IconButton({rename=true},enabled=!busy){Icon(Icons.Rounded.Edit,"Редактировать коллекцию",Modifier.size(20.dp))}
+                                    IconButton({rename=true},enabled=!busy){Icon(com.domenota.medialoader.ui.components.MediaEditOutline,"Редактировать коллекцию",Modifier.size(20.dp))}
                                     Box{
-                                        IconButton({detailMenu=true},enabled=!busy){Icon(Icons.Rounded.MoreVert,"Меню коллекции")}
+                                        IconButton({detailMenu=true},enabled=!busy){Icon(Icons.Rounded.MoreVert,"Меню коллекции",Modifier.size(20.dp))}
                                         DropdownMenu(detailMenu,{detailMenu=false}){
                                             DropdownMenuItem({Text(if(largeCards)"Компактная сетка" else "Крупные карточки")},{largeCards=!largeCards;detailMenu=false})
                                             DropdownMenuItem({Text("Выбрать файлы и ссылки")},{ordering=false;selecting=true;chosenMembers=arrayListOf();detailMenu=false})
@@ -358,11 +357,13 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                                 val files=publicMembers.count{it.link==null}
                                 if(files>0||links.isEmpty())Text(RussianCounts.files(files),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                 if(links.isNotEmpty())Text(RussianCounts.links(links.size),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                                if(missing>0) Surface(shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.primaryContainer,
-                                    modifier=Modifier.heightIn(min=48.dp).clickable{missingPanel=true}.testTag("collection-missing-chip")){
-                                    Row(Modifier.padding(horizontal=10.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                                        Icon(Icons.Rounded.ErrorOutline,null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.primary)
-                                        Text(if(missing%10==1&&missing%100!=11)"$missing недоступен" else "$missing недоступны",color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.labelMedium)
+                                if(missing>0) Box(Modifier.heightIn(min=48.dp).clip(RoundedCornerShape(16.dp))
+                                    .clickable{missingPanel=true}.testTag("collection-missing-chip"),contentAlignment=Alignment.CenterStart){
+                                    Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.primaryContainer){
+                                        Row(Modifier.padding(horizontal=8.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)){
+                                            Icon(Icons.Rounded.ErrorOutline,null,Modifier.size(15.dp),tint=MaterialTheme.colorScheme.primary)
+                                            Text(if(missing%10==1&&missing%100!=11)"$missing недоступен" else "$missing недоступны",color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.labelMedium)
+                                        }
                                     }
                                 }
                             }
@@ -373,7 +374,9 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                                 Icon(Icons.Rounded.PlayArrow,null);Text("Слушать")
                             }
                         }
-                        if(!audioOnly)TextButton({linkDialog=true},enabled=!busy){Icon(Icons.Rounded.Link,null,Modifier.size(20.dp));Spacer(Modifier.width(8.dp));Text("Добавить ссылку")}
+                        if(!audioOnly)TextButton({linkDialog=true},enabled=!busy,contentPadding=PaddingValues(horizontal=4.dp,vertical=0.dp)){
+                            Icon(Icons.Rounded.Link,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text("Добавить ссылку")
+                        }
 
                         if(collection.members.isEmpty())Text("Пока нет файлов и ссылок",color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -382,7 +385,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                     item(key="music-header",span={GridItemSpan(maxLineSpan)}){
                         Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surfaceVariant,
                             modifier=Modifier.fillMaxWidth().testTag("collection-music-toggle").clickable{musicExpanded=!musicExpanded}){
-                            Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                            Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
                                 CollectionMusicGlyph()
                                 Column(Modifier.weight(1f)){
                                     Text("Музыка",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,color=MaterialTheme.colorScheme.onSurface)
@@ -654,15 +657,5 @@ internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>
 
 @Composable
 private fun CollectionMusicGlyph(){
-    val tint=MaterialTheme.colorScheme.primary
-    Canvas(Modifier.size(30.dp)){
-        val w=size.width; val h=size.height
-        val path=Path().apply{
-            moveTo(w*.34f,h*.72f);lineTo(w*.34f,h*.22f);lineTo(w*.86f,h*.10f)
-            lineTo(w*.86f,h*.60f);moveTo(w*.34f,h*.35f);lineTo(w*.86f,h*.23f)
-        }
-        drawPath(path,tint,style=Stroke(width=w*.085f,cap=StrokeCap.Round,join=StrokeJoin.Round))
-        drawOval(tint,topLeft=Offset(w*.08f,h*.66f),size=androidx.compose.ui.geometry.Size(w*.27f,h*.19f),style=Stroke(w*.075f))
-        drawOval(tint,topLeft=Offset(w*.60f,h*.54f),size=androidx.compose.ui.geometry.Size(w*.27f,h*.19f),style=Stroke(w*.075f))
-    }
+    Icon(com.domenota.medialoader.ui.components.CollectionNotesOutline,null,Modifier.size(24.dp),tint=MaterialTheme.colorScheme.primary)
 }
