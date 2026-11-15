@@ -848,7 +848,8 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         }
         fullSongJob = viewModelScope.launch {
             try {
-                val result = repository.recognizePreviewMusic(items)
+                val lookup = repository.recognizePreviewMusic(items)
+                val result = lookup.result
                 if (!fullSongGate.acceptRecognition(sessionId)) {
                     AppLog.verbose("Recognition", "Full song result ignored · reason=stale-session")
                     return@launch
@@ -858,16 +859,26 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     else it.copy(fullSongBusy = false, fullSongArtist = result?.artist.orEmpty(),
                         fullSongTitle = result?.title.orEmpty(),
                         fullSongArtworkUrl = result?.artworkUrl,
-                        fullSongMessage = if (result == null)
-                            "Композицию определить не удалось. Введите исполнителя и название вручную."
-                        else "Трек распознан по звуку")
+                        fullSongMessage = when(lookup.status){
+                            com.domenota.medialoader.core.recognition.PreviewMusicStatus.MATCHED ->
+                                if(result?.source==com.domenota.medialoader.core.recognition.RecognitionSource.SOURCE_METADATA)
+                                    "Трек из данных публикации" else "Трек распознан по звуку"
+                            com.domenota.medialoader.core.recognition.PreviewMusicStatus.AUDIO_UNAVAILABLE ->
+                                "Источник не предоставил музыку публикации. Можно ввести название вручную."
+                            com.domenota.medialoader.core.recognition.PreviewMusicStatus.NO_MATCH ->
+                                "Композицию определить не удалось. Введите исполнителя и название вручную."
+                            com.domenota.medialoader.core.recognition.PreviewMusicStatus.EXTRACTION_FAILED ->
+                                "Не удалось подготовить аудиодорожку. Можно ввести название вручную."
+                            com.domenota.medialoader.core.recognition.PreviewMusicStatus.PROVIDER_FAILED ->
+                                "Сервис распознавания недоступен. Можно ввести название вручную."
+                        })
                 }
             } catch (cancelled: CancellationException) {
                 // Dismiss/analyze already own window state. A cancelled older job
                 // must never close a newer full-song session.
                 throw cancelled
             } catch (error: Exception) {
-                AppLog.w("Recognition", "Preview music recognition failed", error)
+                AppLog.w("Recognition", "Preview music recognition failed · type=${error.javaClass.simpleName}")
                 if (!fullSongGate.acceptRecognition(sessionId)) return@launch
                 _preview.update {
                     if (!it.fullSongOpen || !it.fullSongBusy || it.fullSongSessionId != sessionId) it

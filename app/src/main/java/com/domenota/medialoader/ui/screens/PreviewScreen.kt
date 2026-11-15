@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
 import com.domenota.medialoader.ui.model.displayFileName
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.VideoFile
@@ -47,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
@@ -379,15 +382,16 @@ private fun VideoAudioSelectionSheet(
 }
 
 @Composable
-private fun FullSongTextLink(onClick: () -> Unit, enabled: Boolean, text: String = "Найти полную песню") {
-    Text(
-        text = text,
-        modifier = Modifier.fillMaxWidth()
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        color = if (enabled) (if (isDarkPalette) MaterialTheme.colorScheme.primary else AccentPurple) else MaterialTheme.colorScheme.onSurfaceVariant,
-        style = MaterialTheme.typography.bodyMedium,
-    )
+internal fun FullSongTextLink(onClick: () -> Unit, enabled: Boolean, text: String = "Найти полную песню") {
+    val color=if (enabled) (if (isDarkPalette) MaterialTheme.colorScheme.primary else AccentPurple) else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(Modifier.padding(bottom=4.dp).clip(RoundedCornerShape(10.dp))
+        .clickable(interactionSource=null,indication=androidx.compose.material3.ripple(color=color),enabled=enabled,role=Role.Button,onClick=onClick)
+        .heightIn(min=48.dp).testTag(if(text=="Найти полную песню")"full-song-action" else "save-frame-action")
+        .padding(start=0.dp,end=8.dp,top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.spacedBy(2.dp)) {
+        if(text=="Найти полную песню") Icon(Icons.Rounded.Search,null,Modifier.size(12.dp),tint=color)
+        Text(text,color=color,style=MaterialTheme.typography.bodyMedium)
+    }
 }
 
 @Composable

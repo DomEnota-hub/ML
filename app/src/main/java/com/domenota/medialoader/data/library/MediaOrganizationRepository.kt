@@ -42,12 +42,28 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
         val members=dao.members(collectionId)
         var next=(members.maxOfOrNull{it.sortOrder?:it.addedAt}?:-1L)+1L
         val existing=members.map{MediaOrganizationPolicy.decode(it.identityJson)}.toMutableList()
-        keys.forEach{identity->
+        keys.forEachIndexed{index,identity->
             if(existing.none{old->old.any(identity::contains)}){
                 dao.insertMember(MediaCollectionMemberEntity(UUID.randomUUID().toString(),collectionId,
-                    MediaOrganizationPolicy.encode(identity),null,System.currentTimeMillis(),next++))
+                    MediaOrganizationPolicy.encode(identity),null,System.currentTimeMillis(),next++,CollectionMemberMetadata.encode(refs[index])))
                 existing+=identity
             }
+        }
+    }
+    /** Backfill only a member already resolved by exact public identity. No lookup by name,
+     * no replacement of a historical identity or of the original date/order. */
+    suspend fun rememberMemberMetadata(collectionId:String, members:List<MediaCollectionMemberEntity>, resolved:Map<String,LibraryMediaRef>, blocked:Set<String>)=db.withTransaction {
+        for (member in members) {
+            val identity = member.identityJson ?: continue
+            if (member.collectionId != collectionId || member.metadataJson != null || collectionMemberBlocked(member,blocked)) continue
+            val ref = resolved[member.id] ?: continue
+            if (collectionRefBlocked(ref,blocked) || !CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(identity),ref)) continue
+            val appId=ref.appDownloadId
+            if(appId!=null){
+                val current=db.downloadDao().byId(appId) ?: continue
+                if(current.hidden||current.isPrivate||current.savedUri!=ref.item.savedUri||current.state!=com.domenota.medialoader.core.model.DownloadState.COMPLETED)continue
+            }
+            dao.rememberMemberMetadata(collectionId,member.id,identity,CollectionMemberMetadata.encode(ref))
         }
     }
     suspend fun addSelection(collectionId:String,refs:List<LibraryMediaRef>,links:List<String>)=db.withTransaction {

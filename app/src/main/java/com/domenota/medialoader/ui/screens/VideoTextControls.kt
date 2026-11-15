@@ -74,7 +74,7 @@ internal fun VideoTextActions(enabled: Boolean, canCopy: Boolean, onBack: () -> 
     Row(Modifier.fillMaxWidth().height(86.dp),
         verticalAlignment = Alignment.Top) {
         IconButton(onClick = onBack, modifier = Modifier.width(40.dp)) { Icon(Icons.Rounded.ArrowBack, "К главному меню") }
-        listOf(Triple("Изменить", Icons.Rounded.Edit, onEdit),
+        listOf(Triple("Изменить", com.domenota.medialoader.ui.components.MediaEditOutline, onEdit),
             Triple("Стиль", VideoV8Icons.text, onStyle),
             Triple("Обрезка", VideoV8Icons.trim, onTrim),
             Triple("Копировать", VideoV8Icons.copy, onCopy),

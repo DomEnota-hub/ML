@@ -11,7 +11,7 @@ data class MediaCollectionEntity(@PrimaryKey val id:String,val name:String,val c
 @Entity(tableName="media_collection_members",foreignKeys=[ForeignKey(entity=MediaCollectionEntity::class,
     parentColumns=["id"],childColumns=["collectionId"],onDelete=ForeignKey.CASCADE)],indices=[Index("collectionId")])
 data class MediaCollectionMemberEntity(@PrimaryKey val id:String,val collectionId:String,val identityJson:String?,
-    val link:String?,val addedAt:Long,val sortOrder:Long?=null)
+    val link:String?,val addedAt:Long,val sortOrder:Long?=null,val metadataJson:String?=null)
 
 @Entity(tableName="media_review")
 data class MediaReviewEntity(@PrimaryKey val downloadId:String,val completedAt:Long,val reviewed:Boolean=false)
@@ -37,6 +37,8 @@ interface MediaOrganizationDao {
     @Query("UPDATE media_collection_members SET sortOrder=:position WHERE collectionId=:collectionId AND id=:id")
     suspend fun updateMemberOrder(collectionId:String,id:String,position:Long):Int
     @Insert suspend fun insertMember(row:MediaCollectionMemberEntity)
+    @Query("UPDATE media_collection_members SET metadataJson=:metadata WHERE collectionId=:collectionId AND id=:id AND identityJson=:identity AND metadataJson IS NULL")
+    suspend fun rememberMemberMetadata(collectionId:String,id:String,identity:String,metadata:String):Int
     @Query("DELETE FROM media_collection_members WHERE collectionId=:collectionId AND id=:id")
     suspend fun removeMember(collectionId:String,id:String)
     @Insert(onConflict=OnConflictStrategy.IGNORE) suspend fun insertReview(row:MediaReviewEntity)
@@ -63,5 +65,12 @@ internal val MEDIA_ORGANIZATION_MIGRATION=object:Migration(12,13){
 internal val COLLECTION_ORDER_MIGRATION=object:Migration(13,14){
     override fun migrate(db:SupportSQLiteDatabase){
         db.execSQL("ALTER TABLE media_collection_members ADD COLUMN sortOrder INTEGER")
+    }
+}
+
+/** Preserve legacy members and their order. Missing historical metadata stays unknown. */
+internal val COLLECTION_METADATA_MIGRATION=object:Migration(14,15){
+    override fun migrate(db:SupportSQLiteDatabase){
+        db.execSQL("ALTER TABLE media_collection_members ADD COLUMN metadataJson TEXT")
     }
 }

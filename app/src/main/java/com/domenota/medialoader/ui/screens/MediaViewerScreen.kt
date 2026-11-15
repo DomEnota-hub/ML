@@ -271,7 +271,7 @@ fun MediaViewerScreen(
                         )
                         if (onEdit != null) {
                             IconButton(onClick = { onEdit(displayedItem) }, modifier = Modifier.size(48.dp)) {
-                                Icon(Icons.Outlined.Edit, contentDescription = "Редактировать",
+                                Icon(com.domenota.medialoader.ui.components.MediaEditOutline, contentDescription = "Редактировать",
                                     modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurface)
                             }
                         }

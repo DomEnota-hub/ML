@@ -25,6 +25,10 @@ import com.domenota.medialoader.core.database.HistoryDatabase
 import com.domenota.medialoader.core.model.MediaItem
 import com.domenota.medialoader.core.recognition.MusicRecognitionResult
 import com.domenota.medialoader.core.recognition.MusicLookupPolicy
+import com.domenota.medialoader.core.recognition.PreviewMusicOutcome
+import com.domenota.medialoader.core.recognition.PreviewMusicStatus
+import com.domenota.medialoader.core.provider.InstagramLinkParser
+import com.domenota.medialoader.data.recognition.RecognitionAudio
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.recognition.MusicRecognitionMode
@@ -65,7 +69,9 @@ import com.domenota.medialoader.data.recognition.MusicRecognitionSettings
 import com.domenota.medialoader.data.recognition.MicrophoneCapture
 import com.domenota.medialoader.data.recognition.ShazamRecognitionProvider
 import com.domenota.medialoader.data.recognition.RecognitionAudioPreprocessor
-import com.domenota.medialoader.data.recognition.LocalTrackRecognitionSearch
+import com.domenota.medialoader.data.recognition.TrackRecognitionRetry
+import com.domenota.medialoader.data.recognition.TrackRetryState
+import com.domenota.medialoader.data.recognition.rejectedRecognition
 import com.domenota.medialoader.data.recognition.TrackRecognitionVersion
 import com.domenota.medialoader.data.recognition.TrackRecognitionMatch
 import com.domenota.medialoader.data.recognition.TrackRecognitionOutcome
@@ -199,7 +205,8 @@ class MediaRepository private constructor(context: Context) {
                 }
             }, com.domenota.medialoader.core.database.PRIVATE_HISTORY_MIGRATION,
                 com.domenota.medialoader.core.database.MEDIA_ORGANIZATION_MIGRATION,
-                com.domenota.medialoader.core.database.COLLECTION_ORDER_MIGRATION).build()
+                com.domenota.medialoader.core.database.COLLECTION_ORDER_MIGRATION,
+                com.domenota.medialoader.core.database.COLLECTION_METADATA_MIGRATION).build()
     private val history = HistoryRepository(historyDb.downloadDao(), historyDb.catalogDao(),historyDb)
     internal val organization = com.domenota.medialoader.data.library.MediaOrganizationRepository(historyDb)
     private val catalog = DownloadCatalogRepository(historyDb)
@@ -213,11 +220,12 @@ class MediaRepository private constructor(context: Context) {
                 android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         } == true
     }
+    private val nativeInstagram = InstagramProvider(cookies={sessions.cookies()},
+        onSessionMediaResolved=sessions::markWorkingMediaSession)
     private val resolver: MediaResolver = DefaultMediaResolver(
         listOf(
             com.domenota.medialoader.data.gapi.GapiInstagramProvider(
-                legacy = InstagramProvider(cookies = { sessions.cookies() },
-                    onSessionMediaResolved = sessions::markWorkingMediaSession),
+                legacy = nativeInstagram,
                 keys = gapiKeys,
                 coordinator = gapiRequests,
                 networkAvailable = ::networkAvailable,
@@ -677,7 +685,7 @@ class MediaRepository private constructor(context: Context) {
         return uri
     }
 
-    internal suspend fun recognizeLocalTrack(source:DownloadEntity,positionMs:Long?,startIndex:Int=0,maxAttempts:Int=3,
+    internal suspend fun recognizeLocalTrack(source:DownloadEntity,positionMs:Long?,maxAttempts:Int=3,
         onProgress:suspend (TrackRecognitionProgress)->Unit={}):TrackRecognitionOutcome{
         beginRecognition()
         try{
@@ -685,23 +693,29 @@ class MediaRepository private constructor(context: Context) {
                 val epoch=DuplicatePrivacyGuard.generation(appContext)
                 val uri=requirePublicLocalTrack(source,epoch)
                 val version=TrackRecognitionVersion(source.id,uri,TrackRecognitionCache.sha256(appContext,uri),epoch)
-                val starts=RecognitionWindowPlanner.playbackStarts(recognitionAudioPreprocessor.savedDurationMs(uri),positionMs)
-                val cached=withContext(Dispatchers.IO){TrackRecognitionCache.load(appContext,version)}
-                if(cached!=null)return@withPermit TrackRecognitionOutcome(TrackRecognitionMatch(version,cached),starts.size,starts.size)
+                val initial=withContext(Dispatchers.IO){TrackRecognitionCache.loadRetry(appContext,version)}
+                    ?:TrackRetryState(RecognitionWindowPlanner.playbackStarts(recognitionAudioPreprocessor.savedDurationMs(uri),positionMs))
                 val found=withContext(Dispatchers.Default){
-                    LocalTrackRecognitionSearch.find(starts,startIndex,maxAttempts,
+                    TrackRecognitionRetry.search(initial,if(initial.rejected.isNotEmpty())maxOf(maxAttempts,5) else maxAttempts,
                         {at->recognitionAudioPreprocessor.decodeTrackWindow(uri,at)},liveMusicRecognizer,
+                        {state->withContext(Dispatchers.IO){check(TrackRecognitionCache.saveRetry(appContext,version,state)){"Не удалось сохранить историю распознавания"}}},
                         {progress->withContext(Dispatchers.Main.immediate){onProgress(progress)}})
                 }
                 requirePublicLocalTrack(source,epoch)
                 check(TrackRecognitionCache.sha256(appContext,uri)==version.sha256){"Файл изменился во время распознавания"}
-                val match=found.result?.let{result->
-                    withContext(Dispatchers.IO){TrackRecognitionCache.save(appContext,version,result)}
-                    TrackRecognitionMatch(version,result)
-                }
-                TrackRecognitionOutcome(match,found.nextIndex,starts.size)
+                val match=found.candidate?.let{TrackRecognitionMatch(version,it.result,it.verification)}
+                TrackRecognitionOutcome(match,found.checked.size,found.starts.size,found.conflict,found.rejected.isNotEmpty())
             }
         }finally{endRecognition()}
+    }
+
+    internal suspend fun rejectLocalTrack(match: TrackRecognitionMatch) = withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+        val version=match.version
+        synchronized(DuplicatePrivacyGuard.lock){
+            val state=TrackRecognitionCache.loadRetry(appContext,version) ?: error("История распознавания недоступна")
+            check(state.candidate?.result==match.result){"Результат уже изменился"}
+            check(TrackRecognitionCache.saveRetry(appContext,version,state.reject(match.result))){"Не удалось сохранить отклонение"}
+        }
     }
 
     /** Only the confirmed original is replaced. Staging never writes user media. */
@@ -714,6 +728,8 @@ class MediaRepository private constructor(context: Context) {
         try{
             val staged=musicPostProcessGate.withPermit{
                 val uri=requirePublicLocalTrack(source,version.privacyEpoch)
+                val decision=withContext(Dispatchers.IO){TrackRecognitionCache.loadRetry(appContext,version)}
+                check(decision!=null && decision.candidate?.result==match.result && decision.rejected.none{rejectedRecognition(it,match.result)}){"Совпадение больше не актуально"}
                 val original=storage.copyDownloadToTemp(uri).also{input=it}
                 check(TrackRecognitionCache.sha256(original)==version.sha256){"Файл изменился после распознавания"}
                 val album=withContext(Dispatchers.IO){
@@ -739,7 +755,7 @@ class MediaRepository private constructor(context: Context) {
             val changed=replaceEditedAudioFile(source,file,result.title,result.artist,result.album.orEmpty(),
                 expectedSourceSha256=version.sha256,expectedPrivacyEpoch=version.privacyEpoch,recognition=result)
             withContext(Dispatchers.IO){
-                TrackRecognitionCache.save(appContext,version.copy(sha256=newSha),match.result)
+                TrackRecognitionCache.loadRetry(appContext,version)?.let { TrackRecognitionCache.saveRetry(appContext,version.copy(sha256=newSha),it) }
             }
             return changed
         }finally{input?.delete();output?.delete()}
@@ -834,53 +850,67 @@ class MediaRepository private constructor(context: Context) {
      * Never publish the recognition sample or create a download-history entry.
      * Instagram uses its safe media URL; yt-dlp platforms require their own runtime.
      */
-    suspend fun recognizePreviewMusic(items: List<MediaItem>): MusicRecognitionResult? {
-        val candidate = MusicLookupPolicy.preferredCandidate(items) ?: return null
-        val provider = candidate.providerId
-        if (candidate.type == MediaType.AUDIO) {
-            instagramMusicRecognizer.sourceMetadata(candidate)?.let { return it }
+    internal suspend fun recognizePreviewMusic(items: List<MediaItem>): PreviewMusicOutcome {
+        val provider=items.firstOrNull()?.providerId
+        fun outcome(status:PreviewMusicStatus,result:MusicRecognitionResult?=null):PreviewMusicOutcome {
+            AppLog.i("Recognition","Preview music result · provider=${provider?.takeIf(MusicLookupPolicy::supports) ?: "unknown"} · status=${status.name} · source=${result?.source?.name ?: "none"}")
+            return PreviewMusicOutcome(status,result)
         }
-
+        var candidate=MusicLookupPolicy.preferredCandidate(items)
+        // The initial resolved audio can already carry verified source metadata.
+        candidate?.let { instagramMusicRecognizer.sourceMetadata(it)?.let { match -> return outcome(PreviewMusicStatus.MATCHED,match) } }
+        if(provider==InstagramProvider.ID){
+            // Only the exact publication supplied by the active preview is eligible.
+            val pages=items.mapNotNull{it.sourcePageUrl}.distinct()
+            val page=pages.singleOrNull()
+            val link=page?.let(InstagramLinkParser::parse)
+            if(page!=null && link!=null && items.all{it.providerId==provider && it.sourceGroupId==link.id}){
+                val music=try{nativeInstagram.lookupPublicationMusic(page)}
+                    catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
+                    catch(error:Exception){
+                        AppLog.w("Recognition","Publication music metadata unavailable · type=${error.javaClass.simpleName}")
+                        null
+                    }
+                music?.metadata()?.let { return outcome(PreviewMusicStatus.MATCHED,it) }
+                music?.audioCandidate(link.id,page)?.let { candidate=it }
+            }
+        }
+        val selected=candidate ?: return outcome(PreviewMusicStatus.AUDIO_UNAVAILABLE)
         beginRecognition()
         var sample: java.io.File? = null
         var workDir: java.io.File? = null
+        var failure=PreviewMusicStatus.EXTRACTION_FAILED
         try {
             sample = if (provider == InstagramProvider.ID) {
-                previewAudioExtractor.recognitionSample(candidate.downloadUrl)
+                previewAudioExtractor.recognitionSample(selected.downloadUrl)
             } else if (provider == VkProvider.ID &&
-                com.domenota.medialoader.core.provider.VkDirectMedia.isSafeUrl(candidate.downloadUrl)) {
-                vkPreviewAudioExtractor.recognitionSample(candidate.downloadUrl)
+                com.domenota.medialoader.core.provider.VkDirectMedia.isSafeUrl(selected.downloadUrl)) {
+                vkPreviewAudioExtractor.recognitionSample(selected.downloadUrl)
             } else {
-                // YouTube/VK/RUTUBE use page URLs and yt-dlp, not Instagram's media HTTP client.
                 val downloader = when (provider) {
                     YouTubeProvider.ID -> youtubeDl
                     VkProvider.ID -> vkDl
                     RutubeProvider.ID -> rutubeDl
-                    else -> return null
+                    else -> return outcome(PreviewMusicStatus.AUDIO_UNAVAILABLE)
                 }
-                workDir = java.io.File(
-                    appContext.cacheDir, "recognition-$provider-${UUID.randomUUID()}",
-                ).apply { mkdirs() }
-                downloader.download(
-                    candidate.downloadUrl,
-                    selector = null,
-                    audioOnly = true,
-                    targetDir = requireNotNull(workDir),
-                    onProgress = {},
-                )
+                workDir = java.io.File(appContext.cacheDir, "recognition-$provider-${UUID.randomUUID()}").apply { mkdirs() }
+                downloader.download(selected.downloadUrl,selector=null,audioOnly=true,targetDir=requireNotNull(workDir),onProgress={})
             }
             val file = requireNotNull(sample)
-            // Avoid decoding an unexpectedly large media file to the recognition pipeline.
-            if (file.length() == 0L || file.length() > MAX_RECOGNITION_SAMPLE_BYTES) {
-                throw java.io.IOException("Аудиофрагмент для распознавания недоступен или слишком большой")
-            }
+            if (file.length() == 0L || file.length() > MAX_RECOGNITION_SAMPLE_BYTES)
+                return outcome(PreviewMusicStatus.EXTRACTION_FAILED)
             val pcm = recognitionAudioPreprocessor.decode(file)
-            if (pcm.isEmpty()) return null
-            return instagramMusicRecognizer.recognize(candidate.copy(type = MediaType.AUDIO)) { pcm }
-        } finally {
-            sample?.delete()
-            workDir?.deleteRecursively()
-            endRecognition()
+            if (!RecognitionAudio.eligible(pcm)) return outcome(PreviewMusicStatus.EXTRACTION_FAILED)
+            failure=PreviewMusicStatus.PROVIDER_FAILED
+            val result=instagramMusicRecognizer.recognize(selected.copy(type=MediaType.AUDIO)) { pcm }
+            return if(result!=null)outcome(PreviewMusicStatus.MATCHED,result) else outcome(PreviewMusicStatus.NO_MATCH)
+        }catch(cancelled:kotlinx.coroutines.CancellationException){
+            AppLog.i("Recognition","Preview music cancelled");throw cancelled
+        }catch(error:Exception){
+            AppLog.w("Recognition","Preview music failed · stage=${failure.name} · type=${error.javaClass.simpleName}")
+            return outcome(failure)
+        }finally{
+            sample?.delete();workDir?.deleteRecursively();endRecognition()
         }
     }
 

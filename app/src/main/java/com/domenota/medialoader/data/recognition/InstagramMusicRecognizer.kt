@@ -27,7 +27,7 @@ class InstagramMusicRecognizer(
         val artist = item.audioArtist?.trim()?.takeIf { it.isNotBlank() }
         val title = item.audioTitle?.trim()?.takeIf { it.isNotBlank() }
         if (artist == null || title == null ||
-            (item.providerId == InstagramProvider.ID && isGenericInstagramTitle(title))) return null
+            (item.providerId == InstagramProvider.ID && com.domenota.medialoader.core.provider.isGenericInstagramMusicTitle(title))) return null
 
         return MusicRecognitionResult(
             title = title,
@@ -56,24 +56,4 @@ class InstagramMusicRecognizer(
         }
     }
 
-    private fun isGenericInstagramTitle(title: String): Boolean {
-        val normalized = title.lowercase()
-            .replace('_', ' ')
-            .replace('-', ' ')
-            .replace(Regex("\\s+"), " ")
-            .trim()
-        return normalized in GENERIC_TITLES
-    }
-
-    private companion object {
-        val GENERIC_TITLES = setOf(
-            "original audio",
-            "original sound",
-            "original music",
-            "оригинальное аудио",
-            "оригинальный звук",
-            "оригинальная аудиодорожка",
-            "оригинальная музыка",
-        )
-    }
 }

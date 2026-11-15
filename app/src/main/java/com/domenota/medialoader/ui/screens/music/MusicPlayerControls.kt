@@ -34,9 +34,9 @@ internal fun MusicPlayerControls(
     item: DownloadEntity, player: Player?, positionMs: Long, durationMs: Long, playing: Boolean,
     shuffle: Boolean, repeatMode: Int, speed: Float,
     onBack: () -> Unit, onEqualizer: (() -> Unit)?, onQueue: () -> Unit, onFavorite: (() -> Unit)?,
-    favorite: Boolean = false, onEdit: (() -> Unit)? = null, onRecognize:(()->Unit)?=null,
+    seekAvailable: Boolean = true, favorite: Boolean = false, onEdit: (() -> Unit)? = null, onRecognize:(()->Unit)?=null,
 ) {
-    var scrub by remember(item.id) { mutableStateOf<Float?>(null) }
+    var scrub by remember(item.id,item.savedUri,durationMs) { mutableStateOf<Float?>(null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
@@ -44,7 +44,7 @@ internal fun MusicPlayerControls(
             MusicStopTimerAction(player != null)
             if (onEdit != null) {
                 IconButton(onClick = onEdit) {
-                    Icon(Icons.Rounded.Edit, contentDescription = "Редактировать")
+                    Icon(com.domenota.medialoader.ui.components.MediaEditOutline, contentDescription = "Редактировать")
                 }
             }
         }
@@ -58,13 +58,13 @@ internal fun MusicPlayerControls(
         audioArtist(item)?.let { Text(it, Modifier.padding(top = 5.dp, start = 17.dp, end = 17.dp), fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         Column(Modifier.fillMaxWidth().padding(start = 27.dp, end = 27.dp, top = 25.dp, bottom = 8.dp)) {
-            AppSlider(value = scrub ?: positionMs.toFloat().coerceIn(0f, durationMs.coerceAtLeast(1).toFloat()),
-                onValueChange = { scrub = it }, modifier = Modifier.fillMaxWidth().height(48.dp), enabled = player != null && durationMs > 0,
-                valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(), onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
+            AppSlider(value = scrub ?: (if(durationMs>0L)positionMs.toFloat().coerceIn(0f,durationMs.toFloat()) else 0f),
+                onValueChange = { scrub = it }, modifier = Modifier.fillMaxWidth().height(48.dp), enabled = player != null && durationMs > 0 && seekAvailable,
+                valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(), onValueChangeFinished = { scrub?.let { player?.let { active -> if (durationMs>0L && seekAvailable && active.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) active.seekTo(it.toLong().coerceIn(0L,durationMs)) } }; scrub = null },
                 accentColor = musicPlaybackAccent)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(time(scrub?.toLong() ?: positionMs), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(time(durationMs), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if(durationMs>0L)time(durationMs) else "--:--", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 15.dp), horizontalArrangement = Arrangement.SpaceAround,

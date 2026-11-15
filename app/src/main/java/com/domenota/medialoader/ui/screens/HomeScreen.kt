@@ -247,8 +247,8 @@ internal fun InstagramModeToggle() {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (automatic) Icons.Rounded.Bolt else Icons.Rounded.PanTool,
-                null, Modifier.size(20.dp).testTag("instagram-share-mode-icon"), tint = foreground)
+            Icon(if (automatic) Icons.Rounded.Bolt else com.domenota.medialoader.ui.components.ManualHandOutline,
+                null, Modifier.size(22.dp).testTag("instagram-share-mode-icon"), tint = foreground)
             Text(if (automatic) "Авто" else "Ручной", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
                 maxLines = 1, color = foreground)
         }

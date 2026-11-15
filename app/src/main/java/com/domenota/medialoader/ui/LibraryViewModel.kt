@@ -28,6 +28,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.runningFold
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -43,12 +49,26 @@ internal data class PhoneLibraryState(
     val loaded: Boolean = false, val message: String? = null, val revision: Long = 0,
     val identities: Map<String, Set<String>> = emptyMap(), val requiresValidation: Boolean = true,
     val fingerprints: Map<String, String> = emptyMap(),
+    val accessEpoch: Long = 0,
+    val complete: Boolean = false,
 )
 internal data class LibraryIndex(val ready: Boolean = false, val refs: List<LibraryMediaRef> = emptyList(),
     val galleryRevision: Long = 0, val musicRevision: Long = 0, val appComplete: Boolean = false,
-    val collectionIndex: CollectionIdentityIndex? = null, val privacyKeys: Set<String>? = null,
+    val privacyKeys: Set<String>? = null,
     val appUris: Set<Pair<String, String?>> = emptySet())
+internal data class CollectionHistorySnapshot(val rows: Map<String, DownloadEntity>, val appUris: Set<Pair<String, String?>>, val blocked: Set<String>,
+    val completedUris: List<Pair<String, String?>>)
 private data class AppReferenceBatch(val refs: List<LibraryMediaRef>, val complete: Boolean)
+internal data class AudioCatalogGuard(val privacy: Set<String>, val accessEpoch: Long)
+internal data class AudioCatalogSnapshot(val guard: AudioCatalogGuard, val refs: List<LibraryMediaRef>)
+internal data class AudioCatalogUpdate(val guard: AudioCatalogGuard?, val refs: List<LibraryMediaRef>?)
+/** Incomplete routine updates never replace a validated audio generation. */
+internal fun retainAudioCatalog(previous: AudioCatalogSnapshot?, update: AudioCatalogUpdate): AudioCatalogSnapshot? {
+    val guard = update.guard ?: return null
+    return update.refs?.let { AudioCatalogSnapshot(guard, it) } ?: previous?.takeIf { it.guard == guard }
+}
+private data class AudioIndexInput(val app: AppReferenceBatch?, val phone: PhoneLibraryState,
+    val privacy: Set<String>?, val recovering: Boolean, val accessEpoch: Long)
 private data class LibraryIndexInput(val app: AppReferenceBatch?, val gallery: PhoneLibraryState,
     val music: PhoneLibraryState, val privateKeys: Set<String>?, val recovering: Boolean)
 
@@ -172,10 +192,27 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     val audioPreview = com.domenota.medialoader.data.playback.LibraryAudioPreview(application)
     private val phone = PhoneMediaLibrary(application)
     private val phoneCache = PhoneLibraryCache(application)
+    internal suspend fun addressCollectionPhone(uri: String): AddressedFile = phone.lookupCollectionAddress(uri)
+    internal suspend fun addressCollectionApp(row: DownloadEntity,
+        checkStatus: (String?) -> com.domenota.medialoader.data.storage.SavedFileStatus): AddressedFile = withContext(Dispatchers.IO) {
+        val current = mediaRepository.downloadById(row.id)
+        val uri = current?.savedUri
+        if (current == null || current.hidden || current.isPrivate || current.state != com.domenota.medialoader.core.model.DownloadState.COMPLETED ||
+            uri.isNullOrBlank() || uri != row.savedUri) return@withContext AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.UNCHECKED)
+        val status = checkStatus(uri)
+        if (status != com.domenota.medialoader.data.storage.SavedFileStatus.PRESENT) return@withContext AddressedFile(null, status)
+        val keys = PublicMediaIdentity.capture(getApplication(), uri)
+        AddressedFile(LibraryMediaRef(current.id, keys + current.id, current, current.id), status)
+    }
+
     private val galleryState = MutableStateFlow(PhoneLibraryState())
     private val musicState = MutableStateFlow(PhoneLibraryState())
     val gallery = galleryState.asStateFlow()
     val music = musicState.asStateFlow()
+    private val galleryAccessEpochState = MutableStateFlow(0L)
+    private val musicAccessEpochState = MutableStateFlow(0L)
+    val galleryAccessEpoch = galleryAccessEpochState.asStateFlow()
+    val musicAccessEpoch = musicAccessEpochState.asStateFlow()
     private val jobs = mutableMapOf<AppMode, Job>()
     private val mediaRepository = MediaRepository.get(application)
     // null means privacy validation has not finished yet: never publish a speculative public list.
@@ -183,12 +220,29 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         .mapLatest<Set<String>, Set<String>?> { it }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     private val identityCache = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
+    // Audio and visual identity work share the old eight-provider limit.
+    private val identityGate = Semaphore(8)
+    // Stable public/history metadata input. Download byte progress cannot restart
+    // collection resolution, and large history maps are assembled off the main thread.
+    private val collectionHistoryRows = mediaRepository.downloads.map { rows ->
+        rows.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED || it.hidden || it.isPrivate }
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)
+    val collectionHistory = collectionHistoryRows.map { relevant ->
+        CollectionHistorySnapshot(relevant.associateBy { it.id }, relevant.asSequence().filter {
+            it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED && !it.hidden && !it.isPrivate && !it.savedUri.isNullOrBlank()
+        }.map { it.id to it.savedUri }.toSet(), buildSet {
+            relevant.filter { it.isPrivate || it.hidden }.forEach { row ->
+                add(row.id); row.savedUri?.let { addAll(PublicMediaIdentity.uriKeys(it)) }
+            }
+        }, relevant.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED && !it.hidden && !it.isPrivate }
+            .map { it.id to it.savedUri })
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
     // Active download progress is not library content. Do not cancel/restart identity indexing
     // on every byte/progress update while a gallery scan is in flight.
-    private val completedDownloads = mediaRepository.downloads.map { rows ->
+    private val completedDownloads = collectionHistoryRows.map { rows ->
         rows.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED &&
             !it.hidden && !it.isPrivate && !it.savedUri.isNullOrBlank() }
-    }.distinctUntilChanged()
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)
     init {
         // Only completed public audio may enter the silent index. Active download progress
         // does not continually restart background waveform work.
@@ -207,7 +261,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             coroutineContext.ensureActive()
             val uri = row.savedUri
             val identities = if (uri == null) emptySet() else scannedIdentities[uri] ?: identityCache[uri]
-                ?: PublicMediaIdentity.capture(getApplication(), uri).also { identityCache[uri] = it }
+                ?: identityGate.withPermit {
+                    identityCache[uri] ?: PublicMediaIdentity.capture(getApplication(), uri).also { identityCache[uri] = it }
+                }
             return LibraryMediaRef(row.id, identities + row.id, row, row.id.takeIf { isApp },
                 deviceAlbumId = if (isApp) null else row.bulkMediaKey ?: row.groupId,
                 deviceAlbumName = if (isApp) null else row.groupId)
@@ -216,7 +272,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             batch.map { row -> async { reference(row) } }.awaitAll()
         } } else rows.map { reference(it) }
     }
-    private val appReferences = combine(completedDownloads, HistoricalRecoverySignals.isRunning,
+    // Partition the existing app scan, rather than adding another full scan. Each row is
+    // captured once, and a large audio import cannot cancel the visual pass (or vice versa).
+    private fun referenceBatches(rowsFlow: Flow<List<DownloadEntity>>) = combine(rowsFlow, HistoricalRecoverySignals.isRunning,
         HistoricalRecoverySignals.version) { rows, running, _ -> rows.takeUnless { running } }
         .transformLatest<List<DownloadEntity>?, AppReferenceBatch?> { rows ->
         if (rows == null) { emit(null); return@transformLatest }
@@ -235,6 +293,33 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         }
         com.domenota.medialoader.core.logging.AppLog.i("Library", "App identity index ready · count=${resolved.size}")
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    private val appAudioReferences = referenceBatches(completedDownloads.map { rows ->
+        rows.filter { it.mediaType == com.domenota.medialoader.core.model.MediaType.AUDIO }
+    }.distinctUntilChanged().flowOn(Dispatchers.Default))
+    private val appVisualReferences = referenceBatches(completedDownloads.map { rows ->
+        rows.filter { it.mediaType != com.domenota.medialoader.core.model.MediaType.AUDIO }
+    }.distinctUntilChanged().flowOn(Dispatchers.Default))
+    private val appReferences = combine(appAudioReferences, appVisualReferences) { audio, visual ->
+        if (audio == null && visual == null) null else AppReferenceBatch(audio?.refs.orEmpty() + visual?.refs.orEmpty(),
+            audio?.complete == true && visual?.complete == true)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    // Independent complete audio projection. No photo/video readiness or collection
+    // readiness enters this flow. Retention is invalidated by real access/privacy changes.
+    val audioCatalog = combine(appAudioReferences, music, privateKeys, HistoricalRecoverySignals.isRunning,
+        musicAccessEpoch) { app, audio, private, recovering, epoch -> AudioIndexInput(app, audio, private, recovering, epoch) }
+        .mapLatest { (app, audio, private, recovering, epoch) ->
+            val guard = private?.takeUnless { recovering }?.let { AudioCatalogGuard(it, epoch) }
+            val refs = if (guard != null && app?.complete == true && audio.loaded && audio.complete && !audio.loading && audio.accessEpoch == epoch) withContext(Dispatchers.IO) {
+                val phoneRows = PhoneLibraryChronology.reconcile(audio.items, app.refs.map { it.item })
+                UnifiedMediaLibrary.merge(app.refs, references(phoneRows, false, audio.identities), guard.privacy).also {
+                    com.domenota.medialoader.core.logging.AppLog.i("Library", "Audio catalog ready · count=${it.size}")
+                }
+            } else null
+            AudioCatalogUpdate(guard, refs)
+        }.runningFold<AudioCatalogUpdate, AudioCatalogSnapshot?>(null, ::retainAudioCatalog)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000, replayExpirationMillis = 0), null)
+
     val index = combine(appReferences, gallery, music, privateKeys,
         HistoricalRecoverySignals.isRunning) { app, pictures, audio, private, recovering ->
         LibraryIndexInput(app, pictures, audio, private, recovering)
@@ -250,9 +335,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             val merged = UnifiedMediaLibrary.merge(app?.refs.orEmpty(),
                 references(phoneRows, false, pictures.identities + audio.identities), private)
             val complete = app?.complete == true
-            val collectionIndex = if (complete && pictures.loaded && !pictures.loading && audio.loaded && !audio.loading)
-                CollectionIdentityIndex.build(merged) else null
-            LibraryIndex(true, merged, pictures.revision, audio.revision, complete, collectionIndex, private,
+            LibraryIndex(true, merged, pictures.revision, audio.revision, complete, private,
                 if (complete) app?.refs.orEmpty().mapTo(mutableSetOf()) { it.key to it.item.savedUri } else emptySet())
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, LibraryIndex())
@@ -316,6 +399,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 running to version
             }.collect { (running, version) ->
                 if (running) {
+                    galleryAccessEpochState.value++
+                    musicAccessEpochState.value++
                     mediaChangeJob?.cancel()
                     jobs.values.forEach { it.cancel() }
                     jobs.clear()
@@ -433,19 +518,22 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         if (!changedAccess && !invalidate && jobs[mode]?.isActive == true) return
         if (silent && !force && now - (refreshedAt[mode] ?: Long.MIN_VALUE / 2) < 60_000) return
         jobs.remove(mode)?.cancel()
+        val epoch = if (mode == AppMode.GALLERY) galleryAccessEpochState else musicAccessEpochState
+        if (changedAccess || invalidate || partial) epoch.value++
+        val accessEpoch = epoch.value
         accessSignatures[mode] = signature
         if (signature.none { it }) {
-            if (!changedAccess && state.value.loaded) return
+            if (!changedAccess && !invalidate && state.value.loaded) return
             refreshedAt[mode] = now
-            state.value = PhoneLibraryState(loaded = true, revision = state.value.revision + 1, message =
+            state.value = PhoneLibraryState(loaded = true, complete = true, revision = state.value.revision + 1, accessEpoch = accessEpoch, message =
                 if (mode == AppMode.MUSIC) "Разрешите доступ к музыке телефона" else "Разрешите доступ к фото и видео телефона")
             viewModelScope.launch { phoneCache.clear(mode) }
             return
         }
         // Routine updates are strictly internal: keep the validated snapshot and
         // avoid publishing even a loading flag that the gallery UI could display.
-        state.value = if (blocking) PhoneLibraryState(loading = true, requiresValidation = !(coldStart && !partial), revision = state.value.revision + 1)
-            else state.value.copy(loading = false, requiresValidation = false, message = null)
+        state.value = if (blocking) PhoneLibraryState(loading = true, requiresValidation = !(coldStart && !partial), revision = state.value.revision + 1, accessEpoch = accessEpoch)
+            else state.value.copy(loading = false, requiresValidation = false, message = null, accessEpoch = accessEpoch)
         jobs[mode] = viewModelScope.launch {
             var revision = state.value.revision
             try {
@@ -463,7 +551,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                         revision++
                         state.value = PhoneLibraryState(items = cached.snapshot.items, identities = cached.snapshot.identities,
                             fingerprints = cached.snapshot.fingerprints, loaded = true, loading = false,
-                            revision = revision, requiresValidation = false)
+                            revision = revision, requiresValidation = false, accessEpoch = accessEpoch, complete = cached.complete)
                         storeStamps[mode] = cached.stamp
                     }
                 }
@@ -472,14 +560,14 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     // Android can recreate a MediaStore database without revoking access.
                     // Reindex in the background; never discard photos/music already visible.
                     blocking = !state.value.loaded
-                    if (blocking) state.value = PhoneLibraryState(loading = true, revision = ++revision)
+                    if (blocking) state.value = PhoneLibraryState(loading = true, revision = ++revision, accessEpoch = accessEpoch)
                 }
-                if (!blocking && stamp.generation != null && previousStamp == stamp) {
+                if (!blocking && state.value.complete && stamp.generation != null && previousStamp == stamp) {
                     state.value = state.value.copy(loading = false)
                     refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
                     return@launch
                 }
-                if (blocking) state.value = PhoneLibraryState(loading = true, revision = revision, requiresValidation = true)
+                if (blocking) state.value = PhoneLibraryState(loading = true, revision = revision, requiresValidation = true, accessEpoch = accessEpoch)
                 val previous = state.value.takeIf { !blocking && it.loaded }?.let {
                     PhoneMediaSnapshot(it.items, it.identities, it.fingerprints)
                 }
@@ -490,14 +578,14 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     if (blocking && !partial && stillAllowed()) {
                         state.value = PhoneLibraryState(items = partialSnapshot.items, identities = partialSnapshot.identities,
                             fingerprints = partialSnapshot.fingerprints, loaded = true, loading = true,
-                            revision = ++revision, requiresValidation = true)
+                            revision = ++revision, requiresValidation = true, accessEpoch = accessEpoch)
                         // A large library can publish progress every second; serializing
                         // 11k+ entries to JSON on *every* update stalls the cursor.
                         // Keep first-page recovery, then bounded checkpoints; the final
                         // validated snapshot is persisted after the scan.
                         if (cacheCheckpoint.shouldSave(partialSnapshot.items.size)) {
                             try { phoneCache.write(mode, accessKey, privacy,
-                                PhoneStoreStamp(stamp.versions, null), partialSnapshot) }
+                                PhoneStoreStamp(stamp.versions, null), partialSnapshot, complete = false) }
                             catch (e: CancellationException) { throw e }
                             catch (_: Exception) { /* The completed snapshot retries persistence. */ }
                         }
@@ -511,7 +599,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 // Never label a scan with a newer generation that it may not have observed.
                 stamp = PhoneStoreStamp(stamp.versions, stamp.generation.takeIf { after == stamp })
                 state.value = PhoneLibraryState(items = snapshot.items, identities = snapshot.identities,
-                    fingerprints = snapshot.fingerprints, loaded = true, revision = revision + 1, requiresValidation = blocking)
+                    fingerprints = snapshot.fingerprints, loaded = true, complete = true, revision = revision + 1, requiresValidation = blocking, accessEpoch = accessEpoch)
                 storeStamps[mode] = stamp
                 refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
                 if (!partial) try { phoneCache.write(mode, accessKey, privacy, stamp, snapshot) }
@@ -522,7 +610,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             catch (_: Exception) {
                 val message = "Не удалось обновить файлы телефона. Проверьте доступ и повторите."
                 state.value = if (!blocking && state.value.loaded) state.value.copy(loading = false, message = message)
-                    else PhoneLibraryState(loaded = true, revision = revision + 1, message = message)
+                    else PhoneLibraryState(loaded = true, revision = revision + 1, message = message, accessEpoch = accessEpoch)
             }
         }
     }

@@ -28,17 +28,7 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun ResumeMusicCard(count:Int,onOpen:()->Unit) {
-    Surface(Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=5.dp).clickable(onClick=onOpen)
-        .testTag("resume-music-card"),shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surfaceVariant) {
-        Row(Modifier.padding(13.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(13.dp)){
-            Icon(Icons.Rounded.PlayCircle,null,Modifier.size(48.dp),tint=MaterialTheme.colorScheme.primary)
-            Column(Modifier.weight(1f)){
-                Text("Продолжить слушать",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
-                Text("Сохранено сеансов: $count",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Icon(Icons.Rounded.ChevronRight,null)
-        }
-    }
+    MusicOverviewCard("Продолжить слушать","Сохранено сеансов: $count",Icons.Rounded.PlayCircle,"resume-music-card",onOpen)
 }
 private fun position(ms:Long):String {
     val sec=(ms/1000).coerceAtLeast(0)

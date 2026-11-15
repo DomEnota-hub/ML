@@ -19,7 +19,7 @@ internal data class DuplicateJournalRow(val at:Long,val groups:Int,val files:Int
 
 @Composable
 internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,startedAt:Long,phaseStartedAt:Long,
-    music:Boolean,groups:Int,bytes:Long,modifier:Modifier=Modifier){
+    music:Boolean,groups:Int,bytes:Long,modifier:Modifier=Modifier,showSummary:Boolean=true){
     val context=androidx.compose.ui.platform.LocalContext.current
     var now by remember{mutableLongStateOf(SystemClock.elapsedRealtime())}
     LaunchedEffect(startedAt){while(true){now=SystemClock.elapsedRealtime();delay(1000)}}
@@ -47,7 +47,7 @@ internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,star
             }
             phases.forEachIndexed{i,p->Text((if(i<index)"✓ " else if(i==index)"● " else "○ ")+p.caption,
                 color=if(i==index)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
-            Text("Найдено групп: $groups · точные копии: ${android.text.format.Formatter.formatFileSize(context,bytes)}",
+            if(showSummary)Text("Найдено групп: $groups · точные копии: ${android.text.format.Formatter.formatFileSize(context,bytes)}",
                 style=MaterialTheme.typography.bodyMedium)
         }
     }

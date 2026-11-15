@@ -16,10 +16,10 @@ import org.json.JSONObject
 
 /** A result belongs to verified bytes at one public locator, not a title or queue position. */
 internal data class TrackRecognitionVersion(val id:String,val uri:String,val sha256:String,val privacyEpoch:Long)
-internal data class TrackRecognitionMatch(val version:TrackRecognitionVersion,val result:MusicRecognitionResult)
-internal data class TrackRecognitionOutcome(val match:TrackRecognitionMatch?,val nextIndex:Int,val total:Int)
+internal data class TrackRecognitionMatch(val version:TrackRecognitionVersion,val result:MusicRecognitionResult, val verification:TrackVerification=TrackVerification.FIRST_MATCH)
+internal data class TrackRecognitionOutcome(val match:TrackRecognitionMatch?,val nextIndex:Int,val total:Int,val conflict:Boolean=false,val retried:Boolean=false)
 internal enum class TrackRecognitionStage { DECODING, SEARCHING }
-internal data class TrackRecognitionProgress(val index:Int,val total:Int,val stage:TrackRecognitionStage)
+internal data class TrackRecognitionProgress(val index:Int,val total:Int,val stage:TrackRecognitionStage,val startMs:Long?=null,val durationMs:Long?=null)
 internal data class WindowRecognitionResult(val result:MusicRecognitionResult?,val nextIndex:Int)
 
 internal object LocalTrackRecognitionSearch {
@@ -77,6 +77,65 @@ internal object TrackRecognitionCache {
             try{stream.write(json.toString().toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
             catch(e:Exception){target.failWrite(stream);throw e}
             root(context).listFiles().orEmpty().filter{it.name.endsWith(".json")}.sortedByDescending{it.lastModified()}.drop(LIMIT).forEach{AtomicFile(it).delete()}
+        }.isSuccess
+    }
+    // Separate journal so the old success-only cache cannot restore a rejected result.
+    private fun journalFile(context: Context, version: TrackRecognitionVersion) = AtomicFile(
+        File(File(root(context), "sessions").apply { mkdirs() }, key(version) + ".json"))
+    private fun resultJson(result: MusicRecognitionResult) = JSONObject()
+        .put("track",result.trackId?:JSONObject.NULL).put("title",result.title).put("artist",result.artist)
+        .put("album",result.album?:JSONObject.NULL).put("artwork",result.artworkUrl?:JSONObject.NULL)
+        .put("source",result.source.name)
+    private fun parseResult(json: JSONObject): MusicRecognitionResult {
+        fun opt(name:String)=if(json.isNull(name))null else json.getString(name).takeIf(String::isNotBlank)
+        return MusicRecognitionResult(opt("track"),json.getString("title"),json.getString("artist"),
+            opt("album"),opt("artwork"),RecognitionSource.valueOf(json.getString("source")))
+    }
+    fun loadRetry(context: Context, version: TrackRecognitionVersion): TrackRetryState? = synchronized(DuplicatePrivacyGuard.lock) {
+        if (!DuplicatePrivacyGuard.accepts(context,version.privacyEpoch,version.id)) return@synchronized null
+        val target = journalFile(context,version)
+        // AtomicFile.openRead restores its backup after an interrupted write.
+        // A corrupt journal is not silently reset: it could contain a rejected match.
+        val raw=try{target.openRead().bufferedReader().use{it.readText()}}
+            catch(_:java.io.FileNotFoundException){return@synchronized null}
+        val json=JSONObject(raw)
+        require(json.getString("sha")==version.sha256)
+        val starts=json.getJSONArray("starts").let{ a -> List(a.length()){a.getLong(it)} }
+        val checked=json.getJSONArray("checked").let{ a -> List(a.length()){
+            val w=a.getJSONObject(it);CheckedAudioWindow(w.getLong("start"),w.getLong("duration")) } }
+        val rejected=json.getJSONArray("rejected").let{ a -> List(a.length()){parseResult(a.getJSONObject(it))} }
+        require(starts.size in 1..5 && starts.distinct().size==starts.size && starts.all{it>=0} &&
+            checked.size<=starts.size && checked.map{it.startMs}.distinct().size==checked.size &&
+            checked.all{it.startMs in starts && it.durationMs in 0..13_000} && rejected.size<=5)
+        val candidate=json.optJSONObject("candidate")?.let{ c ->
+            val window=checked.single{it.startMs==c.getLong("start")}
+            RetryCandidate(parseResult(c.getJSONObject("result")),window,TrackVerification.valueOf(c.getString("verification")))
+        }
+        require(candidate==null || rejected.none{rejectedRecognition(it,candidate.result)})
+        target.baseFile.setLastModified(System.currentTimeMillis())
+        TrackRetryState(starts,checked,rejected,candidate,json.optBoolean("conflict"))
+    }
+    fun saveRetry(context: Context, version: TrackRecognitionVersion, state: TrackRetryState): Boolean = synchronized(DuplicatePrivacyGuard.lock) {
+        if (!DuplicatePrivacyGuard.accepts(context,version.privacyEpoch,version.id)) return@synchronized false
+        runCatching {
+            val json=JSONObject().put("id",version.id).put("sha",version.sha256)
+                .put("starts",org.json.JSONArray(state.starts))
+                .put("checked",org.json.JSONArray(state.checked.map{JSONObject().put("start",it.startMs).put("duration",it.durationMs)}))
+                .put("rejected",org.json.JSONArray(state.rejected.map(::resultJson)))
+                .put("conflict",state.conflict)
+            state.candidate?.let{json.put("candidate",JSONObject().put("result",resultJson(it.result))
+                .put("start",it.window.startMs).put("verification",it.verification.name))}
+            val target=journalFile(context,version);val stream=target.startWrite()
+            try{stream.write(json.toString().toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
+            catch(e:Exception){target.failWrite(stream);throw e}
+            // Rejected decisions must not be evicted into a repeated incorrect cache hit.
+            // Only successful/unused journals without a rejection may be pruned.
+            target.baseFile.parentFile?.listFiles().orEmpty().filter{it.name.endsWith(".json") && it!=target.baseFile}
+                .sortedByDescending{it.lastModified()}.drop(LIMIT-1).forEach{old->
+                    val safe=runCatching{JSONObject(AtomicFile(old).openRead().bufferedReader().use{it.readText()})
+                        .getJSONArray("rejected").length()==0}.getOrDefault(false)
+                    if(safe)AtomicFile(old).delete()
+                }
         }.isSuccess
     }
     suspend fun sha256(context:Context,uri:String):String=withContext(Dispatchers.IO){

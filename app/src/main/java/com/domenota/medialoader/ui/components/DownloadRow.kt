@@ -273,7 +273,7 @@ fun DownloadRow(
                                 },
                             )
                         }
-                        if (!missing && !inaccessible) DropdownMenuItem(leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
+                        if (!missing && !inaccessible) DropdownMenuItem(leadingIcon = { Icon(com.domenota.medialoader.ui.components.MediaEditOutline, contentDescription = null) },
                             text = { Text("Переименовать") }, onClick = {
                             menuExpanded = false
                             newName = StorageNaming.editableStem(item.title)

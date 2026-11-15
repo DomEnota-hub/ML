@@ -24,7 +24,7 @@ internal fun MediaManagementAccessPrompt(enabled: Boolean) {
     }
     if (show) AlertDialog(onDismissRequest = ::dismiss,
         title = { Text("Управление медиафайлами") },
-        text = { Text("Разрешите изменение и удаление фото, видео и музыки без повторных запросов Android. На следующем экране включите доступ для MediaLoader. Перед удалением приложение всё равно спросит подтверждение.") },
+        text = { Text("Разрешите изменение и удаление фото, видео и музыки без повторных запросов Android. На следующем экране включите доступ для MediaLoader. Для записи тегов может дополнительно потребоваться доступ к метаданным медиа в настройках ML. Перед изменением тегов и удалением приложение всё равно спросит подтверждение.") },
         confirmButton = { TextButton({
             dismiss()
             try { context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,

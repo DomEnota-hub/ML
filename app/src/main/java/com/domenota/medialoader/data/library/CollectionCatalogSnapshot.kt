@@ -8,6 +8,7 @@ import com.domenota.medialoader.core.model.DownloadState
  * invalidation discards it, even when the next generation is still incomplete. */
 internal data class CollectionCatalogSnapshot(val refs: List<LibraryMediaRef>, val privacy: Set<String>,
     val identityIndex: CollectionIdentityIndex) {
+    val byKey = refs.associateBy { it.key }
     companion object {
         fun select(previous: CollectionCatalogSnapshot?, incoming: List<LibraryMediaRef>,
             complete: Boolean, permitted: Boolean, privacy: Set<String>?, index: CollectionIdentityIndex? = null): CollectionCatalogSnapshot? {
@@ -19,8 +20,9 @@ internal data class CollectionCatalogSnapshot(val refs: List<LibraryMediaRef>, v
 }
 
 internal fun collectionRefBlocked(ref: LibraryMediaRef, blocked: Set<String>): Boolean =
-    ref.item.isPrivate || ref.item.hidden || (ref.aliases + ref.key + ref.item.id +
-        listOfNotNull(ref.appDownloadId, ref.item.savedUri?.let { "uri:$it" })).any(blocked::contains)
+    ref.item.isPrivate || ref.item.hidden || ref.key in blocked || ref.item.id in blocked ||
+        ref.appDownloadId?.let(blocked::contains) == true ||
+        ref.item.savedUri?.let { "uri:$it" in blocked } == true || ref.aliases.any(blocked::contains)
 
 internal fun collectionMemberBlocked(member: MediaCollectionMemberEntity, blocked: Set<String>): Boolean =
     MediaOrganizationPolicy.decode(member.identityJson).any { key ->
@@ -40,10 +42,11 @@ internal fun collectionMissingHistory(member: MediaCollectionMemberEntity, histo
 
 /** Constructed on the existing library IO pass, not while composing a collection. */
 internal class CollectionIdentityIndex private constructor(private val index: Map<String, List<LibraryMediaRef>>) {
+    fun candidates(member: MediaCollectionMemberEntity): List<LibraryMediaRef> =
+        MediaOrganizationPolicy.decode(member.identityJson).flatMap { index[it].orEmpty() }.distinctBy { it.key }
     fun resolve(members: List<MediaCollectionMemberEntity>, allowed: Map<String, LibraryMediaRef>): Map<String, LibraryMediaRef> =
         members.mapNotNull { member ->
-            val matches = MediaOrganizationPolicy.decode(member.identityJson).flatMap { index[it].orEmpty() }.distinctBy { it.key }
-            val match = matches.singleOrNull() ?: return@mapNotNull null
+            val match = candidates(member).singleOrNull() ?: return@mapNotNull null
             allowed[match.key]?.takeIf { it.item.savedUri == match.item.savedUri }?.let { member.id to it }
         }.toMap()
     companion object {

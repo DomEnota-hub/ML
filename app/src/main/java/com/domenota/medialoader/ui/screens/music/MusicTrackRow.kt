@@ -28,17 +28,18 @@ import com.domenota.medialoader.ui.screens.audioTitle
 @Composable
 internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isCurrent: Boolean = false,
                                   isPlaying: Boolean = false, rank: Int? = null, listeningCount: Long? = null,
+                                  compact: Boolean = false, secondaryTime: String? = null, showDuration: Boolean = true,
                                   trailing: @Composable () -> Unit) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < .5f
     Row(Modifier.fillMaxWidth().background(if (isCurrent) {
         if (darkTheme) editorSliderYellow.copy(alpha = .11f) else Color(0xFFFFF2CE)
     } else Color.Transparent)
-        .clickable(onClick = onPlay).semantics { if(isCurrent) stateDescription=if(isPlaying) "Воспроизводится" else "Пауза" }.testTag("music-track-${track.id}").heightIn(min = 76.dp).padding(horizontal = 17.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        .clickable(onClick = onPlay).semantics { if(isCurrent) stateDescription=if(isPlaying) "Воспроизводится" else "Пауза" }.testTag("music-track-${track.id}").heightIn(min = if(compact)56.dp else 76.dp).padding(horizontal = if(compact)12.dp else 17.dp, vertical = if(compact)4.dp else 11.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if(compact)8.dp else 12.dp)) {
         if (isCurrent) Box(Modifier.width(3.dp).height(49.dp)
             .background(editorSliderYellow, RoundedCornerShape(3.dp)))
         rank?.let { Text(it.toString(),Modifier.widthIn(min=20.dp),color=MaterialTheme.colorScheme.primary,fontWeight=androidx.compose.ui.text.font.FontWeight.Medium) }
-        Box(Modifier.size(53.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) {
+        Box(Modifier.size(if(compact)38.dp else 53.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) {
             DownloadThumbnail(track.savedUri, track.recognitionArtworkUrl ?: track.sourceAudioArtworkUrl ?: track.previewUrl,
                 track.toUi().kind, Modifier.fillMaxSize())
         }
@@ -51,7 +52,8 @@ internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isC
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             listeningCount?.let { Text("Прослушиваний: $it",Modifier.padding(top=4.dp),fontSize=11.sp,color=MaterialTheme.colorScheme.primary) }
         }
-        track.durationMs?.takeIf { it > 0 }?.let { duration ->
+        if(secondaryTime!=null)Text(secondaryTime,fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        else if(showDuration)track.durationMs?.takeIf { it > 0 }?.let { duration ->
             val seconds = duration / 1000
             Text(if (seconds >= 3600) "%d:%02d:%02d".format(seconds/3600,seconds/60%60,seconds%60)
                 else "%d:%02d".format(seconds/60,seconds%60), fontSize = 11.sp,

@@ -117,6 +117,48 @@ class PhoneMediaLibrary(context: Context) {
         PhoneMediaSnapshot(validated, identities.filterKeys { it in activeUris }, fingerprints.filterKeys { it in activeUris })
     }
 
+    /** A collection member can be opened without enumerating the phone library.
+     * Only a concrete MediaStore URI with a matching typed ID is queried. */
+    internal suspend fun lookupCollectionAddress(value: String): AddressedFile = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(value)
+        val path = uri.pathSegments
+        val type = if (uri.scheme == "content" && uri.authority == "media" && path.size == 4 &&
+            path[2] == "media" && path[3].toLongOrNull() != null) when (path[1]) {
+            "images" -> MediaType.PHOTO
+            "video" -> MediaType.VIDEO
+            "audio" -> MediaType.AUDIO
+            else -> null
+        } else null
+        if (type == null || accessLevel(type) == 0)
+            return@withContext AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.INACCESSIBLE)
+        val before = accessLevel(type)
+        try {
+            val projection = mutableListOf("_id", "_display_name", "_size", "date_added", "_data")
+            if (type != MediaType.PHOTO) projection += "duration"
+            if (type == MediaType.AUDIO) {
+                projection += listOf("title", "artist")
+                if (Build.VERSION.SDK_INT >= 29) projection += listOf("relative_path", "volume_name")
+            } else projection += listOf("bucket_display_name", "bucket_id")
+            val parent = uri.buildUpon().path(uri.path!!.substringBeforeLast('/')).build()
+            val indexed = context.contentResolver.query(uri, projection.toTypedArray(), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) mapRow(cursor, type, parent).takeIf { it.savedUri == value && !cursor.moveToNext() } else null
+            }
+            coroutineContext.ensureActive()
+            if (accessLevel(type) < before)
+                return@withContext AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.INACCESSIBLE)
+            if (indexed == null)
+                return@withContext AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.UNCHECKED)
+            val row = if (type == MediaType.AUDIO) AudioEditedTags.read(context, indexed, AudioEditedTags.marked(context)) else indexed
+            val status = com.domenota.medialoader.data.storage.SavedFilePresence.check(context, value)
+            val keys = com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, value)
+            if (accessLevel(type) < before) return@withContext AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.INACCESSIBLE)
+            AddressedFile(LibraryMediaRef(row.id, keys + row.id, row, null,
+                row.bulkMediaKey ?: row.groupId, row.groupId), status)
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: SecurityException) { AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.INACCESSIBLE) }
+        catch (_: Exception) { AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.UNCHECKED) }
+    }
+
     /** Database version protects against recycled IDs after a MediaStore rebuild. */
     internal suspend fun storeStamp(): PhoneStoreStamp = withContext(Dispatchers.IO) {
         try {
@@ -171,6 +213,17 @@ class PhoneMediaLibrary(context: Context) {
                 MediaType.AUDIO -> Manifest.permission.READ_MEDIA_AUDIO
             }
             return granted(permission) || (sdk >= 34 && type != MediaType.AUDIO && granted(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
+        }
+
+        /** Missing metadata has no current item grant to verify. Selected-only visual
+         * access must not reveal historical thumbnails of a different selection. */
+        internal fun canReadMissingMetadata(type: MediaType, sdk: Int, granted: (String) -> Boolean): Boolean {
+            if (sdk < 33) return granted(Manifest.permission.READ_EXTERNAL_STORAGE)
+            return granted(when (type) {
+                MediaType.PHOTO -> Manifest.permission.READ_MEDIA_IMAGES
+                MediaType.VIDEO -> Manifest.permission.READ_MEDIA_VIDEO
+                MediaType.AUDIO -> Manifest.permission.READ_MEDIA_AUDIO
+            })
         }
 
         internal fun mapRow(cursor: Cursor, type: MediaType, collection: Uri): DownloadEntity {

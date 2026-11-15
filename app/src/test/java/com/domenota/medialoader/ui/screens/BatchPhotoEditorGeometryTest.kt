@@ -105,6 +105,12 @@ class BatchPhotoEditorGeometryTest {
             }}
             waitForPhoto()
             compose.onNodeWithText("Геометрия").performClick()
+            // Opening this editor prepares a transformed bitmap on Dispatchers.Default.
+            // Compose idleness does not imply that the external coroutine has completed.
+            compose.waitUntil(15_000) {
+                compose.onAllNodes(hasTestTag("geometry-mode-free"), useUnmergedTree=true)
+                    .fetchSemanticsNodes().size == 1
+            }
             compose.onNodeWithTag("geometry-mode-free",useUnmergedTree=true).performScrollTo().assertIsDisplayed().performClick()
             val canvas=compose.onNodeWithTag("geometry-canvas")
             val bounds=canvas.fetchSemanticsNode().boundsInRoot

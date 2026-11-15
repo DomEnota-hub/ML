@@ -883,7 +883,7 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
             DropdownMenuItem({ Text("Добавить в папку") }, { menu = false; onFolder() }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) })
             DropdownMenuItem({ Text("Поделиться") }, { menu = false; onShare() }, leadingIcon = { Icon(Icons.Rounded.Share, null) })
             if (item.providerId != "device") {
-                DropdownMenuItem({ Text("Переименовать") }, { menu = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                DropdownMenuItem({ Text("Переименовать") }, { menu = false; onRename() }, leadingIcon = { Icon(com.domenota.medialoader.ui.components.MediaEditOutline, null) })
                 DropdownMenuItem({ Text("Переместить в личное") }, { menu = false; onPrivate() }, leadingIcon = { Icon(Icons.Rounded.Lock, null) })
             }
             DropdownMenuItem({ Text("Удалить", color = MaterialTheme.colorScheme.error) }, { menu = false; onDelete() },
