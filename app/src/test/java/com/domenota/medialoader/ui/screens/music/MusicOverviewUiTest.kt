@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -38,7 +39,7 @@ class MusicOverviewUiTest {
         }}}
         val resume=compose.onNodeWithTag("resume-music-card").fetchSemanticsNode().boundsInRoot
         val recent=compose.onNodeWithTag("recent-music-card").fetchSemanticsNode().boundsInRoot
-        val mix=compose.onNodeWithTag("smart-MIX").fetchSemanticsNode().boundsInRoot
+        val mix=compose.onNodeWithTag("smart-card-MIX").fetchSemanticsNode().boundsInRoot
         assertEquals(resume.width,recent.width,.01f)
         assertEquals(resume.height,recent.height,.01f)
         assertEquals(resume.height,mix.height,.01f)
@@ -51,14 +52,24 @@ class MusicOverviewUiTest {
 
     @Test fun actualMusicOverviewPlacesCollectionsJustBeforeStatistics(){
         var opened=0
-        compose.setContent{MaterialTheme{
+        compose.setContent{MaterialTheme{Box(Modifier.height(280.dp)){
             MusicModeScreen(emptyList(),emptyList(),emptyList(),{},false,null,{_,_->},{},
                 {"new"},{_,_->},{},{_,_->},{_,_->},{_,_,_->},{},{},
-                tabOverride=1,onPlayFrequent={_,_->},onSaveFrequent={_,_->},onResumeSelection={},onOpenCollections={opened++})
-        }}
-        val tags=listOf("resume-music-card","recent-music-card","frequent-playlist-card","smart-FORGOTTEN","smart-MIX","music-collections","smart-STATS")
-        val positions=tags.map{compose.onNodeWithTag(it).assertIsDisplayed().fetchSemanticsNode().boundsInRoot.top}
-        assertTrue(positions.zipWithNext().all{(a,b)->a<b})
+                searchVisible=false,tabOverride=1,onPlayFrequent={_,_->},onSaveFrequent={_,_->},onResumeSelection={},onOpenCollections={opened++})
+        }}}
+        val tags=listOf("resume-music-card","recent-music-card","frequent-playlist-card","smart-card-FORGOTTEN","smart-card-MIX","music-collections")
+        val list=compose.onNodeWithTag("music-library")
+        // Item zero is the real controls header. Each following card must occupy
+        // its exact index, not merely exist somewhere in the lazy viewport.
+        tags.forEachIndexed{index,tag->
+            list.performScrollToIndex(index+1)
+            val top=list.fetchSemanticsNode().boundsInRoot.top
+            val card=compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue("$tag must be the first card at index ${index+1}",kotlin.math.abs(card.top-top)<20f)
+        }
+        val collections=compose.onNodeWithTag("music-collections").fetchSemanticsNode().boundsInRoot
+        val stats=compose.onNodeWithTag("smart-card-STATS").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(stats.top>=collections.bottom&&stats.top-collections.bottom<24f)
         compose.onNodeWithTag("music-collections").performClick()
         compose.runOnIdle{assertEquals(1,opened)}
     }
