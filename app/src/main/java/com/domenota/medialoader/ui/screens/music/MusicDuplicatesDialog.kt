@@ -77,9 +77,11 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     val listState = rememberLazyListState()
     val preliminaryListState=rememberLazyListState()
     val previewGeneration=remember(rows){Any()}
-    val previewIndex by produceState<Pair<Any,Map<String,DownloadEntity>>?>(null,previewGeneration){
+    var previewIndex by remember { mutableStateOf<Pair<Any,Map<String,DownloadEntity>>?>(null) }
+    LaunchedEffect(previewGeneration){
         val source=rows
-        value=withContext(Dispatchers.Default){previewGeneration to source.filter{!it.isPrivate&&!it.hidden}.associateBy{it.id}}
+        val indexed=withContext(Dispatchers.Default){previewGeneration to source.filter{!it.isPrivate&&!it.hidden}.associateBy{it.id}}
+        previewIndex=indexed
     }
     val previewRows=previewIndex?.takeIf{it.first===previewGeneration}?.second.orEmpty()
     var previous by remember { mutableStateOf<DuplicateSession?>(null) }
