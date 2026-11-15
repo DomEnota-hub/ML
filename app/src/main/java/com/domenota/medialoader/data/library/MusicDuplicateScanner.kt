@@ -240,4 +240,18 @@ internal object MusicDuplicateScanner {
             }
         }
     }
+    /** Recheck each requested file independently with a real, distinct retained
+     * copy. A changed selected sibling must not block an unrelated valid move. */
+    suspend fun verifyMember(context:Context,group:DuplicateGroup,id:String,selected:Set<String>,rows:List<DownloadEntity>){
+        val track=group.tracks.singleOrNull{it.id==id}?:error("Выбранный файл отсутствует")
+        check(id in selected){"Файл не выбран"}
+        val keepers=group.tracks.filter{it.id !in selected&&it.uri!=track.uri}
+        for(keeper in keepers){
+            try{
+                verify(context,listOf(group.copy(tracks=listOf(track,keeper))),setOf(id),rows)
+                return
+            }catch(e:kotlinx.coroutines.CancellationException){throw e}catch(_:Exception){ }
+        }
+        error("Файл или сохраняемый экземпляр не прошёл проверку")
+    }
 }

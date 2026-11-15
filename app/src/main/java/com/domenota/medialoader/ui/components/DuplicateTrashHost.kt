@@ -97,17 +97,8 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
             check(live != null && live.appDownloadId == w.appId && VisualDuplicateScanner.matchesCatalog(snapshot,live)) { "Каталог изменился" }
             return
         }
-        val keepers = w.group.tracks.filter { it.id !in request.selected && it.uri!=w.track.uri && latestRefs[it.id]?.item?.savedUri == it.uri }
-        var safe=false
-        for(keeper in keepers){
-            val checkGroup=w.group.copy(tracks=listOf(w.track,keeper))
-            val rows=checkGroup.tracks.mapNotNull{latestRefs[it.id]?.item?.copy(id=it.id)}
-            try{
-                MusicDuplicateScanner.verify(context,listOf(checkGroup),setOf(w.track.id),rows)
-                safe=true;break
-            }catch(e:CancellationException){throw e}catch(_:Exception){ }
-        }
-        check(safe){"Файл или сохраняемый экземпляр не прошёл проверку"}
+        val rows=w.group.tracks.mapNotNull{t->latestRefs[t.id]?.item?.copy(id=t.id)}
+        MusicDuplicateScanner.verifyMember(context,w.group,w.track.id,request.selected,rows)
         val live=latestRefs[w.track.id]
         check(live!=null&&live.item.savedUri==w.track.uri&&live.appDownloadId==w.appId&&
             !live.item.hidden&&!live.item.isPrivate&&live.key!=latestCurrent&&w.track.id!=latestCurrent){"Запись или текущий трек изменились"}

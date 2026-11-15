@@ -387,15 +387,17 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     for (group in groups) {
                         val groupChoice = choice.intersect(group.tracks.map { it.id }.toSet())
                         if (groupChoice.isEmpty()) continue
-                        try {
-                            check(latestCurrent !in groupChoice) { "Текущий трек выбран" }
-                            MusicDuplicateScanner.verify(context,listOf(group),groupChoice,latestRows)
-                            verified += groupChoice
-                        } catch (e: CancellationException) { throw e }
-                        catch (e: Exception) { groupChoice.forEach { failures[it] = e.message ?: "Проверка группы не прошла" } }
+                        for(id in groupChoice){
+                            try{
+                                check(latestCurrent!=id){"Текущий трек выбран"}
+                                MusicDuplicateScanner.verifyMember(context,group,id,choice,latestRows)
+                                verified+=id
+                            }catch(e:CancellationException){throw e}
+                            catch(e:Exception){failures[id]=e.message?:"Проверка файла не прошла"}
+                        }
                     }
-                    check(latestCurrent !in verified) { "Текущий трек изменился" }
-                    val saved = requireNotNull(snapshot())
+                    latestCurrent?.takeIf{it in verified}?.let{verified-=it;failures[it]="Текущий трек изменился"}
+                    val saved = requireNotNull(snapshot()).copy(selected=choice)
                     check(MusicDuplicateSessionStore.save(context,saved)) { "Не удалось сохранить состояние" }
                     onTrash(DuplicateTrashSelection(groups, choice, verified, failures)); onDismiss()
                 } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message ?: "Проверка не прошла" }
