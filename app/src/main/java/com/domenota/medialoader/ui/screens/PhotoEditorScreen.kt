@@ -173,7 +173,10 @@ private fun PhotoEditorContent(
     val activeCrop = if (batch != null && originalInfo != null) PhotoBatchCrop.adapt(
         edit.crop,edit.cropPreset,edit.cropReferenceWidth,edit.cropReferenceHeight,
         requireNotNull(originalInfo).width,requireNotNull(originalInfo).height) else edit.crop
-    var batchCompare by remember(item.id) { mutableStateOf(false) }
+    var batchCompare by remember(workspaceKey) { mutableStateOf(false) }
+    // A selected toolbar category is not an active crop gesture. The batch
+    // overview must render the complete edit, including committed geometry.
+    var batchCropEditing by remember(item.id) { mutableStateOf(false) }
     var batchExportDialog by rememberSaveable { mutableStateOf(false) }
     var batchReportDialog by rememberSaveable { mutableStateOf(false) }
     var batchExitDialog by remember { mutableStateOf(false) }
@@ -214,7 +217,10 @@ private fun PhotoEditorContent(
     var cropTool by rememberSaveable(workspaceKey) { mutableStateOf("ratio") }
     var toolPanelOpen by rememberSaveable(workspaceKey) { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
-    var composedPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    val cropWorkspace = currentTab == PhotoWorkspaceTab.CROP && (batch == null || batchCropEditing)
+    val batchRenderKey = if(batch!=null) listOf(uri, originalInfo, edit, activeCrop, batch.draft.format,
+        currentTab, cropWorkspace) else null
+    var composedPreview by remember(item.id,batchRenderKey) { mutableStateOf<Bitmap?>(null) }
     var cropColorPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     val photoViewport = remember(item.id) { PhotoViewportState() }
     var previewError by remember(item.id) { mutableStateOf<String?>(null) }
@@ -300,10 +306,10 @@ private fun PhotoEditorContent(
             if (previous != null && previous !== original && !previous.isRecycled) previous.recycle()
         }
     }
-    LaunchedEffect(info, edit.color, currentTab) {
+    LaunchedEffect(info, edit.color, cropWorkspace) {
         // Crop and composed editing have separate preview consumers; never
         // render both full color pipelines on every slider movement.
-        if (currentTab != PhotoWorkspaceTab.CROP) {
+        if (!cropWorkspace) {
             cropColorPreview = null
             return@LaunchedEffect
         }
@@ -351,9 +357,9 @@ private fun PhotoEditorContent(
     // export applies the same operations in the same order.
     LaunchedEffect(info, activeCrop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
         edit.geometry, edit.color, edit.textLayers, edit.drawing, edit.localEffects,
-        bakedGraphic, currentTab, activeLevel, rgbFastPreview, batch?.draft?.format) {
+        bakedGraphic, currentTab, cropWorkspace, activeLevel, rgbFastPreview, batch?.draft?.format) {
         val source = info?.preview
-        if (source == null || currentTab == PhotoWorkspaceTab.CROP) {
+        if (source == null || cropWorkspace) {
             composedPreview = null
             previewError = null
             return@LaunchedEffect
@@ -501,6 +507,8 @@ private fun PhotoEditorContent(
             initial = edit.geometry,
             onApply = { next ->
                 commit(edit.copy(geometry = next))
+                batchCropEditing=false
+                batchCompare=false
                 geometryEditorOpen = false
             },
             onDismiss = { geometryEditorOpen = false },
@@ -591,7 +599,7 @@ private fun PhotoEditorContent(
         Column(Modifier.fillMaxSize().padding(padding).background(Color.Black)) {
             if (batch != null) BatchPhotoFilmstrip(batch.rows,batch.draft.index,
                 enabled = !locked, compare = batchCompare, onCompare = { batchCompare = !batchCompare },
-                onSelect = { next -> finishGesture(); batch.draft.index = next; batchCompare = false })
+                onSelect = { next -> finishGesture(); batchCropEditing=false; batch.draft.index = next })
             Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 10.dp, vertical = 10.dp)
                 .then(if(batch!=null) Modifier.testTag("batch-preview") else Modifier),
                 contentAlignment = Alignment.Center) {
@@ -599,8 +607,8 @@ private fun PhotoEditorContent(
                     Text(previewError ?: "Открываем изображение…", color = Color.LightGray)
                 } else if (batch != null && batchCompare) {
                     Image(info.preview.asImageBitmap(),"Оригинал",Modifier.fillMaxSize(),contentScale=ContentScale.Fit)
-                } else if (currentTab != PhotoWorkspaceTab.CROP &&
-                    composedPreview != null) {
+                } else if (!cropWorkspace && composedPreview != null) {
+                    Box(Modifier.fillMaxSize().then(if(batch!=null)Modifier.testTag("batch-edited-preview") else Modifier)){
                     PhotoZoomViewport(
                         bitmap = requireNotNull(composedPreview), state = photoViewport,
                         graphic = if (currentTab == PhotoWorkspaceTab.WATERMARK)
@@ -616,10 +624,13 @@ private fun PhotoEditorContent(
                         },
                         onGraphicDragEnd = ::finishGesture,
                     )
+                    }
+                } else if(batch!=null&&!cropWorkspace){
+                    Text(previewError ?: "Обновляем предпросмотр…",color=Color.LightGray)
                 } else {
                     PhotoWorkspacePreview(
                         info = info, edit = edit.copy(crop=activeCrop), colorPreview = cropColorPreview,
-                        cropFrameVisible = currentTab == PhotoWorkspaceTab.CROP && !locked,
+                        cropFrameVisible = cropWorkspace && !locked,
                         onCropChange = {
                             if (pendingGesture == null) pendingGesture = edit
                             edit = fromWorkspace(edit.copy(crop = it))
@@ -661,10 +672,15 @@ private fun PhotoEditorContent(
                     tab = currentTab, onTab = { next ->
                         if (currentTab == next) toolPanelOpen = !toolPanelOpen
                         else { currentTab = next; toolPanelOpen = false }
+                        if(batch!=null){batchCropEditing=next==PhotoWorkspaceTab.CROP&&toolPanelOpen;batchCompare=false}
                     },
-                    panelOpen = toolPanelOpen, onPanelOpen = { toolPanelOpen = it },
+                    panelOpen = toolPanelOpen, onPanelOpen = {
+                        toolPanelOpen = it
+                        if(batch!=null&&currentTab==PhotoWorkspaceTab.CROP)batchCropEditing=it
+                    },
                     cropTool = cropTool, onCropTool = {
                         cropTool = it; toolPanelOpen = (it == "ratio")
+                        if(batch!=null){batchCropEditing=it=="ratio";batchCompare=false}
                     },
                     edit = edit.copy(crop=activeCrop), info = info, locked = locked,
                     allowAi = batch == null,

@@ -323,8 +323,8 @@ fun GalleryModeScreen(
                 Icon(Icons.Rounded.Delete, "Удалить выбранное", tint = MaterialTheme.colorScheme.error)
             }
         }
-        val batchPhotos=orderedDisplayed.filter { it.id in selectedSet && it.mediaType==MediaType.PHOTO && !it.isPrivate && !it.hidden }
-        if(onBatchPhotoEdit!=null && batchPhotos.isNotEmpty()) {
+        val batchPhotos=orderedDisplayed.filter { it.id in selectedSet && it.mediaType==MediaType.PHOTO && !it.isPrivate && !it.hidden && it.savedUri!=null }
+        if(onBatchPhotoEdit!=null && batchPhotos.size>=2) {
             val photoIds=batchPhotos.map { it.id }.toSet()
             Surface(onClick={onBatchPhotoEdit(queue.filter { it in photoIds })},
                 modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=4.dp),
