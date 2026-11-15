@@ -89,8 +89,8 @@ internal fun RecentMusicScreen(rows:List<DownloadEntity>,loading:Boolean,current
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                FilterChip(!calendar,{calendar=false},{Text("По дням")},modifier=Modifier.weight(1f))
-                FilterChip(calendar,{calendar=true},{Text("Календарь")},modifier=Modifier.weight(1f))
+                FilterChip(!calendar,{calendar=false},{Text("По дням")},modifier=Modifier.weight(1f).testTag("recent-days-mode"))
+                FilterChip(calendar,{calendar=true},{Text("Календарь")},modifier=Modifier.weight(1f).testTag("recent-calendar-mode"))
             }
         }
         val currentDetail=detailDay
@@ -104,7 +104,7 @@ internal fun RecentMusicScreen(rows:List<DownloadEntity>,loading:Boolean,current
                 items(currentDetail.tracks,key={it.id}){track->MusicLibraryTrackRow(track,{onPreview(track.id,queue)},track.id==currentId,playing){actions(track,queue)}}
             }
         } else if(calendar){
-            LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal=16.dp),state=calendarList,contentPadding=PaddingValues(bottom=16.dp)){
+            LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal=16.dp).testTag("recent-calendar-list"),state=calendarList,contentPadding=PaddingValues(bottom=16.dp)){
                 item(key="calendar"){
                     Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surfaceVariant){
                         Column(Modifier.padding(8.dp)){
@@ -133,7 +133,7 @@ internal fun RecentMusicScreen(rows:List<DownloadEntity>,loading:Boolean,current
                     Column(Modifier.padding(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                         Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(dateLabel(day.date),style=MaterialTheme.typography.titleMedium);Text(RussianCounts.tracks(queue.size))};IconButton({detail=key(day)}){Icon(Icons.Rounded.ChevronRight,"Открыть день")}}
                         RecentPlayButtons(queue,onPlay)
-                        OutlinedButton({detail=key(day)},Modifier.fillMaxWidth()){Text("Показать все треки")}
+                        OutlinedButton({detail=key(day)},Modifier.fillMaxWidth().testTag("recent-open-day")){Text("Показать все треки")}
                     }
                 }else item(key="calendar-empty"){Text("В этом месяце нет выбранной даты с музыкой",Modifier.padding(vertical=16.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)}
             }

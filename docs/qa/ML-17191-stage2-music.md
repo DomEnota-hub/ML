@@ -9,3 +9,5 @@ Authorized 2026-11-15 after stage 1 acceptance. QA-190-02/03/05/06. Base `0ee465
 - Tests and exact-head CI/lint/ARM64 required before technical acceptance. Physical Xiaomi QA and large real catalogue performance remain pending. No intermediate signed APK, no production merge.
 
 Follow-up: history playback now uses the complete catalogue and the same fresh URI/privacy validation as collections. Current queue is only changed by explicit user action; partial index generations do not silently truncate a requested selection. Added UI interaction tests for calendar and duplicate mode, fixed stale journal generation after privacy invalidation and completed-state cleanup after process restart.
+
+Cross-stage regression: first stage-2 main run passed collection, duplicate/acoustic, and music/recognition suites, but the existing batch photo geometry test intermittently failed to locate the "Свободно" control in merged Compose semantics. The control now has a stable test tag used by both actual gesture tests; all gesture/export assertions are retained. No photo rendering behavior changes. Final CI must pass on the resulting exact HEAD.

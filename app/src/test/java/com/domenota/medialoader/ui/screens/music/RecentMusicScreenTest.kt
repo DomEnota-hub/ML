@@ -28,10 +28,11 @@ class RecentMusicScreenTest {
         compose.setContent{MaterialTheme{RecentMusicScreen(rows,false,null,false,{}, {ids,_->queue=ids},{_,_->},{_,_->})}}
         compose.onNodeWithTag("recent-day-2026-11-15").assertExists()
         compose.onNodeWithTag("recent-day-2026-11-14").assertDoesNotExist()
-        compose.onNodeWithText("Календарь").performClick()
+        compose.onNodeWithTag("recent-calendar-mode").performClick()
         compose.onNodeWithTag("recent-date-2026-11-14").assertIsNotEnabled()
         compose.onNodeWithTag("recent-date-2026-11-03").assertIsEnabled().performClick()
-        compose.onNodeWithText("Показать все треки").performScrollTo().performClick()
+        compose.onNodeWithTag("recent-calendar-list").performScrollToNode(hasTestTag("recent-open-day"))
+        compose.onNodeWithTag("recent-open-day").assertIsDisplayed().performClick()
         compose.onNodeWithText("Слушать").performClick()
         compose.runOnIdle{assertEquals(listOf("c","d"),queue)}
     }
