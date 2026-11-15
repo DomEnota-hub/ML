@@ -20,6 +20,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -93,15 +97,33 @@ internal fun InAppNoticeHost(modifier: Modifier = Modifier, bottomPadding: Dp = 
 
 @Composable
 internal fun NoticeDialog(onDismissRequest: () -> Unit, properties: DialogProperties = DialogProperties(),
-    content: @Composable () -> Unit) {
+    noticeBottomPadding: Dp = 72.dp, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = onDismissRequest, properties = properties) {
         Box(contentAlignment = Alignment.Center) {
             content()
-            InAppNoticeHost(Modifier.align(Alignment.BottomCenter), bottomPadding = 72.dp)
+            Box(Modifier.matchParentSize().clipToBounds()) {
+                InAppNoticeHost(Modifier.align(Alignment.BottomCenter), bottomPadding = noticeBottomPadding)
+            }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun NoticeSheet(onDismissRequest: () -> Unit,
+    sheetState: SheetState = rememberModalBottomSheetState(),
+    content: @Composable ColumnScope.() -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = sheetState) {
+        Box(Modifier.fillMaxWidth()) {
+            Column(content = content)
+            Box(Modifier.matchParentSize().clipToBounds()) {
+                InAppNoticeHost(Modifier.align(Alignment.BottomCenter), bottomPadding = 64.dp)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun NoticeCard(entry: NoticeEntry, departingAt: Long?, onDismiss: (Long) -> Unit = AppNotice::dismiss) {
     val duration = NoticePolicy.TRANSITION_MS
@@ -149,7 +171,7 @@ internal fun NoticeCard(entry: NoticeEntry, departingAt: Long?, onDismiss: (Long
                 translationY = shift.value * (size.height + 8.dp.toPx())
                 translationX = horizontal
             }
-            .then(if (outgoing) Modifier.clearAndSetSemantics {} else
+            .then(if (outgoing) Modifier.clearAndSetSemantics { invisibleToUser() } else
                 Modifier.testTag("ml-active-notice").semantics { liveRegion = LiveRegionMode.Polite }
                     .pointerInput(entry.id) {
                         detectHorizontalDragGestures(
@@ -175,8 +197,8 @@ internal fun NoticeCard(entry: NoticeEntry, departingAt: Long?, onDismiss: (Long
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(glyph, null, Modifier.size(24.dp), tint = accent)
             Column(Modifier.weight(1f)) {
-                Text(entry.message.title, style = MaterialTheme.typography.bodyMedium)
-                entry.message.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
+                Text(entry.message.title, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                entry.message.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis) }
             }
             if (!outgoing) IconButton(onClick = { onDismiss(entry.id) }, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Rounded.Close, "Закрыть уведомление", Modifier.size(20.dp), tint = colors.onSurfaceVariant)

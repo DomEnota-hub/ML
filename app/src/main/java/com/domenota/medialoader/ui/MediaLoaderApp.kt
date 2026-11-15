@@ -2,6 +2,7 @@ package com.domenota.medialoader.ui
 
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.ScaffoldDefaults
@@ -80,6 +81,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -1262,6 +1264,11 @@ fun MediaLoaderApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer); if(clipboardView.viewTreeObserver.isAlive)clipboardView.viewTreeObserver.removeOnWindowFocusChangeListener(focus) }
     }
 
+    var collectionNoticeFooterPx by remember { mutableIntStateOf(0) }
+    val noticeDensity = LocalDensity.current
+    val collectionNoticeBottom = with(noticeDensity) {
+        (collectionNoticeFooterPx + WindowInsets.navigationBars.getBottom(noticeDensity)).toDp()
+    }
     val checkingPhoneAccess = if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)
         visibleLibraryValidationPending(appMode, libraryIndex, phoneGallery, phoneMusic)
     else phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
@@ -1572,6 +1579,7 @@ fun MediaLoaderApp(
                     onPlay={ids->playCollection(ids)},onLink=::openOrganizationLink,onPassport=::openPassport,
                     onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable,initialCreate=collectionCreate,
                     onPlayTrack={id,ids->playCollection(ids,id)},currentPlayingId=currentLibraryAudioId,playing=libraryAudioState.playing,
+                    onNoticeFooterHeight={collectionNoticeFooterPx=it},
                     miniPlayer={
                         AudioMiniPlayer(interactiveSeek=true,onOpen={
                             val decision=com.domenota.medialoader.data.playback.CurrentPlayerNavigation.resolve(
@@ -2276,7 +2284,7 @@ fun MediaLoaderApp(
         }
         }
         val noticeExtra = when {
-            currentRoute == "collections" && libraryAudioState.currentId != null -> 104.dp
+            currentRoute == "collections" -> collectionNoticeBottom
             galleryHomeOverlay -> 76.dp
             currentRoute in setOf(MEDIA_VIEWER_ROUTE, VIDEO_EDITOR_ROUTE, AUDIO_EDITOR_ROUTE, PHOTO_EDITOR_ROUTE, "batch-photo-editor", "trash-viewer/{downloadId}") -> 100.dp
             else -> 0.dp

@@ -9,6 +9,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -107,7 +108,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     onOpen:(String,List<String>)->Unit,onPlay:(List<String>)->Unit,onLink:(String)->Unit,onPassport:(String)->Unit,
     onAddComplete:()->Unit,usable:Boolean=ready,initialCreate:Boolean=false,
     onPlayTrack:(String,List<String>)->Unit=onOpen,currentPlayingId:String?=null,playing:Boolean=false,
-    miniPlayer:@Composable ()->Unit={}) {
+    miniPlayer:@Composable ()->Unit={}, onNoticeFooterHeight:(Int)->Unit={}) {
     var selected by rememberSaveable(initialCollection){mutableStateOf(initialCollection)}
     var filter by rememberSaveable(selected){mutableStateOf("Всё")}
     var musicExpanded by rememberSaveable(selected){mutableStateOf(audioOnly)}
@@ -132,6 +133,9 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         resolved = if(refs.isEmpty()) emptyMap() else withContext(Dispatchers.Default) { MediaOrganizationPolicy.resolve(collections.flatMap { it.members },refs) }
     }
     val collection=collections.firstOrNull{it.record.id==selected}
+    LaunchedEffect(collection?.record?.id,choosing,picker,rename,create) {
+        if(collection==null||choosing||picker||rename||create) onNoticeFooterHeight(0)
+    }
     fun mutate(action:suspend ()->Unit){scope.launch{
         busy=true;error=null
         try{action()}catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Не удалось выполнить действие"}finally{busy=false}
@@ -404,6 +408,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                     }
                 }
             }
+            Column(Modifier.fillMaxWidth().onSizeChanged{onNoticeFooterHeight(it.height)}) {
             miniPlayer()
             if(selecting)Surface(color=MaterialTheme.colorScheme.surface){
                 Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.CenterVertically){
@@ -411,6 +416,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                     TextButton({selecting=false;chosenMembers=arrayListOf()}){Text("Отмена")}
                     Button({removeMembers=true},enabled=!busy&&chosenMembers.isNotEmpty()){Text("Убрать")}
                 }
+            }
             }
 
         }
