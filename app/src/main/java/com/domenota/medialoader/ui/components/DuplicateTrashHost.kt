@@ -23,10 +23,28 @@ import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.library.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-private data class Work(val track: DuplicateTrack, val appId: String?, val group: DuplicateGroup)
-private data class Outcome(val name: String, val success: Boolean, val reason: String)
+internal data class Work(val track: DuplicateTrack, val appId: String?, val group: DuplicateGroup)
+internal data class Outcome(val name: String, val success: Boolean, val reason: String)
+
+/** Kept by the activity ViewModel for music, so rotation/consent cannot discard
+ * a confirmed selection or replay a completed transfer. Never persisted in a Bundle. */
+internal class DuplicateTrashOperation(val request:DuplicateTrashSelection,visual:Boolean=false){
+    val mutex=Mutex()
+    val outcomes=mutableStateMapOf<String,Outcome>()
+    val queue=mutableStateOf<List<Work>>(emptyList())
+    val initialized=mutableStateOf(false)
+    val waiting=mutableStateOf(false)
+    val pending=mutableStateOf<List<Work>>(emptyList())
+    val consentResult=mutableStateOf<Int?>(null)
+    val finished=mutableStateOf(false)
+    val revision=mutableIntStateOf(0)
+    val batchLimit=mutableIntStateOf(if(visual)1 else 50)
+}
 
 /** Read the actual provider state; RESULT_OK alone is not proof that every URI was trashed. */
 internal suspend fun confirmedSystemTrash(context: Context, uri: Uri): Boolean = withContext(Dispatchers.IO) {
@@ -42,25 +60,32 @@ internal suspend fun confirmedSystemTrash(context: Context, uri: Uri): Boolean =
 /** Duplicate-only recoverable cleanup. No permanent deletion request or automatic permission bypass. */
 @Composable
 internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<String,LibraryMediaRef>, currentId: String?,
-    onAppTrash: suspend (String,String) -> Unit, onTrashed: suspend (Set<String>) -> Unit, onClose: () -> Unit, visual: Map<String,VisualFingerprint>? = null) {
+    onAppTrash: suspend (String,String) -> Unit, onTrashed: suspend (Set<String>) -> Unit, onClose: () -> Unit, visual: Map<String,VisualFingerprint>? = null,
+    retained:DuplicateTrashOperation?=null,catalogReady:Boolean=true) {
     val context = LocalContext.current
     val latestRefs by rememberUpdatedState(refs)
     val latestCurrent by rememberUpdatedState(currentId)
     val latestOnTrashed by rememberUpdatedState(onTrashed)
     val tracks = remember(request) { request.groups.flatMap { it.tracks }.associateBy { it.id } }
-    val outcomes = remember(request) { mutableStateMapOf<String,Outcome>() }
-    var queue by remember(request) { mutableStateOf<List<Work>>(emptyList()) }
-    var initialized by remember(request) { mutableStateOf(false) }
-    var waiting by remember(request) { mutableStateOf(false) }
-    var pending by remember(request) { mutableStateOf<List<Work>>(emptyList()) }
-    var consentResult by remember(request) { mutableStateOf<Int?>(null) }
-    var finished by remember(request) { mutableStateOf(false) }
-    var revision by remember(request) { mutableIntStateOf(0) }
-    var batchLimit by remember(request) { mutableIntStateOf(if (visual == null) 50 else 1) }
+    val local=remember(request){DuplicateTrashOperation(request,visual!=null)}
+    val operation=retained?:local
+    val outcomes=operation.outcomes
+    var queue by operation.queue
+    var initialized by operation.initialized
+    var waiting by operation.waiting
+    var pending by operation.pending
+    var consentResult by operation.consentResult
+    var finished by operation.finished
+    var revision by operation.revision
+    var batchLimit by operation.batchLimit
+    val privacyRevision by DuplicatePrivacyGuard.changes.collectAsState()
+    val latestAppTrash by rememberUpdatedState(onAppTrash)
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
-        consentResult = it.resultCode
-        waiting = false
-        revision++
+        if(waiting){
+            consentResult = it.resultCode
+            waiting = false
+            revision++
+        }
     }
     fun failure(w: Work, reason: String) {
         outcomes[w.track.id] = Outcome(w.track.filename,false,reason)
@@ -101,7 +126,8 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
         MusicDuplicateScanner.verifyMember(context,w.group,w.track.id,request.selected,rows)
         val live=latestRefs[w.track.id]
         check(live!=null&&live.item.savedUri==w.track.uri&&live.appDownloadId==w.appId&&
-            !live.item.hidden&&!live.item.isPrivate&&live.key!=latestCurrent&&w.track.id!=latestCurrent){"Запись или текущий трек изменились"}
+            !live.item.hidden&&!live.item.isPrivate&&live.key!=latestCurrent&&w.track.id!=latestCurrent&&
+            !com.domenota.medialoader.data.playback.AudioPlaybackService.isCurrentPublicUri(w.track.uri)){"Запись или текущий трек изменились"}
     }
     suspend fun success(w: Work) {
         outcomes[w.track.id] = Outcome(w.track.filename,true,"Перемещено")
@@ -114,8 +140,10 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
     }
     // Initialization and processing share one coroutine. Never restart a worker
     // merely because its own initialization flag changes.
-    LaunchedEffect(request, revision) {
-        if(waiting||finished)return@LaunchedEffect
+    LaunchedEffect(operation, revision,catalogReady) {
+        if(!catalogReady)return@LaunchedEffect
+        operation.mutex.withLock{
+        if(waiting||finished)return@withLock
         if(!initialized){
         request.failures.filterKeys{it in request.selected}.forEach { (id,why) -> outcomes[id] = Outcome(tracks[id]?.filename ?: "Файл",false,why) }
         queue = request.groups.flatMap { group ->
@@ -140,25 +168,32 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
             // Even cancellation can follow a partial provider operation. Check all
             // requested URIs before deciding which ones may be retried.
             for (w in batch) {
-                if (confirmedSystemTrash(context, Uri.parse(w.track.uri))) success(w)
-                else failure(w, if (answer == Activity.RESULT_OK) "Android не подтвердил перемещение" else "Разрешение отменено или отклонено")
+                if(w.track.id in outcomes)continue
+                withContext(NonCancellable){
+                    if (confirmedSystemTrash(context, Uri.parse(w.track.uri))) success(w)
+                    else failure(w, if (answer == Activity.RESULT_OK) "Android не подтвердил перемещение" else "Разрешение отменено или отклонено")
+                }
             }
             pending = emptyList()
             consentResult = null
             if (answer != Activity.RESULT_OK) {
                 queue.forEach { failure(it,"Операция остановлена после отмены разрешения") }
                 queue = emptyList(); finishReport()
-                return@LaunchedEffect
+                return@withLock
             }
         }
         while (queue.isNotEmpty()) {
+            queue=queue.filterNot{it.track.id in outcomes}
+            if(queue.isEmpty())break
             val w = queue.first()
             if (w.appId != null) {
-                queue = queue.drop(1)
                 try {
                     verifyWork(w)
-                    onAppTrash(w.appId,w.track.uri)
-                    success(w)
+                    withContext(NonCancellable){
+                        latestAppTrash(w.appId,w.track.uri)
+                        success(w)
+                        queue=queue.drop(1)
+                    }
                 } catch (e: CancellationException) { throw e }
                 catch (e: SecurityException) {
                     // A history alias can refer to a foreign MediaStore file.
@@ -172,14 +207,14 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                             val intent = MediaStore.createTrashRequest(context.contentResolver,listOf(uri),true)
                             waiting = true
                             launcher.launch(IntentSenderRequest.Builder(intent.intentSender).build())
-                            return@LaunchedEffect
+                            queue=queue.drop(1)
+                            return@withLock
                         } catch (cancel: CancellationException) { throw cancel }
                         catch (failure: Exception) { pending = emptyList(); waiting = false; failure(w,failure.message ?: "Нет доступа к файлу") }
                     } else failure(w,e.message ?: "Нет разрешения на перенос")
                 } catch (e: Exception) { failure(w,e.message ?: "Ошибка переноса в корзину") }
             } else {
                 val candidate = queue.takeWhile { it.appId == null }.take(batchLimit)
-                queue = queue.drop(candidate.size)
                 if (Build.VERSION.SDK_INT < 30) {
                     candidate.forEach { failure(it, "Системная корзина недоступна") }
                     continue
@@ -200,7 +235,8 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                     } else error("Системная корзина недоступна")
                     pending = valid.toList(); waiting = true
                     launcher.launch(IntentSenderRequest.Builder(intent.intentSender).build())
-                    return@LaunchedEffect
+                    queue=queue.drop(candidate.size)
+                    return@withLock
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) {
                     waiting = false; pending = emptyList()
@@ -208,12 +244,13 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                     // only this local failure, not a cancelled system permission.
                     if (e is IllegalArgumentException && valid.size > 1) {
                         batchLimit = (valid.size / 2).coerceAtLeast(1)
-                        queue = valid + queue
+                        // Keep unprocessed entries in place; retry a smaller batch.
                     } else valid.forEach { failure(it,e.message ?: "Не удалось запросить системную корзину") }
                 }
             }
         }
         finishReport()
+        }
     }
     if (finished) {
         val ok = outcomes.values.count { it.success }
@@ -223,12 +260,13 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Перемещено в корзину: $ok")
                 Text("Не перемещено: ${failed.size}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                failed.forEach { row ->
+                fun public(id:String)=tracks[id]?.let{it.privacyEpoch==privacyRevision&&DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,id)}==true
+                outcomes.entries.filter{!it.value.success}.forEach { (id,row) ->
                     HorizontalDivider()
-                    Text(row.name, style = MaterialTheme.typography.bodyMedium)
-                    Text(row.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if(public(id))row.name else "Файл", style = MaterialTheme.typography.bodyMedium)
+                    Text(if(public(id))row.reason else "Данные недоступны", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                warnings.forEach { row -> Text("${row.name}: ${row.reason}", color = MaterialTheme.colorScheme.error) }
+                outcomes.entries.filter{it.value in warnings}.forEach { (id,row) -> Text(if(public(id))"${row.name}: ${row.reason}" else "Журнал требует обновления", color = MaterialTheme.colorScheme.error) }
                 if (failed.isNotEmpty()) Text("Оставшиеся доступны в последнем поиске. Повтор — после проверки выбранных файлов.", style = MaterialTheme.typography.bodySmall)
             }
         }, confirmButton = { TextButton(onClose) { Text("Вернуться к дубликатам") } })
