@@ -13,6 +13,11 @@ internal object AudioPlaybackMetadata {
     const val PLAYLIST_ID = "origin_playlist_id"
     const val LISTENING_KEYS = "listening_identity_keys"
     const val RESUME_CONTEXT = "resume_queue_context"
+    const val CONTENT_REVISION = "audio_content_revision"
+    const val VERIFIED_DURATION = "verified_audio_duration_ms"
+    fun durationIdentity(item: MediaItem) = PlaybackDurationIdentity(item.mediaId,
+        item.mediaMetadata.extras?.getString(PUBLIC_URI) ?: item.localConfiguration?.uri?.toString(),
+        item.mediaMetadata.extras?.getString(CONTENT_REVISION))
     fun publicRow(item: MediaItem, lookup: List<DownloadEntity>, blocked: Set<String> = emptySet()): DownloadEntity? {
         val meta = item.mediaMetadata
         val identities = meta.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty()
@@ -61,6 +66,9 @@ internal object AudioPlaybackMetadata {
             .setTitle(row.recognizedTitle ?: row.sourceAudioTitle ?: row.originalName)
             .setExtras(Bundle(item.mediaMetadata.extras ?: Bundle()).apply {
                 putBoolean(FILENAME_TITLE, row.recognizedTitle == null && row.sourceAudioTitle == null)
+                putString(CONTENT_REVISION, java.util.UUID.randomUUID().toString())
+                remove(VERIFIED_DURATION)
+                row.durationMs?.takeIf { it>0L }?.let { putLong(VERIFIED_DURATION,it) }
             })
             .setArtist(row.recognizedArtist ?: row.sourceAudioArtist)
             .setAlbumTitle(row.recognizedAlbum)

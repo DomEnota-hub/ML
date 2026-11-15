@@ -111,7 +111,16 @@ fun BackgroundAudioPlayer(
     var currentItem by remember { mutableStateOf(item) }
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableLongStateOf(0L) }
-    var durationMs by remember { mutableLongStateOf(0L) }
+    var durationState by remember { mutableStateOf(com.domenota.medialoader.data.playback.PlaybackDurationState()) }
+    val durationMs = durationState.durationMs
+    var seekAvailable by remember { mutableStateOf(false) }
+    fun syncTiming(active: MediaController) {
+        val media = active.currentMediaItem
+        durationState = durationState.update(media?.let(AudioPlaybackMetadata::durationIdentity), active.duration,
+            media?.mediaMetadata?.extras?.getLong(AudioPlaybackMetadata.VERIFIED_DURATION)?.takeIf { it>0L })
+        positionMs = if (media == null) 0L else active.currentPosition.coerceAtLeast(0L)
+        seekAvailable = media != null && active.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+    }
     var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var shuffleEnabled by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
@@ -135,7 +144,7 @@ fun BackgroundAudioPlayer(
         }
         sessionItems = (0 until active.mediaItemCount).map { active.getMediaItemAt(it) }
         currentIndex = active.currentMediaItemIndex.coerceAtLeast(0)
-        durationMs = active.duration.coerceAtLeast(0L)
+        syncTiming(active)
         repeatMode = active.repeatMode
         shuffleEnabled = active.shuffleModeEnabled
         playbackSpeed = active.playbackParameters.speed
@@ -225,6 +234,7 @@ fun BackgroundAudioPlayer(
                     isPlaying = if (libraryLayout) active.playWhenReady else value
                 }
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { if (libraryLayout) isPlaying = playWhenReady }
+                override fun onAvailableCommandsChanged(availableCommands: Player.Commands) { syncTiming(active) }
                 override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) { syncCurrent() }
                 override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) { syncCurrent() }
 
@@ -258,8 +268,7 @@ fun BackgroundAudioPlayer(
     LaunchedEffect(controller) {
         val active = controller ?: return@LaunchedEffect
         while (true) {
-            positionMs = max(0L, active.currentPosition)
-            durationMs = active.duration.takeIf { it > 0 } ?: durationMs
+            syncTiming(active)
             currentIndex = active.currentMediaItemIndex.coerceAtLeast(0)
             delay(400)
         }
@@ -309,7 +318,7 @@ fun BackgroundAudioPlayer(
         } else androidx.compose.foundation.layout.Box(modifier) {
             MusicPlayerControls(currentItem, controller, positionMs, durationMs, isPlaying, shuffleEnabled, repeatMode, playbackSpeed,
                 onBack, onEqualizer, { queueOpen = true }, onFavorite?.let { action -> { action(currentItem) } },
-                favorite = currentItem.id in favoriteIds, onEdit = onEdit?.let { action -> { action(currentItem) } },
+                seekAvailable=seekAvailable, favorite = currentItem.id in favoriteIds, onEdit = onEdit?.let { action -> { action(currentItem) } },
                 onRecognize=onRecognize?.takeIf{!currentItem.isPrivate&&!currentItem.hidden&&controller!=null}?.let{action->{action(currentItem,controller?.currentPosition?.coerceAtLeast(0L)?:positionMs)}})
         }
         if (queueOpen && !blocked) ModalBottomSheet(onDismissRequest = { queueOpen = false }) {
@@ -387,9 +396,9 @@ fun BackgroundAudioPlayer(
             AudioWaveform(
                 peaks = waveform!!,
                 accentColor = musicPlaybackAccent,
-                progress = (positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f),
+                progress = if(durationMs>0L)(positionMs.toFloat()/durationMs).coerceIn(0f,1f) else 0f,
                 onSeekFraction = { fraction ->
-                    if (durationMs > 0) controller?.seekTo((durationMs * fraction).toLong())
+                    if (durationMs > 0 && seekAvailable && controller?.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)==true) controller?.seekTo((durationMs * fraction).toLong())
                 },
             )
         } else {
@@ -400,7 +409,7 @@ fun BackgroundAudioPlayer(
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatAudioTime(positionMs), style = MaterialTheme.typography.labelMedium)
-            Text(formatAudioTime(durationMs), style = MaterialTheme.typography.labelMedium)
+            Text(if(durationMs>0L)formatAudioTime(durationMs) else "--:--", style = MaterialTheme.typography.labelMedium)
         }
 
         Spacer(Modifier.height(8.dp))

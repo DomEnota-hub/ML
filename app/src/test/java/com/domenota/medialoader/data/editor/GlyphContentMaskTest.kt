@@ -113,4 +113,55 @@ class GlyphContentMaskTest {
                 GlyphContentMask.fromBitmap(bitmap, listOf(valid, blank)))
         } finally { bitmap.recycle() }
     }
+    @Test fun outlinedTextOnVerticalSeamPreservesBackgroundAndGlyphHoles() {
+        val width=320;val height=200
+        val bitmap=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888)
+        val ink=BooleanArray(width*height)
+        try {
+            for(y in 0 until height)for(x in 0 until width){
+                val v=if(x<100)180 else 228
+                bitmap.setPixel(x,y,Color.rgb(v,v,v))
+            }
+            val glyphs=(0 until 4).map{i->
+                val x=56+i*27;val y=73;val w=22;val h=25
+                for(dy in 0 until h)for(dx in 0 until w){
+                    val edge=minOf(dx,w-1-dx,dy,h-1-dy)
+                    if(edge<4){
+                        bitmap.setPixel(x+dx,y+dy,if(edge==0||edge==3)Color.BLACK else Color.WHITE)
+                        ink[(y+dy)*width+x+dx]=true
+                    }
+                }
+                DetectedGlyph(i,"O",x.toFloat()/width,y.toFloat()/height,(x+w).toFloat()/width,(y+h).toFloat()/height,96f)
+            }
+            val analysis=GlyphContentMask.analyze(bitmap,glyphs)
+            assertTrue("All four glyphs must be confirmed: ${analysis.reasons}",analysis.complete)
+            val mask=LaMaInpaintingEngine.rasterizeMask(analysis.strokes,width,height)
+            try{
+                var covered=0;var farBackground=0
+                for(y in 0 until height)for(x in 0 until width){
+                    if(Color.alpha(mask.getPixel(x,y))<128)continue
+                    if(ink[y*width+x])covered++ else {
+                        val near=(-1..1).any{dy->(-1..1).any{dx->
+                            x+dx in 0 until width && y+dy in 0 until height && ink[(y+dy)*width+x+dx]}}
+                        if(!near)farBackground++
+                    }
+                }
+                assertTrue("Complete outlined ink, not just black edges",covered>=ink.count{it}*.94)
+                assertEquals("No background away from the actual outline",0,farBackground)
+                glyphs.forEach{g->assertEquals(0,Color.alpha(mask.getPixel(((g.left+g.right)*width/2).toInt(),((g.top+g.bottom)*height/2).toInt())))}
+            }finally{mask.recycle()}
+        }finally{bitmap.recycle()}
+    }
+    @Test fun partialAnalysisKeepsProvenInkButCannotStartAutomaticInpainting(){
+        val bitmap=Bitmap.createBitmap(100,70,Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(Color.WHITE)
+        try{
+            for(y in 20..30)for(x in 14..20)bitmap.setPixel(x,y,Color.BLACK)
+            val valid=DetectedGlyph(0,"A",.10f,.20f,.26f,.50f)
+            val blank=DetectedGlyph(1,"B",.65f,.20f,.85f,.50f)
+            val analysis=GlyphContentMask.analyze(bitmap,listOf(valid,blank))
+            assertTrue(analysis.confirmed.isNotEmpty());assertEquals(listOf(blank),analysis.unresolved)
+            assertTrue(analysis.strokes.isEmpty());assertTrue(analysis.reasons.isNotEmpty())
+        }finally{bitmap.recycle()}
+    }
 }

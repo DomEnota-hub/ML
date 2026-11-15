@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
 import android.provider.MediaStore
+import com.domenota.medialoader.data.library.MediaWriteAccess
 import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -265,8 +266,28 @@ fun SettingsScreen(
     var musicOptionsExpanded by rememberSaveable { mutableStateOf(false) }
     var interfaceOptionsExpanded by rememberSaveable { mutableStateOf(false) }
     var mediaManagementGranted by remember {
-        mutableStateOf(Build.VERSION.SDK_INT >= 31 && MediaStore.canManageMedia(context))
+        mutableStateOf(MediaWriteAccess.ready(context))
     }
+    LaunchedEffect(permissionRevision) { mediaManagementGranted = MediaWriteAccess.ready(context) }
+    var showMediaWriteExplanation by remember { mutableStateOf(false) }
+    val mediaLocationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        mediaManagementGranted = MediaWriteAccess.ready(context)
+    }
+    if (showMediaWriteExplanation) AlertDialog(onDismissRequest={showMediaWriteExplanation=false},
+        title={Text("Управление медиафайлами")},
+        text={Text("Для записи тегов и обложек без повторных запросов Android нужны управление медиафайлами, чтение музыки и доступ к исходным метаданным медиа. Это не GPS и не доступ ко всем файлам. Подтверждения изменения и удаления внутри ML сохраняются. Разрешения можно отозвать в Android.")},
+        confirmButton={TextButton({
+            showMediaWriteExplanation=false
+            when {
+                !MediaWriteAccess.granted(context,MediaWriteAccess.audioPermission(Build.VERSION.SDK_INT)) -> onRequestLibraryAccess(AppMode.MUSIC)
+                Build.VERSION.SDK_INT>=31 && !MediaStore.canManageMedia(context) -> try {
+                    context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,Uri.parse("package:${context.packageName}")))
+                } catch(_:Exception){AppNotice.post(context,"Настройка недоступна на этом устройстве")}
+                !MediaWriteAccess.granted(context,Manifest.permission.ACCESS_MEDIA_LOCATION) ->
+                    mediaLocationPermission.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
+                else -> Unit
+            }
+        }){Text("Предоставить доступ")}},dismissButton={TextButton({showMediaWriteExplanation=false}){Text("Не сейчас")}})
     var instagramVerification by remember { mutableStateOf<DiagnosticOutcome?>(null) }
     var instagramMediaVerified by remember { mutableStateOf(false) }
     var instagramVerificationRevision by remember { mutableStateOf(0) }
@@ -309,7 +330,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 systemNotificationsAllowed = allowed()
-                mediaManagementGranted = Build.VERSION.SDK_INT >= 31 && MediaStore.canManageMedia(context)
+                mediaManagementGranted = MediaWriteAccess.ready(context)
                 instagramMediaVerified = MediaRepository.get(context).sessions.hasWorkingMediaSession()
                 onRefreshInstagramSession()
             }
@@ -1226,12 +1247,8 @@ fun SettingsScreen(
             }
             if (Build.VERSION.SDK_INT >= 31 && !mediaManagementGranted) {
                 SettingRow(Icons.Rounded.DeleteSweep, "Управление медиафайлами",
-                    "Разрешить удаление без повторного запроса Android", grouped = true,
-                    iconTone = SettingIconTone.MEDIA_MANAGEMENT, onClick = {
-                        try { context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,
-                            Uri.parse("package:${context.packageName}"))) }
-                        catch (_: Exception) { AppNotice.post(context, "Настройка недоступна на этом устройстве") }
-                    })
+                    "Изменение тегов и управление файлами без повторных запросов", grouped = true,
+                    iconTone = SettingIconTone.MEDIA_MANAGEMENT, onClick = { showMediaWriteExplanation=true })
                 GroupDivider()
             }
             SettingRow(Icons.Rounded.RestoreFromTrash, "Корзина",

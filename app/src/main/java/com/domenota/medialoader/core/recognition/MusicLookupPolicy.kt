@@ -23,3 +23,9 @@ object MusicLookupPolicy {
             }
     }
 }
+
+/** The UI must distinguish a missing input from a real acoustic no-match. */
+internal enum class PreviewMusicStatus { MATCHED, AUDIO_UNAVAILABLE, NO_MATCH, EXTRACTION_FAILED, PROVIDER_FAILED }
+internal data class PreviewMusicOutcome(val status: PreviewMusicStatus, val result: MusicRecognitionResult? = null) {
+    init { require((status==PreviewMusicStatus.MATCHED)==(result!=null)) }
+}

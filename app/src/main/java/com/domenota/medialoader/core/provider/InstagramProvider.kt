@@ -33,6 +33,32 @@ class InstagramProvider(
         return if (link.isStory) resolveStory(link) else resolvePost(link)
     }
 
+    /** Explicit full-song action only. Does not change ordinary resolve/download or GAPI routing. */
+    internal suspend fun lookupPublicationMusic(url: String): InstagramPublicationMusic? {
+        val link=InstagramLinkParser.parse(url) ?: return null
+        var audioFallback: InstagramPublicationMusic? = null
+        if (!link.isStory) {
+            for (pageUrl in listOf(link.pageUrl(),link.embedUrl())) {
+                val page=attempt({pageSource(pageUrl)}){} ?: continue
+                val music=extractEmbeddedPublicationMusic(page,link.id) ?: continue
+                if (music.metadata()!=null) return music
+                if (audioFallback==null && music.audioUrl!=null) audioFallback=music
+            }
+            if(audioFallback!=null)return audioFallback
+        }
+        val session=cookies()?.takeIf(String::isNotBlank) ?: return audioFallback
+        val expected=if(link.isStory)link.id else mediaId(link.id)
+        val body=apiClient.mediaInfo(expected,session)
+        val items=JSONObject(body).optJSONArray("items") ?: return audioFallback
+        val matches=(0 until items.length()).mapNotNull(items::optJSONObject).filter { product ->
+            product.optString("code")==link.id || product.optString("pk")==expected ||
+                product.optString("id").substringBefore('_')==expected
+        }
+        val product=matches.singleOrNull() ?: return audioFallback
+        onSessionMediaResolved()
+        return InstagramPublicationMusic.fromProduct(product) ?: audioFallback
+    }
+
     private suspend fun resolvePost(link: InstagramLink): List<MediaItem> {
         val code = link.id
         var loginWall = false
@@ -313,6 +339,18 @@ class InstagramProvider(
                 if (items.isNotEmpty()) return items
             }
             return emptyList()
+        }
+
+        internal fun extractEmbeddedPublicationMusic(html: String, code: String): InstagramPublicationMusic? {
+            val expectedId=mediaId(code)
+            val scripts=Regex("<script\\b[^>]*\\bdata-sjs\\b[^>]*>(.*?)</script>",
+                setOf(RegexOption.IGNORE_CASE,RegexOption.DOT_MATCHES_ALL))
+            for(script in scripts.findAll(html)) {
+                val data=runCatching{JSONObject(script.groupValues[1])}.getOrNull() ?: continue
+                val product=findMatchingMedia(data,code,expectedId,0) ?: continue
+                InstagramPublicationMusic.fromProduct(product)?.let{return it}
+            }
+            return null
         }
 
         private fun findMatchingMedia(node: Any?, code: String, expectedId: String, depth: Int): JSONObject? {

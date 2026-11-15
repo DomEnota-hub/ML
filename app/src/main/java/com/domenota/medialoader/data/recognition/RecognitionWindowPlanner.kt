@@ -33,9 +33,11 @@ internal object RecognitionWindowPlanner {
             ?: (available/2)
         val candidates=listOf(primary,available/2,available/8,available*7/8,0L,available,available*3/10,available*7/10)
         val chosen=mutableListOf<Long>()
-        for(candidate in candidates)if(chosen.none{kotlin.math.abs(it-candidate)<4_000L}){
-            chosen+=candidate
-            if(chosen.size>=5)break
+        for (spacing in listOf(windowMs,4_000L)) {
+            for(candidate in candidates)if(chosen.none{kotlin.math.abs(it-candidate)<spacing}){
+                chosen+=candidate
+                if(chosen.size>=5)return chosen
+            }
         }
         return chosen
     }

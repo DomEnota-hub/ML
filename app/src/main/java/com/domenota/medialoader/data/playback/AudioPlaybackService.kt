@@ -75,7 +75,7 @@ class AudioPlaybackService : MediaSessionService() {
                 if (suspended != null && player === suspended.player &&
                     player.currentMediaItem?.mediaId == suspended.mediaId &&
                     player.currentMediaItem?.let { AudioPlaybackMetadata.matchesPublicUri(it, uri) } == true) {
-                    val limit = revised?.durationMs?.coerceAtLeast(0L) ?: Long.MAX_VALUE
+                    val limit = revised?.durationMs?.takeIf { it>0L } ?: Long.MAX_VALUE
                     player.seekTo(suspended.position.coerceAtMost(limit))
                     player.prepare()
                     player.playWhenReady = suspended.playWhenReady && suspended.timerGeneration == stopGeneration()

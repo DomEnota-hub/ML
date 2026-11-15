@@ -67,7 +67,7 @@ internal suspend fun fetchInstagramApi(url: String, cookies: String): String = w
             } }
                 .getOrNull().orEmpty().replace(Regex("[\\r\\n\\t]+"), " ") else ""
         if (status !in 200..299) {
-            AppLog.i("InstagramProfile", "API feed HTTP $status · response=${detail.take(600)}")
+            AppLog.i("InstagramProfile", "API feed HTTP $status")
         }
         InstagramApiFailure.geoBlockedPublication(status, detail)?.let { throw it }
         when {

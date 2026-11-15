@@ -401,6 +401,8 @@ internal fun ObjectRemovalPanel(
     var safeTextPreview by remember(working) {
         mutableStateOf<List<MaskStroke>>(emptyList())
     }
+    var manualTextGuides by remember(current.bitmap) { mutableStateOf<List<DetectedGlyph>>(emptyList()) }
+    var confirmManualText by remember(current.bitmap) { mutableStateOf(false) }
     val textSelectionSnapshot = selectedGlyphs.toList()
     LaunchedEffect(textMode, current.bitmap, glyphs, textSelectionSnapshot) {
         safeTextPreview = emptyList()
@@ -592,8 +594,12 @@ internal fun ObjectRemovalPanel(
             )) findPeople()
     }
 
-    fun processSelection() {
+    fun processSelection(confirmedManual:Boolean=false) {
         if (busy) return
+        if(selectedMode==AiEraserMode.MANUAL && manualTextGuides.isNotEmpty() && !confirmedManual){
+            if(strokes.isNotEmpty())confirmManualText=true
+            return
+        }
         if (textMode && glyphs.isEmpty()) {
             scanText()
             return
@@ -626,28 +632,27 @@ internal fun ObjectRemovalPanel(
                 // Never use OCR bounding rectangles as the final LaMa mask.
                 // Pixel refinement is done off the UI thread; uncertain glyphs
                 // fail closed so the user can correct them manually.
-                val marked = if (textMode) withContext(Dispatchers.Default) {
-                    com.domenota.medialoader.data.editor.GlyphContentMask.fromBitmap(
-                        startStep.bitmap, chosenGlyphs)
-                } else otherMasks
-                if (textMode) com.domenota.medialoader.core.logging.AppLog.i(
-                    "PhotoOCR", "selected_glyph_count=${chosenGlyphs.size} " +
-                        "verified_pixel_mask_strokes=${marked.size}")
+                val analysis = if(textMode) withContext(Dispatchers.Default) {
+                    com.domenota.medialoader.data.editor.GlyphContentMask.analyze(startStep.bitmap,chosenGlyphs)
+                } else null
+                val marked = analysis?.strokes ?: otherMasks
+                if (analysis!=null) com.domenota.medialoader.core.logging.AppLog.i(
+                    "PhotoOCR", "selected_glyph_count=${chosenGlyphs.size} verified_pixel_mask_strokes=${analysis.confirmed.size} " +
+                        "unresolved=${analysis.unresolved.size} reasons=${analysis.reasons}")
                 if (marked.isEmpty()) {
-                    // No bounding-box fallback: it could remove real scenery.
-                    // Give the user an actionable manual correction path instead
-                    // of leaving "Начать" apparently broken with no way forward.
-                    if (textMode) {
+                    if (analysis!=null) {
+                        // Retain verified ink and unresolved guides. No automatic partial
+                        // removal: the user reviews and confirms the manual mask first.
                         selectedMode = AiEraserMode.MANUAL
                         textMode = false
-                        selectedGlyphs.clear()
-                        redoGlyphs.clear()
-                        glyphs = emptyList()
-                        message = "Точная маска текста не подтверждена. " +
-                            "Открылся ручной режим: отметьте буквы кистью и нажмите «Начать»."
-                    } else {
-                        message = "Выделите область для удаления."
-                    }
+                        manualTextGuides=analysis.unresolved
+                        strokes.clear();redoStrokes.clear();maskActions.clear()
+                        strokes.addAll(analysis.confirmed)
+                        if(strokes.isNotEmpty())maskActions.record(strokes.size)
+                        selectedGlyphs.clear();redoGlyphs.clear();glyphs=emptyList()
+                        message = "Не все буквы удалось выделить точно. Ничего не удалено. " +
+                            "Уточните оставшиеся рамки кистью и проверьте жёлтую маску."
+                    } else message = "Выделите область для удаления."
                     return@launch
                 }
                 val result = engine.inpaint(startStep.bitmap, marked,
@@ -675,6 +680,12 @@ internal fun ObjectRemovalPanel(
             }
         }
     }
+
+    if(confirmManualText) AlertDialog(onDismissRequest={confirmManualText=false},
+        title={Text("Проверить маску текста")},
+        text={Text("Не все символы были выделены автоматически. Будут удалены только пиксели жёлтой маски. Проверьте, что все нужные буквы отмечены кистью.")},
+        confirmButton={TextButton({confirmManualText=false;processSelection(confirmedManual=true)}){Text("Удалить выделенное")}},
+        dismissButton={TextButton({confirmManualText=false}){Text("Уточнить")}})
 
     fun processGlare() {
         if (busy) return
@@ -1153,6 +1164,12 @@ internal fun ObjectRemovalPanel(
                             }
                         }
                     } else {
+                        if(selectedMode==AiEraserMode.MANUAL)for(guide in manualTextGuides){
+                            drawRect(yellow.copy(alpha=.75f),
+                                topLeft=Offset(guide.left*size.width,guide.top*size.height),
+                                size=Size((guide.right-guide.left)*size.width,(guide.bottom-guide.top)*size.height),
+                                style=Stroke(width=1.2f))
+                        }
                         // Live traces are hints only; the committed manual path becomes
                         // a real narrow LaMa mask, while auto prompts MobileSAM on release.
                         val visibleTrace = if (selectedMode == AiEraserMode.OBJECTS && !autoMode)
@@ -1270,7 +1287,7 @@ internal fun ObjectRemovalPanel(
                 val actionWidth = minOf(104.dp, (maxWidth - 220.dp).coerceAtLeast(68.dp))
                 EraserStartButton(
                     enabled = !busy && strokes.isNotEmpty(),
-                    onClick = ::processSelection,
+                    onClick = {processSelection()},
                     width = actionWidth,
                 )
                 Box(Modifier.align(Alignment.CenterEnd)) {
@@ -1310,7 +1327,7 @@ internal fun ObjectRemovalPanel(
                     contentAlignment = Alignment.Center) {
                     EraserStartButton(
                         enabled = !busy && strokes.isNotEmpty(),
-                        onClick = ::processSelection,
+                        onClick = {processSelection()},
                     )
                 }
             }
@@ -1323,7 +1340,7 @@ internal fun ObjectRemovalPanel(
                     enabled = !busy && (glyphs.isEmpty() || selectedGlyphs.isNotEmpty()),
                     label = if (glyphs.isEmpty()) "Найти текст" else "Начать",
                     width = if (glyphs.isEmpty()) 132.dp else 104.dp,
-                    onClick = ::processSelection,
+                    onClick = {processSelection()},
                 )
             }
         }
@@ -1373,7 +1390,7 @@ internal fun ObjectRemovalPanel(
                                     strokes.isNotEmpty()))),
                         label = if (detectedPeople.isEmpty()) "Найти людей" else "Начать",
                         width = if (detectedPeople.isEmpty()) 132.dp else 104.dp,
-                        onClick = if (detectedPeople.isEmpty()) ::findPeople else ::processSelection,
+                        onClick = { if (detectedPeople.isEmpty()) findPeople() else processSelection() },
                     )
                 }
                 if (detectedPeople.isNotEmpty()) {
@@ -1457,6 +1474,7 @@ internal fun ObjectRemovalPanel(
             onMode = { mode ->
                 featureNotice = null
                 selectedMode = mode
+                manualTextGuides=emptyList();confirmManualText=false
                 refiningPeople = false
                 if (mode == AiEraserMode.OBJECTS) autoMode = mobileReady
                 textMode = mode == AiEraserMode.TEXT
