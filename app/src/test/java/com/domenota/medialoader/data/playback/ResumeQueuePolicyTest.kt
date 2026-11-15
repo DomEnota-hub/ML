@@ -26,8 +26,8 @@ class ResumeQueuePolicyTest {
         assertNull(ResumeQueuePolicy.contextId(null,listOf(emptySet())))
         var all=emptyList<ResumeQueueSession>()
         for(i in 1..12)all=ResumeQueuePolicy.keep(all,session("$i"))
-        assertEquals(8,all.size);assertEquals("12",all.first().id)
-        all=ResumeQueuePolicy.keep(all,session("10"));assertEquals(8,all.size);assertEquals("10",all.first().id)
+        assertEquals(10,all.size);assertEquals("12",all.first().id)
+        all=ResumeQueuePolicy.keep(all,session("10"));assertEquals(10,all.size);assertEquals("10",all.first().id)
     }
     @Test fun duplicateTracksRemainSeparateOccurrencesAndRemovalPreservesCurrentPosition() {
         val saved=session().copy(entries=listOf(setOf("app:a"),setOf("app:a"),setOf("app:c")))

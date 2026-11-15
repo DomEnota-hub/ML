@@ -39,11 +39,13 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
             check(ref.appDownloadId==null||current!=null&&!current.isPrivate&&!current.hidden&&current.savedUri==ref.item.savedUri){"Файл изменился"}
             MediaOrganizationPolicy.keys(ref).also{require(it.isNotEmpty()){"Не подтверждён адрес файла"}}
         }
-        val existing=dao.members(collectionId).map{MediaOrganizationPolicy.decode(it.identityJson)}.toMutableList()
+        val members=dao.members(collectionId)
+        var next=(members.maxOfOrNull{it.sortOrder?:it.addedAt}?:-1L)+1L
+        val existing=members.map{MediaOrganizationPolicy.decode(it.identityJson)}.toMutableList()
         keys.forEach{identity->
             if(existing.none{old->old.any(identity::contains)}){
                 dao.insertMember(MediaCollectionMemberEntity(UUID.randomUUID().toString(),collectionId,
-                    MediaOrganizationPolicy.encode(identity),null,System.currentTimeMillis()))
+                    MediaOrganizationPolicy.encode(identity),null,System.currentTimeMillis(),next++))
                 existing+=identity
             }
         }
@@ -55,8 +57,22 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
     suspend fun addLink(collectionId:String,raw:String)=db.withTransaction {
         val link=MediaOrganizationPolicy.link(raw)
         check(dao.collection(collectionId)!=null){"Коллекция удалена"}
-        if(dao.members(collectionId).none{it.link==link})
-            dao.insertMember(MediaCollectionMemberEntity(UUID.randomUUID().toString(),collectionId,null,link,System.currentTimeMillis()))
+        val members=dao.members(collectionId)
+        if(members.none{it.link==link})
+            dao.insertMember(MediaCollectionMemberEntity(UUID.randomUUID().toString(),collectionId,null,link,System.currentTimeMillis(),
+                (members.maxOfOrNull{it.sortOrder?:it.addedAt}?:-1L)+1L))
+    }
+    /** Reorder only the supplied visible slots. Reject stale snapshots; leave timestamps and identities intact. */
+    suspend fun reorder(collectionId:String,expected:List<String>,ordered:List<String>)=db.withTransaction {
+        val members=dao.members(collectionId)
+        val ids=members.map{it.id}
+        check(ordered.size==expected.size && ordered.toSet()==expected.toSet() && expected.distinct()==expected)
+        check(ids.filter{it in expected.toSet()}==expected){"Состав коллекции изменился"}
+        check(members.filter{it.id in expected.toSet()}.all{it.link==null}){"Ссылки не переставляются"}
+        val iterator=ordered.iterator()
+        ids.map{if(it in expected.toSet())iterator.next() else it}.forEachIndexed{index,id->
+            check(dao.updateMemberOrder(collectionId,id,index.toLong())==1)
+        }
     }
     suspend fun remove(collectionId:String,id:String){dao.removeMember(collectionId,id)}
     suspend fun removeSelection(collectionId:String,ids:List<String>)=db.withTransaction {

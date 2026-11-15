@@ -33,12 +33,12 @@ class MediaOrganizationMigrationTest {
                 old.execSQL("INSERT INTO catalog_assignments(downloadId,folderId,isFavorite) VALUES('old','folder',1)")
                 old.version=12
             }
-            val db=Room.databaseBuilder(context,HistoryDatabase::class.java,name).addMigrations(MEDIA_ORGANIZATION_MIGRATION).allowMainThreadQueries().build()
+            val db=Room.databaseBuilder(context,HistoryDatabase::class.java,name).addMigrations(MEDIA_ORGANIZATION_MIGRATION,COLLECTION_ORDER_MIGRATION).allowMainThreadQueries().build()
             opened=db
             assertEquals("old.jpg",db.downloadDao().byId("old")?.originalName)
             assertEquals("folder",db.catalogDao().assignmentById("old")?.folderId)
             assertTrue(db.catalogDao().assignmentById("old")!!.isFavorite)
-            assertEquals(13,db.openHelper.writableDatabase.version)
+            assertEquals(14,db.openHelper.writableDatabase.version)
             assertTrue(db.organizationDao().observeCollections().first().isEmpty())
             assertTrue(db.organizationDao().observeReview().first().isEmpty())
         }finally{opened?.close();context.deleteDatabase(name)}
