@@ -64,7 +64,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
     }
     fun failure(w: Work, reason: String) {
         outcomes[w.track.id] = Outcome(w.track.filename,false,reason)
-        AppLog.w("Trash", "Duplicate transfer not confirmed · id=${w.track.id} · $reason")
+        AppLog.w("Trash", "Duplicate transfer not confirmed")
     }
     fun groupStillSafe(w: Work): Boolean {
         // Only the explicitly unselected members can serve as keepers. Never count an
@@ -97,24 +97,38 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
             check(live != null && live.appDownloadId == w.appId && VisualDuplicateScanner.matchesCatalog(snapshot,live)) { "Каталог изменился" }
             return
         }
-        val keepers = w.group.tracks.filter { it.id !in request.selected && latestRefs[it.id]?.item?.savedUri == it.uri }
-        val checkGroup = w.group.copy(tracks = listOf(w.track) + keepers)
-        val rows = checkGroup.tracks.mapNotNull { latestRefs[it.id]?.item?.copy(id = it.id) }
-        MusicDuplicateScanner.verify(context,listOf(checkGroup),setOf(w.track.id),rows)
+        val keepers = w.group.tracks.filter { it.id !in request.selected && it.uri!=w.track.uri && latestRefs[it.id]?.item?.savedUri == it.uri }
+        var safe=false
+        for(keeper in keepers){
+            val checkGroup=w.group.copy(tracks=listOf(w.track,keeper))
+            val rows=checkGroup.tracks.mapNotNull{latestRefs[it.id]?.item?.copy(id=it.id)}
+            try{
+                MusicDuplicateScanner.verify(context,listOf(checkGroup),setOf(w.track.id),rows)
+                safe=true;break
+            }catch(e:CancellationException){throw e}catch(_:Exception){ }
+        }
+        check(safe){"Файл или сохраняемый экземпляр не прошёл проверку"}
+        val live=latestRefs[w.track.id]
+        check(live!=null&&live.item.savedUri==w.track.uri&&live.appDownloadId==w.appId&&
+            !live.item.hidden&&!live.item.isPrivate&&live.key!=latestCurrent&&w.track.id!=latestCurrent){"Запись или текущий трек изменились"}
     }
     suspend fun success(w: Work) {
         outcomes[w.track.id] = Outcome(w.track.filename,true,"Перемещено")
-        AppLog.i("Trash", "Duplicate transfer confirmed · id=${w.track.id}")
+        AppLog.i("Trash", "Duplicate transfer confirmed")
         // File movement is already confirmed; a journal failure must never trigger
         // another deletion of the same URI.
         try { latestOnTrashed(setOf(w.track.uri)) }
         catch (e: CancellationException) { throw e }
         catch (_: Exception) { outcomes[w.track.id] = Outcome(w.track.filename,true,"Перемещено; журнал требует обновления") }
     }
-    LaunchedEffect(request) {
-        request.failures.forEach { (id,why) -> outcomes[id] = Outcome(tracks[id]?.filename ?: id,false,why) }
+    // Initialization and processing share one coroutine. Never restart a worker
+    // merely because its own initialization flag changes.
+    LaunchedEffect(request, revision) {
+        if(waiting||finished)return@LaunchedEffect
+        if(!initialized){
+        request.failures.filterKeys{it in request.selected}.forEach { (id,why) -> outcomes[id] = Outcome(tracks[id]?.filename ?: "Файл",false,why) }
         queue = request.groups.flatMap { group ->
-            group.tracks.filter { it.id in request.verified }.mapNotNull { t ->
+            group.tracks.filter { it.id in request.verified && it.id in request.selected && it.id !in outcomes }.mapNotNull { t ->
                 val ref = latestRefs[t.id]
                 if (ref == null || ref.item.savedUri != t.uri || ref.item.isPrivate || ref.item.hidden || ref.item.mediaType != (visual?.get(t.id)?.type ?: MediaType.AUDIO)) {
                     outcomes[t.id] = Outcome(t.filename,false,"Запись изменилась"); null
@@ -122,9 +136,13 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
             }
         }
         initialized = true
-    }
-    LaunchedEffect(initialized, revision) {
-        if (!initialized || waiting || finished) return@LaunchedEffect
+        }
+        fun finishReport(){
+            request.unaccounted(outcomes.keys).forEach{id->
+                outcomes[id]=Outcome(tracks[id]?.filename?:"Файл",false,"Перемещение не подтверждено. Проверьте файл и повторите.")
+            }
+            finished=true
+        }
         val answer = consentResult
         if (answer != null) {
             val batch = pending
@@ -138,7 +156,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
             consentResult = null
             if (answer != Activity.RESULT_OK) {
                 queue.forEach { failure(it,"Операция остановлена после отмены разрешения") }
-                queue = emptyList(); finished = true
+                queue = emptyList(); finishReport()
                 return@LaunchedEffect
             }
         }
@@ -204,7 +222,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                 }
             }
         }
-        finished = true
+        finishReport()
     }
     if (finished) {
         val ok = outcomes.values.count { it.success }
