@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.components
 import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 
+import com.domenota.medialoader.ui.model.displayFileName
 import android.content.ComponentName
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -71,6 +72,7 @@ fun AudioMiniPlayer(
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var mediaId by remember { mutableStateOf<String?>(null) }
     var title by remember { mutableStateOf("") }
+    var titleIsFilename by remember { mutableStateOf(false) }
     var artist by remember { mutableStateOf<String?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var mediaCount by remember { mutableStateOf(0) }
@@ -89,6 +91,7 @@ fun AudioMiniPlayer(
                     controller = connected
                     mediaId = connected.currentMediaItem?.mediaId
                     title = connected.mediaMetadata.title?.toString().orEmpty()
+                    titleIsFilename = connected.mediaMetadata.extras?.getBoolean(AudioPlaybackMetadata.FILENAME_TITLE) == true
                     artist = connected.mediaMetadata.artist?.toString()
                     isPlaying = connected.isPlaying
                     mediaCount = connected.mediaItemCount
@@ -111,6 +114,7 @@ fun AudioMiniPlayer(
             fun sync(mediaItem: MediaItem? = active.currentMediaItem) {
                 mediaId = mediaItem?.mediaId
                 title = active.mediaMetadata.title?.toString().orEmpty()
+                titleIsFilename = active.mediaMetadata.extras?.getBoolean(AudioPlaybackMetadata.FILENAME_TITLE) == true
                 artist = active.mediaMetadata.artist?.toString()
                 isPlaying = active.playWhenReady
                 mediaCount = active.mediaItemCount
@@ -141,6 +145,7 @@ fun AudioMiniPlayer(
                 override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
                     privateMedia = mediaMetadata.extras?.getBoolean("private_media") == true
                     title = mediaMetadata.title?.toString().orEmpty()
+                    titleIsFilename = mediaMetadata.extras?.getBoolean(AudioPlaybackMetadata.FILENAME_TITLE) == true
                     artist = mediaMetadata.artist?.toString()
                     savedUri = mediaMetadata.extras?.getString(AudioPlaybackMetadata.PUBLIC_URI)
                         ?: active.currentMediaItem?.localConfiguration?.uri?.toString()
@@ -185,7 +190,7 @@ fun AudioMiniPlayer(
                         DownloadThumbnail(savedUri, artworkUri, MediaKind.AUDIO, Modifier.fillMaxSize())
                     }
                     Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-                        Text(title.ifBlank { "Аудио" }, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                        Text((if(titleIsFilename) displayFileName(title, MediaKind.AUDIO) else title).ifBlank { "Аудио" }, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
                         if (!artist.isNullOrBlank()) Text(artist.orEmpty(), Modifier.padding(top = 3.dp), fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }

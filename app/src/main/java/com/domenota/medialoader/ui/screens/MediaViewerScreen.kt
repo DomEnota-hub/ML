@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.ui.model.displayFileName
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -261,7 +262,7 @@ fun MediaViewerScreen(
                                 modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurface)
                         }
                         Text(
-                            displayedItem.originalName,
+                            displayFileName(displayedItem),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.titleMedium,

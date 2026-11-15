@@ -1,5 +1,8 @@
 package com.domenota.medialoader.ui.screens.music
 
+import com.domenota.medialoader.ui.model.FileNameDisplay
+import com.domenota.medialoader.ui.model.LocalFileNameDisplay
+import com.domenota.medialoader.ui.model.displayFileName
 import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
@@ -334,7 +337,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                             DownloadThumbnail(t.uri,null,MediaKind.AUDIO,Modifier.size(44.dp))
                                             Column(Modifier.weight(1f).padding(start=8.dp)) {
                                                 Text(t.title, fontWeight = FontWeight.Medium,maxLines=2,overflow=TextOverflow.Ellipsis)
-                                                Text(t.filename,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                                Text(displayFileName(t.filename,MediaKind.AUDIO),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
                                                 Text(listOfNotNull(t.artist, t.duration?.let { "%d:%02d".format(it/60000,it/1000%60) }, t.bitrate?.let { "${it/1000} кбит/с" }, android.text.format.Formatter.formatFileSize(context,t.bytes)).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                                                 t.folder?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                                 MusicDuplicatePolicy.version(t)?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
@@ -434,7 +437,10 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     if(showPartial&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
         text={LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             item{Text("Только просмотр. Перемещение в корзину доступно после завершения.")}
-            items(partial.groups,key={it.key}){g->Column{Text(g.title,style=MaterialTheme.typography.titleMedium);Text(g.tracks.joinToString("\n"){it.filename},style=MaterialTheme.typography.bodySmall)}}
+            items(partial.groups,key={it.key}){g->
+                val hide = LocalFileNameDisplay.current.hide
+                Column{Text(g.title,style=MaterialTheme.typography.titleMedium);Text(g.tracks.joinToString("\n"){FileNameDisplay.name(it.filename,MediaKind.AUDIO,hide)},style=MaterialTheme.typography.bodySmall)}
+            }
         }},confirmButton={TextButton({showPartial=false}){Text("Закрыть")}})
     comparing?.takeIf{g->g.tracks.all{DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id)}}?.let{g->
         DuplicateMusicComparison(g,kept[g.key]?:MusicDuplicatePolicy.recommended(g),previewId,previewPlaying,player,

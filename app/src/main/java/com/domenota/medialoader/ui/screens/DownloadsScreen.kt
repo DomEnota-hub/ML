@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.ui.model.displayFileName
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.CircleShape
@@ -864,8 +865,9 @@ private fun SourceChip(label: String, source: String?, active: Boolean, onClick:
 @Composable
 private fun HistorySelectionCard(file: DownloadUiItem, checked: Boolean, onToggle: () -> Unit,
     onPreview: () -> Unit, grid: Boolean, modifier: Modifier = Modifier) {
+    val shownName = displayFileName(file.title, file.kind)
     val marker: @Composable () -> Unit = {
-        Box(Modifier.size(42.dp).semantics { contentDescription = "Выбрать ${file.title}" }
+        Box(Modifier.size(42.dp).semantics { contentDescription = "Выбрать $shownName" }
             .toggleable(checked, role = Role.Checkbox, onValueChange = { onToggle() }), contentAlignment = Alignment.Center) {
             val color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             Box(Modifier.size(24.dp).background(if (checked) color else Color.Black.copy(alpha=.25f), CircleShape)
@@ -875,17 +877,17 @@ private fun HistorySelectionCard(file: DownloadUiItem, checked: Boolean, onToggl
         }
     }
     if (grid) Box(modifier.aspectRatio(1f).clip(RoundedCornerShape(10.dp))
-        .semantics { contentDescription = file.title }.clickable(onClick=onPreview)) {
+        .semantics { contentDescription = shownName }.clickable(onClick=onPreview)) {
         DownloadThumbnail(file.savedUri,file.previewUrl,file.kind,Modifier.fillMaxSize())
         Box(Modifier.align(Alignment.TopStart)) { marker() }
     } else Row(modifier.background(MaterialTheme.colorScheme.surfaceVariant,RoundedCornerShape(15.dp))
         .padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
         marker()
-        Row(Modifier.weight(1f).semantics { contentDescription=file.title }.clickable(onClick=onPreview),
+        Row(Modifier.weight(1f).semantics { contentDescription=shownName }.clickable(onClick=onPreview),
             verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
             DownloadThumbnail(file.savedUri,file.previewUrl,file.kind,Modifier.size(52.dp))
             Column(Modifier.weight(1f)) {
-                Text(file.title,maxLines=2,style=MaterialTheme.typography.bodyMedium,overflow=TextOverflow.Ellipsis)
+                Text(shownName,maxLines=2,style=MaterialTheme.typography.bodyMedium,overflow=TextOverflow.Ellipsis)
                 Text(file.subtitle,maxLines=1,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

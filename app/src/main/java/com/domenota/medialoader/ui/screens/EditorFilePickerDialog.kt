@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.ui.model.displayFileName
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -222,7 +223,7 @@ internal fun EditorFilePickerDialog(
                                 DownloadThumbnail(file.savedUri, file.previewUrl, file.kind,
                                     Modifier.fillMaxWidth().aspectRatio(1f)
                                         .clip(RoundedCornerShape(9.dp)))
-                                Text(file.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                Text(displayFileName(file.title, file.kind), maxLines = 2, overflow = TextOverflow.Ellipsis,
                                     fontSize = 10.sp, lineHeight = 12.sp,
                                     modifier = Modifier.padding(top = 3.dp))
                             }
@@ -239,7 +240,7 @@ internal fun EditorFilePickerDialog(
                                 DownloadThumbnail(file.savedUri, file.previewUrl, file.kind,
                                     Modifier.size(54.dp).clip(RoundedCornerShape(9.dp)))
                                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                    Text(file.title, maxLines = 2,
+                                    Text(displayFileName(file.title, file.kind), maxLines = 2,
                                         style = MaterialTheme.typography.bodyMedium,
                                         overflow = TextOverflow.Ellipsis)
                                     Text(file.subtitle, maxLines = 1,

@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.ui.model.displayAudioTitle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -249,7 +250,7 @@ internal fun MusicModeScreen(
             if (hiddenTracks.isEmpty()) item { Text("Нет скрытых треков") }
             items(hiddenTracks, key = { it.id }) { track ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(track.recognizedTitle ?: track.sourceAudioTitle ?: track.originalName,
+                    Text(displayAudioTitle(track),
                         Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                     val singleTrackQueue = HiddenMusicPreview.queue(track, hiddenTrackKeys)
                     IconButton(

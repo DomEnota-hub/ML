@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.ui.model.displayFileName
 import com.domenota.medialoader.ui.components.AppNotice
 import androidx.compose.foundation.border
 
@@ -851,9 +852,10 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
                              onFolder: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit, onRename: () -> Unit, onPrivate: () -> Unit,
                              selecting: Boolean, selected: Boolean, onSelect: () -> Unit,
                              onLongSelect: () -> Unit, highlighted: Boolean = false) {
+    val shownName = displayFileName(item)
     var menu by remember { mutableStateOf(false) }
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
-        .semantics { contentDescription = item.originalName }
+        .semantics { contentDescription = shownName }
         .combinedClickable(onClick = onOpen, onLongClick = onLongSelect, onLongClickLabel = "Выбрать файл")) {
         DownloadThumbnail(item.savedUri, item.previewUrl, item.toUi().kind, Modifier.fillMaxSize(), progressive = true)
         if (highlighted) Box(Modifier.matchParentSize().border(3.dp, if (com.domenota.medialoader.ui.theme.isDarkPalette) com.domenota.medialoader.ui.theme.AppGold else com.domenota.medialoader.ui.theme.LightAppAccent))
@@ -867,7 +869,7 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
             }
         }
         else IconButton({ menu = true }, Modifier.align(Alignment.TopEnd).size(32.dp)) {
-            Icon(Icons.Rounded.MoreVert, "Действия: ${item.originalName}", tint = Color.White,
+            Icon(Icons.Rounded.MoreVert, "Действия: $shownName", tint = Color.White,
                 modifier = Modifier.background(Color.Black.copy(alpha = .3f), RoundedCornerShape(8.dp)).size(22.dp))
         }
         if (item.mediaType == MediaType.VIDEO) Row(Modifier.align(Alignment.BottomEnd).padding(4.dp)

@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens.music
 
+import com.domenota.medialoader.ui.model.displayAudioTitle
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -72,7 +73,7 @@ internal fun MusicDayStatsScreen(interval:SmartStatsInterval,snapshot:SmartMusic
                         Text("Топ треков",style=MaterialTheme.typography.titleMedium)
                         ranked.take(5).forEachIndexed{index,entry->
                             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                                Text("${index+1}. ${audioTitle(rows.getValue(entry.rowId))}",Modifier.weight(1f),maxLines=2,
+                                Text("${index+1}. ${displayAudioTitle(rows.getValue(entry.rowId))}",Modifier.weight(1f),maxLines=2,
                                     overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                                 Text(entry.periodPlays.toString(),color=MaterialTheme.colorScheme.primary)
                             }
@@ -115,7 +116,7 @@ internal fun MusicDayStatsScreen(interval:SmartStatsInterval,snapshot:SmartMusic
                         else->"Сеанс начат раньше"
                     }
                     Text(timeLabel,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
-                    Text(audioTitle(row),style=MaterialTheme.typography.bodyLarge)
+                    Text(displayAudioTitle(row),style=MaterialTheme.typography.bodyLarge)
                     audioArtist(row)?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
                     Text(listeningTime(entry.wallMs)+if(entry.creditedAt!=null)" · Засчитано прослушивание" else "",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     if(entry.legacyAttribution)Text("Часть времени относится к последней сохранённой дате; точной разбивки нет.",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

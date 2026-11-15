@@ -82,4 +82,18 @@ class AudioPlaybackMetadataTest {
         val secret = AudioPlaybackMetadata.item(row("private", true), emptySet())
         assertEquals(secret, AudioPlaybackMetadata.revisedItem(secret, row()))
     }
+    @Test fun filenameProvenanceSurvivesBundleAndTagRefreshWithoutChangingIdentity() {
+        val raw = row().copy(sourceAudioTitle = null)
+        val media = AudioPlaybackMetadata.item(raw, setOf("file-stat:identity"))
+        assertTrue(media.mediaMetadata.extras!!.getBoolean(AudioPlaybackMetadata.FILENAME_TITLE))
+        val restored = AudioPlaybackMetadata.publicSessionRows(listOf(MediaItem.fromBundle(media.toBundle())), emptyList(), emptySet()).single()
+        assertEquals(raw.originalName, restored.originalName)
+        assertNull(restored.sourceAudioTitle)
+        assertEquals(raw.id, restored.id)
+        val revised = AudioPlaybackMetadata.revisedItem(media, raw.copy(recognizedTitle = "Title.mp3"))
+        assertFalse(revised.mediaMetadata.extras!!.getBoolean(AudioPlaybackMetadata.FILENAME_TITLE))
+        assertEquals("Title.mp3", revised.mediaMetadata.title.toString())
+        assertEquals(media.mediaId, revised.mediaId)
+        assertEquals(media.mediaMetadata.extras!!.getString(AudioPlaybackMetadata.PUBLIC_URI), revised.mediaMetadata.extras!!.getString(AudioPlaybackMetadata.PUBLIC_URI))
+    }
 }

@@ -22,16 +22,9 @@ import com.domenota.medialoader.ui.components.NoticeSheet
 import com.domenota.medialoader.ui.components.CachedDownloadThumbnail
 import com.domenota.medialoader.ui.model.MediaKind
 
-internal fun missingCollectionDisplayName(row: DownloadEntity): String {
-    val extensions = when(row.mediaType) {
-        MediaType.PHOTO -> setOf("jpg","jpeg","png","webp","gif","heic","heif","bmp","avif")
-        MediaType.VIDEO -> setOf("mp4","mkv","webm","mov","avi","m4v","3gp")
-        MediaType.AUDIO -> setOf("mp3","m4a","aac","flac","ogg","opus","wav","wma")
-    }
-    val name=row.originalName
-    val extension=name.substringAfterLast('.', "")
-    return if(extension.lowercase(java.util.Locale.ROOT) in extensions && name.substringBeforeLast('.').isNotBlank()) name.substringBeforeLast('.') else name
-}
+// The missing-file sheet always omits known extensions, independent of the global toggle.
+internal fun missingCollectionDisplayName(row: DownloadEntity): String =
+    com.domenota.medialoader.ui.model.FileNameDisplay.name(row, hide = true)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -63,6 +63,9 @@ jobs:
       - name: In-app notices and Instagram mode regression tests
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*NoticePolicyTest' --tests '*AppNoticeControllerTest' --tests '*NoticeCardInteractionTest' --tests '*InstagramModeToggleTest' --tests '*InstagramShareRoutingTest' --tests '*DownloadsGroupActionsUiTest' --stacktrace
+      - name: File name display and settings palette regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*FileNameDisplay*Test' --tests '*SettingsIconPaletteTest' --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint

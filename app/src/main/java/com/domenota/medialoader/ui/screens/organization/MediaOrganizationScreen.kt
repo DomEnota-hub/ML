@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens.organization
 
+import com.domenota.medialoader.ui.model.displayFileName
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -89,7 +90,7 @@ private fun MediaLine(row:DownloadEntity,onOpen:()->Unit,actions:@Composable Row
     Row(Modifier.fillMaxWidth().padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
         DownloadThumbnail(row.savedUri,row.previewUrl,row.mediaType.kind(),Modifier.size(54.dp).clip(RoundedCornerShape(9.dp)))
         Column(Modifier.weight(1f).clickable(onClick=onOpen)){
-            Text(row.originalName,maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodyLarge)
+            Text(displayFileName(row),maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodyLarge)
             Text(row.mediaType.caption(),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         actions()
@@ -433,7 +434,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                         Row(Modifier.fillMaxWidth().clickable{if(selecting)toggleMember(member.id) else onLink(url)}.padding(8.dp),verticalAlignment=Alignment.CenterVertically){
                             if(metadata!=null)DownloadThumbnail(metadata.savedUri,metadata.previewUrl,metadata.mediaType.kind(),Modifier.size(56.dp).clip(RoundedCornerShape(8.dp))) else Icon(Icons.Rounded.Link,null,Modifier.size(48.dp))
                             Column(Modifier.weight(1f).padding(horizontal=8.dp)){
-                                Text(metadata?.originalName?:url,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                Text(if(metadata!=null)displayFileName(metadata) else url,maxLines=2,overflow=TextOverflow.Ellipsis)
                                 Text(runCatching{java.net.URI(url).host}.getOrNull().orEmpty(),style=MaterialTheme.typography.labelSmall)
                             }
                             if(selecting)PickerMark(member.id in chosenMembers,false,enabled=!busy){toggleMember(member.id)}

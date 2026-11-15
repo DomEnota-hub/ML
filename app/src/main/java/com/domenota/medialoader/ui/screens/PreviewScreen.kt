@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.ui.model.displayFileName
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
@@ -718,7 +719,7 @@ internal fun MediaRow(
                         MediaKind.VIDEO -> "MP4"
                         MediaKind.AUDIO -> if (item.providerId == "instagram")
                             "Аудио из публикации" else "Аудио · MP3"
-                        MediaKind.IMAGE -> item.title
+                        MediaKind.IMAGE -> displayFileName(item.title, item.kind)
                     },
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,

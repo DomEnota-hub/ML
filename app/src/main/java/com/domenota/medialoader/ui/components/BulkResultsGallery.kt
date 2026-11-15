@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.components
 
+import com.domenota.medialoader.ui.model.displayFileName
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -184,7 +185,7 @@ private fun BulkResultGridItem(candidate: BulkCandidate, row: DownloadEntity, on
                     Modifier.fillMaxWidth().height(98.dp), progressive = true)
             }
             Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(row.originalName, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                Text(displayFileName(row), maxLines = 2, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelSmall)
                 Text(resultStatus(row), maxLines = 1,
                     color = if (row.state == DownloadState.FAILED) MaterialTheme.colorScheme.error
@@ -209,7 +210,7 @@ private fun BulkResultListItem(candidate: BulkCandidate, row: DownloadEntity, on
                     Modifier.size(68.dp), progressive = true)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(row.originalName, style = MaterialTheme.typography.bodyMedium,
+                Text(displayFileName(row), style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(resultStatus(row), style = MaterialTheme.typography.bodySmall,
                     color = if (row.state == DownloadState.FAILED) MaterialTheme.colorScheme.error

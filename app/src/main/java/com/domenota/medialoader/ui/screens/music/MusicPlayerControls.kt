@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens.music
 import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 
+import com.domenota.medialoader.ui.model.displayAudioTitle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -52,7 +53,7 @@ internal fun MusicPlayerControls(
             DownloadThumbnail(item.savedUri, item.recognitionArtworkUrl ?: item.sourceAudioArtworkUrl ?: item.previewUrl,
                 item.toUi().kind, Modifier.fillMaxSize())
         }
-        Text(audioTitle(item), Modifier.padding(horizontal = 17.dp), fontSize = 22.sp, fontWeight = FontWeight.Medium,
+        Text(displayAudioTitle(item), Modifier.padding(horizontal = 17.dp), fontSize = 22.sp, fontWeight = FontWeight.Medium,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
         audioArtist(item)?.let { Text(it, Modifier.padding(top = 5.dp, start = 17.dp, end = 17.dp), fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }

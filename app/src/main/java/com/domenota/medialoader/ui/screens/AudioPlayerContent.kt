@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens
 import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 
+import com.domenota.medialoader.ui.model.displayAudioTitle
 import android.content.ComponentName
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -356,7 +357,7 @@ fun BackgroundAudioPlayer(
         }
         Spacer(Modifier.height(24.dp))
         Text(
-            audioTitle(currentItem),
+            displayAudioTitle(currentItem),
             style = MaterialTheme.typography.titleLarge,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
