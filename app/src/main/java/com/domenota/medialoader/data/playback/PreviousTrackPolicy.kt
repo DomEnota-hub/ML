@@ -11,7 +11,11 @@ internal object PreviousTrackPolicy{
     fun previous(player:Player){
         if(player.mediaItemCount==0)return
         if(restart(player.currentPosition,player.hasPreviousMediaItem())){
+            // Before preparation the placeholder timeline may not yet advertise in-item
+            // seeking, although the local ExoPlayer accepts an indexed seek.
             if(player.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM))player.seekTo(0L)
+            else if(player.isCommandAvailable(Player.COMMAND_SEEK_TO_MEDIA_ITEM))
+                player.seekTo(player.currentMediaItemIndex,0L)
         }else if(player.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)){
             player.seekToPreviousMediaItem()
         }
