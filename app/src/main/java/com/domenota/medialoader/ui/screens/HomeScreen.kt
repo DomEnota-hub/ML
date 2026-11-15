@@ -9,6 +9,7 @@ import androidx.compose.material.icons.rounded.PanTool
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -244,11 +245,11 @@ internal fun InstagramModeToggle() {
             .clickable(role = Role.Switch) { InstagramShareSettings.toggle(context) },
     ) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Icon(if (automatic) Icons.Rounded.Bolt else Icons.Rounded.PanTool,
-                null, Modifier.size(20.dp), tint = foreground)
-            Text(if (automatic) "Авто" else "Ручной", style = MaterialTheme.typography.labelLarge,
+                null, Modifier.size(20.dp).testTag("instagram-share-mode-icon"), tint = foreground)
+            Text(if (automatic) "Авто" else "Ручной", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
                 maxLines = 1, color = foreground)
         }
     }

@@ -5,7 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.Settings
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
@@ -29,7 +29,7 @@ internal fun MediaManagementAccessPrompt(enabled: Boolean) {
             dismiss()
             try { context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,
                 Uri.parse("package:${context.packageName}"))) }
-            catch (_: Exception) { Toast.makeText(context, "Откройте доступ через настройки приложения", Toast.LENGTH_LONG).show() }
+            catch (_: Exception) { AppNotice.post(context, "Откройте доступ через настройки приложения") }
         }) { Text("Разрешить") } },
         dismissButton = { TextButton(::dismiss) { Text("Не сейчас") } })
 }

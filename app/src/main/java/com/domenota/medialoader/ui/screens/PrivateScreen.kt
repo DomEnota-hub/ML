@@ -1,6 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -72,13 +72,13 @@ fun PrivateScreen(
         scope.launch {
             try { block() }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (error: Exception) { Toast.makeText(context, error.message ?: "Не удалось выполнить действие", Toast.LENGTH_LONG).show() }
+            catch (error: Exception) { AppNotice.post(context, "Не удалось выполнить действие") }
             finally { busy = false }
         }
     }
     suspend fun batch(ids: List<String>, block: suspend (String) -> Unit) {
         val result = runFileBatch(ids, block)
-        Toast.makeText(context, result.summary, Toast.LENGTH_LONG).show()
+        AppNotice.postBatch(context, "Результат операции", result, "Обработано")
     }
     LaunchedEffect(state.unlocked) {
         if (!state.unlocked) { deleteTarget = null; folderTarget = null }

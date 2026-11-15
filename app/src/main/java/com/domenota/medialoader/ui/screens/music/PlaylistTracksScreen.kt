@@ -1,6 +1,6 @@
 package com.domenota.medialoader.ui.screens.music
 
-import android.widget.Toast
+import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -115,8 +115,8 @@ internal fun PlaylistTracksScreen(
                         val ready = pending.addedKeys.filter { it in valid }
                         if (ready.isEmpty()) { error = "Выбранные треки больше недоступны"; return@launch }
                         onAdd(ready)
-                        if (ready.size != pending.addedKeys.size) Toast.makeText(context,
-                            "Добавлено: ${ready.size}. Недоступно: ${pending.addedKeys.size - ready.size}", Toast.LENGTH_LONG).show()
+                        if (ready.size != pending.addedKeys.size) AppNotice.post(context,
+                            "Добавлено: ${ready.size}. Недоступно: ${pending.addedKeys.size - ready.size}")
                         onBack()
                     } catch (e: CancellationException) { throw e }
                     catch (e: Exception) { error = e.message ?: "Не удалось добавить треки" }
