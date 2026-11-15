@@ -293,7 +293,7 @@ fun SettingsScreen(
     var advancedDownloadToolsVisible by remember {
         mutableStateOf(prefs.getBoolean("bulk_visible", false))
     }
-    var automaticInstagram by remember { mutableStateOf(InstagramShareSettings.isAutomatic(context)) }
+    val automaticInstagram = InstagramShareSettings.rememberAutomatic()
     var notificationsEnabled by remember { mutableStateOf(prefs.getBoolean("notifications", true)) }
     var systemNotificationsAllowed by remember { mutableStateOf(false) }
 
@@ -722,7 +722,6 @@ fun SettingsScreen(
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             InstagramShareSettings.setAutomatic(context, automatic)
-                            automaticInstagram = automatic
                             instagramModeDialog = false
                         }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -731,8 +730,7 @@ fun SettingsScreen(
                             selected = automaticInstagram == automatic,
                             onClick = {
                                 InstagramShareSettings.setAutomatic(context, automatic)
-                                automaticInstagram = automatic
-                                instagramModeDialog = false
+                                    instagramModeDialog = false
                             },
                         )
                         Column(Modifier.padding(start = 8.dp)) {

@@ -1,6 +1,19 @@
 package com.domenota.medialoader.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.rounded.PanTool
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import com.domenota.medialoader.data.share.InstagramShareSettings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -72,7 +85,25 @@ fun HomeScreen(
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
-        if (title != null) title() else Text("Загрузчик", style = MaterialTheme.typography.headlineLarge)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val fontScale = LocalDensity.current.fontScale
+            if (maxWidth >= 320.dp && fontScale <= 1.15f) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        if (title != null) title() else Text("Загрузчик", style = MaterialTheme.typography.headlineLarge)
+                    }
+                    InstagramModeToggle()
+                }
+            } else {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+                    Box(Modifier.fillMaxWidth()) {
+                        if (title != null) title() else Text("Загрузчик", style = MaterialTheme.typography.headlineLarge)
+                    }
+                    InstagramModeToggle()
+                }
+            }
+        }
         Spacer(Modifier.height(5.dp))
         Text("Скачивание медиа из Instagram, YouTube, VK и RUTUBE",
             style = MaterialTheme.typography.bodyMedium,
@@ -188,6 +219,37 @@ private fun SourceCard(id: String, title: String, modifier: Modifier, onOpen: (S
             Spacer(Modifier.height(8.dp))
             Text(title, style = MaterialTheme.typography.labelSmall,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+
+/** Stable button geometry; only the current glyph, label and palette change. */
+@Composable
+internal fun InstagramModeToggle() {
+    val context = LocalContext.current
+    val automatic = InstagramShareSettings.rememberAutomatic()
+    val colors = MaterialTheme.colorScheme
+    val foreground = if (automatic) colors.onPrimary else colors.onSurface
+    val background = if (automatic) colors.primary else colors.surfaceContainerHigh
+    val fontScale = LocalDensity.current.fontScale
+    Surface(
+        color = background, contentColor = foreground, shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.width((112 * fontScale.coerceAtLeast(1f)).dp)
+            .heightIn(min = 48.dp)
+            .semantics {
+                contentDescription = "Режим загрузки Instagram"
+                stateDescription = if (automatic) "Автоматический" else "Ручной"
+            }
+            .clickable(role = Role.Switch) { InstagramShareSettings.toggle(context) },
+    ) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically) {
+            Icon(if (automatic) Icons.Rounded.Bolt else Icons.Rounded.PanTool,
+                null, Modifier.size(20.dp), tint = foreground)
+            Text(if (automatic) "Авто" else "Ручной", style = MaterialTheme.typography.labelLarge,
+                maxLines = 1, color = foreground)
         }
     }
 }
