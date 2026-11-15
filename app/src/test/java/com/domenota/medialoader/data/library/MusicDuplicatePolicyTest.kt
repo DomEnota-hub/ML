@@ -36,13 +36,15 @@ class MusicDuplicatePolicyTest {
         assertFalse(MusicDuplicatePolicy.validSelection(groups,g.tracks.map{it.id}.toSet()))
         assertTrue(MusicDuplicatePolicy.validSelection(groups,selected-"a"))
     }
-    @Test fun switchKeeperSwapsOnlyWhenExactlyOneRetained() {
+    @Test fun explicitKeeperSelectsAllOtherEligibleTracks() {
         val group = DuplicateGroup(listOf(t("1","Song","A"),t("2","Song","A"),t("3","Song","A")),"Song","Same")
         val selection = setOf("1","3","other")
         assertEquals(setOf("1","2","other"), MusicDuplicatePolicy.switchKeeper(group,selection,"2","3"))
         assertEquals(selection,MusicDuplicatePolicy.switchKeeper(group,selection,"2","2"))
-        assertEquals(setOf("other"),MusicDuplicatePolicy.switchKeeper(group,setOf("3","other"),"2","3"))
+        assertEquals(setOf("1","2","other"),MusicDuplicatePolicy.switchKeeper(group,setOf("3","other"),"2","3"))
         assertEquals(selection,MusicDuplicatePolicy.switchKeeper(group,selection,"2","invalid"))
+        assertEquals(setOf("1","2"),MusicDuplicatePolicy.switchKeeper(group,emptySet(),"2","3"))
+        assertEquals(setOf("2","other"),MusicDuplicatePolicy.switchKeeper(group,setOf("other"),"2","3",setOf("2","3")))
     }
     @Test fun evaExtendedTitleIsCandidateWithoutDurationGate() {
         val g = MusicDuplicatePolicy.groups(listOf(t("a","Ева","Винтаж",duration=251000),t("b","Ева, Я Любила Тебя","Винтаж",duration=196000))).single()
@@ -61,5 +63,14 @@ class MusicDuplicatePolicyTest {
         val groups = MusicDuplicatePolicy.groups(listOf(t("a","Same","A"),t("b","Same",null),t("c","Same","C")))
         assertFalse(groups.any { it.tracks.size == 3 })
         assertEquals(groups.flatMap { it.tracks }.size,groups.flatMap { it.tracks }.map { it.id }.distinct().size)
+    }
+    @Test fun labelsDescribeActualEvidence(){
+        val exact=MusicDuplicatePolicy.groups(listOf(t("a","One","A",sha="same"),t("b","Two","B",sha="same"))).single()
+        assertEquals("Одинаковые файлы",MusicDuplicatePolicy.shortReason(exact))
+        val audio=MusicDuplicatePolicy.groups(listOf(t("a","One","A",payload="same"),t("b","Two","B",payload="same"))).single()
+        assertEquals("Одинаковое аудио",MusicDuplicatePolicy.shortReason(audio))
+        assertEquals("Похожее звучание",MusicDuplicatePolicy.shortReason(audio.copy(kind=DuplicateKind.ACOUSTIC)))
+        val unknown=MusicDuplicatePolicy.groups(listOf(t("a","Song","A"),t("b","Song",null))).single()
+        assertEquals("Похожие названия",MusicDuplicatePolicy.shortReason(unknown))
     }
 }
