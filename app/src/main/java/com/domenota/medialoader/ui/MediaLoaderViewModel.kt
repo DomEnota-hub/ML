@@ -86,6 +86,12 @@ data class PreviewState(
 
 class MediaLoaderViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MediaRepository.get(application)
+    private val _duplicateTrashOperation=MutableStateFlow<com.domenota.medialoader.ui.components.DuplicateTrashOperation?>(null)
+    internal val duplicateTrashOperation=_duplicateTrashOperation.asStateFlow()
+    internal fun startDuplicateTrash(request:com.domenota.medialoader.data.library.DuplicateTrashSelection){
+        if(_duplicateTrashOperation.value==null)_duplicateTrashOperation.value=com.domenota.medialoader.ui.components.DuplicateTrashOperation(request)
+    }
+    internal fun finishDuplicateTrash(){_duplicateTrashOperation.value=null}
     private val editorCoordinator = EditorExportCoordinator.get(application)
     private val analyzeMedia = AnalyzeMedia(repository)
     private val queueMedia = QueueMedia(repository)

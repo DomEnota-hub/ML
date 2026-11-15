@@ -1623,10 +1623,15 @@ class MediaRepository private constructor(context: Context) {
         check(!item.hidden && !item.isPrivate && item.state == DownloadState.COMPLETED &&
             item.mediaType in types && item.savedUri == expectedUri) { "Запись изменилась" }
         check(withContext(Dispatchers.IO) { savedFileStatus(expectedUri) } == SavedFileStatus.PRESENT) { "Файл недоступен" }
-        storage.moveToTrash(id, expectedUri)
-        check(storage.hasTrashed(id)) { "Копия в корзине не подтверждена" }
-        history.save(item.copy(hidden = true, savedUri = null))
-        AppLog.i("Trash", "Verified move completed · id=$id")
+        if(item.mediaType==MediaType.AUDIO)check(!withContext(Dispatchers.Main.immediate){
+            com.domenota.medialoader.data.playback.AudioPlaybackService.isCurrentPublicUri(expectedUri)
+        }){"Текущий трек защищён"}
+        withContext(NonCancellable){
+            storage.moveToTrash(id, expectedUri)
+            check(storage.hasTrashed(id)) { "Копия в корзине не подтверждена" }
+            history.save(item.copy(hidden = true, savedUri = null))
+        }
+        AppLog.i("Trash", "Verified move completed")
     }
 
     /** Gallery-only deletion: never stage bytes or metadata in either trash. */

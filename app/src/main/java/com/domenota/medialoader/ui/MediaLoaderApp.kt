@@ -1049,20 +1049,19 @@ fun MediaLoaderApp(
                 libraryModel.refresh(AppMode.GALLERY, force = true)
             })
     }
-    var duplicateTrash by remember { mutableStateOf<com.domenota.medialoader.data.library.DuplicateTrashSelection?>(null) }
-    val trashDuplicates: (com.domenota.medialoader.data.library.DuplicateTrashSelection) -> Unit = { request ->
-        duplicateTrash = request
-    }
-    duplicateTrash?.let { request ->
+    val duplicateTrash by viewModel.duplicateTrashOperation.collectAsStateWithLifecycle()
+    val trashDuplicates: (com.domenota.medialoader.data.library.DuplicateTrashSelection) -> Unit = viewModel::startDuplicateTrash
+    duplicateTrash?.let { operation ->
         com.domenota.medialoader.ui.components.DuplicateTrashHost(
-            request = request, refs = libraryRefsByAlias, currentId = currentLibraryAudioId,
+            request = operation.request, refs = libraryRefsByAlias, currentId = currentLibraryAudioId,
+            retained=operation,catalogReady=organizationUsable,
             onAppTrash = viewModel::trashVerifiedDuplicate,
             onTrashed = { uris ->
                 com.domenota.medialoader.data.playback.AudioPlaybackService.removeTrashedFromQueue(uris.toList())
                 MusicDuplicateSessionStore.removeTrashed(context, uris)
             },
             onClose = {
-                duplicateTrash = null
+                viewModel.finishDuplicateTrash()
                 libraryModel.refresh(AppMode.GALLERY, force = true)
                 libraryModel.refresh(AppMode.MUSIC, force = true)
                 duplicateRequest++
