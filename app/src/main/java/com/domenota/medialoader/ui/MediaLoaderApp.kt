@@ -66,6 +66,7 @@ import androidx.compose.runtime.collectAsState
 import com.domenota.medialoader.ui.screens.PrivateScreen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -199,7 +200,8 @@ fun MediaLoaderApp(
     var showPicker by rememberSaveable { mutableStateOf(false) }
     val uiPrefs = remember(context) { context.getSharedPreferences("ui", 0) }
     val libraryModel: LibraryViewModel = viewModel()
-    val organization=remember(context){MediaRepository.get(context).organization}
+    val mediaRepository=remember(context){MediaRepository.get(context)}
+    val organization=remember(mediaRepository){mediaRepository.organization}
     // Reversible home-only presentation switch. Stored library data and routes remain intact.
     val showHomeOrganization = remember(uiPrefs) {
         uiPrefs.getBoolean(HomeOrganizationPolicy.PREFERENCE, HomeOrganizationPolicy.DEFAULT_VISIBLE)
@@ -686,14 +688,17 @@ fun MediaLoaderApp(
         downloads.filter { it.state == DownloadState.COMPLETED && !it.hidden }
             .map { it.id to it.savedUri }
     }
+    var fileStatusUris by remember { mutableStateOf(emptyMap<String, String?>()) }
     var fileStatuses by remember {
         mutableStateOf(emptyMap<String, SavedFileStatus>())
     }
     LaunchedEffect(completedUris, fileScanEpoch) {
         delay(1_200L)
-        fileStatuses = withContext(Dispatchers.IO) {
+        val statuses = withContext(Dispatchers.IO) {
             completedUris.associate { (id, uri) -> id to availabilityCache.get(uri) }
         }
+        fileStatusUris = completedUris.toMap()
+        fileStatuses = statuses
     }
     val musicVisibilityPrefs=remember(context){context.getSharedPreferences("music_folder_visibility",0)}
     var organizationHidden by remember{mutableStateOf(musicVisibilityPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty().toSet())}
@@ -709,6 +714,47 @@ fun MediaLoaderApp(
             fileStatuses[it.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE)&&
                 (it.item.mediaType!=MediaType.AUDIO||!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,organizationHidden))
         }
+    }
+    // Collection membership must never be resolved against an intermediate app/phone batch.
+    // Keep ordinary gallery/music first-page publishing unchanged.
+    val recoveryRunning by com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.collectAsStateWithLifecycle()
+    val collectionHistory = remember(downloads) { downloads.filter { it.state == DownloadState.COMPLETED || it.hidden || it.isPrivate }.associateBy { it.id } }
+    val currentAppUris = remember(collectionHistory) { collectionHistory.values.filter {
+        it.state == DownloadState.COMPLETED && !it.hidden && !it.isPrivate && !it.savedUri.isNullOrBlank()
+    }.mapTo(mutableSetOf()) { it.id to it.savedUri } }
+    val collectionPermitted = !recoveryRunning && libraryIndex.ready && libraryPrivateKeys != null &&
+        !phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
+    val collectionComplete = collectionPermitted && libraryIndex.appComplete && libraryIndex.collectionIndex != null &&
+        libraryIndex.privacyKeys == libraryPrivateKeys && libraryIndex.appUris == currentAppUris &&
+        phoneGallery.loaded && !phoneGallery.loading && phoneMusic.loaded && !phoneMusic.loading &&
+        libraryIndex.galleryRevision == phoneGallery.revision && libraryIndex.musicRevision == phoneMusic.revision
+    var lastCollectionCatalog by remember { mutableStateOf<CollectionCatalogSnapshot?>(null) }
+    val collectionCatalog = remember(lastCollectionCatalog, publicLibraryRefs, collectionComplete, collectionPermitted, libraryPrivateKeys, libraryIndex.collectionIndex) {
+        CollectionCatalogSnapshot.select(lastCollectionCatalog, publicLibraryRefs, collectionComplete, collectionPermitted, libraryPrivateKeys, libraryIndex.collectionIndex)
+    }
+    SideEffect { if (lastCollectionCatalog != collectionCatalog) lastCollectionCatalog = collectionCatalog }
+    val collectionBlocked = remember(libraryPrivateKeys, collectionHistory, organizationHidden, collectionCatalog, externalCatalog) {
+        buildSet {
+            addAll(libraryPrivateKeys.orEmpty())
+            collectionHistory.values.filter { it.isPrivate || it.hidden ||
+                (it.mediaType == MediaType.AUDIO && com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it, organizationHidden)) }
+                .forEach { row -> add(row.id); row.savedUri?.let { addAll(com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(it)) } }
+            (collectionCatalog?.refs.orEmpty() + externalCatalog.map { it.ref }).filter { it.item.mediaType == MediaType.AUDIO &&
+                com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item, organizationHidden) }
+                .forEach { add(it.key); addAll(it.aliases) }
+        }
+    }
+    val collectionRefs = remember(collectionCatalog, collectionBlocked, fileStatuses, fileStatusUris, collectionHistory) {
+        collectionCatalog?.refs.orEmpty().filter { ref ->
+            !collectionRefBlocked(ref, collectionBlocked) &&
+                (ref.appDownloadId == null || collectionHistory[ref.appDownloadId]?.let { current ->
+                    !current.isPrivate && !current.hidden && current.savedUri == ref.item.savedUri && current.state == DownloadState.COMPLETED
+                } == true) && (fileStatusUris[ref.key] != ref.item.savedUri || fileStatuses[ref.key] !in setOf(SavedFileStatus.MISSING, SavedFileStatus.INACCESSIBLE))
+        }
+    }
+    val collectionUsable = collectionCatalog != null
+    val missingExternalRefs = remember(externalCatalog, collectionBlocked) {
+        externalCatalog.map { it.ref }.filter { it.appDownloadId == null && !collectionRefBlocked(it, collectionBlocked) }
     }
     val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
     val consumePlayerRequest by rememberUpdatedState(onCurrentPlayerRequestConsumed)
@@ -926,6 +972,7 @@ fun MediaLoaderApp(
             ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let { libraryRefsByAlias[it]?.item })?.let { item ->
           fileActionScope.launch {
             val status = withContext(Dispatchers.IO) { availabilityCache.get(item.savedUri, fresh = true) }
+            fileStatusUris = fileStatusUris + (id to item.savedUri)
             fileStatuses = fileStatuses + (id to status)
             if (status == SavedFileStatus.MISSING) {
                 AppLog.w("History", "Open prevented · saved file missing · id=$id")
@@ -1437,7 +1484,7 @@ fun MediaLoaderApp(
                     onTrashFolderContents = requestAlbumTrash,
                     collectionContent={
                         Column {
-                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)})
+                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)},blockedIdentities=collectionBlocked.takeIf{libraryPrivateKeys!=null})
                             TextButton({navController.navigate("visual-duplicates"){launchSingleTop=true}}){Text("Дубликаты фото и видео")}
                         }
                     },
@@ -1562,22 +1609,80 @@ fun MediaLoaderApp(
                 }
             }
             composable("collections") {
+                val currentCollectionRefs by rememberUpdatedState(collectionRefs)
+                suspend fun validCollectionRefs(ids: List<String>): List<LibraryMediaRef> {
+                    val byKey = currentCollectionRefs.associateBy { it.key }
+                    val candidates = ids.distinct().mapNotNull(byKey::get)
+                    return withContext(Dispatchers.IO) {
+                        candidates.filter { ref ->
+                            val keys = libraryModel.privateKeys.value ?: return@filter false
+                            val current = ref.appDownloadId?.let { mediaRepository.downloadById(it) }
+                            val present = availabilityCache.get(ref.item.savedUri, fresh = true) == SavedFileStatus.PRESENT
+                            !collectionRefBlocked(ref, keys) && present &&
+                                (ref.appDownloadId == null || current?.let { !it.isPrivate && !it.hidden && it.state == DownloadState.COMPLETED && it.savedUri == ref.item.savedUri } == true) &&
+                                (ref.item.mediaType != MediaType.AUDIO || !com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(
+                                    ref.item, musicVisibilityPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty())) &&
+                                (if (ref.appDownloadId != null) true else {
+                                    val identities = com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, requireNotNull(ref.item.savedUri))
+                                    val strong = ref.aliases.filter { it.startsWith("file-stat:") }
+                                    val known = if (strong.isNotEmpty()) strong else ref.aliases.filter { it.startsWith("uri:") || it.startsWith("media:") || it.startsWith("file:") }
+                                    known.any(identities::contains) && identities.none(keys::contains)
+                                })
+                        }
+                    }.let { checked ->
+                        val live = currentCollectionRefs.associateBy { it.key }
+                        val keys = libraryModel.privateKeys.value ?: return emptyList()
+                        checked.filter { ref -> live[ref.key]?.item?.savedUri == ref.item.savedUri && !collectionRefBlocked(ref, keys) }
+                    }
+                }
                 fun playCollection(ids:List<String>,requestedId:String?=null){
                     libraryPreviewJob?.cancel()
                     libraryPreviewJob=fileActionScope.launch {
                         try{
-                            val candidates=ids.mapNotNull{id->libraryRefsByAlias[id]?.takeIf{ref->
-                                ref.key==id&&!ref.item.isPrivate&&!ref.item.hidden&&ref.item.mediaType==MediaType.AUDIO
-                            }}
-                            val valid=withContext(Dispatchers.IO){candidates.filter{availabilityCache.get(it.item.savedUri,fresh=true)==SavedFileStatus.PRESENT}}
+                            val valid=validCollectionRefs(ids).filter{it.item.mediaType==MediaType.AUDIO}
+                            check(valid.isNotEmpty() && (requestedId == null || valid.any { it.key == requestedId }))
                             libraryModel.audioPreview.playSelection(valid,false,requestedId)
                         }catch(e:CancellationException){throw e}catch(_:Exception){AppNotice.post(context,"Нет доступных треков")}
                     }
                 }
-                CollectionsScreen(collections,organizationRefs,organization,collectionInitial,collectionAudioOnly,collectionAddIds,collectionLink,
-                    organizationReady,{navController.popBackStack()},openDownloadWithQueue,
+                CollectionsScreen(collections,collectionRefs,organization,collectionInitial,collectionAudioOnly,collectionAddIds,collectionLink,
+                    collectionUsable,{navController.popBackStack()},{ id, ids ->
+                        fileActionScope.launch {
+                            val valid = validCollectionRefs(ids)
+                            if (valid.any { it.key == id }) {
+                                navController.navigate("viewer/${android.net.Uri.encode(id)}")
+                                navController.currentBackStackEntry?.savedStateHandle?.apply {
+                                    set("grid_viewer_token", ViewerQueueCache.store(valid.map { it.key }))
+                                    set("gallery_presentation", true)
+                                    set("private_viewer", false)
+                                    set("collection_viewer", true)
+                                }
+                            } else AppNotice.post(context,"Файл недоступен")
+                        }
+                    },
                     onPlay={ids->playCollection(ids)},onLink=::openOrganizationLink,onPassport=::openPassport,
-                    onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=organizationUsable,initialCreate=collectionCreate,
+                    onAddComplete={collectionAddIds=emptyList();collectionLink=null},usable=collectionUsable,initialCreate=collectionCreate,
+                    blockedIdentities=collectionBlocked, history=collectionHistory,
+                    identityIndex=collectionCatalog?.identityIndex, externalHistory=missingExternalRefs,
+                    validateSelection={ selected ->
+                        val valid=validCollectionRefs(selected.map { it.key })
+                        check(valid.size==selected.size && selected.all { ref -> valid.any { it.key==ref.key && it.item.savedUri==ref.item.savedUri } }) { "Часть файлов недоступна" }
+                        valid
+                    },
+                    canRecover={ row -> collectionHistory[row.id] == row && com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.eligible(row) && fileStatusUris[row.id]==row.savedUri && fileStatuses[row.id]==SavedFileStatus.MISSING && listOfNotNull(row.sourcePageUrl,row.sourceUrl).any { candidate ->
+                        InstagramLinkParser.parse(candidate)!=null || YouTubeLinkParser.parse(candidate)!=null || VkLinkParser.parse(candidate)!=null || RutubeLinkParser.parse(candidate)!=null
+                    } },
+                    onRecover={ row ->
+                        fileActionScope.launch {
+                            val current=mediaRepository.downloadById(row.id)
+                            if(current!=null && com.domenota.medialoader.data.download.MissingFileRecoveryPolicy.eligible(current) && current.savedUri==row.savedUri &&
+                                withContext(Dispatchers.IO){availabilityCache.get(current.savedUri,fresh=true)==SavedFileStatus.MISSING} &&
+                                libraryModel.privateKeys.value?.let { keys -> row.id !in keys && current.savedUri?.let { uri ->
+                                    com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(uri).none(keys::contains) } != false }==true &&
+                                !com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(current, musicVisibilityPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty())) reanalyzeMissingFile(row.id)
+                            else AppNotice.post(context,"Состояние файла изменилось")
+                        }
+                    },
                     onPlayTrack={id,ids->playCollection(ids,id)},currentPlayingId=currentLibraryAudioId,playing=libraryAudioState.playing,
                     onNoticeFooterHeight={collectionNoticeFooterPx=it},
                     miniPlayer={
@@ -2001,11 +2106,14 @@ fun MediaLoaderApp(
                 val snapshot = ViewerQueueCache.resolve(
                     entry.savedStateHandle.get<String>("grid_viewer_token"))
                 val currentGalleryId = entry.savedStateHandle.get<String>("gallery_current_id") ?: downloadId
-                val galleryCandidates = remember(galleryPresentation, publicLibraryRefs, libraryPrivateKeys,
-                    snapshot, downloadId, fileStatuses) { if (galleryPresentation) GalleryViewerState.publicCandidates(publicLibraryRefs, libraryPrivateKeys,
+                val collectionViewer = entry.savedStateHandle.get<Boolean>("collection_viewer") == true
+                val viewerPublicRefs = if (collectionViewer) collectionRefs else publicLibraryRefs
+                val galleryCandidates = remember(galleryPresentation, viewerPublicRefs, libraryPrivateKeys,
+                    snapshot, downloadId, fileStatuses, fileStatusUris, collectionViewer) { if (galleryPresentation) GalleryViewerState.publicCandidates(viewerPublicRefs, libraryPrivateKeys,
                     snapshot.toSet() + listOfNotNull(downloadId)).filter { row ->
                     !row.hidden && !row.isPrivate && row.savedUri != null && row.state == DownloadState.COMPLETED &&
-                        fileStatuses[row.id] != SavedFileStatus.MISSING && fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE
+                        (if(collectionViewer && fileStatusUris[row.id] != row.savedUri) true else
+                            fileStatuses[row.id] != SavedFileStatus.MISSING && fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE)
                 } else emptyList() }
                 // Separate vault-only queue, never mixed with the public library
                 // nor resolved after the vault is locked. Keep the requested row

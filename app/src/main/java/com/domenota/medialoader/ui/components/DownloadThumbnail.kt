@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.DisposableEffect
@@ -319,3 +321,34 @@ private fun thumbnailFile(context: Context, savedUri: String, kind: MediaKind, s
 
 private const val MAX_DECODE_SIDE = 1024
 private const val MAX_THUMBNAIL_SIDE = 320
+
+
+/** Missing collection rows may use only an already committed preview for the same URI/source. */
+@Composable
+internal fun CachedDownloadThumbnail(savedUri: String?, previewUrl: String?, kind: MediaKind, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val revisions by AudioThumbnailInvalidation.revisions.collectAsState()
+    val revision = savedUri?.let { revisions[it] } ?: 0L
+    var bitmap by remember(savedUri, previewUrl, kind, revision) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(savedUri, previewUrl, kind, revision) {
+        bitmap = withContext(Dispatchers.IO) {
+            savedUri?.let { uri ->
+                thumbnailMemory.get(memoryKey(uri, kind)) ?: runCatching {
+                    val file = thumbnailFile(context, uri, kind, MAX_THUMBNAIL_SIDE)
+                    if (file.isFile) {
+                        val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true}
+                        BitmapFactory.decodeFile(file.absolutePath,bounds)
+                        var sample=1
+                        while(max(bounds.outWidth,bounds.outHeight)/sample>MAX_THUMBNAIL_SIDE*2)sample*=2
+                        BitmapFactory.decodeFile(file.absolutePath,BitmapFactory.Options().apply{inSampleSize=sample})
+                    } else null
+                }.getOrNull()
+            } ?: previewUrl?.let { RemoteImageLoader.cached(context, it, MAX_THUMBNAIL_SIDE) }
+        }
+    }
+    Box(modifier, contentAlignment = Alignment.Center) {
+        val image = bitmap
+        if (image != null) Image(image.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale=ContentScale.Crop)
+        else Icon(when(kind){MediaKind.AUDIO->Icons.Rounded.MusicNote;MediaKind.IMAGE->Icons.Rounded.Image;else->Icons.Rounded.Videocam},null,Modifier.size(30.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
