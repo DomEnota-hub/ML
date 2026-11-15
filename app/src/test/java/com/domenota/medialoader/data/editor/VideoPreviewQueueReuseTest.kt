@@ -18,6 +18,7 @@ class VideoPreviewQueueReuseTest {
         try {
             val player = session.player
             repeat(3) { session.replacePlaylist(emptyList(), 0, 0) }
+            assertFalse(session.retryFailedPlayback(0, 0L))
             assertSame(player, session.player)
             assertEquals(1, created)
             assertEquals(Player.STATE_IDLE, session.player.playbackState)

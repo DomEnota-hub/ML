@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.roundToInt
 
-/** Swipes are additive actions, not toggles: RIGHT = favorite, LEFT = private. */
+/** RIGHT toggles favorite; LEFT moves to private (unchanged). */
 internal enum class HistorySwipeAction { FAVORITE, PRIVATE }
 
 internal fun historySwipeAction(deltaPx: Float, thresholdPx: Float): HistorySwipeAction? =
@@ -39,6 +40,10 @@ internal fun historySwipeAction(deltaPx: Float, thresholdPx: Float): HistorySwip
         deltaPx <= -thresholdPx -> HistorySwipeAction.PRIVATE
         else -> null
 }
+
+/** Group headers match the overflow action: mixed -> all, all -> none. */
+internal fun historySwipeFavoriteTarget(ids: List<String>, isFavorite: (String) -> Boolean): Boolean =
+    ids.isNotEmpty() && !ids.all(isFavorite)
 
 /**
  * Only used for completed downloads in LIST mode and group headers.
@@ -49,6 +54,7 @@ internal fun historySwipeAction(deltaPx: Float, thresholdPx: Float): HistorySwip
 @Composable
 internal fun HistorySwipeRow(
     enabled: Boolean,
+    favorite: Boolean = false,
     onFavorite: () -> Unit,
     onPrivate: () -> Unit,
     content: @Composable () -> Unit,
@@ -73,8 +79,9 @@ internal fun HistorySwipeRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Star, contentDescription = null, tint = color.onSurface)
-                Text(" Избранное", color = color.onSurface)
+                Icon(if (favorite) Icons.Rounded.StarBorder else Icons.Rounded.Star,
+                    contentDescription = null, tint = color.onSurface)
+                Text(if (favorite) " Убрать" else " Избранное", color = color.onSurface)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Личное ", color = color.onSurface)

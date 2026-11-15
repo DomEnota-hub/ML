@@ -71,15 +71,15 @@ internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
     }
     fun update(next: VideoEditSpec, canvasRatio: Float? = null) {
         val key = geometry(next, canvasRatio)
-        spec.set(next)
+        val previous = spec.getAndSet(next)
         val current = player
-        if (key != geometry || current.playerError != null) {
+        if (key != geometry || (current.playerError != null && previous != next)) {
             geometry = key
             rebuildPlayer(List(current.mediaItemCount, current::getMediaItemAt),
                 current.currentMediaItemIndex, current.currentPosition)
         } else {
             graph.update(next)
-            if (!current.playWhenReady) current.setVideoEffects(VideoFrameProcessor.REDRAW)
+            if (current.playerError == null && !current.playWhenReady) current.setVideoEffects(VideoFrameProcessor.REDRAW)
         }
     }
     /** Clip edits replace media on the existing surface; never release a player per trim. */
@@ -91,9 +91,19 @@ internal class VideoEditorPreviewSession(context: Context, source: Uri? = null,
         if (!deferPreparation || wasPrepared) player.prepare()
     }
 
-    private fun rebuildPlayer(items: List<MediaItem>, index: Int, positionMs: Long) {
+    /** A failed GL/codec graph is recreated only on deliberate retry or a changed edit. */
+    fun retryFailedPlayback(index: Int, positionMs: Long): Boolean {
         val current = player
-        val playing = current.playWhenReady
+        if (current.playerError == null || index !in 0 until current.mediaItemCount) return false
+        rebuildPlayer(List(current.mediaItemCount, current::getMediaItemAt), index, positionMs,
+            playAfterRebuild = true)
+        return true
+    }
+
+    private fun rebuildPlayer(items: List<MediaItem>, index: Int, positionMs: Long,
+        playAfterRebuild: Boolean? = null) {
+        val current = player
+        val playing = playAfterRebuild ?: (current.playerError == null && current.playWhenReady)
         val speed = current.playbackParameters
         val volume = current.volume
         val repeat = current.repeatMode

@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -59,6 +60,7 @@ import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
@@ -461,6 +463,36 @@ internal fun LocalVideoPlayer(
             prepare()
         }
     }
+    val holdSpeed = remember(player) { VideoHoldSpeedSession() }
+    var holdSpeedVisible by remember(player) { mutableStateOf(false) }
+    fun endHoldSpeed() {
+        try {
+            holdSpeed.end(player::setPlaybackSpeed)
+        } catch (failure: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.w("VideoPlayer", "Temporary speed restore failed", failure)
+        } finally {
+            holdSpeedVisible = false
+        }
+    }
+    fun beginHoldSpeed(): Boolean {
+        if (controlsLocked || playbackError != null || playbackEnded ||
+            !lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
+            !player.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)
+        ) return false
+        return try {
+            val started = holdSpeed.begin(player.playbackParameters.speed, player.isPlaying,
+                player::setPlaybackSpeed)
+            if (started) holdSpeedVisible = true
+            started
+        } catch (failure: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.w("VideoPlayer", "Temporary speed start failed", failure)
+            false
+        }
+    }
+    LaunchedEffect(player, controlsLocked, fullscreen, videoViewportSize, aspectPanelOpen,
+        showTimePicker, showPlayerSettings, showGalleryTracks) {
+        endHoldSpeed()
+    }
     var renderedFirstFrame by remember(player) { mutableStateOf(false) }
     // The gallery timeline no longer reads geometry or position from the
     // native Media3 controller. Keep one lightweight playback clock instead.
@@ -476,11 +508,15 @@ internal fun LocalVideoPlayer(
         player.repeatMode = if (repeatOne) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
     }
     LaunchedEffect(player, requestedSpeed) {
-        requestedSpeed?.takeIf { it > 0f }?.let { player.setPlaybackSpeed(it) }
+        requestedSpeed?.takeIf { it > 0f }?.let {
+            endHoldSpeed()
+            player.setPlaybackSpeed(it)
+        }
     }
     fun launchFloatingVideo() {
         if (!allowExternal) return
         try {
+            endHoldSpeed()
             FloatingVideoService.start(context, itemId, uri, player.currentPosition, true)
             player.pause()
             activity?.moveTaskToBack(true)
@@ -533,11 +569,19 @@ internal fun LocalVideoPlayer(
             }
 
             override fun onPlaybackParametersChanged(parameters: androidx.media3.common.PlaybackParameters) {
-                playbackSpeed = parameters.speed
-                notifySpeedChanged(parameters.speed)
+                // Boost is not a user preference: do not feed 2x back into Gallery's requestedSpeed.
+                if (!holdSpeed.active && parameters.speed == player.playbackParameters.speed) {
+                    playbackSpeed = parameters.speed
+                    notifySpeedChanged(parameters.speed)
+                }
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                if (!playWhenReady) endHoldSpeed()
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                endHoldSpeed()
                 playbackError = error
             }
 
@@ -552,6 +596,7 @@ internal fun LocalVideoPlayer(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 playableDurationMs = player.duration.coerceAtLeast(0L)
                 if (playbackState == Player.STATE_ENDED) {
+                    endHoldSpeed()
                     playbackEnded = true
                     chromeVisible = true
                     com.domenota.medialoader.data.playback.VideoWatchProgress.record(prefs, itemId, playableDurationMs, playableDurationMs)
@@ -579,7 +624,9 @@ internal fun LocalVideoPlayer(
 
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
+                Lifecycle.Event.ON_PAUSE -> endHoldSpeed()
                 Lifecycle.Event.ON_STOP -> {
+                    endHoldSpeed()
                     savePosition()
                     player.pause()
                 }
@@ -591,13 +638,14 @@ internal fun LocalVideoPlayer(
                         prefs.edit().remove(key).apply()
                     }
                 }
-                Lifecycle.Event.ON_DESTROY -> savePosition()
+                Lifecycle.Event.ON_DESTROY -> { endHoldSpeed(); savePosition() }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
 
         onDispose {
+            endHoldSpeed()
             savePosition()
             lifecycleOwner.lifecycle.removeObserver(observer)
             player.removeListener(listener)
@@ -994,8 +1042,8 @@ internal fun LocalVideoPlayer(
                         },
                     )
                 }
-                .pointerInput(player, controlsLocked) {
-                    detectTapGestures(
+                .pointerInput(player, controlsLocked, fullscreen, videoViewportSize, lifecycleOwner) {
+                    detectVideoCanvasTaps(
                         onTap = { toggleChrome() },
                         onDoubleTap = { tap ->
                             when {
@@ -1005,6 +1053,9 @@ internal fun LocalVideoPlayer(
                                 else -> toggleChrome()
                             }
                         },
+                        // Bind both callbacks to this exact player, never a newly opened video.
+                        onHoldStart = { beginHoldSpeed() },
+                        onHoldEnd = { endHoldSpeed() },
                     )
                 })
         }
@@ -1197,6 +1248,19 @@ internal fun LocalVideoPlayer(
                     onControlsLockedChange(next)
                 },
             )
+        }
+        if (!controlsLocked && holdSpeedVisible) Row(
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding()
+                .padding(top = if (galleryPagingEnabled && chromeVisible && !fullscreen) 60.dp else 12.dp)
+                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.72f),
+                    MaterialTheme.shapes.extraLarge).padding(horizontal = 14.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.FastForward, null, tint = androidx.compose.ui.graphics.Color.White,
+                modifier = Modifier.size(18.dp))
+            Text("2×", color = androidx.compose.ui.graphics.Color.White,
+                style = MaterialTheme.typography.labelLarge)
         }
         if (!controlsLocked) VideoFormatNotice(aspectFeedback, aspectFeedbackRequest,
             Modifier.align(Alignment.Center).offset(y = (-64).dp))
