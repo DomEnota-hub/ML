@@ -150,6 +150,13 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             ?: MediaOrganizationPolicy.resolve(collections.flatMap{it.members},byId.values.toList())
     }
     val collection=collections.firstOrNull{it.record.id==selected}
+    val selectableMemberIds=remember(collection?.members,blockedIdentities){
+        collection?.members.orEmpty().filterNot{collectionMemberBlocked(it,blockedIdentities)}.mapTo(mutableSetOf()){it.id}
+    }
+    val selectedPublicMembers=chosenMembers.filter{it in selectableMemberIds}
+    LaunchedEffect(selectableMemberIds){
+        if(chosenMembers.any{it !in selectableMemberIds})chosenMembers=ArrayList(chosenMembers.filter{it in selectableMemberIds})
+    }
     LaunchedEffect(collection?.record?.id,choosing,picker,rename,create) {
         if(collection==null||choosing||picker||rename||create) onNoticeFooterHeight(0)
     }
@@ -437,7 +444,8 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             }
             if(missingPanel && usable && unavailable.isNotEmpty()) MissingCollectionSheet(
                 unavailable,missingMetadata,canRecover,onRecover={row->missingPanel=false;onRecover(row)},
-                onInfo={missingInfo=it},onRemove={missingRemove=it},onDismiss={missingPanel=false})
+                onInfo={missingInfo=it},onRemove={missingRemove=it},onDismiss={missingPanel=false},
+                selecting=selecting,chosen=selectedPublicMembers.toSet(),enabled=!busy,onToggle=::toggleMember)
             val infoMember=unavailable.firstOrNull{it.id==missingInfo}
             if(infoMember!=null && usable){
                 val row=missingMetadata[infoMember.id]
@@ -456,9 +464,9 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             miniPlayer()
             if(selecting)Surface(color=MaterialTheme.colorScheme.surface){
                 Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.CenterVertically){
-                    Text("Выбрано: ${chosenMembers.size}",Modifier.weight(1f))
+                    Text("Выбрано: ${selectedPublicMembers.size}",Modifier.weight(1f))
                     TextButton({selecting=false;chosenMembers=arrayListOf()}){Text("Отмена")}
-                    Button({removeMembers=true},enabled=!busy&&chosenMembers.isNotEmpty()){Text("Убрать")}
+                    Button({removeMembers=true},enabled=usable&&!busy&&selectedPublicMembers.isNotEmpty()){Text("Убрать")}
                 }
             }
             }
@@ -467,7 +475,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     }
     if(removeMembers&&collection!=null)AlertDialog(onDismissRequest={removeMembers=false},title={Text("Убрать файлы и ссылки?")},
         text={Text("Будут удалены только связи с коллекцией. Файлы останутся на месте.")},
-        confirmButton={TextButton({removeMembers=false;mutate{repository.removeSelection(collection.record.id,chosenMembers);chosenMembers=arrayListOf();selecting=false}}){Text("Убрать")}},
+        confirmButton={TextButton({removeMembers=false;mutate{repository.removeSelection(collection.record.id,selectedPublicMembers);chosenMembers=arrayListOf();selecting=false}},enabled=usable&&!busy&&selectedPublicMembers.isNotEmpty()){Text("Убрать")}},
         dismissButton={TextButton({removeMembers=false}){Text("Отмена")}})
     if(linkDialog&&collection!=null)ValueDialog("Добавить ссылку","","HTTP(S) ссылка",{linkDialog=false}){repository.addLink(collection.record.id,it)}
     if(remove&&collection!=null)AlertDialog(onDismissRequest={remove=false},title={Text("Удалить коллекцию?")},

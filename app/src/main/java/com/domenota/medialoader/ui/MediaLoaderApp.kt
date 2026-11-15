@@ -1613,11 +1613,14 @@ fun MediaLoaderApp(
                 suspend fun validCollectionRefs(ids: List<String>): List<LibraryMediaRef> {
                     val byKey = currentCollectionRefs.associateBy { it.key }
                     val candidates = ids.distinct().mapNotNull(byKey::get)
-                    return withContext(Dispatchers.IO) {
-                        candidates.filter { ref ->
+                    val (checked, statuses) = withContext(Dispatchers.IO) {
+                        val statuses = mutableMapOf<String, Pair<String?, SavedFileStatus>>()
+                        val checked = candidates.filter { ref ->
                             val keys = libraryModel.privateKeys.value ?: return@filter false
                             val current = ref.appDownloadId?.let { mediaRepository.downloadById(it) }
-                            val present = availabilityCache.get(ref.item.savedUri, fresh = true) == SavedFileStatus.PRESENT
+                            val status = availabilityCache.get(ref.item.savedUri, fresh = true)
+                            ref.appDownloadId?.let { id -> statuses[id] = ref.item.savedUri to status }
+                            val present = status == SavedFileStatus.PRESENT
                             !collectionRefBlocked(ref, keys) && present &&
                                 (ref.appDownloadId == null || current?.let { !it.isPrivate && !it.hidden && it.state == DownloadState.COMPLETED && it.savedUri == ref.item.savedUri } == true) &&
                                 (ref.item.mediaType != MediaType.AUDIO || !com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(
@@ -1629,11 +1632,17 @@ fun MediaLoaderApp(
                                     known.any(identities::contains) && identities.none(keys::contains)
                                 })
                         }
-                    }.let { checked ->
-                        val live = currentCollectionRefs.associateBy { it.key }
-                        val keys = libraryModel.privateKeys.value ?: return emptyList()
-                        checked.filter { ref -> live[ref.key]?.item?.savedUri == ref.item.savedUri && !collectionRefBlocked(ref, keys) }
+                        checked to statuses
                     }
+                    val live = currentCollectionRefs.associateBy { it.key }
+                    val keys = libraryModel.privateKeys.value ?: return emptyList()
+                    val updates = statuses.filter { (id, result) -> live[id]?.item?.savedUri == result.first && id !in keys }
+                    if (updates.any { (id, result) -> fileStatusUris[id] != result.first || fileStatuses[id] != result.second }) {
+                        fileStatusUris = fileStatusUris + updates.mapValues { it.value.first }
+                        fileStatuses = fileStatuses + updates.mapValues { it.value.second }
+                        fileScanEpoch++
+                    }
+                    return checked.filter { ref -> live[ref.key]?.item?.savedUri == ref.item.savedUri && !collectionRefBlocked(ref, keys) }
                 }
                 fun playCollection(ids:List<String>,requestedId:String?=null){
                     libraryPreviewJob?.cancel()

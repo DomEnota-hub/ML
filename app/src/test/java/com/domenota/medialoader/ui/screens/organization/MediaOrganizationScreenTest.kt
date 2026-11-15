@@ -181,6 +181,24 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithText("Иллюзия").assertDoesNotExist()
         compose.onNodeWithTag("collection-missing-chip").assertDoesNotExist()
     }
+    @Test fun missingPanelSelectionSurvivesClosingAndDropsPrivateMembers(){
+        val row=DownloadEntity("missing-a","instagram","Song.mp3",MediaType.AUDIO,DownloadState.COMPLETED,"content://media/missing-a",100,100)
+        val member=MediaCollectionMemberEntity("m-missing","c",MediaOrganizationPolicy.encode(setOf("app:${row.id}")),null,1)
+        val c=MediaCollection(MediaCollectionEntity("c","Work",1),listOf(member))
+        val blocked=androidx.compose.runtime.mutableStateOf(emptySet<String>())
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),emptyList(),store,"c",false,emptyList(),null,true,{},{_,_->},{},{},{},{},
+            blockedIdentities=blocked.value,history=mapOf(row.id to row))}}
+        compose.onNodeWithContentDescription("Меню коллекции").performClick()
+        compose.onNodeWithText("Выбрать файлы и ссылки").performClick()
+        compose.onNodeWithTag("collection-missing-chip").performClick()
+        compose.waitUntil(5000){compose.onAllNodesWithTag("missing-select-m-missing",useUnmergedTree=true).fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithTag("missing-select-m-missing",useUnmergedTree=true).performClick()
+        compose.onNodeWithContentDescription("Закрыть").performClick()
+        compose.onNodeWithText("Выбрано: 1").assertIsDisplayed()
+        compose.runOnIdle{blocked.value=setOf(row.id)}
+        compose.onNodeWithText("Выбрано: 0").assertIsDisplayed()
+        compose.onNodeWithText("Убрать").assertIsNotEnabled()
+    }
     @Test fun missingFileDisplayNameOnlyRemovesRecognizedSuffix(){
         val row=DownloadEntity("x","device","live.2026.MP3",MediaType.AUDIO,DownloadState.COMPLETED,null,100,100)
         assertEquals("live.2026",missingCollectionDisplayName(row))

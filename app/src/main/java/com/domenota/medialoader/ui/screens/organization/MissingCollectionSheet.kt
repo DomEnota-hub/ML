@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens.organization
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,7 +36,8 @@ internal fun missingCollectionDisplayName(row: DownloadEntity): String {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MissingCollectionSheet(members:List<MediaCollectionMemberEntity>,metadata:Map<String,DownloadEntity>,
-    canRecover:(DownloadEntity)->Boolean,onRecover:(DownloadEntity)->Unit,onInfo:(String)->Unit,onRemove:(String)->Unit,onDismiss:()->Unit){
+    canRecover:(DownloadEntity)->Boolean,onRecover:(DownloadEntity)->Unit,onInfo:(String)->Unit,onRemove:(String)->Unit,onDismiss:()->Unit,
+    selecting:Boolean=false,chosen:Set<String> = emptySet(),enabled:Boolean=true,onToggle:(String)->Unit={}){
     NoticeSheet(onDismissRequest=onDismiss) {
         Column(Modifier.fillMaxWidth().testTag("collection-missing-sheet").padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             Row(verticalAlignment=Alignment.CenterVertically){
@@ -47,7 +49,7 @@ internal fun MissingCollectionSheet(members:List<MediaCollectionMemberEntity>,me
                 items(members,key={it.id}){member->
                     val row=metadata[member.id]
                     var menu by remember{mutableStateOf(false)}
-                    Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surfaceVariant){
+                    Surface(modifier=Modifier.then(if(selecting)Modifier.clickable(enabled=enabled){onToggle(member.id)} else Modifier),shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surfaceVariant){
                         Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
                                 val kind=when(row?.mediaType){MediaType.PHOTO->MediaKind.IMAGE;MediaType.VIDEO->MediaKind.VIDEO;MediaType.AUDIO->MediaKind.AUDIO;null->null}
@@ -58,17 +60,18 @@ internal fun MissingCollectionSheet(members:List<MediaCollectionMemberEntity>,me
                                     if(row!=null)Text(when(row.mediaType){MediaType.PHOTO->"Фото";MediaType.VIDEO->"Видео";MediaType.AUDIO->"Аудио"}+" · "+when(row.providerId){"instagram"->"Instagram";"youtube"->"YouTube";"vk"->"VK";"rutube"->"RUTUBE";"device"->"Устройство";else->row.providerId},style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("Файл недоступен",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
                                 }
-                                Box{
-                                    IconButton({menu=true}){Icon(Icons.Rounded.MoreVert,"Действия недоступного файла")}
+                                if(selecting)PickerMark(member.id in chosen,false,Modifier.testTag("missing-select-${member.id}"),enabled){onToggle(member.id)}
+                                else Box{
+                                    IconButton({menu=true},enabled=enabled){Icon(Icons.Rounded.MoreVert,"Действия недоступного файла")}
                                     DropdownMenu(menu,{menu=false}){
                                         DropdownMenuItem({Text("Информация о файле")},{menu=false;onInfo(member.id)})
                                         DropdownMenuItem({Text("Исключить из коллекции")},{menu=false;onRemove(member.id)})
                                     }
                                 }
                             }
-                            if(row!=null&&canRecover(row))OutlinedButton({onRecover(row)},Modifier.fillMaxWidth()){
+                            if(!selecting && row!=null&&canRecover(row))OutlinedButton({onRecover(row)},Modifier.fillMaxWidth(),enabled=enabled){
                                 Icon(Icons.Rounded.Download,null,Modifier.size(18.dp));Spacer(Modifier.width(8.dp));Text("Восстановить")
-                            }else Text("Восстановление недоступно",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            }else if(!selecting) Text("Восстановление недоступно",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
