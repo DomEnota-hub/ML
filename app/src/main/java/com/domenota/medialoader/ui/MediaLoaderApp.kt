@@ -1095,7 +1095,9 @@ fun MediaLoaderApp(
         },
         dismissButton = { TextButton(onClick = { showNameDialog = false }) { Text("Отмена") } },
     )
+    var openVisualRequest by remember { mutableStateOf(0L) }
     val openDownloadWithQueue: (String, List<String>) -> Unit = { id, queueIds ->
+        val request = ++openVisualRequest
         val originAlbumKey = openingAlbumKey
         val originPlaylistId = openingPlaylistId
         openingAlbumKey = null
@@ -1104,6 +1106,7 @@ fun MediaLoaderApp(
             ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let { libraryRefsByAlias[it]?.item })?.let { item ->
           fileActionScope.launch {
             val status = withContext(Dispatchers.IO) { availabilityCache.get(item.savedUri, fresh = true) }
+            if (request != openVisualRequest) return@launch
             if (statusScanActive) statusOverrides[id] = item.savedUri to status
             fileStatusUris = fileStatusUris + (id to item.savedUri)
             fileStatuses = fileStatuses + (id to status)
@@ -1130,7 +1133,8 @@ fun MediaLoaderApp(
                         return@launch
                     }
                 }
-                navController.navigate("viewer/${item.id}")
+                if (request != openVisualRequest) return@launch
+                navController.navigate("viewer/${android.net.Uri.encode(item.id)}")
                 // A phone library may have 10k+ items. Never persist those IDs
                 // in Navigation SavedStateHandle: it can crash onStop with
                 // TransactionTooLargeException when Android saves the Activity.
@@ -1138,14 +1142,15 @@ fun MediaLoaderApp(
                 val token = ViewerQueueCache.store(queueIds)
                 viewerEntry?.savedStateHandle?.set("grid_viewer_token", token)
                 viewerEntry?.savedStateHandle?.set("gallery_origin_album", originAlbumKey)
+                if (!item.isPrivate && item.mediaType != MediaType.AUDIO)
+                    viewerEntry?.savedStateHandle?.set("gallery_expected_uri", item.savedUri)
                 // Explicitly carry the vault context. The public gallery index
                 // intentionally excludes private records and must never be used
                 // to resolve a private viewer request.
                 viewerEntry?.savedStateHandle?.set("private_viewer",
                     item.isPrivate && item.mediaType != MediaType.AUDIO)
                 navController.currentBackStackEntry?.savedStateHandle?.set("gallery_presentation",
-                    item.mediaType != MediaType.AUDIO &&
-                        (item.isPrivate || appMode == AppMode.GALLERY || queueIds.isNotEmpty()))
+                    item.mediaType != MediaType.AUDIO)
             } else {
                 openSavedFile(context, item)
             }
@@ -1785,6 +1790,7 @@ fun MediaLoaderApp(
                                     set("gallery_presentation", true)
                                     set("private_viewer", false)
                                     set("collection_viewer", true)
+                                    set("gallery_expected_uri", valid.first { it.key == id }.item.savedUri)
                                 }
                             } else AppNotice.post(context,"Файл недоступен")
                         }
@@ -2236,46 +2242,75 @@ fun MediaLoaderApp(
                 val privateViewer = entry.savedStateHandle.get<Boolean>("private_viewer") == true
                 val snapshot = ViewerQueueCache.resolve(
                     entry.savedStateHandle.get<String>("grid_viewer_token"))
-                val currentGalleryId = entry.savedStateHandle.get<String>("gallery_current_id") ?: downloadId
+                val visualSelection by entry.savedStateHandle.getStateFlow<ArrayList<String>?>("gallery_selection", null).collectAsStateWithLifecycle()
+                val selectedGalleryId by entry.savedStateHandle.getStateFlow<String?>("gallery_current_id", null).collectAsStateWithLifecycle()
+                val currentGalleryId = visualSelection?.getOrNull(0) ?: selectedGalleryId ?: downloadId
+                val expectedGalleryUri = visualSelection?.getOrNull(1) ?: entry.savedStateHandle.get<String>("gallery_expected_uri")
                 val collectionViewer = entry.savedStateHandle.get<Boolean>("collection_viewer") == true
                 val viewerPublicRefs = if (collectionViewer) scopedCatalog?.refs.orEmpty() else publicLibraryRefs
-                val galleryCandidates = remember(galleryPresentation, viewerPublicRefs, libraryPrivateKeys,
-                    snapshot, downloadId, fileStatuses, fileStatusUris, collectionViewer) { if (galleryPresentation) GalleryViewerState.publicCandidates(viewerPublicRefs, libraryPrivateKeys,
-                    snapshot.toSet() + listOfNotNull(downloadId)).filter { row ->
+                val indexedCandidates = remember(galleryPresentation, viewerPublicRefs, libraryPrivateKeys,
+                    snapshot, downloadId, currentGalleryId, fileStatuses, fileStatusUris, collectionViewer) { if (galleryPresentation) GalleryViewerState.publicCandidates(viewerPublicRefs, libraryPrivateKeys,
+                    snapshot.toSet() + listOfNotNull(downloadId, currentGalleryId)).filter { row ->
                     !row.hidden && !row.isPrivate && row.savedUri != null && row.state == DownloadState.COMPLETED &&
-                        (if(collectionViewer && fileStatusUris[row.id] != row.savedUri) true else
-                            fileStatuses[row.id] != SavedFileStatus.MISSING && fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE)
+                        (fileStatusUris[row.id] != row.savedUri || (fileStatuses[row.id] != SavedFileStatus.MISSING && fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE))
                 } else emptyList() }
-                // Separate vault-only queue, never mixed with the public library
-                // nor resolved after the vault is locked. Keep the requested row
-                // available when a one-item private preview has no queue token.
+                // Resolve the exact fresh history row without waiting for a whole-phone index.
+                // A scoped collection must never be expanded into raw public history.
+                val selectedHistoryRow = if (galleryPresentation && !privateViewer && !collectionViewer)
+                    downloads.firstOrNull { it.id == currentGalleryId } else null
+                val addressGuard = libraryPrivateKeys.takeIf { !recoveryRunning && !privateViewer }
+                var addressed by remember(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch) { mutableStateOf<LibraryMediaRef?>(null) }
+                var addressFinished by remember(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch) { mutableStateOf(false) }
+                LaunchedEffect(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch) {
+                    val row = selectedHistoryRow
+                    val blocked = addressGuard
+                    if (row != null && blocked != null && !row.hidden && !row.isPrivate && (expectedGalleryUri == null || row.savedUri == expectedGalleryUri)) {
+                        try {
+                            val resolved = withTimeoutOrNull(5000) { libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } }
+                            if (libraryModel.privateKeys.value == blocked && libraryModel.galleryAccessEpoch.value == galleryAccessEpoch &&
+                                !com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value)
+                                addressed = resolved?.ref
+                        } catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { AppLog.w("Viewer", "Selected visual address check failed") }
+                    }
+                    addressFinished = true
+                }
+                val seed = GalleryViewerState.addressedPublic(selectedHistoryRow, addressed, addressGuard)
+                val galleryCandidates = remember(seed, indexedCandidates, selectedHistoryRow, currentGalleryId, addressGuard) {
+                    // A current app row is authoritative. Never replace it with a
+                    // stale alias while its own address or privacy is being checked.
+                    if (addressGuard == null) emptyList()
+                    else (listOfNotNull(seed) + indexedCandidates.filterNot {
+                        selectedHistoryRow != null && it.id == currentGalleryId &&
+                            (selectedHistoryRow.hidden || selectedHistoryRow.isPrivate || selectedHistoryRow.id in addressGuard ||
+                                selectedHistoryRow.state != DownloadState.COMPLETED || it.savedUri != selectedHistoryRow.savedUri)
+                    }).distinctBy { it.id }
+                }
                 val privateCandidates = remember(privateViewer, privateState.unlocked,
-                    privateDownloads, snapshot, downloadId, fileStatuses) {
+                    privateDownloads, snapshot, downloadId, currentGalleryId, fileStatuses) {
                     if (!privateViewer) emptyList()
                     else com.domenota.medialoader.data.playback.PrivateViewerQueue.resolve(
-                        snapshot, downloadId, privateState.unlocked, privateDownloads,
+                        snapshot, currentGalleryId, privateState.unlocked, privateDownloads,
                         fileStatuses)
-                    
                 }
-                val resolvedGalleryId = GalleryViewerState.neighbor(currentGalleryId,
-                    snapshot.ifEmpty { listOfNotNull(downloadId) },
-                    (if (privateViewer) privateCandidates else galleryCandidates)
-                        .mapTo(mutableSetOf()) { it.id })
                 val audioCurrentId = entry.savedStateHandle.get<String>("audio_current_id")
-                val item = if (privateViewer) privateCandidates.firstOrNull { it.id == resolvedGalleryId }
-                    else if (galleryPresentation) galleryCandidates.firstOrNull { it.id == resolvedGalleryId }
+                val item = if (privateViewer) GalleryViewerState.exactItem(currentGalleryId, null, privateCandidates)
+                    else if (galleryPresentation) GalleryViewerState.exactItem(currentGalleryId, expectedGalleryUri, galleryCandidates)
                     else accessibleDownloads.firstOrNull { it.id == (audioCurrentId ?: downloadId) }
                         ?: libraryRefsByAlias[audioCurrentId ?: downloadId]?.item
                         ?: accessibleDownloads.firstOrNull { it.id == downloadId }
                 if (item == null || item.savedUri == null) {
                     if (!privateViewer &&
                         (awaitingPhone(downloadId) || (galleryPresentation &&
-                            (!libraryIndex.ready || libraryPrivateKeys == null || (collectionViewer && scopedCatalog == null))))) {
+                            ((selectedHistoryRow != null && !addressFinished) || libraryPrivateKeys == null || (collectionViewer && scopedCatalog == null))))) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
                     }
-                    else LaunchedEffect(downloadId) { navController.popBackStack() }
+                    else LaunchedEffect(currentGalleryId) {
+                        if (!privateViewer) AppNotice.post(context, "Выбранный файл недоступен")
+                        navController.popBackStack()
+                    }
                 } else {
                     val viewerRows = if (privateViewer) privateCandidates
                         else if (item.isPrivate && privateState.unlocked) privateDownloads
@@ -2305,7 +2340,8 @@ fun MediaLoaderApp(
                         item = item,
                         media = com.domenota.medialoader.data.playback.GridMediaQueue.resolve(
                             snapshot, viewerRows, item.isPrivate, fileStatuses)
-                            .ifEmpty { if (item.mediaType == MediaType.PHOTO && photoQueue.isNotEmpty()) photoQueue else listOf(item) },
+                            .ifEmpty { if (item.mediaType == MediaType.PHOTO && photoQueue.isNotEmpty()) photoQueue else listOf(item) }
+                            .let { rows -> if (rows.any { it.id == item.id && it.savedUri == item.savedUri }) rows else listOf(item) + rows.filter { it.id != item.id } },
                         onBack = { navController.popBackStack() },
                         onShare = { selected ->
                             // Only an explicit user press while the vault is unlocked
@@ -2330,7 +2366,10 @@ fun MediaLoaderApp(
                             if (!selected.isPrivate || privateState.unlocked)
                                 openSavedFile(context, selected)
                         },
-                        onCurrentItemChanged = { entry.savedStateHandle["gallery_current_id"] = it.id },
+                        onCurrentItemChanged = { selected ->
+                            if (!selected.isPrivate) entry.savedStateHandle["gallery_selection"] = arrayListOf(selected.id, requireNotNull(selected.savedUri))
+                            else entry.savedStateHandle["gallery_current_id"] = selected.id
+                        },
                         privateMode = item.isPrivate,
                         onPassport=if(item.isPrivate)null else { selected->openPassport(selected.id) },
                         onAddCollection=if(item.isPrivate)null else { selected->addToCollection(listOf(selected.id)) },

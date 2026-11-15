@@ -44,6 +44,19 @@ class GalleryViewerPhotoUiTest {
         assertEquals("Last", current)
     }
 
+    @Test fun reorderingQueueKeepsSelectedIdentityRatherThanNumericPage() {
+        val first = photo("FirstReorder")
+        val selected = photo("SelectedReorder")
+        val last = photo("LastReorder")
+        var rows by mutableStateOf(listOf(first, selected, last))
+        val published = mutableListOf<String>()
+        compose.setContent { MaterialTheme { Viewer(selected, rows) { published += it.id } } }
+        compose.waitForIdle()
+        compose.runOnIdle { rows = listOf(last, first, selected) }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(setOf(selected.id), published.toSet()) }
+    }
+
     @Test fun photoViewportDoesNotShrinkWhenOverlayPanelsAreVisibleOrHidden() {
         val item = photo("Viewport")
         compose.setContent { MaterialTheme { Viewer(item, listOf(item)) {} } }

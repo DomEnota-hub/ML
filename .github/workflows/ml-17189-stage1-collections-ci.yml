@@ -1,18 +1,18 @@
-name: ML 1.7.193 hold-speed QA and unsigned handoff
+name: ML 1.7.194 cycle 1 QA and unsigned handoff
 on:
   push:
-    branches: [feature/ml-17193-hold-speed]
+    branches: [feature/ml-17194-cache-first]
   pull_request:
     types: [opened, reopened, synchronize]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: ml-17193-collections-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ml-17194-collections-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 jobs:
   collections:
-    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17193-hold-speed'
+    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17194-cache-first'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -37,8 +37,8 @@ jobs:
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Verify identity and UI guards
         run: |
-          grep -Eq 'versionCode 253$' app/build.gradle
-          grep -Fq "versionName '1.7.193'" app/build.gradle
+          grep -Eq 'versionCode 254$' app/build.gradle
+          grep -Fq "versionName '1.7.194'" app/build.gradle
           python3 scripts/audit_ui_palette.py
           python3 scripts/check-round-sliders.py
           python3 scripts/check-in-app-notices.py
@@ -50,7 +50,7 @@ jobs:
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace
       - name: Music folders, daily history and recognition regressions
         run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --stacktrace
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --stacktrace
       - name: Shared photo editor, full resolution and drawing regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Photo*Test' --tests '*BatchWatermarkTest' --tests '*BatchTextDraftRestorationTest' --tests '*TextLayer*Test' --tests '*EditorTextDialogLayoutTest' --stacktrace
@@ -80,16 +80,16 @@ jobs:
           bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
           input=app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$input"
-          "$bt/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='253' versionName='1.7.193'"
+          "$bt/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='254' versionName='1.7.194'"
           test "$(unzip -Z1 "$input" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
           mkdir -p handoff/tools handoff/source
-          aligned=handoff/ML_1.7.193_ARM64_ALIGNED_UNSIGNED.apk
+          aligned=handoff/ML_1.7.194_ARM64_ALIGNED_UNSIGNED.apk
           "$bt/zipalign" -P 16 -f 4 "$input" "$aligned"
           "$bt/zipalign" -c -P 16 -v 4 "$aligned"
           cp "$bt/lib/apksigner.jar" handoff/tools/apksigner.jar
           cp "$bt/zipalign" "$bt/aapt" handoff/tools/
           if [ -d "$bt/lib64" ]; then cp -r "$bt/lib64" handoff/tools/; fi
-          git archive --format=zip -o handoff/source/ML_1.7.193_SOURCES_EXACT_COMMIT.zip HEAD
+          git archive --format=zip -o handoff/source/ML_1.7.194_SOURCES_EXACT_COMMIT.zip HEAD
           git rev-parse HEAD > handoff/source/DELIVERY_COMMIT_SHA.txt
           (cd handoff && find . -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ml189-handoff-sha256.txt)
           cp /tmp/ml189-handoff-sha256.txt handoff/UNSIGNED_HANDOFF_SHA256.txt
@@ -97,7 +97,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ML_1.7.193_PRIVATE_UNSIGNED_LOCAL_SIGNING
+          name: ML_1.7.194_PRIVATE_UNSIGNED_LOCAL_SIGNING
           path: handoff/
           retention-days: 2
           if-no-files-found: error
@@ -106,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ml17193-collections-diagnostics
+          name: ml17194-collections-diagnostics
           path: |
             app/build/test-results/testDebugUnitTest/
             app/build/reports/tests/testDebugUnitTest/
