@@ -540,4 +540,98 @@ class DownloadQueueTest {
         }
     }
 
+    @Test fun recoveryRetriesInterruptedTransferAndCommitsExactlyOnceWithRealProgress(){
+        val calls=AtomicInteger()
+        val engine=object:DownloadEngine{
+            override suspend fun download(task:DownloadTask,onProgress:suspend(Long,Long?)->Unit):DownloadResult{
+                onProgress(4,10)
+                if(calls.incrementAndGet()==1)throw RecoveryTransferFailure("interrupted",java.net.ProtocolException("unexpected end of stream"))
+                onProgress(10,10)
+                return DownloadResult("content://saved/restored",10)
+            }
+        }
+        withQueue(engine){dao,queue->
+            val original=DownloadEntity("stable","instagram","photo.jpg",MediaType.PHOTO,DownloadState.COMPLETED,"content://missing",5,123)
+            dao.upsert(original)
+            val progress=mutableListOf<RecoveryTransferProgress>();var commits=0
+            queue.restoreMissing(original,item("photo.jpg"),onProgress={progress+=it}){result->
+                commits++
+                assertEquals(listOf(original),dao.all())
+                assertEquals("content://saved/restored",result.savedUri)
+            }
+            assertEquals(2,calls.get());assertEquals(1,commits)
+            assertTrue(progress.any{it.attempt==1&&it.bytes==4L&&it.total==10L})
+            assertTrue(progress.any{it.phase==RecoveryTransferPhase.RETRY_WAIT&&it.attempt==2})
+            assertEquals(RecoveryTransferPhase.VERIFY_SAVE,progress.last().phase)
+        }
+    }
+    @Test fun recoveryRetriesAtMostThreeAndNeverRetriesCommitOrPermanentFailure(){
+        for(mode in listOf("network","permanent","commit")){
+            var calls=0;var commits=0
+            val engine=object:DownloadEngine{
+                override suspend fun download(task:DownloadTask,onProgress:suspend(Long,Long?)->Unit):DownloadResult{
+                    calls++
+                    if(mode=="network")throw RecoveryTransferFailure("interrupted")
+                    if(mode=="permanent")throw DownloadFailure("disk full")
+                    return DownloadResult("content://saved/restored",10)
+                }
+            }
+            withQueue(engine){dao,queue->
+                val original=DownloadEntity("stable","instagram","photo.jpg",MediaType.PHOTO,DownloadState.COMPLETED,"content://missing",5,123)
+                dao.upsert(original)
+                val failure=runCatching{queue.restoreMissing(original,item("photo.jpg")){
+                    commits++;throw RecoveryTransferFailure("commit failed")
+                }}.exceptionOrNull()
+                assertTrue(failure is DownloadFailure)
+                assertEquals(if(mode=="network")3 else 1,calls)
+                assertEquals(if(mode=="commit")1 else 0,commits)
+                assertEquals(listOf(original),dao.all())
+            }
+        }
+    }
+    @Test fun recoveryRefreshUsesOnlyTheSameComponentAndRejectsAChangedCandidate(){
+        for(same in listOf(true,false)){
+            val seen=mutableListOf<MediaItem>()
+            val engine=object:DownloadEngine{
+                override suspend fun download(task:DownloadTask,onProgress:suspend(Long,Long?)->Unit):DownloadResult{
+                    seen+=task.item
+                    if(seen.size==1)throw RecoveryTransferFailure("expired",refreshUrl=true)
+                    return DownloadResult("content://saved/restored",10)
+                }
+            }
+            withQueue(engine){dao,queue->
+                val original=DownloadEntity("stable","instagram","photo.jpg",MediaType.PHOTO,DownloadState.COMPLETED,"content://missing",5,123)
+                dao.upsert(original)
+                val first=item("photo.jpg",sourcePageUrl="https://www.instagram.com/p/ABCdef123/")
+                val updated=first.copy(downloadUrl="https://scontent.fbcdn.net/new.jpg",id=if(same)first.id else "different")
+                var commits=0
+                val failure=runCatching{queue.restoreMissing(original,first,refresh={updated}){commits++}}.exceptionOrNull()
+                assertEquals(if(same)2 else 1,seen.size)
+                assertEquals(if(same)1 else 0,commits)
+                if(same){assertEquals(null,failure);assertEquals(updated,seen.last())}
+                else assertTrue(failure is MissingRecoveryFailure)
+                assertEquals(listOf(original),dao.all())
+            }
+        }
+    }
+    @Test fun recoveryCancellationDuringRetryDoesNotStartAnotherTransfer(){
+        var calls=0
+        val engine=object:DownloadEngine{
+            override suspend fun download(task:DownloadTask,onProgress:suspend(Long,Long?)->Unit):DownloadResult{
+                calls++;throw RecoveryTransferFailure("interrupted")
+            }
+        }
+        withQueue(engine){dao,queue->
+            val original=DownloadEntity("stable","instagram","photo.jpg",MediaType.PHOTO,DownloadState.COMPLETED,"content://missing",5,123)
+            dao.upsert(original)
+            kotlinx.coroutines.coroutineScope{
+                val waiting=kotlinx.coroutines.CompletableDeferred<Unit>()
+                val job=launch{queue.restoreMissing(original,item("photo.jpg"),onProgress={
+                    if(it.phase==RecoveryTransferPhase.RETRY_WAIT)waiting.complete(Unit)
+                }){error("must not commit")}}
+                waiting.await();queue.cancel(original.id);job.join()
+            }
+            assertEquals(1,calls);assertEquals(listOf(original),dao.all())
+        }
+    }
 }

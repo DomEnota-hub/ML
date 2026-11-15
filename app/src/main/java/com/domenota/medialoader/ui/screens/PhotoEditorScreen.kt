@@ -404,7 +404,7 @@ private fun PhotoEditorContent(
                 if (colored !== transformed) transformed.recycle()
                 colored
             } },
-            onApply = { layers -> commit(edit.copy(textLayers = layers)); textEditorOpen = false },
+            onApply = { layers -> commit(edit.copy(textLayers = layers));batchCompare=false; textEditorOpen = false },
             onDismiss = { textEditorOpen = false },
             fitInside = batch != null,
         )
@@ -450,6 +450,7 @@ private fun PhotoEditorContent(
             fitInside = batch != null,
             onApply = { marks ->
                 commit(edit.copy(drawing = marks))
+                batchCompare=false
                 drawingEditorOpen = false
             },
             onDismiss = { drawingEditorOpen = false },
@@ -481,6 +482,7 @@ private fun PhotoEditorContent(
             initial = edit.localEffects,
             onApply = { strokes ->
                 commit(edit.copy(localEffects = strokes))
+                batchCompare=false
                 localEffectEditorOpen = false
             },
             onDismiss = { localEffectEditorOpen = false },
