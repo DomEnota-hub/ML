@@ -126,12 +126,12 @@ fun PreviewScreen(
         if (fullSongBusy) {
             AlertDialog(
                 onDismissRequest = {},
-                title = { Text("Распознавание музыки") },
+                title = { Text("Распознавание музыки", Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
                 text = {
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CircularProgressIndicator(Modifier.size(28.dp))
-                        Text("Определяем композицию без сохранения фрагмента в загрузки…")
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        com.domenota.medialoader.ui.components.RecognitionEqualizer()
+                        Text("Определяем композицию", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }
                 },
                 confirmButton = {

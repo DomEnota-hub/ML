@@ -37,7 +37,7 @@ internal fun MusicFolderScreen(title:String,tracks:List<DownloadEntity>,excluded
         Row(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)){
             Icon(Icons.Rounded.Folder,null,Modifier.size(56.dp),tint=MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f)){
-                Text("${tracks.size} треков",style=MaterialTheme.typography.titleMedium)
+                Text(com.domenota.medialoader.core.model.RussianCounts.tracks(tracks.size),style=MaterialTheme.typography.titleMedium)
                 Text(if(excluded)"Скрыта из общего списка" else "В общем списке",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

@@ -70,6 +70,7 @@ internal fun MusicModeScreen(
     onAddCollection: ((List<String>) -> Unit)? = null,
     onPassport: ((String) -> Unit)? = null,
     onRecognize:((String)->Unit)?=null,
+    recentItems: List<DownloadEntity> = items, recentLoading: Boolean = loading,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -79,6 +80,8 @@ internal fun MusicModeScreen(
     var frequentOpen by rememberSaveable { mutableStateOf(false) }
     var smartPage by rememberSaveable { mutableStateOf<SmartMusicPage?>(null) }
     var resumeOpen by rememberSaveable { mutableStateOf(false) }
+    var recentOpen by rememberSaveable { mutableStateOf(false) }
+    val recentStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var listeningPeriod by rememberSaveable { mutableStateOf(ListeningPeriod.MONTH) }
     var search by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(MusicLibrarySort.TITLE) }
@@ -93,7 +96,11 @@ internal fun MusicModeScreen(
             { duplicatesOpen = false }, onTrashDuplicates)
         return
     }
-    val listState = rememberLazyListState()
+    val tracksListState = rememberLazyListState()
+    val overviewListState = rememberLazyListState()
+    val playlistListState = key(selectedId) { rememberLazyListState() }
+    val listState = if (tab == 0) tracksListState else if (selectedId != null) playlistListState else overviewListState
+    var handledTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var creating by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<MediaPlaylist?>(null) }
     var deleteTarget by remember { mutableStateOf<MediaPlaylist?>(null) }
@@ -223,6 +230,11 @@ internal fun MusicModeScreen(
         finally { listeningLoading = false }
     }
     val tracks = remember(items) { items.filter(::availableAudio).distinctBy { it.id } }
+    val recentRows = remember(recentItems, hiddenTrackKeys, excludedFolders, deviceMusicFolders) {
+        recentItems.filter { availableAudio(it) && !it.savedUri.isNullOrBlank() &&
+            !MusicTrackVisibility.hidden(it, hiddenTrackKeys) && MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) }
+            .distinctBy { it.id }
+    }
     // Include hidden tracks from both local phone storage and ML downloads, regardless
     // of which source tab is active. No hidden record is made visible by playback.
     val hiddenTracks = remember(allAudio, hiddenTrackKeys) {
@@ -252,9 +264,9 @@ internal fun MusicModeScreen(
     }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
-    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null) }
+    LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen,recentOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null || recentOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
-    BackHandler(folderOpen != null || resumeOpen || smartPage != null || frequentOpen || playlist != null || tab == 1) { if(folderOpen!=null)folderOpen=null else if(resumeOpen)resumeOpen=false else if(smartPage==SmartMusicPage.STATS&&statsIntervals.isNotEmpty()) statsIntervals=statsIntervals.dropLast(1) else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
+    BackHandler(folderOpen != null || resumeOpen || smartPage != null || frequentOpen || playlist != null || recentOpen || tab == 1) { if(recentOpen)recentOpen=false else if(folderOpen!=null)folderOpen=null else if(resumeOpen)resumeOpen=false else if(smartPage==SmartMusicPage.STATS&&statsIntervals.isNotEmpty()) statsIntervals=statsIntervals.dropLast(1) else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
         PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, available.values.toList(), emptyMap(),
@@ -279,8 +291,14 @@ internal fun MusicModeScreen(
     }
     val displayed = remember(filtered, sort, tab) { if (tab == 0) sortMusicRows(filtered, sort) else filtered }
     val sections = remember(displayed, sort) { displayed.groupBy { musicGroupHeading(it, sort) } }
-    LaunchedEffect(tab, scrollToTopRequest) {
-        if (tab == 0) listState.scrollToItem(0)
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest != handledTopRequest) {
+            handledTopRequest = scrollToTopRequest
+            if (tab == 1) {
+                selectedId=null; folderOpen=null; recentOpen=false; frequentOpen=false; resumeOpen=false; smartPage=null
+                overviewListState.scrollToItem(0)
+            } else tracksListState.scrollToItem(0)
+        }
     }
     val displayedIds = remember(displayed, playlist, available, search) {
         if (playlist == null) displayed.map { it.id } else playlist.trackIds.filter { id ->
@@ -296,7 +314,20 @@ internal fun MusicModeScreen(
         if (playlist != null && onOpenFromPlaylist != null) onOpenFromPlaylist(id,queue,playlist.id)
         else onOpen(id,queue)
     }
-    if(folderOpen!=null) {
+    if(recentOpen) {
+        recentStateHolder.SaveableStateProvider("recent-music") {
+            RecentMusicScreen(recentRows, recentLoading, currentPlayingId, playing, { recentOpen=false },
+                onPlay = { ids, shuffle -> if(onPlayFrequent!=null)onPlayFrequent(ids,shuffle) else if(ids.isNotEmpty()) {
+                    val order=if(shuffle)ids.shuffled() else ids; (onPreview?:onOpen)(order.first(),order)
+                } }, onPreview = onPreview?:onOpen,
+                actions = { track, ids -> val id=track.id; MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},
+                    {onOpen(id,ids)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,
+                    onToggleHidden={toggleHidden(track)},favorite=id in favoriteIds,
+                    onFavorite=onFavorite?.let{action->{mutate{action(id,id !in favoriteIds)}}},
+                    onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},
+                    onRecognize=onRecognize?.let{action->{action(id)}}) })
+        }
+    } else if(folderOpen!=null) {
         val folder=requireNotNull(folderOpen)
         val folderTracks=remember(folders,folder,hiddenTrackKeys,sort){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,hiddenTrackKeys)},sort)}
         val folderIds=remember(folderTracks){folderTracks.map{it.id}}
@@ -394,12 +425,15 @@ internal fun MusicModeScreen(
             if (tab == 1 && playlist == null) {
                 if (listeningEnabled) {
                     if(onResumeSelection!=null) item(key="resume-music-card"){ResumeMusicCard(resumeSessions.size){resumeOpen=true}}
+                    item(key="recent-music-card") { RecentMusicCard { recentOpen=true } }
+
                     if(onOpenCollections!=null)item(key="music-collections"){
                         com.domenota.medialoader.ui.screens.organization.OrganizationEntry("Коллекции","Музыкальная часть коллекций",onOpenCollections,Modifier.padding(horizontal=17.dp,vertical=5.dp))
                     }
                     item(key="frequent-playlist") { FrequentListeningCard(listeningSelection.ranked.size,listeningPeriod) { frequentOpen=true } }
                     SmartMusicPage.entries.forEach { page -> item(key="smart-${page.name}") { SmartMusicCard(page){smartPage=page} } }
                 }
+                if(!listeningEnabled) item(key="recent-music-card") { RecentMusicCard { recentOpen=true } }
                 item(key = "playlists-title") { Text("Мои плейлисты", Modifier.padding(horizontal = 17.dp, vertical = 15.dp), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
                 items(playlists.chunked(2), key = { it.first().id }) { pair ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -409,7 +443,7 @@ internal fun MusicModeScreen(
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         Text(entry.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("${entry.trackIds.size} треков", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(RussianCounts.tracks(entry.trackIds.size), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     PlaylistActions(entry, { renameTarget = entry }, { deleteTarget = entry })
                                 }
@@ -454,7 +488,7 @@ internal fun MusicModeScreen(
                                             tint = MaterialTheme.colorScheme.primary)
                                         Text(MusicFolderRules.title(folder), fontWeight = FontWeight.SemiBold,
                                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("${folders[folder].orEmpty().size} треков", fontSize = 12.sp,
+                                        Text(RussianCounts.tracks(folders[folder].orEmpty().size), fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                                     }
                                 }
@@ -465,7 +499,7 @@ internal fun MusicModeScreen(
                 } else items(visibleFolders, key = { "folder:$it" }) { folder ->
                     TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Rounded.Folder, null)
-                        Text("${MusicFolderRules.title(folder)} · ${folders[folder].orEmpty().size}",
+                        Text("${MusicFolderRules.title(folder)} · ${RussianCounts.tracks(folders[folder].orEmpty().size)}",
                             Modifier.weight(1f).padding(start = 12.dp), maxLines = 2, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
@@ -486,7 +520,7 @@ internal fun MusicModeScreen(
                         PlaylistCover(playlist, available, Modifier.size(100.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             val minutes = playlist.trackIds.mapNotNull(available::get).sumOf { (it.durationMs ?: 0) / 60_000 }
-                            Text("${playlist.trackIds.size} треков" + if (minutes > 0) " · $minutes минут" else "", fontSize = 13.sp)
+                            Text(RussianCounts.tracks(playlist.trackIds.size) + if (minutes > 0) " · $minutes минут" else "", fontSize = 13.sp)
                             Text("Музыка для тебя", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Button(enabled = displayed.isNotEmpty(), onClick = { displayed.firstOrNull()?.let { preview(it.id) } }, shape = RoundedCornerShape(18.dp)) {
                                 Icon(Icons.Rounded.PlayArrow, null); Text("Слушать", fontSize = 13.sp)

@@ -13,5 +13,6 @@ object RussianCounts {
         return "$n $noun"
     }
     fun files(n:Int)=count(n,"файл","файла","файлов")
+    fun tracks(n:Int)=count(n,"трек","трека","треков")
     fun links(n:Int)=count(n,"ссылка","ссылки","ссылок")
 }

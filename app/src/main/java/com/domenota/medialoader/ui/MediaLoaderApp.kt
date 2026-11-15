@@ -238,7 +238,7 @@ fun MediaLoaderApp(
     var galleryAlbumRequest by remember { mutableStateOf<GalleryAlbumRequest?>(null) }
     var openingAlbumKey by remember { mutableStateOf<String?>(null) }
     var openingPlaylistId by remember { mutableStateOf<String?>(null) }
-    var musicTab by rememberSaveable { mutableIntStateOf(0) }
+    var musicTab by rememberSaveable { mutableIntStateOf(1) }
     var musicTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var musicDetailOpen by remember { mutableStateOf(false) }
     var libraryPreviewJob by remember { mutableStateOf<Job?>(null) }
@@ -341,6 +341,7 @@ fun MediaLoaderApp(
         // Check access synchronously before a cached phone-backed screen can be rendered.
         if (next == AppMode.MUSIC || (next == AppMode.GALLERY &&
                 (gallerySource == LibrarySource.PHONE || phoneGallery.loaded))) libraryModel.refresh(next)
+        if (next == AppMode.MUSIC && appMode != AppMode.MUSIC) { musicTab = 1; musicTopRequest++ }
         libraryPreferences.mode = next
         appMode = next
         com.domenota.medialoader.core.logging.PerformanceLog.end("mode_switch_dispatch:$next", dispatchedAt)
@@ -1231,7 +1232,8 @@ fun MediaLoaderApp(
         privateNavigation = false
         hiddenMusicTracksOpen = false
         galleryAlbumRequest = null
-        galleryTab = 0; musicTab = 0
+        galleryTab = 0
+        if (mode == AppMode.MUSIC && !shortcutDuplicates) { musicTab = 1; musicTopRequest++ }
         changeAppMode(mode)
         navController.navigate(AppDestination.Home.route) {
             popUpTo(AppDestination.Home.route) { inclusive = false }
@@ -1363,7 +1365,7 @@ fun MediaLoaderApp(
                                     if (galleryTab == 0 && it == 0) galleryTopRequest++
                                     galleryTab = it
                                 } else {
-                                    if (musicTab == 0 && it == 0) musicTopRequest++
+                                    if (musicTab == it) musicTopRequest++
                                     musicTab = it
                                 }
                             }
@@ -1519,6 +1521,11 @@ fun MediaLoaderApp(
                     }.toMap() },
                     items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
                     allAudio = libraryAudioItems, playlists = playlists,
+                    recentItems = remember(collectionRefs, librarySource, externalByAlias) { collectionRefs.filter { ref ->
+                        ref.item.mediaType == MediaType.AUDIO && (librarySource == LibrarySource.PHONE ||
+                            ref.appDownloadId != null || ref.aliases.any { externalByAlias[it]?.folderId != null })
+                    }.map { it.item } },
+                    recentLoading = !collectionUsable,
                     favoriteIds = libraryCatalogAssignments.filter { it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId },
                     header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneMusic.message else null,
@@ -1589,7 +1596,7 @@ fun MediaLoaderApp(
                         publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
                     searchVisible = librarySearchVisible, tabOverride = musicTab,
                      scrollToTopRequest = musicTopRequest, onTabChange = {
-                         if (musicTab == 0 && it == 0) musicTopRequest++
+                         if (musicTab == it) musicTopRequest++
                          musicTab = it
                      },
                     onEnqueue = { id, next ->
