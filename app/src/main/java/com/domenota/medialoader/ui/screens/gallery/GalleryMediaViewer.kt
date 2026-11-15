@@ -74,6 +74,7 @@ internal fun GalleryMediaViewer(
     onOpenAlbum: ((GalleryAlbumLink, DownloadEntity) -> Unit)? = null,
     onPassport: ((DownloadEntity)->Unit)? = null,
     onAddCollection: ((DownloadEntity)->Unit)? = null,
+    allowNeighborOnQueueRemoval: Boolean = true,
 ) {
     val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
     DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
@@ -127,7 +128,8 @@ internal fun GalleryMediaViewer(
         // A saved pager index is not a selection. The route chooses the first
         // item; only an already-open viewer may advance after a real removal.
         val target = if (!initialSelectionApplied) item.id.takeIf { it in ids }
-            else GalleryViewerState.neighbor(currentId, previousIds, ids.toSet())
+            else if (allowNeighborOnQueueRemoval) GalleryViewerState.neighbor(currentId, previousIds, ids.toSet())
+            else currentId.takeIf { it in ids }
         if (target == null) { onBack(); return@LaunchedEffect }
         val targetIndex = ids.indexOf(target)
         pager.scrollToPage(targetIndex)

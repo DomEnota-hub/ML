@@ -13,7 +13,8 @@ internal object Mp3TagArguments {
             "-metadata:s:v:0","title=Album cover","-metadata:s:v:0","comment=Cover (front)"))
         else if (preserveExistingArtwork) addAll(listOf("-map","0:v?","-c:v","copy"))
         else add("-vn")
-        addAll(listOf("-id3v2_version","3","-write_id3v1","1","-metadata","title=${result.title}","-metadata","artist=${result.artist}"))
+        // Do not generate a lossy legacy tag that can override Unicode ID3v2.
+        addAll(listOf("-id3v2_version","3","-write_id3v1","0","-metadata","title=${result.title}","-metadata","artist=${result.artist}"))
         result.album?.takeIf { it.isNotBlank() }?.let { addAll(listOf("-metadata","album=$it")) }
         add(output)
     }

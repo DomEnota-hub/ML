@@ -1162,7 +1162,8 @@ fun MediaLoaderApp(
                 viewerEntry?.savedStateHandle?.set("private_viewer",
                     item.isPrivate && item.mediaType != MediaType.AUDIO)
                 navController.currentBackStackEntry?.savedStateHandle?.set("gallery_presentation",
-                    item.mediaType != MediaType.AUDIO)
+                    item.mediaType != MediaType.AUDIO &&
+                        (item.isPrivate || appMode == AppMode.GALLERY || queueIds.isNotEmpty()))
             } else {
                 openSavedFile(context, item)
             }
@@ -2255,21 +2256,24 @@ fun MediaLoaderApp(
                 val snapshot = ViewerQueueCache.resolve(
                     entry.savedStateHandle.get<String>("grid_viewer_token"))
                 val visualSelection by entry.savedStateHandle.getStateFlow<ArrayList<String>?>("gallery_selection", null).collectAsStateWithLifecycle()
+                // Presentation controls system bars, not file identity. A standalone
+                // visual open still has an exact route selection without changing chrome.
+                val visualRoute = galleryPresentation || visualSelection != null
                 val selectedGalleryId by entry.savedStateHandle.getStateFlow<String?>("gallery_current_id", null).collectAsStateWithLifecycle()
                 val currentGalleryId = visualSelection?.getOrNull(0) ?: selectedGalleryId ?: downloadId
                 val expectedGalleryUri = visualSelection?.getOrNull(1) ?: entry.savedStateHandle.get<String>("gallery_expected_uri")
                 val selectedAppVisual = visualSelection?.getOrNull(2) == "app"
                 val collectionViewer = entry.savedStateHandle.get<Boolean>("collection_viewer") == true
                 val viewerPublicRefs = if (collectionViewer) scopedCatalog?.refs.orEmpty() else publicLibraryRefs
-                val indexedCandidates = remember(galleryPresentation, viewerPublicRefs, libraryPrivateKeys,
-                    snapshot, downloadId, currentGalleryId, fileStatuses, fileStatusUris, collectionViewer) { if (galleryPresentation) GalleryViewerState.publicCandidates(viewerPublicRefs, libraryPrivateKeys,
+                val indexedCandidates = remember(visualRoute, viewerPublicRefs, libraryPrivateKeys,
+                    snapshot, downloadId, currentGalleryId, fileStatuses, fileStatusUris, collectionViewer) { if (visualRoute) GalleryViewerState.publicCandidates(viewerPublicRefs, libraryPrivateKeys,
                     snapshot.toSet() + listOfNotNull(downloadId, currentGalleryId)).filter { row ->
                     !row.hidden && !row.isPrivate && row.savedUri != null && row.state == DownloadState.COMPLETED &&
                         (fileStatusUris[row.id] != row.savedUri || (fileStatuses[row.id] != SavedFileStatus.MISSING && fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE))
                 } else emptyList() }
                 // Resolve the exact fresh history row without waiting for a whole-phone index.
                 // A scoped collection must never be expanded into raw public history.
-                val selectedHistoryRow = if (galleryPresentation && !privateViewer && !collectionViewer)
+                val selectedHistoryRow = if (visualRoute && !privateViewer && !collectionViewer)
                     downloads.firstOrNull { it.id == currentGalleryId } else null
                 val addressGuard = libraryPrivateKeys.takeIf { !recoveryRunning && !privateViewer }
                 var addressed by remember(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch) { mutableStateOf<LibraryMediaRef?>(null) }
@@ -2310,13 +2314,13 @@ fun MediaLoaderApp(
                 }
                 val audioCurrentId = entry.savedStateHandle.get<String>("audio_current_id")
                 val item = if (privateViewer) GalleryViewerState.exactItem(currentGalleryId, null, privateCandidates)
-                    else if (galleryPresentation) GalleryViewerState.exactItem(currentGalleryId, expectedGalleryUri, galleryCandidates)
+                    else if (visualRoute) GalleryViewerState.exactItem(currentGalleryId, expectedGalleryUri, galleryCandidates)
                     else accessibleDownloads.firstOrNull { it.id == (audioCurrentId ?: downloadId) }
                         ?: libraryRefsByAlias[audioCurrentId ?: downloadId]?.item
                         ?: accessibleDownloads.firstOrNull { it.id == downloadId }
                 if (item == null || item.savedUri == null) {
                     if (!privateViewer &&
-                        (awaitingPhone(downloadId) || (galleryPresentation &&
+                        (awaitingPhone(downloadId) || (visualRoute &&
                             ((selectedHistoryRow != null && !addressFinished) || libraryPrivateKeys == null || (collectionViewer && scopedCatalog == null))))) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
@@ -2329,7 +2333,7 @@ fun MediaLoaderApp(
                 } else {
                     val viewerRows = if (privateViewer) privateCandidates
                         else if (item.isPrivate && privateState.unlocked) privateDownloads
-                        else if (galleryPresentation) galleryCandidates else publicLibraryRows
+                        else if (visualRoute) galleryCandidates else publicLibraryRows
                     val availablePhotos = viewerRows.filter { row ->
                         row.mediaType == MediaType.PHOTO &&
                             row.state == DownloadState.COMPLETED &&
@@ -2382,13 +2386,14 @@ fun MediaLoaderApp(
                                 openSavedFile(context, selected)
                         },
                         onCurrentItemChanged = { selected ->
-                            if (!selected.isPrivate) entry.savedStateHandle["gallery_selection"] = arrayListOf(
+                            if (!selected.isPrivate && visualRoute) entry.savedStateHandle["gallery_selection"] = arrayListOf(
                                 selected.id, requireNotNull(selected.savedUri),
                                 if (!collectionViewer && (downloads.any { it.id == selected.id } ||
                                         (selected.id == currentGalleryId && selectedAppVisual))) "app" else "index")
                             else entry.savedStateHandle["gallery_current_id"] = selected.id
                         },
                         privateMode = item.isPrivate,
+                        allowNeighborOnQueueRemoval = !visualRoute && !privateViewer,
                         onPassport=if(item.isPrivate)null else { selected->openPassport(selected.id) },
                         onAddCollection=if(item.isPrivate)null else { selected->addToCollection(listOf(selected.id)) },
                         albumLinks = { selected ->

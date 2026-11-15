@@ -53,6 +53,24 @@ class GalleryViewerPhotoUiTest {
         assertEquals(null, current)
     }
 
+    @Test fun exactRouteNeverPublishesNeighborOnTransientQueueRemoval() {
+        val selected = photo("RouteSelected")
+        val neighbor = photo("RouteNeighbor")
+        var rows by mutableStateOf(listOf(selected, neighbor))
+        var current: String? = null
+        var closed = false
+        compose.setContent { MaterialTheme {
+            GalleryMediaViewer(selected, rows, { closed = true }, {}, {}, {}, emptySet(), { _, _ -> }, emptyList(),
+                { _, _ -> }, {}, {}, { current = it.id }, allowNeighborOnQueueRemoval = false)
+        } }
+        compose.waitForIdle()
+        assertEquals(selected.id, current)
+        compose.runOnIdle { rows = listOf(neighbor) }
+        compose.waitForIdle()
+        assertEquals(selected.id, current)
+        org.junit.Assert.assertTrue(closed)
+    }
+
     @Test fun reorderingQueueKeepsSelectedIdentityRatherThanNumericPage() {
         val first = photo("FirstReorder")
         val selected = photo("SelectedReorder")
