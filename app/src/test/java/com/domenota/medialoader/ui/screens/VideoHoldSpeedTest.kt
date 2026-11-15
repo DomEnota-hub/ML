@@ -43,6 +43,25 @@ class VideoHoldSpeedTest {
         assertEquals(listOf(2f, 1.25f, 2f, 1.5f), calls)
     }
 
+    @Test fun failedSpeedCommandDoesNotLeaveTheSessionActive() {
+        val state = VideoHoldSpeedSession()
+        try {
+            state.begin(1f, true) { throw IllegalStateException("released player") }
+            fail("Expected command failure")
+        } catch (_: IllegalStateException) {
+            assertFalse(state.active)
+        }
+        assertTrue(state.begin(1.25f, true) {})
+        try {
+            state.end { throw IllegalStateException("released player") }
+            fail("Expected command failure")
+        } catch (_: IllegalStateException) {
+            assertFalse(state.active)
+        }
+        assertTrue(state.begin(1f, true) {})
+        state.end {}
+    }
+
     @Test fun onlyExistingForwardZoneQualifiesInBothOrientations() {
         for (width in listOf(360, 800)) {
             assertFalse(VideoHoldSpeedPolicy.isRightZone(width * .2f, width))

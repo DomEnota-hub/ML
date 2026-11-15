@@ -17,7 +17,12 @@ internal class VideoHoldSpeedSession {
     fun begin(speed: Float, playing: Boolean, apply: (Float) -> Unit): Boolean {
         if (active || !playing || !speed.isFinite() || speed <= 0f) return false
         previousSpeed = speed // Mark active before Media3 dispatches its speed listener.
-        apply(VideoHoldSpeedPolicy.SPEED)
+        try {
+            apply(VideoHoldSpeedPolicy.SPEED)
+        } catch (failure: Exception) {
+            previousSpeed = null
+            throw failure
+        }
         return true
     }
 

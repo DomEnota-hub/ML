@@ -466,20 +466,29 @@ internal fun LocalVideoPlayer(
     val holdSpeed = remember(player) { VideoHoldSpeedSession() }
     var holdSpeedVisible by remember(player) { mutableStateOf(false) }
     fun endHoldSpeed() {
-        holdSpeed.end(player::setPlaybackSpeed)
-        holdSpeedVisible = false
+        try {
+            holdSpeed.end(player::setPlaybackSpeed)
+        } catch (failure: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.w("VideoPlayer", "Temporary speed restore failed", failure)
+        } finally {
+            holdSpeedVisible = false
+        }
     }
     fun beginHoldSpeed(): Boolean {
         if (controlsLocked || playbackError != null || playbackEnded ||
             !lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
             !player.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)
         ) return false
-        val started = holdSpeed.begin(player.playbackParameters.speed, player.isPlaying,
-            player::setPlaybackSpeed)
-        if (started) holdSpeedVisible = true
-        return started
+        return try {
+            val started = holdSpeed.begin(player.playbackParameters.speed, player.isPlaying,
+                player::setPlaybackSpeed)
+            if (started) holdSpeedVisible = true
+            started
+        } catch (failure: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.w("VideoPlayer", "Temporary speed start failed", failure)
+            false
+        }
     }
-    val latestBeginHoldSpeed by rememberUpdatedState<() -> Boolean>({ beginHoldSpeed() })
     LaunchedEffect(player, controlsLocked, fullscreen, videoViewportSize, aspectPanelOpen,
         showTimePicker, showPlayerSettings, showGalleryTracks) {
         endHoldSpeed()
@@ -1033,7 +1042,7 @@ internal fun LocalVideoPlayer(
                         },
                     )
                 }
-                .pointerInput(player, controlsLocked, fullscreen, videoViewportSize) {
+                .pointerInput(player, controlsLocked, fullscreen, videoViewportSize, lifecycleOwner) {
                     detectVideoCanvasTaps(
                         onTap = { toggleChrome() },
                         onDoubleTap = { tap ->
@@ -1044,7 +1053,8 @@ internal fun LocalVideoPlayer(
                                 else -> toggleChrome()
                             }
                         },
-                        onHoldStart = { latestBeginHoldSpeed() },
+                        // Bind both callbacks to this exact player, never a newly opened video.
+                        onHoldStart = { beginHoldSpeed() },
                         onHoldEnd = { endHoldSpeed() },
                     )
                 })
