@@ -1,18 +1,18 @@
-name: ML 1.7.191 stages 1-3 QA and unsigned handoff
+name: ML 1.7.192 stages 1-4 QA and unsigned handoff
 on:
   push:
-    branches: [feature/ml-17191-qa-rework]
+    branches: [feature/ml-17192-qa-rework]
   pull_request:
     types: [opened, reopened, synchronize]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: ml-17191-collections-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ml-17192-collections-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 jobs:
   collections:
-    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17191-qa-rework'
+    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17192-qa-rework'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -37,8 +37,8 @@ jobs:
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Verify identity and UI guards
         run: |
-          grep -Eq 'versionCode 251$' app/build.gradle
-          grep -Fq "versionName '1.7.191'" app/build.gradle
+          grep -Eq 'versionCode 252$' app/build.gradle
+          grep -Fq "versionName '1.7.192'" app/build.gradle
           python3 scripts/audit_ui_palette.py
           python3 scripts/check-round-sliders.py
           python3 scripts/check-in-app-notices.py
@@ -80,16 +80,16 @@ jobs:
           bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
           input=app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$input"
-          "$bt/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='251' versionName='1.7.191'"
+          "$bt/aapt" dump badging "$input" | grep -F "package: name='com.domenota.medialoader' versionCode='252' versionName='1.7.192'"
           test "$(unzip -Z1 "$input" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
           mkdir -p handoff/tools handoff/source
-          aligned=handoff/ML_1.7.191_ARM64_ALIGNED_UNSIGNED.apk
+          aligned=handoff/ML_1.7.192_ARM64_ALIGNED_UNSIGNED.apk
           "$bt/zipalign" -P 16 -f 4 "$input" "$aligned"
           "$bt/zipalign" -c -P 16 -v 4 "$aligned"
           cp "$bt/lib/apksigner.jar" handoff/tools/apksigner.jar
           cp "$bt/zipalign" "$bt/aapt" handoff/tools/
           if [ -d "$bt/lib64" ]; then cp -r "$bt/lib64" handoff/tools/; fi
-          git archive --format=zip -o handoff/source/ML_1.7.191_SOURCES_EXACT_COMMIT.zip HEAD
+          git archive --format=zip -o handoff/source/ML_1.7.192_SOURCES_EXACT_COMMIT.zip HEAD
           git rev-parse HEAD > handoff/source/DELIVERY_COMMIT_SHA.txt
           (cd handoff && find . -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ml189-handoff-sha256.txt)
           cp /tmp/ml189-handoff-sha256.txt handoff/UNSIGNED_HANDOFF_SHA256.txt
@@ -97,7 +97,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ML_1.7.191_PRIVATE_UNSIGNED_LOCAL_SIGNING
+          name: ML_1.7.192_PRIVATE_UNSIGNED_LOCAL_SIGNING
           path: handoff/
           retention-days: 2
           if-no-files-found: error
@@ -106,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ml17191-collections-diagnostics
+          name: ml17192-collections-diagnostics
           path: |
             app/build/test-results/testDebugUnitTest/
             app/build/reports/tests/testDebugUnitTest/

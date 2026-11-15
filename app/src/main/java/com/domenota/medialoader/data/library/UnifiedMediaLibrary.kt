@@ -17,17 +17,20 @@ object UnifiedMediaLibrary {
         }
         val owners = HashMap<String, Int>()
         refs.forEachIndexed { index, ref ->
-            (ref.aliases + ref.key + ref.item.id).forEach { alias ->
+            fun connect(alias: String) {
                 val previous = owners.putIfAbsent(alias, index)
                 if (previous != null) parents[root(index)] = root(previous)
             }
+            ref.aliases.forEach(::connect)
+            if (ref.key !in ref.aliases) connect(ref.key)
+            if (ref.item.id != ref.key && ref.item.id !in ref.aliases) connect(ref.item.id)
         }
         return refs.indices.groupBy(::root).values.mapNotNull { indices ->
             val group = indices.map { refs[it] }
-            val aliases = group.flatMapTo(mutableSetOf()) { it.aliases + it.key + it.item.id }
+            val aliases = buildSet { group.forEach { addAll(it.aliases); add(it.key); add(it.item.id) } }
             if (group.any { it.item.isPrivate } || aliases.any { it in privateKeys }) return@mapNotNull null
-            val usable = group.filter { !it.item.hidden && it.item.state == DownloadState.COMPLETED && !it.item.savedUri.isNullOrBlank() }
-            val primary = usable.sortedWith(compareBy<LibraryMediaRef> { it.appDownloadId == null }.thenBy { it.key }).firstOrNull()
+            val primary = group.asSequence().filter { !it.item.hidden && it.item.state == DownloadState.COMPLETED && !it.item.savedUri.isNullOrBlank() }
+                .minWithOrNull(compareBy<LibraryMediaRef> { it.appDownloadId == null }.thenBy { it.key })
                 ?: return@mapNotNull null
             primary.copy(aliases = aliases,
                 deviceAlbumId = group.firstNotNullOfOrNull { it.deviceAlbumId },

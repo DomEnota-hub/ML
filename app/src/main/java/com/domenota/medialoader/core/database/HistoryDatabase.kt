@@ -231,7 +231,7 @@ interface CatalogDao {
 
 @Database(entities = [DownloadEntity::class, SettingsEntity::class,
     CatalogFolderEntity::class, CatalogAssignmentEntity::class, MediaCollectionEntity::class,
-    MediaCollectionMemberEntity::class, MediaReviewEntity::class, MediaOperationEntity::class], version = 14, exportSchema = false)
+    MediaCollectionMemberEntity::class, MediaReviewEntity::class, MediaOperationEntity::class], version = 15, exportSchema = false)
 @TypeConverters(DatabaseConverters::class)
 abstract class HistoryDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao

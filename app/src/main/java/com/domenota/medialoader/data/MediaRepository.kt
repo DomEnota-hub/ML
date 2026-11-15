@@ -199,7 +199,8 @@ class MediaRepository private constructor(context: Context) {
                 }
             }, com.domenota.medialoader.core.database.PRIVATE_HISTORY_MIGRATION,
                 com.domenota.medialoader.core.database.MEDIA_ORGANIZATION_MIGRATION,
-                com.domenota.medialoader.core.database.COLLECTION_ORDER_MIGRATION).build()
+                com.domenota.medialoader.core.database.COLLECTION_ORDER_MIGRATION,
+                com.domenota.medialoader.core.database.COLLECTION_METADATA_MIGRATION).build()
     private val history = HistoryRepository(historyDb.downloadDao(), historyDb.catalogDao(),historyDb)
     internal val organization = com.domenota.medialoader.data.library.MediaOrganizationRepository(historyDb)
     private val catalog = DownloadCatalogRepository(historyDb)

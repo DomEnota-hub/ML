@@ -83,7 +83,7 @@ internal fun RecentMusicScreen(rows:List<DownloadEntity>,loading:Boolean,current
                 Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
                         Icon(Icons.Rounded.CalendarToday,null,Modifier.size(38.dp),tint=MaterialTheme.colorScheme.primary)
-                        Column{Text("История добавления",style=MaterialTheme.typography.titleMedium);Text(RussianCounts.tracks(ids.size),color=MaterialTheme.colorScheme.primary)}
+                        Column{Text("История добавления",style=MaterialTheme.typography.titleMedium);Text(if(loading&&rows.isEmpty())"Загрузка музыки…" else RussianCounts.tracks(ids.size),color=MaterialTheme.colorScheme.primary)}
                     }
                     RecentPlayButtons(ids,onPlay)
                 }

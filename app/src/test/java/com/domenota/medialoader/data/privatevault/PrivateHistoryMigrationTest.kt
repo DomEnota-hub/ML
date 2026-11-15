@@ -7,6 +7,7 @@ import com.domenota.medialoader.core.database.HistoryDatabase
 import com.domenota.medialoader.core.database.PRIVATE_HISTORY_MIGRATION
 import com.domenota.medialoader.core.database.MEDIA_ORGANIZATION_MIGRATION
 import com.domenota.medialoader.core.database.COLLECTION_ORDER_MIGRATION
+import com.domenota.medialoader.core.database.COLLECTION_METADATA_MIGRATION
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -61,7 +62,7 @@ class PrivateHistoryMigrationTest {
                 old.version = 11
             }
             val opened = Room.databaseBuilder(context, HistoryDatabase::class.java, name)
-                .addMigrations(PRIVATE_HISTORY_MIGRATION,MEDIA_ORGANIZATION_MIGRATION,COLLECTION_ORDER_MIGRATION).allowMainThreadQueries().build()
+                .addMigrations(PRIVATE_HISTORY_MIGRATION,MEDIA_ORGANIZATION_MIGRATION,COLLECTION_ORDER_MIGRATION,COLLECTION_METADATA_MIGRATION).allowMainThreadQueries().build()
             migrated = opened
             val dao = opened.downloadDao()
             val retained = requireNotNull(dao.byId("existing-download"))
@@ -79,7 +80,7 @@ class PrivateHistoryMigrationTest {
             assertEquals("content://media/existing", privateRow.privateSourceUri)
             assertTrue(dao.observeAll().first().isEmpty())
             assertEquals(listOf(privateRow), dao.observePrivate().first())
-            assertEquals(14, opened.openHelper.writableDatabase.version)
+            assertEquals(15, opened.openHelper.writableDatabase.version)
             assertTrue(opened.organizationDao().observeReview().first().isEmpty())
         } finally {
             migrated?.close()

@@ -1,0 +1,14 @@
+# ML 1.7.192 / 252 — stage 1: catalog independence
+
+Base: released 1.7.191, `be9fd3649ca9a86d3a3f0d8c6ae384e8d078e82d`. Scope: QA-191-01/03 functional portion only. No UI redesign, recognition or duplicate algorithm changes. Production remains unchanged.
+
+## Changes
+
+- Address only the members of the selected collection, using exact current app history ID or typed MediaStore locator plus stored identity. Reuse the ordinary complete catalog for ambiguous/legacy aliases; never treat a partial scan as a missing file or attach a recycled physical identity. A collection's playback candidates, missing status and count derive from one addressed generation. Retain the previous verified public generation during routine refresh, but invalidate on permission/privacy/hidden identity changes. Recheck current URI, identity, access and availability before actions. The ordinary catalog still supplies the add-file picker.
+- Separate complete audio catalog from gallery/collection completeness; partition the existing app identity pass by kind with one shared provider concurrency limit. Reuse MediaStore audio index, original chronology, source filters, hidden/excluded folder filtering and playback actions. Retain last verified audio snapshot during routine updates. Distinguish real empty from initial loading. Partial disk checkpoints carry an explicit completeness bit; legacy checkpoints without a known generation are conservatively incomplete. No second enumeration or physical playlist.
+- Eliminate duplicate full root merge, per-ref temporary alias sets and UI-thread full collection filtering; guarded background projections are demand-driven. Move history mapping to background, keep ordinary incremental indexing. Suppress routine duplicate in-flight scans. Scope availability overrides to an active scan and avoid full history refresh for addressed status changes. Log anonymous counts and elapsed time for address and audio passes.
+- Room 14→15 adds nullable `metadataJson` to collection members, preserving exact identity, order, links, dates and original files. New members store minimal display metadata; legacy public members backfill only after exact match. No remote URLs or recovery credentials in snapshots; never authorize playback/recovery via display data. Use cached preview only if allowed. Missing historical metadata may remain unknown.
+
+## Acceptance
+
+New targeted regressions: 10,000 unrelated rows / six member lookups, physical URI reuse, legacy fallback, privacy, metadata, stale status URI, audio generation retention and invalidation, partial cache, v14 migration. Existing full JVM, both Android lint and ARM64 CI remain required. Synthetic tests do not demonstrate Xiaomi wall time, heap peak, frame stalls or provider behavior; measure again on real large library during final QA. No intermediate APK distribution or signature.

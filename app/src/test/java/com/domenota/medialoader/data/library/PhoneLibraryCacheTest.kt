@@ -64,6 +64,14 @@ class PhoneLibraryCacheTest {
         cache.clear(mode)
         assertNull(cache.read(mode, "images", "privacy", stamp))
     }
+    @Test fun partialCheckpointCannotBecomeCompleteAudioHistory() = runBlocking {
+        val cache = PhoneLibraryCache(RuntimeEnvironment.getApplication())
+        val noGeneration = stamp.copy(generation = null)
+        cache.write(mode,"images","privacy",noGeneration,snapshot(),complete=false)
+        assertFalse(cache.read(mode,"images","privacy",stamp)!!.complete)
+        cache.write(mode,"images","privacy",noGeneration,snapshot(),complete=true)
+        assertTrue(cache.read(mode,"images","privacy",stamp)!!.complete)
+    }
     @Test fun privacyDigestIsOrderIndependentButChangesWithIdentitySet() {
         assertEquals(PhoneLibraryCache.privacyTag(setOf("a", "b")), PhoneLibraryCache.privacyTag(setOf("b", "a")))
         assertNotEquals(PhoneLibraryCache.privacyTag(setOf("a", "b")), PhoneLibraryCache.privacyTag(setOf("a")))

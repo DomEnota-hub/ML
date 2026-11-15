@@ -16,7 +16,7 @@ import java.io.File
 import java.security.MessageDigest
 
 internal data class PhoneStoreStamp(val versions: String?, val generation: String?)
-internal data class CachedPhoneLibrary(val snapshot: PhoneMediaSnapshot, val stamp: PhoneStoreStamp)
+internal data class CachedPhoneLibrary(val snapshot: PhoneMediaSnapshot, val stamp: PhoneStoreStamp, val complete: Boolean = true)
 
 /** Rebuildable metadata, never media bytes. Not included in Android backup/restore. */
 internal class PhoneLibraryCache(context: Context) {
@@ -50,13 +50,13 @@ internal class PhoneLibraryCache(context: Context) {
                         sourceAudioTitle = string("title"), sourceAudioArtist = string("artist"))
                 }
                 CachedPhoneLibrary(PhoneMediaSnapshot(items, identities, fingerprints),
-                    PhoneStoreStamp(stamp.versions, if (root.isNull("generation")) null else root.getString("generation")))
+                    PhoneStoreStamp(stamp.versions, if (root.isNull("generation")) null else root.getString("generation")), root.optBoolean("complete", !root.isNull("generation")))
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { null }
         }
     }
 
-    suspend fun write(mode: AppMode, access: String, privacy: String, stamp: PhoneStoreStamp, snapshot: PhoneMediaSnapshot) = withContext(Dispatchers.IO) {
+    suspend fun write(mode: AppMode, access: String, privacy: String, stamp: PhoneStoreStamp, snapshot: PhoneMediaSnapshot, complete: Boolean = true) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val entries = JSONArray()
             snapshot.items.forEach { row ->
@@ -69,7 +69,7 @@ internal class PhoneLibraryCache(context: Context) {
                     .put("fingerprint", snapshot.fingerprints[row.savedUri]))
             }
             val root = JSONObject().put("schema", if (mode == AppMode.MUSIC) 2 else 1).put("access", access).put("privacy", privacy)
-                .put("versions", stamp.versions).put("generation", stamp.generation).put("entries", entries)
+                .put("versions", stamp.versions).put("generation", stamp.generation).put("entries", entries).put("complete", complete)
             directory.mkdirs()
             val target = file(mode)
             val output = target.startWrite()
