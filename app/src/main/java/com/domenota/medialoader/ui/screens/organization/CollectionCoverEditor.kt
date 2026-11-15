@@ -37,7 +37,7 @@ import kotlinx.coroutines.withContext
 
 @Composable
 internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<LibraryMediaRef>,onBack:()->Unit,
-    onCreate:(suspend (String,String?,Bitmap?,CollectionCrop)->Unit)?=null,onRename:suspend (String)->Unit) {
+    onCreate:(suspend (String,String?,Bitmap?,CollectionCrop)->Unit)?=null,blockedIdentities:Set<String>?=emptySet(),onRename:suspend (String)->Unit) {
     val collectionId=collection?.record?.id
     val creating=collectionId==null
     val context=LocalContext.current
@@ -52,7 +52,7 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
     var choosing by rememberSaveable{mutableStateOf(false)}
     var saved by remember{mutableStateOf<CollectionCover?>(null)}
     var decoded by remember{mutableStateOf<Pair<String,Bitmap>?>(null)}
-    val bitmap=decoded?.takeIf{it.first==source}?.second
+    val bitmap=decoded?.takeIf{it.first==source&&collectionCoverAllowed(it.first,blockedIdentities)}?.second
     var error by remember{mutableStateOf<String?>(null)}
     var busy by remember{mutableStateOf(false)}
     var loading by remember{mutableStateOf(false)}
@@ -66,16 +66,16 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
             collection?.members.orEmpty().firstNotNullOfOrNull{resolved[it.id]}
         }
     }
-    val liveAutomatic=automaticCover?.let{candidate->refs.firstOrNull{it.key==candidate.key&&MediaOrganizationPolicy.keys(it).isNotEmpty()}}
+    val liveAutomatic=automaticCover?.let{candidate->refs.firstOrNull{it.key==candidate.key&&MediaOrganizationPolicy.keys(it).isNotEmpty()&&blockedIdentities!=null&&!collectionRefBlocked(it,blockedIdentities)}}
     LaunchedEffect(collectionId){
         val cover=collectionId?.let{ id->withContext(Dispatchers.IO){store.read(id)}}
         saved=cover
         if(!initialized){source=cover?.source;x=cover?.crop?.centerX?:.5f;y=cover?.crop?.centerY?:.5f;zoom=cover?.crop?.zoom?:1f;automatic=cover==null;initialized=true}
     }
-    LaunchedEffect(source){
+    LaunchedEffect(source,blockedIdentities){
         val uri=source
         decoded=null
-        if(uri==null){loading=false;return@LaunchedEffect}
+        if(uri==null||!collectionCoverAllowed(uri,blockedIdentities)){loading=false;return@LaunchedEffect}
         loading=true
         try{decoded=uri to withContext(Dispatchers.IO){store.decode(uri)};error=null}
         catch(e:CancellationException){throw e}catch(e:Exception){decoded=null;error="Исходное изображение недоступно. Сохранённая обложка остаётся."}
@@ -121,7 +121,7 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
                             for(i in 1..2){drawLine(Color.White.copy(alpha=.65f),Offset(size.width*i/3,0f),Offset(size.width*i/3,size.height),1.dp.toPx());drawLine(Color.White.copy(alpha=.65f),Offset(0f,size.height*i/3),Offset(size.width,size.height*i/3),1.dp.toPx())}
                         }
                     } else {
-                        val cover=if(!automatic)saved?.file?.let{android.net.Uri.fromFile(it).toString()} else null
+                        val cover=if(!automatic)saved?.takeIf{collectionCoverAllowed(it.source,blockedIdentities)}?.file?.let{android.net.Uri.fromFile(it).toString()} else null
                         val auto=liveAutomatic
                         if(cover!=null)DownloadThumbnail(cover,null,MediaKind.IMAGE,viewport.clickable(enabled=!busy){choosing=true})
                         else if(auto!=null)CollectionOriginalCover(auto,viewport.clickable(enabled=!busy){
@@ -151,6 +151,7 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
         Button(enabled=!busy&&!loading&&initialized&&name.isNotBlank()&&(automatic||bitmap!=null||(!creating&&source==saved?.source)),modifier=Modifier.fillMaxWidth().padding(16.dp),onClick={scope.launch{
             busy=true;error=null
             try {
+                if(!automatic&&source!=null&&(creating||source!=saved?.source||bitmap!=null))check(collectionCoverAllowed(requireNotNull(source),blockedIdentities)){"Изображение недоступно"}
                 if(!automatic&&source!=saved?.source)check(photos.any{it.item.savedUri==source}){"Выбранное изображение больше недоступно"}
                 if(creating){
                     checkNotNull(onCreate)(name,source.takeUnless{automatic},bitmap.takeUnless{automatic},CollectionCrop(x,y,zoom))

@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.components
 
+import com.domenota.medialoader.ui.model.displayFileName
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -55,7 +56,7 @@ internal fun RemoteMediaPreviewDialog(initialId: String, items: List<PreviewMedi
                     IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Закрыть предпросмотр") }
                     Column(Modifier.weight(1f)) {
                         Text("Предпросмотр", style = MaterialTheme.typography.titleMedium)
-                        Text(current.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        Text(displayFileName(current.title, current.kind), maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall)
                     }
                     if (items.none { it.kind == MediaKind.IMAGE }) {

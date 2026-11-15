@@ -142,7 +142,8 @@ internal fun AlbumTrashHost(request: AlbumTrashRequest, refs: Map<String,Library
             albumError?.let { Text(it) }
             failures.forEach { (key,reason) ->
                 HorizontalDivider()
-                Text(request.rows.firstOrNull { it.key == key }?.item?.originalName ?: "Файл")
+                val row = request.rows.firstOrNull { it.key == key }?.item
+                Text(if (row != null) com.domenota.medialoader.ui.model.displayFileName(row) else "Файл")
                 Text(reason, style = MaterialTheme.typography.bodySmall)
             }
             if (request.physical) Text("Физическая папка не удаляется принудительно. После обновления галереи останутся только доступные файлы.")

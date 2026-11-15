@@ -332,7 +332,8 @@ internal fun PhotoGeometryDialog(
                         GeometryMode.VERTICAL -> PhotoGeometryIcons.vertical
                         GeometryMode.DISTORTION -> PhotoGeometryIcons.distortion
                         GeometryMode.FREE -> PhotoGeometryIcons.free
-                    }, mode == option, { mode = option }, enabled = true)
+                    }, mode == option, { mode = option }, enabled = true,
+                        modifier = Modifier.testTag("geometry-mode-${option.name.lowercase()}"))
                 }
                 PhotoToolCard("Масштаб", Icons.Rounded.CenterFocusStrong, false, { zoom.reset() }, true)
                 PhotoToolCard("Сетка", Icons.Rounded.GridOn, showGuides, { showGuides = !showGuides }, true)

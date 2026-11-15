@@ -45,8 +45,11 @@ internal data class PhoneLibraryState(
     val fingerprints: Map<String, String> = emptyMap(),
 )
 internal data class LibraryIndex(val ready: Boolean = false, val refs: List<LibraryMediaRef> = emptyList(),
-    val galleryRevision: Long = 0, val musicRevision: Long = 0)
-private data class LibraryIndexInput(val app: List<LibraryMediaRef>?, val gallery: PhoneLibraryState,
+    val galleryRevision: Long = 0, val musicRevision: Long = 0, val appComplete: Boolean = false,
+    val collectionIndex: CollectionIdentityIndex? = null, val privacyKeys: Set<String>? = null,
+    val appUris: Set<Pair<String, String?>> = emptySet())
+private data class AppReferenceBatch(val refs: List<LibraryMediaRef>, val complete: Boolean)
+private data class LibraryIndexInput(val app: AppReferenceBatch?, val gallery: PhoneLibraryState,
     val music: PhoneLibraryState, val privateKeys: Set<String>?, val recovering: Boolean)
 
 /** Retained editor references are not validated public display data until this snapshot lands. */
@@ -215,18 +218,18 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     }
     private val appReferences = combine(completedDownloads, HistoricalRecoverySignals.isRunning,
         HistoricalRecoverySignals.version) { rows, running, _ -> rows.takeUnless { running } }
-        .transformLatest<List<DownloadEntity>?, List<LibraryMediaRef>?> { rows ->
+        .transformLatest<List<DownloadEntity>?, AppReferenceBatch?> { rows ->
         if (rows == null) { emit(null); return@transformLatest }
         // Phone revisions must not restart this work, and a large history must not delay
         // the first visible page until its last provider URI has been resolved.
         val resolved = mutableListOf<LibraryMediaRef>()
-        if (rows.isEmpty()) emit(emptyList())
+        if (rows.isEmpty()) emit(AppReferenceBatch(emptyList(), true))
         var publishedAt = android.os.SystemClock.elapsedRealtime()
         for (batch in rows.chunked(16)) {
             resolved += references(batch, true)
             val now = android.os.SystemClock.elapsedRealtime()
             if (resolved.size == batch.size || resolved.size == rows.size || now - publishedAt >= 250L) {
-                emit(resolved.toList())
+                emit(AppReferenceBatch(resolved.toList(), resolved.size == rows.size))
                 publishedAt = now
             }
         }
@@ -243,10 +246,14 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
                 com.domenota.medialoader.core.logging.LibraryWork.LIBRARY_INDEX_BUILD)
             val phoneRows = PhoneLibraryChronology.reconcile(
-                pictures.items + audio.items, app.orEmpty().map { it.item })
-            LibraryIndex(true, UnifiedMediaLibrary.merge(app.orEmpty(),
-                references(phoneRows, false, pictures.identities + audio.identities), private),
-                pictures.revision, audio.revision)
+                pictures.items + audio.items, app?.refs.orEmpty().map { it.item })
+            val merged = UnifiedMediaLibrary.merge(app?.refs.orEmpty(),
+                references(phoneRows, false, pictures.identities + audio.identities), private)
+            val complete = app?.complete == true
+            val collectionIndex = if (complete && pictures.loaded && !pictures.loading && audio.loaded && !audio.loading)
+                CollectionIdentityIndex.build(merged) else null
+            LibraryIndex(true, merged, pictures.revision, audio.revision, complete, collectionIndex, private,
+                if (complete) app?.refs.orEmpty().mapTo(mutableSetOf()) { it.key to it.item.savedUri } else emptySet())
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, LibraryIndex())
 
@@ -254,7 +261,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         // Persistence is downstream maintenance, never a prerequisite for showing known media.
         viewModelScope.launch(Dispatchers.IO) {
             combine(index, HistoricalRecoverySignals.isRunning) { current, recovering ->
-                current.refs.takeIf { current.ready && !recovering }
+                current.refs.takeIf { current.ready && current.appComplete && !recovering }
             }.distinctUntilChanged().collectLatest { refs ->
                 if (refs == null) return@collectLatest
                 kotlinx.coroutines.delay(500L)

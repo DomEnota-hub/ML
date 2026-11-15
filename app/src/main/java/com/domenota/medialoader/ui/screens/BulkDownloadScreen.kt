@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.ui.model.FileNameDisplay
+import com.domenota.medialoader.ui.model.displayFileName
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -378,7 +380,7 @@ fun BulkDownloadScreen(
                                     RemotePreview(it, Modifier.size(52.dp))
                                 } ?: Text(bulkTypeLabel(candidate.item.type))
                                 Column(Modifier.weight(1f)) {
-                                    Text(candidate.item.originalName, maxLines = 2)
+                                    Text(displayFileName(candidate.item.originalName, FileNameDisplay.kind(candidate.item.type)), maxLines = 2)
                                     Text(
                                         listOfNotNull(
                                             bulkProviderName(candidate.item.providerId),

@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens.organization
 
+import com.domenota.medialoader.ui.model.displayFileName
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -186,7 +187,7 @@ internal fun CollectionMediaPicker(title:String,refs:List<LibraryMediaRef>,exist
                     val metadata=public.firstOrNull{it.item.sourcePageUrl==link||it.item.sourceUrl==link}?.item
                     if(metadata!=null)DownloadThumbnail(metadata.savedUri,metadata.previewUrl,when(metadata.mediaType){MediaType.PHOTO->MediaKind.IMAGE;MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO},Modifier.size(48.dp))
                     else Icon(Icons.Rounded.Link,null)
-                    Column(Modifier.weight(1f).padding(8.dp)){Text(metadata?.originalName?:link,maxLines=2,overflow=TextOverflow.Ellipsis);Text(runCatching{java.net.URI(link).host}.getOrNull().orEmpty(),style=MaterialTheme.typography.labelSmall)}
+                    Column(Modifier.weight(1f).padding(8.dp)){Text(if(metadata!=null)displayFileName(metadata) else link,maxLines=2,overflow=TextOverflow.Ellipsis);Text(runCatching{java.net.URI(link).host}.getOrNull().orEmpty(),style=MaterialTheme.typography.labelSmall)}
                     PickerMark(key in selected||key in existingKeys,key in existingKeys,enabled=!busy){toggle(key)}
                 }
             }

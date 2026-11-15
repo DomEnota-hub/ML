@@ -77,18 +77,20 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            MediaLoaderTheme {
-                MediaLoaderApp(
-                    currentPlayerRequest = currentPlayerRequests.pending,
-                    onCurrentPlayerRequestConsumed = { request -> currentPlayerRequests=currentPlayerRequests.consume(request) },
-                    shortcutMode = shortcutMode,
-                    shortcutGeneration = shortcutGeneration,
-                    shortcutDuplicates = openDuplicates,
-                    onShortcutConsumed = { shortcutMode = null },
-                    sharedText = sharedText,
-                    sharedTextGeneration = sharedTextGeneration,
-                    onSharedTextConsumed = { sharedText = null },
-                )
+            com.domenota.medialoader.ui.model.FileNameDisplayProvider {
+                MediaLoaderTheme {
+                    MediaLoaderApp(
+                        currentPlayerRequest = currentPlayerRequests.pending,
+                        onCurrentPlayerRequestConsumed = { request -> currentPlayerRequests=currentPlayerRequests.consume(request) },
+                        shortcutMode = shortcutMode,
+                        shortcutGeneration = shortcutGeneration,
+                        shortcutDuplicates = openDuplicates,
+                        onShortcutConsumed = { shortcutMode = null },
+                        sharedText = sharedText,
+                        sharedTextGeneration = sharedTextGeneration,
+                        onSharedTextConsumed = { sharedText = null },
+                    )
+                }
             }
         }
         window.decorView.doOnPreDraw {

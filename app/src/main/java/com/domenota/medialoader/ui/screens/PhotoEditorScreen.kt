@@ -1376,9 +1376,9 @@ internal fun EditorFilterCard(
 
 @Composable
 internal fun PhotoToolCard(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
-    selected: Boolean, onClick: () -> Unit, enabled: Boolean) {
+    selected: Boolean, onClick: () -> Unit, enabled: Boolean, modifier: Modifier = Modifier) {
     Surface(onClick = onClick, enabled = enabled,
-        modifier = Modifier.width(94.dp).height(61.dp),
+        modifier = modifier.width(94.dp).height(61.dp),
         shape = RoundedCornerShape(17.dp),
         color = if (selected) PhotoEditorGold else Color(0xFF252529)) {
         Column(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 5.dp),

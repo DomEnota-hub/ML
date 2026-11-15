@@ -105,7 +105,7 @@ class BatchPhotoEditorGeometryTest {
             }}
             waitForPhoto()
             compose.onNodeWithText("Геометрия").performClick()
-            compose.onNodeWithText("Свободно").performScrollTo().performClick()
+            compose.onNodeWithTag("geometry-mode-free",useUnmergedTree=true).performScrollTo().assertIsDisplayed().performClick()
             val canvas=compose.onNodeWithTag("geometry-canvas")
             val bounds=canvas.fetchSemanticsNode().boundsInRoot
             val rect=photoCanvasRect(bounds.width,bounds.height,240,400)

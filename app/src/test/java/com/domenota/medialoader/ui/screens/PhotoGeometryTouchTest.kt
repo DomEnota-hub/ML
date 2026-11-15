@@ -26,7 +26,7 @@ class PhotoGeometryTouchTest {
         val source=Bitmap.createBitmap(200,100,Bitmap.Config.ARGB_8888)
         var applied: PhotoGeometry?=null
         compose.setContent { MaterialTheme { PhotoGeometryDialog(source,PhotoGeometry(),{applied=it},{}) } }
-        compose.onNodeWithText("Свободно").performScrollTo().performClick()
+        compose.onNodeWithTag("geometry-mode-free",useUnmergedTree=true).performScrollTo().assertIsDisplayed().performClick()
         val canvas=compose.onNodeWithTag("geometry-canvas")
         val bounds=canvas.fetchSemanticsNode().boundsInRoot
         val rect=photoCanvasRect(bounds.width,bounds.height,200,100)

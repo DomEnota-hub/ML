@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -13,7 +15,7 @@ import com.domenota.medialoader.data.library.DuplicateScanPhase
 import com.domenota.medialoader.data.library.DuplicateProgressPolicy
 import kotlinx.coroutines.delay
 
-internal data class DuplicateJournalRow(val at:Long,val groups:Int,val files:Int,val status:String="Завершён")
+internal data class DuplicateJournalRow(val at:Long,val groups:Int,val files:Int,val status:String="Завершён",val mode:String?=null)
 
 @Composable
 internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,startedAt:Long,phaseStartedAt:Long,
@@ -53,12 +55,17 @@ internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,star
 
 @Composable
 internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,partial:DuplicateJournalRow?,
-    onOpen:(Long)->Unit,onResume:()->Unit,onDismiss:()->Unit,onPartial:(()->Unit)?=null,resumeEnabled:Boolean=true){
-    AlertDialog(onDismissRequest=onDismiss,title={Text(title)},text={
+    onOpen:(Long)->Unit,onResume:()->Unit,onDismiss:()->Unit,onPartial:(()->Unit)?=null,resumeEnabled:Boolean=true,
+    onClear:(()->Unit)?=null,clearEnabled:Boolean=true){
+    AlertDialog(onDismissRequest=onDismiss,title={Row(verticalAlignment=Alignment.CenterVertically){
+        Text(title,Modifier.weight(1f))
+        if(onClear!=null)IconButton(onClear,enabled=clearEnabled&&(rows.isNotEmpty()||partial!=null)){Icon(androidx.compose.material.icons.Icons.Rounded.DeleteOutline,"Очистить журнал")}
+    }},text={
         LazyColumn(Modifier.heightIn(max=420.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             if(partial!=null)item{
                 Card{Column(Modifier.padding(12.dp)){
                     Text(partial.status,style=MaterialTheme.typography.titleMedium)
+                    partial.mode?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(partial.at)))
                     Text("Групп: ${partial.groups} · файлов: ${partial.files}")
                     Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){
@@ -71,6 +78,7 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
             items(rows,key={it.at}){row->
                 Card(onClick={onOpen(row.at)}){Column(Modifier.padding(12.dp)){
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(row.at)),style=MaterialTheme.typography.titleMedium)
+                    row.mode?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
                     Text("${row.status} · групп: ${row.groups} · файлов: ${row.files}",style=MaterialTheme.typography.bodySmall)
                 }}
             }

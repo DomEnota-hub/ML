@@ -20,19 +20,49 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Main-thread admission, one service-owned scan. The screen only observes progress. */
 internal object DuplicateBackgroundScan {
     const val OPEN_ACTION = "com.domenota.medialoader.OPEN_DUPLICATES"
+    enum class Outcome(val stored:String){IDLE("idle"),RUNNING("running"),PAUSED("paused"),STOPPED("stopped"),COMPLETED("completed"),FAILED("failed"),INTERRUPTED("interrupted")}
     data class Request(val token: Long, val rows: List<DownloadEntity>, val linked: Set<String>, val current: String?,val expanded:Boolean=false)
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
         val session: DuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false,
-        val phase:DuplicateScanPhase=DuplicateScanPhase.METADATA,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:DuplicateScanResult?=null)
+        val phase:DuplicateScanPhase=DuplicateScanPhase.METADATA,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:DuplicateScanResult?=null,
+        val outcome:Outcome=Outcome.IDLE,val expanded:Boolean=false)
     private val mutable = MutableStateFlow(Status())
     val state = mutable.asStateFlow()
     private var pending: Request? = null
     private var nextToken = 0L
     private fun prefs(context: Context) = context.getSharedPreferences("duplicate_background_scan",Context.MODE_PRIVATE)
     fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false)
-    fun journalStatus(context:Context):String=if(state.value.running)"Выполняется" else when(prefs(context).getString("journalStatus",null)){
-        "paused"->"Приостановлен";"stopped"->"Остановлен";"failed"->"Прерван";else->"Незавершённый поиск"
+    fun outcome(context:Context):Outcome {
+        val live=state.value
+        if(live.outcome!=Outcome.IDLE)return live.outcome
+        val stored=prefs(context).getString("journalStatus",null)
+        return when(stored){"paused"->Outcome.PAUSED;"stopped"->Outcome.STOPPED;"failed"->Outcome.FAILED;
+            "running","interrupted"->Outcome.INTERRUPTED;"completed"->Outcome.COMPLETED;
+            else->if(interrupted(context))Outcome.INTERRUPTED else Outcome.IDLE}
     }
+    fun journalStatus(context:Context):String=when(outcome(context)){
+        Outcome.RUNNING->"Выполняется";Outcome.PAUSED->"Приостановлен";Outcome.STOPPED->"Остановлен";
+        Outcome.FAILED,Outcome.INTERRUPTED->"Прерван";Outcome.COMPLETED->"Завершён";Outcome.IDLE->"Незавершённый поиск"
+    }
+    // Lock order matches DuplicatePrivacyGuard.revoke (privacy monitor, then service monitor).
+    fun clearJournal(context:Context,includePartial:Boolean):Boolean=synchronized(DuplicatePrivacyGuard.lock){synchronized(this){
+        if(mutable.value.running||mutable.value.committing)return@synchronized false
+        if(!MusicDuplicateSessionStore.clearJournal(context,includePartial))return@synchronized false
+        if(includePartial){
+            prefs(context).edit().remove("incomplete").remove("expanded").remove("journalStatus").apply()
+            mutable.value=Status(token=++nextToken)
+        }else{
+            val s=mutable.value
+            if(!interrupted(context)&&outcome(context)==Outcome.COMPLETED){prefs(context).edit().remove("journalStatus").apply();mutable.value=Status(token=++nextToken)}
+            else mutable.value=s.copy(session=null)
+        };true
+    }}
+    fun discardPartial(context:Context):Boolean=synchronized(DuplicatePrivacyGuard.lock){synchronized(this){
+        if(mutable.value.running||mutable.value.committing)return@synchronized false
+        if(!MusicDuplicateSessionStore.discardPartial(context))return@synchronized false
+        prefs(context).edit().remove("incomplete").remove("expanded").remove("journalStatus").apply()
+        mutable.value=Status(token=++nextToken);true
+    }}
     fun resumeExpanded(context:Context)=prefs(context).getBoolean("expanded",false)
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
     @Synchronized fun start(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?,expanded:Boolean=false) {
@@ -40,16 +70,16 @@ internal object DuplicateBackgroundScan {
         val token = ++nextToken
         pending = Request(token,rows.toList(),linked.toSet(),current,expanded)
         val now=android.os.SystemClock.elapsedRealtime()
-        mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now)
+        mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now,outcome=Outcome.RUNNING,expanded=expanded)
         prefs(context).edit().putBoolean("expanded",expanded).apply()
         prefs(context).edit().putString("journalStatus","running").apply()
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,MusicDuplicateScanService::class.java)) }
-        catch (e: Exception) { pending = null; mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
+        catch (e: Exception) { pending = null; prefs(context).edit().putString("journalStatus","failed").apply(); mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token,outcome=Outcome.FAILED,expanded=expanded) }
     }
     @Synchronized fun invalidateForPrivacy() {
         pending = null
-        mutable.value = Status(error = "Поиск сброшен после переноса в Личное",token = ++nextToken)
+        mutable.value = Status(error = "Поиск сброшен после переноса в Личное",token = ++nextToken,outcome=Outcome.FAILED)
     }
     @Synchronized fun claim(): Request? = pending.also { pending = null }
     @Synchronized fun progress(token: Long, done: Int,total: Int) {
@@ -68,11 +98,13 @@ internal object DuplicateBackgroundScan {
         mutable.value = s.copy(committing = true,phase=DuplicateScanPhase.SAVING)
         return true
     }
-    @Synchronized fun finish(context: Context, token: Long, session: DuplicateSession?,error: String? = null, cancelled: Boolean = false) {
+    @Synchronized fun finish(context: Context, token: Long, session: DuplicateSession?,error: String? = null, outcome:Outcome=if(session!=null)Outcome.COMPLETED else Outcome.FAILED) {
         if (mutable.value.token != token || !mutable.value.running) return
-        if (session != null || cancelled) mark(context,false)
-        prefs(context).edit().putString("journalStatus",when{session!=null->"completed";cancelled->"stopped";error?.contains("приостановлен")==true->"paused";else->"failed"}).apply()
-        mutable.value = Status(session = session,error = error,token = token,partial=if(session==null)mutable.value.partial else null)
+        val old=mutable.value
+        mark(context,session==null)
+        prefs(context).edit().putString("journalStatus",outcome.stored).apply()
+        mutable.value = Status(session = session,error = error.takeIf{outcome==Outcome.FAILED},token = token,partial=if(session==null)old.partial else null,
+            done=old.done,total=old.total,outcome=outcome,expanded=old.expanded)
     }
     fun pause(context:Context){
         if(!state.value.running||state.value.committing)return
@@ -104,7 +136,7 @@ class MusicDuplicateScanService : Service() {
             if (DuplicateBackgroundScan.state.value.committing) return START_NOT_STICKY
             explicitCancel=intent?.action==CANCEL
             cancelReason=if(explicitCancel)"Поиск остановлен. Проверенные файлы сохранены." else "Поиск приостановлен. Можно продолжить."
-            if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); DuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = explicitCancel) }
+            if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); DuplicateBackgroundScan.finish(this,token,null,cancelReason,outcome=if(explicitCancel)DuplicateBackgroundScan.Outcome.STOPPED else DuplicateBackgroundScan.Outcome.PAUSED) }
             return START_NOT_STICKY
         }
         if (job != null && job?.isActive == true) return START_NOT_STICKY
@@ -113,7 +145,7 @@ class MusicDuplicateScanService : Service() {
         terminal = false; cancelReason = null; explicitCancel = false
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID,notice(0,request?.rows?.size ?: 0),ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else startForeground(ID,notice(0,request?.rows?.size ?: 0))
-        if (request == null) { terminal = true; DuplicateBackgroundScan.finish(this,token,null,"Поиск прерван. Запустите его снова."); stopSelf(); return START_NOT_STICKY }
+        if (request == null) { terminal = true; DuplicateBackgroundScan.finish(this,token,null,outcome=DuplicateBackgroundScan.Outcome.INTERRUPTED); stopSelf(); return START_NOT_STICKY }
         val scanToken = request.token
         val scanAt=System.currentTimeMillis()
         wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"MediaLoader:duplicate-scan").apply {
@@ -150,7 +182,7 @@ class MusicDuplicateScanService : Service() {
                 if (wake?.isHeld == true) wake?.release()
                 wake = null
                 stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
-                cancelReason?.let { terminal = true; DuplicateBackgroundScan.finish(this@MusicDuplicateScanService,scanToken,null,it,cancelled = explicitCancel) }
+                cancelReason?.let { terminal = true; DuplicateBackgroundScan.finish(this@MusicDuplicateScanService,scanToken,null,it,outcome=if(explicitCancel)DuplicateBackgroundScan.Outcome.STOPPED else DuplicateBackgroundScan.Outcome.PAUSED) }
             }
         }
         return START_NOT_STICKY
@@ -164,7 +196,7 @@ class MusicDuplicateScanService : Service() {
         scope.cancel()
         if (wake?.isHeld == true) wake?.release()
         wake = null
-        if (!terminal) DuplicateBackgroundScan.finish(this,token,null,"Поиск прерван. Проверенные файлы сохранены.")
+        if (!terminal) DuplicateBackgroundScan.finish(this,token,null,outcome=DuplicateBackgroundScan.Outcome.INTERRUPTED)
         super.onDestroy()
     }
     private fun notifyAllowed(id: Int, notification: Notification) {

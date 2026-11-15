@@ -142,7 +142,7 @@ internal fun VideoMusicPicker(choices: List<VideoMusicChoice>, canAdd: Boolean,
                                 }
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Text(choice.name, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(com.domenota.medialoader.ui.model.displayFileName(choice.name, com.domenota.medialoader.ui.model.MediaKind.AUDIO), color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${time(if (previewId == choice.id) position else 0)}/${time(choice.durationMs)}",
                                     color = Color.LightGray, fontSize = 11.sp)
                             }

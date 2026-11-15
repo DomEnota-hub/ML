@@ -236,7 +236,7 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                     }
                 }
                 if(page!=SmartMusicPage.STATS) {
-                    Text("${ids.size} треков",style=MaterialTheme.typography.bodySmall)
+                    Text(com.domenota.medialoader.core.model.RussianCounts.tracks(ids.size),style=MaterialTheme.typography.bodySmall)
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
                         Button(onClick={onPlay(ids,false)},enabled=ids.isNotEmpty()&&!loading,modifier=Modifier.weight(1f)) {
                             Icon(Icons.Rounded.PlayArrow,null);Text("Слушать")

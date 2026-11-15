@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.ui.model.displayFileName
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
@@ -126,12 +127,12 @@ fun PreviewScreen(
         if (fullSongBusy) {
             AlertDialog(
                 onDismissRequest = {},
-                title = { Text("Распознавание музыки") },
+                title = { Text("Распознавание музыки", Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
                 text = {
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CircularProgressIndicator(Modifier.size(28.dp))
-                        Text("Определяем композицию без сохранения фрагмента в загрузки…")
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        com.domenota.medialoader.ui.components.RecognitionEqualizer()
+                        Text("Определяем композицию", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }
                 },
                 confirmButton = {
@@ -718,7 +719,7 @@ internal fun MediaRow(
                         MediaKind.VIDEO -> "MP4"
                         MediaKind.AUDIO -> if (item.providerId == "instagram")
                             "Аудио из публикации" else "Аудио · MP3"
-                        MediaKind.IMAGE -> item.title
+                        MediaKind.IMAGE -> displayFileName(item.title, item.kind)
                     },
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,

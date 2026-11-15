@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens.gallery
 
+import com.domenota.medialoader.ui.model.displayFileName
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -187,7 +188,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
                                 DownloadThumbnail(file.uri,null,if(file.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(76.dp).clickable(enabled=ref!=null){preview=group to file.id})
                                 Column(Modifier.weight(1f)){
-                                    Text(ref?.item?.originalName?:file.id,maxLines=2)
+                                    Text(if(ref!=null)displayFileName(ref.item) else file.id,maxLines=2)
                                     Text(android.text.format.Formatter.formatFileSize(context,file.bytes)+" · ${file.width} × ${file.height}",style=MaterialTheme.typography.bodySmall)
                                     file.durationMs?.let{Text("${it/1000} с",style=MaterialTheme.typography.bodySmall)}
                                 }
@@ -216,7 +217,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
             item{Text("Только просмотр. Удаление доступно после завершения.")}
             items(partial.groups,key={it.files.first().id}){g->Column{
                 Text("Точные копии · ${g.files.size} файлов")
-                g.files.forEach{f->byId[f.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(f,it)}?.let{row->Text(row.item.originalName,style=MaterialTheme.typography.bodySmall)}}
+                g.files.forEach{f->byId[f.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(f,it)}?.let{row->Text(displayFileName(row.item),style=MaterialTheme.typography.bodySmall)}}
             }}
         }},confirmButton={TextButton({showPartial=false}){Text("Закрыть")}})
     preview?.let{(g,id)->

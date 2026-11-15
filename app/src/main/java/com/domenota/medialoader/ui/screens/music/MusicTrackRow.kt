@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens.music
 
+import com.domenota.medialoader.ui.model.displayAudioTitle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -42,7 +43,7 @@ internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isC
                 track.toUi().kind, Modifier.fillMaxSize())
         }
         Column(Modifier.weight(1f)) {
-            Text(audioTitle(track), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(displayAudioTitle(track), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (isCurrent && darkTheme) editorSliderYellow else MaterialTheme.colorScheme.onSurface)
             val artist = audioArtist(track)
             if (artist != null) Text(artist,

@@ -21,8 +21,22 @@ internal data class DuplicateTrashReport(val at:Long,val epoch:Long,val rows:Lis
 internal object MusicDuplicateSessionStore {
     private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "music-duplicates-v1.json"))
     private val lock = DuplicatePrivacyGuard.lock
+    private var journalRevision = 0L
+    fun journalGeneration():Long = synchronized(lock){journalRevision}
+    /** Clear reports only; an old debounced UI save must not recreate them. */
+    fun clearJournal(context:Context,includePartial:Boolean):Boolean = synchronized(lock){
+        journalRevision++
+        runCatching{
+            val target=file(context);target.delete()
+            check(listOf(target.baseFile,File(target.baseFile.path+".bak"),File(target.baseFile.path+".new")).none{it.exists()})
+            DuplicateReportJournal.clearCompleted(context,"music")
+            if(includePartial)DuplicateReportJournal.clearPartial(context,"music")
+        }.isSuccess
+    }
+    fun discardPartial(context:Context):Boolean = synchronized(lock){runCatching{DuplicateReportJournal.clearPartial(context,"music")}.isSuccess}
     private fun trashReportFile(context:Context)=AtomicFile(File(context.noBackupFilesDir,"music-duplicate-trash-v1.json"))
     fun clearForPrivacy(context: Context) {
+        journalRevision++
         DuplicateReportJournal.clear(context,"music")
         val target=file(context);target.delete()
         val report=trashReportFile(context);report.delete()
@@ -67,8 +81,9 @@ internal object MusicDuplicateSessionStore {
     }}
     fun savePartial(context:Context,session:DuplicateSession){synchronized(lock){if(permitted(context,session))runCatching{DuplicateReportJournal.savePartial(context,"music",encode(session))}}}
     suspend fun partial(context:Context):DuplicateSession?=withContext(Dispatchers.IO){synchronized(lock){runCatching{DuplicateReportJournal.partial(context,"music")?.let(::decode)?.takeIf{permitted(context,it)}}.getOrNull()}}
-    suspend fun save(context: Context, session: DuplicateSession): Boolean = withContext(Dispatchers.IO + NonCancellable) {
+    suspend fun save(context: Context, session: DuplicateSession, expectedJournalGeneration:Long?=null): Boolean = withContext(Dispatchers.IO + NonCancellable) {
         synchronized(lock) {
+            if (expectedJournalGeneration!=null&&expectedJournalGeneration!=journalRevision) return@synchronized false
             if (!permitted(context,session)) return@synchronized false
             val target = file(context)
             runCatching {

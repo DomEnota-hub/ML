@@ -8,6 +8,7 @@ import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.*
 
 internal object AudioPlaybackMetadata {
+    const val FILENAME_TITLE = "display_title_is_filename"
     const val PUBLIC_URI = "public_saved_uri"
     const val PLAYLIST_ID = "origin_playlist_id"
     const val LISTENING_KEYS = "listening_identity_keys"
@@ -20,7 +21,8 @@ internal object AudioPlaybackMetadata {
             (uri != null && PublicMediaIdentity.uriKeys(uri).any(blocked::contains))) return null
         lookup.firstOrNull { !it.isPrivate && !it.hidden && (it.id == item.mediaId || (uri != null && it.savedUri == uri)) }?.let { return it }
         return DownloadEntity(item.mediaId, "device", meta.title?.toString() ?: "Трек", MediaType.AUDIO,
-            DownloadState.COMPLETED, uri, null, 0, sourceAudioTitle = meta.title?.toString(),
+            DownloadState.COMPLETED, uri, null, 0, sourceAudioTitle = meta.title?.toString()
+                ?.takeUnless { meta.extras?.getBoolean(FILENAME_TITLE) == true },
             sourceAudioArtist = meta.artist?.toString(), sourceAudioArtworkUrl = meta.artworkUri?.toString())
     }
     /** A service session can outlive the activity and its phone-media index. Preserve raw
@@ -57,6 +59,9 @@ internal object AudioPlaybackMetadata {
         if (row.isPrivate || row.hidden || row.savedUri == null || !matchesPublicUri(item, row.savedUri)) return item
         return item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon()
             .setTitle(row.recognizedTitle ?: row.sourceAudioTitle ?: row.originalName)
+            .setExtras(Bundle(item.mediaMetadata.extras ?: Bundle()).apply {
+                putBoolean(FILENAME_TITLE, row.recognizedTitle == null && row.sourceAudioTitle == null)
+            })
             .setArtist(row.recognizedArtist ?: row.sourceAudioArtist)
             .setAlbumTitle(row.recognizedAlbum)
             .setArtworkUri((row.recognitionArtworkUrl ?: row.sourceAudioArtworkUrl ?: row.previewUrl)
@@ -72,6 +77,7 @@ internal object AudioPlaybackMetadata {
                 ?.takeIf { !row.isPrivate }?.let(Uri::parse))
             .setExtras(Bundle().apply {
                 putBoolean("private_media", row.isPrivate)
+                putBoolean(FILENAME_TITLE, row.recognizedTitle == null && row.sourceAudioTitle == null)
                 if (!row.isPrivate && playlistId != null) putString(PLAYLIST_ID,playlistId)
                 if (!row.isPrivate && resumeContext != null) putString(RESUME_CONTEXT,resumeContext)
                 putStringArrayList(PublicMediaIdentity.EXTRA_KEYS, ArrayList(identities))

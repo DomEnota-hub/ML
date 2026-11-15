@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import com.domenota.medialoader.ui.model.displayFileName
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -216,7 +217,7 @@ fun TrashScreen(
                                 }
                             }
                         }
-                        Text(item.title, maxLines = 2, style = MaterialTheme.typography.labelSmall)
+                        Text(displayFileName(item.title, item.kind), maxLines = 2, style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -244,7 +245,7 @@ fun TrashScreen(
                                 verticalAlignment = Alignment.CenterVertically) {
                                 DownloadThumbnail(item.savedUri, null, item.kind, Modifier.size(56.dp))
                                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                    Text(item.title, maxLines = 2, style = MaterialTheme.typography.bodyMedium)
+                                    Text(displayFileName(item.title, item.kind), maxLines = 2, style = MaterialTheme.typography.bodyMedium)
                                     Text(item.subtitle, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodySmall)
                                 }

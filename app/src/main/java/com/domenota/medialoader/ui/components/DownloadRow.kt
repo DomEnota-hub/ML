@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.components
 
+import com.domenota.medialoader.ui.model.displayFileName
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -110,6 +111,7 @@ fun DownloadRow(
             MediaRepository.get(context).resolveMuzmoArtwork(item.id)
         }
     }
+    val shownName = displayFileName(item.title, item.kind)
     var renameDialog by remember { mutableStateOf(false) }
     var videoSongSearch by remember(item.id) { mutableStateOf(false) }
     var sourceDialog by remember { mutableStateOf(false) }
@@ -165,12 +167,18 @@ fun DownloadRow(
         onDismissRequest = { renameDialog = false },
         title = { Text("Переименовать файл") },
         text = {
-            OutlinedTextField(
-                newName,
-                { newName = it },
-                singleLine = true,
-                label = { Text("Имя файла") },
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (com.domenota.medialoader.ui.model.LocalFileNameDisplay.current.hide) {
+                    Text("Исходное имя: ${item.title}", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                OutlinedTextField(
+                    newName,
+                    { newName = it },
+                    singleLine = true,
+                    label = { Text("Имя файла") },
+                )
+            }
         },
         confirmButton = {
             TextButton(
@@ -323,7 +331,7 @@ fun DownloadRow(
     if (compact) {
         Box(modifier.aspectRatio(1f).clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .semantics { contentDescription = item.title; stateDescription = statusText }
+            .semantics { contentDescription = shownName; stateDescription = statusText }
             .combinedClickable(
                 onClick = { if (item.state == DownloadUiState.COMPLETED) onOpen() else menuExpanded = true },
                 onLongClickLabel = "Действия с файлом", onLongClick = { menuExpanded = true })) {
@@ -367,7 +375,7 @@ fun DownloadRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(item.title, style = MaterialTheme.typography.titleMedium,
+                Text(shownName, style = MaterialTheme.typography.titleMedium,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(5.dp))
                 val details = listOfNotNull(type, quality, item.sizeLabel, item.durationLabel).joinToString(" · ")

@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import androidx.compose.ui.platform.testTag
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -1187,6 +1188,8 @@ fun SettingsScreen(
                 SettingRow(Icons.Rounded.ColorLens, "Тема", "Светлая, тёмная или системная",
                 grouped = true, nested = true, iconTone = SettingIconTone.THEME, onClick = { themeDialog = true })
             GroupDivider()
+            HideExtensionsSetting()
+            GroupDivider()
             SettingRow(Icons.Rounded.InsertPhoto, "Миниатюра видео", thumbnailMode.label,
                 grouped = true, nested = true, iconTone = SettingIconTone.VIDEO_THUMBNAIL, onClick = { videoThumbnailDialog = true })
             GroupDivider()
@@ -1450,3 +1453,15 @@ internal fun GroupDivider() {
 @Composable
 private fun successColor(): Color = if (MaterialTheme.colorScheme.background.luminance() > 0.5f)
     Color(0xFF15964A) else Color(0xFF65D49A)
+
+@Composable
+internal fun HideExtensionsSetting() {
+    val preference = com.domenota.medialoader.ui.model.LocalFileNameDisplay.current
+    SettingRow(com.domenota.medialoader.ui.components.HideExtensionsIcon, "Скрывать расширения",
+        "Показывать только названия файлов", grouped = true, nested = true,
+        iconTone = SettingIconTone.HIDE_EXTENSIONS,
+        onClick = { preference.setHide(!preference.hide) }, trailing = {
+            Switch(checked = preference.hide, onCheckedChange = preference.setHide,
+                modifier = Modifier.testTag("hide-file-extensions"))
+        })
+}

@@ -141,6 +141,70 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithTag("music-track-b").assertDoesNotExist()
         compose.onNodeWithText("Test player slot").assertIsDisplayed()
     }
+    @Test fun confirmedCollectionKeepsButtonsCountAndGeometryDuringPartialRefresh(){
+        val rows=(1..5).map{n->DownloadEntity("track-$n","device","$n.mp3",MediaType.AUDIO,DownloadState.COMPLETED,"content://media/$n",100,100)}
+        val refs=rows.map{LibraryMediaRef(it.id,setOf("file-stat:${it.id}"),it,null)}
+        val missing=DownloadEntity("lost","instagram","Lost.mp4",MediaType.VIDEO,DownloadState.COMPLETED,"content://media/lost",100,100)
+        val members=refs.map{MediaCollectionMemberEntity("m-${it.key}","c",MediaOrganizationPolicy.encode(MediaOrganizationPolicy.keys(it)),null,1)}+
+            MediaCollectionMemberEntity("missing","c",MediaOrganizationPolicy.encode(setOf("app:lost")),null,1)
+        val c=MediaCollection(MediaCollectionEntity("c","Work",1),members)
+        val pending=androidx.compose.runtime.mutableStateOf(false)
+        val snapshot=CollectionCatalogSnapshot.select(null,refs,true,true,emptySet())!!
+        var played:List<String>?=null
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),snapshot.refs,store,"c",false,emptyList(),null,!pending.value,
+            {},{_,_->},{played=it},{},{},{},usable=true,identityIndex=snapshot.identityIndex,history=mapOf(missing.id to missing))}}
+        compose.onNodeWithText("5 файлов").assertIsDisplayed()
+        compose.onNodeWithText("1 недоступен").assertIsDisplayed()
+        val top=compose.onNodeWithTag("collection-music-toggle").fetchSemanticsNode().boundsInRoot.top
+        repeat(3){
+            compose.runOnIdle{pending.value=!pending.value}
+            compose.onNodeWithText("Добавить").assertIsEnabled()
+            compose.onNodeWithText("Слушать").assertIsEnabled()
+            compose.onNodeWithText("5 файлов").assertIsDisplayed()
+            assertEquals(top,compose.onNodeWithTag("collection-music-toggle").fetchSemanticsNode().boundsInRoot.top,.01f)
+        }
+        compose.onNodeWithText("Слушать").performClick()
+        compose.runOnIdle{assertEquals(refs.map{it.key},played)}
+    }
+    @Test fun unavailablePanelShowsRealNameWithoutExtensionAndPrivacyClearsIt(){
+        val row=DownloadEntity("lost","instagram","Иллюзия.mp4",MediaType.VIDEO,DownloadState.COMPLETED,"content://media/lost",100,100)
+        val member=MediaCollectionMemberEntity("missing","c",MediaOrganizationPolicy.encode(setOf("app:lost")),null,1)
+        val c=MediaCollection(MediaCollectionEntity("c","Work",1),listOf(member))
+        val blocked=androidx.compose.runtime.mutableStateOf(emptySet<String>())
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),emptyList(),store,"c",false,emptyList(),null,true,{},{_,_->},{},{},{},{},
+            blockedIdentities=blocked.value,history=mapOf(row.id to row),canRecover={true})}}
+        compose.onNodeWithTag("collection-missing-chip").performClick()
+        compose.waitUntil(5000){compose.onAllNodesWithTag("collection-missing-sheet").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithText("Иллюзия").assertExists()
+        compose.onNodeWithText("Иллюзия.mp4").assertDoesNotExist()
+        compose.runOnIdle{blocked.value=setOf(row.id)}
+        compose.onNodeWithText("Иллюзия").assertDoesNotExist()
+        compose.onNodeWithTag("collection-missing-chip").assertDoesNotExist()
+    }
+    @Test fun missingPanelSelectionSurvivesClosingAndDropsPrivateMembers(){
+        val row=DownloadEntity("missing-a","instagram","Song.mp3",MediaType.AUDIO,DownloadState.COMPLETED,"content://media/missing-a",100,100)
+        val member=MediaCollectionMemberEntity("m-missing","c",MediaOrganizationPolicy.encode(setOf("app:${row.id}")),null,1)
+        val c=MediaCollection(MediaCollectionEntity("c","Work",1),listOf(member))
+        val blocked=androidx.compose.runtime.mutableStateOf(emptySet<String>())
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),emptyList(),store,"c",false,emptyList(),null,true,{},{_,_->},{},{},{},{},
+            blockedIdentities=blocked.value,history=mapOf(row.id to row))}}
+        compose.onNodeWithContentDescription("Меню коллекции").performClick()
+        compose.onNodeWithText("Выбрать файлы и ссылки").performClick()
+        compose.onNodeWithTag("collection-missing-chip").performClick()
+        compose.waitUntil(5000){compose.onAllNodesWithTag("missing-select-m-missing",useUnmergedTree=true).fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithTag("missing-select-m-missing",useUnmergedTree=true).performClick()
+        compose.onNodeWithContentDescription("Закрыть").performClick()
+        compose.onNodeWithText("Выбрано: 1").assertIsDisplayed()
+        compose.runOnIdle{blocked.value=setOf(row.id)}
+        compose.onNodeWithText("Выбрано: 0").assertIsDisplayed()
+        compose.onNodeWithText("Убрать").assertIsNotEnabled()
+    }
+    @Test fun missingFileDisplayNameOnlyRemovesRecognizedSuffix(){
+        val row=DownloadEntity("x","device","live.2026.MP3",MediaType.AUDIO,DownloadState.COMPLETED,null,100,100)
+        assertEquals("live.2026",missingCollectionDisplayName(row))
+        assertEquals("AC/DC — T.N.T.",missingCollectionDisplayName(row.copy(originalName="AC/DC — T.N.T.")))
+        assertEquals("track.bin",missingCollectionDisplayName(row.copy(originalName="track.bin")))
+    }
     @Test fun collectionOrderMoveAndRussianLinkForms(){
         assertEquals(listOf("b","c","a"),moveCollectionMember(listOf("a","b","c"),"a","c"))
         assertEquals(listOf("a","b"),moveCollectionMember(listOf("a","b"),"a","missing"))
