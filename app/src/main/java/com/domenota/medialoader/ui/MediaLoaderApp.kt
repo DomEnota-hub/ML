@@ -1466,25 +1466,18 @@ fun MediaLoaderApp(
         }
     }
     val openDownload: (String) -> Unit = { openDownloadWithQueue(it, emptyList()) }
-    val shareDownload: (String) -> Unit = { id ->
-        (folderRefsById[id]?.item ?: downloads.firstOrNull { it.id == id && canOpenFolderMedia(it) })?.let { item ->
-            fileActionScope.launch {
-                val scope=folderRefsById[id]?.let { libraryModel.visibilityGuard.value?.explicitFolder(it) }
-                if(libraryModel.verifyVisibilityOpen(item,scope)) shareSavedFile(context,item)
-                else AppNotice.post(context,"Файл недоступен")
-            }
+    fun shareScopedFile(id:String,folder:String?=null) {
+        val explicit=folder?.let { scope -> folderRefsById[id]?.takeIf { libraryModel.visibilityGuard.value?.explicitFolder(it)==scope } }
+        val item=explicit?.item ?: publicLibraryRows.firstOrNull { it.id==id && !it.isPrivate }
+            ?: downloads.firstOrNull { it.id==id && canOpenFolderMedia(it) }
+        if(item!=null) fileActionScope.launch {
+            if(libraryModel.verifyVisibilityOpen(item,folder)) shareSavedFile(context,item)
+            else AppNotice.post(context,"Файл недоступен")
         }
     }
+    val shareDownload: (String) -> Unit = { shareScopedFile(it) }
+    val shareLibraryFile: (String) -> Unit = { shareScopedFile(it) }
 
-    val shareLibraryFile: (String) -> Unit = { id ->
-        (folderRefsById[id]?.item ?: publicLibraryRows.firstOrNull { it.id == id && !it.isPrivate })?.let { item ->
-            fileActionScope.launch {
-                val scope=folderRefsById[id]?.let { libraryModel.visibilityGuard.value?.explicitFolder(it) }
-                if(libraryModel.verifyVisibilityOpen(item,scope)) shareSavedFile(context,item)
-                else AppNotice.post(context,"Файл недоступен")
-            }
-        }
-    }
     // Store ID/URI pairs rather than re-looking up provider rows after Android deletes them.
     // Large multi-select operations are transient; persisting every ID/URI
     // pair into Android SavedState can exhaust the Activity Bundle.
@@ -1984,6 +1977,7 @@ fun MediaLoaderApp(
                     onFavorite = setLibraryFavorite, onSetFolder = setLibraryFolder,
                     onCreateFolder = viewModel::createCatalogFolder,
                     onDeleteFolder = deleteVisibilityFolder, onShare = shareLibraryFile,
+                    onShareFromAlbum = { id, album -> shareScopedFile(id,album?.takeIf { it.startsWith("folder:") }?.removePrefix("folder:")) },
                     onTrashFolderContents = requestAlbumTrash,
                     collectionContent={
                         Column {
@@ -2324,6 +2318,7 @@ fun MediaLoaderApp(
                     pendingVisibilityFolderId = visibilityProgress.folderId,
                     onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() },
                     onOpenFromFolder = { id,queue,folder -> openingAlbumKey = folder?.let { "folder:$it" }; openDownloadWithQueue(id,queue) },
+                    onShareFromFolder = { id,folder -> shareScopedFile(id,folder) },
                     onAddCollection=::addToCollection,onPassport=::openPassport,
                     onOpenPrivate = { viewModel.privateAccess.lock(); pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false; privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onMoveToPrivate = { id -> requestPrivateMove(listOf(id)) },

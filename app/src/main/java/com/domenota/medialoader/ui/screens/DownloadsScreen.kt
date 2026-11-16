@@ -171,6 +171,7 @@ fun DownloadsScreen(
     onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
     pendingVisibilityFolderId: String? = null,
     onOpenFromFolder: ((String,List<String>,String?) -> Unit)? = null,
+    onShareFromFolder: ((String,String?) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val listScrollState = rememberLazyListState()
@@ -675,7 +676,10 @@ fun DownloadsScreen(
                 if (onOpenFromFolder != null) onOpenFromFolder(id,searchedHistory.flatten().map { it.id },selectedCatalog.takeIf { it.startsWith("folder:") }?.removePrefix("folder:"))
                 else if (onOpenGrid != null) onOpenGrid(id, searchedHistory.flatten().map { it.id })
                 else onOpenDownload(id)
-            }, onCancelDownload, onShareDownload, onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload, recognitionEnabled, onRecognizeDownload,
+            }, onCancelDownload, { id ->
+                if(onShareFromFolder!=null) onShareFromFolder(id,selectedCatalog.takeIf { it.startsWith("folder:") }?.removePrefix("folder:"))
+                else onShareDownload(id)
+            }, onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload, recognitionEnabled, onRecognizeDownload,
                 assignmentById, folderNames,
                 onFavorite = { id -> scope.launch {
                     runCatching { onToggleFavorite(id) }.onFailure {

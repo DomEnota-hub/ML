@@ -83,6 +83,7 @@ fun GalleryModeScreen(
     hiddenFolderIds: Set<String> = emptySet(),
     onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
     pendingVisibilityFolderId: String? = null,
+    onShareFromAlbum: ((String,String?) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -124,6 +125,10 @@ fun GalleryModeScreen(
     fun closeAlbum() { selection = "all"; selectionTitle = ""; selectTab(1) }
     // An update can restore the previous Activity's saved virtual album route.
     LaunchedEffect(selection) { if (selection.startsWith("smart:")) closeAlbum() }
+    fun shareMedia(id:String) {
+        val origin=selection.takeIf { detailOpen && it.startsWith("folder:") }
+        if(onShareFromAlbum!=null) onShareFromAlbum(id,origin) else onShare(id)
+    }
     fun openMedia(id: String, queue: List<String>) {
         val origin = selection.takeIf { detailOpen && (it.startsWith("folder:") || it.startsWith("device:")) }
         if (onOpenFromAlbum != null) onOpenFromAlbum(id,queue,origin) else onOpen(id,queue)
@@ -595,7 +600,7 @@ fun GalleryModeScreen(
                         GalleryMediaCell(row, catalog[row.id]?.isFavorite == true,
                             { if (selecting) toggle(row.id) else openMedia(row.id, queue) },
                             { mutate { onFavorite(row.id, catalog[row.id]?.isFavorite != true) } },
-                            { folderTarget = row.id }, { onShare(row.id) }, { onDelete(row.id) },
+                            { folderTarget = row.id }, { shareMedia(row.id) }, { onDelete(row.id) },
                             { renameTarget = row }, { onMoveToPrivate(row.id) },
                             selecting = selecting, selected = row.id in selectedSet,
                             onSelect = { toggle(row.id) },
@@ -637,7 +642,7 @@ fun GalleryModeScreen(
                         items(rows, key = { it.id }) { row ->
                             GalleryMediaCell(row, catalog[row.id]?.isFavorite == true, { if (selecting) toggle(row.id) else openMedia(row.id, queue) },
                                 { mutate { onFavorite(row.id, catalog[row.id]?.isFavorite != true) } }, { folderTarget = row.id },
-                                { onShare(row.id) }, { onDelete(row.id) }, { renameTarget = row }, { onMoveToPrivate(row.id) },
+                                { shareMedia(row.id) }, { onDelete(row.id) }, { renameTarget = row }, { onMoveToPrivate(row.id) },
                                 selecting = selecting, selected = row.id in selectedSet,
                                 onSelect = { toggle(row.id) },
                                 onLongSelect = { selectedIds = ArrayList(selectedIds.toSet() + row.id) }, highlighted = row.id == highlightedMedia)
