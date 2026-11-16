@@ -1,29 +1,59 @@
-name: ML 1.7.196 exact SHA ARM64 unsigned handoff
+name: ML 1.7.196 protected ARM64 QA handoff
 on:
   push:
     branches: [ci/ml-17196-exact-unsigned-handoff]
 permissions:
   contents: read
 jobs:
-  exact-source-unsigned:
+  signed-qa:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: f11791c9680323de419f570194f077fc5789a642
+          ref: 97009ac18487f87c9a59a26c933bfef20e7c647d
           persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify exact candidate and prepare SDK
+      - name: Verify exact source and protected inputs
+        shell: bash
+        env:
+          GAPI_B64: ${{ secrets.ML_GAPI_BUILTIN_KEYS_JSON_B64 }}
+          SIGNING_B64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
+          SIGNING_PASS: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
+          SIGNING_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
+          SIGNING_KEY_PASS: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
+          SIGNING_CERT: ${{ secrets.ML_RELEASE_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "97009ac18487f87c9a59a26c933bfef20e7c647d"
+          grep -Eq 'versionCode 256$' app/build.gradle
+          grep -Fq "versionName '1.7.196'" app/build.gradle
+          for value in GAPI_B64 SIGNING_B64 SIGNING_PASS SIGNING_ALIAS SIGNING_KEY_PASS SIGNING_CERT; do
+            if test -z "${!value:-}"; then echo "::error::Required protected input unavailable: $value"; exit 1; fi
+          done
+          expected=4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2
+          test "$(printf '%s' "$SIGNING_CERT" | tr '[:upper:]' '[:lower:]' | tr -d ': ')" = "$expected" || { echo "::error::Wrong expected certificate"; exit 1; }
+          mkdir -p .gapi-local app/src/main/assets
+          printf '%s' "$GAPI_B64" | base64 --decode > .gapi-local/builtin-keys.json
+          chmod 600 .gapi-local/builtin-keys.json
+          python3 - <<'PY'
+          import json
+          a=json.load(open('.gapi-local/builtin-keys.json'))
+          assert isinstance(a,list) and len(a)==2
+          assert all(isinstance(x,dict) and str(x.get('id','')).strip() and str(x.get('key','')).strip() for x in a)
+          assert len({x['id'] for x in a})==2
+          assert len({x['key'] for x in a})==2
+          print('Protected built-in GAPI entries verified: 2')
+          PY
+          cp .gapi-local/builtin-keys.json app/src/main/assets/gapi-builtin-keys.json
+          chmod 600 app/src/main/assets/gapi-builtin-keys.json
+      - name: Prepare Android toolchain
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "f11791c9680323de419f570194f077fc5789a642"
-          grep -Eq 'versionCode 256$' app/build.gradle
-          grep -Fq "versionName '1.7.196'" app/build.gradle
           chmod +x gradlew
           sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
           sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
@@ -33,30 +63,94 @@ jobs:
             sleep 10
           done
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Compile ARM64 unsigned release from exact source
+      - name: Build ARM64 release (no officialQa suffix)
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew :app:assembleRelease -Parm64Release=true --no-daemon --stacktrace --console=plain
           test -s app/build/outputs/apk/release/app-release-unsigned.apk
-      - name: Align verify package and seal exact sources
+      - name: Align, sign and verify original DomEnota identity
+        shell: bash
+        env:
+          ML_RELEASE_KEYSTORE_BASE64: ${{ secrets.ML_RELEASE_KEYSTORE_BASE64 }}
+          ML_RELEASE_STORE_PASSWORD: ${{ secrets.ML_RELEASE_STORE_PASSWORD }}
+          ML_RELEASE_KEY_ALIAS: ${{ secrets.ML_RELEASE_KEY_ALIAS }}
+          ML_RELEASE_KEY_PASSWORD: ${{ secrets.ML_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          unsigned=app/build/outputs/apk/release/app-release-unsigned.apk
+          mkdir -p handoff
+          mkdir -p "$RUNNER_TEMP/ml-release"
+          key="$RUNNER_TEMP/ml-release/domenota-private.jks"
+          aligned="$RUNNER_TEMP/ml-release/qa-aligned.apk"
+          signed="handoff/ML_1.7.196_ARM64_DomEnota.apk"
+          trap 'rm -f "$key" "$aligned"' EXIT
+          printf '%s' "$ML_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          "$bt/zipalign" -p -f 16 "$unsigned" "$aligned"
+          "$bt/zipalign" -c -p 16 "$aligned"
+          "$bt/apksigner" sign --min-sdk-version 26 --ks "$key" --ks-key-alias "$ML_RELEASE_KEY_ALIAS" --ks-pass env:ML_RELEASE_STORE_PASSWORD --key-pass env:ML_RELEASE_KEY_PASSWORD --out "$signed" "$aligned"
+          "$bt/apksigner" verify --verbose "$signed"
+          "$bt/apksigner" verify --print-certs "$signed" > "$RUNNER_TEMP/ml-release/certificate.txt"
+          python3 - <<'PY'
+          import re
+          p=open(__import__('os').environ['RUNNER_TEMP']+'/ml-release/certificate.txt').read()
+          c=re.search(r'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)',p)
+          assert c, 'No signer certificate'
+          actual=c.group(1).lower().replace(':','')
+          assert actual=='4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2', 'Certificate mismatch'
+          print('Original DomEnota certificate verified.')
+          PY
+          "$bt/aapt" dump badging "$signed" | grep -F "package: name='com.domenota.medialoader' versionCode='256' versionName='1.7.196'"
+          test "$(unzip -Z1 "$signed" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          unzip -p "$signed" assets/gapi-builtin-keys.json | python3 -c 'import json,sys; a=json.load(sys.stdin); assert isinstance(a,list) and len(a)==2'
+          "$bt/zipalign" -c -p 16 "$signed"
+      - name: Exact source, split ZIP and integrity evidence
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p handoff
-          "$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign" -p -f 16 app/build/outputs/apk/release/app-release-unsigned.apk handoff/ML_1.7.196_ARM64_ALIGNED_UNSIGNED.apk
-          "$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign" -c -p 16 handoff/ML_1.7.196_ARM64_ALIGNED_UNSIGNED.apk
-          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging handoff/ML_1.7.196_ARM64_ALIGNED_UNSIGNED.apk | grep -F "package: name='com.domenota.medialoader' versionCode='256' versionName='1.7.196'"
-          unzip -Z1 handoff/ML_1.7.196_ARM64_ALIGNED_UNSIGNED.apk | grep -q '^lib/arm64-v8a/'
-          if unzip -Z1 handoff/ML_1.7.196_ARM64_ALIGNED_UNSIGNED.apk | grep -Eq '^lib/(armeabi|x86)'; then echo 'Unexpected ABI'; exit 1; fi
           git archive --format=zip --output=handoff/ML_1.7.196_SOURCES_EXACT_COMMIT.zip HEAD
-          printf '%s\n' 'f11791c9680323de419f570194f077fc5789a642' > handoff/DELIVERY_COMMIT_SHA.txt
+          printf '%s\n' '97009ac18487f87c9a59a26c933bfef20e7c647d' > handoff/DELIVERY_COMMIT_SHA.txt
           cd handoff
-          sha256sum ML_1.7.196_ARM64_ALIGNED_UNSIGNED.apk ML_1.7.196_SOURCES_EXACT_COMMIT.zip DELIVERY_COMMIT_SHA.txt > UNSIGNED_HANDOFF_SHA256.txt
-      - name: Upload unsigned handoff for local GAPI restoration and original signing
+          zip -q -0 -j -s 80m ML_1.7.196_ARM64.zip ML_1.7.196_ARM64_DomEnota.apk
+          zip -s 0 ML_1.7.196_ARM64.zip --out reassembled.zip >/dev/null
+          expected="$(sha256sum ML_1.7.196_ARM64_DomEnota.apk | awk '{print $1}')"
+          actual="$(unzip -p reassembled.zip ML_1.7.196_ARM64_DomEnota.apk | sha256sum | awk '{print $1}')"
+          test "$expected" = "$actual"
+          rm reassembled.zip
+          cat > README.md <<'EOF'
+          # MediaLoader QA 1.7.196 / 256
+          Source: 97009ac18487f87c9a59a26c933bfef20e7c647d (DomEnota-hub/ML, PR #145).
+          ARM64 only; com.domenota.medialoader; original DomEnota certificate v2/v3.
+          Built-in GAPI entries: 2, protected runner inputs; never included in sources.
+          
+          Changes from QA 1.7.195:
+          1. Safe ordinary-folder visibility recovery and MediaStore identity verification.
+          2. Remaining main-thread, MediaController, catalog cache and audio duplicate CPU optimizations.
+          3. Stable automatic collection-cover anchor, preserving manual covers.
+          4. Neutral stopped visual duplicate search, saved partial progress, compact actions and stale-catalog trash gate.
+          5. Outlined double-note glyph in collections.
+          6. Themed rounded border for Find file.
+          
+          Owner must manually verify Xiaomi Android16 including pending folder "Мелкие" (46 files).
+          Never clear app data, delete original media or reset recovery journals.
+          Production merge, GitHub Releases/prereleases are not part of this handoff.
+          Store the .z01 and .zip together; extract the .zip with ZArchiver.
+          EOF
+          sha256sum ML_1.7.196_ARM64.z01 ML_1.7.196_ARM64.zip ML_1.7.196_SOURCES_EXACT_COMMIT.zip README.md > SHA256SUMS.txt
+          for file in ML_1.7.196_ARM64.z01 ML_1.7.196_ARM64.zip; do test "$(stat -c %s "$file")" -lt 100000000; done
+          rm ML_1.7.196_ARM64_DomEnota.apk
+      - name: Upload private QA delivery artifacts (not GitHub Release)
         uses: actions/upload-artifact@v4
         with:
-          name: ML_1.7.196_EXACT_SHA_UNSIGNED_HANDOFF
-          path: handoff/
-          retention-days: 7
+          name: ML_1.7.196_SIGNED_QA_DRIVE_HANDOFF
+          path: |
+            handoff/ML_1.7.196_ARM64.z01
+            handoff/ML_1.7.196_ARM64.zip
+            handoff/ML_1.7.196_SOURCES_EXACT_COMMIT.zip
+            handoff/README.md
+            handoff/SHA256SUMS.txt
+            handoff/DELIVERY_COMMIT_SHA.txt
           if-no-files-found: error
+          retention-days: 7
