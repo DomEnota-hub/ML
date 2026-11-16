@@ -59,3 +59,10 @@ internal class CollectionIdentityIndex private constructor(private val index: Ma
 /** Custom cover files are copies of public source images, not an exemption from privacy. */
 internal fun collectionCoverAllowed(source: String, blocked: Set<String>?): Boolean = blocked != null &&
     com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(source).none(blocked::contains)
+
+/** Explicit, immutable cover access input. A resumed permission change invalidates
+ * an otherwise unchanged card; app-owned public source photos need not be members. */
+internal data class CollectionCoverAccess(val fullPhotoAccess: Boolean, val appPhotoUris: Set<String>) {
+    fun permits(source: String, blocked: Set<String>?): Boolean =
+        collectionCoverAllowed(source, blocked) && (fullPhotoAccess || source in appPhotoUris)
+}

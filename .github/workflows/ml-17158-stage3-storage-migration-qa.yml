@@ -2,7 +2,7 @@ name: ML stage 3 - Pictures migration and history integrity QA
 
 on:
   push:
-    branches: [feature/ml-17193-hold-speed]
+    branches: [feature/ml-17194-cache-first]
   pull_request:
     types: [opened, reopened, synchronize]
   workflow_dispatch:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ml-17158-stage3-storage-${{ github.head_ref == 'feature/ml-17193-hold-speed' && 'refs/heads/feature/ml-17193-hold-speed' || github.event.pull_request.number || github.ref }}
+  group: ml-17158-stage3-storage-${{ github.head_ref == 'feature/ml-17194-cache-first' && 'refs/heads/feature/ml-17194-cache-first' || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -59,6 +59,9 @@ jobs:
             --tests '*LocalTextOcrFallbackTest' \
             --tests '*TextGlyphMaskTest' \
             --tests '*GlyphContentMaskTest' \
+            --tests '*OcrLineCandidatePolicyTest' \
+            --tests '*OutlinedGlyphInkTest' \
+            --tests '*SerializedModelCacheTest' \
             --tests '*PersonInstancePolicyTest' \
             --tests '*LaMaCompositionTest' \
             --stacktrace

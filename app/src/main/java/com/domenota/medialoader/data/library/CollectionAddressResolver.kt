@@ -11,9 +11,17 @@ import kotlin.coroutines.coroutineContext
 internal data class AddressedCollection(val refs: List<LibraryMediaRef>, val pending: Set<String>,
     val statuses: Map<String, Pair<String?, SavedFileStatus>>, val suppressed: Set<String> = emptySet(),
     val checkedMembers: Map<String, String?> = emptyMap(), val resolved: Map<String, LibraryMediaRef> = emptyMap(),
-    val invalidated: Set<String> = emptySet()) {
+    val invalidated: Set<String> = emptySet(), val verifiedStoreStamp: PhoneStoreStamp? = null, val verifiedCacheGuard: String? = null) {
     val byKey = refs.associateBy { it.key }
-    companion object { val EMPTY = AddressedCollection(emptyList(), emptySet(), emptyMap()) }
+    companion object {
+        val EMPTY = AddressedCollection(emptyList(), emptySet(), emptyMap())
+        fun unconfirmed(members: List<MediaCollectionMemberEntity>, blocked: Set<String>): AddressedCollection {
+            val files = members.filter { it.link == null }
+            val suppressed = files.filter { collectionMemberBlocked(it, blocked) }.mapTo(mutableSetOf()) { it.id }
+            return AddressedCollection(emptyList(), files.map { it.id }.toSet() - suppressed, emptyMap(), suppressed,
+                members.associate { it.id to it.identityJson })
+        }
+    }
 }
 internal data class AddressedFile(val ref: LibraryMediaRef?, val status: SavedFileStatus)
 
@@ -46,6 +54,7 @@ internal fun retainAddressedCollection(previous: AddressedCollection?, incoming:
  * physical identity must still match the saved member; a recycled URI alone is insufficient. */
 internal object CollectionAddressResolver {
     private val mediaLocator = Regex("^locator:uri:(content://media/[^/:]+/(?:audio|video|images)/media/[0-9]+):[0-9]+:[0-9]+$")
+    fun isTypedPhoneAddress(uri: String): Boolean = mediaLocator.matches("locator:uri:$uri:0:0")
     fun phoneAddresses(member: MediaCollectionMemberEntity): List<String> =
         MediaOrganizationPolicy.decode(member.identityJson).mapNotNull { mediaLocator.matchEntire(it)?.groupValues?.get(1) }.distinct()
 

@@ -235,4 +235,56 @@ class MediaOrganizationScreenTest {
         compose.setContent{MaterialTheme{ReviewScreen(emptyList(),emptyList(),emptyList(),emptySet(),store,true,{},{_,_->},{},{},{},{},{_,_->},{_,_->},{})}}
         compose.onNodeWithText("Всё разобрано. Новые успешные загрузки появятся здесь.").assertIsDisplayed()
     }
+
+    @Test fun unresolvedCollectionStopsLoadingAndOffersRetryWithoutGallery() {
+        val member=MediaCollectionMemberEntity("m","c",MediaOrganizationPolicy.encode(setOf("file-stat:unknown")),null,1)
+        val collection=MediaCollection(MediaCollectionEntity("c","Test",1),listOf(member))
+        val terminal=AddressedCollection.unconfirmed(listOf(member),emptySet())
+        var retried=false
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(collection),emptyList(),store,"c",true,emptyList(),null,false,{},{_,_->},{},{},{},{},
+            scopedDetails=true,detailCatalogId="c",detailCatalog=terminal,overviewAccessReady=true,detailChecking=false,onRetryDetail={retried=true})}}
+        compose.onNodeWithTag("organization-loading").assertDoesNotExist()
+        compose.onNodeWithText("Повторить проверку").assertIsDisplayed().performClick()
+        compose.runOnIdle{assertTrue(retried)}
+        compose.onNodeWithText("1 недоступен").assertDoesNotExist()
+    }
+    @Test fun collectionOverviewDoesNotShowFullCatalogSpinnerOncePrivacyIsReady() {
+        val c=MediaCollection(MediaCollectionEntity("c","Test",1),emptyList())
+        var request=com.domenota.medialoader.ui.CollectionCatalogRequest.ALL
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),emptyList(),store,null,true,emptyList(),null,false,{},{_,_->},{},{},{},{},
+            scopedDetails=true,overviewAccessReady=true,onCatalogRequest={request=it})}}
+        compose.onNodeWithTag("organization-loading").assertDoesNotExist()
+        compose.onNodeWithText("Test").assertIsDisplayed()
+        compose.runOnIdle{assertEquals(com.domenota.medialoader.ui.CollectionCatalogRequest.NONE,request)}
+    }
+    @Test fun unsettledDetailRevisionsCannotKeepInitialSpinner() {
+        val member=MediaCollectionMemberEntity("m","c",MediaOrganizationPolicy.encode(setOf("file-stat:unknown")),null,1)
+        val collection=MediaCollection(MediaCollectionEntity("c","Test",1),listOf(member))
+        var retried=false
+        compose.mainClock.autoAdvance=false
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(collection),emptyList(),store,"c",true,emptyList(),null,false,{},{_,_->},{},{},{},{},
+            scopedDetails=true,detailCatalogId="c",detailCatalog=null,overviewAccessReady=true,detailChecking=true,onRetryDetail={retried=true})}}
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        compose.onNodeWithTag("organization-loading").assertExists()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(16_100))
+        compose.mainClock.advanceTimeBy(16_100)
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        compose.onNodeWithTag("organization-loading").assertDoesNotExist()
+        compose.onNodeWithText("Повторить проверку").assertExists().performClick()
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        compose.runOnIdle{assertTrue(retried)}
+    }
+    @Test fun emptyOverviewIsNotAnnouncedUntilItsOwnDataIsReady() {
+        val loaded=androidx.compose.runtime.mutableStateOf(false)
+        compose.setContent{MaterialTheme{CollectionsScreen(emptyList(),emptyList(),store,null,false,emptyList(),null,false,{},{_,_->},{},{},{},{},
+            scopedDetails=true,overviewAccessReady=loaded.value)}}
+        compose.onNodeWithText("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.").assertDoesNotExist()
+        compose.onNodeWithTag("organization-loading").assertExists()
+        compose.runOnIdle{loaded.value=true}
+        compose.onNodeWithText("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.").assertIsDisplayed()
+        compose.onNodeWithTag("organization-loading").assertDoesNotExist()
+    }
 }

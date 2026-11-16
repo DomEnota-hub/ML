@@ -146,8 +146,11 @@ class PhoneMediaLibrary(context: Context) {
             coroutineContext.ensureActive()
             if (accessLevel(type) < before)
                 return@withContext AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.INACCESSIBLE)
-            if (indexed == null)
-                return@withContext AddressedFile(null, com.domenota.medialoader.data.storage.SavedFileStatus.UNCHECKED)
+            if (indexed == null) {
+                val presence = com.domenota.medialoader.data.storage.SavedFilePresence.check(context, value)
+                return@withContext AddressedFile(null, if (presence == com.domenota.medialoader.data.storage.SavedFileStatus.MISSING && before == 2)
+                    presence else com.domenota.medialoader.data.storage.SavedFileStatus.UNCHECKED)
+            }
             val row = if (type == MediaType.AUDIO) AudioEditedTags.read(context, indexed, AudioEditedTags.marked(context)) else indexed
             val status = com.domenota.medialoader.data.storage.SavedFilePresence.check(context, value)
             val keys = com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, value)

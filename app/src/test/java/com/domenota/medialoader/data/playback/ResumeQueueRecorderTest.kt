@@ -28,11 +28,11 @@ class ResumeQueueRecorderTest {
             "content://media/external/audio/media/${id.hashCode().toUInt()}",123L,100L,isPrivate=private),
         setOf("file-stat:$id"),playlist,"playlist:$playlist")
     private class Fake {
-        var queue=listOf<MediaItem>();var index=0;var position=0L;var playing=false;var status=Player.STATE_READY
+        var reads=0;var queue=listOf<MediaItem>();var index=0;var position=0L;var playing=false;var status=Player.STATE_READY
         val player=Proxy.newProxyInstance(Player::class.java.classLoader,arrayOf(Player::class.java)){_,method,args->
             when(method.name){
                 "getMediaItemCount"->queue.size
-                "getMediaItemAt"->queue[args!![0] as Int]
+                "getMediaItemAt"->{reads++;queue[args!![0] as Int]}
                 "getCurrentMediaItem"->queue.getOrNull(index)
                 "getCurrentMediaItemIndex"->index
                 "getCurrentPosition"->position
@@ -93,5 +93,22 @@ class ResumeQueueRecorderTest {
             assertEquals(3,fake.queue.size);assertEquals(1,fake.index)
             assertEquals(60_000L,fake.position);assertTrue(fake.playing)
         } finally {scope.cancel();store.closeForTest()}
+    }
+
+    @Test fun largeQueueScalarUpdatesDoNotEnumerateMembershipAgain()=runBlocking {
+        val store=ResumeQueueStore.forTest(context,name)
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
+        val fake=Fake().apply {queue=(0 until 2500).map{item("large$it","large")};index=1200;position=30_000;playing=true}
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true})
+        try {
+            recorder.attach()
+            assertEquals(2500,fake.reads)
+            repeat(20){fake.position+=100;recorder.refresh(false)}
+            assertEquals(2500,fake.reads)
+            fake.index=1201;fake.position=200;recorder.refresh(false)
+            assertEquals(2500,fake.reads)
+            fake.queue=fake.queue.reversed();recorder.refresh(true)
+            assertEquals(5000,fake.reads)
+        } finally {recorder.release();scope.cancel();store.closeForTest()}
     }
 }

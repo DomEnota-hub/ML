@@ -41,6 +41,24 @@ class GalleryViewerStateTest {
         assertNull(GalleryViewerState.neighbor("first", ids, emptySet()))
     }
 
+    @Test fun missingRequestedVideoNeverResolvesToNeighborOrRecycledUri() {
+        val a = row("a", MediaType.VIDEO)
+        val b = row("b", MediaType.VIDEO)
+        assertNull(GalleryViewerState.exactItem(a.id, a.savedUri, listOf(b)))
+        assertNull(GalleryViewerState.exactItem(a.id, a.savedUri, listOf(b, a.copy(savedUri = b.savedUri))))
+        assertEquals(a, GalleryViewerState.exactItem(a.id, a.savedUri, listOf(b, a)))
+    }
+    @Test fun newlyDownloadedRowCanBeOpenedWithoutIndexButNotAfterPrivacyOrIdentityChange() {
+        val a = row("a", MediaType.VIDEO)
+        val ref = LibraryMediaRef(a.id, setOf(a.id, "physical:a"), a, a.id)
+        assertEquals(a, GalleryViewerState.addressedPublic(a, ref, emptySet()))
+        assertNull(GalleryViewerState.addressedPublic(a, ref, null))
+        assertNull(GalleryViewerState.addressedPublic(a, ref, setOf("physical:a")))
+        assertNull(GalleryViewerState.addressedPublic(a.copy(savedUri = "content://media/other"), ref, emptySet()))
+        assertNull(GalleryViewerState.addressedPublic(a.copy(isPrivate = true), ref, emptySet()))
+        assertNull(GalleryViewerState.addressedPublic(a.copy(hidden = true), ref, emptySet()))
+    }
+
     @Test fun videoExistsOnlyOnSettledVisiblePageAndIsReleasedAsSoonAsSwipeStarts() {
         assertTrue(GalleryViewerState.canCreateVideo(1, 1, false))
         assertFalse(GalleryViewerState.canCreateVideo(1, 2, false))

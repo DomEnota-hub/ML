@@ -44,6 +44,46 @@ class GalleryViewerPhotoUiTest {
         assertEquals("Last", current)
     }
 
+    @Test fun initialMissingSelectionDoesNotPublishNeighbor() {
+        val selected = photo("MissingInitial")
+        val neighbor = photo("OtherInitial")
+        var current: String? = null
+        compose.setContent { MaterialTheme { Viewer(selected, listOf(neighbor)) { current = it.id } } }
+        compose.waitForIdle()
+        assertEquals(null, current)
+    }
+
+    @Test fun exactRouteNeverPublishesNeighborOnTransientQueueRemoval() {
+        val selected = photo("RouteSelected")
+        val neighbor = photo("RouteNeighbor")
+        var rows by mutableStateOf(listOf(selected, neighbor))
+        var current: String? = null
+        var closed = false
+        compose.setContent { MaterialTheme {
+            GalleryMediaViewer(selected, rows, { closed = true }, {}, {}, {}, emptySet(), { _, _ -> }, emptyList(),
+                { _, _ -> }, {}, {}, { current = it.id }, allowNeighborOnQueueRemoval = false)
+        } }
+        compose.waitForIdle()
+        assertEquals(selected.id, current)
+        compose.runOnIdle { rows = listOf(neighbor) }
+        compose.waitForIdle()
+        assertEquals(selected.id, current)
+        org.junit.Assert.assertTrue(closed)
+    }
+
+    @Test fun reorderingQueueKeepsSelectedIdentityRatherThanNumericPage() {
+        val first = photo("FirstReorder")
+        val selected = photo("SelectedReorder")
+        val last = photo("LastReorder")
+        var rows by mutableStateOf(listOf(first, selected, last))
+        val published = mutableListOf<String>()
+        compose.setContent { MaterialTheme { Viewer(selected, rows) { published += it.id } } }
+        compose.waitForIdle()
+        compose.runOnIdle { rows = listOf(last, first, selected) }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(setOf(selected.id), published.toSet()) }
+    }
+
     @Test fun photoViewportDoesNotShrinkWhenOverlayPanelsAreVisibleOrHidden() {
         val item = photo("Viewport")
         compose.setContent { MaterialTheme { Viewer(item, listOf(item)) {} } }

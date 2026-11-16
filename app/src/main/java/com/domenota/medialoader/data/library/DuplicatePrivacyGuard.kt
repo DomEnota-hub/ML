@@ -20,6 +20,7 @@ internal object DuplicatePrivacyGuard {
         return epoch ?: DuplicatePrivacyEpoch(if (file(context).baseFile.exists()) runCatching { file(context).openRead().bufferedReader().use { it.readText().toLong() } }
             .getOrDefault(Long.MIN_VALUE) else 0).also { epoch = it; mutableChanges.value = it.generation }
     }
+    fun currentBlockedKeys(): Set<String> = synchronized(lock) { epoch?.blockedKeys().orEmpty() }
     fun generation(context: Context): Long = synchronized(lock) { state(context).generation }
     fun accepts(context: Context, generation: Long, id: String, identities: Set<String> = emptySet()): Boolean = synchronized(lock) { state(context).accepts(generation,id,identities) }
     suspend fun revoke(context: Context, id: String, identities: Set<String> = emptySet()) = withContext(Dispatchers.IO + NonCancellable) {
@@ -39,6 +40,8 @@ internal object DuplicatePrivacyGuard {
             VisualDuplicateBackgroundScan.invalidateForPrivacy()
             com.domenota.medialoader.data.recognition.TrackRecognitionCache.clearForPrivacy(context)
         }
+        PersistentProjectionCache.clearAll(context)
+        com.domenota.medialoader.data.playback.ListeningHistoryStore.get(context).clearDerivedProjections()
         context.stopService(Intent(context,MusicDuplicateScanService::class.java))
         context.stopService(Intent(context,VisualDuplicateScanService::class.java))
     }

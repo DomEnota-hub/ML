@@ -107,9 +107,37 @@ internal object OcrLineCandidatePolicy {
         }.thenByDescending { it.count(::hasLetters) }
             .thenByDescending { line -> line.map { it.confidence }.average() })
         val accepted = mutableListOf<List<DetectedGlyph>>()
-        for (line in ranked) if (accepted.none { sameLine(it, line) }) accepted.add(line)
+        for (line in ranked) {
+            val index = accepted.indexOfFirst { sameLine(it, line) }
+            if (index < 0) {
+                accepted.add(line)
+                continue
+            }
+            // Keep the best independently credible hypothesis for overlapping
+            // symbols, but recover non-overlapping symbols from other passes.
+            // A partial line must not suppress a separately recognized letter.
+            val primary = accepted[index]
+            val merged = primary.toMutableList()
+            val referenceHeight = primary.map { it.bottom - it.top }.sorted()[primary.size / 2]
+            val referenceCenter = primary.map { (it.top + it.bottom) / 2f }.sorted()[primary.size / 2]
+            for (candidate in line.sortedBy { it.left }) {
+                val height = candidate.bottom - candidate.top
+                val center = (candidate.top + candidate.bottom) / 2f
+                if (candidate.confidence < 66f || height > referenceHeight * 1.8f ||
+                    height < referenceHeight * (if (hasLetters(candidate)) .55f else .15f) ||
+                    abs(center - referenceCenter) > referenceHeight * .6f) continue
+                if (merged.any { duplicate(it, candidate) ||
+                        (min(it.right, candidate.right) - max(it.left, candidate.left)) >
+                            min(it.right - it.left, candidate.right - candidate.left) * .35f }) continue
+                val gap = merged.minOf { maxOf(0f, candidate.left - it.right, it.left - candidate.right) }
+                if (gap <= referenceHeight * 1.6f) merged.add(candidate)
+            }
+            accepted[index] = merged.sortedBy { it.left }
+        }
         return accepted.sortedWith(compareBy<List<DetectedGlyph>> { it.minOf { glyph -> glyph.top } }
             .thenBy { it.minOf { glyph -> glyph.left } })
-            .flatten().take(160).mapIndexed { id, glyph -> glyph.copy(id = id) }
+            // Preserve one overflow candidate so the caller can distinguish a
+            // bounded selection from a fully recognized caption (limit 160).
+            .flatten().take(161).mapIndexed { id, glyph -> glyph.copy(id = id) }
     }
 }

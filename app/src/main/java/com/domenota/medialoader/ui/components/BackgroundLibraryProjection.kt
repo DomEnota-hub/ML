@@ -40,22 +40,82 @@ internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, va
  * immediately hides the previous generation; routine data revisions retain it. */
 @Composable
 internal fun <T> addressedLibraryProjection(empty: T, guard: Any?, vararg inputs: Any?,
-    publishWhen: Boolean = true, retain: (T, T) -> T = { _, next -> next }, build: suspend () -> T): BackgroundLibraryValue<T> {
+    publishWhen: Boolean = true, retain: (T, T) -> T = { _, next -> next },
+    seed: (suspend () -> T?)? = null, serial: Boolean = false, build: suspend () -> T): BackgroundLibraryValue<T> {
     val key = ProjectionInputs(inputs.toList())
+    if (serial) return serialAddressedProjection(empty, guard, key, publishWhen, retain, seed, build)
     var published by remember { mutableStateOf<GuardedProjection<T>?>(null) }
     LaunchedEffect(key, guard, publishWhen) {
         if (guard == null) { published = null; return@LaunchedEffect }
         if (!publishWhen) return@LaunchedEffect
-        val previous = published?.takeIf { it.guard == guard }
+        var previous = published?.takeIf { it.guard == guard }
+        if (previous == null && seed != null) {
+            val cached = withContext(Dispatchers.IO) { seed() }
+            if (cached != null) {
+                previous = GuardedProjection(key, guard, cached, fresh = false)
+                published = previous
+            }
+        }
+        val retained = previous
         val value = withContext(Dispatchers.IO) {
             val next = build()
-            if (previous == null) next else retain(previous.value, next)
+            if (retained == null) next else retain(retained.value, next)
         }
         published = GuardedProjection(key, guard, value)
     }
     val current = published
     return if (guard != null && current != null && current.guard == guard)
-        BackgroundLibraryValue(current.value, current.inputs == key, usable = true)
+        BackgroundLibraryValue(current.value, current.fresh && current.inputs == key, usable = true)
     else BackgroundLibraryValue(empty, false)
 }
-private data class GuardedProjection<T>(val inputs: ProjectionInputs, val guard: Any, val value: T)
+private data class GuardedProjection<T>(val inputs: ProjectionInputs, val guard: Any, val value: T, val fresh: Boolean = true)
+
+private data class AddressedRequest<T>(val key: ProjectionInputs, val seed: (suspend () -> T?)?,
+    val build: suspend () -> T, val retain: (T, T) -> T)
+private class AddressedMailbox<T> {
+    val requests = kotlinx.coroutines.channels.Channel<AddressedRequest<T>>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    var submitted: ProjectionInputs? = null
+}
+
+/** One active pass per access guard, with at most one newest queued request.
+ * Ordinary input changes do not repeatedly cancel a provider. Access changes
+ * cancel the whole mailbox; obsolete generations cannot publish. */
+@Composable
+private fun <T> serialAddressedProjection(empty: T, guard: Any?, key: ProjectionInputs, publishWhen: Boolean,
+    retain: (T,T)->T, seed: (suspend () -> T?)?, build: suspend () -> T): BackgroundLibraryValue<T> {
+    val mailbox = remember(guard) { AddressedMailbox<T>() }
+    val latestKey by rememberUpdatedState(key)
+    val latestPublish by rememberUpdatedState(publishWhen)
+    var published by remember { mutableStateOf<GuardedProjection<T>?>(null) }
+    SideEffect {
+        if(guard != null && publishWhen && mailbox.submitted != key) {
+            mailbox.submitted = key
+            mailbox.requests.trySend(AddressedRequest(key,seed,build,retain))
+        } else if(!publishWhen) mailbox.submitted = null
+    }
+    LaunchedEffect(mailbox) {
+        if(guard==null) { published=null; return@LaunchedEffect }
+        for(request in mailbox.requests) {
+            if(request.key != latestKey || !latestPublish) continue
+            var previous=published?.takeIf { it.guard==guard }
+            if(previous==null && request.seed!=null) {
+                val cached=withContext(Dispatchers.IO) { request.seed.invoke() }
+                if(cached!=null && request.key==latestKey && latestPublish) {
+                    previous=GuardedProjection(request.key,guard,cached,fresh=false)
+                    published=previous
+                }
+            }
+            if(request.key!=latestKey || !latestPublish) continue
+            val retained=previous
+            val result=withContext(Dispatchers.IO) {
+                val next=request.build()
+                if(retained==null) next else request.retain(retained.value,next)
+            }
+            if(request.key==latestKey && latestPublish) published=GuardedProjection(request.key,guard,result)
+        }
+    }
+    val current=published
+    return if(guard!=null && current!=null && current.guard==guard)
+        BackgroundLibraryValue(current.value,current.fresh && current.inputs==key,usable=true)
+    else BackgroundLibraryValue(empty,false)
+}

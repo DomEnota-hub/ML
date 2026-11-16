@@ -11,6 +11,7 @@ import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.database.HistoryDatabase
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.data.library.ExternalMediaCatalogRepository
+import com.domenota.medialoader.data.catalog.visibility.VisibilityMemberChange
 import com.domenota.medialoader.data.library.PlaylistRepository
 import com.domenota.medialoader.data.playback.PublicMediaIdentity
 import com.domenota.medialoader.data.playback.VideoWatchProgress
@@ -36,7 +37,8 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         } }
     }
 
-    suspend fun snapshot(row: DownloadEntity, originalAliases: Set<String> = emptySet(), verifiedTargetUri: String? = null): JSONObject {
+    suspend fun snapshot(row: DownloadEntity, originalAliases: Set<String> = emptySet(), verifiedTargetUri: String? = null,
+        external: Boolean = false, visibility: Boolean = false): JSONObject {
         ensureIdle()
         val old = requireNotNull(row.savedUri)
         val aliases = aliases(old) + row.id + originalAliases
@@ -44,16 +46,16 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         check(others.none { other -> listOfNotNull(other.savedUri, other.privateSourceUri).any { uri ->
             (PublicMediaIdentity.uriKeys(uri) intersect aliases).isNotEmpty()
         } }) { "Физический файл связан с несколькими записями ML" }
-        check(db.downloadDao().countSavedUriReferences(old) == 1) { "Неоднозначные ссылки исходного файла" }
+        check(db.downloadDao().countSavedUriReferences(old) == if (external) 0 else 1) { "Неоднозначные ссылки исходного файла" }
         check((others + row).none { it.sourceUrl == old || it.sourcePageUrl == old }) { "Исходный URI используется как адрес источника" }
         val vk = JSONObject().put("images", JSONArray()).put("hashes", JSONArray())
         readVk { handle -> for (table in listOf("images", "hashes")) {
             vk.put(table, rows(handle, "SELECT * FROM $table WHERE saved_uri=?", arrayOf(old)))
         } }
         check(vk.getJSONArray("hashes").length() <= 1) { "Несколько разных хешей связаны с одним исходным файлом VK" }
-        val assignment = db.catalogDao().assignmentById(row.id)
+        val assignment = if (external) null else db.catalogDao().assignmentById(row.id)
         val artwork = JSONArray()
-        (others + row).forEach { item ->
+        (if (external) others else others + row).forEach { item ->
             if (listOf(item.previewUrl, item.sourceAudioArtworkUrl, item.recognitionArtworkUrl).contains(old)) {
                 artwork.put(JSONObject().put("id", item.id).put("previewUrl", item.previewUrl ?: JSONObject.NULL)
                     .put("sourceAudioArtworkUrl", item.sourceAudioArtworkUrl ?: JSONObject.NULL)
@@ -62,6 +64,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         }
         val result = JSONObject().put("version", 1).put("key", UUID.randomUUID().toString())
             .put("id", row.id).put("oldUri", old).put("aliases", JSONArray(aliases.toList().sorted()))
+            .put("external", external).put("visibility", visibility)
             .put("catalog", catalog.snapshotHistoricalMedia()).put("playlists", playlists.snapshotHistoricalMedia())
             .put("vk", vk).put("artwork", artwork)
             .put("assignment", if (assignment == null) JSONObject.NULL else JSONObject()
@@ -70,6 +73,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         // Validate the exact transformations BEFORE any original is renamed or
         // published, rather than discovering ambiguous catalog entries at rebind.
         catalogTarget(result.getString("catalog"), aliases, old, verifiedTargetUri ?: old, row.originalName, row.sizeBytes!!)
+        if (external) check(catalogEntries(result.getString("catalog")).count { it.getString("key") == row.id && it.getString("uri") == old } == 1)
         playlistTarget(result.getString("playlists"), aliases)
         return result
     }
@@ -80,13 +84,16 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         val recordFile = File(directory, "$key.json")
         if (!recordFile.exists()) write(key, snapshot)
         val record = read(key)
+        check(!record.optBoolean("compacted")) { "Операция перепривязки уже завершена" }
         check(record.getInt("version") == 1 && record.getString("oldUri") == oldUri)
         if (!record.has("newUri")) {
             val oldAliases = strings(record.getJSONArray("aliases"))
-            val allAliases = oldAliases + aliases(newUri) + newUri + oldUri + record.getString("id")
+            val newAliases = aliases(newUri) + newUri + record.getString("id")
+            val allAliases = oldAliases + newAliases + oldUri
             record.put("newUri", newUri).put("newHash", newHash).put("oldHash", oldHash)
                 .put("allAliases", JSONArray(allAliases.toList().sorted()))
-                .put("catalogTarget", catalogTarget(record.getString("catalog"), allAliases, oldUri, newUri, newName, newBytes))
+                .put("catalogTarget", catalogTarget(record.getString("catalog"), allAliases, oldUri, newUri, newName, newBytes,
+                    if (record.optBoolean("visibility")) newAliases else null))
                 .put("playlistsTarget", playlistTarget(record.getString("playlists"), allAliases))
             write(key, record) // complete expected+desired documents before first preference commit
         }
@@ -104,19 +111,64 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         verify(snapshot, newUri, newHash)
     }
 
-    suspend fun verify(snapshot: JSONObject, expectedUri: String, expectedHash: String) {
+    suspend fun verify(snapshot: JSONObject, expectedUri: String, expectedHash: String, addressed: Boolean = false,
+        membership: VisibilityMemberChange? = null) {
         val record = read(snapshot.getString("key"))
         check(record.getString("newUri") == expectedUri && record.getString("newHash") == expectedHash)
-        check(catalog.snapshotHistoricalMedia() == record.getString("catalogTarget")) { "Каталог не подтвердил перепривязку" }
-        check(playlists.snapshotHistoricalMedia() == record.getString("playlistsTarget")) { "Плейлисты не подтвердили перепривязку" }
+        val currentCatalog = catalog.snapshotHistoricalMedia()
+        val currentPlaylists = playlists.snapshotHistoricalMedia()
+        if (!addressed) {
+            check(currentCatalog == record.getString("catalogTarget")) { "Каталог не подтвердил перепривязку" }
+            check(currentPlaylists == record.getString("playlistsTarget")) { "Плейлисты не подтвердили перепривязку" }
+        } else {
+            // Other members of the same batch may already have changed their own
+            // entries. Only the affected entries/references are compared here.
+            val oldUri = record.getString("oldUri")
+            val before = catalogEntries(record.getString("catalog"))
+            val after = catalogEntries(record.getString("catalogTarget"))
+            val current = catalogEntries(currentCatalog)
+            val affected = before.filter { it.getString("uri") == oldUri }.map { it.getString("key") }.toSet()
+            for (key in affected) {
+                val wanted = after.single { it.getString("key") == key }
+                val actual=current.singleOrNull { it.getString("key")==key }
+                val moved=membership?.takeIf { !it.app && it.id==key }?.let { change ->
+                    JSONObject(wanted.toString()).put("folder",change.targetFolder ?: JSONObject.NULL)
+                }
+                check(actual!=null && (sameJson(actual,wanted) || moved!=null && sameJson(actual,moved)))
+            }
+            check(current.none { it.getString("uri") == oldUri }) { "Остались живые адреса каталога" }
+            val aliases = strings(record.getJSONArray("allAliases"))
+            val desiredLists = playlistEntries(record.getString("playlistsTarget"))
+            val actualLists = playlistEntries(currentPlaylists)
+            for (list in desiredLists) {
+                val refs = list.optJSONObject("trackReferences") ?: continue
+                for (track in strings(list.getJSONArray("trackIds"))) {
+                    val known = refs.optJSONArray(track)?.let(::strings).orEmpty()
+                    if (known.none(aliases::contains)) continue
+                    val actual = actualLists.singleOrNull { it.getString("id") == list.getString("id") }
+                    check(actual != null && track in strings(actual.getJSONArray("trackIds")) &&
+                        actual.optJSONObject("trackReferences")?.optJSONArray(track)?.let(::strings)?.containsAll(known) == true) {
+                        "Плейлист потерял адрес перенесённого файла"
+                    }
+                }
+            }
+        }
         val id = record.getString("id")
         val originalAssignment = record.optJSONObject("assignment")
         val assignment = db.catalogDao().assignmentById(id)
-        check(if (originalAssignment == null) assignment == null else assignment != null &&
-            assignment.folderId == nullable(originalAssignment, "folder") && assignment.isFavorite == originalAssignment.getBoolean("favorite")) {
+        val originalMatches=if(originalAssignment==null) assignment==null else assignment!=null &&
+            assignment.folderId==nullable(originalAssignment,"folder") && assignment.isFavorite==originalAssignment.getBoolean("favorite")
+        val membershipMatches=addressed && membership?.takeIf { it.app && it.id==id }?.let { change ->
+            (assignment?.folderId==change.targetFolder && (assignment?.isFavorite==true)==change.favorite)
+        }==true
+        check(originalMatches || membershipMatches) {
             "Изменилось избранное или альбом загрузки"
         }
-        check(db.downloadDao().byId(id)?.savedUri == expectedUri) { "История загрузок не открывает новый URI" }
+        if (record.optBoolean("external")) {
+            check(db.downloadDao().byId(id) == null && catalogEntries(currentCatalog).singleOrNull {
+                it.getString("key") == id
+            }?.getString("uri") == expectedUri) { "Внешний каталог не открывает новый URI" }
+        } else check(db.downloadDao().byId(id)?.savedUri == expectedUri) { "История загрузок не открывает новый URI" }
         check(db.downloadDao().countSavedUriReferences(record.getString("oldUri")) == 0) { "Остались ссылки на старый URI" }
         readVk { handle ->
             for (table in listOf("images", "hashes")) {
@@ -143,6 +195,37 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         verifyArtwork(record)
     }
 
+    /** Visibility batches may contain thousands of members. After the original
+     * is gone, retain only this member's proof, not N complete catalog documents. */
+    suspend fun compactVisibility(snapshot: JSONObject, expectedUri: String, expectedHash: String) {
+        verify(snapshot,expectedUri,expectedHash,addressed=true)
+        val key = snapshot.getString("key")
+        val record = read(key)
+        check(record.optBoolean("visibility"))
+        if (record.optBoolean("compacted")) return
+        val old = record.getString("oldUri")
+        val affected = catalogEntries(record.getString("catalog")).filter { it.getString("uri") == old }
+        val ids = affected.map { it.getString("key") }.toSet()
+        fun catalogDoc(rows: List<JSONObject>) = JSONObject().put("version",1).put("entries",JSONArray(rows)).toString()
+        val desired = catalogEntries(record.getString("catalogTarget")).filter { it.getString("key") in ids }
+        val all = strings(record.getJSONArray("allAliases"))
+        val lists = playlistEntries(record.getString("playlistsTarget")).mapNotNull { list ->
+            val refs = list.optJSONObject("trackReferences") ?: return@mapNotNull null
+            val tracks = strings(list.getJSONArray("trackIds")).filter { track ->
+                refs.optJSONArray(track)?.let(::strings)?.any(all::contains) == true
+            }
+            if (tracks.isEmpty()) null else JSONObject().put("id",list.getString("id"))
+                .put("trackIds",JSONArray(tracks)).put("trackReferences",JSONObject().apply {
+                    tracks.forEach { put(it,refs.getJSONArray(it)) }
+                })
+        }
+        record.put("catalog",catalogDoc(affected)).put("catalogTarget",catalogDoc(desired))
+            .put("playlistsTarget",JSONArray(lists).toString()).put("compacted",true)
+        record.remove("playlists"); record.remove("watchBackup")
+        write(key,record)
+        verify(snapshot,expectedUri,expectedHash,addressed=true)
+    }
+
     private suspend fun aliases(uri: String): Set<String> {
         val parsed = Uri.parse(uri)
         val kind = if (parsed.authority == "media") when {
@@ -155,7 +238,18 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         return PublicMediaIdentity.capture(context, uri) + uri +
             (if (kind != null && id != null) setOf("phone:$kind:$id") else emptySet())
     }
-    private fun catalogTarget(raw: String, aliases: Set<String>, old: String, new: String, name: String, bytes: Long): String {
+    private fun catalogEntries(raw: String): List<JSONObject> {
+        if (raw.isEmpty()) return emptyList()
+        val array = JSONObject(raw).getJSONArray("entries")
+        return (0 until array.length()).map(array::getJSONObject)
+    }
+    private fun playlistEntries(raw: String): List<JSONObject> {
+        if (raw.isEmpty()) return emptyList()
+        val array = JSONArray(raw)
+        return (0 until array.length()).map(array::getJSONObject)
+    }
+    private fun catalogTarget(raw: String, aliases: Set<String>, old: String, new: String, name: String, bytes: Long,
+        replacementAliases: Set<String>? = null): String {
         if (raw.isEmpty()) return raw
         val root = JSONObject(raw); check(root.getInt("version") == 1)
         val entries = root.getJSONArray("entries"); var matched = 0
@@ -164,7 +258,8 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
             if ((strings(row.getJSONArray("aliases")) + row.getString("key")).any(aliases::contains) || row.getString("uri") == old) {
                 check(++matched == 1 && row.getString("uri") in setOf(old, new)) { "Неоднозначная идентичность каталога" }
                 row.put("uri", new).put("name", name).put("size", bytes)
-                    .put("aliases", JSONArray((strings(row.getJSONArray("aliases")) + aliases).toList().sorted()))
+                if(replacementAliases!=null) row.put("visibilityManaged",true)
+                    .put("aliases", JSONArray((replacementAliases?.plus(row.getString("key")) ?: (strings(row.getJSONArray("aliases")) + aliases)).toList().sorted()))
             }
         }
         return root.toString()

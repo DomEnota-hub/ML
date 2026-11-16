@@ -27,8 +27,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun FrequentListeningCard(count: Int, period: ListeningPeriod, onOpen: () -> Unit) {
-    MusicOverviewCard("Часто слушаю",com.domenota.medialoader.core.model.RussianCounts.tracks(count),
+internal fun FrequentListeningCard(count: Int?, period: ListeningPeriod, onOpen: () -> Unit) {
+    MusicOverviewCard("Часто слушаю",count?.let(com.domenota.medialoader.core.model.RussianCounts::tracks) ?: "Подготовка…",
         Icons.Rounded.GraphicEq,"frequent-playlist-card",onOpen,period.label)
 }
 

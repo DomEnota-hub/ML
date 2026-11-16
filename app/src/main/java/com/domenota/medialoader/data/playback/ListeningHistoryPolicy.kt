@@ -13,7 +13,19 @@ internal enum class ListeningPeriod(val label: String, val days: Long?) {
 
 internal data class ListeningRank(val rowId: String, val trackId: String, val plays: Long, val lastPlayed: Long)
 internal data class ListeningExcluded(val trackId: String, val rowId: String?)
-internal data class ListeningSelection(val ranked: List<ListeningRank> = emptyList(), val excluded: List<ListeningExcluded> = emptyList())
+internal data class ListeningSelection(val ranked: List<ListeningRank> = emptyList(), val excluded: List<ListeningExcluded> = emptyList(),
+    val validUntil: Long = Long.MAX_VALUE) {
+    fun currentAt(now:Long):Boolean = now < validUntil
+}
+
+/** Exact expiry and explicit clock changes invalidate a rank without a new
+ * listening session. No finite boundary means no scheduled polling. */
+internal object ListeningClockPolicy {
+    fun refreshRanking(previous:Long,now:Long,boundary:Long,clockChanged:Boolean=false):Boolean =
+        clockChanged || now<previous || (boundary!=Long.MAX_VALUE && now>=boundary)
+    fun delayUntil(now:Long,boundary:Long):Long =
+        if(boundary==Long.MAX_VALUE)0L else (boundary-now).coerceAtLeast(0L)
+}
 
 internal object ListeningHistoryPolicy {
     const val LIMIT = 30

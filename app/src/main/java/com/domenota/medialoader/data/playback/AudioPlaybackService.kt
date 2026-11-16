@@ -160,17 +160,27 @@ class AudioPlaybackService : MediaSessionService() {
         var privateIds: Set<String> = emptySet()
         var privateReady = false
         var guarding = false
-        fun guardPrivate() {
+        var guardedTimeline:androidx.media3.common.Timeline?=null
+        var guardedUnlocked:Boolean?=null
+        var guardedIds:Set<String>?=null
+        fun guardPrivate(force:Boolean=false) {
             if (guarding) return
+            val unlocked=access.state.value.unlocked
+            // An unchanged immutable Media3 timeline and unchanged access guard
+            // need only the current-item check, not another full alias scan.
+            if(!force && guardedTimeline===player.currentTimeline && guardedUnlocked==unlocked && guardedIds==privateIds &&
+                !PrivatePlaybackPolicy.blocked(player.currentMediaItem,unlocked,privateIds)) return
             guarding = true
-            try { PrivatePlaybackPolicy.protect(player, access.state.value.unlocked, privateIds) }
-            finally { guarding = false }
+            try {
+                PrivatePlaybackPolicy.protect(player,unlocked,privateIds)
+                guardedTimeline=player.currentTimeline;guardedUnlocked=unlocked;guardedIds=privateIds
+            } finally { guarding = false }
         }
         val allowPublic: (androidx.media3.common.MediaItem)->Boolean = { item ->
             privateReady && !PrivatePlaybackPolicy.isPrivate(item) && item.mediaId !in privateIds &&
-                item.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty().none(privateIds::contains) &&
+                (privateIds.isEmpty() || item.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty().none(privateIds::contains)) &&
                 item.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PUBLIC_URI)?.let { uri ->
-                    PublicMediaIdentity.uriKeys(uri).none(privateIds::contains)
+                    privateIds.isEmpty() || PublicMediaIdentity.uriKeys(uri).none(privateIds::contains)
                 } == true
         }
         val listening=ListeningRecorder(this,player,privateScope,ListeningHistoryStore.get(this),allowPublic)
@@ -180,12 +190,14 @@ class AudioPlaybackService : MediaSessionService() {
         resumeRecorder=resume;resume.attach()
         privateScope.launch {
             combine(access.state, MediaRepository.get(this@AudioPlaybackService).privateMediaIds) { state, ids -> state to ids }
-                .collect { (_, ids) -> privateIds = ids; privateReady = true; guardPrivate(); listening.refresh(); resume.refresh() }
+                .collect { (_, ids) -> privateIds = ids; privateReady = true; guardPrivate(force=true); listening.refresh(); resume.refresh() }
         }
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 com.domenota.medialoader.core.logging.AppLog.w("Audio", "Playback failed · code=${error.errorCodeName} · cause=${error.cause?.javaClass?.simpleName.orEmpty()}")
             }
+            override fun onTimelineChanged(timeline:androidx.media3.common.Timeline,reason:Int) { guardPrivate(force=true) }
+            override fun onMediaMetadataChanged(mediaMetadata:androidx.media3.common.MediaMetadata) { guardPrivate() }
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 guardPrivate()
                 refreshEqualizer()

@@ -45,6 +45,9 @@ internal fun GalleryQuickAccessCell(
     onUnpin: (() -> Unit)? = null,
     onToggleMedia: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
+    systemVisibility: Boolean = false,
+    visibilityPending: Boolean = false,
+    visibilityEnabled: Boolean = true,
 ) {
     var menu by remember(shortcut.key) { mutableStateOf(false) }
     val isDark = MaterialTheme.colorScheme.background.luminance() < .5f
@@ -84,7 +87,7 @@ internal fun GalleryQuickAccessCell(
                     Box(Modifier.align(Alignment.TopStart).padding(3.dp)
                         .background(Color.Black.copy(alpha = .6f), RoundedCornerShape(5.dp))
                         .padding(2.dp)) {
-                        Icon(Icons.Rounded.VisibilityOff, "Скрыто из «Медиа»",
+                        Icon(Icons.Rounded.VisibilityOff, "Скрыто из медиатеки",
                             Modifier.size(13.dp), tint = Color.White)
                     }
                 }
@@ -102,8 +105,10 @@ internal fun GalleryQuickAccessCell(
                             )
                             if (onToggleMedia != null) {
                                 DropdownMenuItem(
-                                    text = { Text(if (mediaExcluded) "Показывать файлы в «Медиа»"
-                                        else "Скрыть файлы из «Медиа»") },
+                                    text = { Text(if (visibilityPending) "Продолжить перенос"
+                                        else if (systemVisibility) { if (mediaExcluded) "Показывать в медиатеке" else "Скрыть из медиатеки" }
+                                        else if (mediaExcluded) "Показывать файлы в «Медиа»" else "Скрыть файлы из «Медиа»") },
+                                    enabled = visibilityEnabled,
                                     onClick = { menu = false; onToggleMedia() },
                                     leadingIcon = { Icon(Icons.Rounded.RemoveRedEye, null) },
                                 )

@@ -9,6 +9,7 @@ import com.domenota.medialoader.core.model.MediaType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 private fun MediaType.kind(): MediaKind = when (this) {
     MediaType.PHOTO -> MediaKind.IMAGE
@@ -64,7 +65,7 @@ fun DownloadEntity.toUi(fileStatus: SavedFileStatus = SavedFileStatus.UNCHECKED)
             ?.let(::formatDurationLabel),
         state = uiState,
         progress = progress,
-        dateLabel = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(createdAtEpochMillis)),
+        dateLabel = downloadDateLabel(createdAtEpochMillis),
         // Embedded artwork is read first by DownloadThumbnail. If absent after a
         // confirmed audio match, use its cover before the publication preview.
         previewUrl = if (mediaType == MediaType.AUDIO && recognitionSource != null)
@@ -113,4 +114,19 @@ private fun formatDurationLabel(durationMs: Long): String {
     } else {
         "%d:%02d".format(minutes, seconds)
     }
+}
+
+/** Reuse formatters and labels in bounded thread-local caches. Locale/timezone
+ * changes invalidate the whole cache; SimpleDateFormat is never shared across threads. */
+private class DownloadDateLabels(val locale:Locale,val zone:TimeZone) {
+    val formatter=SimpleDateFormat("dd.MM.yyyy HH:mm",locale).apply{timeZone=zone}
+    val labels=object:LinkedHashMap<Long,String>(128,.75f,true){
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<Long,String>?)=size>4096
+    }
+}
+private val dateLabels=ThreadLocal<DownloadDateLabels>()
+internal fun downloadDateLabel(at:Long):String {
+    val locale=Locale.getDefault();val zone=TimeZone.getDefault()
+    val cached=dateLabels.get()?.takeIf{it.locale==locale&&it.zone==zone} ?: DownloadDateLabels(locale,zone).also(dateLabels::set)
+    return cached.labels.getOrPut(at){cached.formatter.format(Date(at))}
 }

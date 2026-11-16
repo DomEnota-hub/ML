@@ -74,21 +74,24 @@ internal fun GalleryMediaViewer(
     onOpenAlbum: ((GalleryAlbumLink, DownloadEntity) -> Unit)? = null,
     onPassport: ((DownloadEntity)->Unit)? = null,
     onAddCollection: ((DownloadEntity)->Unit)? = null,
+    allowNeighborOnQueueRemoval: Boolean = true,
 ) {
     val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
     DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
+    var currentId by rememberSaveable { mutableStateOf(item.id) }
     val queue = remember(media, item, privateMode) {
         val candidates = media.ifEmpty { listOf(item) }
         GalleryViewerState.queue(candidates.map { it.id }, candidates, privateMode)
     }
     if (queue.isEmpty()) { LaunchedEffect(Unit) { onBack() }; return }
-    var currentId by rememberSaveable { mutableStateOf(item.id) }
     val ids = queue.map { it.id }
     var previousIds by remember { mutableStateOf(ids) }
     val pager = rememberPagerState(initialPage = ids.indexOf(currentId).coerceAtLeast(0), pageCount = { queue.size })
+    var synchronizedQueue by remember(ids) { mutableStateOf(false) }
+    var initialSelectionApplied by remember { mutableStateOf(false) }
     var chrome by rememberSaveable { mutableStateOf(true) }
     var zoomed by remember { mutableStateOf(false) }
-    val current = queue.getOrNull(pager.currentPage) ?: queue.first()
+    val current = if (synchronizedQueue) queue.getOrNull(pager.currentPage) ?: item else queue.firstOrNull { it.id == currentId } ?: item
     // Keep fullscreen when navigating episodes through the player arrows.
     var fullscreen by rememberSaveable { mutableStateOf(false) }
     var locked by rememberSaveable(current.id) { mutableStateOf(false) }
@@ -122,16 +125,23 @@ internal fun GalleryMediaViewer(
         catch (e: Exception) { error = e.message ?: "Не удалось выполнить действие" }
     } }
     LaunchedEffect(ids) {
-        val target = GalleryViewerState.neighbor(currentId, previousIds, ids.toSet()) ?: ids.first()
-        val targetIndex = ids.indexOf(target).coerceAtLeast(0)
+        // A saved pager index is not a selection. The route chooses the first
+        // item; only an already-open viewer may advance after a real removal.
+        val target = if (!initialSelectionApplied) item.id.takeIf { it in ids }
+            else if (allowNeighborOnQueueRemoval) GalleryViewerState.neighbor(currentId, previousIds, ids.toSet())
+            else currentId.takeIf { it in ids }
+        if (target == null) { onBack(); return@LaunchedEffect }
+        val targetIndex = ids.indexOf(target)
         pager.scrollToPage(targetIndex)
         currentId = target
         zoomed = false
         onCurrentItemChanged(queue[targetIndex])
         previousIds = ids
+        initialSelectionApplied = true
+        synchronizedQueue = true
     }
-    LaunchedEffect(pager.settledPage, pager.isScrollInProgress) {
-        if (!pager.isScrollInProgress) queue.getOrNull(pager.settledPage)?.let {
+    LaunchedEffect(ids, synchronizedQueue, pager.settledPage, pager.isScrollInProgress) {
+        if (synchronizedQueue && !pager.isScrollInProgress) queue.getOrNull(pager.settledPage)?.let {
             if (episodeNavigation?.first != it.id) episodeNavigation = null
             currentId = it.id; zoomed = false; onCurrentItemChanged(it)
         }
@@ -231,8 +241,11 @@ internal fun GalleryMediaViewer(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
             // Pager may ask its previous key provider for one new index during a size update.
             HorizontalPager(state = pager, key = { page -> queue.getOrNull(page)?.id ?: "pending-gallery-page:$page" }, beyondViewportPageCount = 1,
-                userScrollEnabled = !zoomed && !fullscreen && !locked,
+                userScrollEnabled = synchronizedQueue && !zoomed && !fullscreen && !locked,
                 modifier = Modifier.fillMaxSize()) { page ->
+                // Keep the pager measured so scrollToPage can synchronize, but
+                // never construct a player from its old numeric index.
+                if (!synchronizedQueue) return@HorizontalPager
                 val row = queue.getOrNull(page) ?: return@HorizontalPager
                 val uri = Uri.parse(requireNotNull(row.savedUri))
                 val poster = if (row.mediaType == MediaType.VIDEO) rememberVideoViewerPoster(row.id, uri) else null

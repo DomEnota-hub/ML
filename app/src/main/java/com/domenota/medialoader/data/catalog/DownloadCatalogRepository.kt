@@ -11,6 +11,7 @@ import java.util.UUID
 /** Logical organization only; no operation here reads, moves, or deletes saved media. */
 class DownloadCatalogRepository(private val database: HistoryDatabase) {
     private val dao = database.catalogDao()
+    private val visibility = com.domenota.medialoader.data.catalog.visibility.CatalogVisibilityState(database)
     val folders = dao.observeFolders()
     val assignments = dao.observeAssignments()
 
@@ -37,6 +38,7 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
 
     suspend fun deleteFolder(id: String) = database.withTransaction {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        visibility.forgetVisibleFolder(id)
         // ON DELETE SET NULL keeps every favorite and every download record.
         dao.deleteFolder(id)
     }
@@ -48,6 +50,7 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         check(dao.memberIds(folderId).isEmpty()) { "В альбоме остались файлы" }
         check(dao.folderById(folderId) != null) { "Альбом не найден" }
+        visibility.forgetVisibleFolder(folderId)
         dao.deleteFolder(folderId)
     }
 
@@ -65,6 +68,8 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
         requireCompleted(downloadId)
         require(folderId == null || dao.folderById(folderId) != null) { "Папка не найдена" }
         val previous = dao.assignmentById(downloadId)
+        if(previous?.folderId==folderId) return@withTransaction
+        check(previous?.folderId?.let { visibility.isHidden(it) } != true && folderId?.let { visibility.isHidden(it) } != true) { "Сначала выполните перенос скрытого файла" }
         if (folderId == null && previous?.isFavorite != true) dao.removeAssignment(downloadId)
         else dao.saveAssignment(CatalogAssignmentEntity(downloadId, folderId,
             previous?.isFavorite == true))

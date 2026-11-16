@@ -59,26 +59,27 @@ private val thumbnailGate = Semaphore(2)
 private val sourceThumbnailGate = Semaphore(2)
 private val thumbnailLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
 private val lastThumbnailPrune = java.util.concurrent.atomic.AtomicLong(0L)
-private fun memoryKey(uri: String, kind: MediaKind, side: Int = MAX_THUMBNAIL_SIDE): String =
-    "$side|$kind|$uri|${if (kind == MediaKind.AUDIO) AudioThumbnailInvalidation.revision(uri) else 0L}"
+private fun memoryKey(uri: String, kind: MediaKind, side: Int = MAX_THUMBNAIL_SIDE, identityToken: String? = null): String =
+    "$side|$kind|$uri|${if (kind == MediaKind.AUDIO) AudioThumbnailInvalidation.revision(uri) else 0L}" +
+        (identityToken?.let { "|identity:$it" } ?: "")
 
 internal suspend fun prepareDownloadThumbnail(context: Context, uri: String, kind: MediaKind, previewUrl: String? = null,
-    side: Int = MAX_THUMBNAIL_SIDE, publishFallback: (Bitmap) -> Unit = {}): Bitmap? =
+    side: Int = MAX_THUMBNAIL_SIDE, identityToken: String? = null, publishFallback: (Bitmap) -> Unit = {}): Bitmap? =
     if (kind == MediaKind.VIDEO) withContext(Dispatchers.IO) {
         preferredVideoThumbnail(VideoPreferences(context).thumbnailMode, previewUrl,
             loadSource = { sourceThumbnailGate.withPermit { RemoteImageLoader.fetch(context, it, maxDimension = side) } },
-            loadFrame = { prepareFrameThumbnail(context, uri, kind, side) },
+            loadFrame = { prepareFrameThumbnail(context, uri, kind, side, identityToken) },
             loadCachedSource = { RemoteImageLoader.cached(context, it, maxDimension = side) },
             publishFallback = publishFallback)
-    } else prepareFrameThumbnail(context, uri, kind, side)
+    } else prepareFrameThumbnail(context, uri, kind, side, identityToken)
 
-private suspend fun prepareFrameThumbnail(context: Context, uri: String, kind: MediaKind, side: Int): Bitmap? {
-    val key = memoryKey(uri, kind, side)
+private suspend fun prepareFrameThumbnail(context: Context, uri: String, kind: MediaKind, side: Int, identityToken: String? = null): Bitmap? {
+    val key = memoryKey(uri, kind, side, identityToken)
     thumbnailMemory.get(key)?.let { return it }
     return withContext(Dispatchers.IO) {
         thumbnailLocks.computeIfAbsent(key) { Mutex() }.withLock {
             thumbnailMemory.get(key) ?: thumbnailGate.withPermit {
-                loadCachedOrCreateThumbnail(context, uri, kind, side)?.also { thumbnailMemory.put(key, it) }
+                loadCachedOrCreateThumbnail(context, uri, kind, side, identityToken)?.also { thumbnailMemory.put(key, it) }
             }
         }
     }
@@ -171,8 +172,10 @@ private fun loadCachedOrCreateThumbnail(
     savedUri: String,
     kind: MediaKind,
     side: Int,
+    identityToken: String? = null,
 ): Bitmap? {
-    val cacheFile = thumbnailFile(context, savedUri, kind, side)
+    val audioRevision = AudioThumbnailInvalidation.revision(savedUri).takeIf { kind == MediaKind.AUDIO }
+    val cacheFile = thumbnailFile(context, savedUri, kind, side, identityToken)
     if (cacheFile.exists() && cacheFile.length() > 0L) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(cacheFile.absolutePath, bounds)
@@ -201,11 +204,16 @@ private fun loadCachedOrCreateThumbnail(
         FileOutputStream(temporary).use { stream ->
             check(thumb.compress(Bitmap.CompressFormat.JPEG, 88, stream))
         }
-        if (!temporary.renameTo(cacheFile)) {
-            cacheFile.delete()
-            temporary.copyTo(cacheFile, overwrite = true)
-            temporary.delete()
+        fun commitThumbnail() {
+            if (!temporary.renameTo(cacheFile)) {
+                cacheFile.delete()
+                temporary.copyTo(cacheFile, overwrite = true)
+                temporary.delete()
+            }
         }
+        if (audioRevision != null) {
+            if (!AudioThumbnailInvalidation.publishIfCurrent(savedUri,audioRevision,::commitThumbnail)) temporary.delete()
+        } else commitThumbnail()
         val now = android.os.SystemClock.elapsedRealtime()
         val previous = lastThumbnailPrune.get()
         if ((previous == 0L || now - previous >= 60_000L) &&
@@ -311,10 +319,12 @@ private fun scaleThumbnail(bitmap: Bitmap, maxSide: Int): Bitmap {
     )
 }
 
-private fun thumbnailFile(context: Context, savedUri: String, kind: MediaKind, side: Int): File {
-    if (kind == MediaKind.AUDIO) return AudioThumbnailInvalidation.file(context.filesDir, savedUri)
+private fun thumbnailFile(context: Context, savedUri: String, kind: MediaKind, side: Int, identityToken: String? = null): File {
+    if (kind == MediaKind.AUDIO) return if(identityToken==null) AudioThumbnailInvalidation.file(context.filesDir, savedUri)
+        else AudioThumbnailInvalidation.coverFile(context.filesDir,savedUri,identityToken)
+    val identitySuffix = identityToken?.let { "|$it" }.orEmpty()
     val digest = MessageDigest.getInstance("SHA-256")
-        .digest("${kind.name}|v3|$side|$savedUri".toByteArray())
+        .digest("${kind.name}|v3|$side|$savedUri$identitySuffix".toByteArray())
         .joinToString("") { "%02x".format(it) }
     return File(File(context.filesDir, "thumbnails"), "$digest.jpg")
 }

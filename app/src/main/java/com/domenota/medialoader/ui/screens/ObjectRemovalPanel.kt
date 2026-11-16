@@ -91,6 +91,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -296,24 +297,11 @@ internal fun ObjectRemovalPanel(
     val scope = rememberCoroutineScope()
     val modelStore = remember(context) { LaMaModelStore(context) }
     val engine = remember(modelStore) { LaMaInpaintingEngine(modelStore) }
-    // The preview owns one editor lease. Preloading happens on this screen's
-    // coroutine scope, not a detached global job, and is cancelled on exit.
+    // A preview owns an editor lease but does not initialize LaMa. OCR,
+    // selection and an abandoned editor must not start native inpainting.
     DisposableEffect(modelStore, context.applicationContext) {
         OrtSessions.attachEditor(context.applicationContext)
-        val preloading = scope.launch(Dispatchers.IO) {
-            try {
-                if (modelStore.installed()) {
-                    val verified = modelStore.requireInstalled()
-                    OrtSessions.lama.warmUp(verified, LaMaModelStore.SHA256)
-                }
-            } catch (_: Exception) {
-                // Optional warm-up must not block painting or hide real inference errors.
-            }
-        }
-        onDispose {
-            preloading.cancel()
-            OrtSessions.detachEditor()
-        }
+        onDispose { OrtSessions.detachEditor() }
     }
     val glareStore = remember(context) { SpecularSrNetModelStore(context.applicationContext) }
     val glareEngine = remember(glareStore) { SpecularGlareEngine(glareStore) }
@@ -365,6 +353,15 @@ internal fun ObjectRemovalPanel(
         else Bitmap.createScaledBitmap(originalWorkingImage,
             (originalWorkingImage.width * 1280f / side).roundToInt().coerceAtLeast(1),
             (originalWorkingImage.height * 1280f / side).roundToInt().coerceAtLeast(1), true)
+    }
+    val latestWorking by rememberUpdatedState(working)
+    var inpaintJob by remember { mutableStateOf<Job?>(null) }
+    var ocrJob by remember { mutableStateOf<Job?>(null) }
+    DisposableEffect(working) {
+        onDispose {
+            inpaintJob?.cancel()
+            ocrJob?.cancel()
+        }
     }
     var steps by remember(working) { mutableStateOf(listOf(RemovalStep(working, earlierMasks,
         fullFrameCorrection = earlierFullFrameCorrection))) }
@@ -491,7 +488,7 @@ internal fun ObjectRemovalPanel(
         redoGlyphs.clear()
         glyphs = emptyList()
         val source = current.bitmap
-        scope.launch {
+        ocrJob = scope.launch {
             try {
                 suspend fun validated(candidates: List<DetectedGlyph>): List<Int> = withContext(Dispatchers.Default) {
                     com.domenota.medialoader.data.editor.OcrLineCandidatePolicy
@@ -513,7 +510,7 @@ internal fun ObjectRemovalPanel(
                         verified = retryVerified
                     }
                 }
-                if (steps.getOrNull(index)?.bitmap !== source) return@launch
+                if (latestWorking !== working || steps.getOrNull(index)?.bitmap !== source) return@launch
                 glyphs = found
                 selectedGlyphs.addAll(verified)
                 // Store only counts/confidence in QA logs; never print text or
@@ -525,6 +522,7 @@ internal fun ObjectRemovalPanel(
                     "selected=${selectedGlyphs.size}")
                 message = when {
                     found.isEmpty() -> "Не удалось найти отдельные буквы."
+                    found.size > 160 -> "Найдено более 160 символов. Обработка текста — частями."
                     verified.isEmpty() -> "Точные маски не подтверждены. Выделите нужные буквы вручную."
                     verified.size < found.size -> "Часть текста требует ручного выделения. Подтверждённые строки уже выбраны."
                     else -> null
@@ -627,7 +625,7 @@ internal fun ObjectRemovalPanel(
         val peopleRemoval = selectedMode == AiEraserMode.PEOPLE
         processing = true
         message = null
-        scope.launch {
+        inpaintJob = scope.launch {
             try {
                 // Never use OCR bounding rectangles as the final LaMa mask.
                 // Pixel refinement is done off the UI thread; uncertain glyphs
@@ -635,6 +633,7 @@ internal fun ObjectRemovalPanel(
                 val analysis = if(textMode) withContext(Dispatchers.Default) {
                     com.domenota.medialoader.data.editor.GlyphContentMask.analyze(startStep.bitmap,chosenGlyphs)
                 } else null
+                if (latestWorking !== working || steps.getOrNull(index) !== startStep) return@launch
                 val marked = analysis?.strokes ?: otherMasks
                 if (analysis!=null) com.domenota.medialoader.core.logging.AppLog.i(
                     "PhotoOCR", "selected_glyph_count=${chosenGlyphs.size} verified_pixel_mask_strokes=${analysis.confirmed.size} " +
@@ -658,6 +657,10 @@ internal fun ObjectRemovalPanel(
                 val result = engine.inpaint(startStep.bitmap, marked,
                     com.domenota.medialoader.data.editor.InpaintingSettings(
                         recoverLargePersonOnUniformBackground = peopleRemoval))
+                if (latestWorking !== working || steps.getOrNull(index) !== startStep) {
+                    result.recycle()
+                    return@launch
+                }
                 // Retain bounded undo/redo image states and existing mask batches.
                 steps = steps.take(index + 1).takeLast(3) +
                     RemovalStep(result, startStep.maskBatches + listOf(marked),
@@ -673,6 +676,8 @@ internal fun ObjectRemovalPanel(
                 detectedPeople = emptyList()
                 selectedPeople.clear()
                 ambiguousPeople = emptySet()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 message = error.message ?: "Обработка LaMa не удалась."
             } finally {

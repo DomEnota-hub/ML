@@ -167,6 +167,11 @@ fun DownloadsScreen(
     onBulkResume: () -> Unit = {},
     onAddCollection: ((List<String>)->Unit)? = null,
     onPassport: ((String)->Unit)? = null,
+    hiddenFolderIds: Set<String> = emptySet(),
+    onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
+    pendingVisibilityFolderId: String? = null,
+    onOpenFromFolder: ((String,List<String>,String?) -> Unit)? = null,
+    onShareFromFolder: ((String,String?) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val listScrollState = rememberLazyListState()
@@ -281,6 +286,9 @@ fun DownloadsScreen(
         assignments = assignmentById,
         items = items,
         galleryOnlyFolderIds = galleryOnlyFolderIds,
+        hiddenFolderIds = hiddenFolderIds,
+        onFolderVisibility = onFolderVisibility,
+        pendingVisibilityFolderId = pendingVisibilityFolderId,
         selectedKey = selectedCatalog,
         targetDownloadId = folderTargetId,
         onDismiss = { folderSheetOpen = false; folderTargetId = null; folderGroupTargets = emptyList() },
@@ -385,16 +393,19 @@ fun DownloadsScreen(
     val allEnabled = visibleSources.all(::isEnabled)
     val allTypesEnabled = DownloadTypeFilter.entries.all(::isTypeEnabled)
     val filteredItems = remember(items, instagramEnabled, youtubeEnabled, vkEnabled, rutubeEnabled,
-        otherEnabled, musicEnabled, videoEnabled, photoEnabled) { items.filter { item ->
+        otherEnabled, musicEnabled, videoEnabled, photoEnabled, selectedCatalog, assignmentById, hiddenFolderIds) { items.filter { item ->
+        // Do this before grouping: an active sibling must not reveal a hidden completed item.
+        (assignmentById[item.id]?.folderId !in hiddenFolderIds ||
+            DownloadCatalogSelection.includes(selectedCatalog, assignmentById[item.id], hiddenFolderIds)) &&
         isEnabled(sourceOf(item.providerId)) &&
             DownloadTypeFilter.entries.any { it.kind == item.kind && isTypeEnabled(it) }
     } }
     val groups = remember(filteredItems) { filteredItems.groupBy(VkDownloadGroup::key).values.toList() }
     val active = remember(groups) { groups.filter { group -> group.any { it.state == DownloadUiState.QUEUED || it.state == DownloadUiState.DOWNLOADING } } }
-    val history = remember(groups, active, selectedCatalog, assignmentById) { (groups - active.toSet()).map { group ->
+    val history = remember(groups, active, selectedCatalog, assignmentById, hiddenFolderIds) { (groups - active.toSet()).map { group ->
         group.filter { item ->
             DownloadCatalogSelection.includesHistoryItem(
-                selectedCatalog, item.state, assignmentById[item.id])
+                selectedCatalog, item.state, assignmentById[item.id], hiddenFolderIds)
         }
     }.filter { it.isNotEmpty() } }
     val searchedHistory = remember(history, searchText) { HistorySearch.filterGroups(history, searchText) }
@@ -652,7 +663,8 @@ fun DownloadsScreen(
                             HistorySelectionCard(file, file.id in selectedHistoryIds,
                                 onToggle = { selectedHistoryIds = if (file.id in selectedHistoryIds) selectedHistoryIds - file.id else selectedHistoryIds + file.id },
                                 onPreview = {
-                                    if (onOpenGrid != null) onOpenGrid(file.id,selectableHistoryItems.map { it.id })
+                                    if (onOpenFromFolder != null) onOpenFromFolder(file.id,selectableHistoryItems.map { it.id },selectedCatalog.takeIf { it.startsWith("folder:") }?.removePrefix("folder:"))
+                                    else if (onOpenGrid != null) onOpenGrid(file.id,selectableHistoryItems.map { it.id })
                                     else onOpenDownload(file.id)
                                 }, grid = gridMode, modifier = Modifier.weight(1f))
                         }
@@ -661,9 +673,13 @@ fun DownloadsScreen(
                     Spacer(Modifier.height(8.dp))
                 }
             } else DownloadRows(searchedHistory, { id ->
-                if (onOpenGrid != null) onOpenGrid(id, searchedHistory.flatten().map { it.id })
+                if (onOpenFromFolder != null) onOpenFromFolder(id,searchedHistory.flatten().map { it.id },selectedCatalog.takeIf { it.startsWith("folder:") }?.removePrefix("folder:"))
+                else if (onOpenGrid != null) onOpenGrid(id, searchedHistory.flatten().map { it.id })
                 else onOpenDownload(id)
-            }, onCancelDownload, onShareDownload, onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload, recognitionEnabled, onRecognizeDownload,
+            }, onCancelDownload, { id ->
+                if(onShareFromFolder!=null) onShareFromFolder(id,selectedCatalog.takeIf { it.startsWith("folder:") }?.removePrefix("folder:"))
+                else onShareDownload(id)
+            }, onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload, recognitionEnabled, onRecognizeDownload,
                 assignmentById, folderNames,
                 onFavorite = { id -> scope.launch {
                     runCatching { onToggleFavorite(id) }.onFailure {

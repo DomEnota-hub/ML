@@ -9,4 +9,5 @@ internal class DuplicatePrivacyEpoch(initial: Long = 0) {
         blocked.values.none { aliases -> identities.any { it in aliases } }
     fun revoke(id: String, identities: Set<String> = emptySet()) { generation++; blocked[id] = identities.toSet() }
     fun restored(id: String) { blocked.remove(id) }
+    fun blockedKeys(): Set<String> = blocked.keys + blocked.values.flatten()
 }

@@ -318,6 +318,30 @@ internal object LocalTextOcr {
                 if (strip !== image) strip.recycle()
             }
             currentCoroutineContext().ensureActive()
+            // Dedicated overlapping full-width bands cover the top, centre and
+            // bottom, including captions beyond the old lower-left crop. A good
+            // result in one band must not suppress another part of the image.
+            val bandHeight = (image.height * .45f).toInt().coerceIn(1, image.height)
+            val bandTops = listOf(0, (image.height - bandHeight) / 2,
+                image.height - bandHeight).distinct()
+            for (bandTop in bandTops) {
+                currentCoroutineContext().ensureActive()
+                val band = Bitmap.createBitmap(image, 0, bandTop, image.width, bandHeight)
+                val bandScale = minOf(2.5f, 1920f / band.width, 960f / band.height)
+                val scaled = Bitmap.createScaledBitmap(band,
+                    (band.width * bandScale).toInt().coerceAtLeast(1),
+                    (band.height * bandScale).toInt().coerceAtLeast(1), true)
+                try {
+                    fullAlternates += scan(scaled, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+                        0, bandTop, image.width, bandHeight)
+                    currentCoroutineContext().ensureActive()
+                    fullAlternates += scan(scaled, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK,
+                        0, bandTop, image.width, bandHeight)
+                } finally {
+                    if (scaled !== band) scaled.recycle()
+                    if (band !== image) band.recycle()
+                }
+            }
             val candidates = OcrLineCandidatePolicy.best(full, captionCandidates, fullAlternates)
             AppLog.i("PhotoOCR", "glyphs_full=${full.size} " +
                 "glyphs_caption=${croppedSparse.size} " +

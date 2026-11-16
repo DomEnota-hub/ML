@@ -164,4 +164,39 @@ class GlyphContentMaskTest {
             assertTrue(analysis.strokes.isEmpty());assertTrue(analysis.reasons.isNotEmpty())
         }finally{bitmap.recycle()}
     }
+    @Test fun repeatedOutlinedLettersUseStyleWhenBackgroundCannotBeVerified() {
+        val w=320; val h=240
+        val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
+        val expected=BooleanArray(w*h)
+        try {
+            for(y in 0 until h) for(x in 0 until w) {
+                bitmap.setPixel(x,y,if((x+y)%2==0) Color.rgb(159,120,92) else Color.rgb(100,143,159))
+            }
+            val glyphs=(0 until 4).map { i ->
+                val x=24+i*34; val y=15
+                for(dy in 0 until 20) for(dx in 0 until 16) {
+                    val edge=minOf(dx,15-dx,dy,19-dy)
+                    if(edge<4) {
+                        bitmap.setPixel(x+dx,y+dy,if(edge==0||edge==3) Color.BLACK else Color.WHITE)
+                        expected[(y+dy)*w+x+dx]=true
+                    }
+                }
+                DetectedGlyph(i,"О",x.toFloat()/w,y.toFloat()/h,(x+16).toFloat()/w,(y+20).toFloat()/h,96f)
+            }
+            val analysis=GlyphContentMask.analyze(bitmap,glyphs)
+            assertTrue("Repeated outline should resolve: ${analysis.reasons}",analysis.complete)
+            val mask=LaMaInpaintingEngine.rasterizeMask(analysis.strokes,w,h)
+            try {
+                var covered=0;var distant=0
+                for(y in 0 until h)for(x in 0 until w) {
+                    if(Color.alpha(mask.getPixel(x,y))<128)continue
+                    if(expected[y*w+x])covered++ else if((-1..1).none{dy->(-1..1).any{dx->
+                        x+dx in 0 until w && y+dy in 0 until h && expected[(y+dy)*w+x+dx]}}) distant++
+                }
+                assertTrue(covered>=expected.count{it}*.94)
+                assertEquals(0,distant)
+            }finally{mask.recycle()}
+        }finally{bitmap.recycle()}
+    }
+
 }

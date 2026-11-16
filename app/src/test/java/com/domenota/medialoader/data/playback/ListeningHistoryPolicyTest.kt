@@ -55,4 +55,15 @@ class ListeningHistoryPolicyTest {
         assertFalse(ListeningHistoryPolicy.mayResume(p,0,2000))
         assertFalse(ListeningHistoryPolicy.mayResume(p.copy(closed=true),35_000,2000))
     }
+    @Test fun rollingClockOnlyRefreshesAtBoundaryOrClockChange() {
+        assertFalse(ListeningClockPolicy.refreshRanking(100,199,200))
+        assertTrue(ListeningClockPolicy.refreshRanking(199,200,200))
+        assertTrue(ListeningClockPolicy.refreshRanking(200,100,Long.MAX_VALUE))
+        assertTrue(ListeningClockPolicy.refreshRanking(100,101,Long.MAX_VALUE,clockChanged=true))
+        assertFalse(ListeningClockPolicy.refreshRanking(100,101,Long.MAX_VALUE))
+        assertEquals(100L,ListeningClockPolicy.delayUntil(100,200))
+        assertEquals(0L,ListeningClockPolicy.delayUntil(201,200))
+        assertEquals(0L,ListeningClockPolicy.delayUntil(100,Long.MAX_VALUE))
+    }
+
 }

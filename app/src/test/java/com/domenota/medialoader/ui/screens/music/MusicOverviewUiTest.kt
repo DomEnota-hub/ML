@@ -86,4 +86,15 @@ class MusicOverviewUiTest {
         assertTrue(count.top<period.top&&period.bottom<=card.bottom)
         assertTrue(count.left>=card.left&&period.right<=card.right)
     }
+
+    @Test fun unconfirmedRankingIsNotDisplayedAsZeroTracks(){
+        val count=androidx.compose.runtime.mutableStateOf<Int?>(null)
+        compose.setContent{MaterialTheme{FrequentListeningCard(count.value,ListeningPeriod.MONTH){}}}
+        compose.onNodeWithText("Подготовка…",useUnmergedTree=true).assertExists()
+        compose.onNodeWithText("0 треков",useUnmergedTree=true).assertDoesNotExist()
+        compose.runOnIdle{count.value=8}
+        compose.onNodeWithText("8 треков",useUnmergedTree=true).assertExists()
+        compose.runOnIdle{count.value=0}
+        compose.onNodeWithText("0 треков",useUnmergedTree=true).assertExists()
+    }
 }

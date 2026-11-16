@@ -122,7 +122,10 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     canRecover:(DownloadEntity)->Boolean={false},onRecover:(DownloadEntity)->Unit={},
     identityIndex:CollectionIdentityIndex?=null,externalHistory:List<LibraryMediaRef> = emptyList(),
     scopedDetails:Boolean=false,detailCatalogId:String?=null,detailCatalog:AddressedCollection?=null,
-    onSelectedCollection:(String?)->Unit={}, catalogByKey:Map<String,LibraryMediaRef>?=null) {
+    onSelectedCollection:(String?)->Unit={}, catalogByKey:Map<String,LibraryMediaRef>?=null,
+    cachedCovers:Map<String,LibraryMediaRef> = emptyMap(), overviewAccessReady:Boolean=usable,
+    detailChecking:Boolean=detailCatalog==null, onCatalogRequest:(com.domenota.medialoader.ui.CollectionCatalogRequest)->Unit={},
+    onRetryDetail:()->Unit={}, onRetryPicker:()->Unit={}, coverAccess:CollectionCoverAccess?=null) {
     var selected by rememberSaveable(initialCollection){mutableStateOf(initialCollection)}
     var filter by rememberSaveable(selected){mutableStateOf("Всё")}
     var musicExpanded by rememberSaveable(selected){mutableStateOf(audioOnly)}
@@ -132,6 +135,12 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     var remove by remember{mutableStateOf(false)}
     var linkDialog by remember{mutableStateOf(false)}
     var picker by rememberSaveable{mutableStateOf(false)}
+    var pickerRetry by remember{mutableIntStateOf(0)}
+    var pickerTimedOut by remember{mutableStateOf(false)}
+    LaunchedEffect(picker,usable,pickerRetry) {
+        pickerTimedOut=false
+        if(picker&&!usable){delay(15_000);pickerTimedOut=true}
+    }
     var largeCards by rememberSaveable{mutableStateOf(false)}
     var detailMenu by remember{mutableStateOf(false)}
     var missingPanel by rememberSaveable(selected){mutableStateOf(false)}
@@ -147,8 +156,28 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     val collection=collections.firstOrNull{it.record.id==selected}
     LaunchedEffect(selected) { onSelectedCollection(selected) }
     val useScoped = scopedDetails && collection != null && !choosing
+    val catalogRequest = when {
+        rename || create -> com.domenota.medialoader.ui.CollectionCatalogRequest.ALL
+        picker || (choosing && initialAdd.isNotEmpty()) -> if(audioOnly) com.domenota.medialoader.ui.CollectionCatalogRequest.AUDIO else com.domenota.medialoader.ui.CollectionCatalogRequest.ALL
+        else -> com.domenota.medialoader.ui.CollectionCatalogRequest.NONE
+    }
+    val requestCatalog by rememberUpdatedState(onCatalogRequest)
+    LaunchedEffect(catalogRequest) { requestCatalog(catalogRequest) }
+    DisposableEffect(Unit) { onDispose { requestCatalog(com.domenota.medialoader.ui.CollectionCatalogRequest.NONE) } }
+    val initialSelectionReady = initialAdd.isEmpty() || ready
     val detailScope = detailCatalog.takeIf { useScoped && detailCatalogId == selected }
     val activeUsable = if (useScoped) detailScope != null else usable
+    // Bound the initial visible wait even if new provider revisions continually
+    // supersede an addressed result. Ordinary refreshes retain the current view.
+    var detailRetry by remember(selected) { mutableIntStateOf(0) }
+    var detailTimedOut by remember(selected) { mutableStateOf(false) }
+    LaunchedEffect(selected, useScoped, activeUsable, detailChecking, detailRetry) {
+        detailTimedOut = false
+        if (useScoped && !activeUsable && detailChecking) {
+            delay(16_000)
+            detailTimedOut = true
+        }
+    }
     val activeRefs = if (useScoped) detailScope?.refs.orEmpty() else refs
     val activeMembers = remember(useScoped, collection, collections) {
         if (useScoped) collection?.members.orEmpty() else collections.flatMap { it.members }
@@ -193,13 +222,18 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         choosing=false;onAddComplete();selected=id
     }}
     val context=androidx.compose.ui.platform.LocalContext.current
-    if(picker&&collection!=null&&activeUsable){
+    if(picker&&collection!=null&&(activeUsable||overviewAccessReady)){
         if (!usable) {
             BackHandler { picker=false }
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Header("Добавить в коллекцию", { picker=false }) {}
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-                Text("Загрузка списка файлов…", Modifier.padding(16.dp))
+                if(pickerTimedOut){
+                    Text("Не удалось получить список файлов", Modifier.padding(16.dp))
+                    TextButton({pickerRetry++;onRetryPicker()}){Text("Повторить проверку")}
+                }else{
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text("Загрузка списка файлов…", Modifier.padding(16.dp))
+                }
             }
             return
         }
@@ -210,9 +244,9 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         }
         return
     }
-    LaunchedEffect(activeUsable){if(!activeUsable)picker=false}
+    LaunchedEffect(activeUsable,overviewAccessReady){if(!activeUsable&&!overviewAccessReady)picker=false}
     if(rename&&collection!=null){
-        CollectionCoverEditor(collection,refs,{rename=false},blockedIdentities=blockedIdentities.takeIf{activeUsable}){repository.rename(collection.record.id,it)}
+        CollectionCoverEditor(collection,refs,{rename=false},blockedIdentities=blockedIdentities.takeIf{activeUsable||overviewAccessReady},coverAccess=coverAccess){repository.rename(collection.record.id,it)}
         return
     }
     if(create){
@@ -228,7 +262,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 }
                 if(choosing){choosing=false;onAddComplete()}
                 selected=id;filter="Всё";create=false
-            },blockedIdentities=blockedIdentities.takeIf{activeUsable},onRename={})
+            },blockedIdentities=blockedIdentities.takeIf{activeUsable||overviewAccessReady},coverAccess=coverAccess,onRename={})
         return
     }
     BackHandler(selected!=null&&!choosing){if(ordering){ordering=false}else if(selecting){selecting=false;chosenMembers=arrayListOf()}else if(initialCreate||initialCollection!=null)onBack() else selected=null}
@@ -236,20 +270,22 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         Header(if(choosing)"Добавить в коллекцию" else if(collection!=null)"Коллекция" else "Коллекции",{
             if(ordering){ordering=false}else if(selecting){selecting=false;chosenMembers=arrayListOf()}else if(selected!=null&&!choosing&&!initialCreate&&initialCollection==null)selected=null else onBack()
         },compact=collection!=null&&!choosing){
-            if(collection==null||choosing)IconButton({create=true},enabled=!busy&&(!choosing||ready)){Icon(Icons.Rounded.Add,"Создать коллекцию")}
+            if(collection==null||choosing)IconButton({create=true},enabled=!busy&&(!choosing||initialSelectionReady)){Icon(Icons.Rounded.Add,"Создать коллекцию")}
 
         }
         if(useScoped) Box(Modifier.fillMaxWidth().height(4.dp)) {
-            if(!activeUsable||busy||detailScope?.pending?.isNotEmpty()==true)
+            if(busy||(!activeUsable&&detailChecking&&!detailTimedOut))
                 LinearProgressIndicator(Modifier.fillMaxWidth().testTag("organization-loading"))
-        } else if(!activeUsable||busy) LinearProgressIndicator(Modifier.fillMaxWidth().testTag("organization-loading"))
+        } else if((!activeUsable && (!overviewAccessReady || (choosing && initialAdd.isNotEmpty())))||busy) LinearProgressIndicator(Modifier.fillMaxWidth().testTag("organization-loading"))
         error?.let{Text(it,Modifier.padding(12.dp),color=MaterialTheme.colorScheme.error)}
         if(collection==null||choosing){
             LazyVerticalGrid(GridCells.Fixed(2),Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                if(collections.isEmpty())item(span={GridItemSpan(2)}){Text("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.")}
+                if(collections.isEmpty()&&overviewAccessReady)item(span={GridItemSpan(2)}){Text("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.")}
                 items(collections,key={it.record.id}){c->
-                    val cover=c.members.firstNotNullOfOrNull{resolved[it.id]}
-                    CollectionCard(c,cover,{if(choosing){if(ready&&!busy)addInitial(c.record.id)}else selected=c.record.id},Modifier.fillMaxWidth(),blockedIdentities.takeIf{activeUsable})
+                    val cover=c.members.firstNotNullOfOrNull{resolved[it.id]} ?: cachedCovers[c.record.id]?.takeIf { candidate -> c.members.any { member ->
+                        !collectionMemberBlocked(member,blockedIdentities.orEmpty()) && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson),candidate)
+                    } }
+                    CollectionCard(c,cover,{if(choosing){if(initialSelectionReady&&!busy)addInitial(c.record.id)}else selected=c.record.id},Modifier.fillMaxWidth(),blockedIdentities.takeIf{activeUsable||overviewAccessReady},coverAccess)
                 }
             }
         } else {
@@ -336,7 +372,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 item(key="collection-header",span={GridItemSpan(maxLineSpan)}){
                     Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
                         Row(verticalAlignment=Alignment.Top,horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                            CollectionCoverImage(collection,cover,Modifier.width(78.dp).aspectRatio(.8f).clip(RoundedCornerShape(14.dp)).clickable{rename=true},blockedIdentities.takeIf{activeUsable})
+                            CollectionCoverImage(collection,cover,Modifier.width(78.dp).aspectRatio(.8f).clip(RoundedCornerShape(14.dp)).clickable{rename=true},blockedIdentities.takeIf{activeUsable||overviewAccessReady},coverAccess)
                             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
                                 Row(verticalAlignment=Alignment.CenterVertically){
                                     Text(collection.record.name,Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,
@@ -369,7 +405,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                             }
                         }
                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                            Button({picker=true},enabled=activeUsable&&!busy,modifier=Modifier.weight(1f)){Icon(Icons.Rounded.Add,null);Text("Добавить")}
+                            Button({picker=true},enabled=(activeUsable||overviewAccessReady)&&!busy,modifier=Modifier.weight(1f)){Icon(Icons.Rounded.Add,null);Text("Добавить")}
                             if(audio.isNotEmpty())OutlinedButton({onPlay(audio)},enabled=activeUsable&&!busy,modifier=Modifier.weight(1f)){
                                 Icon(Icons.Rounded.PlayArrow,null);Text("Слушать")
                             }
@@ -379,6 +415,10 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                         }
 
                         if(collection.members.isEmpty())Text("Пока нет файлов и ссылок",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(useScoped && (!detailChecking || detailTimedOut) && (detailScope==null || detailScope.pending.any { it !in resolved })) {
+                            Text("Не удалось проверить часть файлов. Сохранённые данные не удалены.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton({detailRetry++;onRetryDetail()},enabled=!busy){Text("Повторить проверку")}
+                        }
                     }
                 }
                 if(tracks.isNotEmpty()){

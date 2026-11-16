@@ -12,6 +12,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The model is optional. Photos never leave the device; only the model file is downloaded,
@@ -30,14 +32,18 @@ class LaMaModelStore(context: Context) {
     }
 
     suspend fun install(onProgress: (Int) -> Unit = {}): File = withContext(Dispatchers.IO) {
+        lifecycleGate.withLock { installLocked(onProgress) }
+    }
+
+    private suspend fun installLocked(onProgress: (Int) -> Unit): File {
         folder.mkdirs()
-        if (installed() && sha256(model) == SHA256) return@withContext model
+        if (installed() && sha256(model) == SHA256) return model
         // Leave room for the downloaded model, ONNX optimizations and inference buffers.
         if (StatFs(folder.absolutePath).availableBytes < MIN_FREE_BYTES) {
             throw IOException("Для установки модели нужно не менее 750 МБ свободного места.")
         }
         val part = File.createTempFile("lama-", ".download", folder)
-        try {
+        return try {
             val connection = URL(MODEL_URL).openConnection() as HttpURLConnection
             try {
                 connection.instanceFollowRedirects = true
@@ -71,10 +77,12 @@ class LaMaModelStore(context: Context) {
                 }
                 // Model lifecycle and ORT inference are serialized by the cache.
                 // Never keep native weights alive while replacing the model on disk.
-                OrtSessions.lama.release()
-                deleteOptimizedGraphs()
-                if (model.exists() && !model.delete()) throw IOException("Не удалось заменить прежнюю модель.")
-                if (!part.renameTo(model)) throw IOException("Не удалось сохранить модель.")
+                OrtSessions.lama.mutateModel {
+                    deleteOptimizedGraphs()
+                    // Same-directory rename atomically replaces the model on
+                    // Android; if it fails, keep the previous valid file.
+                    if (!part.renameTo(model)) throw IOException("Не удалось сохранить модель.")
+                }
                 onProgress(100)
                 model
             } finally {
@@ -87,15 +95,18 @@ class LaMaModelStore(context: Context) {
 
     /** Both model types use the same optional-model lifecycle in settings. */
     suspend fun verifyInstalled(): Boolean = withContext(Dispatchers.IO) {
-        installed() && sha256(model) == SHA256
+        lifecycleGate.withLock { installed() && sha256(model) == SHA256 }
     }
 
     suspend fun uninstall() = withContext(Dispatchers.IO) {
-        OrtSessions.lama.release()
-        if (model.exists() && !model.delete()) {
-            throw IOException("Не удалось удалить модель LaMa.")
+        lifecycleGate.withLock {
+            OrtSessions.lama.mutateModel {
+                if (model.exists() && !model.delete()) {
+                    throw IOException("Не удалось удалить модель LaMa.")
+                }
+                deleteOptimizedGraphs()
+            }
         }
-        deleteOptimizedGraphs()
     }
 
     private fun deleteOptimizedGraphs() {
@@ -107,6 +118,7 @@ class LaMaModelStore(context: Context) {
     }
 
     companion object {
+        private val lifecycleGate = Mutex()
         const val MODEL_NAME = "LaMa (ONNX, 512 × 512)"
         const val SHA256 = "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6"
         private const val MODEL_URL =

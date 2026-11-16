@@ -57,8 +57,8 @@ android {
         minSdk 26
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 253
-        versionName '1.7.193'
+        versionCode 254
+        versionName '1.7.194'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
         // Package only ARM64 native libraries without changing the release app ID.
         if (project.hasProperty('arm64Release')) {
@@ -91,7 +91,25 @@ android {
 
     testOptions {
         unitTests.includeAndroidResources = true
-        unitTests.all { systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2' }
+        unitTests.all { testTask ->
+            testTask.systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
+            // CI isolates the affected Robolectric Compose classes, one method
+            // per fresh test worker. The wrapper validates and merges every XML.
+            // Normal local testDebugUnitTest still runs the complete suite.
+            def isolation = project.findProperty('mlIsolatedComposeBulk')
+            if (isolation != null) {
+                if (!(isolation in ['music', 'collection', 'full'])) {
+                    throw new GradleException('Unknown Compose test isolation group: ' + isolation)
+                }
+                if (isolation in ['music', 'full']) {
+                    testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.music.RecentMusicScreenTest')
+                    testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.music.SmartMusicScreenTest')
+                }
+                if (isolation in ['collection', 'full']) {
+                    testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest')
+                }
+            }
+        }
     }
 
     compileOptions {

@@ -1,6 +1,11 @@
 package com.domenota.medialoader.data.recognition
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import com.domenota.medialoader.core.logging.AppLog
@@ -10,6 +15,9 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
@@ -21,81 +29,127 @@ class Mp3MetadataWriter(private val context: Context) {
 
     private suspend fun writeInternal(input:File,result:MusicRecognitionResult,preserveExistingArtwork:Boolean):Tagged = withContext(Dispatchers.IO) {
         val output = File.createTempFile("recognized-", ".mp3", context.cacheDir)
-        val artwork = result.artworkUrl?.let { downloadArtwork(it) }
+        var artwork: File? = null
         try {
-            // Tagging must not fail completely just because an optional remote cover
-            // cannot be embedded. Keep the downloaded MP3 untouched until a valid
-            // replacement has been produced.
-            val firstPass = executeCommand(buildCommand(input, output, result, artwork,preserveExistingArtwork))
-            if (firstPass && output.isFile && output.length() > 0L) {
-                Tagged(output,artwork!=null)
-            } else if (artwork != null) {
-                AppLog.w("Recognition", "MP3 cover/tag pass failed; retrying tags without artwork")
+            requireActualMp3(input)
+            val unchangedTags = unchangedTags(input, result)
+            artwork = result.artworkUrl?.let { url -> downloadArtwork(url)?.let { downloaded ->
+                try { normalizedArtwork(downloaded) }
+                catch (_: Exception) { AppLog.w("Recognition", "Optional cover normalization failed"); null }
+                catch (_: OutOfMemoryError) { AppLog.w("Recognition", "Optional cover normalization exceeded memory budget"); null }
+                finally { downloaded.delete() }
+            } }
+            // Prefer metadata-only editing: no muxer, no JPEG encoder in the
+            // audio-tier FFmpeg, no changes to compressed audio or gapless frames.
+            val jobContext = coroutineContext
+            try {
+                DirectMp3Tags.write(input, output, result, artwork, preserveExistingArtwork) { jobContext.ensureActive() }
+                check(verifiedTags(output, result, artwork != null, unchangedTags)) { "Written tags could not be verified" }
+                AppLog.i("Recognition", "MP3 metadata saved · direct ID3 · newArtwork=${artwork != null}")
+                return@withContext Tagged(output, artwork != null)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
                 output.delete()
-                val tagsOnly = executeCommand(buildCommand(input, output, result, artwork = null,preserveExistingArtwork=preserveExistingArtwork))
-                if (!tagsOnly || !output.isFile || output.length() == 0L) {
-                    throw IOException("Не удалось записать MP3-теги даже без обложки.")
-                }
-                AppLog.i("Recognition", "MP3 metadata saved without optional new cover")
-                Tagged(output,false)
-            } else {
-                throw IOException("Не удалось записать метаданные MP3 без обложки.")
+                AppLog.w("Recognition", "Direct ID3 unavailable; trying MP3 remux")
             }
+            // Keep optional artwork if supported. Copy a normalized JPEG instead
+            // of requiring the video encoder in the audio-only FFmpeg build.
+            val firstPass = executeCommand(buildArguments(input, output, result, artwork, preserveExistingArtwork))
+            if (firstPass && verifiedTags(output, result, artwork != null, unchangedTags)) {
+                Tagged(output, artwork != null)
+            } else if (artwork != null || preserveExistingArtwork) {
+                AppLog.w("Recognition", "MP3 cover/tag pass failed; retrying audio-only tags")
+                output.delete()
+                val tagsOnly = executeCommand(buildArguments(input, output, result, null, false))
+                if (!tagsOnly || !verifiedTags(output, result, false, unchangedTags))
+                    throw IOException("Не удалось записать MP3-теги даже без обложки.")
+                AppLog.i("Recognition", "MP3 metadata saved without artwork")
+                Tagged(output, false)
+            } else throw IOException("Не удалось записать метаданные MP3 без обложки.")
         } catch (error: Exception) {
             output.delete()
             throw error
-        } finally {
-            artwork?.delete()
-        }
+        } finally { artwork?.delete() }
     }
 
-    private suspend fun executeCommand(command: String): Boolean =
+    // Verify common non-edited fields on every successful path, especially a
+    // remux of a complex tag. Unknown custom frames are preserved by direct ID3.
+    private fun unchangedTags(input: File, result: MusicRecognitionResult): Map<Int,String> {
+        val keys = listOf(MediaMetadataRetriever.METADATA_KEY_GENRE, MediaMetadataRetriever.METADATA_KEY_YEAR,
+            MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER, MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER,
+            MediaMetadataRetriever.METADATA_KEY_COMPOSER, MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST,
+            MediaMetadataRetriever.METADATA_KEY_WRITER) +
+            if (result.album.isNullOrBlank()) listOf(MediaMetadataRetriever.METADATA_KEY_ALBUM) else emptyList()
+        val reader = MediaMetadataRetriever()
+        return try {
+            reader.setDataSource(input.absolutePath)
+            keys.mapNotNull { key -> reader.extractMetadata(key)?.takeIf { it.isNotBlank() }?.let { key to it } }.toMap()
+        } finally { reader.release() }
+    }
+
+    private fun verifiedTags(file: File, result: MusicRecognitionResult, newArtwork: Boolean, unchanged: Map<Int,String>): Boolean {
+        if (!file.isFile || file.length() == 0L) return false
+        val reader = MediaMetadataRetriever()
+        return try {
+            reader.setDataSource(file.absolutePath)
+            reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) == result.title &&
+                reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) == result.artist &&
+                (result.album.isNullOrBlank() || reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) == result.album) &&
+                (!newArtwork || (reader.embeddedPicture?.isNotEmpty() == true)) &&
+                unchanged.all { (key, value) -> reader.extractMetadata(key) == value }
+        } catch (_: Exception) { false }
+        finally { reader.release() }
+    }
+
+    private fun requireActualMp3(input: File) {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(input.absolutePath)
+            val audio = (0 until extractor.trackCount).map { extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME) }
+                .filter { it?.startsWith("audio/") == true }
+            if (audio.size != 1 || audio.single() != "audio/mpeg") {
+                AppLog.w("Recognition", "MP3 tag write rejected · source is not a single MPEG audio stream")
+                throw IOException("Фактический формат файла не MP3. Оригинал не изменён.")
+            }
+        } finally { extractor.release() }
+    }
+
+    private fun normalizedArtwork(input: File): File? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(input.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth,bounds.outHeight).toLong()/sample > 1024) sample *= 2
+        val bitmap = BitmapFactory.decodeFile(input.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+        var target: File? = null
+        return try {
+            val jpeg = File.createTempFile("cover-normalized-", ".jpg", context.cacheDir).also { target = it }
+            check(jpeg.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) })
+            jpeg
+        } catch (_: Exception) { target?.delete(); null }
+        finally { bitmap.recycle() }
+    }
+
+    private suspend fun executeCommand(args: List<String>): Boolean =
         suspendCancellableCoroutine { continuation ->
-            val session = FFmpegKit.executeAsync(command) { completed ->
+            val session = FFmpegKit.executeWithArgumentsAsync(args.toTypedArray()) { completed ->
                 if (continuation.isActive) {
-                    continuation.resume(ReturnCode.isSuccess(completed.returnCode))
+                    val ok = ReturnCode.isSuccess(completed.returnCode)
+                    if (!ok) {
+                        // Raw FFmpeg output can contain filenames, paths and tags.
+                        // Keep the return code and a bounded, allowlisted cause instead.
+                        val diagnostic = Mp3TagArguments.failureKind(completed.output.orEmpty())
+                        AppLog.w("Recognition", "MP3 remux failed · code=${completed.returnCode} · cause=$diagnostic")
+                    }
+                    continuation.resume(ok)
                 }
             }
             continuation.invokeOnCancellation { FFmpegKit.cancel(session.sessionId) }
         }
 
-    private fun buildCommand(
-        input: File,
-        output: File,
-        result: MusicRecognitionResult,
-        artwork: File?,
-        preserveExistingArtwork:Boolean,
-    ): String {
-        val inputs = buildString {
-            append("-i ").append(quote(input.absolutePath)).append(' ')
-            if (artwork != null) append("-i ").append(quote(artwork.absolutePath)).append(' ')
-        }
-        val maps = if (artwork != null) {
-            "-map 0:a:0 -map 1:v:0 -c:a copy -c:v mjpeg " +
-                "-metadata:s:v title=${quote("Album cover")} " +
-                "-metadata:s:v comment=${quote("Cover (front)")} "
-        } else if(preserveExistingArtwork){
-            "-map 0:a:0 -map 0:v? -c copy "
-        } else {
-            "-map 0:a:0 -c:a copy "
-        }
-
-        return buildString {
-            append("-nostdin -hide_banner -loglevel error -y ")
-            append(inputs)
-            append(maps)
-            append("-id3v2_version 3 -write_id3v1 1 ")
-            append("-metadata title=").append(quote(result.title)).append(' ')
-            append("-metadata artist=").append(quote(result.artist)).append(' ')
-            result.album?.takeIf { it.isNotBlank() }?.let {
-                append("-metadata album=").append(quote(it)).append(' ')
-            }
-            append(quote(output.absolutePath))
-        }
-    }
-
-    private fun quote(value: String): String =
-        "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    private fun buildArguments(input: File, output: File, result: MusicRecognitionResult,
+        artwork: File?, preserveExistingArtwork: Boolean): List<String> =
+        Mp3TagArguments.build(input.absolutePath, output.absolutePath, result, artwork?.absolutePath, preserveExistingArtwork)
 
     private fun downloadArtwork(rawUrl: String): File? {
         val url = runCatching { URL(rawUrl) }.getOrNull() ?: return null
