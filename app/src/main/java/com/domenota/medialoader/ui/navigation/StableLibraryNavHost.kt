@@ -11,7 +11,7 @@ import androidx.navigation.createGraph
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 
-internal class LibraryRouteContent(val route:String, val content:@Composable AnimatedContentScope.(NavBackStackEntry)->Unit)
+internal data class LibraryRouteContent(val route:String, val content:@Composable AnimatedContentScope.(NavBackStackEntry)->Unit)
 
 /** Route topology is immutable across playback/catalog updates. Each destination
  * observes the latest content, not the captured state at graph creation. */

@@ -17,6 +17,17 @@ internal class GalleryBrowseInventory private constructor(
     val favorites: List<DownloadEntity>,
     private val hiddenFolders: Set<String>,
 ) {
+    // Bounded per-generation cache: returning to Gallery does not reconstruct
+    // dates/labels/queue. New browse/visibility generations own a separate cache.
+    private val gridCache=object:LinkedHashMap<GalleryGridKey,GalleryGridInventory>(2,.75f,true){
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<GalleryGridKey,GalleryGridInventory>?):Boolean=size>2
+    }
+    fun cachedGrid(key:GalleryGridKey):GalleryGridInventory?=synchronized(gridCache){gridCache[key]}
+    fun prepareGrid(key:GalleryGridKey):GalleryGridInventory {
+        cachedGrid(key)?.let{return it}
+        val built=com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.GALLERY_DATES){GalleryGridInventory.build(this,key)}
+        return synchronized(gridCache){gridCache[key]?:built.also{gridCache[key]=it}}
+    }
     fun select(selection: String, search: String): List<DownloadEntity> {
         if (search.isBlank()) when (selection) {
             "all" -> return media

@@ -20,7 +20,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 internal data class AudioPreviewState(val currentId: String? = null, val playing: Boolean = false, val identities: Set<String> = emptySet(),
-    val queue: List<androidx.media3.common.MediaItem> = emptyList(),val connected:Boolean=false,val currentItem:MediaItem?=null)
+    val queue: List<androidx.media3.common.MediaItem> = emptyList(),val connected:Boolean=false,val currentItem:MediaItem?=null,val queueGeneration:Long=0L)
 
 /** One controller owned by the library ViewModel, not by the add-tracks route. */
 internal class LibraryAudioPreview(context: Context) {
@@ -32,6 +32,7 @@ internal class LibraryAudioPreview(context: Context) {
     private var queueOwner:Player?=null
     private var queueTimeline:androidx.media3.common.Timeline?=null
     private var queueSnapshot:List<MediaItem> = emptyList()
+    private var queueGeneration=0L
     private var identityItem:MediaItem?=null
     private var identityKeys:Set<String> = emptySet()
     private val listener = object : Player.Listener {
@@ -45,8 +46,8 @@ internal class LibraryAudioPreview(context: Context) {
             val candidate=com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PLAYER_QUEUE_CAPTURE){
                 (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
             }
-            if(candidate.size!=queueSnapshot.size || candidate.indices.any{candidate[it]!==queueSnapshot[it]}){
-                queueSnapshot=candidate
+            if(candidate.size!=queueSnapshot.size || candidate.indices.any{!AudioQueuePlayback.sameQueueItem(candidate[it],queueSnapshot[it])}){
+                queueSnapshot=candidate;queueGeneration++
                 com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(com.domenota.medialoader.core.logging.LibraryWork.AUDIO_QUEUE_CAPTURE)
             }
         }
@@ -56,9 +57,9 @@ internal class LibraryAudioPreview(context: Context) {
         }
         mutableState.value = if (current?.mediaMetadata?.extras?.getBoolean("private_media") == true)
             AudioPreviewState(connected=true) else AudioPreviewState(current?.mediaId,player.playWhenReady,identityKeys,
-                queueSnapshot,connected=true,currentItem=current)
+                queueSnapshot,connected=true,currentItem=current,queueGeneration=queueGeneration)
     }
-    private fun resetQueue(){queueOwner=null;queueTimeline=null;queueSnapshot=emptyList();identityItem=null;identityKeys=emptySet()}
+    private fun resetQueue(){queueOwner=null;queueTimeline=null;queueSnapshot=emptyList();queueGeneration++;identityItem=null;identityKeys=emptySet()}
     private suspend fun controller(): MediaController = withContext(Dispatchers.Main.immediate) {
         val pending = future ?: MediaController.Builder(context,
             SessionToken(context, ComponentName(context, AudioPlaybackService::class.java)))

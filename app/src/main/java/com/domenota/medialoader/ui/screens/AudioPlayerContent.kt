@@ -128,7 +128,7 @@ fun BackgroundAudioPlayer(
     var artwork by remember { mutableStateOf<Bitmap?>(null) }
     var waveform by remember { mutableStateOf<FloatArray?>(null) }
     var sessionItems by remember { mutableStateOf<List<MediaItem>>(emptyList(), androidx.compose.runtime.referentialEqualityPolicy()) }
-    var sessionTimeline by remember(controller) { mutableStateOf<androidx.media3.common.Timeline?>(null, androidx.compose.runtime.referentialEqualityPolicy()) }
+    val sessionTimeline=remember(controllerFuture){arrayOfNulls<androidx.media3.common.Timeline>(1)}
     var privateSession by remember { mutableStateOf(false) }
     var currentIdentityKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var queueOpen by remember { mutableStateOf(false) }
@@ -143,13 +143,13 @@ fun BackgroundAudioPlayer(
                 else lookup.firstOrNull { it.id == media.mediaId } ?: currentItem
             if (row != null) { currentItem = row; latestCallback(row) }
         }
-        if(sessionTimeline!==active.currentTimeline || sessionItems.size!=active.mediaItemCount ||
+        if(sessionTimeline[0]!==active.currentTimeline || sessionItems.size!=active.mediaItemCount ||
             sessionItems.getOrNull(active.currentMediaItemIndex)!==media) {
-            sessionTimeline=active.currentTimeline
+            sessionTimeline[0]=active.currentTimeline
             val next=com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PLAYER_QUEUE_CAPTURE){
                 (0 until active.mediaItemCount).map { active.getMediaItemAt(it) }
             }
-            if(next.size!=sessionItems.size || next.indices.any{next[it]!==sessionItems[it]})sessionItems=next
+            if(next.size!=sessionItems.size || next.indices.any{!com.domenota.medialoader.data.playback.AudioQueuePlayback.sameQueueItem(next[it],sessionItems[it])})sessionItems=next
         }
         currentIndex = active.currentMediaItemIndex.coerceAtLeast(0)
         syncTiming(active)

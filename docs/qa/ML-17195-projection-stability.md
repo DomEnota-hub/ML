@@ -22,3 +22,10 @@ Device acceptance after QA: clear journal (not app data), start ML with existing
 - MediaStore warm scan no longer creates unused incremental snapshot copies; existing access/revision checks unchanged. Actual new screenshots and media edits must still refresh.
 - Optional detailed diagnostics: fixed aggregate categories, GC count/time and heap, worker parsing/filtering of logs, raw log unchanged, default disabled. No per-track records or media locators. Runtime counters not a proof of all work.
 - Stage 1 acceptance: targeted Android JVM tests for changed components, privacy, navigation, playback/history and logs, plus UI guards. Full JVM, full Main/Storage/lint/ARM64 and signed handoff deferred to stage 3 by explicit workflow input; no tests removed or assertions weakened. Device-only performance/quality validation pending.
+
+### Stage 1 retained grid follow-up
+
+- Gallery grid caches a bounded pair of prepared selections per immutable inventory, with exact order, date labels and visible IDs. Background publication retains only matching access/scope/query; invalidated access immediately discards old grid.
+- Audio preview cache compares actual ordered items and metadata revision; timeline identity is ordinary remembered reference, not snapshot state.
+- Navigation route descriptors use structural equality; routes and current content remain unchanged.
+- Hidden listening keys regression covers canonical encoded IDs/URIs, aliases and frozen gate isolation. Visibility XML is preserved separately for exact stage acceptance.

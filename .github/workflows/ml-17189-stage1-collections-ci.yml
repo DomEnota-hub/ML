@@ -48,7 +48,10 @@ jobs:
           python3 scripts/check-round-sliders.py
           python3 scripts/check-in-app-notices.py
       - name: Folder visibility and durable membership regressions
-        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Visibility*Test' --tests '*HiddenFolderFileStoreTest' --tests '*DownloadCatalogSelectionTest' --tests '*GalleryLibraryStateTest' --stacktrace
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Visibility*Test' --tests '*HiddenFolderFileStoreTest' --tests '*DownloadCatalogSelectionTest' --tests '*GalleryLibraryStateTest' --stacktrace
+          mkdir -p app/build/ml-jvm-shards/stage1-visibility
+          cp app/build/test-results/testDebugUnitTest/TEST-*.xml app/build/ml-jvm-shards/stage1-visibility/
       - name: Stage 1 performance, privacy, navigation and logging regressions
         if: inputs.final_acceptance != true
         run: |

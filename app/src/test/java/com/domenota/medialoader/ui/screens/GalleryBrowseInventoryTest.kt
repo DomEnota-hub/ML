@@ -41,4 +41,20 @@ class GalleryBrowseInventoryTest {
         assertEquals(DeviceAlbum("device-folder","device-folder"),phone.buckets.getValue("a"))
         assertEquals("device:device-folder",phone.albums.single().key)
     }
+
+    @Test fun gridCacheReusesExactGenerationAndNeverExpandsExcludedOrScopedRows(){
+        val a=row("a").copy(createdAtEpochMillis=1000);val b=row("b").copy(createdAtEpochMillis=2000)
+        val folder=CatalogFolderEntity("hidden","Hidden","hidden",0)
+        val assignment=CatalogAssignmentEntity("b","hidden",true)
+        val browse=GalleryBrowseInventory.build(listOf(a,b),listOf(folder),listOf(assignment),LibrarySource.PHONE,mapOf("a" to DeviceAlbum("camera","Camera")),setOf("hidden"))
+        val key=GalleryGridKey("all","",false,0,GalleryAlbumFileSort.entries.first(),emptySet(),java.time.LocalDate.of(2026,11,16),java.time.ZoneId.of("UTC"))
+        val first=browse.prepareGrid(key)
+        assertEquals(listOf("a"),first.queue);assertSame(first,browse.prepareGrid(key))
+        val scoped=browse.prepareGrid(key.copy(selection="folder:hidden",detail=true))
+        assertEquals(listOf("b"),scoped.queue);assertSame(first,browse.cachedGrid(key))
+        val other=GalleryBrowseInventory.build(listOf(b),listOf(folder),listOf(assignment),LibrarySource.PHONE,emptyMap(),setOf("hidden"))
+        assertNull(other.cachedGrid(key));assertTrue(other.prepareGrid(key).queue.isEmpty())
+        val excluded=browse.prepareGrid(key.copy(excluded=setOf("device:camera")))
+        assertTrue(excluded.queue.isEmpty())
+    }
 }

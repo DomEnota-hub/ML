@@ -32,6 +32,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.foundation.gestures.scrollBy
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -85,6 +87,7 @@ internal fun GalleryModeScreen(
     pendingVisibilityFolderId: String? = null,
     onShareFromAlbum: ((String,String?) -> Unit)? = null,
     preparedBrowse: BackgroundLibraryValue<GalleryBrowseInventory>? = null,
+    preparedBrowseAccess: Any? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -173,8 +176,6 @@ internal fun GalleryModeScreen(
     }
     val catalog = browse.catalog
     val buckets = browse.buckets
-    val media = browse.media
-    val displayed = remember(browse, selection, search) { browse.select(selection, search) }
     val albums = browse.albums
     val checkingAlbum = loading || preparedBrowse?.ready == false
     LaunchedEffect(albumRequest, browse, checkingAlbum) {
@@ -198,29 +199,32 @@ internal fun GalleryModeScreen(
         it.key !in albumSettings.quickAlbums && it.key !in standardQuickKeys
     }
     val otherAlbums = orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
-    val shortcutAllMedia = remember(media, catalog, buckets, albumSettings.excludedFromMedia) {
-        media.filter { row ->
-            visibleInGalleryMedia(row, catalog[row.id], buckets[row.id],
-                albumSettings.excludedFromMedia)
+    val gridKey=GalleryGridKey(selection,search,detailOpen,tab,albumFileSort,albumSettings.excludedFromMedia,
+        LocalDate.now(),ZoneId.systemDefault())
+    val canPrepare=preparedBrowse?.usable!=false
+    val grid=if(preparedBrowse==null)remember(browse,gridKey){browse.prepareGrid(gridKey)} else {
+        // A routine data refresh retains the previous safe grid until its new
+        // generation is ready; a permission/scope/search change never does.
+        val cached=remember(browse,gridKey,canPrepare){if(canPrepare)browse.cachedGrid(gridKey) else null}
+        var retained by remember(gridKey,canPrepare,preparedBrowseAccess){mutableStateOf(cached,referentialEqualityPolicy())}
+        LaunchedEffect(browse,gridKey,canPrepare,preparedBrowseAccess){
+            if(canPrepare)retained=cached?:withContext(Dispatchers.Default){browse.prepareGrid(gridKey)}
         }
+        if(canPrepare)cached?:retained else null
     }
+    val gridReady=grid!=null
+    val shortcutAllMedia=grid?.allVisible ?: browse.media.takeIf{albumSettings.excludedFromMedia.isEmpty()}.orEmpty()
     val shortcutVideos = browse.videos
     val shortcutFavorites = browse.favorites
     val defaultQuickItems = remember(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites) {
         galleryDefaultQuickItems(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites)
     }
-    val visibleDisplayed = remember(displayed, selection, detailOpen, tab, albumSettings.excludedFromMedia, catalog, buckets) {
-        if (tab == 0 && selection == "all") displayed.filter { row ->
-            visibleInGalleryMedia(row, catalog[row.id], buckets[row.id], albumSettings.excludedFromMedia)
-        } else displayed
-    }
-    val orderedDisplayed = remember(visibleDisplayed, detailOpen, albumFileSort) {
-        if (detailOpen) GalleryAlbumFileOrder.sorted(visibleDisplayed, albumFileSort) else visibleDisplayed
-    }
-    val queue = remember(orderedDisplayed) { orderedDisplayed.map { it.id } }
-    LaunchedEffect(queue) { val visible = queue.toHashSet(); selectedIds = ArrayList(selectedIds.filter { it in visible }) }
+    val visibleDisplayed=grid?.visible.orEmpty()
+    val orderedDisplayed=grid?.ordered.orEmpty()
+    val queue=grid?.queue.orEmpty()
+    val queueSet=grid?.queueSet.orEmpty()
+    LaunchedEffect(queue,gridReady) { if(gridReady)selectedIds=ArrayList(selectedIds.filter{it in queueSet}) }
     val selectedSet = remember(selectedIds) { selectedIds.toHashSet() }
-    val queueSet = remember(queue) { queue.toHashSet() }
     val mediaGridState = rememberLazyGridState()
     val albumGridState = rememberLazyGridState()
     val density = LocalDensity.current
@@ -241,22 +245,11 @@ internal fun GalleryModeScreen(
             }
         }
     }
-    // A phone gallery can hold 10k+ files: do not parse every timestamp on each selection recomposition.
-    val currentCalendarDay = LocalDate.now()
-    val selectableDateRange = remember(visibleDisplayed, currentCalendarDay) {
-        galleryDateRange(visibleDisplayed.map { it.createdAtEpochMillis }, currentCalendarDay)
-    }
-    val dateSections = remember(orderedDisplayed) {
-        orderedDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
-            .atZone(ZoneId.systemDefault()).toLocalDate() }
-    }
-    // One label per actual grid item, including controls and full-width date headers.
-    // When sorting by name/size, the label is the date of the actual target file.
-    val galleryScrollLabels = remember(orderedDisplayed, dateSections, detailOpen, albumFileSort) {
-        com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.GALLERY_DATES){
-            galleryFastScrollLabels(orderedDisplayed, !detailOpen || GalleryAlbumFileOrder.groupedByDate(albumFileSort))
-        }
-    }
+    // The worker snapshot includes date grouping and labels, including exact
+    // LazyVerticalGrid offsets. No catalog-wide date parsing on the UI thread.
+    val selectableDateRange=grid?.dateRange
+    val dateSections=grid?.sections.orEmpty()
+    val galleryScrollLabels=grid?.labels.orEmpty()
     LaunchedEffect(jumpToMedia, orderedDisplayed, detailOpen, tab, albumFileSort) {
         val id = jumpToMedia ?: return@LaunchedEffect
         if (!detailOpen || tab != 0) return@LaunchedEffect
@@ -489,8 +482,8 @@ internal fun GalleryModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
                         leadingIcon = { Icon(Icons.Rounded.Search, null) })
-                    Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading, message, settingsError ?: error,
-                        tab == 0 && visibleDisplayed.isEmpty(), "Нет фото и видео") }
+                    Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading || (tab==0 && !gridReady), message, settingsError ?: error,
+                        tab == 0 && gridReady && visibleDisplayed.isEmpty(), "Нет фото и видео") }
                 }
             }
             if (tab == 1) {

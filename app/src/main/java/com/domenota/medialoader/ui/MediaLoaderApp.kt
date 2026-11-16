@@ -2002,6 +2002,7 @@ fun MediaLoaderApp(
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
                     items = galleryBrowse.value.items,
                     preparedBrowse = galleryBrowse,
+                    preparedBrowseAccess = galleryBrowseAccess to publicProjectionGuard,
                     hiddenFolderIds = visibilityFolders,
                     pendingVisibilityFolderId = visibilityProgress.folderId,
                     onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() },
@@ -2744,6 +2745,7 @@ fun MediaLoaderApp(
                         gridQueue.ifEmpty{if(item.mediaType==MediaType.PHOTO&&photoQueue.isNotEmpty())photoQueue else listOf(item)}
                             .let{rows->if(rows.any{it.id==item.id&&it.savedUri==item.savedUri})rows else listOf(item)+rows.filter{it.id!=item.id}}
                     }
+                    val galleryFavoriteIds=remember(libraryCatalogAssignments){libraryCatalogAssignments.filter{it.isFavorite}.mapTo(mutableSetOf()){it.downloadId}}
                     val viewerFavorites=remember(libraryCatalogAssignments,publicLibraryRefs,currentLibraryAudioId,libraryAudioState.currentId){
                         libraryCatalogAssignments.filter{it.isFavorite}.mapTo(mutableSetOf()){it.downloadId}.also{favorites->
                             val stableIds=favorites.toSet()
@@ -2775,7 +2777,7 @@ fun MediaLoaderApp(
                                 }
                             } else deleteLibraryFile(selected.id)
                         },
-                        favoriteIds = viewerFavorites,
+                        favoriteIds = galleryFavoriteIds,
                         onFavorite = setLibraryFavorite, folders = catalogFolders, onSetFolder = setLibraryFolder,
                         onMoveToPrivate = { if (!it.isPrivate) requestPrivateMove(listOf(it.id)) },
                         onOpenExternal = { selected ->

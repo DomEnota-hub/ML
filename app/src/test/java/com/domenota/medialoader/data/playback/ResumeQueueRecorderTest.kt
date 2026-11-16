@@ -162,4 +162,25 @@ class ResumeQueueRecorderTest {
             assertEquals(1,saved.index);assertEquals(9000L,saved.positionMs);assertEquals(2,saved.entries.size)
         }finally{scope.cancel();store.closeForTest()}
     }
+    @Test fun frozenHiddenIdentityGatePreservesCanonicalIdsAndUriAliases() {
+        val prefs=context.getSharedPreferences("music_folder_visibility",android.content.Context.MODE_PRIVATE)
+        val old=prefs.getStringSet("hidden_tracks",emptySet()).orEmpty().toSet()
+        fun encode(value:String)=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray(Charsets.UTF_8))
+        fun hide(id:String,uri:String){assertTrue(prefs.edit().putStringSet("hidden_tracks",setOf("${encode(id)}.${encode(uri)}")).commit())}
+        val track=item("a","one")
+        val uri=track.mediaMetadata.extras!!.getString(AudioPlaybackMetadata.PUBLIC_URI)!!
+        val identity=PublicListeningIdentity(context,{PublicListeningIdentity.Access(true,emptySet())}){true}
+        try {
+            assertTrue(prefs.edit().remove("hidden_tracks").commit())
+            val before=identity.snapshot();assertTrue(before.keys(track).isNotEmpty())
+            hide("a","unrelated");assertTrue(identity.keys(track).isEmpty())
+            assertTrue(before.keys(track).isNotEmpty());assertNotEquals(before.token,identity.visibilityToken())
+            hide("unrelated",uri);assertTrue(identity.keys(track).isEmpty())
+            val alias=AudioPlaybackMetadata.item(DownloadEntity("alias","device","alias.mp3",MediaType.AUDIO,
+                DownloadState.COMPLETED,"content://media/external/audio/media/999",123L,100L),setOf("uri:$uri"),"one","playlist:one")
+            assertTrue(identity.keys(alias).isEmpty())
+            assertTrue(prefs.edit().putStringSet("hidden_tracks",setOf("${encode("a") }==.${encode("unrelated")}")).commit())
+            assertTrue(identity.keys(track).isNotEmpty())
+        } finally { prefs.edit().putStringSet("hidden_tracks",old).commit() }
+    }
 }
