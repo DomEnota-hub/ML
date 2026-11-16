@@ -45,16 +45,26 @@ internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaR
     val context=LocalContext.current
     val store=remember(context){CollectionCoverStore(context)}
     val revision by CollectionCoverStore.changes.collectAsState()
-    var saved by remember(collection.record.id){mutableStateOf<CollectionCover?>(null)}
-    LaunchedEffect(collection.record.id,revision){saved=withContext(Dispatchers.IO){store.read(collection.record.id)}}
+    val id=collection.record.id
+    var selection by remember(id,revision){mutableStateOf(store.cachedSelection(id)?:CollectionCoverSelection.Loading)}
+    LaunchedEffect(id,revision){
+        // Only an explicit Automatic selection may display a member thumbnail.
+        // Read failures, revoked permission and pending disk reads are placeholders.
+        if(selection==CollectionCoverSelection.Loading)selection=withContext(Dispatchers.IO){store.readSelection(id)}
+    }
     Box(modifier,contentAlignment=Alignment.Center){
         val access = coverAccess ?: CollectionCoverAccess(PhoneMediaLibrary.canReadMissingMetadata(com.domenota.medialoader.core.model.MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
             androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
         }, setOfNotNull(cover?.takeIf { it.appDownloadId!=null }?.item?.savedUri))
-        val privateCover=saved?.takeIf{access.permits(it.source,blockedIdentities)}
-        if(privateCover!=null)DownloadThumbnail(android.net.Uri.fromFile(privateCover.file).toString(),null,MediaKind.IMAGE,Modifier.fillMaxSize())
-        else if(cover!=null&&blockedIdentities!=null&&!collectionRefBlocked(cover,blockedIdentities))CollectionOriginalCover(cover,Modifier.fillMaxSize())
-        else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
+        val selected=(selection as? CollectionCoverSelection.Selected)?.cover
+        when(collectionCoverPresentation(selection,selected!=null&&access.permits(selected.source,blockedIdentities),
+            cover!=null&&blockedIdentities!=null&&!collectionRefBlocked(cover,blockedIdentities))){
+            CollectionCoverPresentation.CUSTOM -> key(id,selected!!.file.absolutePath){
+                DownloadThumbnail(android.net.Uri.fromFile(selected.file).toString(),null,MediaKind.IMAGE,Modifier.fillMaxSize())
+            }
+            CollectionCoverPresentation.AUTOMATIC -> CollectionOriginalCover(requireNotNull(cover),Modifier.fillMaxSize())
+            CollectionCoverPresentation.PLACEHOLDER -> Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
+        }
     }
 }
 

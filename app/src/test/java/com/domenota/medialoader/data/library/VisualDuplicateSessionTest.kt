@@ -80,4 +80,11 @@ class VisualDuplicateSessionTest {
         assertEquals(setOf("a"),stale.selected)
         assertTrue(session.reconcile(listOf(a,a,b)).result.groups.isEmpty())
     }
+
+    @Test fun coverageRoundTripAndLegacyReportCompatibility(){
+        val coverage=VisualScanCoverage(LibrarySource.APP,416,cached=410,computed=4,aliases=1,failed=1,incompleteVisual=1)
+        val updated=session.copy(result=session.result.copy(coverage=coverage))
+        assertEquals(updated,VisualDuplicateSessionStore.decode(VisualDuplicateSessionStore.encode(updated)))
+        assertNull(VisualDuplicateSessionStore.decode(VisualDuplicateSessionStore.encode(session)).result.coverage)
+    }
 }

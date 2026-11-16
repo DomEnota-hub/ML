@@ -1110,6 +1110,23 @@ fun MediaLoaderApp(
         RouteMediaCatalog(filterRouteCatalog(publicLibraryRefs, collectionBlocked, collectionHistory, statusSnapshot, statusUriSnapshot))
     }
     val organizationRefs = organizationProjection.value.refs
+    // Result reconciliation and new scans share the full validated visual index.
+    // The selected source controls scan coverage, not the validity of old reports.
+    val visualScanRoute = currentRoute == "visual-duplicates"
+    LaunchedEffect(visualScanRoute) {
+        if (visualScanRoute) libraryModel.refresh(AppMode.GALLERY)
+    }
+    val visualScanComplete = organizationReady && organizationProjection.ready &&
+        visualDuplicateCatalogComplete(libraryIndex, phoneGallery, galleryAccessEpoch, historySnapshot?.appUris)
+    val visualScanAccess = collectionAccess.takeIf { visualScanRoute && visualScanComplete }
+    val visualScanCatalog = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        VisualDuplicateCatalog.EMPTY, publicProjectionGuard, organizationRefs, displayInventory.appItems, gallerySource,
+        accessGuard = visualScanAccess, enabled = visualScanRoute) {
+        VisualDuplicateCatalog.build(organizationRefs, displayInventory.appItems, gallerySource)
+    }
+    val visualScanReady = visualScanComplete && visualScanCatalog.ready && visualScanAccess != null
+    val visualPhonePermission = gallerySource != LibrarySource.PHONE || hasPhoneLibraryAccess(context, AppMode.GALLERY)
+
     val currentCollectionCatalog by rememberUpdatedState(fullProjection.value)
     val currentScopedCatalog by rememberUpdatedState(scopedCatalog)
     val currentRecentCatalog by rememberUpdatedState(recentProjection.value)
@@ -2266,7 +2283,7 @@ fun MediaLoaderApp(
             },
             LibraryRouteContent("visual-duplicates") {
                 com.domenota.medialoader.ui.screens.gallery.VisualDuplicatesScreen(
-                    organizationRefs, organizationReady && organizationProjection.ready && phoneGallery.loaded,
+                    visualScanCatalog.value, visualScanReady, visualPhonePermission,
                     onBack={navController.popBackStack()},onAppTrash=viewModel::trashVerifiedAlbumMedia,
                     onRefresh={libraryModel.refresh(AppMode.GALLERY, force = true)})
             },

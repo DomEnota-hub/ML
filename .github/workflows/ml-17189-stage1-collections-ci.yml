@@ -52,10 +52,18 @@ jobs:
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Visibility*Test' --tests '*HiddenFolderFileStoreTest' --tests '*DownloadCatalogSelectionTest' --tests '*GalleryLibraryStateTest' --stacktrace
           mkdir -p app/build/ml-jvm-shards/stage1-visibility
           cp app/build/test-results/testDebugUnitTest/TEST-*.xml app/build/ml-jvm-shards/stage1-visibility/
-      - name: Stage 1 performance, privacy, navigation and logging regressions
+      - name: Stage 2 collection, coverage and visual duplicate regressions
         if: inputs.final_acceptance != true
         run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*BackgroundLibraryProjectionTest' --tests '*LibraryDisplayInventoryTest' --tests '*GalleryBrowseInventoryTest' --tests '*MusicBrowseProjectionTest' --tests '*LibraryProjectionCountersTest' --tests '*LibraryWorkCountersTest' --tests '*ResumeQueue*Test' --tests '*AudioQueuePlaybackTest' --tests '*AudioPlaybackMetadata*Test' --tests '*ListeningHistory*Test' --tests '*PrivatePlayback*Test' --tests '*LibraryAudioQueueTest' --tests '*GridMediaQueueTest' --tests '*PrivateViewerQueueTest' --tests '*ViewerQueueInventoryTest' --tests '*ViewerQueueCacheTest' --tests '*StableLibraryNavHostTest' --tests '*LibraryReturnNavigationTest' --tests '*GalleryDate*Test' --tests '*PhoneMediaLibraryTest' --tests '*PhoneLibraryCacheTest' --tests '*LibraryValidationGateTest' --tests '*LogDisplayTest' --tests '*AppLogAsyncTest' --tests '*BoundedLogWriterTest' --tests '*PerfWorkCountersTest' --tests '*VisualDuplicate*Test' --stacktrace
+          python3 scripts/run-jvm-isolated-compose.py collection --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*PhoneLibraryCacheTest' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --tests '*BackgroundLibraryProjectionTest' --tests '*LibraryDisplayInventoryTest' --tests '*GalleryBrowseInventoryTest' --tests '*LibraryProjectionCountersTest' --tests '*AudioThumbnailInvalidationTest' --tests '*AppAudioIdentityCacheTest' --tests '*VisualDuplicate*Test' --tests '*LibraryValidationGateTest' --tests '*DuplicatePrivacyEpochTest'
+          mkdir -p app/build/ml-jvm-shards/stage2-visual
+          cp app/build/test-results/testDebugUnitTest/TEST-*.xml app/build/ml-jvm-shards/stage2-visual/
+      - name: Stage 2 recognition, actual audio format and safe metadata regressions
+        if: inputs.final_acceptance != true
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*AudioMetadata*Test' --tests '*TrackRecognition*Test' --tests '*LocalTrackRecognitionSearchTest' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*MediaWriteAccessTest' --tests '*MusicDuplicateSessionTest' --stacktrace
+          mkdir -p app/build/ml-jvm-shards/stage2-audio
+          cp app/build/test-results/testDebugUnitTest/TEST-*.xml app/build/ml-jvm-shards/stage2-audio/
       - name: Collection regression tests
         if: inputs.final_acceptance == true
         run: |
@@ -67,7 +75,7 @@ jobs:
       - name: Music folders, daily history and recognition regressions
         if: inputs.final_acceptance == true
         run: |
-          python3 scripts/run-jvm-isolated-compose.py music --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --tests '*MusicBrowseProjectionTest' --tests '*LibraryModeScreensTest' --tests '*PrivatePlayback*Test' --tests '*LibraryWorkCountersTest'
+          python3 scripts/run-jvm-isolated-compose.py music --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*AudioMetadata*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --tests '*MusicBrowseProjectionTest' --tests '*LibraryModeScreensTest' --tests '*PrivatePlayback*Test' --tests '*LibraryWorkCountersTest'
       - name: Shared photo editor, full resolution and drawing regressions
         if: inputs.final_acceptance == true
         run: |

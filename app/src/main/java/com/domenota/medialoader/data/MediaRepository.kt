@@ -64,6 +64,9 @@ import com.domenota.medialoader.data.download.YouTubeDownloadEngine
 import com.domenota.medialoader.data.catalog.DownloadCatalogRepository
 import com.domenota.medialoader.data.recognition.InstagramMusicRecognizer
 import com.domenota.medialoader.data.recognition.Mp3MetadataWriter
+import com.domenota.medialoader.data.recognition.AudioFormatProbe
+import com.domenota.medialoader.data.recognition.AudioFileFormat
+import com.domenota.medialoader.data.recognition.AudioMetadataCopyWriter
 import com.domenota.medialoader.data.recognition.MusicPostProcessor
 import com.domenota.medialoader.data.recognition.MusicRecognitionSettings
 import com.domenota.medialoader.data.recognition.MicrophoneCapture
@@ -742,6 +745,44 @@ class MediaRepository private constructor(context: Context) {
         }
     }
 
+    internal suspend fun inspectLocalTrackFormat(source:DownloadEntity,match:TrackRecognitionMatch):AudioFileFormat {
+        check(source.id==match.version.id&&source.savedUri==match.version.uri){"Выбран другой трек"}
+        val uri=requirePublicLocalTrack(source,match.version.privacyEpoch)
+        return AudioFormatProbe.inspect(appContext,Uri.parse(uri)).also{requirePublicLocalTrack(source,match.version.privacyEpoch)}
+    }
+
+    /** Non-MP3 and non-canonical originals are never overwritten. A verified copy
+     * receives its own history identity; the original queue and collection links remain intact. */
+    internal suspend fun saveRecognizedAudioCopy(source:DownloadEntity,match:TrackRecognitionMatch,convertToMp3:Boolean):DownloadEntity =
+        musicPostProcessGate.withPermit {
+            val version=match.version
+            check(source.id==version.id&&source.savedUri==version.uri){"Выбран другой трек"}
+            val uri=requirePublicLocalTrack(source,version.privacyEpoch)
+            val decision=withContext(Dispatchers.IO){TrackRecognitionCache.loadRetry(appContext,version)}
+            check(decision!=null&&decision.candidate?.result==match.result&&decision.rejected.none{rejectedRecognition(it,match.result)}){"Совпадение больше не актуально"}
+            val original=storage.copyDownloadToTemp(uri,".audio")
+            var output:java.io.File?=null
+            try{
+                check(TrackRecognitionCache.sha256(original)==version.sha256){"Файл изменился после распознавания"}
+                val album=withContext(Dispatchers.IO){
+                    val reader=MediaMetadataRetriever()
+                    try{reader.setDataSource(original.absolutePath);reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)}finally{reader.release()}
+                }
+                val result=match.result.copy(title=match.result.title.trim(),artist=match.result.artist.trim(),
+                    album=match.result.album?.trim()?.takeIf{it.isNotEmpty()}?:album?:source.recognizedAlbum)
+                check(result.title.isNotBlank()&&result.artist.isNotBlank()){"Нет надёжного совпадения"}
+                val tagged=AudioMetadataCopyWriter(appContext).write(original,result,convertToMp3).also{output=it.file}
+                requirePublicLocalTrack(source,version.privacyEpoch)
+                check(TrackRecognitionCache.sha256(appContext,uri)==version.sha256){"Исходный файл изменился"}
+                val stem=StorageNaming.sanitizeStem(StorageNaming.editableStem(source.originalName),70)?:"Аудио"
+                val suffix=if(convertToMp3)"_mp3" else "_tags"
+                publishDerived(source,tagged.file,"$stem$suffix.${tagged.format.extension}",MediaType.AUDIO,tagged.format.mime,
+                    result.title,result.artist,result.album,operation=if(convertToMp3)"Копия MP3" else "Копия с тегами",
+                    verifiedSha256=TrackRecognitionCache.sha256(tagged.file),expectedPrivacyEpoch=version.privacyEpoch,
+                    recognition=result.copy(artworkUrl=result.artworkUrl.takeIf{tagged.newArtworkApplied}),expectedSourceSha256=version.sha256)
+            }finally{original.delete();output?.delete()}
+        }
+
     /** Only the confirmed original is replaced. Staging never writes user media. */
     internal suspend fun applyLocalTrackRecognition(source:DownloadEntity,match:TrackRecognitionMatch):DownloadEntity{
         val version=match.version
@@ -1262,7 +1303,10 @@ class MediaRepository private constructor(context: Context) {
         mediaType: MediaType, mimeType: String,
         title: String? = null, artist: String? = null, album: String? = null,
         operation: String? = null,
+        verifiedSha256:String?=null,expectedPrivacyEpoch:Long?=null,
+        recognition:MusicRecognitionResult?=null,expectedSourceSha256:String?=null,
     ): DownloadEntity {
+        if(expectedPrivacyEpoch!=null)requirePublicLocalTrack(source,expectedPrivacyEpoch)
         folderVisibility.requireVisibleMember(source.id)
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val latest = history.byId(source.id)
@@ -1278,22 +1322,29 @@ class MediaRepository private constructor(context: Context) {
                 val published = storage.publish(file, preferredName, mimeType)
                 published.fileName to published.uri.toString()
             }
-            val row = DownloadEntity(
-                id = id, providerId = source.providerId, originalName = name,
-                mediaType = mediaType, state = DownloadState.COMPLETED, savedUri = uri,
-                sizeBytes = file.length(), createdAtEpochMillis = System.currentTimeMillis(),
-                sourcePageUrl = source.sourcePageUrl, previewUrl = latest?.previewUrl ?: source.previewUrl,
-                groupId = source.groupId, derivedFromId = source.id,
-                durationMs = if (mediaType != MediaType.PHOTO) mediaDurationMs(uri) else null,
-                recognizedTitle = title, recognizedArtist = artist, recognizedAlbum = album,
-                isPrivate = isPrivate,
-            )
-            try { history.saveDerived(row,operation) }
-            catch (error: Throwable) {
+            try {
+                if(verifiedSha256!=null)check(TrackRecognitionCache.sha256(appContext,uri)==verifiedSha256){"Записанная копия не совпадает с проверенной"}
+                if(expectedPrivacyEpoch!=null)requirePublicLocalTrack(source,expectedPrivacyEpoch)
+                if(expectedSourceSha256!=null)check(TrackRecognitionCache.sha256(appContext,requireNotNull(source.savedUri))==expectedSourceSha256){"Исходный файл изменился"}
+                val row = DownloadEntity(
+                    id = id, providerId = source.providerId, originalName = name,
+                    mediaType = mediaType, state = DownloadState.COMPLETED, savedUri = uri,
+                    sizeBytes = file.length(), createdAtEpochMillis = System.currentTimeMillis(),
+                    sourcePageUrl = source.sourcePageUrl, previewUrl = latest?.previewUrl ?: source.previewUrl,
+                    groupId = source.groupId, derivedFromId = source.id,
+                    durationMs = if (mediaType != MediaType.PHOTO) mediaDurationMs(uri) else null,
+                    recognizedTitle = title, recognizedArtist = artist, recognizedAlbum = album,
+                    recognitionTrackId=recognition?.trackId,recognitionSource=recognition?.source?.name,
+                    recognitionArtworkUrl=recognition?.artworkUrl,
+                    isPrivate = isPrivate,
+                )
+                if(expectedPrivacyEpoch!=null)requirePublicLocalTrack(source,expectedPrivacyEpoch)
+                history.saveDerived(row,operation)
+                row
+            }catch (error: Throwable) {
                 runCatching { if (isPrivate) privateFiles.remove(uri) else privateFiles.removePublicSource(uri) }
                 throw error
             }
-            row
         }
     }
 

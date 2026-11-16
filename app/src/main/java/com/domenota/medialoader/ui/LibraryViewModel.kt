@@ -53,6 +53,7 @@ internal data class PhoneLibraryState(
     val fingerprints: Map<String, String> = emptyMap(),
     val accessEpoch: Long = 0,
     val complete: Boolean = false,
+    val scanInProgress: Boolean = false,
 )
 /** Equal complete snapshots do not invalidate downstream catalogs. Compare on a worker. */
 internal fun samePhoneContent(previous: PhoneLibraryState, next: PhoneMediaSnapshot): Boolean =
@@ -67,6 +68,14 @@ internal data class LibraryIndex(val ready: Boolean = false, val refs: List<Libr
     // equality: equal inventory generations must still conflate in StateFlow.
     val display = LibraryDisplayInventory.build(refs, visibility?.external.orEmpty())
 }
+/** Duplicate search requires the complete current visual generation, not a
+ * browseable first page. Audio inventory is irrelevant to photo/video coverage. */
+internal fun visualDuplicateCatalogComplete(index: LibraryIndex, gallery: PhoneLibraryState,
+    accessEpoch: Long, currentAppUris: Set<Pair<String, String?>>?): Boolean =
+    index.ready && index.appComplete && currentAppUris != null && index.appUris == currentAppUris &&
+        gallery.loaded && gallery.complete && !gallery.loading && !gallery.scanInProgress &&
+        gallery.accessEpoch == accessEpoch && index.galleryRevision == gallery.revision
+
 internal data class CollectionHistorySnapshot(val rows: Map<String, DownloadEntity>, val appUris: Set<Pair<String, String?>>, val blocked: Set<String>,
     val completedUris: List<Pair<String, String?>>) {
     private val rowsByUri = rows.values.filter { !it.savedUri.isNullOrBlank() }.groupBy { it.savedUri }
@@ -679,8 +688,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         }
         // Routine updates are strictly internal: keep the validated snapshot and
         // avoid publishing even a loading flag that the gallery UI could display.
-        state.value = if (blocking) PhoneLibraryState(loading = true, requiresValidation = !(coldStart && !partial), revision = state.value.revision + 1, accessEpoch = accessEpoch)
-            else state.value.copy(loading = false, requiresValidation = false, message = null, accessEpoch = accessEpoch)
+        state.value = if (blocking) PhoneLibraryState(loading = true, requiresValidation = !(coldStart && !partial), revision = state.value.revision + 1, accessEpoch = accessEpoch, scanInProgress = true)
+            else state.value.copy(loading = false, requiresValidation = false, message = null, accessEpoch = accessEpoch, scanInProgress = true)
         jobs[mode] = viewModelScope.launch {
             var revision = state.value.revision
             try {
@@ -698,7 +707,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                         revision++
                         state.value = PhoneLibraryState(items = cached.snapshot.items, identities = cached.snapshot.identities,
                             fingerprints = cached.snapshot.fingerprints, loaded = true, loading = false,
-                            revision = revision, requiresValidation = false, accessEpoch = accessEpoch, complete = cached.complete)
+                            revision = revision, requiresValidation = false, accessEpoch = accessEpoch, complete = cached.complete, scanInProgress = true)
                         storeStamps[mode] = cached.stamp
                     }
                 }
@@ -707,14 +716,14 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     // Android can recreate a MediaStore database without revoking access.
                     // Reindex in the background; never discard photos/music already visible.
                     blocking = !state.value.loaded
-                    if (blocking) state.value = PhoneLibraryState(loading = true, revision = ++revision, accessEpoch = accessEpoch)
+                    if (blocking) state.value = PhoneLibraryState(loading = true, revision = ++revision, accessEpoch = accessEpoch, scanInProgress = true)
                 }
                 if (!blocking && state.value.complete && stamp.generation != null && previousStamp == stamp) {
-                    state.value = state.value.copy(loading = false)
+                    state.value = state.value.copy(loading = false, scanInProgress = false)
                     refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
                     return@launch
                 }
-                if (blocking) state.value = PhoneLibraryState(loading = true, revision = revision, requiresValidation = true, accessEpoch = accessEpoch)
+                if (blocking) state.value = PhoneLibraryState(loading = true, revision = revision, requiresValidation = true, accessEpoch = accessEpoch, scanInProgress = true)
                 val previous = state.value.takeIf { !blocking && it.loaded }?.let {
                     PhoneMediaSnapshot(it.items, it.identities, it.fingerprints)
                 }
@@ -726,7 +735,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     if (blocking && !partial && stillAllowed()) {
                         state.value = PhoneLibraryState(items = partialSnapshot.items, identities = partialSnapshot.identities,
                             fingerprints = partialSnapshot.fingerprints, loaded = true, loading = true,
-                            revision = ++revision, requiresValidation = true, accessEpoch = accessEpoch)
+                            revision = ++revision, requiresValidation = true, accessEpoch = accessEpoch, scanInProgress = true)
                         // A large library can publish progress every second; serializing
                         // 11k+ entries to JSON on *every* update stalls the cursor.
                         // Keep first-page recovery, then bounded checkpoints; the final
@@ -754,7 +763,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     withContext(Dispatchers.Default) { samePhoneContent(existing,snapshot) }
                 if (!stillAllowed()) { refresh(mode,force=true,invalidate=true); return@launch }
                 if (unchanged) {
-                    if (existing.loading || existing.message != null || existing.requiresValidation) state.value = existing.copy(loading=false,message=null,requiresValidation=false)
+                    if (existing.loading || existing.message != null || existing.requiresValidation || existing.scanInProgress) state.value = existing.copy(loading=false,message=null,requiresValidation=false,scanInProgress=false)
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone snapshot unchanged · mode=$mode")
                 } else state.value = PhoneLibraryState(items = snapshot.items, identities = snapshot.identities,
                     fingerprints = snapshot.fingerprints, loaded = true, complete = true, revision = revision + 1, requiresValidation = blocking, accessEpoch = accessEpoch)
@@ -767,7 +776,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             catch (e: CancellationException) { throw e }
             catch (_: Exception) {
                 val message = "Не удалось обновить файлы телефона. Проверьте доступ и повторите."
-                state.value = if (!blocking && state.value.loaded) state.value.copy(loading = false, message = message)
+                state.value = if (!blocking && state.value.loaded) state.value.copy(loading = false, message = message, scanInProgress = false)
                     else PhoneLibraryState(loaded = true, revision = revision + 1, message = message, accessEpoch = accessEpoch)
             }
         }

@@ -62,4 +62,25 @@ class CollectionCoverStoreTest {
         assertEquals(before,store.read("cover-test"));assertTrue(before.file.isFile)
         image.recycle()
     }
+
+    @Test fun selectedMissingOrUnreadableCoverNeverFallsBackToMember()=runBlocking {
+        val image=Bitmap.createBitmap(40,50,Bitmap.Config.ARGB_8888)
+        val uri="content://media/selected"
+        store.save("cover-test",uri,image,CollectionCrop())
+        val chosen=store.readSelection("cover-test") as CollectionCoverSelection.Selected
+        assertEquals(chosen,CollectionCoverStore(context).cachedSelection("cover-test"))
+        assertEquals(CollectionCoverPresentation.CUSTOM,collectionCoverPresentation(chosen,true,true))
+        assertEquals(CollectionCoverPresentation.PLACEHOLDER,collectionCoverPresentation(chosen,false,true))
+        chosen.cover.file.delete()
+        val missing=store.readSelection("cover-test")
+        assertTrue(missing is CollectionCoverSelection.Unavailable)
+        assertEquals(CollectionCoverPresentation.PLACEHOLDER,collectionCoverPresentation(missing,true,true))
+        assertEquals(CollectionCoverPresentation.PLACEHOLDER,collectionCoverPresentation(CollectionCoverSelection.Loading,true,true))
+        File(context.filesDir,"collection-covers/cover-test/cover.json").writeText("broken")
+        assertTrue(store.readSelection("cover-test") is CollectionCoverSelection.Unavailable)
+        store.automatic("cover-test")
+        assertEquals(CollectionCoverSelection.Automatic,store.cachedSelection("cover-test"))
+        assertEquals(CollectionCoverPresentation.AUTOMATIC,collectionCoverPresentation(store.readSelection("cover-test"),false,true))
+        image.recycle()
+    }
 }

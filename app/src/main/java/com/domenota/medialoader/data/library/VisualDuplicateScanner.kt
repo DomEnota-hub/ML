@@ -16,7 +16,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 import com.domenota.medialoader.data.playback.PublicMediaIdentity
 
-internal data class VisualScanResult(val groups:List<VisualDuplicateGroup>,val skipped:Int,val privacyEpoch:Long=0)
+internal data class VisualScanResult(val groups:List<VisualDuplicateGroup>,val skipped:Int,val privacyEpoch:Long=0, val coverage:VisualScanCoverage?=null)
 internal object VisualDuplicateScanner {
     private data class Stamp(val bytes:Long,val modified:Long?)
     private fun directory(context:Context)=File(context.noBackupFilesDir,"visual-duplicate-cache-v1")
@@ -28,7 +28,7 @@ internal object VisualDuplicateScanner {
         runCatching{
             val data=JSONObject(checkpoint(context,uri).openRead().bufferedReader().use{it.readText()})
             require(data.getLong("epoch")==epoch&&data.getString("id")==ref.key&&data.getString("uri")==uri&&data.getLong("bytes")==stamp.bytes&&data.getLong("modified")==stamp.modified)
-            val frames=data.getJSONArray("frames");require(frames.length()<=5)
+            val frames=data.getJSONArray("frames");require(frames.length()==(if(ref.item.mediaType==MediaType.PHOTO)1 else 5))
             VisualFingerprint(ref.key,uri,MediaType.valueOf(data.getString("type")),stamp.bytes,stamp.modified,data.getString("sha"),data.getInt("width"),data.getInt("height"),
                 if(data.isNull("duration"))null else data.getLong("duration"),(0 until frames.length()).map{frames.getLong(it)},data.getBoolean("informative"))
                 .takeIf{it.type==ref.item.mediaType&&it.sha.isNotBlank()}
@@ -76,9 +76,9 @@ internal object VisualDuplicateScanner {
             return Frame(hash,gray.maxOrNull()!!-gray.minOrNull()!!>=24&&java.lang.Long.bitCount(hash) in 5..59)
         }finally{if(small!==bitmap)small.recycle()}
     }
-    private suspend fun read(context:Context,ref:LibraryMediaRef,metrics:DuplicateScanMetrics,epoch:Long):VisualFingerprint {
+    private suspend fun read(context:Context,ref:LibraryMediaRef,metrics:DuplicateScanMetrics,epoch:Long):Pair<VisualFingerprint,Boolean> {
         val row=ref.item;val uri=Uri.parse(requireNotNull(row.savedUri));val before=metrics.measure("metadata_stamp"){stamp(context,uri)}
-        metrics.measure("checkpoint_read"){cached(context,ref,uri.toString(),before,epoch)}?.let{metrics.hit("visual_cache");return it}
+        metrics.measure("checkpoint_read"){cached(context,ref,uri.toString(),before,epoch)}?.let{metrics.hit("visual_cache");return it to true}
         val hash=metrics.measure("sha256"){sha(context,uri)}
         var width=0;var height=0;var duration:Long?=null;val frames=mutableListOf<Frame>()
         try { metrics.measure(if(row.mediaType==MediaType.PHOTO)"photo_decode" else "video_frames") {
@@ -110,7 +110,7 @@ internal object VisualDuplicateScanner {
         }}catch(e:CancellationException){throw e}catch(_:Exception){frames.clear()}
         check(before==stamp(context,uri)){"File changed during scan"}
         return VisualFingerprint(ref.key,uri.toString(),row.mediaType,before.bytes,before.modified,hash,width,height,duration,
-            frames.map{it.hash},frames.isNotEmpty()&&frames.all{it.informative}).also{f->metrics.measure("checkpoint_write"){save(context,f,epoch)}}
+            frames.map{it.hash},frames.isNotEmpty()&&frames.all{it.informative}).also{f->metrics.measure("checkpoint_write"){save(context,f,epoch)}} to false
     }
     /** Cheap catalog reconciliation is not authorization to trash a file. */
     fun matchesCatalog(snapshot:VisualFingerprint,ref:LibraryMediaRef):Boolean {
@@ -133,38 +133,53 @@ internal object VisualDuplicateScanner {
         }catch(e:CancellationException){throw e}catch(_:Exception){false}
     }
 
-    suspend fun scan(context:Context,refs:List<LibraryMediaRef>,onPhase:(DuplicateScanPhase)->Unit={},onPartial:(VisualScanResult)->Unit={},progress:(Int,Int)->Unit={ _, _ -> }):VisualScanResult=withContext(Dispatchers.IO){
-        val candidates=refs.filter{val r=it.item;!r.isPrivate&&!r.hidden&&r.state==DownloadState.COMPLETED&&r.mediaType!=MediaType.AUDIO&&!r.savedUri.isNullOrBlank()}
-            .distinctBy{it.item.savedUri}
+    suspend fun scan(context:Context,refs:List<LibraryMediaRef>,source:LibrarySource=LibrarySource.PHONE,
+        expectedEpoch:Long=DuplicatePrivacyGuard.generation(context),onPhase:(DuplicateScanPhase)->Unit={},
+        onPartial:(VisualScanResult)->Unit={},progress:(VisualScanCoverage)->Unit={}):VisualScanResult=withContext(Dispatchers.IO){
+        val candidates=VisualDuplicateCatalog.candidates(refs)
         val metrics=DuplicateScanMetrics("gallery")
-        val epoch=DuplicatePrivacyGuard.generation(context)
-        synchronized(DuplicatePrivacyGuard.lock){
+        val epoch=expectedEpoch
+        check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск устарел"}
+        // A narrower ML-only scan must not delete fingerprints of other phone files.
+        // Prune stale entries only when scanning the complete accessible phone scope.
+        if(source==LibrarySource.PHONE) synchronized(DuplicatePrivacyGuard.lock){
+            check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск устарел"}
             val allowed=candidates.mapNotNull{it.item.savedUri}.map(::key).toSet()
             directory(context).listFiles().orEmpty().filter{it.name !in allowed}.forEach{it.delete()}
         }
-        val rows=mutableListOf<VisualFingerprint>();val seen=mutableSetOf<String>();var skipped=0
+        val rows=mutableListOf<VisualFingerprint>();val seen=mutableSetOf<String>()
+        var coverage=VisualScanCoverage(source,candidates.size)
         onPhase(DuplicateScanPhase.VISUAL)
-        onPartial(VisualScanResult(emptyList(),0,epoch))
+        progress(coverage)
+        onPartial(VisualScanResult(emptyList(),0,epoch,coverage))
         for((index,ref) in candidates.withIndex()){
             coroutineContext.ensureActive()
             check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск сброшен после изменения приватности"}
-            try{
+            val outcome=try{
                 val ids=metrics.measure("identity"){PublicMediaIdentity.capture(context,requireNotNull(ref.item.savedUri))}
                 check(DuplicatePrivacyGuard.accepts(context,epoch,ref.key,ids))
                 if(ref.appDownloadId!=null)check(DuplicatePrivacyGuard.accepts(context,epoch,ref.appDownloadId,ids))
-                if(ids.none{it in seen}){rows+=read(context,ref,metrics,epoch);seen+=ids}
-            }catch(e:CancellationException){throw e}catch(_:Exception){skipped++}
-            progress(index+1,candidates.size)
+                if(ids.any{it in seen}) coverage.record(VisualScanOutcome.ALIAS)
+                else {
+                    val (fingerprint,cached)=read(context,ref,metrics,epoch)
+                    rows+=fingerprint;seen+=ids
+                    coverage.record(if(cached)VisualScanOutcome.CACHED else VisualScanOutcome.COMPUTED,
+                        fingerprint.frames.size!=(if(fingerprint.type==MediaType.PHOTO)1 else 5))
+                }
+            }catch(e:CancellationException){throw e}catch(_:Exception){coverage.record(VisualScanOutcome.FAILED)}
+            coverage=outcome
+            progress(coverage)
             if((index+1)%100==0){
                 val exact=rows.filter{it.sha.isNotBlank()}.groupBy{Triple(it.type,it.bytes,it.sha)}.values.filter{it.size>1}.map{VisualDuplicateGroup(it,VisualMatch.EXACT)}
-                check(DuplicatePrivacyGuard.generation(context)==epoch);onPartial(VisualScanResult(exact,skipped,epoch));metrics.report("visual",index+1,skipped)
+                check(DuplicatePrivacyGuard.generation(context)==epoch);onPartial(VisualScanResult(exact,coverage.failed,epoch,coverage));metrics.report("visual",index+1,coverage.failed)
             }
         }
         onPhase(DuplicateScanPhase.GROUPING)
         val ctx=coroutineContext
         val groups=metrics.measure("grouping"){VisualDuplicatePolicy.groups(rows){ctx.ensureActive();check(DuplicatePrivacyGuard.generation(context)==epoch)}}
         check(DuplicatePrivacyGuard.generation(context)==epoch)
-        metrics.report("completed",candidates.size,skipped)
-        VisualScanResult(groups,skipped,epoch)
+        metrics.report("completed",candidates.size,coverage.failed)
+        com.domenota.medialoader.core.logging.AppLog.i("DuplicateScanMetrics", "gallery coverage=${coverage.total} cached=${coverage.cached} computed=${coverage.computed} aliases=${coverage.aliases} failed=${coverage.failed} incompleteVisual=${coverage.incompleteVisual} scope=${coverage.source}")
+        VisualScanResult(groups,coverage.failed,epoch,coverage)
     }
 }
