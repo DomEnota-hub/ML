@@ -234,4 +234,31 @@ class AudioQueuePlaybackTest {
             assertEquals(1.5f,player.playbackParameters.speed,.001f)
         } finally {player.release()}
     }
+
+    @Test fun sameOrderedSelectionSeeksWithoutReplacingTimeline(){
+        val player=ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try{
+            val queue=listOf(item("a"),item("b"),item("c"))
+            player.setMediaItems(queue);player.prepare()
+            val timeline=player.currentTimeline
+            assertTrue(AudioQueuePlayback.startSelection(player,queue,false,"c"))
+            assertSame(timeline,player.currentTimeline)
+            assertEquals(2,player.currentMediaItemIndex);assertEquals(3,player.mediaItemCount)
+            assertTrue(player.playWhenReady)
+            val changed=queue.toMutableList().apply{this[1]=item("new")}
+            assertTrue(AudioQueuePlayback.startSelection(player,changed,false,"c"))
+            assertEquals("new",player.getMediaItemAt(1).mediaId)
+        }finally{player.release()}
+    }
+    @Test fun queueReuseRequiresExactUriContextAndOrder(){
+        val first=item("a")
+        assertTrue(AudioQueuePlayback.sameQueueItem(first,item("a")))
+        assertFalse(AudioQueuePlayback.sameQueueItem(first,first.buildUpon().setUri("file:///changed.mp3").build()))
+        val changed=first.buildUpon().setMediaMetadata(first.mediaMetadata.buildUpon().setExtras(Bundle().apply{
+            putBoolean("private_media",false);putString(AudioPlaybackMetadata.RESUME_CONTEXT,"another")
+        }).build()).build()
+        assertFalse(AudioQueuePlayback.sameQueueItem(first,changed))
+        val player=ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try{player.setMediaItems(listOf(first,item("b")));assertFalse(AudioQueuePlayback.sameOrderedQueue(player,listOf(item("b"),first)))}finally{player.release()}
+    }
 }

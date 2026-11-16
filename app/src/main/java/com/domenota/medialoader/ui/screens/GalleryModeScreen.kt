@@ -253,7 +253,9 @@ internal fun GalleryModeScreen(
     // One label per actual grid item, including controls and full-width date headers.
     // When sorting by name/size, the label is the date of the actual target file.
     val galleryScrollLabels = remember(orderedDisplayed, dateSections, detailOpen, albumFileSort) {
-        galleryFastScrollLabels(orderedDisplayed, !detailOpen || GalleryAlbumFileOrder.groupedByDate(albumFileSort))
+        com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.GALLERY_DATES){
+            galleryFastScrollLabels(orderedDisplayed, !detailOpen || GalleryAlbumFileOrder.groupedByDate(albumFileSort))
+        }
     }
     LaunchedEffect(jumpToMedia, orderedDisplayed, detailOpen, tab, albumFileSort) {
         val id = jumpToMedia ?: return@LaunchedEffect

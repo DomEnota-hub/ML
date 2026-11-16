@@ -42,8 +42,13 @@ internal class LibraryAudioPreview(context: Context) {
         if(queueOwner!==player || queueTimeline!==player.currentTimeline || forceQueue || queueSnapshot.size!=player.mediaItemCount ||
             queueSnapshot.getOrNull(player.currentMediaItemIndex)!=current) {
             queueOwner=player;queueTimeline=player.currentTimeline
-            queueSnapshot=(0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
-            com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(com.domenota.medialoader.core.logging.LibraryWork.AUDIO_QUEUE_CAPTURE)
+            val candidate=com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PLAYER_QUEUE_CAPTURE){
+                (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+            }
+            if(candidate.size!=queueSnapshot.size || candidate.indices.any{candidate[it]!==queueSnapshot[it]}){
+                queueSnapshot=candidate
+                com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(com.domenota.medialoader.core.logging.LibraryWork.AUDIO_QUEUE_CAPTURE)
+            }
         }
         if(identityItem!==current) {
             identityItem=current
@@ -80,11 +85,16 @@ internal class LibraryAudioPreview(context: Context) {
         sync(controller)
         controller
     }
+    private data class PreparedQueue(val privacyEpoch:Long,val refs:List<LibraryMediaRef>,val playlist:String?,val contextId:String?,val preserve:Boolean,val items:List<MediaItem>)
+    @Volatile private var preparedQueue:PreparedQueue?=null
+    // Called on IO. A single immutable entry avoids retaining several huge queues.
     private fun queueItems(refs:List<LibraryMediaRef>,playlistId:String?=null,contextId:String?=null,preserveOccurrences:Boolean=false):List<androidx.media3.common.MediaItem> {
+        val epoch=com.domenota.medialoader.data.library.DuplicatePrivacyGuard.generation(context)
+        preparedQueue?.takeIf{it.privacyEpoch==epoch&&it.playlist==playlistId&&it.contextId==contextId&&it.preserve==preserveOccurrences&&it.refs==refs}?.let{return it.items}
         val public=refs.filter{!it.item.isPrivate&&!it.item.hidden&&it.item.mediaType==MediaType.AUDIO&&
             it.item.state==DownloadState.COMPLETED&&!it.item.savedUri.isNullOrBlank()}.let { if(preserveOccurrences)it else it.distinctBy { row->row.key } }
         val tag=contextId?:ResumeQueuePolicy.contextId(playlistId,public.map{ListeningHistoryPolicy.keys(it.item,it.aliases)})
-        return public.map{AudioPlaybackMetadata.item(it.item,it.aliases,playlistId,tag)}
+        return public.map{AudioPlaybackMetadata.item(it.item,it.aliases,playlistId,tag)}.also{preparedQueue=PreparedQueue(epoch,refs.toList(),playlistId,contextId,preserveOccurrences,it)}
     }
     suspend fun observe() { controller() }
     suspend fun observeCurrent() { controller() }
@@ -138,6 +148,7 @@ internal class LibraryAudioPreview(context: Context) {
     fun close() {
         connected?.removeListener(listener)
         connected = null
+        preparedQueue=null
         resetQueue()
         future?.let(MediaController::releaseFuture)
         future = null

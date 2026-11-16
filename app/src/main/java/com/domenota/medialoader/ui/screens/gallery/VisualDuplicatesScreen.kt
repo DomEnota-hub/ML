@@ -43,6 +43,8 @@ import com.domenota.medialoader.ui.model.MediaKind
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit) {
@@ -66,9 +68,22 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     LaunchedEffect(journal,status.running,privacyEpoch){history=VisualDuplicateSessionStore.history(context);storedPartial=VisualDuplicateSessionStore.partial(context)}
     LaunchedEffect(privacyEpoch){preview=null;journal=false}
     val list=rememberLazyListState()
-    val byId=remember(refs,ready){if(ready)refs.groupBy{it.key}.mapNotNull{(id,rows)->rows.singleOrNull()?.let{id to it}}.toMap() else emptyMap()}
-    // Render only a projection validated against the current complete public catalog.
-    val current=remember(session,refs,ready,privacyEpoch){if(ready)session?.takeIf{it.result.privacyEpoch==privacyEpoch}?.reconcile(refs) else null}
+    val projectionGuard=emptySet<String>().takeIf{ready}
+    val indexProjection=com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        emptyMap<String,LibraryMediaRef>(),projectionGuard,refs,accessGuard=privacyEpoch) {
+        com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.DUPLICATE_INDEX){
+            refs.groupBy{it.key}.mapNotNull{(id,rows)->rows.singleOrNull()?.let{id to it}}.toMap()
+        }
+    }
+    val byId=if(indexProjection.ready)indexProjection.value else emptyMap()
+    // Never authorize/report against a retained index for a superseded catalog.
+    val currentProjection=com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        null as VisualDuplicateSession?,projectionGuard,session?.result,byId,accessGuard=privacyEpoch,enabled=indexProjection.ready){
+        session?.takeIf{it.result.privacyEpoch==privacyEpoch}?.reconcileById(byId)
+    }
+    val reconciled=currentProjection.value.takeIf{currentProjection.ready}
+    val current=remember(session,reconciled){if(session!=null&&reconciled!=null)session?.copy(result=reconciled.result)?.normalized() else null}
+    val displayReady=ready&&indexProjection.ready&&currentProjection.ready
     val latestSession by rememberUpdatedState(session)
     val partial=(if(status.running)status.partial else status.partial?:storedPartial?.result)?.takeIf{it.privacyEpoch==privacyEpoch}
     fun exactBytes(value:List<VisualDuplicateGroup>)=value.filter{it.reason==VisualMatch.EXACT}.sumOf{g->g.files.sumOf{it.bytes}-(g.files.firstOrNull()?.bytes?:0L)}
@@ -81,8 +96,8 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
             if(fresh.scannedAt!=session?.scannedAt){session=fresh;restored=false}
         }
     }
-    LaunchedEffect(ready,refs,loaded,status.running,trash) {
-        if(ready&&loaded&&!status.running&&trash==null) session=session?.reconcile(refs)
+    LaunchedEffect(current,displayReady,loaded,status.running,trash) {
+        if(displayReady&&loaded&&!status.running&&trash==null&&current!=null&&current!=session)session=current
     }
     LaunchedEffect(current?.scannedAt,loaded,ready,restored) {
         if(loaded&&ready&&!restored&&current!=null){
@@ -153,13 +168,13 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
                 Button({VisualDuplicateBackgroundScan.start(context,refs)},enabled=ready&&loaded&&!saving&&trash==null){Text(if(VisualDuplicateBackgroundScan.interrupted(context))"Продолжить поиск" else "Новый поиск")}
                 OutlinedButton({scope.launch{
                     val previous=VisualDuplicateSessionStore.load(context)
-                    session=previous?.reconcile(refs);restored=false
+                    session=withContext(Dispatchers.Default){previous?.reconcile(refs)};restored=false
                 }},enabled=ready&&loaded&&!saving&&trash==null){Text("Последний поиск")}
             }
         }
         status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        if(!ready||!loaded)return@Column
+        if(!displayReady||!loaded)return@Column
         if(status.running&&partial!=null){
             Text("Предварительные результаты · удаление после завершения")
             LazyColumn(Modifier.weight(1f)){items(partial.groups,key={it.files.first().id}){g->
@@ -209,7 +224,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     }
     if(journal)DuplicateJournalDialog("Журнал Галереи",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size})},
         storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size} ,VisualDuplicateBackgroundScan.journalStatus(context))},
-        onOpen={at->journal=false;if(!status.running&&ready)history.firstOrNull{it.scannedAt==at}?.let{persist(it.reconcile(refs));restored=false}},
+        onOpen={at->journal=false;if(!status.running&&displayReady)history.firstOrNull{it.scannedAt==at}?.let{saved->scope.launch{val checked=withContext(Dispatchers.Default){saved.reconcileById(byId)};if(DuplicatePrivacyGuard.generation(context)==privacyEpoch){persist(checked);restored=false}}}},
         onResume={journal=false;if(!status.running&&ready)VisualDuplicateBackgroundScan.start(context,refs)},onDismiss={journal=false},
         onPartial={journal=false;showPartial=true},resumeEnabled=!status.running&&ready)
     if(showPartial&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},

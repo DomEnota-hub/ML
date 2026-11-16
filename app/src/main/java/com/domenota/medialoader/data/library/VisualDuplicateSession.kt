@@ -24,10 +24,12 @@ internal data class VisualDuplicateSession(
     /** Reconcile only against a complete public catalog. Never use this to
      * authorize a trash operation; that requires a fresh full fingerprint. */
     fun reconcile(refs:List<LibraryMediaRef>):VisualDuplicateSession {
-        val byId=refs.groupBy{it.key}
+        return reconcileById(refs.groupBy{it.key}.mapNotNull{(id,rows)->rows.singleOrNull()?.let{id to it}}.toMap())
+    }
+    internal fun reconcileById(byId:Map<String,LibraryMediaRef>):VisualDuplicateSession {
         val groups=result.groups.mapNotNull{group->
             val remaining=group.files.filter{snapshot->
-                val ref=byId[snapshot.id]?.singleOrNull()
+                val ref=byId[snapshot.id]
                 ref!=null && VisualDuplicateScanner.matchesCatalog(snapshot,ref)
             }
             if(remaining.size>=2)group.copy(files=remaining) else null

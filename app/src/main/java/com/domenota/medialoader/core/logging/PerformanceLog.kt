@@ -48,10 +48,16 @@ object PerformanceLog {
         var sent = 0L
         var token = 0L
         var reported = false
+        var lastDetailed = 0L
         val stall = StallWindow()
         task = worker.scheduleWithFixedDelay({
             if (!active || epoch.get() != session) return@scheduleWithFixedDelay
             val now = SystemClock.uptimeMillis()
+            if(AppLog.isDetailedPerformance() && now-lastDetailed>=15_000L) {
+                lastDetailed=now
+                val stats=runCatching { android.os.Debug.getRuntimeStats() }.getOrDefault(emptyMap())
+                AppLog.i("Perf", "DETAIL · screen=$screen · ${memory()} · gcCount=${stats["art.gc.gc-count"] ?: "?"} · gcTimeMs=${stats["art.gc.gc-time"] ?: "?"} · gcBlockingCount=${stats["art.gc.blocking-gc-count"] ?: "?"} · gcBlockingTimeMs=${stats["art.gc.blocking-gc-time"] ?: "?"} · ${DetailedPerformance.summary()}")
+            }
             if (waiting && acknowledged.get() == token) {
                 if (reported) AppLog.i("Perf", "UI_RECOVERED · blockedMs=${now - sent} · screen=$screen")
                 waiting = false; reported = false; stall.reset()

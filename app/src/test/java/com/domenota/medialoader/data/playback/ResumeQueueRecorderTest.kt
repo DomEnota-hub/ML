@@ -51,7 +51,7 @@ class ResumeQueueRecorderTest {
         val store=ResumeQueueStore.forTest(context,name)
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
         val fake=Fake()
-        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true})
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},Dispatchers.Unconfined)
         try {
             recorder.attach()
             fake.queue=listOf(item("a","one"),item("b","one"));fake.index=1;fake.position=102_000;fake.playing=true
@@ -77,7 +77,7 @@ class ResumeQueueRecorderTest {
         val store=ResumeQueueStore.forTest(context,name)
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
         val fake=Fake().apply {queue=listOf(item("a","one"),item("a","one"),item("b","one"));index=1;position=50_000;playing=true}
-        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true})
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},Dispatchers.Unconfined)
         try {
             recorder.attach()
             val saved=withTimeout(5000){store.sessions.first {it.isNotEmpty()}}.single()
@@ -99,7 +99,7 @@ class ResumeQueueRecorderTest {
         val store=ResumeQueueStore.forTest(context,name)
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
         val fake=Fake().apply {queue=(0 until 2500).map{item("large$it","large")};index=1200;position=30_000;playing=true}
-        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true})
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},Dispatchers.Unconfined)
         try {
             recorder.attach()
             assertEquals(2500,fake.reads)
@@ -110,5 +110,56 @@ class ResumeQueueRecorderTest {
             fake.queue=fake.queue.reversed();recorder.refresh(true)
             assertEquals(5000,fake.reads)
         } finally {recorder.release();scope.cancel();store.closeForTest()}
+    }
+
+    private class DelayedPreparation:CoroutineDispatcher(){
+        private val pending=java.util.ArrayDeque<Runnable>()
+        override fun dispatch(context:kotlin.coroutines.CoroutineContext,block:Runnable){pending.addLast(block)}
+        fun drain(){while(pending.isNotEmpty())pending.removeFirst().run()}
+    }
+    @Test fun supersededWorkerCannotSaveOldQueueOrPrivateAccess()=runBlocking {
+        val store=ResumeQueueStore.forTest(context,name)
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
+        val worker=DelayedPreparation()
+        val fake=Fake().apply{queue=listOf(item("a","old"));position=5000;playing=true}
+        var access=PublicListeningIdentity.Access(true,emptySet())
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context,{access}){true},worker)
+        try{
+            recorder.attach();assertTrue(store.sessions.value.isEmpty())
+            fake.queue=listOf(item("b","new"));recorder.refresh()
+            worker.drain()
+            val saved=withTimeout(5000){store.sessions.first{it.isNotEmpty()}}
+            assertEquals(listOf("playlist:new"),saved.map{it.id})
+            fake.queue=listOf(item("secret","blocked"));recorder.refresh()
+            access=PublicListeningIdentity.Access(true,setOf("secret"));worker.drain()
+            val barrier=saved.single().copy(id="barrier");store.submit(barrier)
+            withTimeout(5000){store.sessions.first{it.any{s->s.id=="barrier"}}}
+            assertFalse(store.sessions.value.any{it.id=="playlist:blocked"||it.id=="playlist:old"})
+        }finally{recorder.release();worker.drain();scope.cancel();store.closeForTest()}
+    }
+    @Test fun clearDuringPreparationCannotRecreateEvenPreviouslyUnknownQueue()=runBlocking {
+        val store=ResumeQueueStore.forTest(context,name)
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
+        val worker=DelayedPreparation()
+        val fake=Fake().apply{queue=listOf(item("a","new"));position=5000;playing=true}
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},worker)
+        try{
+            recorder.attach();store.clearSaved();worker.drain()
+            val barrier=ResumeQueueSession("barrier",null,listOf(setOf("app:a")),0,1,100,false,0,1f,100)
+            store.submit(barrier);withTimeout(5000){store.sessions.first{it.any{s->s.id=="barrier"}}}
+            assertEquals(listOf("barrier"),store.readForTest().map{it.id})
+        }finally{recorder.release();worker.drain();scope.cancel();store.closeForTest()}
+    }
+    @Test fun releaseFinishesPendingCheckpointWithFrozenPosition()=runBlocking {
+        val store=ResumeQueueStore.forTest(context,name)
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
+        val worker=DelayedPreparation()
+        val fake=Fake().apply{queue=listOf(item("a","one"),item("b","one"));index=1;position=5000;playing=true}
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},worker)
+        try{
+            recorder.attach();fake.position=9000;recorder.release();fake.queue=emptyList();fake.position=0;worker.drain()
+            val saved=withTimeout(5000){store.sessions.first{it.isNotEmpty()}}.single()
+            assertEquals(1,saved.index);assertEquals(9000L,saved.positionMs);assertEquals(2,saved.entries.size)
+        }finally{scope.cancel();store.closeForTest()}
     }
 }

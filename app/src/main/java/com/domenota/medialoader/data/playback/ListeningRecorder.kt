@@ -11,7 +11,7 @@ import kotlinx.coroutines.*
 internal class ListeningRecorder(context: Context, private val player: Player,
     private val scope: CoroutineScope, private val store: ListeningHistoryStore,
     private val allowed: (MediaItem) -> Boolean) : Player.Listener {
-    private val identity=PublicListeningIdentity(context,allowed)
+    private val identity=PublicListeningIdentity(context, allowed = allowed)
     private var active: ListeningCounter? = null
     private var activeKeys: Set<String> = emptySet()
     private var ticker: Job? = null

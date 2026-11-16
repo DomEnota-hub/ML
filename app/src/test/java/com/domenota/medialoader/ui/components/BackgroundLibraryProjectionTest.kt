@@ -83,11 +83,12 @@ class BackgroundLibraryProjectionTest {
                 sessions.incrementAndGet();indexed.value + queue
             }
             SideEffect { shown = if (session.usable) session.value else indexed.value; ready = indexed.ready && (!enabled || session.ready) }
-            Text("$mode:$tick:${shown.size}")
+            Text("$mode:$tick:${if (session.usable) session.value.size else indexed.value.size}")
         }
         compose.waitUntil(5000) { ready && shown == inventory }
         assertEquals(0,sessions.get())
         compose.runOnIdle { enabled=true }
+        compose.waitForIdle()
         compose.waitUntil(5000) { ready && shown==inventory+queue }
         repeat(30) {
             compose.runOnIdle { tick++;mode=if(mode=="gallery") "music" else "gallery" }
@@ -115,6 +116,7 @@ class BackgroundLibraryProjectionTest {
         compose.runOnIdle { access=null };compose.waitForIdle()
         assertEquals("",shown);assertFalse(ready);assertEquals(1,builds.get())
         compose.runOnIdle { access="after" }
+        compose.waitForIdle()
         compose.waitUntil(5000){shown=="new"&&ready}
         assertEquals(2,builds.get());assertFalse(leaks.any { it })
     }

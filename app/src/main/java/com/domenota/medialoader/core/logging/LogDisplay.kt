@@ -32,21 +32,22 @@ object LogDisplay {
 
     fun entries(raw: String): List<DisplayLogEntry> {
         val entries = mutableListOf<DisplayLogEntry>()
+        var current:DisplayLogEntry?=null
+        var stack=mutableListOf<String>()
+        fun flush(){current?.let{entries.add(it.copy(stack=stack.toList()))};stack=mutableListOf()}
         for (line in raw.lineSequence()) {
             if (line.isBlank()) continue
             val matched = eventPattern.matchEntire(line)
             if (matched == null) {
                 // Stack traces and multiline diagnostics belong to their original event.
-                if (entries.isNotEmpty()) {
-                    val last = entries.lastIndex
-                    entries[last] = entries[last].copy(stack = entries[last].stack + line)
-                }
+                if (current!=null) stack.add(line)
                 continue
             }
             val (timestamp, technicalLevel, tag, message) = matched.destructured
             val event = message.substringBefore(" · ").trim()
             val metadata = message.substringAfter(" · ", "").trim()
-            entries.add(DisplayLogEntry(
+            flush()
+            current=DisplayLogEntry(
                 original = line,
                 timestamp = timestamp,
                 technicalLevel = technicalLevel,
@@ -54,11 +55,24 @@ object LogDisplay {
                 event = event,
                 metadata = metadata,
                 tone = classify(technicalLevel, tag, event, line),
-            ))
+            )
         }
+        flush()
         return entries
     }
 
+    internal data class Presentation(val raw:List<DisplayLogEntry>,val compact:List<DisplayLogEntry>,
+        val rawByTone:Map<LogTone,List<DisplayLogEntry>>,val compactByTone:Map<LogTone,List<DisplayLogEntry>>) {
+        fun entries(tone:LogTone?,readable:Boolean):List<DisplayLogEntry> = if(tone==null){if(readable)compact else raw}
+            else (if(readable)compactByTone else rawByTone)[tone].orEmpty()
+    }
+    internal fun prepare(raw:String):Presentation {
+        val events=DetailedPerformance.measure(PerfWork.LOG_PARSE){entries(raw)}
+        return DetailedPerformance.measure(PerfWork.LOG_FILTER){
+            val compact=compact(events)
+            Presentation(events,compact,events.groupBy{it.tone},compact.groupBy{it.tone})
+        }
+    }
     fun classify(level: String, tag: String, event: String, raw: String = ""): LogTone {
         // The source event's status wins unless a narrowly defined successful
         // completion had historically been written as INFO.

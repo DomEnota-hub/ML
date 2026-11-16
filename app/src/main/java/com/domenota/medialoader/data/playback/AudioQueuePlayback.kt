@@ -3,6 +3,8 @@ package com.domenota.medialoader.data.playback
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import java.util.WeakHashMap
+import com.domenota.medialoader.core.logging.DetailedPerformance
+import com.domenota.medialoader.core.logging.PerfWork
 
 /** Preview is service-owned. Tapping an already playing track never replaces its queue. */
 internal object AudioQueuePlayback {
@@ -35,6 +37,33 @@ internal object AudioQueuePlayback {
         val selectedKeys = selected.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty().toSet()
         val currentKeys = current.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty()
         return selected.mediaId == current.mediaId || current.mediaId in selectedKeys || currentKeys.any(selectedKeys::contains)
+    }
+    /** Exact ordered content, including fields not covered by MediaMetadata.equals.
+     * A changed physical URI, context, revision or identity must replace the queue. */
+    private val contextKeys=listOf(AudioPlaybackMetadata.PLAYLIST_ID,AudioPlaybackMetadata.RESUME_CONTEXT,AudioPlaybackMetadata.CONTENT_REVISION)
+    internal fun sameQueueItem(a:MediaItem,b:MediaItem):Boolean {
+        if(a===b)return true
+        val x=a.mediaMetadata.extras;val y=b.mediaMetadata.extras
+        fun uri(item:MediaItem)=item.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PUBLIC_URI)?:item.localConfiguration?.uri?.toString()
+        if(a.mediaId!=b.mediaId || uri(a)!=uri(b) || a.mediaMetadata!=b.mediaMetadata ||
+            (a.localConfiguration!=null && b.localConfiguration!=null && a.localConfiguration!=b.localConfiguration) ||
+            a.clippingConfiguration!=b.clippingConfiguration || a.liveConfiguration!=b.liveConfiguration || a.requestMetadata!=b.requestMetadata)return false
+        return contextKeys.all{x?.getString(it)==y?.getString(it)} &&
+            x?.getBoolean("private_media",false)==y?.getBoolean("private_media",false) &&
+            x?.getBoolean(AudioPlaybackMetadata.FILENAME_TITLE,false)==y?.getBoolean(AudioPlaybackMetadata.FILENAME_TITLE,false) &&
+            x?.getLong(AudioPlaybackMetadata.VERIFIED_DURATION,0L)==y?.getLong(AudioPlaybackMetadata.VERIFIED_DURATION,0L) &&
+            x?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS)==y?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS) &&
+            x?.getStringArrayList(AudioPlaybackMetadata.LISTENING_KEYS)==y?.getStringArrayList(AudioPlaybackMetadata.LISTENING_KEYS)
+    }
+    internal fun sameOrderedQueue(player:Player,items:List<MediaItem>):Boolean =
+        player.mediaItemCount==items.size && items.indices.all{sameQueueItem(player.getMediaItemAt(it),items[it])}
+    private fun selectQueue(player:Player,items:List<MediaItem>,index:Int) {
+        if(sameOrderedQueue(player,items)) {
+            DetailedPerformance.measure(PerfWork.PLAYER_QUEUE_REUSE){player.seekTo(index,0L)}
+            if(player.playbackState==Player.STATE_IDLE||player.playbackState==Player.STATE_ENDED||player.playerError!=null)player.prepare()
+        } else {
+            DetailedPerformance.measure(PerfWork.PLAYER_QUEUE_REPLACE){player.setMediaItems(items,index,0L);player.prepare()}
+        }
     }
     /** play() alone cannot start a stopped/failed ExoPlayer timeline in STATE_IDLE. */
     fun toggle(player: Player) {
@@ -86,8 +115,7 @@ internal object AudioQueuePlayback {
         if(start<0)return false
         nextBatches.remove(player)
         player.shuffleModeEnabled = shuffle
-        player.setMediaItems(public,start,0L)
-        player.prepare()
+        selectQueue(player,public,start)
         player.play()
         return true
     }
@@ -130,8 +158,7 @@ internal object AudioQueuePlayback {
             toggle(player)
         } else {
             nextBatches.remove(player)
-            player.setMediaItems(public, index, 0L)
-            player.prepare()
+            selectQueue(player,public,index)
             player.play()
         }
         return true

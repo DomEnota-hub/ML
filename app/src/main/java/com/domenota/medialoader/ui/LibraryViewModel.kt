@@ -599,7 +599,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     }
                 val currentStamp = phone.storeStamp()
                 if (maySkipUnchangedMediaNotification(storeStamps[mode], currentStamp,
-                        accessSignatures[mode] == signature, selectedOnly)) return@forEach
+                        accessSignatures[mode] == signature, selectedOnly)) {
+                    com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED){}
+                    return@forEach
+                }
                 refresh(mode, force = true)
             }
         }
@@ -716,9 +719,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     PhoneMediaSnapshot(it.items, it.identities, it.fingerprints)
                 }
                 val startedAt = android.os.SystemClock.elapsedRealtime()
+                val scanTiming=com.domenota.medialoader.core.logging.DetailedPerformance.begin()
                 val cacheCheckpoint = PhoneScanCheckpointPolicy()
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan started · mode=$mode · retained=${previous?.items?.size ?: 0}")
-                val snapshot = phone.scanSnapshot(mode, previous, keys.filterTo(mutableSetOf()) { it.startsWith("file-stat:") }) { partialSnapshot ->
+                val progress: (suspend (PhoneMediaSnapshot) -> Unit)? = if (blocking && !partial) { { partialSnapshot ->
                     if (blocking && !partial && stillAllowed()) {
                         state.value = PhoneLibraryState(items = partialSnapshot.items, identities = partialSnapshot.identities,
                             fingerprints = partialSnapshot.fingerprints, loaded = true, loading = true,
@@ -735,6 +739,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                         }
                     }
                 }
+                } else null
+                val snapshot = phone.scanSnapshot(mode, previous, keys.filterTo(mutableSetOf()) { it.startsWith("file-stat:") }, onProgress = progress)
+                com.domenota.medialoader.core.logging.DetailedPerformance.end(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN,scanTiming)
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan finished · mode=$mode · count=${snapshot.items.size} · ms=${android.os.SystemClock.elapsedRealtime() - startedAt}")
                 val after = phone.storeStamp()
                 if (!stillAllowed()) { refresh(mode, force = true, invalidate = true); return@launch }

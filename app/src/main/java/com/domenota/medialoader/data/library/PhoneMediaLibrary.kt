@@ -28,7 +28,7 @@ class PhoneMediaLibrary(context: Context) {
 
     internal suspend fun scanSnapshot(mode: AppMode, previous: PhoneMediaSnapshot? = null,
         protectedPhysicalKeys: Set<String> = emptySet(),
-        onProgress: suspend (PhoneMediaSnapshot) -> Unit = {},
+        onProgress: (suspend (PhoneMediaSnapshot) -> Unit)? = null,
     ): PhoneMediaSnapshot = withContext(Dispatchers.IO) {
         com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
             com.domenota.medialoader.core.logging.LibraryWork.MEDIASTORE_SCAN)
@@ -92,7 +92,7 @@ class PhoneMediaLibrary(context: Context) {
                         }
                         rows += row
                         val now = android.os.SystemClock.elapsedRealtime()
-                        if ((!published && rows.size >= 64) || (published && now - lastProgress >= 1000)) {
+                        if (onProgress != null && ((!published && rows.size >= 64) || (published && now - lastProgress >= 1000))) {
                             // Deliver a usable first page without waiting for every file/provider.
                             // Recheck collection access before exposing an incremental snapshot.
                             if (scannedAccess.all { (kind, level) -> accessLevel(kind) >= level }) {

@@ -42,6 +42,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Article
 import androidx.compose.material.icons.rounded.BugReport
@@ -450,6 +451,7 @@ fun SettingsScreen(
     var logsDialog by remember { mutableStateOf(false) }
     var confirmClearAppLog by remember { mutableStateOf(false) }
     var extendedLog by remember(context) { mutableStateOf(AppLog.isExtended()) }
+    var detailedPerf by remember(context) { mutableStateOf(AppLog.isDetailedPerformance()) }
     var developerVisible by remember {
         mutableStateOf(prefs.getBoolean("developer_visible", prefs.getBoolean("logs_unlocked", false)))
     }
@@ -1330,6 +1332,12 @@ fun SettingsScreen(
                         AppLog.setExtended(extendedLog)
                     },
                 )
+                GroupDivider()
+                SettingRow(Icons.Rounded.Speed, "Подробная диагностика производительности",
+                    if(detailedPerf) "Очереди, кеш, память и длительность операций · включена" else "Дополнительные замеры · выключена",
+                    grouped=true, iconTone=SettingIconTone.DIAGNOSTICS, showChevron=false,
+                    trailing={Switch(checked=detailedPerf,onCheckedChange={ value -> detailedPerf=value;AppLog.setDetailedPerformance(value) })},
+                    onClick={detailedPerf=!detailedPerf;AppLog.setDetailedPerformance(detailedPerf)})
                 GroupDivider()
                 SettingRow(Icons.Rounded.Science, "Лаборатория исправлений",
                     if (recoveryLabVisible) "Показана" else "Скрыта", grouped = true,

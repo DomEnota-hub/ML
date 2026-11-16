@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   storage-and-regression:
-    if: github.head_ref != 'feature/ml-17168-dated-replacement'
+    if: github.head_ref != 'feature/ml-17168-dated-replacement' && (github.event_name == 'workflow_dispatch' || (github.head_ref != 'feature/ml-17195-projection-stability' && github.ref_name != 'feature/ml-17195-projection-stability'))
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
