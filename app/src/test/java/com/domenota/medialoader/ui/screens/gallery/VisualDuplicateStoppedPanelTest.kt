@@ -33,8 +33,17 @@ class VisualDuplicateStoppedPanelTest {
             val layouts=mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
             assertTrue(action(layouts))
             assertTrue(layouts.isNotEmpty())
-            assertTrue("Text must fit one line: "+layouts.joinToString { "lines=${it.lineCount},widthOverflow=${it.didOverflowWidth},heightOverflow=${it.didOverflowHeight},overflow=${it.hasVisualOverflow},intrinsic=${it.multiParagraph.maxIntrinsicWidth},lineRight=${it.getLineRight(0)},size=${it.size}" },
-                layouts.all{it.lineCount==1&&!it.hasVisualOverflow})
+            // Robolectric native text sometimes flags didOverflowWidth even when
+            // the entire one-line glyph run is inside the 220px text bounds
+            // (145.5px intrinsic / 144px lineRight). Verify actual extents
+            // rather than relying solely on that contradictory flag.
+            assertTrue("Single-line label must fit: "+layouts.joinToString { "lines=${it.lineCount},widthOverflow=${it.didOverflowWidth},heightOverflow=${it.didOverflowHeight},intrinsic=${it.multiParagraph.maxIntrinsicWidth},left=${it.getLineLeft(0)},right=${it.getLineRight(0)},size=${it.size}" },
+                layouts.all {
+                    it.lineCount==1 && !it.didOverflowHeight &&
+                    it.getLineLeft(0)>=-1f &&
+                    it.getLineRight(0)<=it.size.width.toFloat()+1f &&
+                    it.multiParagraph.maxIntrinsicWidth<=it.size.width.toFloat()+1f
+                })
         }
         assertEquals(1,resumes);assertEquals(1,results)
         val first=resume.fetchSemanticsNode().boundsInRoot
