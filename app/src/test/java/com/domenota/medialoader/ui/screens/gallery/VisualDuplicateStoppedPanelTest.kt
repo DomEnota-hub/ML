@@ -33,7 +33,8 @@ class VisualDuplicateStoppedPanelTest {
             val layouts=mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
             assertTrue(action(layouts))
             assertTrue(layouts.isNotEmpty())
-            assertTrue(layouts.all{it.lineCount==1&&!it.hasVisualOverflow})
+            assertTrue("Text must fit one line: "+layouts.joinToString { "lines=${it.lineCount},overflow=${it.hasVisualOverflow},size=${it.size}" },
+                layouts.all{it.lineCount==1&&!it.hasVisualOverflow})
         }
         assertEquals(1,resumes);assertEquals(1,results)
         val first=resume.fetchSemanticsNode().boundsInRoot

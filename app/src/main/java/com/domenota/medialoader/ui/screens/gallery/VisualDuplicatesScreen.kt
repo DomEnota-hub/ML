@@ -288,10 +288,10 @@ internal fun VisualDuplicateStoppedPanel(canResume:Boolean,canShowResults:Boolea
         Text("Проверенные файлы и результаты сохранены.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
             Button(onResume,enabled=canResume,contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)){
-                Text("Продолжить",maxLines=1,softWrap=false)
+                Text("Продолжить",maxLines=1,softWrap=false,style=MaterialTheme.typography.labelMedium)
             }
             OutlinedButton(onResults,enabled=canShowResults,contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)){
-                Text("Результаты",maxLines=1,softWrap=false)
+                Text("Результаты",maxLines=1,softWrap=false,style=MaterialTheme.typography.labelMedium)
             }
         }
     }

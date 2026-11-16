@@ -54,6 +54,14 @@ class VisibilityMediaStoreAdapterTest {
     private lateinit var root: File
 
     @Before fun setUp() {
+        // Robolectric can race its asynchronous SharedPreferences load against a
+        // missing synthetic file. Seed an empty valid catalog before creating the
+        // production repository; the real Android store is not changed.
+        val preferencesDir = File(app.applicationInfo.dataDir, "shared_prefs")
+        assertTrue(preferencesDir.isDirectory || preferencesDir.mkdirs())
+        File(preferencesDir, "external_media_catalog.xml").apply {
+            if (!exists()) writeText("<map />", Charsets.UTF_8)
+        }
         root = Files.createTempDirectory(app.cacheDir.toPath(), "visibility-adapter-").toFile()
         source = File(root, "Pictures/photo.jpg").apply {
             parentFile!!.mkdirs(); writeText("synthetic original"); setLastModified(1_700_000_000_000L)

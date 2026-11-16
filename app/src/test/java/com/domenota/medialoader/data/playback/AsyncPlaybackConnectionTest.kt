@@ -30,12 +30,12 @@ class AsyncPlaybackConnectionTest {
                 }
                 try {
                     assertTrue(started.await(10, TimeUnit.SECONDS))
-                    assertEquals("connection-worker", builderThread)
+                    assertEquals("connection-worker", builderThread.substringBefore(" @coroutine"))
                     assertFalse(future.isDone)
                     future.cancel(false)
                 } finally { finishBind.countDown() }
                 assertTrue(released.await(10, TimeUnit.SECONDS))
-                assertEquals("connection-application", releaseThread)
+                assertEquals("connection-application", releaseThread.substringBefore(" @coroutine"))
                 assertTrue(inner.isCancelled)
             }
         }
