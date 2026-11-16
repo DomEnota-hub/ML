@@ -312,7 +312,7 @@ private fun CompactStoppedAction(label:String,enabled:Boolean,filled:Boolean,onC
         )
     ){
         Text(label,modifier=Modifier.padding(horizontal=10.dp,vertical=10.dp).widthIn(min=110.dp),
-            maxLines=1,softWrap=false,style=MaterialTheme.typography.labelSmall)
+            maxLines=1,softWrap=true,style=MaterialTheme.typography.labelSmall)
     }
 }
 
