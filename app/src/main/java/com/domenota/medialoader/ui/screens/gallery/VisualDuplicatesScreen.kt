@@ -311,8 +311,8 @@ private fun CompactStoppedAction(label:String,enabled:Boolean,filled:Boolean,onC
             1.dp,if(enabled) scheme.outline else scheme.onSurface.copy(alpha=0.12f)
         )
     ){
-        Text(label,modifier=Modifier.padding(horizontal=12.dp,vertical=10.dp).widthIn(min=92.dp),
-            maxLines=1,softWrap=false,style=MaterialTheme.typography.labelMedium)
+        Text(label,modifier=Modifier.padding(horizontal=10.dp,vertical=10.dp).widthIn(min=110.dp),
+            maxLines=1,softWrap=false,style=MaterialTheme.typography.labelSmall)
     }
 }
 
