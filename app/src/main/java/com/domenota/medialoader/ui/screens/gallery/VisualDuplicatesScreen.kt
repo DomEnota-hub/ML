@@ -287,13 +287,32 @@ internal fun VisualDuplicateStoppedPanel(canResume:Boolean,canShowResults:Boolea
         }
         Text("Проверенные файлы и результаты сохранены.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            Button(onResume,enabled=canResume,contentPadding=PaddingValues(horizontal=6.dp,vertical=8.dp)){
-                Text("Продолжить",maxLines=1,softWrap=false,style=MaterialTheme.typography.labelSmall)
-            }
-            OutlinedButton(onResults,enabled=canShowResults,contentPadding=PaddingValues(horizontal=6.dp,vertical=8.dp)){
-                Text("Результаты",maxLines=1,softWrap=false,style=MaterialTheme.typography.labelSmall)
-            }
+            CompactStoppedAction("Продолжить",canResume,true,onResume)
+            CompactStoppedAction("Результаты",canShowResults,false,onResults)
         }
+    }
+}
+
+/** Content-sized actions: Material3 Button's default minimum constraints can clip
+ * Cyrillic labels on narrow screens even when they have maxLines=1. */
+@Composable
+private fun CompactStoppedAction(label:String,enabled:Boolean,filled:Boolean,onClick:()->Unit){
+    val scheme=MaterialTheme.colorScheme
+    Surface(
+        onClick=onClick,
+        enabled=enabled,
+        shape=CircleShape,
+        color=if(filled) {
+            if(enabled) scheme.primary else scheme.onSurface.copy(alpha=0.12f)
+        } else Color.Transparent,
+        contentColor=if(!enabled) scheme.onSurface.copy(alpha=0.38f)
+            else if(filled) scheme.onPrimary else scheme.primary,
+        border=if(filled) null else androidx.compose.foundation.BorderStroke(
+            1.dp,if(enabled) scheme.outline else scheme.onSurface.copy(alpha=0.12f)
+        )
+    ){
+        Text(label,modifier=Modifier.padding(horizontal=12.dp,vertical=10.dp),
+            maxLines=1,softWrap=false,style=MaterialTheme.typography.labelMedium)
     }
 }
 
