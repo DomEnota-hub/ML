@@ -28,6 +28,7 @@ import com.domenota.medialoader.core.model.*
 import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.data.playback.ListeningHistoryStore
 import com.domenota.medialoader.data.playback.ListeningPeriod
+import com.domenota.medialoader.data.playback.ListeningClockPolicy
 import com.domenota.medialoader.data.playback.ListeningSelection
 import com.domenota.medialoader.data.playback.ListeningProjectionDomain
 import com.domenota.medialoader.data.playback.ListeningProjectionCodec
@@ -192,22 +193,50 @@ internal fun MusicModeScreen(
     fun localDay()=java.time.LocalDate.now().toEpochDay()
     var smartDay by remember{mutableLongStateOf(localDay())}
     var smartZone by remember{mutableStateOf(java.time.ZoneId.systemDefault())}
-    // Calendar and rolling windows can change even without a new listening event.
-    // Tick the lightweight clock, not the library or SQLite query.
+    // System calendar changes and one exact rolling boundary, rather than a
+    // permanent Compose polling loop. No timer when analytics is disabled or
+    // there is no finite boundary; disposing the screen cancels its wait.
     var rankingBoundary by remember { mutableLongStateOf(Long.MAX_VALUE) }
     var rankTimeRevision by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(rankingBoundary,historyGeneration){
-        var previous=System.currentTimeMillis()
-        while(true){
-            val now=System.currentTimeMillis()
-            smartDay=localDay();smartZone=java.time.ZoneId.systemDefault()
-            if(now<previous || (rankingBoundary!=Long.MAX_VALUE && now>=rankingBoundary)) {
-                rankTimeRevision++
-                if(now>=rankingBoundary)rankingBoundary=Long.MAX_VALUE
+    DisposableEffect(context,listeningEnabled) {
+        if(!listeningEnabled) onDispose { }
+        else {
+            var observed=System.currentTimeMillis()
+            fun observe(clockChanged:Boolean=false) {
+                val now=System.currentTimeMillis()
+                smartDay=localDay();smartZone=java.time.ZoneId.systemDefault()
+                if(ListeningClockPolicy.refreshRanking(observed,now,rankingBoundary,clockChanged)) {
+                    if(now>=rankingBoundary)rankingBoundary=Long.MAX_VALUE
+                    rankTimeRevision++
+                }
+                observed=now
             }
-            previous=now
-            val wait=if(rankingBoundary==Long.MAX_VALUE)60_000L else (rankingBoundary-now).coerceIn(1L,60_000L)
-            kotlinx.coroutines.delay(wait)
+            val receiver=object:android.content.BroadcastReceiver(){
+                override fun onReceive(context:android.content.Context?,intent:android.content.Intent?) {
+                    observe(intent?.action==android.content.Intent.ACTION_TIME_CHANGED)
+                }
+            }
+            val filter=android.content.IntentFilter().apply {
+                addAction(android.content.Intent.ACTION_TIME_TICK)
+                addAction(android.content.Intent.ACTION_TIME_CHANGED)
+                addAction(android.content.Intent.ACTION_DATE_CHANGED)
+                addAction(android.content.Intent.ACTION_TIMEZONE_CHANGED)
+            }
+            androidx.core.content.ContextCompat.registerReceiver(context,receiver,filter,androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+            observe()
+            onDispose { context.unregisterReceiver(receiver) }
+        }
+    }
+    LaunchedEffect(listeningEnabled,rankingBoundary,rankTimeRevision){
+        val boundary=rankingBoundary
+        if(!listeningEnabled||boundary==Long.MAX_VALUE)return@LaunchedEffect
+        val scheduledAt=System.currentTimeMillis()
+        val wait=ListeningClockPolicy.delayUntil(scheduledAt,boundary)
+        if(wait>0)withContext(Dispatchers.Default){kotlinx.coroutines.delay(wait)}
+        val now=System.currentTimeMillis()
+        if(rankingBoundary==boundary&&ListeningClockPolicy.refreshRanking(scheduledAt,now,boundary)) {
+            if(now>=boundary)rankingBoundary=Long.MAX_VALUE
+            rankTimeRevision++
         }
     }
     val smartRevision by listeningStore.smartRevision.collectAsState()
