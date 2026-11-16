@@ -49,7 +49,7 @@ jobs:
           grep -q "moveSavedUriWhenCurrent" app/src/main/java/com/domenota/medialoader/core/database/HistoryDatabase.kt
           ! grep -q "moveSavedUriWhenCurrent" app/src/main/java/com/domenota/medialoader/data/storage/LegacyMediaMigration.kt
           grep -q "storageMigrationRunning" app/src/main/java/com/domenota/medialoader/ui/screens/SettingsScreen.kt
-      - name: Full JVM suite (includes storage, replay, privacy and Android adapter integration)
+      - name: Focused stopped-panel layout regression\n        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests "*VisualDuplicateStoppedPanelTest" --stacktrace --no-daemon --console=plain\n      - name: Full JVM suite (includes storage, replay, privacy and Android adapter integration)
         run: python3 scripts/run-jvm-isolated-compose.py full
       - name: Android lint
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
