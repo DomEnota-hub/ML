@@ -35,21 +35,41 @@ internal object GlyphContentMask {
         val reasons = mutableMapOf<String,Int>()
         val backgrounds = mutableMapOf<Int, Background>()
         val profiles = mutableMapOf<Int, Background>()
+        val outlined = mutableMapOf<Int, List<MaskStroke>>()
+        var outlinedStrokeCount = 0
         for (line in OcrLineCandidatePolicy.credibleLines(glyphs.toList())) {
             if (line.count { it.confidence >= 75f && it.text.any(Char::isLetterOrDigit) } < 4) continue
             lineBackground(source,line)?.let { bg -> line.forEach { backgrounds[it.id]=bg } }
             // On a gradient or a vertical seam, the exterior above and below
             // each column can agree even when the whole line has no one color.
             columnBackground(source,line)?.let { bg -> line.forEach { profiles[it.id]=bg } }
+            // Repeated style evidence is mandatory; a solitary white patch
+            // surrounded by black on a photograph is not a verified caption.
+            val style = mutableMapOf<Int,List<MaskStroke>>()
+            var lineStrokeCount = 0
+            for (glyph in line) {
+                if (glyph.confidence < 75f || !glyph.text.any(Char::isLetterOrDigit)) continue
+                val candidate = extractOutlined(source, glyph) ?: continue
+                if (outlinedStrokeCount + lineStrokeCount + candidate.size > MAX_STROKES) {
+                    style.clear()
+                    break
+                }
+                style[glyph.id] = candidate
+                lineStrokeCount += candidate.size
+            }
+            if (style.size >= 3 && style.size * 2 >= line.size) {
+                outlined.putAll(style)
+                outlinedStrokeCount += lineStrokeCount
+            }
         }
         for (glyph in glyphs) {
             var reason="no_verified_ink"
             fun report(value:String){reason=value}
             val profile=profiles[glyph.id]
-            val segment = if(profile!=null) extractSymbol(source,glyph,profile,::report)
+            val segment = (if(profile!=null) extractSymbol(source,glyph,profile,::report)
                 else extractSymbol(source,glyph,null,::report) ?: backgrounds[glyph.id]?.let {
                     extractSymbol(source,glyph,it,::report)
-                }
+                }) ?: outlined[glyph.id]
             if (segment.isNullOrEmpty()) {
                 unresolved.add(glyph); reasons[reason]=(reasons[reason]?:0)+1
                 continue
@@ -60,6 +80,25 @@ internal object GlyphContentMask {
             result.addAll(segment)
         }
         return Analysis(result,unresolved,reasons)
+    }
+
+    private fun extractOutlined(source: Bitmap, glyph: DetectedGlyph): List<MaskStroke>? {
+        val w = source.width; val h = source.height
+        val left = (glyph.left * w).toInt(); val top = (glyph.top * h).toInt()
+        val right = kotlin.math.ceil(glyph.right * w).toInt().coerceAtMost(w)
+        val bottom = kotlin.math.ceil(glyph.bottom * h).toInt().coerceAtMost(h)
+        val pad = (min(right-left,bottom-top)*.20f).toInt().coerceIn(2,8)
+        val x0 = max(0,left-pad); val y0 = max(0,top-pad)
+        val rw = min(w,right+pad)-x0; val rh = min(h,bottom+pad)-y0
+        if (rw < 7 || rh < 7 || rw.toLong()*rh > MAX_PIXELS_PER_SYMBOL) return null
+        val pixels = IntArray(rw*rh)
+        source.getPixels(pixels,0,rw,x0,y0,rw,rh)
+        val bits = OutlinedGlyphInk.extract(pixels,rw,rh) ?: return null
+        // Enclosure must be inside the glyph search region, not an unrelated
+        // nearby object in its padding. Keep only bounded raster dilation.
+        if (bits.indices.any { bits[it] && (x0+it%rw !in (left-1)..right ||
+                y0+it/rw !in (top-1)..bottom) }) return null
+        return rasterStrokes(bits,rw,rh,x0,y0,w,h)
     }
 
     private data class Background(val color: Int, val q75: Int, val columns: IntArray?=null, val left: Int=0) {
@@ -135,7 +174,6 @@ internal object GlyphContentMask {
         val top = (glyph.top * height).toInt().coerceIn(0, height - 1)
         val right = kotlin.math.ceil(glyph.right * width).toInt().coerceIn(left + 1, width)
         val bottom = kotlin.math.ceil(glyph.bottom * height).toInt().coerceIn(top + 1, height)
-        val short = min(width, height).toFloat()
         val pad = (min(right - left, bottom - top) * .18f).toInt().coerceIn(2, 16)
         val x0 = max(0, left - pad)
         val y0 = max(0, top - pad)
@@ -206,24 +244,27 @@ internal object GlyphContentMask {
         if (ink < 3 || ink * 100L < pixels.size.toLong() ||
             ink * 100L > pixels.size.toLong() * (if (lineBackground == null || lineBackground.columns!=null) 62 else 76)) return reject("ink_occupancy")
 
+        return rasterStrokes(foreground,regionWidth,regionHeight,x0,y0,width,height)
+            ?: reject("stroke_limit")
+    }
+
+    private fun rasterStrokes(foreground: BooleanArray, regionWidth: Int, regionHeight: Int,
+        x0: Int, y0: Int, width: Int, height: Int): List<MaskStroke>? {
         val strokes = ArrayList<MaskStroke>()
+        val short = min(width, height).toFloat()
         val diameter = (2f / short).coerceIn(.00001f, .5f)
         for (y in 0 until regionHeight) {
             var x = 0
             while (x < regionWidth) {
-                if (!foreground[y * regionWidth + x]) {
-                    x++
-                    continue
-                }
+                if (!foreground[y * regionWidth + x]) { x++; continue }
                 val start = x
                 while (x < regionWidth && foreground[y * regionWidth + x]) x++
                 val end = x - 1
                 val yy = (y0 + y + .5f) / height
                 val first = MaskPoint((x0 + start + .5f) / width, yy)
                 val last = MaskPoint((x0 + end + .5f) / width, yy)
-                strokes.add(MaskStroke(if (start == end) listOf(first) else listOf(first, last),
-                    diameter))
-                if (strokes.size > MAX_STROKES) return reject("stroke_limit")
+                strokes.add(MaskStroke(if (start == end) listOf(first) else listOf(first, last), diameter))
+                if (strokes.size > MAX_STROKES) return null
             }
         }
         return strokes

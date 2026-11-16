@@ -86,6 +86,23 @@ class OcrLineCandidatePolicyTest {
         assertEquals(4, OcrLineCandidatePolicy.best(emptyList(), emptyList(), listOf(strong)).size)
     }
 
+    @Test fun complementaryPassesRecoverMissingSymbolsWithoutDuplicatingOverlaps() {
+        val all = (0 until 8).map { i -> letter(i, .10f + i * .013f, .16f, 92f) }
+        val a = all.filter { it.id !in setOf(2, 6) }
+        val b = all.filter { it.id !in setOf(0, 4) }.map { it.copy(confidence = 89f) }
+        val selected = OcrLineCandidatePolicy.best(a, emptyList(), listOf(b))
+        assertEquals(8, selected.size)
+        assertEquals(all.map { it.left }, selected.map { it.left })
+        assertEquals(8, selected.map { it.id }.distinct().size)
+    }
+
+    @Test fun selectionOverflowIsVisibleInsteadOfSilentlyReportingComplete() {
+        val candidates = (0 until 10).flatMap { row -> (0 until 18).map { col ->
+            letter(row*18+col, .08f + col*.013f, .04f + row*.075f, 94f)
+        } }
+        assertEquals(161, OcrLineCandidatePolicy.best(candidates, emptyList()).size)
+    }
+
     @Test fun fullyVisibleCaptionOutsideBottomCropCanStillBeSelected() {
         val title = (0 until 8).map { i ->
             letter(i, .28f + .02f * i, .19f, confidence = 87f)
