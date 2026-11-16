@@ -1,0 +1,31 @@
+name: ML local QA signing toolchain export (no keys)
+on:
+  push:
+    branches: [ci/ml-17196-sign-tool-export]
+permissions:
+  contents: read
+jobs:
+  tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Install Android build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -s "$bt/lib/apksigner.jar"
+          test -x "$bt/zipalign"
+          mkdir -p out
+          cp "$bt/lib/apksigner.jar" out/
+          cp "$bt/zipalign" out/
+          chmod +x out/zipalign
+          sha256sum out/apksigner.jar out/zipalign > out/SHA256SUMS.txt
+          du -h out/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ML_17196_LOCAL_SIGN_TOOLS_ANDROID35
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
