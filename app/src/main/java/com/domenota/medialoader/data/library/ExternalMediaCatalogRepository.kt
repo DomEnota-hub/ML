@@ -13,7 +13,7 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class ExternalMediaEntry(val ref: LibraryMediaRef, val folderId: String?, val isFavorite: Boolean)
+data class ExternalMediaEntry(val ref: LibraryMediaRef, val folderId: String?, val isFavorite: Boolean, val visibilityManaged: Boolean = false)
 
 /** Logical metadata only. A stored reference never proves its original is still accessible. */
 class ExternalMediaCatalogRepository(context: Context) {
@@ -23,6 +23,11 @@ class ExternalMediaCatalogRepository(context: Context) {
     private val loaded = CoroutineScope(SupervisorJob() + Dispatchers.IO).async { storageMutex.withLock { state.value = read() } }
 
     /** Exact document snapshots make recovery fail closed on concurrent catalog edits. */
+    internal suspend fun visibilityEntries(): List<ExternalMediaEntry> = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock { read() }
+    }
+
     internal suspend fun snapshotHistoricalMedia(): String = withContext(Dispatchers.IO) {
         loaded.await()
         storageMutex.withLock { preferences.getString("catalog", null).orEmpty().also { read() } }
@@ -86,7 +91,7 @@ class ExternalMediaCatalogRepository(context: Context) {
         update(ref) { it.copy(folderId = folderId) }
     }
     suspend fun removeFolder(folderId: String) = mutate { rows ->
-        rows.map { if (it.folderId == folderId) it.copy(folderId = null) else it }.filter { it.isFavorite || it.folderId != null }
+        rows.map { if (it.folderId == folderId) it.copy(folderId = null) else it }.filter { it.isFavorite || it.folderId != null || it.visibilityManaged }
     }
     internal suspend fun albumMemberIds(folderId: String): Set<String> = withContext(Dispatchers.IO) {
         loaded.await()
@@ -108,7 +113,7 @@ class ExternalMediaCatalogRepository(context: Context) {
         mutate { rows -> rows.map { entry ->
             if (entry.folderId == folderId && (entry.ref.key in aliases || entry.ref.aliases.any(aliases::contains)))
                 entry.copy(folderId = null) else entry
-        }.filter { it.folderId != null || it.isFavorite } }
+        }.filter { it.folderId != null || it.isFavorite || it.visibilityManaged } }
     }
     suspend fun setExistingFavorite(ref: LibraryMediaRef, favorite: Boolean) = updateExisting(ref) { it.copy(isFavorite = favorite) }
     suspend fun setExistingFolder(ref: LibraryMediaRef, folderId: String?) = updateExisting(ref) { it.copy(folderId = folderId) }
@@ -117,18 +122,22 @@ class ExternalMediaCatalogRepository(context: Context) {
         val aliases = ref.aliases + ref.key
         mutate { rows -> rows.map { entry ->
             if (entry.ref.key in aliases || entry.ref.aliases.any(aliases::contains)) operation(entry) else entry
-        }.filter { it.isFavorite || it.folderId != null } }
+        }.filter { it.isFavorite || it.folderId != null || it.visibilityManaged } }
     }
     private suspend fun update(ref: LibraryMediaRef, operation: (ExternalMediaEntry) -> ExternalMediaEntry) {
         require(ref.appDownloadId == null && !ref.item.isPrivate && !ref.item.hidden &&
             ref.item.state == DownloadState.COMPLETED && !ref.item.savedUri.isNullOrBlank()) { "Файл недоступен" }
         mutate { rows ->
             val identities = ref.aliases + ref.key + ref.item.id
-            val old = rows.firstOrNull { it.ref.key in identities || it.ref.aliases.any(identities::contains) }
+            val matches = rows.filter { it.ref.key in identities || it.ref.aliases.any(identities::contains) }
+            check(matches.size <= 1) { "Неоднозначная запись каталога" }
+            val old = matches.singleOrNull()
+            if (old?.visibilityManaged == true) check(old.ref.item.savedUri == ref.item.savedUri &&
+                old.ref.aliases.any { it.startsWith("file-stat:") && it in ref.aliases }) { "Идентификатор файла изменился" }
             val key = old?.ref?.key ?: ref.key
             val stable = ref.copy(key = key, aliases = identities + old?.ref?.aliases.orEmpty(), item = ref.item.copy(id = key))
-            val changed = operation(ExternalMediaEntry(stable, old?.folderId, old?.isFavorite == true))
-            (rows.filterNot { it === old } + changed).filter { it.isFavorite || it.folderId != null }
+            val changed = operation(ExternalMediaEntry(stable, old?.folderId, old?.isFavorite == true,old?.visibilityManaged == true))
+            (rows.filterNot { it === old } + changed).filter { it.isFavorite || it.folderId != null || it.visibilityManaged }
         }
     }
     private suspend fun mutate(operation: (List<ExternalMediaEntry>) -> List<ExternalMediaEntry>) = withContext(Dispatchers.IO) {
@@ -142,13 +151,38 @@ class ExternalMediaCatalogRepository(context: Context) {
             state.value = updated
         }
     }
+    internal fun encodeVisibilitySeed(entry:ExternalMediaEntry):String = encode(listOf(entry))
+    internal fun decodeVisibilitySeed(raw:String):ExternalMediaEntry = decode(raw).single()
+
+    /** Exact CAS under the shared storage gate. Retain the stable logical record
+     * after removing its last folder/favorite, because a visibility receipt may
+     * still be needed to reject a recycled MediaStore locator. */
+    internal suspend fun assignVisibilityMember(change:com.domenota.medialoader.data.catalog.visibility.VisibilityMemberChange,
+        desired:String?, allowedUri:String, markManaged:Boolean=true) = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock {
+            check(!change.app && change.externalSeed != null)
+            val seed=decodeVisibilitySeed(change.externalSeed)
+            check(seed.ref.key==change.id && seed.ref.item.savedUri==change.sourceUri && seed.folderId==change.sourceFolder && seed.isFavorite==change.favorite)
+            val rows=read(); val existing=rows.singleOrNull { it.ref.key==change.id }
+            val current=existing ?: seed.also { check(change.sourceFolder==null && !change.favorite && allowedUri==change.sourceUri) }
+            check(current.ref.item.savedUri==allowedUri && current.isFavorite==change.favorite &&
+                current.folderId in setOf(change.sourceFolder,change.targetFolder)) { "Состав внешнего каталога изменился" }
+            check(rows.none { it.ref.key!=change.id && it.ref.item.savedUri==allowedUri }) { "Неоднозначная запись внешнего каталога" }
+            val updated=current.copy(folderId=desired,visibilityManaged=current.visibilityManaged || markManaged)
+            val next=rows.filterNot { it.ref.key==change.id } + updated
+            if(next!=rows && !preferences.edit().putString("catalog",encode(next)).commit()) error("Не удалось сохранить состав папки")
+            state.value=next
+        }
+    }
+
     private fun encode(rows: List<ExternalMediaEntry>): String {
         val entries = JSONArray()
         rows.forEach { entry ->
             val ref = entry.ref
             val item = ref.item
-            entries.put(JSONObject().put("key", ref.key).put("aliases", JSONArray(ref.aliases.toList()))
-                .put("folder", entry.folderId ?: JSONObject.NULL).put("favorite", entry.isFavorite)
+            entries.put(JSONObject().put("key", ref.key).put("aliases", JSONArray(ref.aliases.sorted()))
+                .put("folder", entry.folderId ?: JSONObject.NULL).put("favorite", entry.isFavorite).put("visibilityManaged",entry.visibilityManaged)
                 .put("uri", item.savedUri).put("name", item.originalName).put("type", item.mediaType.name)
                 .put("date", item.createdAtEpochMillis).put("size", item.sizeBytes ?: JSONObject.NULL)
                 .put("duration", item.durationMs ?: JSONObject.NULL).put("album", item.groupId ?: JSONObject.NULL)
@@ -156,8 +190,8 @@ class ExternalMediaCatalogRepository(context: Context) {
         }
         return JSONObject().put("version", 1).put("entries", entries).toString()
     }
-    private fun read(): List<ExternalMediaEntry> {
-        val raw = preferences.getString("catalog", null) ?: return emptyList()
+    private fun read(): List<ExternalMediaEntry> = preferences.getString("catalog", null)?.let(::decode).orEmpty()
+    private fun decode(raw:String):List<ExternalMediaEntry> {
         val root = JSONObject(raw)
         require(root.getInt("version") == 1) { "Неизвестная версия каталога файлов" }
         val rows = root.getJSONArray("entries")
@@ -174,7 +208,7 @@ class ExternalMediaCatalogRepository(context: Context) {
                     previewUrl = uri.takeIf { type != MediaType.AUDIO }, groupId = nullable("album"),
                     sourceAudioTitle = nullable("title"), sourceAudioArtist = nullable("artist"),
                     durationMs = if (row.isNull("duration")) null else row.getLong("duration")), null),
-                nullable("folder"), row.getBoolean("favorite"))
+                nullable("folder"), row.getBoolean("favorite"),row.optBoolean("visibilityManaged",false))
         }
     }
     companion object { private val storageMutex = Mutex() }

@@ -80,6 +80,9 @@ fun GalleryModeScreen(
     collectionContent: (@Composable () -> Unit)? = null,
     onAddCollection: ((List<String>)->Unit)? = null,
     onBatchPhotoEdit: ((List<String>)->Unit)? = null,
+    hiddenFolderIds: Set<String> = emptySet(),
+    onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
+    pendingVisibilityFolderId: String? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -142,22 +145,37 @@ fun GalleryModeScreen(
         try { action(); error = null } catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = e.message ?: "Не удалось выполнить действие" }
     } }
+    fun ordinaryVisibility(key: String) = key.startsWith("folder:") && onFolderVisibility != null
+    fun albumMediaExcluded(key: String): Boolean = if (ordinaryVisibility(key)) key.removePrefix("folder:") in hiddenFolderIds
+        else key in albumSettings.excludedFromMedia
+    fun toggleAlbumMedia(key: String) {
+        val callback = onFolderVisibility
+        if (ordinaryVisibility(key) && callback != null) {
+            val id = key.removePrefix("folder:")
+            if (pendingVisibilityFolderId == null || pendingVisibilityFolderId == id)
+                mutate { callback(id,id !in hiddenFolderIds) }
+        } else {
+            val next = if (key in albumSettings.excludedFromMedia) albumSettings.excludedFromMedia - key
+                else albumSettings.excludedFromMedia + key
+            saveSettings(albumSettings.copy(excludedFromMedia=next))
+        }
+    }
     val catalog = remember(assignments) { assignments.associateBy { it.downloadId } }
     val buckets = remember(items, source, deviceAlbums) {
         if (source == LibrarySource.APP) emptyMap() else if (deviceAlbums.isNotEmpty()) deviceAlbums
         else items.mapNotNull { row -> row.groupId?.let { row.id to DeviceAlbum(it, it) } }.toMap()
     }
-    val media = remember(items, assignments, buckets) { GalleryLibraryState.filter(items, assignments, "all", "", buckets) }
-    val displayed = remember(items, assignments, selection, search, buckets) {
-        GalleryLibraryState.filter(items, assignments, selection, search, buckets)
+    val media = remember(items, assignments, buckets, hiddenFolderIds) { GalleryLibraryState.filter(items, assignments, "all", "", buckets, hiddenFolderIds) }
+    val displayed = remember(items, assignments, selection, search, buckets, hiddenFolderIds) {
+        GalleryLibraryState.filter(items, assignments, selection, search, buckets, hiddenFolderIds)
     }
-    val albums = remember(media, folders, assignments, buckets) {
-        GalleryLibraryState.albums(media, folders, assignments, buckets)
+    val albums = remember(items, folders, assignments, buckets, hiddenFolderIds) {
+        GalleryLibraryState.albums(items, folders, assignments, buckets, hiddenFolderIds)
     }
-    LaunchedEffect(albumRequest, albums, loading, media) {
+    LaunchedEffect(albumRequest, albums, loading, items, hiddenFolderIds) {
         val request = albumRequest ?: return@LaunchedEffect
         val found = albums.firstOrNull { it.key == request.album.key }
-        if (found != null && GalleryLibraryState.filter(media, assignments, found.key, "", buckets).any { it.id == request.itemId }) {
+        if (found != null && GalleryLibraryState.filter(items, assignments, found.key, "", buckets, hiddenFolderIds).any { it.id == request.itemId }) {
             search = ""; selection = found.key; selectionTitle = found.name; if (tab != 0) selectTab(0); jumpToMedia = request.itemId
             onAlbumRequestHandled()
         } else if (!loading) { AppNotice.post(context, "Альбом недоступен"); onAlbumRequestHandled() }
@@ -490,16 +508,14 @@ fun GalleryModeScreen(
                             album.count, album.cover),
                         index = index + defaultQuickItems.size,
                         dragged = draggingAlbumKey == album.key,
-                        mediaExcluded = album.key in albumSettings.excludedFromMedia,
+                        mediaExcluded = albumMediaExcluded(album.key),
+                        systemVisibility = ordinaryVisibility(album.key),
+                        visibilityPending = ordinaryVisibility(album.key) && pendingVisibilityFolderId == album.key.removePrefix("folder:"),
+                        visibilityEnabled = !ordinaryVisibility(album.key) || pendingVisibilityFolderId == null || pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         onOpen = { openAlbum(album.key, album.name) },
                         onUnpin = { saveSettings(albumSettings.copy(
                             quickAlbums = albumSettings.quickAlbums - album.key)) },
-                        onToggleMedia = {
-                            val next = if (album.key in albumSettings.excludedFromMedia)
-                                albumSettings.excludedFromMedia - album.key
-                            else albumSettings.excludedFromMedia + album.key
-                            saveSettings(albumSettings.copy(excludedFromMedia = next))
-                        },
+                        onToggleMedia = { toggleAlbumMedia(album.key) },
                         onDelete = { deletingAlbum = album },
                     )
                 }
@@ -513,19 +529,17 @@ fun GalleryModeScreen(
                     span = { _, _ -> GridItemSpan(2) }) { index, album ->
                     GalleryAlbumCell(
                         album = album, index = index, hidden = false,
-                        mediaExcluded = album.key in albumSettings.excludedFromMedia,
+                        mediaExcluded = albumMediaExcluded(album.key),
+                        systemVisibility = ordinaryVisibility(album.key),
+                        visibilityPending = ordinaryVisibility(album.key) && pendingVisibilityFolderId == album.key.removePrefix("folder:"),
+                        visibilityEnabled = !ordinaryVisibility(album.key) || pendingVisibilityFolderId == null || pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         dragged = draggingAlbumKey == album.key,
                         columns = 3,
                         onOpen = { openAlbum(album.key, album.name) },
                         onHide = {
                             saveSettings(albumSettings.copy(hiddenAlbums = albumSettings.hiddenAlbums + album.key))
                         },
-                        onToggleMedia = {
-                            val next = if (album.key in albumSettings.excludedFromMedia)
-                                albumSettings.excludedFromMedia - album.key
-                            else albumSettings.excludedFromMedia + album.key
-                            saveSettings(albumSettings.copy(excludedFromMedia = next))
-                        },
+                        onToggleMedia = { toggleAlbumMedia(album.key) },
                         onDelete = { deletingAlbum = album },
                     )
                 }
@@ -558,7 +572,10 @@ fun GalleryModeScreen(
                             span = { _, _ -> GridItemSpan(2) }) { index, album ->
                             GalleryAlbumCell(
                                 album = album, index = index, hidden = true,
-                                mediaExcluded = album.key in albumSettings.excludedFromMedia,
+                                mediaExcluded = albumMediaExcluded(album.key),
+                                systemVisibility = ordinaryVisibility(album.key),
+                                visibilityPending = ordinaryVisibility(album.key) && pendingVisibilityFolderId == album.key.removePrefix("folder:"),
+                                visibilityEnabled = !ordinaryVisibility(album.key) || pendingVisibilityFolderId == null || pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                                 dragged = draggingAlbumKey == album.key,
                                 columns = 3,
                                 onOpen = { openAlbum(album.key, album.name) },
@@ -566,12 +583,7 @@ fun GalleryModeScreen(
                                     saveSettings(albumSettings.copy(
                                         hiddenAlbums = albumSettings.hiddenAlbums - album.key))
                                 },
-                                onToggleMedia = {
-                                    val next = if (album.key in albumSettings.excludedFromMedia)
-                                        albumSettings.excludedFromMedia - album.key
-                                    else albumSettings.excludedFromMedia + album.key
-                                    saveSettings(albumSettings.copy(excludedFromMedia = next))
-                                },
+                                onToggleMedia = { toggleAlbumMedia(album.key) },
                                 onDelete = { deletingAlbum = album },
                             )
                         }
@@ -697,7 +709,7 @@ fun GalleryModeScreen(
     }
     deletingAlbum?.let { album ->
         val appFolder = album.key.startsWith("folder:")
-        val albumRows = GalleryLibraryState.filter(media, assignments, album.key, "", buckets)
+        val albumRows = GalleryLibraryState.filter(items, assignments, album.key, "", buckets, hiddenFolderIds)
         var includeContents by remember(album.key) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { deletingAlbum = null },
@@ -781,6 +793,7 @@ private fun GalleryAlbumCell(
     album: GalleryAlbum, index: Int, hidden: Boolean, mediaExcluded: Boolean,
     dragged: Boolean, onOpen: () -> Unit, onHide: () -> Unit,
     onToggleMedia: () -> Unit, onDelete: () -> Unit, columns: Int = 2, pinned: Boolean = false,
+    systemVisibility: Boolean = false, visibilityPending: Boolean = false, visibilityEnabled: Boolean = true,
 ) {
     var menu by remember { mutableStateOf(false) }
     Column(
@@ -825,8 +838,10 @@ private fun GalleryAlbumCell(
                         { menu = false; onHide() },
                         leadingIcon = { Icon(Icons.Rounded.VisibilityOff, null) })
                     DropdownMenuItem({
-                        Text(if (mediaExcluded) "Показывать файлы в «Медиа»" else "Скрыть файлы из «Медиа»")
-                    }, { menu = false; onToggleMedia() },
+                        Text(if (visibilityPending) "Продолжить перенос"
+                        else if (systemVisibility) { if (mediaExcluded) "Показывать в медиатеке" else "Скрыть из медиатеки" }
+                        else if (mediaExcluded) "Показывать файлы в «Медиа»" else "Скрыть файлы из «Медиа»")
+                    }, { menu = false; onToggleMedia() }, enabled = visibilityEnabled,
                         leadingIcon = { Icon(Icons.Rounded.RemoveRedEye, null) })
                     DropdownMenuItem({ Text("Удалить альбом", color = MaterialTheme.colorScheme.error) },
                         { menu = false; onDelete() },
@@ -836,7 +851,7 @@ private fun GalleryAlbumCell(
         }
         Text(album.name, Modifier.padding(top = 8.dp), fontSize = 13.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("${album.count} файлов", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        Text(if (visibilityPending) "Перенос не завершён" else "${album.count} файлов", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(album.origin, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = MaterialTheme.colorScheme.onSurfaceVariant)

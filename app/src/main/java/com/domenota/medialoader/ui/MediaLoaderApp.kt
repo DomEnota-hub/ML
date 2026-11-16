@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.ScaffoldDefaults
 
 import com.domenota.medialoader.data.library.*
+import com.domenota.medialoader.data.catalog.visibility.*
 import com.domenota.medialoader.ui.components.AppModeTitle
 import com.domenota.medialoader.ui.components.LibraryRefreshShield
 import com.domenota.medialoader.ui.components.addressedLibraryProjection
@@ -266,12 +267,54 @@ fun MediaLoaderApp(
         else true)
 
     val libraryIndex by libraryModel.index.collectAsStateWithLifecycle()
+    val visibilityGuard by libraryModel.visibilityGuard.collectAsStateWithLifecycle()
+    val visibilityAccess=com.domenota.medialoader.ui.components.rememberFolderVisibilityAccessHost()
+    var visibilityBusy by remember { mutableStateOf(false) }
+    var visibilityResumeDismissed by remember { mutableStateOf(false) }
+    suspend fun visibilityOperation(action:suspend ()->Unit) {
+        check(!visibilityBusy) { "Перенос уже выполняется" }
+        visibilityBusy=true
+        try { visibilityAccess.ensure(); action() }
+        finally { visibilityBusy=false; libraryModel.refresh(AppMode.GALLERY,force=true); libraryModel.refresh(AppMode.MUSIC,force=true) }
+    }
+    val toggleFolderVisibility:suspend (String,Boolean)->Unit={ folder,hidden ->
+        if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation {
+            val pending=mediaRepository.folderVisibility.pending()
+            if(pending.pending) {
+                check(pending.folderId==folder) { "Сначала завершите предыдущий перенос" }
+                mediaRepository.resumeFolderVisibility(visibilityAccess.approve)
+            } else mediaRepository.setFolderVisibility(folder,hidden,visibilityAccess.approve)
+        } else error("Скрытие папок доступно с Android 11")
+    }
+
+    val visibilityProgress by mediaRepository.folderVisibility.status.collectAsStateWithLifecycle()
+    if(visibilityBusy) AlertDialog(onDismissRequest={},confirmButton={},title={Text("Перенос файлов")},text={
+        Text("Проверка и перенос: ${visibilityProgress.completed} из ${visibilityProgress.total}")
+    })
+    if(visibilityProgress.pending && !visibilityBusy && !visibilityResumeDismissed) AlertDialog(
+        onDismissRequest={visibilityResumeDismissed=true}, title={Text("Незавершённый перенос")},
+        text={Text("Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. Для завершения требуется доступ к исходным файлам.")},
+        confirmButton={TextButton(onClick={fileActionScope.launch {
+            try { if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation { mediaRepository.resumeFolderVisibility(visibilityAccess.approve) } }
+            catch(e:CancellationException){throw e}catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось продолжить перенос");visibilityResumeDismissed=true}
+        }}){Text("Продолжить")}}, dismissButton={TextButton(onClick={visibilityResumeDismissed=true}){Text("Позже")}})
+
+    val visibilityReady = visibilityGuard != null && visibilityGuard?.policy?.unknownPending == false
+    val visibilityFolders = visibilityGuard?.policy?.snapshot?.hiddenFolders.orEmpty()
+    val folderRefs = if (visibilityReady && libraryIndex.visibility == visibilityGuard && FolderVisibilityStorageAccess.granted())
+        libraryIndex.hiddenRefs else emptyList()
+    val folderRefsById = remember(folderRefs) { folderRefs.associateBy { it.key } }
+    val liveFolderRefs by rememberUpdatedState(folderRefs)
+    fun canOpenFolderMedia(row: com.domenota.medialoader.core.database.DownloadEntity, folder: String? = null): Boolean =
+        row.isPrivate || libraryModel.visibilityGuard.value?.canOpen(row,folder,liveFolderRefs) == true
+
     val unifiedLibrary = libraryIndex.refs
     val libraryAudioState by libraryModel.audioPreview.state.collectAsStateWithLifecycle()
     val libraryPrivateKeys by libraryModel.privateKeys.collectAsStateWithLifecycle()
     // The ViewModel already merged and privacy-filtered this generation on IO.
     // Never build the same full union-find and alias sets a second time on the UI thread.
-    val publicLibraryRefs = if (libraryPrivateKeys != null && libraryIndex.privacyKeys == libraryPrivateKeys)
+    val publicLibraryRefs = if (libraryPrivateKeys != null && libraryIndex.privacyKeys == libraryPrivateKeys &&
+        visibilityReady && libraryIndex.visibility == visibilityGuard)
         unifiedLibrary else emptyList()
     val historySnapshot by libraryModel.collectionHistory.collectAsStateWithLifecycle()
     val galleryAccessEpoch by libraryModel.galleryAccessEpoch.collectAsStateWithLifecycle()
@@ -289,8 +332,8 @@ fun MediaLoaderApp(
     } }
     val libraryRefsByAlias = libraryAliasProjection.value
     val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
-    val organizationReady=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
-    val organizationUsable=libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.usable
+    val organizationReady=visibilityReady&&libraryIndex.visibility==visibilityGuard&&libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
+    val organizationUsable=visibilityReady&&libraryIndex.visibility==visibilityGuard&&libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.usable
     var trackRecognitionTarget by remember{mutableStateOf<Pair<String,Long?>?>(null)}
     fun openTrackRecognition(id:String,position:Long?=null,expectedUri:String?=null){
         val ref=libraryRefsByAlias[id] ?: expectedUri?.let{uri->publicLibraryRefs.singleOrNull{it.item.savedUri==uri}}
@@ -329,7 +372,7 @@ fun MediaLoaderApp(
         try{val link=MediaOrganizationPolicy.link(raw);context.startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse(link)))}
         catch(_:Exception){AppNotice.post(context,"Не удалось открыть ссылку")}
     }
-    val currentLibraryAudioId = libraryAudioState.currentId?.let { id -> libraryRefsByAlias[id]?.key
+    val currentLibraryAudioId = libraryAudioState.currentId?.takeUnless { id -> folderRefsById.containsKey(id) || id in visibilityGuard?.blockedKeys().orEmpty() }?.let { id -> libraryRefsByAlias[id]?.key
         ?: libraryAudioState.identities.firstNotNullOfOrNull { libraryRefsByAlias[it]?.key } ?: id }
     val externalCatalog by libraryModel.externalCatalog.entries.collectAsStateWithLifecycle()
     val externalByAlias = remember(externalCatalog) { externalCatalog.flatMap { entry ->
@@ -461,29 +504,30 @@ fun MediaLoaderApp(
     val privateDownloads by viewModel.privateDownloads.collectAsStateWithLifecycle()
     val privateState by viewModel.privateAccess.state.collectAsState()
     // Keep old phone IDs resolvable for restored routes/playlists without showing duplicate cards.
+    val publicDownloads = remember(downloads,visibilityGuard) { downloads.filter { row -> visibilityGuard?.canOpen(row,null,emptyList()) == true } }
     val indexedLibraryProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
-        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(), libraryPrivateKeys, downloads, publicLibraryRefs) {
-        val knownIds = downloads.mapTo(mutableSetOf()) { it.id }
-        val indexed = downloads + publicLibraryRefs.flatMap { ref ->
+        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(), libraryPrivateKeys, visibilityGuard, publicDownloads, publicLibraryRefs) {
+        val knownIds = publicDownloads.mapTo(mutableSetOf()) { it.id }
+        val indexed = publicDownloads + publicLibraryRefs.flatMap { ref ->
             (ref.aliases.filter { it.startsWith("phone:") } + ref.key).distinct().map { ref.item.copy(id = it) }
         }.filter { knownIds.add(it.id) }
         indexed
     }
-    val indexedLibraryRows = indexedLibraryProjection.value
+    val indexedLibraryRows = indexedLibraryProjection.value.filter { canOpenFolderMedia(it) }
     fun awaitingPhone(id: String?): Boolean = id?.startsWith("phone:") == true &&
         (!indexedLibraryProjection.ready || !libraryAliasProjection.ready ||
             if (id.startsWith("phone:audio:")) !phoneMusic.loaded else !phoneGallery.loaded)
     val publicSessionProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
-        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(),libraryPrivateKeys,indexedLibraryRows, libraryAudioState.queue) {
+        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(),libraryPrivateKeys,visibilityGuard,indexedLibraryRows, libraryAudioState.queue) {
         val session = libraryPrivateKeys?.let { keys ->
             com.domenota.medialoader.data.playback.AudioPlaybackMetadata.publicSessionRows(libraryAudioState.queue, indexedLibraryRows, keys)
-        }.orEmpty()
+        }.orEmpty().filter { visibilityGuard?.canOpen(it,null,emptyList()) == true }
         if (session.isEmpty()) indexedLibraryRows else {
             val knownIds = indexedLibraryRows.mapTo(mutableSetOf()) { it.id }
             indexedLibraryRows + session.filter { knownIds.add(it.id) }
         }
     }
-    val publicLibraryRows=if(libraryAudioState.queue.isEmpty()||!publicSessionProjection.usable)indexedLibraryRows else publicSessionProjection.value
+    val publicLibraryRows=(if(libraryAudioState.queue.isEmpty()||!publicSessionProjection.usable)indexedLibraryRows else publicSessionProjection.value).filter { canOpenFolderMedia(it) }
     val accessibleDownloads = remember(privateState.unlocked, publicLibraryRows, privateDownloads) {
         if (privateState.unlocked) publicLibraryRows + privateDownloads else publicLibraryRows
     }
@@ -570,10 +614,10 @@ fun MediaLoaderApp(
     val catalogAssignments by viewModel.catalogAssignments.collectAsStateWithLifecycle()
     val libraryCatalogAssignments = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
         emptyList<com.domenota.medialoader.core.database.CatalogAssignmentEntity>(), libraryPrivateKeys,
-        publicLibraryRefs, externalCatalog, catalogAssignments, catalogFolders) {
+        publicLibraryRefs, folderRefs, externalCatalog, catalogAssignments, catalogFolders, visibilityGuard) {
         val validFolders = catalogFolders.mapTo(mutableSetOf()) { it.id }
-        val externalAssignments = publicLibraryRefs.mapNotNull { ref ->
-            ref.aliases.firstNotNullOfOrNull { externalByAlias[it] }?.let { entry ->
+        val externalAssignments = (publicLibraryRefs + folderRefs).mapNotNull { ref ->
+            (visibilityGuard?.externalEntry(ref) ?: ref.aliases.firstNotNullOfOrNull { externalByAlias[it] }?.takeIf { it.ref.item.savedUri == ref.item.savedUri })?.let { entry ->
                 com.domenota.medialoader.core.database.CatalogAssignmentEntity(ref.key,
                     entry.folderId?.takeIf { it in validFolders }, entry.isFavorite)
             }
@@ -590,7 +634,7 @@ fun MediaLoaderApp(
             .toSet()
     }
     val setLibraryFavorite: suspend (String, Boolean) -> Unit = { id, favorite ->
-        val ref = libraryRefsByAlias[id] ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let(libraryRefsByAlias::get)
+        val ref = folderRefsById[id] ?: libraryRefsByAlias[id] ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let(libraryRefsByAlias::get)
         requireNotNull(ref) { "Файл недоступен" }
         if (ref.appDownloadId != null) {
             libraryModel.externalCatalog.setExistingFavorite(ref, favorite)
@@ -599,7 +643,7 @@ fun MediaLoaderApp(
         else libraryModel.externalCatalog.setFavorite(ref, favorite)
     }
     val setLibraryFolder: suspend (String, String?) -> Unit = { id, folder ->
-        val ref = publicLibraryRefs.firstOrNull { it.key == id || id in it.aliases }
+        val ref = folderRefsById[id] ?: publicLibraryRefs.firstOrNull { it.key == id || id in it.aliases }
         requireNotNull(ref) { "Файл недоступен" }
         // Room has committed a newly created folder before Compose necessarily
         // observes it. Check the live flow, not the stale composition snapshot.
@@ -609,10 +653,19 @@ fun MediaLoaderApp(
             }
             require(found != null) { "Папка не найдена" }
         }
-        if (ref.appDownloadId != null) {
+        val physical=mediaRepository.folderVisibility.requiresMembershipMove(ref,folder)
+        if(physical) {
+            check(android.os.Build.VERSION.SDK_INT>=30)
+            visibilityOperation { check(mediaRepository.changeFolderMembership(ref,folder,visibilityAccess.approve)) }
+        } else if (ref.appDownloadId != null) {
             viewModel.setCatalogFolder(ref.appDownloadId, folder)
             libraryModel.externalCatalog.setExistingFolder(ref, folder)
         } else libraryModel.externalCatalog.setFolder(ref, folder)
+    }
+    val deleteVisibilityFolder:suspend (String)->Unit={ folder ->
+        if(mediaRepository.folderVisibility.isHidden(folder)) toggleFolderVisibility(folder,false)
+        viewModel.deleteCatalogFolder(folder)
+        libraryModel.externalCatalog.removeFolder(folder)
     }
     val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
     val instagramSessionRevision by viewModel.instagramSessionRevision.collectAsStateWithLifecycle()
@@ -750,9 +803,10 @@ fun MediaLoaderApp(
     // set per media row. Real privacy/hidden changes invalidate retained projections.
     val collectionPrivacyGeneration by DuplicatePrivacyGuard.changes.collectAsStateWithLifecycle()
     val inFlightPrivacyKeys = remember(collectionPrivacyGeneration, libraryPrivateKeys, historySnapshot?.blocked) { DuplicatePrivacyGuard.currentBlockedKeys() }
-    val collectionBlocked = remember(libraryPrivateKeys, historySnapshot?.blocked, organizationHidden, inFlightPrivacyKeys) {
+    val collectionBlocked = remember(libraryPrivateKeys, historySnapshot?.blocked, organizationHidden, inFlightPrivacyKeys, visibilityGuard) {
         buildSet {
             addAll(inFlightPrivacyKeys)
+            addAll(visibilityGuard?.blockedKeys().orEmpty())
             addAll(libraryPrivateKeys.orEmpty())
             addAll(historySnapshot?.blocked.orEmpty())
             addAll(com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.blockedIdentities(organizationHidden))
@@ -765,7 +819,7 @@ fun MediaLoaderApp(
             (android.Manifest.permission.READ_MEDIA_IMAGES !in granted || android.Manifest.permission.READ_MEDIA_VIDEO !in granted)
         granted.sorted().joinToString("|") + if (partial) ":selected:$fileScanEpoch" else ""
     }
-    val collectionAccess = libraryPrivateKeys?.takeIf { !recoveryRunning && historySnapshot != null }?.let {
+    val collectionAccess = libraryPrivateKeys?.takeIf { !recoveryRunning && historySnapshot != null && visibilityReady }?.let {
         CollectionAccessGuard(it, collectionBlocked, galleryAccessEpoch, musicAccessEpoch, collectionPermissionTag, collectionPrivacyGeneration)
     }
     val fullGuard = collectionAccess.takeIf { collectionRouteActive && collectionCatalogRequest != CollectionCatalogRequest.NONE }
@@ -1092,9 +1146,12 @@ fun MediaLoaderApp(
         }
     }
 
-    val downloadItems = remember(downloads, fileStatuses) {
-        downloads.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
+    val downloadItems = remember(downloads, fileStatuses, visibilityGuard, folderRefs) {
+        downloads.filter { row -> visibilityGuard?.canOpen(row,null,emptyList()) == true ||
+            folderRefsById[row.id]?.item?.savedUri == row.savedUri && row.savedUri != null }
+            .map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
     }
+    val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
 
     fun navigateTo(route: String) {
         navController.navigate(route) {
@@ -1259,19 +1316,21 @@ fun MediaLoaderApp(
     val openDownloadWithQueue: (String, List<String>) -> Unit = { id, queueIds ->
         val request = ++openVisualRequest
         val originAlbumKey = openingAlbumKey
+        val explicitFolder = originAlbumKey?.takeIf { it.startsWith("folder:") }?.removePrefix("folder:")
         val originPlaylistId = openingPlaylistId
         openingAlbumKey = null
         openingPlaylistId = null
         // Downloads renders the current Room history, while the derived public
         // index can still be preparing. Prefer that exact visual history row.
-        val directVisual = downloads.firstOrNull { it.id == id && it.mediaType != MediaType.AUDIO }
-        (directVisual ?: accessibleDownloads.firstOrNull { it.id == id } ?: libraryRefsByAlias[id]?.item
-            ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let { libraryRefsByAlias[it]?.item })?.let { item ->
+        val directVisual = downloads.firstOrNull { it.id == id && it.mediaType != MediaType.AUDIO && canOpenFolderMedia(it,explicitFolder) }
+        val explicitRef = folderRefsById[id]?.takeIf { explicitFolder != null && canOpenFolderMedia(it.item,explicitFolder) }
+        (explicitRef?.item ?: directVisual ?: accessibleDownloads.firstOrNull { it.id == id } ?: libraryRefsByAlias[id]?.item
+            ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let { libraryRefsByAlias[it]?.item })?.takeIf { canOpenFolderMedia(it,explicitFolder) }?.let { item ->
           fileActionScope.launch {
             val status = withContext(Dispatchers.IO) { availabilityCache.get(item.savedUri, fresh = true) }
-            if (request != openVisualRequest) return@launch
+            if (request != openVisualRequest || !canOpenFolderMedia(item,explicitFolder)) return@launch
             val appVisual = !item.isPrivate && item.mediaType != MediaType.AUDIO &&
-                (directVisual != null || libraryRefsByAlias[id]?.appDownloadId == item.id)
+                (directVisual != null || explicitRef?.appDownloadId == item.id || libraryRefsByAlias[id]?.appDownloadId == item.id)
             if (appVisual && viewModel.downloads.value.none { row ->
                     row.id == item.id && row.savedUri == item.savedUri && !row.isPrivate && !row.hidden
                 }) {
@@ -1288,8 +1347,10 @@ fun MediaLoaderApp(
                 AppNotice.post(context, "Нет доступа к файлу")
             } else if ((internalViewerEnabled || item.isPrivate || appMode != AppMode.DOWNLOADER || queueIds.isNotEmpty()) && item.state == DownloadState.COMPLETED && item.savedUri != null) {
                 if (item.mediaType == MediaType.AUDIO && !item.isPrivate) {
-                    val rows=publicLibraryRows
-                    val refsByAlias=libraryRefsByAlias
+                    val scopedHidden = explicitRef != null
+                    val rows=if (scopedHidden) liveFolderRefs.filter { canOpenFolderMedia(it.item,explicitFolder) &&
+                        libraryModel.visibilityGuard.value?.explicitFolder(it)==explicitFolder }.map { it.item } else publicLibraryRows
+                    val refsByAlias=if(scopedHidden) folderRefsById else libraryRefsByAlias
                     val statuses=fileStatuses
                     val accessEpoch=libraryModel.musicAccessEpoch.value
                     val privacyEpoch=DuplicatePrivacyGuard.generation(context)
@@ -1308,8 +1369,9 @@ fun MediaLoaderApp(
                     }
                     val livePrivacy=libraryModel.privateKeys.value ?: return@launch
                     if(request!=openVisualRequest || accessEpoch!=libraryModel.musicAccessEpoch.value || privacyEpoch!=DuplicatePrivacyGuard.generation(context) ||
-                        collectionRefBlocked(ref,livePrivacy) || collectionRefBlocked(ref,currentBlocked)) return@launch
-                    val permitted=queue.filterNot { collectionRefBlocked(it,livePrivacy) || collectionRefBlocked(it,currentBlocked) }
+                        collectionRefBlocked(ref,livePrivacy) || !canOpenFolderMedia(ref.item,explicitFolder) ||
+                        (!scopedHidden && collectionRefBlocked(ref,currentBlocked))) return@launch
+                    val permitted=queue.filterNot { collectionRefBlocked(it,livePrivacy) || !canOpenFolderMedia(it.item,explicitFolder) || (!scopedHidden && collectionRefBlocked(it,currentBlocked)) }
                     try { libraryModel.audioPreview.open(permitted,ref.key,originPlaylistId) }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) {
@@ -1326,6 +1388,7 @@ fun MediaLoaderApp(
                 val token = ViewerQueueCache.store(queueIds)
                 viewerEntry?.savedStateHandle?.set("grid_viewer_token", token)
                 viewerEntry?.savedStateHandle?.set("gallery_origin_album", originAlbumKey)
+                viewerEntry?.savedStateHandle?.set("folder_visibility_scope", explicitFolder.takeIf { explicitRef != null })
                 if (!item.isPrivate && item.mediaType != MediaType.AUDIO)
                     viewerEntry?.savedStateHandle?.set("gallery_selection",
                         arrayListOf(item.id, requireNotNull(item.savedUri), if (appVisual) "app" else "index"))
@@ -1799,7 +1862,7 @@ fun MediaLoaderApp(
                         showPicker = false
                         navController.navigate("browser/$source")
                     },
-                    recentDownloads = downloadItems.take(3),
+                    recentDownloads = recentDownloadItems.take(3),
                     onOpenDownload = openDownload,
                     onCancelDownload = viewModel::cancelDownload,
                     onShareDownload = shareDownload,
@@ -1811,7 +1874,10 @@ fun MediaLoaderApp(
                     onRecognizeDownload = viewModel::recognizeDownload,
                 )
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
-                    items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneGallery.loaded) emptyList() else libraryItems,
+                    items = (if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneGallery.loaded) emptyList() else libraryItems) + folderRefs.map { it.item },
+                    hiddenFolderIds = visibilityFolders,
+                    pendingVisibilityFolderId = visibilityProgress.folderId,
+                    onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() },
                     source = librarySource, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
                     folders = catalogFolders, assignments = libraryCatalogAssignments, header = libraryHeader,
@@ -1821,10 +1887,7 @@ fun MediaLoaderApp(
                     onOpenPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onFavorite = setLibraryFavorite, onSetFolder = setLibraryFolder,
                     onCreateFolder = viewModel::createCatalogFolder,
-                    onDeleteFolder = { folderId ->
-                        viewModel.deleteCatalogFolder(folderId)
-                        libraryModel.externalCatalog.removeFolder(folderId)
-                    }, onShare = shareLibraryFile,
+                    onDeleteFolder = deleteVisibilityFolder, onShare = shareLibraryFile,
                     onTrashFolderContents = requestAlbumTrash,
                     collectionContent={
                         Column {
@@ -2161,6 +2224,10 @@ fun MediaLoaderApp(
             composable(AppDestination.Downloads.route) {
                 DownloadsScreen(
                     items = downloadItems,
+                    hiddenFolderIds = visibilityFolders,
+                    pendingVisibilityFolderId = visibilityProgress.folderId,
+                    onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() },
+                    onOpenFromFolder = { id,queue,folder -> openingAlbumKey = folder?.let { "folder:$it" }; openDownloadWithQueue(id,queue) },
                     onAddCollection=::addToCollection,onPassport=::openPassport,
                     onOpenPrivate = { viewModel.privateAccess.lock(); pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false; privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onMoveToPrivate = { id -> requestPrivateMove(listOf(id)) },
@@ -2173,8 +2240,8 @@ fun MediaLoaderApp(
                     galleryOnlyFolderIds = galleryOnlyFolderIds,
                     onCreateFolder = viewModel::createCatalogFolder,
                     onRenameFolder = viewModel::renameCatalogFolder,
-                    onDeleteFolder = viewModel::deleteCatalogFolder,
-                    onSetFolder = viewModel::setCatalogFolder,
+                    onDeleteFolder = deleteVisibilityFolder,
+                    onSetFolder = setLibraryFolder,
                     onToggleFavorite = viewModel::toggleCatalogFavorite,
                     onOpenDownload = openDownload,
                     onOpenGrid = openDownloadWithQueue,
@@ -2187,7 +2254,7 @@ fun MediaLoaderApp(
                     recognitionEnabled = musicRecognitionMode != MusicRecognitionMode.OFF,
                     onRecognizeDownload = viewModel::recognizeDownload,
                     bulkState = bulk,
-                    bulkDownloads = downloads,
+                    bulkDownloads = publicDownloads,
                     onBulkDetails = { navController.navigate(BULK_ROUTE) },
                     onBulkStopAnalysis = viewModel::stopBulkAnalysis,
                     onBulkPause = viewModel::pauseBulk,
@@ -2448,7 +2515,11 @@ fun MediaLoaderApp(
                 val expectedGalleryUri = visualSelection?.getOrNull(1) ?: entry.savedStateHandle.get<String>("gallery_expected_uri")
                 val selectedAppVisual = visualSelection?.getOrNull(2) == "app"
                 val collectionViewer = entry.savedStateHandle.get<Boolean>("collection_viewer") == true
-                val viewerPublicRefs = if (collectionViewer) scopedCatalog?.refs.orEmpty() else publicLibraryRefs
+                val visibilityScope = entry.savedStateHandle.get<String>("folder_visibility_scope")
+                val scopedFolderRefs = if (visibilityScope == null) emptyList() else folderRefs.filter {
+                    visibilityGuard?.explicitFolder(it) == visibilityScope && canOpenFolderMedia(it.item,visibilityScope)
+                }
+                val viewerPublicRefs = if (visibilityScope != null) scopedFolderRefs else if (collectionViewer) scopedCatalog?.refs.orEmpty() else publicLibraryRefs
                 val indexedCandidates = remember(visualRoute, viewerPublicRefs, libraryPrivateKeys,
                     snapshot, downloadId, currentGalleryId, fileStatuses, fileStatusUris, collectionViewer) { if (visualRoute) GalleryViewerState.publicCandidates(viewerPublicRefs, libraryPrivateKeys,
                     snapshot.toSet() + listOfNotNull(downloadId, currentGalleryId)).filter { row ->
@@ -2458,17 +2529,17 @@ fun MediaLoaderApp(
                 // Resolve the exact fresh history row without waiting for a whole-phone index.
                 // A scoped collection must never be expanded into raw public history.
                 val selectedHistoryRow = if (visualRoute && !privateViewer && !collectionViewer)
-                    downloads.firstOrNull { it.id == currentGalleryId } else null
-                val addressGuard = libraryPrivateKeys.takeIf { !recoveryRunning && !privateViewer }
-                var addressed by remember(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch) { mutableStateOf<LibraryMediaRef?>(null) }
-                var addressFinished by remember(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch) { mutableStateOf(false) }
-                LaunchedEffect(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch) {
+                    downloads.firstOrNull { it.id == currentGalleryId && canOpenFolderMedia(it,visibilityScope) } else null
+                val addressGuard = libraryPrivateKeys.takeIf { !recoveryRunning && !privateViewer && visibilityReady }
+                var addressed by remember(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch,visibilityGuard,visibilityScope) { mutableStateOf<LibraryMediaRef?>(null) }
+                var addressFinished by remember(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch,visibilityGuard,visibilityScope) { mutableStateOf(false) }
+                LaunchedEffect(selectedHistoryRow, expectedGalleryUri, addressGuard, galleryAccessEpoch,visibilityGuard,visibilityScope) {
                     val row = selectedHistoryRow
                     val blocked = addressGuard
                     if (row != null && blocked != null && !row.hidden && !row.isPrivate && (expectedGalleryUri == null || row.savedUri == expectedGalleryUri)) {
                         try {
-                            val resolved = withTimeoutOrNull(5000) { libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } }
-                            if (libraryModel.privateKeys.value == blocked && libraryModel.galleryAccessEpoch.value == galleryAccessEpoch &&
+                            val resolved = withTimeoutOrNull(5000) { libraryModel.addressCollectionApp(row,visibilityScope) { uri -> availabilityCache.get(uri, fresh = true) } }
+                            if (libraryModel.privateKeys.value == blocked && libraryModel.galleryAccessEpoch.value == galleryAccessEpoch && canOpenFolderMedia(row,visibilityScope) &&
                                 !com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value)
                                 addressed = resolved?.ref
                         } catch (e: CancellationException) { throw e }
@@ -2498,7 +2569,8 @@ fun MediaLoaderApp(
                 }
                 val audioCurrentId = entry.savedStateHandle.get<String>("audio_current_id")
                 val item = if (privateViewer) GalleryViewerState.exactItem(currentGalleryId, null, privateCandidates)
-                    else if (visualRoute) GalleryViewerState.exactItem(currentGalleryId, expectedGalleryUri, galleryCandidates)
+                    else if (visualRoute) GalleryViewerState.exactItem(currentGalleryId, expectedGalleryUri, galleryCandidates)?.takeIf { canOpenFolderMedia(it,visibilityScope) }
+                    else if (visibilityScope != null) scopedFolderRefs.firstOrNull { it.key == (audioCurrentId ?: downloadId) }?.item
                     else accessibleDownloads.firstOrNull { it.id == (audioCurrentId ?: downloadId) }
                         ?: libraryRefsByAlias[audioCurrentId ?: downloadId]?.item
                         ?: accessibleDownloads.firstOrNull { it.id == downloadId }
@@ -2517,7 +2589,7 @@ fun MediaLoaderApp(
                 } else {
                     val viewerRows = if (privateViewer) privateCandidates
                         else if (item.isPrivate && privateState.unlocked) privateDownloads
-                        else if (visualRoute) galleryCandidates else publicLibraryRows
+                        else if (visualRoute) galleryCandidates else if (visibilityScope != null) scopedFolderRefs.map { it.item } else publicLibraryRows
                     val availablePhotos = viewerRows.filter { row ->
                         row.mediaType == MediaType.PHOTO &&
                             row.state == DownloadState.COMPLETED &&
@@ -2611,7 +2683,8 @@ fun MediaLoaderApp(
                             viewerRows, item.isPrivate, fileStatuses),
                         modernAudioLayout = !item.isPrivate,
                         onEqualizer = { navController.navigate("equalizer") },
-                        audioMetadataRows = publicLibraryRows, audioBlockedIdentities = libraryPrivateKeys.orEmpty(),
+                        audioMetadataRows = if (visibilityScope != null) viewerRows else publicLibraryRows,
+                        audioBlockedIdentities = if (visibilityScope != null) libraryPrivateKeys.orEmpty() else collectionBlocked,
                         audioFavoriteIds = libraryCatalogAssignments.filter { it.isFavorite }
                             .mapTo(mutableSetOf()) { it.downloadId }.also { favorites ->
                                 val stableIds = favorites.toSet()

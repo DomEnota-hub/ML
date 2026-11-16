@@ -10,16 +10,25 @@ object DownloadCatalogSelection {
 
     fun folder(id: String) = "folder:$id"
 
-    fun includes(key: String, assignment: CatalogAssignmentEntity?): Boolean = when (key) {
-        ALL -> true
-        FAVORITES -> assignment?.isFavorite == true
-        UNFILED -> assignment?.folderId == null
-        else -> key.startsWith("folder:") && key.removePrefix("folder:") == assignment?.folderId
+    fun includes(key: String, assignment: CatalogAssignmentEntity?,
+                 hiddenFolderIds: Set<String> = emptySet()): Boolean {
+        val folderId = assignment?.folderId
+        // A hidden folder is still an ordinary folder; only explicit navigation
+        // to this exact folder bypasses the general-media presentation filter.
+        if (folderId != null && folderId in hiddenFolderIds && key != folder(folderId)) return false
+        return when (key) {
+            ALL -> true
+            FAVORITES -> assignment?.isFavorite == true
+            UNFILED -> assignment?.folderId == null
+            else -> key.startsWith("folder:") && key.removePrefix("folder:") == assignment?.folderId
+        }
     }
 
     fun includesHistoryItem(
         key: String,
         state: DownloadUiState,
         assignment: CatalogAssignmentEntity?,
-    ): Boolean = key == ALL || (state == DownloadUiState.COMPLETED && includes(key, assignment))
+        hiddenFolderIds: Set<String> = emptySet(),
+    ): Boolean = if (key == ALL) includes(key, assignment, hiddenFolderIds)
+        else state == DownloadUiState.COMPLETED && includes(key, assignment, hiddenFolderIds)
 }

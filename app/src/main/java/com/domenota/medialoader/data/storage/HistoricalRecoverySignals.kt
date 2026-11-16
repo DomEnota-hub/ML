@@ -21,6 +21,7 @@ import kotlinx.coroutines.withTimeout
 internal object HistoricalRecoverySignals {
     private val running = MutableStateFlow(false)
     private val completedVersion = MutableStateFlow(0L)
+    private val folderVisibilityPending = MutableStateFlow(false)
     private val editorHolds = java.util.WeakHashMap<Any, Boolean>()
     val isRunning: StateFlow<Boolean> = running.asStateFlow()
     val version: StateFlow<Long> = completedVersion.asStateFlow()
@@ -28,7 +29,8 @@ internal object HistoricalRecoverySignals {
     /** Automatic alias maintenance must also pause BETWEEN resume attempts and
      * after process restarts, when an interrupted cross-store intent still exists. */
     fun hasPendingJournal(context: Context): Boolean {
-        return running.value || hasPendingHistoricalJournal(context) || OldDownloadsRecovery.pending(context)
+        return running.value || hasPendingHistoricalJournal(context) || OldDownloadsRecovery.pending(context) ||
+            com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager.hasPendingJournal(context)
     }
 
     internal fun hasPendingHistoricalJournal(context: Context): Boolean {
@@ -43,6 +45,12 @@ internal object HistoricalRecoverySignals {
     }
 
     @Synchronized fun begin() {
+        check(!folderVisibilityPending.value) { "Сначала завершите перенос скрытой папки" }
+        beginExclusive()
+    }
+    @Synchronized fun beginFolderVisibility() = beginExclusive()
+    @Synchronized fun markFolderVisibilityPending(pending: Boolean) { folderVisibilityPending.value = pending }
+    private fun beginExclusive() {
         check(!running.value) { "Восстановление файлов уже выполняется" }
         check(editorHolds.isEmpty()) { "Закройте редактор перед восстановлением файлов" }
         running.value = true
@@ -57,7 +65,7 @@ internal object HistoricalRecoverySignals {
     }
 
     fun requireIdle() {
-        check(!running.value) { "Дождитесь завершения восстановления файлов" }
+        check(!running.value && !folderVisibilityPending.value) { "Дождитесь завершения восстановления или переноса файлов" }
     }
 
     fun <T> normalMutation(block: () -> T): T = synchronized(this) {

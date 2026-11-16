@@ -133,6 +133,36 @@ internal class ListeningHistoryStore private constructor(context: Context) {
     private fun resolve(keys: Set<String>, aliases: Map<String,String>): String? =
         keys.mapNotNull(aliases::get).distinct().singleOrNull()
 
+    /** Called only after a byte-verified ordinary-folder move. Existing sessions,
+     * credits and exclusion state keep their track ID; no new track is fabricated. */
+    suspend fun rebindVerifiedVisibility(old: Set<String>, target: Set<String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val db = helper.writableDatabase
+            db.beginTransaction()
+            var changedAliases = false
+            try {
+                val aliases = aliasMap(db)
+                val track = com.domenota.medialoader.data.catalog.visibility.VisibilityReferencePolicy.listeningTrack(aliases,old,target)
+                if (track != null) {
+                    for (key in target - aliases.keys) {
+                        db.insertOrThrow("aliases",null,ContentValues().apply { put("alias",key);put("track_id",track) })
+                        changedAliases = true
+                    }
+                    if (changedAliases) invalidateVisibility(db)
+                }
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+            if (changedAliases) { visibilityChanges.value++; changed() }
+        }
+    }
+    suspend fun verifyVisibilityAliases(old: Set<String>, target: Set<String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val aliases = aliasMap(helper.readableDatabase)
+            val track = com.domenota.medialoader.data.catalog.visibility.VisibilityReferencePolicy.listeningTrack(aliases,old,target)
+            if (track != null) check(target.all { aliases[it] == track }) { "История прослушиваний не подтвердила новый адрес" }
+        }
+    }
+
     private fun Cursor.progress(generation: Long): ListeningProgress = ListeningProgress(
         getString(0),getString(1),getLong(2),getLong(3),getLong(4),getLong(5),
         if (isNull(6)) null else getLong(6),getLong(7),getInt(8)!=0,generation)

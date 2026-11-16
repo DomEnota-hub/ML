@@ -151,6 +151,11 @@ interface DownloadDao {
     suspend fun rebindSavedFileWhenCurrent(id: String, fromUri: String, fromName: String, fromBytes: Long,
         toUri: String, toName: String, toBytes: Long): Int
 
+    /** Folder visibility changes only the physical locator. Preserve the logical name/date. */
+    @Query("UPDATE downloads SET savedUri=:toUri WHERE id=:id AND savedUri=:fromUri AND sizeBytes=:bytes AND " +
+        "isPrivate=0 AND hidden=0 AND state='COMPLETED'")
+    suspend fun rebindVisibilityUri(id:String,fromUri:String,toUri:String,bytes:Long):Int
+
     @Query("UPDATE downloads SET previewUrl = :artworkUrl, sourceAudioArtworkUrl = :artworkUrl " +
         "WHERE id = :id AND providerId = 'muzmo' AND state = 'COMPLETED' AND previewUrl IS NULL")
     suspend fun setMuzmoArtworkIfMissing(id: String, artworkUrl: String): Int
@@ -188,6 +193,15 @@ interface SettingsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: SettingsEntity)
+
+    @Query("SELECT * FROM settings WHERE substr(`key`, 1, length(:prefix)) = :prefix")
+    suspend fun byPrefix(prefix: String): List<SettingsEntity>
+
+    @Query("SELECT * FROM settings WHERE substr(`key`, 1, length(:prefix)) = :prefix")
+    fun observeByPrefix(prefix: String): Flow<List<SettingsEntity>>
+
+    @Query("DELETE FROM settings WHERE `key` = :key")
+    suspend fun remove(key: String)
 }
 
 @Dao

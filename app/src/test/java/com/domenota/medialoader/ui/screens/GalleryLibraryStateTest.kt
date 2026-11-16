@@ -28,6 +28,24 @@ class GalleryLibraryStateTest {
         assertEquals("a", albums.first { it.key == "folder:f" }.cover?.id)
         assertEquals("b", albums.first { it.key == "device:bucket2" }.cover?.id)
     }
+    @Test fun hiddenFoldersRemainBrowsableButAreExcludedFromGeneralAndDeviceQueues() {
+        val items = listOf(file("a"), file("b", MediaType.VIDEO), file("c"), file("private").copy(isPrivate = true))
+        val assignments = listOf(CatalogAssignmentEntity("a", "hidden", true),
+            CatalogAssignmentEntity("b", "hidden", false), CatalogAssignmentEntity("private", "hidden", true))
+        val folders = listOf(CatalogFolderEntity("hidden", "Hidden", "hidden", 0))
+        val device = items.associate { it.id to DeviceAlbum("camera", "Camera") }
+        val hidden = setOf("hidden")
+        assertEquals(listOf("c"), GalleryLibraryState.filter(items, assignments, "all", "", device, hidden).map { it.id })
+        for (selection in listOf("favorites", "videos"))
+            assertTrue(GalleryLibraryState.filter(items, assignments, selection, "", device, hidden).isEmpty())
+        assertEquals(listOf("c"), GalleryLibraryState.filter(items, assignments, "device:camera", "", device, hidden).map { it.id })
+        assertEquals(listOf("a", "b"), GalleryLibraryState.filter(items, assignments, "folder:hidden", "", device, hidden).map { it.id })
+        assertTrue(GalleryLibraryState.filter(items, assignments, "all", "a", device, hidden).isEmpty())
+        val albums = GalleryLibraryState.albums(items, folders, assignments, device, hidden)
+        assertEquals(2, albums.first { it.key == "folder:hidden" }.count)
+        assertEquals(1, albums.first { it.key == "device:camera" }.count)
+        assertEquals("c", albums.first { it.key == "device:camera" }.cover?.id)
+    }
     @Test fun infoLinksResolveRealMembershipAndPreferredOrigin() {
         val photo = file("a")
         val folders = listOf(CatalogFolderEntity("f", "Мультфильмы", "мультфильмы", 0))

@@ -25,6 +25,10 @@ interface MediaOrganizationDao {
     fun observeCollections():Flow<List<MediaCollectionEntity>>
     @Query("SELECT * FROM media_collection_members ORDER BY COALESCE(sortOrder,addedAt),id")
     fun observeMembers():Flow<List<MediaCollectionMemberEntity>>
+    @Query("SELECT * FROM media_collection_members WHERE identityJson IS NOT NULL")
+    suspend fun identityMembers():List<MediaCollectionMemberEntity>
+    @Query("UPDATE media_collection_members SET identityJson=:target,metadataJson=:metadata WHERE id=:id AND collectionId=:collectionId AND identityJson=:expected")
+    suspend fun rebindMemberIdentity(id:String,collectionId:String,expected:String,target:String,metadata:String):Int
     @Query("SELECT * FROM media_collection_members WHERE collectionId=:id ORDER BY COALESCE(sortOrder,addedAt),id")
     suspend fun members(id:String):List<MediaCollectionMemberEntity>
     @Query("SELECT * FROM media_collections WHERE id=:id")

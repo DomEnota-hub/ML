@@ -11,6 +11,7 @@ internal data class MediaCollection(val record:MediaCollectionEntity,val members
 
 internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
     private val dao=db.organizationDao()
+    private fun requireIdle() = com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
     val collections=combine(dao.observeCollections(),dao.observeMembers()){collections,members->
         val grouped=members.groupBy{it.collectionId}
         collections.map{MediaCollection(it,grouped[it.id].orEmpty())}
@@ -24,15 +25,17 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
     }.distinctUntilChanged()
     fun operations(id:String)=dao.observeOperations(id)
     suspend fun create(name:String,refs:List<LibraryMediaRef> = emptyList(),link:String?=null):String = db.withTransaction {
+        requireIdle()
         val id=UUID.randomUUID().toString()
         dao.insertCollection(MediaCollectionEntity(id,MediaOrganizationPolicy.name(name),System.currentTimeMillis()))
         if(refs.isNotEmpty())addMedia(id,refs)
         if(link!=null)addLink(id,link)
         id
     }
-    suspend fun rename(id:String,name:String){check(dao.rename(id,MediaOrganizationPolicy.name(name))==1)}
-    suspend fun delete(id:String){dao.deleteCollection(id)}
+    suspend fun rename(id:String,name:String){requireIdle();check(dao.rename(id,MediaOrganizationPolicy.name(name))==1)}
+    suspend fun delete(id:String){requireIdle();dao.deleteCollection(id)}
     suspend fun addMedia(collectionId:String,refs:List<LibraryMediaRef>)=db.withTransaction {
+        requireIdle()
         check(dao.collection(collectionId)!=null){"Коллекция удалена"}
         val keys=refs.map{ref->
             val current=ref.appDownloadId?.let{db.downloadDao().byId(it)}
@@ -71,6 +74,7 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
         links.forEach{addLink(collectionId,it)}
     }
     suspend fun addLink(collectionId:String,raw:String)=db.withTransaction {
+        requireIdle()
         val link=MediaOrganizationPolicy.link(raw)
         check(dao.collection(collectionId)!=null){"Коллекция удалена"}
         val members=dao.members(collectionId)
@@ -80,6 +84,7 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
     }
     /** Reorder only the supplied visible slots. Reject stale snapshots; leave timestamps and identities intact. */
     suspend fun reorder(collectionId:String,expected:List<String>,ordered:List<String>)=db.withTransaction {
+        requireIdle()
         val members=dao.members(collectionId)
         val ids=members.map{it.id}
         check(ordered.size==expected.size && ordered.toSet()==expected.toSet() && expected.distinct()==expected)
@@ -90,8 +95,9 @@ internal class MediaOrganizationRepository(private val db:HistoryDatabase) {
             check(dao.updateMemberOrder(collectionId,id,index.toLong())==1)
         }
     }
-    suspend fun remove(collectionId:String,id:String){dao.removeMember(collectionId,id)}
+    suspend fun remove(collectionId:String,id:String){requireIdle();dao.removeMember(collectionId,id)}
     suspend fun removeSelection(collectionId:String,ids:List<String>)=db.withTransaction {
+        requireIdle()
         check(dao.collection(collectionId)!=null){"Коллекция удалена"}
         ids.distinct().forEach{dao.removeMember(collectionId,it)}
     }

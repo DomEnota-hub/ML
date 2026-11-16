@@ -210,6 +210,27 @@ class MediaRepository private constructor(context: Context) {
     private val history = HistoryRepository(historyDb.downloadDao(), historyDb.catalogDao(),historyDb)
     internal val organization = com.domenota.medialoader.data.library.MediaOrganizationRepository(historyDb)
     private val catalog = DownloadCatalogRepository(historyDb)
+    init {
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.markFolderVisibilityPending(
+            com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager.hasPendingJournal(appContext))
+    }
+    internal val folderVisibility by lazy { com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager(appContext,historyDb) }
+    @androidx.annotation.RequiresApi(30)
+    internal suspend fun setFolderVisibility(folderId: String, hidden: Boolean,
+        approve: suspend (android.app.PendingIntent) -> Boolean) = musicPostProcessGate.withPermit {
+        folderVisibility.setHidden(folderId,hidden,approve)
+    }
+    @androidx.annotation.RequiresApi(30)
+    internal suspend fun resumeFolderVisibility(approve: suspend (android.app.PendingIntent) -> Boolean) = musicPostProcessGate.withPermit {
+        folderVisibility.resume(approve)
+    }
+
+    @androidx.annotation.RequiresApi(30)
+    internal suspend fun changeFolderMembership(ref: com.domenota.medialoader.data.library.LibraryMediaRef,
+        target: String?, approve: suspend (android.app.PendingIntent) -> Boolean): Boolean = musicPostProcessGate.withPermit {
+        folderVisibility.changeMember(ref,target,approve)
+    }
+
     private val gapiKeys = com.domenota.medialoader.data.gapi.GapiKeyStore(appContext)
     private val gapiRequests = com.domenota.medialoader.data.gapi.GapiRequestCoordinator()
     private fun networkAvailable(): Boolean {
@@ -421,6 +442,7 @@ class MediaRepository private constructor(context: Context) {
         },
     ) }
     suspend fun moveToPrivate(id: String) = musicPostProcessGate.withPermit {
+        folderVisibility.requireVisibleMember(id)
         val original = history.byId(id)
         val source = when {
             original == null -> null
@@ -1608,6 +1630,8 @@ class MediaRepository private constructor(context: Context) {
         SavedFilePresence.check(appContext, savedUri)
 
     suspend fun rename(id: String, input: String) = musicPostProcessGate.withPermit {
+        folderVisibility.requireVisibleMember(id)
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         AppLog.verbose("History", "Rename requested · id=$id")
         val item = history.byId(id) ?: return@withPermit
         requireMediaAccess(item)
@@ -1633,6 +1657,8 @@ class MediaRepository private constructor(context: Context) {
         AppLog.i("History", "Rename completed · id=$id")
     }
     suspend fun hide(id: String, completedOnly: Boolean = false) = musicPostProcessGate.withPermit {
+        folderVisibility.requireVisibleMember(id)
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         AppLog.verbose("Trash", "Move requested · id=$id")
         val item = history.byId(id) ?: return@withPermit
         if (item.hidden) return@withPermit // Idempotent retry after interruption of a batch.
@@ -1662,6 +1688,8 @@ class MediaRepository private constructor(context: Context) {
     internal suspend fun trashVerifiedDuplicate(id: String, expectedUri: String) = trashVerifiedLibraryMedia(id, expectedUri, setOf(MediaType.AUDIO))
     internal suspend fun trashVerifiedAlbumMedia(id: String, expectedUri: String) = trashVerifiedLibraryMedia(id, expectedUri, setOf(MediaType.PHOTO, MediaType.VIDEO))
     private suspend fun trashVerifiedLibraryMedia(id: String, expectedUri: String, types: Set<MediaType>) = musicPostProcessGate.withPermit {
+        folderVisibility.requireVisibleMember(id)
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val item = history.byId(id) ?: error("Запись отсутствует")
         requireMediaAccess(item)
         check(!item.hidden && !item.isPrivate && item.state == DownloadState.COMPLETED &&
@@ -1680,6 +1708,8 @@ class MediaRepository private constructor(context: Context) {
 
     /** Gallery-only deletion: never stage bytes or metadata in either trash. */
     suspend fun deleteLibraryFilePermanently(id: String) = musicPostProcessGate.withPermit {
+        folderVisibility.requireVisibleMember(id)
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val item = history.byId(id) ?: return@withPermit
         requireMediaAccess(item)
         require(!item.isPrivate && !item.hidden && item.state == DownloadState.COMPLETED) {

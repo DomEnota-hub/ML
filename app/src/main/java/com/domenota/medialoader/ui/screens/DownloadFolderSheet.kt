@@ -20,6 +20,8 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.RemoveRedEye
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,6 +51,9 @@ import com.domenota.medialoader.core.database.CatalogFolderEntity
 import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.ui.model.DownloadUiState
 import com.domenota.medialoader.ui.model.DownloadCatalogSelection
+import com.domenota.medialoader.ui.components.AppNotice
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 internal const val CATALOG_ALL = DownloadCatalogSelection.ALL
@@ -87,8 +92,12 @@ internal fun DownloadFolderSheet(
     onRename: suspend (String, String) -> Unit,
     onDelete: suspend (String) -> Unit,
     onAssign: suspend (String, String?) -> Unit,
+    hiddenFolderIds: Set<String> = emptySet(),
+    onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
+    pendingVisibilityFolderId: String? = null,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var editTarget by remember { mutableStateOf<CatalogFolderEntity?>(null) }
     var creating by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<CatalogFolderEntity?>(null) }
@@ -100,7 +109,8 @@ internal fun DownloadFolderSheet(
         folders, items, assignments, galleryOnlyFolderIds, assigning = targetDownloadId != null)
     val hiddenGalleryFolders = folders.size - shownFolders.size
     val currentFolderId = targetDownloadId?.let { assignments[it]?.folderId }
-    val favoriteCount = completed.count { assignments[it.id]?.isFavorite == true }
+    val general = completed.filter { DownloadCatalogSelection.includes(CATALOG_ALL, assignments[it.id], hiddenFolderIds) }
+    val favoriteCount = general.count { assignments[it.id]?.isFavorite == true }
     val unfiledCount = completed.count { assignments[it.id]?.folderId == null }
 
     fun choose(key: String, folderId: String?) {
@@ -125,7 +135,7 @@ internal fun DownloadFolderSheet(
                 style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(6.dp))
             if (targetDownloadId == null) {
-                CatalogSheetRow(Icons.Rounded.FolderOpen, "Все файлы", completed.size,
+                CatalogSheetRow(Icons.Rounded.FolderOpen, "Все файлы", general.size,
                     selectedKey == CATALOG_ALL, !busy) { choose(CATALOG_ALL, null) }
                 CatalogSheetRow(Icons.Rounded.Star, "Избранное", favoriteCount,
                     selectedKey == CATALOG_FAVORITES, !busy) { choose(CATALOG_FAVORITES, null) }
@@ -167,8 +177,11 @@ internal fun DownloadFolderSheet(
             }
             shownFolders.forEach { folder ->
                 val count = completed.count { assignments[it.id]?.folderId == folder.id }
+                val folderHidden = folder.id in hiddenFolderIds
+                val visibilityPending = pendingVisibilityFolderId == folder.id
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    CatalogSheetRow(Icons.Rounded.Folder, folder.name, count,
+                    CatalogSheetRow(if (folderHidden) Icons.Rounded.VisibilityOff else Icons.Rounded.Folder,
+                        if (visibilityPending) "${folder.name} · перенос не завершён" else folder.name, count,
                         if (targetDownloadId == null) selectedKey == folderKey(folder.id)
                             else currentFolderId == folder.id,
                         !busy, Modifier.weight(1f)) { choose(folderKey(folder.id), folder.id) }
@@ -182,7 +195,20 @@ internal fun DownloadFolderSheet(
                                 DropdownMenuItem(text = { Text("Переименовать") }, onClick = {
                                     menuOpen = false; editTarget = folder; name = folder.name; error = null
                                 })
-                                DropdownMenuItem(text = { Text("Удалить папку") }, onClick = {
+                                if (onFolderVisibility != null) DropdownMenuItem(
+                                    text = { Text(if (visibilityPending) "Продолжить перенос" else if (folderHidden) "Показывать в медиатеке" else "Скрыть из медиатеки") },
+                                    leadingIcon = { Icon(if (folderHidden) Icons.Rounded.RemoveRedEye else Icons.Rounded.VisibilityOff,null) },
+                                    enabled = !busy && (pendingVisibilityFolderId == null || visibilityPending),
+                                    onClick = {
+                                        menuOpen = false; busy = true
+                                        scope.launch {
+                                            try { onFolderVisibility(folder.id,!folderHidden) }
+                                            catch (cancelled: CancellationException) { throw cancelled }
+                                            catch (e: Exception) { AppNotice.post(context,e.message ?: "Не удалось изменить видимость папки") }
+                                            finally { busy = false }
+                                        }
+                                    })
+                                DropdownMenuItem(text = { Text("Удалить папку") }, enabled = !busy && pendingVisibilityFolderId == null, onClick = {
                                     menuOpen = false; deleteTarget = folder; error = null
                                 })
                             }

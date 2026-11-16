@@ -18,6 +18,25 @@ class ListeningHistoryStoreTest {
     }
     @After fun close() { store.closeForTest() }
 
+    @Test fun verifiedFolderMoveRetainsTrackCreditsAndRejectsConflictingAliases() = runBlocking {
+        val old=setOf("locator:old:12:1000")
+        val target=setOf("locator:new:12:1000")
+        val first=requireNotNull(store.begin(old,0,1000))
+        store.save(first.copy(lastAt=31_000,mediaMs=30_000,wallMs=30_000,creditedAt=31_000,closed=true))
+        val revision=store.persistedProjectionRevision(ListeningProjectionDomain.STATS)
+        store.rebindVerifiedVisibility(old,target)
+        store.verifyVisibilityAliases(old,target)
+        assertTrue(store.persistedProjectionRevision(ListeningProjectionDomain.STATS)>revision)
+        assertEquals(first.trackId,requireNotNull(store.begin(target,0,40_000)).trackId)
+        val stableRevision=store.persistedProjectionRevision(ListeningProjectionDomain.STATS)
+        store.rebindVerifiedVisibility(old,target)
+        assertEquals(stableRevision,store.persistedProjectionRevision(ListeningProjectionDomain.STATS))
+        val other=setOf("locator:other:12:1000")
+        val otherTrack=requireNotNull(store.begin(other,0,50_000)).trackId
+        try { store.rebindVerifiedVisibility(old,other); fail("Unrelated track") } catch (_:IllegalStateException) { }
+        assertEquals(otherTrack,requireNotNull(store.begin(other,0,60_000)).trackId)
+    }
+
     @Test fun persistentProjectionsSurviveProcessRestartAndRespectRevisionDomains() = runBlocking {
         val keys=setOf("app:cached")
         val candidate=SmartTrackCandidate("cached",keys,"Artist",true)
