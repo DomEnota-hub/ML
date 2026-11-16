@@ -42,6 +42,8 @@ jobs:
           python3 scripts/audit_ui_palette.py
           python3 scripts/check-round-sliders.py
           python3 scripts/check-in-app-notices.py
+      - name: Folder visibility and durable membership regressions
+        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Visibility*Test' --tests '*HiddenFolderFileStoreTest' --tests '*DownloadCatalogSelectionTest' --tests '*GalleryLibraryStateTest' --stacktrace
       - name: Collection regression tests
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*PhoneLibraryCacheTest' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --tests '*BackgroundLibraryProjectionTest' --tests '*AudioThumbnailInvalidationTest' --tests '*AppAudioIdentityCacheTest' --stacktrace

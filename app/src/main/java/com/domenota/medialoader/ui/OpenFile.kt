@@ -41,7 +41,10 @@ private fun withAvailableFile(
         }
         val uri = entity.savedUri?.let(Uri::parse) ?: return@launch
         try {
-            block(uri)
+            val shareUri=if(uri.scheme=="file" && com.domenota.medialoader.data.catalog.visibility.FolderVisibilityStorageAccess.granted() &&
+                withContext(Dispatchers.IO) { runCatching { com.domenota.medialoader.data.catalog.visibility.FolderVisibilityStorageAccess.store().owns(java.io.File(requireNotNull(uri.path))) }.getOrDefault(false) })
+                androidx.core.content.FileProvider.getUriForFile(context,"${context.packageName}.photo-tools",java.io.File(requireNotNull(uri.path))) else uri
+            block(shareUri)
         } catch (error: Exception) {
             AppLog.w("History",
                 "$action failed · id=${entity.id} · ${error.javaClass.simpleName}: ${error.message.orEmpty().take(160)}")

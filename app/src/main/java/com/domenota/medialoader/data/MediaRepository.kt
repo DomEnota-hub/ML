@@ -694,6 +694,8 @@ class MediaRepository private constructor(context: Context) {
 
     /** Explicit local recognition is read-only; never call automatic post-processing here. */
     private suspend fun requirePublicLocalTrack(source:DownloadEntity,epoch:Long):String{
+        folderVisibility.requireVisibleMember(source.id)
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val uri=requireNotNull(source.savedUri){"Файл недоступен"}
         check(source.mediaType==MediaType.AUDIO&&source.state==DownloadState.COMPLETED&&!source.hidden&&!source.isPrivate&&
             Uri.parse(uri).scheme in setOf("file","content")&&!privateFiles.owns(uri)){"Трек недоступен"}
@@ -1261,7 +1263,10 @@ class MediaRepository private constructor(context: Context) {
         title: String? = null, artist: String? = null, album: String? = null,
         operation: String? = null,
     ): DownloadEntity {
+        folderVisibility.requireVisibleMember(source.id)
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val latest = history.byId(source.id)
+        check(latest==null || latest.savedUri==source.savedUri) { "Исходный файл изменился" }
         val isPrivate = source.isPrivate || latest?.isPrivate == true || source.savedUri?.let(privateFiles::owns) == true
         if (isPrivate) privateAccess.requireUnlocked()
         val id = UUID.randomUUID().toString()
@@ -1372,6 +1377,7 @@ class MediaRepository private constructor(context: Context) {
         expectedPrivacyEpoch:Long?=null,
         recognition:MusicRecognitionResult?=null,
     ): DownloadEntity = musicPostProcessGate.withPermit {
+        folderVisibility.requireVisibleMember(source.id)
         requireMediaAccess(source)
         if(expectedPrivacyEpoch!=null)requirePublicLocalTrack(source,expectedPrivacyEpoch)
         require(com.domenota.medialoader.data.editor.AudioReplacePolicy.eligible(source)) {

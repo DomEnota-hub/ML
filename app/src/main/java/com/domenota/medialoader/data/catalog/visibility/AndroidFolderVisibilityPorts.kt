@@ -106,7 +106,7 @@ internal class AndroidFolderVisibilityPorts(
         val original = origin(record)
         if (record.direction == VisibilityDirection.HIDE) {
             if (media.isOwnedOriginal(original)) media.removeOwnedOriginal(original,record.fingerprint)
-            else check(approveCleanup(media.cleanupRequest(original,record.fingerprint))) {
+            else check(withContext(Dispatchers.Main.immediate) { approveCleanup(media.cleanupRequest(original,record.fingerprint)) }) {
                 "Android не подтвердил удаление исходного экземпляра; проверенная копия и журнал сохранены"
             }
         } else withContext(Dispatchers.IO) {
@@ -139,7 +139,7 @@ internal class AndroidFolderVisibilityPorts(
             val previous = state.receipt(member.downloadId)
             if (member.direction == VisibilityDirection.SHOW) check(previous?.direction == VisibilityDirection.HIDE &&
                 previous.destinationUri == member.sourceUri && previous.publicOrigin == member.publicOrigin && previous.folderId == batch.folderId)
-            else check(previous == null || previous.direction == VisibilityDirection.SHOW && previous.destinationUri == member.sourceUri)
+            else check(previous == null || previous.direction == VisibilityDirection.SHOW && previous.destinationUri == member.logicalSourceUri)
         }
     }
     override suspend fun prepareMembership(batch:VisibilityBatchRecord,pending:VisibilityMoveRecord?) {

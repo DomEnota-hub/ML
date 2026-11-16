@@ -218,7 +218,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     internal suspend fun addressCollectionPhone(uri: String): AddressedFile {
         val guard = visibilityGuard.value ?: return AddressedFile(null,com.domenota.medialoader.data.storage.SavedFileStatus.UNCHECKED)
         val result = phone.lookupCollectionAddress(uri)
-        return if (visibilityGuard.value == guard && result.ref?.let { !guard.excluded(it) } == true) result
+        return if (visibilityGuard.value == guard && result.ref?.let { !guard.excluded(it) } == true) result.copy(ref=result.ref?.let(guard::normalizePublic))
             else AddressedFile(null,com.domenota.medialoader.data.storage.SavedFileStatus.UNCHECKED)
     }
     internal suspend fun addressCollectionApp(row: DownloadEntity,
@@ -402,7 +402,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             val refs = if (guard != null && app?.complete == true && audio.loaded && audio.complete && !audio.loading && audio.accessEpoch == epoch) withContext(Dispatchers.IO) {
                 val phoneRows = PhoneLibraryChronology.reconcile(audio.items, app.refs.map { it.item })
                 UnifiedMediaLibrary.merge(app.refs.filterNot { visibility!!.excluded(it) },
-                    references(phoneRows, false, audio.identities).filterNot { visibility!!.excluded(it) }, guard.privacy).also {
+                    references(phoneRows, false, audio.identities).filterNot { visibility!!.excluded(it) }.map { visibility!!.normalizePublic(it) }, guard.privacy).also {
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Audio catalog ready · count=${it.size}")
                 }
             } else null
@@ -425,7 +425,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             val phoneRows = PhoneLibraryChronology.reconcile(
                 pictures.items + audio.items, app?.refs.orEmpty().map { it.item })
             val merged = UnifiedMediaLibrary.merge(app?.refs.orEmpty().filterNot(visibility::excluded),
-                references(phoneRows, false, pictures.identities + audio.identities).filterNot(visibility::excluded), private)
+                references(phoneRows, false, pictures.identities + audio.identities).filterNot(visibility::excluded).map(visibility::normalizePublic), private)
             val hidden = (app?.refs.orEmpty() + visibility.external.map { it.ref }.filter { it.appDownloadId == null })
                 .mapNotNull { verifiedHidden(it,visibility) }.filterNot { ref ->
                     ref.key in private || ref.aliases.any(private::contains)

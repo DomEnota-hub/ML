@@ -21,7 +21,7 @@ internal object VisibilityReceiptPolicy {
         if (previous == null) {
             check(next.direction == VisibilityDirection.HIDE) { "Не найдено исходное расположение скрытого файла" }
         } else {
-            check(previous.downloadId == next.downloadId && previous.destinationUri == next.sourceUri &&
+            check(previous.downloadId == next.downloadId && previous.destinationUri == next.logicalSourceUri &&
                 previous.direction != next.direction && previous.operationId != next.operationId) {
                 "Состояние видимости файла изменилось"
             }

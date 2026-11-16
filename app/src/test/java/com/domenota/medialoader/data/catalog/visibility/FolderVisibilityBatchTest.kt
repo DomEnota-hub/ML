@@ -78,4 +78,55 @@ class FolderVisibilityBatchTest {
             assertEquals(f.batch, FileVisibilityBatchJournal(file).read()); val raw=file.readBytes(); raw[10]=(raw[10]+1).toByte(); file.writeBytes(raw)
             fails { f.engine().begin(f.batch) }; assertTrue(raw.contentEquals(file.readBytes())); assertTrue(f.deleted.isEmpty()) }
     }
+
+    @Test fun durableMembershipPreparationResumesAfterInterruption() = runBlocking {
+        val root=Files.createTempDirectory("ml-membership").toFile()
+        try {
+            val member=plan().members.first()
+            val change=VisibilityMemberChange(member.downloadId,true,null,member.folderId,member.sourceUri,true,null)
+            val batch=plan().copy(members=listOf(member),membership=change)
+            val fixture=Fixture(root,batch)
+            val observed=mutableListOf<VisibilityMemberChange>()
+            var interrupt=true
+            val ports=object:VisibilityBatchPorts by fixture {
+                override suspend fun prepareMembership(batch:VisibilityBatchRecord,pending:VisibilityMoveRecord?) {
+                    assertEquals(batch,fixture.batchJournal.read())
+                    observed+=checkNotNull(batch.membership)
+                    if(interrupt) error("interrupted after journal")
+                }
+            }
+            fun engine()=FolderVisibilityBatch(fixture.batchJournal,fixture.moveJournal,FolderVisibilityMove(fixture.moveJournal,fixture),ports)
+            fails { engine().begin(batch) }
+            assertEquals(batch,fixture.batchJournal.read());assertTrue(fixture.deleted.isEmpty())
+            interrupt=false;engine().resume()
+            assertEquals(listOf(change,change),observed);assertEquals(listOf(member.sourceUri),fixture.deleted);assertNull(fixture.batchJournal.read())
+        } finally { root.deleteRecursively() }
+    }
+    @Test fun membershipCodecPreservesExternalSeedAndPriorReceipt() {
+        val member=plan().members.first()
+        val receipt=member.copy(phase=VisibilityMovePhase.CLEANED,destinationUri="file:///hidden.jpg")
+        val change=VisibilityMemberChange(member.downloadId,false,member.folderId,"second",requireNotNull(receipt.destinationUri),true,"{\"name\":\"файл\"}",receipt)
+        val batch=plan().copy(members=emptyList(),membership=change)
+        assertEquals(batch,VisibilityBatchCodec.decode(VisibilityBatchCodec.encode(batch)))
+    }
+    @Test fun emptyMembershipBatchDoesNotCopyOrDeleteBytes() = runBlocking {
+        val root=Files.createTempDirectory("ml-membership-metadata").toFile()
+        try {
+            val member=plan().members.first()
+            val receipt=member.copy(phase=VisibilityMovePhase.CLEANED,destinationUri="file:///hidden.jpg")
+            val change=VisibilityMemberChange(member.downloadId,true,member.folderId,"second",requireNotNull(receipt.destinationUri),false,null,receipt)
+            val batch=plan().copy(members=emptyList(),membership=change)
+            val fixture=Fixture(root,batch)
+            fixture.engine().begin(batch)
+            assertTrue(fixture.committed);assertTrue(fixture.deleted.isEmpty());assertNull(fixture.batchJournal.read())
+        } finally { root.deleteRecursively() }
+    }
+    @Test fun versionOneBatchRemainsReadable() {
+        val batch=plan()
+        val current=VisibilityBatchCodec.encode(batch)
+        val payload=current.copyOfRange(0,current.size-33)
+        payload[7]=1
+        val old=payload+java.security.MessageDigest.getInstance("SHA-256").digest(payload)
+        assertEquals(batch,VisibilityBatchCodec.decode(old))
+    }
 }

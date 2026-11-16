@@ -62,6 +62,17 @@ class DownloadQueueTest {
             } }
             return changed
         }
+        override suspend fun rebindVisibilityUri(id:String,fromUri:String,toUri:String,bytes:Long):Int {
+            var changed=0
+            rows.update { list ->
+                changed=0
+                list.map { row -> if(row.id==id && row.savedUri==fromUri && row.sizeBytes==bytes &&
+                    row.state==DownloadState.COMPLETED && !row.isPrivate && !row.hidden) {
+                    changed++; row.copy(savedUri=toUri)
+                } else row }
+            }
+            return changed
+        }
         override suspend fun rebindSavedFileWhenCurrent(id: String, fromUri: String, fromName: String,
             fromBytes: Long, toUri: String, toName: String, toBytes: Long): Int {
             var changed = 0

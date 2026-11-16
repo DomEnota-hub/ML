@@ -68,6 +68,7 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
         requireCompleted(downloadId)
         require(folderId == null || dao.folderById(folderId) != null) { "Папка не найдена" }
         val previous = dao.assignmentById(downloadId)
+        if(previous?.folderId==folderId) return@withTransaction
         check(previous?.folderId?.let { visibility.isHidden(it) } != true && folderId?.let { visibility.isHidden(it) } != true) { "Сначала выполните перенос скрытого файла" }
         if (folderId == null && previous?.isFavorite != true) dao.removeAssignment(downloadId)
         else dao.saveAssignment(CatalogAssignmentEntity(downloadId, folderId,

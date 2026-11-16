@@ -25,7 +25,7 @@ internal data class FolderVisibilityReadPolicy(
     val excludedFolders: Set<String> = snapshot.hiddenFolders + listOfNotNull(pendingFolder)
     private val receiptsById = snapshot.receipts.associateBy { it.downloadId }
     private val hiddenReceipts = snapshot.receipts.filter { it.direction == VisibilityDirection.HIDE }
-    private val hiddenUris = hiddenReceipts.mapNotNullTo(mutableSetOf()) { it.destinationUri }
+    private val hiddenUris = snapshot.receipts.mapNotNullTo(mutableSetOf()) { if(it.direction==VisibilityDirection.HIDE) it.destinationUri else it.sourceUri }
     private val pendingIds = pendingMembers.mapTo(mutableSetOf()) { it.downloadId }
     private val pendingUris = pendingMembers.flatMapTo(mutableSetOf()) { listOfNotNull(it.sourceUri,it.logicalSourceUri,it.destinationUri) }
 
