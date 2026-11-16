@@ -61,12 +61,16 @@ internal object GlyphContentMask {
             var reason="no_verified_ink"
             fun report(value:String){reason=value}
             val profile=profiles[glyph.id]
-            // Direct repeated fill/outline evidence is stronger than a
-            // guessed single background colour for that glyph. Preserve the
-            // prior verified-background method for all other text styles.
-            val segment = outlined[glyph.id] ?: if (glyph.id in outlinedLineGlyphs) {
-                report("outlined_component_unverified"); null
-            } else if(profile!=null) extractSymbol(source,glyph,profile,::report)
+            // An independently verified per-column exterior is stronger than
+            // a style hypothesis on a bright surface: a white background
+            // inside a letter's hole can resemble white fill. Keep the proven
+            // gradient/seam method when it succeeds. Otherwise use direct
+            // outline evidence; do not guess a uniform background for a
+            // rejected glyph in a strongly identified outlined line.
+            val segment = profile?.let { extractSymbol(source,glyph,it,::report) }
+                ?: outlined[glyph.id] ?: if (glyph.id in outlinedLineGlyphs) {
+                    report("outlined_component_unverified"); null
+                } else if (profile != null) null
                 else extractSymbol(source,glyph,null,::report) ?: backgrounds[glyph.id]?.let {
                     extractSymbol(source,glyph,it,::report)
                 }
