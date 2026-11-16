@@ -114,7 +114,7 @@ class LibraryValidationGateTest {
         assertTrue(visualDuplicateCatalogComplete(index,complete,3,uris))
         assertFalse(visualDuplicateCatalogComplete(index,complete.copy(complete=false),3,uris))
         assertFalse(visualDuplicateCatalogComplete(index,complete.copy(loading=true),3,uris))
-        assertFalse(visualDuplicateCatalogComplete(index,complete.copy(scanInProgress=true),3,uris))
+        assertFalse(visualDuplicateCatalogComplete(index,complete,3,uris,scanInProgress=true))
         assertFalse(visualDuplicateCatalogComplete(index,complete.copy(revision=13),3,uris))
         assertFalse(visualDuplicateCatalogComplete(index,complete,4,uris))
         assertFalse(visualDuplicateCatalogComplete(index,complete,3,emptySet()))

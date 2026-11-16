@@ -47,7 +47,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean,phonePermission:Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit) {
+internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean,phonePermission:Boolean,currentGeneration:()->Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit) {
     val context=LocalContext.current
     val refs=catalog.all
     val status by VisualDuplicateBackgroundScan.state.collectAsStateWithLifecycle()
@@ -89,8 +89,9 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     val latestCatalog by rememberUpdatedState(catalog)
     val latestReady by rememberUpdatedState(ready && phonePermission)
     val latestEpoch by rememberUpdatedState(privacyEpoch)
+    val liveGeneration by rememberUpdatedState(currentGeneration)
     fun startScan(){
-        if(latestReady && DuplicatePrivacyGuard.generation(context)==latestEpoch) {
+        if(latestReady && liveGeneration() && DuplicatePrivacyGuard.generation(context)==latestEpoch) {
             val currentCatalog=latestCatalog
             if(currentCatalog.source==LibrarySource.PHONE && !com.domenota.medialoader.ui.hasPhoneLibraryAccess(context,AppMode.GALLERY))return
             if(currentCatalog.scan.isNotEmpty())VisualDuplicateBackgroundScan.start(context,currentCatalog.scan,currentCatalog.source,latestEpoch)
