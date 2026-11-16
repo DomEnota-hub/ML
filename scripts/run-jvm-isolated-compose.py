@@ -2,7 +2,7 @@
 """Run every test, separating recurring Robolectric Compose idling failures.
 
 No retries, ignored tests, timeouts, or production changes. The bulk invocation
-excludes only the two classes whose *every* method is run in a fresh Gradle test
+excludes only the affected classes whose *every* method is run in a fresh Gradle test
 worker. Merge original testcase nodes into the usual JUnit XML output, failing
 on missing/duplicate methods, unexpected filtered results, or any failed shard.
 Raw XML/HTML for all invocations is kept for diagnosis.
@@ -18,23 +18,25 @@ import sys
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = 'com.domenota.medialoader.ui.screens.music'
-CLASSES = ('RecentMusicScreenTest', 'SmartMusicScreenTest')
+MUSIC = ('com.domenota.medialoader.ui.screens.music.RecentMusicScreenTest',
+         'com.domenota.medialoader.ui.screens.music.SmartMusicScreenTest')
+COLLECTION = ('com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest',)
+GROUPS = {'music': MUSIC, 'collection': COLLECTION, 'full': MUSIC + COLLECTION}
 RESULTS = ROOT / 'app/build/test-results/testDebugUnitTest'
 HTML = ROOT / 'app/build/reports/tests/testDebugUnitTest'
 SHARDS = ROOT / 'app/build/ml-jvm-shards'
 
 
-def expected_methods():
+def expected_methods(mode):
     result = []
-    for cls in CLASSES:
-        source = ROOT / 'app/src/test/java' / PACKAGE.replace('.', '/') / f'{cls}.kt'
+    for cls in GROUPS[mode]:
+        source = ROOT / 'app/src/test/java' / (cls.replace('.', '/') + '.kt')
         text = source.read_text(encoding='utf-8')
         names = re.findall(r'@Test(?:\s*\([^)]*\))?\s+fun\s+([A-Za-z_]\w*)\s*\(', text)
         annotations = re.findall(r'@Test\b', text)
         if not names or len(names) != len(annotations) or len(set(names)) != len(names):
             raise RuntimeError(f'Cannot enumerate every @Test method in {source}')
-        result.extend((f'{PACKAGE}.{cls}', name) for name in names)
+        result.extend((cls, name) for name in names)
     return result
 
 
@@ -52,11 +54,11 @@ def read_cases(directory):
     return cases
 
 
-def run_shard(label, extra):
+def run_shard(label, extra, shard_root):
     # No stale XML may satisfy a shard that fails to start or compile.
     shutil.rmtree(RESULTS, ignore_errors=True)
     shutil.rmtree(HTML, ignore_errors=True)
-    dest = SHARDS / label
+    dest = shard_root / label
     dest.mkdir(parents=True)
     cmd = [str(ROOT / 'gradlew'), ':app:testDebugUnitTest', '-Parm64Release=true',
            '--stacktrace', *extra]
@@ -107,24 +109,25 @@ def merge_cases(cases):
 
 
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in ('music', 'full'):
-        raise SystemExit('usage: run-music-jvm-isolated.py music [Gradle --tests patterns] | full')
+    if len(sys.argv) < 2 or sys.argv[1] not in GROUPS:
+        raise SystemExit('usage: run-jvm-isolated-compose.py music|collection [Gradle --tests patterns] | full')
     mode, extra = sys.argv[1], sys.argv[2:]
     if mode == 'full' and extra:
         raise SystemExit('Full suite must not have a test filter')
-    if mode == 'music' and (not extra or len(extra) % 2 or any(x != '--tests' for x in extra[::2])):
-        raise SystemExit('Music suite requires the existing --tests patterns')
-    expected = expected_methods()
+    if mode != 'full' and (not extra or len(extra) % 2 or any(x != '--tests' for x in extra[::2])):
+        raise SystemExit('Targeted suite requires the existing --tests patterns')
+    expected = expected_methods(mode)
     isolated = set(expected)
     class_names = {k[0] for k in isolated}
-    shutil.rmtree(SHARDS, ignore_errors=True)
-    SHARDS.mkdir(parents=True)
+    shard_root = SHARDS / mode
+    shutil.rmtree(shard_root, ignore_errors=True)
+    shard_root.mkdir(parents=True)
     all_cases = {}
     records = []
     errors = []
 
     def collect(label, args, wanted=None):
-        code, cases = run_shard(label, args)
+        code, cases = run_shard(label, args, shard_root)
         actual = set(cases)
         if code or not actual:
             errors.append(f'{label}: Gradle exit {code}, {len(actual)} reported tests')
@@ -146,7 +149,7 @@ def main():
                         'expected': sorted(wanted) if wanted is not None else None})
 
     # A failed test is never retried or replaced with a successful attempt.
-    collect('bulk', ['-PmlIsolateMusicUiBulk=true', *extra])
+    collect('bulk', [f'-PmlIsolatedComposeBulk={mode}', *extra])
     for cls, method in expected:
         collect(f'{cls.rsplit(".", 1)[-1]}-{method}', ['--tests', f'{cls}.{method}'], {(cls, method)})
     if isolated - all_cases.keys():
@@ -154,7 +157,7 @@ def main():
     merge_cases(all_cases)
     report = {'mode': mode, 'total': len(all_cases), 'isolated_methods': len(isolated),
               'shards': records, 'errors': errors}
-    (SHARDS / 'manifest.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    (shard_root / 'manifest.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
     return 1 if errors else 0
 

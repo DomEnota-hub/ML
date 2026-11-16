@@ -46,13 +46,13 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Visibility*Test' --tests '*HiddenFolderFileStoreTest' --tests '*DownloadCatalogSelectionTest' --tests '*GalleryLibraryStateTest' --stacktrace
       - name: Collection regression tests
         run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*PhoneLibraryCacheTest' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --tests '*BackgroundLibraryProjectionTest' --tests '*AudioThumbnailInvalidationTest' --tests '*AppAudioIdentityCacheTest' --stacktrace
+          python3 scripts/run-jvm-isolated-compose.py collection --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*PhoneLibraryCacheTest' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --tests '*BackgroundLibraryProjectionTest' --tests '*AudioThumbnailInvalidationTest' --tests '*AppAudioIdentityCacheTest'
       - name: Duplicate scan and acoustic regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace
       - name: Music folders, daily history and recognition regressions
         run: |
-          python3 scripts/run-music-jvm-isolated.py music --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --tests '*MusicBrowseProjectionTest' --tests '*LibraryModeScreensTest' --tests '*PrivatePlayback*Test' --tests '*LibraryWorkCountersTest'
+          python3 scripts/run-jvm-isolated-compose.py music --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --tests '*MusicBrowseProjectionTest' --tests '*LibraryModeScreensTest' --tests '*PrivatePlayback*Test' --tests '*LibraryWorkCountersTest'
       - name: Shared photo editor, full resolution and drawing regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Photo*Test' --tests '*BatchWatermarkTest' --tests '*BatchTextDraftRestorationTest' --tests '*TextLayer*Test' --tests '*EditorTextDialogLayoutTest' --stacktrace
@@ -72,7 +72,7 @@ jobs:
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*LocalTextOcrFallbackTest' --tests '*OcrLineCandidatePolicyTest' --tests '*GlyphContentMaskTest' --tests '*OutlinedGlyphInkTest' --tests '*TextGlyphMaskTest' --tests '*SerializedModelCacheTest' --tests '*LaMaCompositionTest' --tests '*LaMaInputSamplingEquivalenceTest' --tests '*MobileSamLaMaIntegrationTest' --stacktrace
       - name: Full JVM suite
-        run: python3 scripts/run-music-jvm-isolated.py full
+        run: python3 scripts/run-jvm-isolated-compose.py full
       - name: Android lint
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Internal ARM64 compilation (no distribution)
