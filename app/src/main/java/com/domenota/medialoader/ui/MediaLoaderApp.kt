@@ -12,10 +12,13 @@ import com.domenota.medialoader.data.catalog.visibility.*
 import com.domenota.medialoader.ui.components.AppModeTitle
 import com.domenota.medialoader.ui.components.LibraryRefreshShield
 import com.domenota.medialoader.ui.components.addressedLibraryProjection
+import com.domenota.medialoader.core.logging.LibraryProjectionKind
+import com.domenota.medialoader.ui.screens.MusicBrowseCatalog
 import com.domenota.medialoader.ui.components.LibraryModeHeader
 import com.domenota.medialoader.ui.components.LibraryTheme
 import com.domenota.medialoader.ui.components.LibraryBottomSwitcher
 import com.domenota.medialoader.ui.screens.gallery.DeviceAlbum
+import com.domenota.medialoader.ui.screens.gallery.GalleryBrowseInventory
 import com.domenota.medialoader.ui.screens.gallery.GalleryMediaViewer
 import com.domenota.medialoader.ui.screens.gallery.GalleryViewerState
 import com.domenota.medialoader.ui.screens.gallery.GalleryLibraryState
@@ -317,21 +320,28 @@ fun MediaLoaderApp(
     }
     // The ViewModel already merged and privacy-filtered this generation on IO.
     // Never build the same full union-find and alias sets a second time on the UI thread.
-    val publicLibraryRefs = if (libraryPrivateKeys != null && libraryIndex.privacyKeys == libraryPrivateKeys &&
-        visibilityReady && libraryIndex.visibility == visibilityGuard)
-        unifiedLibrary else emptyList()
+    val publicIndexAllowed = libraryPrivateKeys != null && libraryIndex.privacyKeys == libraryPrivateKeys &&
+        visibilityReady && libraryIndex.visibility == visibilityGuard
+    val publicLibraryRefs = if (publicIndexAllowed) unifiedLibrary else emptyList()
+    val displayInventory = if (publicIndexAllowed) libraryIndex.display else LibraryDisplayInventory.EMPTY
+    // The entire visibility guard matters: equal blocked IDs do not prove that
+    // a restored locator or its assignment is still valid.
+    val publicProjectionAccess = visibilityGuard.takeIf { publicIndexAllowed }
     val historySnapshot by libraryModel.collectionHistory.collectAsStateWithLifecycle()
     val galleryAccessEpoch by libraryModel.galleryAccessEpoch.collectAsStateWithLifecycle()
     val musicAccessEpoch by libraryModel.musicAccessEpoch.collectAsStateWithLifecycle()
-    val audioCatalogFlow = remember(appMode, currentRoute, collectionCatalogRequest) {
-        if ((appMode == AppMode.MUSIC && currentRoute in setOf("home", MEDIA_VIEWER_ROUTE)) ||
-            (currentRoute == "collections" && collectionCatalogRequest == CollectionCatalogRequest.AUDIO)) libraryModel.audioCatalog else kotlinx.coroutines.flow.flowOf(null)
+    val observeAudioCatalog = phoneMusic.loaded ||
+        (appMode == AppMode.MUSIC && currentRoute in setOf("home", MEDIA_VIEWER_ROUTE)) ||
+        (currentRoute == "collections" && collectionCatalogRequest == CollectionCatalogRequest.AUDIO)
+    val audioCatalogFlow = remember(observeAudioCatalog) {
+        if (observeAudioCatalog) libraryModel.audioCatalog else kotlinx.coroutines.flow.flowOf(null)
     }
     val audioCatalog by audioCatalogFlow.collectAsStateWithLifecycle(initialValue = null)
-    val libraryItems = remember(publicLibraryRefs) { publicLibraryRefs.map { it.item } }
-    val libraryAudioItems = remember(libraryItems) { libraryItems.filter { it.mediaType == MediaType.AUDIO } }
+    val libraryItems = displayInventory.items
+    val libraryAudioItems = displayInventory.audio
     val libraryAliasProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
-        emptyMap<String, com.domenota.medialoader.data.library.LibraryMediaRef>(), publicProjectionGuard, publicLibraryRefs) { buildMap {
+        emptyMap<String, com.domenota.medialoader.data.library.LibraryMediaRef>(), publicProjectionGuard, publicLibraryRefs,
+        accessGuard = publicProjectionAccess, kind = LibraryProjectionKind.ALIASES) { buildMap {
         publicLibraryRefs.forEach { ref -> (ref.aliases + ref.key).forEach { alias -> put(alias, ref) } }
     } }
     val libraryRefsByAlias = libraryAliasProjection.value
@@ -383,10 +393,10 @@ fun MediaLoaderApp(
     val externalByAlias = remember(externalCatalog) { externalCatalog.flatMap { entry ->
         (entry.ref.aliases + entry.ref.key).map { it to entry }
     }.toMap() }
-    val appLibraryItems = remember(publicLibraryRefs, externalByAlias) { publicLibraryRefs.filter { ref ->
-        ref.appDownloadId != null || ref.aliases.any { externalByAlias[it]?.folderId != null }
-    }.map { it.item } }
-    val appLibraryAudioItems = remember(appLibraryItems) { appLibraryItems.filter { it.mediaType == MediaType.AUDIO } }
+    val appLibraryItems = displayInventory.appItems
+    val appLibraryAudioItems = displayInventory.appAudio
+    val galleryPublicItems = if (gallerySource == LibrarySource.APP) appLibraryItems
+        else if (!phoneGallery.loaded) emptyList() else libraryItems
     val playlists by libraryModel.playlistRepository.playlists.collectAsStateWithLifecycle()
     var playlistsReady by remember { mutableStateOf(false) }
     LaunchedEffect(libraryModel) { libraryModel.playlistRepository.awaitLoaded(); playlistsReady = true }
@@ -511,28 +521,29 @@ fun MediaLoaderApp(
     // Keep old phone IDs resolvable for restored routes/playlists without showing duplicate cards.
     val publicDownloads = remember(downloads,visibilityGuard) { downloads.filter { row -> visibilityGuard?.canOpen(row,null,emptyList()) == true } }
     val indexedLibraryProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
-        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(), publicProjectionGuard, visibilityGuard, publicDownloads, publicLibraryRefs) {
-        val knownIds = publicDownloads.mapTo(mutableSetOf()) { it.id }
-        val indexed = publicDownloads + publicLibraryRefs.flatMap { ref ->
-            (ref.aliases.filter { it.startsWith("phone:") } + ref.key).distinct().map { ref.item.copy(id = it) }
-        }.filter { knownIds.add(it.id) }
-        indexed
+        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(), publicProjectionGuard, publicDownloads, publicLibraryRefs,
+        accessGuard = publicProjectionAccess, kind = LibraryProjectionKind.PUBLIC_ROWS) {
+        PublicLibraryRows.indexed(publicDownloads, publicLibraryRefs) { row ->
+            publicProjectionAccess?.canOpen(row,null,emptyList()) == true
+        }
     }
-    val indexedLibraryRows = indexedLibraryProjection.value.filter { canOpenFolderMedia(it) }
+    val indexedLibraryRows = indexedLibraryProjection.value
     fun awaitingPhone(id: String?): Boolean = id?.startsWith("phone:") == true &&
         (!indexedLibraryProjection.ready || !libraryAliasProjection.ready ||
             if (id.startsWith("phone:audio:")) !phoneMusic.loaded else !phoneGallery.loaded)
     val publicSessionProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
-        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(),publicProjectionGuard,visibilityGuard,indexedLibraryRows, libraryAudioState.queue) {
+        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(),publicProjectionGuard,indexedLibraryRows, libraryAudioState.queue,
+        accessGuard = publicProjectionAccess, enabled = libraryAudioState.queue.isNotEmpty() && indexedLibraryProjection.usable,
+        kind = LibraryProjectionKind.AUDIO_SESSION) {
         val session = libraryPrivateKeys?.let { keys ->
             com.domenota.medialoader.data.playback.AudioPlaybackMetadata.publicSessionRows(libraryAudioState.queue, indexedLibraryRows, keys)
-        }.orEmpty().filter { visibilityGuard?.canOpen(it,null,emptyList()) == true }
-        if (session.isEmpty()) indexedLibraryRows else {
-            val knownIds = indexedLibraryRows.mapTo(mutableSetOf()) { it.id }
-            indexedLibraryRows + session.filter { knownIds.add(it.id) }
+        }.orEmpty()
+        PublicLibraryRows.mergeSession(indexedLibraryRows, session) { row ->
+            publicProjectionAccess?.canOpen(row,null,emptyList()) == true
         }
     }
-    val publicLibraryRows=(if(libraryAudioState.queue.isEmpty()||!publicSessionProjection.usable)indexedLibraryRows else publicSessionProjection.value).filter { canOpenFolderMedia(it) }
+    val publicLibraryRows = if (libraryAudioState.queue.isEmpty() || !publicSessionProjection.usable)
+        indexedLibraryRows else publicSessionProjection.value
     val accessibleDownloads = remember(privateState.unlocked, publicLibraryRows, privateDownloads) {
         if (privateState.unlocked) publicLibraryRows + privateDownloads else publicLibraryRows
     }
@@ -665,9 +676,11 @@ fun MediaLoaderApp(
         } })
     val catalogFolders by viewModel.catalogFolders.collectAsStateWithLifecycle()
     val catalogAssignments by viewModel.catalogAssignments.collectAsStateWithLifecycle()
-    val libraryCatalogAssignments = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+    val catalogAssignmentProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
         emptyList<com.domenota.medialoader.core.database.CatalogAssignmentEntity>(), publicProjectionGuard,
-        publicLibraryRefs, folderRefs, externalCatalog, catalogAssignments, catalogFolders, visibilityGuard) {
+        publicLibraryRefs, folderRefs, externalCatalog, catalogAssignments, catalogFolders,
+        accessGuard = publicProjectionAccess?.let { it to FolderVisibilityStorageAccess.granted() },
+        kind = LibraryProjectionKind.ASSIGNMENTS) {
         val validFolders = catalogFolders.mapTo(mutableSetOf()) { it.id }
         val externalAssignments = (publicLibraryRefs + folderRefs).mapNotNull { ref ->
             (visibilityGuard?.externalEntry(ref) ?: ref.aliases.firstNotNullOfOrNull { externalByAlias[it] }?.takeIf { it.ref.item.savedUri == ref.item.savedUri })?.let { entry ->
@@ -676,7 +689,21 @@ fun MediaLoaderApp(
             }
         }
         (catalogAssignments + externalAssignments).distinctBy { it.downloadId }
-    }.value
+    }
+    val libraryCatalogAssignments = catalogAssignmentProjection.value
+    val galleryBrowseAccess = publicProjectionAccess?.takeUnless {
+        visibleLibraryValidationPending(AppMode.GALLERY, libraryIndex, phoneGallery, phoneMusic)
+    }?.let { Triple(it, gallerySource, FolderVisibilityStorageAccess.granted()) to galleryAccessEpoch }
+    val galleryBrowse = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        GalleryBrowseInventory.EMPTY, publicProjectionGuard, galleryPublicItems, folderRefs,
+        catalogFolders, libraryCatalogAssignments, displayInventory.deviceAlbums, visibilityFolders,
+        accessGuard = galleryBrowseAccess, enabled = catalogAssignmentProjection.usable,
+        kind = LibraryProjectionKind.GALLERY_BROWSE) {
+        val items = GalleryBrowseInventory.withScopedItems(galleryPublicItems, folderRefs,
+            libraryCatalogAssignments, visibilityFolders) { publicProjectionAccess?.explicitFolder(it) }
+        GalleryBrowseInventory.build(items, catalogFolders, libraryCatalogAssignments,
+            gallerySource, displayInventory.deviceAlbums, visibilityFolders)
+    }
     // Folder metadata is shared between Gallery and Downloads, but external
     // phone media must not appear as missing download-history rows.
     val galleryOnlyFolderIds = remember(libraryCatalogAssignments, catalogAssignments) {
@@ -1046,7 +1073,7 @@ fun MediaLoaderApp(
     }
     val audioSnapshot = audioCatalog?.takeIf { it.guard.privacy == libraryPrivateKeys && it.guard.accessEpoch == musicAccessEpoch && it.guard.visibility == visibilityGuard && !recoveryRunning }
     val listeningHistoryRows by libraryModel.listeningHistoryRows.collectAsStateWithLifecycle()
-    val analyticsGuard = audioSnapshot?.guard?.takeIf { historySnapshot != null && listeningHistoryRows != null && appMode == AppMode.MUSIC }
+    val analyticsGuard = audioSnapshot?.guard?.takeIf { historySnapshot != null && listeningHistoryRows != null }
         ?.let { ListeningCatalogGuard(it,collectionBlocked,collectionPrivacyGeneration) }
     val analyticsProjection = addressedLibraryProjection(ListeningCatalog.EMPTY, analyticsGuard,
         audioSnapshot, listeningHistoryRows, statusSnapshot, statusUriSnapshot, serial=true,
@@ -1068,12 +1095,12 @@ fun MediaLoaderApp(
             !filterRouteCatalog(listOf(ref),guard.blocked,live,fileStatuses,fileStatusUris).any()) return null
         return ref
     }
-    val recentGuard = audioSnapshot?.guard?.takeIf { historySnapshot != null && appMode == AppMode.MUSIC }
-        ?.let { RecentAccessGuard(it, collectionBlocked, librarySource) }
+    val recentGuard = audioSnapshot?.guard?.takeIf { historySnapshot != null }
+        ?.let { RecentAccessGuard(it, collectionBlocked, musicLibrarySource) }
     val recentProjection = addressedLibraryProjection(RouteMediaCatalog.EMPTY, recentGuard, audioSnapshot,
         collectionHistory, statusSnapshot, statusUriSnapshot, externalByAlias) {
         val refs = filterRouteCatalog(audioSnapshot?.refs.orEmpty(), collectionBlocked, collectionHistory, statusSnapshot, statusUriSnapshot)
-        RouteMediaCatalog(refs.filter { ref -> librarySource == LibrarySource.PHONE || ref.appDownloadId != null ||
+        RouteMediaCatalog(refs.filter { ref -> musicLibrarySource == LibrarySource.PHONE || ref.appDownloadId != null ||
             ref.aliases.any { externalByAlias[it]?.folderId != null } })
     }
     val organizationNeeded = currentRoute in setOf("media-review", "media-passport/{mediaId}", "visual-duplicates") ||
@@ -1091,6 +1118,16 @@ fun MediaLoaderApp(
         row.savedUri?.let { uri -> row.groupId?.let { uri to it } }
     }.toMap() }
     val currentRecentFolders by rememberUpdatedState(recentDeviceFolders)
+    val musicHomeItems = if (musicLibrarySource == LibrarySource.APP) appLibraryAudioItems
+        else if (!phoneMusic.loaded) emptyList() else libraryAudioItems
+    val musicBrowseAccess = publicProjectionAccess?.takeUnless { recoveryRunning ||
+        visibleLibraryValidationPending(AppMode.MUSIC, libraryIndex, phoneGallery, phoneMusic) }
+        ?.let { Triple(it, musicAccessEpoch, collectionPrivacyGeneration) to musicLibrarySource }
+    val musicBrowse = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        MusicBrowseCatalog.EMPTY, publicProjectionGuard, musicHomeItems, libraryAudioItems, recentDeviceFolders,
+        accessGuard = musicBrowseAccess, enabled = observeAudioCatalog, kind = LibraryProjectionKind.MUSIC_BROWSE) {
+        MusicBrowseCatalog.build(musicHomeItems, libraryAudioItems, recentDeviceFolders)
+    }
     suspend fun validCollectionRefs(ids: List<String>, recent: Boolean = false, analytics: Boolean = false, selectedId: String? = null): List<LibraryMediaRef> {
         val full = currentCollectionCatalog.byKey
         val scoped = currentScopedCatalog?.byKey.orEmpty()
@@ -1963,11 +2000,12 @@ fun MediaLoaderApp(
                     onRecognizeDownload = recognizeVisibilityFile,
                 )
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
-                    items = (if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneGallery.loaded) emptyList() else libraryItems) + folderRefs.map { it.item },
+                    items = galleryBrowse.value.items,
+                    preparedBrowse = galleryBrowse,
                     hiddenFolderIds = visibilityFolders,
                     pendingVisibilityFolderId = visibilityProgress.folderId,
                     onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() },
-                    source = librarySource, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
+                    source = librarySource, loading = !galleryBrowse.usable || !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
                     folders = catalogFolders, assignments = libraryCatalogAssignments, header = libraryHeader,
                     onOpen = openDownloadWithQueue,
@@ -2002,9 +2040,7 @@ fun MediaLoaderApp(
                          galleryTab = it
                      },
                     onDetailChange = { galleryDetailOpen = it }, onTrash = { navController.navigate("trash") },
-                    deviceAlbums = publicLibraryRefs.mapNotNull { ref -> ref.deviceAlbumId?.let { id ->
-                        ref.key to DeviceAlbum(id, ref.deviceAlbumName ?: "Без альбома")
-                    } }.toMap(),
+                    deviceAlbums = displayInventory.deviceAlbums,
                     )
                 else MusicModeScreen(
                     duplicateRequest = duplicateRequest,
@@ -2012,7 +2048,7 @@ fun MediaLoaderApp(
                     hiddenTracksOpen = hiddenMusicTracksOpen,
                     onDismissHiddenTracks = { hiddenMusicTracksOpen = false },
                     deviceMusicFolders = recentDeviceFolders,
-                    items = if (librarySource == LibrarySource.APP) appLibraryItems else if (!phoneMusic.loaded) emptyList() else libraryItems,
+                    items = musicHomeItems,
                     allAudio = libraryAudioItems, playlists = playlists,
                     recentItems = recentProjection.value.items,
                     recentLoading = !recentProjection.usable,
@@ -2035,7 +2071,8 @@ fun MediaLoaderApp(
                     onOpenDuplicates = { navController.navigate("music-duplicates") { launchSingleTop = true } },
                     onOpenCollections={openCollections(audioOnly=true)},onAddCollection=::addToCollection,onPassport=::openPassport,
                     onRecognize={id->openTrackRecognition(id)},
-                    browseAccess = libraryPrivateKeys?.takeUnless{recoveryRunning}?.let{Triple(it,musicAccessEpoch,collectionPrivacyGeneration)},
+                    browseAccess = musicBrowseAccess,
+                    preparedBrowse = musicBrowse,
                     analyticsItems = analyticsProjection.value.items,
                     analyticsAccess = analyticsGuard,
                     analyticsReady = analyticsProjection.usable,

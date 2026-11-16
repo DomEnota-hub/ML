@@ -82,6 +82,7 @@ internal fun MusicModeScreen(
     onRecentPreview: ((String,List<String>)->Unit)? = null,
     onRecentOpen: ((String,List<String>)->Unit)? = null,
     browseAccess: Any? = Unit,
+    preparedBrowse: BackgroundLibraryValue<MusicBrowseCatalog>? = null,
     analyticsItems: List<DownloadEntity> = allAudio,
     analyticsAccess: Any? = Unit,
     analyticsReady: Boolean = !loading,
@@ -148,7 +149,7 @@ internal fun MusicModeScreen(
     var folderOpen by rememberSaveable { mutableStateOf<String?>(null) }
     var showExcluded by rememberSaveable { mutableStateOf(false) }
     val largeBrowse = items.size > 128 || allAudio.size > 128
-    val browse = if(largeBrowse) addressedLibraryProjection(MusicBrowseCatalog.EMPTY,browseAccess,items,allAudio,deviceMusicFolders,serial=true) {
+    val browse = preparedBrowse ?: if(largeBrowse) addressedLibraryProjection(MusicBrowseCatalog.EMPTY,browseAccess,items,allAudio,deviceMusicFolders,serial=true) {
         withContext(Dispatchers.Default){ MusicBrowseCatalog.build(items,allAudio,deviceMusicFolders) }
     } else BackgroundLibraryValue(remember(items,allAudio,deviceMusicFolders,browseAccess){
         if(browseAccess==null)MusicBrowseCatalog.EMPTY else MusicBrowseCatalog.build(items,allAudio,deviceMusicFolders)

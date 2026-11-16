@@ -2,7 +2,7 @@ name: ML stage 3 - Pictures migration and history integrity QA
 
 on:
   push:
-    branches: [feature/ml-17194-cache-first]
+    branches: [feature/ml-17195-projection-stability]
   pull_request:
     types: [opened, reopened, synchronize]
   workflow_dispatch:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ml-17158-stage3-storage-${{ github.head_ref == 'feature/ml-17194-cache-first' && 'refs/heads/feature/ml-17194-cache-first' || github.event.pull_request.number || github.ref }}
+  group: ml-17158-stage3-storage-${{ github.head_ref == 'feature/ml-17195-projection-stability' && 'refs/heads/feature/ml-17195-projection-stability' || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -63,6 +63,62 @@ class BackgroundLibraryProjectionTest {
     }
 
 
+    @Test fun chainedPublicProjectionDoesNotRebuildOnRepeatedModeOrPlaybackChanges() {
+        var tick by mutableIntStateOf(0)
+        var mode by mutableStateOf("gallery")
+        var enabled by mutableStateOf(false)
+        val inventory = listOf("a", "b")
+        val queue = listOf("c")
+        val guard = emptySet<String>()
+        val builds = java.util.concurrent.atomic.AtomicInteger()
+        val sessions = java.util.concurrent.atomic.AtomicInteger()
+        var shown = emptyList<String>()
+        var ready = false
+        compose.setContent {
+            val indexed = backgroundLibraryProjection(emptyList<String>(),guard,inventory) {
+                builds.incrementAndGet();inventory.filter { it != "blocked" }
+            }
+            val session = backgroundLibraryProjection(emptyList<String>(),guard,indexed.value,queue,
+                enabled=enabled && indexed.usable) {
+                sessions.incrementAndGet();indexed.value + queue
+            }
+            SideEffect { shown = if (session.usable) session.value else indexed.value; ready = indexed.ready && (!enabled || session.ready) }
+            Text("$mode:$tick:${shown.size}")
+        }
+        compose.waitUntil(5000) { ready && shown == inventory }
+        assertEquals(0,sessions.get())
+        compose.runOnIdle { enabled=true }
+        compose.waitUntil(5000) { ready && shown==inventory+queue }
+        repeat(30) {
+            compose.runOnIdle { tick++;mode=if(mode=="gallery") "music" else "gallery" }
+            compose.waitForIdle()
+        }
+        assertEquals(1,builds.get());assertEquals(1,sessions.get())
+        assertEquals(inventory+queue,shown)
+    }
+    @Test fun sameBlockedKeysButDifferentAccessMustHideRetainedSnapshot() {
+        var access by mutableStateOf<String?>("before")
+        val privacy = emptySet<String>()
+        val inventory = listOf("public")
+        val builds = java.util.concurrent.atomic.AtomicInteger()
+        val leaks=mutableListOf<Boolean>()
+        var shown="";var ready=false
+        compose.setContent {
+            val captured=access
+            val result=backgroundLibraryProjection("",privacy,inventory,accessGuard=captured) {
+                builds.incrementAndGet();if(captured=="before") "old" else "new"
+            }
+            SideEffect { shown=result.value;ready=result.ready;if(captured!="before") leaks.add(result.value=="old") }
+            Text(result.value)
+        }
+        compose.waitUntil(5000){shown=="old"&&ready}
+        compose.runOnIdle { access=null };compose.waitForIdle()
+        assertEquals("",shown);assertFalse(ready);assertEquals(1,builds.get())
+        compose.runOnIdle { access="after" }
+        compose.waitUntil(5000){shown=="new"&&ready}
+        assertEquals(2,builds.get());assertFalse(leaks.any { it })
+    }
+
     @Test fun serialAddressProjectionSeedsBeforeRefreshAndRejectsSupersededGeneration() {
         var revision by mutableIntStateOf(1)
         val firstStarted=java.util.concurrent.atomic.AtomicBoolean(false)

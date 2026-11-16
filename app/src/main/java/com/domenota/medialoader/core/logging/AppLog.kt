@@ -141,6 +141,8 @@ object AppLog {
             appendLine("- Устройство: ${Build.MANUFACTURER} ${Build.MODEL}")
             appendLine("- Расширенный журнал на момент экспорта: ${if (extended) "включён" else "выключен"}")
             appendLine("- Диагностика производительности: включена в активном приложении (UI_STALL / FRAME_GAPS / Perf)")
+            appendLine("- Счётчики процесса на момент экспорта: ${LibraryWorkCounters.summary()}")
+            appendLine("- Проекции медиатеки на момент экспорта: ${LibraryProjectionCounters.summary()}")
             appendLine("- Очередь журнала: flush=$flushed; пропущено при перегрузке=${writer.dropped.get()}")
             appendLine("- Пояснения: ${if (includeExplanations) "включены" else "выключены"}")
             appendLine()

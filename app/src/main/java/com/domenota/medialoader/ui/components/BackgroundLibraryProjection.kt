@@ -13,26 +13,47 @@ private class ProjectionInputs(private val refs: List<Any?>) {
     override fun hashCode() = refs.fold(1) { hash, ref -> 31 * hash + (if (ref is Number || ref is Boolean || ref is String || ref is Enum<*>) ref.hashCode() else System.identityHashCode(ref)) }
 }
 internal data class BackgroundLibraryValue<T>(val value: T, val ready: Boolean, val usable: Boolean = ready)
-private data class PublishedLibraryValue<T>(val inputs: ProjectionInputs, val privacy: Set<String>?, val value: T)
+private data class PublishedLibraryValue<T>(val inputs: ProjectionInputs, val privacy: Set<String>,
+    val accessGuard: Any, val value: T)
 
 /** Retain valid public data during updates, but fail closed synchronously on a privacy change. */
 @Composable
 internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, vararg inputs: Any?,
+    accessGuard: Any? = privacy, enabled: Boolean = true,
+    kind: com.domenota.medialoader.core.logging.LibraryProjectionKind = com.domenota.medialoader.core.logging.LibraryProjectionKind.OTHER,
     build: () -> T): BackgroundLibraryValue<T> {
-    val key = ProjectionInputs(inputs.toList() + listOf(privacy))
-    var published by remember { mutableStateOf<PublishedLibraryValue<T>?>(null) }
-    LaunchedEffect(key) {
+    val key = ProjectionInputs(inputs.toList())
+    var published by remember { mutableStateOf<PublishedLibraryValue<T>?>(null, referentialEqualityPolicy()) }
+    LaunchedEffect(key, privacy, accessGuard, enabled) {
+        if (privacy == null || accessGuard == null || !enabled) {
+            published = null
+            return@LaunchedEffect
+        }
+        val previous = published
+        val reason = when {
+            previous == null -> com.domenota.medialoader.core.logging.LibraryProjectionReason.INITIAL
+            previous.privacy != privacy || previous.accessGuard != accessGuard -> com.domenota.medialoader.core.logging.LibraryProjectionReason.ACCESS
+            else -> com.domenota.medialoader.core.logging.LibraryProjectionReason.INPUT
+        }
         com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
             com.domenota.medialoader.core.logging.LibraryWork.BACKGROUND_PROJECTION)
+        val timer = com.domenota.medialoader.core.logging.LibraryProjectionCounters.start(kind, reason)
         val snapshot = androidx.compose.runtime.snapshots.Snapshot.takeSnapshot()
-        val value = try { withContext(Dispatchers.Default) { snapshot.enter { build() } } }
-            finally { snapshot.dispose() }
-        published = PublishedLibraryValue(key, privacy, value)
+        try {
+            val value = withContext(Dispatchers.Default) { snapshot.enter { build() } }
+            published = PublishedLibraryValue(key, privacy, accessGuard, value)
+            timer.complete()
+        } finally { snapshot.dispose(); timer.close() }
     }
     val current = published
-    return if (current != null && current.privacy == privacy)
-        BackgroundLibraryValue(current.value, current.inputs == key, usable = true)
-    else BackgroundLibraryValue(empty, false)
+    val allowed = enabled && privacy != null && accessGuard != null && current != null &&
+        current.privacy == privacy && current.accessGuard == accessGuard
+    if (allowed && current != null) {
+        // Counts reuse of the published generation, not a new worker invocation.
+        SideEffect { com.domenota.medialoader.core.logging.LibraryProjectionCounters.reuse(kind) }
+        return BackgroundLibraryValue(current.value, current.inputs == key, usable = true)
+    }
+    return BackgroundLibraryValue(empty, false)
 }
 
 /** Like the regular projection, but permits suspending targeted provider lookups.

@@ -58,7 +58,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-fun GalleryModeScreen(
+internal fun GalleryModeScreen(
     items: List<DownloadEntity>, source: LibrarySource, loading: Boolean, message: String?,
     folders: List<CatalogFolderEntity>, assignments: List<CatalogAssignmentEntity>, header: @Composable () -> Unit,
     onOpen: (String, List<String>) -> Unit, onOpenPrivate: () -> Unit,
@@ -84,6 +84,7 @@ fun GalleryModeScreen(
     onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
     pendingVisibilityFolderId: String? = null,
     onShareFromAlbum: ((String,String?) -> Unit)? = null,
+    preparedBrowse: BackgroundLibraryValue<GalleryBrowseInventory>? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -165,25 +166,24 @@ fun GalleryModeScreen(
             saveSettings(albumSettings.copy(excludedFromMedia=next))
         }
     }
-    val catalog = remember(assignments) { assignments.associateBy { it.downloadId } }
-    val buckets = remember(items, source, deviceAlbums) {
-        if (source == LibrarySource.APP) emptyMap() else if (deviceAlbums.isNotEmpty()) deviceAlbums
-        else items.mapNotNull { row -> row.groupId?.let { row.id to DeviceAlbum(it, it) } }.toMap()
+    // Root navigation supplies the worker-built snapshot. Small independent
+    // callers/tests can still use the same pure builder without a root host.
+    val browse = preparedBrowse?.value ?: remember(items, folders, assignments, source, deviceAlbums, hiddenFolderIds) {
+        GalleryBrowseInventory.build(items, folders, assignments, source, deviceAlbums, hiddenFolderIds)
     }
-    val media = remember(items, assignments, buckets, hiddenFolderIds) { GalleryLibraryState.filter(items, assignments, "all", "", buckets, hiddenFolderIds) }
-    val displayed = remember(items, assignments, selection, search, buckets, hiddenFolderIds) {
-        GalleryLibraryState.filter(items, assignments, selection, search, buckets, hiddenFolderIds)
-    }
-    val albums = remember(items, folders, assignments, buckets, hiddenFolderIds) {
-        GalleryLibraryState.albums(items, folders, assignments, buckets, hiddenFolderIds)
-    }
-    LaunchedEffect(albumRequest, albums, loading, items, hiddenFolderIds) {
+    val catalog = browse.catalog
+    val buckets = browse.buckets
+    val media = browse.media
+    val displayed = remember(browse, selection, search) { browse.select(selection, search) }
+    val albums = browse.albums
+    val checkingAlbum = loading || preparedBrowse?.ready == false
+    LaunchedEffect(albumRequest, browse, checkingAlbum) {
         val request = albumRequest ?: return@LaunchedEffect
         val found = albums.firstOrNull { it.key == request.album.key }
-        if (found != null && GalleryLibraryState.filter(items, assignments, found.key, "", buckets, hiddenFolderIds).any { it.id == request.itemId }) {
+        if (found != null && browse.select(found.key, "").any { it.id == request.itemId }) {
             search = ""; selection = found.key; selectionTitle = found.name; if (tab != 0) selectTab(0); jumpToMedia = request.itemId
             onAlbumRequestHandled()
-        } else if (!loading) { AppNotice.post(context, "Альбом недоступен"); onAlbumRequestHandled() }
+        } else if (!checkingAlbum) { AppNotice.post(context, "Альбом недоступен"); onAlbumRequestHandled() }
     }
     val orderedAlbums = remember(albums, albumSettings.order) { orderedGalleryAlbums(albums, albumSettings) }
     val visibleAlbums = orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
@@ -204,16 +204,12 @@ fun GalleryModeScreen(
                 albumSettings.excludedFromMedia)
         }
     }
-    val shortcutVideos = remember(media, assignments, buckets) {
-        GalleryLibraryState.filter(media, assignments, "videos", "", buckets)
-    }
-    val shortcutFavorites = remember(media, assignments, buckets) {
-        GalleryLibraryState.filter(media, assignments, "favorites", "", buckets)
-    }
+    val shortcutVideos = browse.videos
+    val shortcutFavorites = browse.favorites
     val defaultQuickItems = remember(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites) {
         galleryDefaultQuickItems(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites)
     }
-    val visibleDisplayed = remember(displayed, selection, detailOpen, tab, albumSettings.excludedFromMedia, assignments, buckets) {
+    val visibleDisplayed = remember(displayed, selection, detailOpen, tab, albumSettings.excludedFromMedia, catalog, buckets) {
         if (tab == 0 && selection == "all") displayed.filter { row ->
             visibleInGalleryMedia(row, catalog[row.id], buckets[row.id], albumSettings.excludedFromMedia)
         } else displayed
@@ -714,7 +710,7 @@ fun GalleryModeScreen(
     }
     deletingAlbum?.let { album ->
         val appFolder = album.key.startsWith("folder:")
-        val albumRows = GalleryLibraryState.filter(items, assignments, album.key, "", buckets, hiddenFolderIds)
+        val albumRows = browse.select(album.key, "")
         var includeContents by remember(album.key) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { deletingAlbum = null },

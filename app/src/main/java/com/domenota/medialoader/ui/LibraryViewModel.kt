@@ -62,7 +62,11 @@ internal data class LibraryIndex(val ready: Boolean = false, val refs: List<Libr
     val galleryRevision: Long = 0, val musicRevision: Long = 0, val appComplete: Boolean = false,
     val privacyKeys: Set<String>? = null,
     val appUris: Set<Pair<String, String?>> = emptySet(),
-    val visibility: FolderVisibilityLibraryGuard? = null, val hiddenRefs: List<LibraryMediaRef> = emptyList())
+    val visibility: FolderVisibilityLibraryGuard? = null, val hiddenRefs: List<LibraryMediaRef> = emptyList()) {
+    // Index construction runs on IO. Derived fields are deliberately outside data-class
+    // equality: equal inventory generations must still conflate in StateFlow.
+    val display = LibraryDisplayInventory.build(refs, visibility?.external.orEmpty())
+}
 internal data class CollectionHistorySnapshot(val rows: Map<String, DownloadEntity>, val appUris: Set<Pair<String, String?>>, val blocked: Set<String>,
     val completedUris: List<Pair<String, String?>>) {
     private val rowsByUri = rows.values.filter { !it.savedUri.isNullOrBlank() }.groupBy { it.savedUri }
