@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 8bb4b323c4a053f2f9737c516650b9fef2dca2a7
+          ref: a499991114bb225849f84a5073cc3992995988be
           persist-credentials: false
       - uses: actions/setup-java@v4
         with:
@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "8bb4b323c4a053f2f9737c516650b9fef2dca2a7"
+          test "$(git rev-parse HEAD)" = "a499991114bb225849f84a5073cc3992995988be"
           grep -Eq 'versionCode 256$' app/build.gradle
           grep -Fq "versionName '1.7.196'" app/build.gradle
           chmod +x gradlew
@@ -50,7 +50,7 @@ jobs:
           unzip -Z1 handoff/ML_1.7.196_ARM64_ALIGNED_UNSIGNED.apk | grep -q '^lib/arm64-v8a/'
           if unzip -Z1 handoff/ML_1.7.196_ARM64_ALIGNED_UNSIGNED.apk | grep -Eq '^lib/(armeabi|x86)'; then echo 'Unexpected ABI'; exit 1; fi
           git archive --format=zip --output=handoff/ML_1.7.196_SOURCES_EXACT_COMMIT.zip HEAD
-          printf '%s\n' '8bb4b323c4a053f2f9737c516650b9fef2dca2a7' > handoff/DELIVERY_COMMIT_SHA.txt
+          printf '%s\n' 'a499991114bb225849f84a5073cc3992995988be' > handoff/DELIVERY_COMMIT_SHA.txt
           cd handoff
           sha256sum ML_1.7.196_ARM64_ALIGNED_UNSIGNED.apk ML_1.7.196_SOURCES_EXACT_COMMIT.zip DELIVERY_COMMIT_SHA.txt > UNSIGNED_HANDOFF_SHA256.txt
       - name: Upload unsigned handoff for local GAPI restoration and original signing
