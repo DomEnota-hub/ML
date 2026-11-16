@@ -63,6 +63,10 @@ internal data class LibraryIndex(val ready: Boolean = false, val refs: List<Libr
 internal data class CollectionHistorySnapshot(val rows: Map<String, DownloadEntity>, val appUris: Set<Pair<String, String?>>, val blocked: Set<String>,
     val completedUris: List<Pair<String, String?>>) {
     private val rowsByUri = rows.values.filter { !it.savedUri.isNullOrBlank() }.groupBy { it.savedUri }
+    val publicPhotoUris = rows.values.asSequence().filter {
+        it.mediaType == com.domenota.medialoader.core.model.MediaType.PHOTO && !it.isPrivate && !it.hidden &&
+            it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED
+    }.mapNotNull { it.savedUri }.toSet()
     fun forMembers(members: List<com.domenota.medialoader.core.database.MediaCollectionMemberEntity>): Map<String, DownloadEntity> = buildMap {
         for (member in members) {
             for (key in MediaOrganizationPolicy.decode(member.identityJson)) {

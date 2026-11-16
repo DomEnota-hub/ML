@@ -147,4 +147,16 @@ class CollectionAddressResolverTest {
             assertEquals(setOf(members.last().id),result.pending)
         } finally { release.countDown() }
     }
+    @Test fun customCoverAccessChangesWithoutChangingCollectionMembership() {
+        val source="content://media/external/images/media/42"
+        val owned="content://media/external/images/media/43"
+        val access=CollectionCoverAccess(true,setOf(owned))
+        assertTrue(access.permits(source,emptySet()))
+        val revoked=access.copy(fullPhotoAccess=false)
+        assertFalse(revoked.permits(source,emptySet()))
+        assertTrue(revoked.permits(owned,emptySet()))
+        assertFalse(revoked.permits(owned,setOf("uri:$owned")))
+        assertFalse(access.permits(source,null))
+        assertFalse(revoked.copy(appPhotoUris=emptySet()).permits(owned,emptySet()))
+    }
 }

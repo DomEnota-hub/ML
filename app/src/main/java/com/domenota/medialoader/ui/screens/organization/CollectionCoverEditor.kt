@@ -37,7 +37,7 @@ import kotlinx.coroutines.withContext
 
 @Composable
 internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<LibraryMediaRef>,onBack:()->Unit,
-    onCreate:(suspend (String,String?,Bitmap?,CollectionCrop)->Unit)?=null,blockedIdentities:Set<String>?=emptySet(),onRename:suspend (String)->Unit) {
+    onCreate:(suspend (String,String?,Bitmap?,CollectionCrop)->Unit)?=null,blockedIdentities:Set<String>?=emptySet(),coverAccess:CollectionCoverAccess?=null,onRename:suspend (String)->Unit) {
     val collectionId=collection?.record?.id
     val creating=collectionId==null
     val context=LocalContext.current
@@ -52,11 +52,11 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
     var choosing by rememberSaveable{mutableStateOf(false)}
     var saved by remember{mutableStateOf<CollectionCover?>(null)}
     var decoded by remember{mutableStateOf<Pair<String,Bitmap>?>(null)}
-    fun coverSourceAllowed(uri:String):Boolean = collectionCoverAllowed(uri,blockedIdentities) &&
-        (refs.any { it.appDownloadId!=null && it.item.savedUri==uri && !collectionRefBlocked(it,blockedIdentities.orEmpty()) } ||
-            PhoneMediaLibrary.canReadMissingMetadata(MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
-                androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
-            })
+    val fallbackAppPhotos=remember(refs,blockedIdentities){refs.asSequence().filter { it.appDownloadId!=null && it.item.mediaType==MediaType.PHOTO && !collectionRefBlocked(it,blockedIdentities.orEmpty()) }.mapNotNull{it.item.savedUri}.toSet()}
+    val currentCoverAccess=coverAccess ?: CollectionCoverAccess(PhoneMediaLibrary.canReadMissingMetadata(MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
+        androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
+    },fallbackAppPhotos)
+    fun coverSourceAllowed(uri:String):Boolean = currentCoverAccess.permits(uri,blockedIdentities)
     val bitmap=decoded?.takeIf{it.first==source&&coverSourceAllowed(it.first)}?.second
     var error by remember{mutableStateOf<String?>(null)}
     var busy by remember{mutableStateOf(false)}

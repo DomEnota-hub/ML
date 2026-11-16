@@ -799,6 +799,11 @@ fun MediaLoaderApp(
     val collectionUsable = fullProjection.usable && collectionCatalog != null
     val scopedCollection = collections.firstOrNull { it.record.id == collectionDetailId }
     val scopedAccess = collectionAccess?.copy(galleryEpoch=0, musicEpoch=0)
+    val collectionCoverAccess = remember(collectionPermissionTag, historySnapshot, scopedAccess != null) {
+        CollectionCoverAccess(scopedAccess != null && PhoneMediaLibrary.canReadMissingMetadata(MediaType.PHOTO, Build.VERSION.SDK_INT) {
+            ContextCompat.checkSelfPermission(context,it)==PackageManager.PERMISSION_GRANTED
+        }, if(scopedAccess!=null) historySnapshot?.publicPhotoUris.orEmpty() else emptySet())
+    }
     val scopeGuard = scopedAccess.takeIf { collectionRouteActive }?.let { guard -> scopedCollection?.record?.id?.let { CollectionDetailGuard(guard, it) } }
     val scopeMembers = scopedCollection?.members.orEmpty()
     val relevantHistory = remember(scopeMembers, historySnapshot) { historySnapshot?.forMembers(scopeMembers).orEmpty() }
@@ -1774,7 +1779,7 @@ fun MediaLoaderApp(
                     onTrashFolderContents = requestAlbumTrash,
                     collectionContent={
                         Column {
-                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)},blockedIdentities=collectionBlocked.takeIf{scopedAccess!=null},cachedCovers=if(organizationProjection.ready && organizationUsable) emptyMap() else cachedCollectionCovers)
+                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)},blockedIdentities=collectionBlocked.takeIf{scopedAccess!=null},cachedCovers=if(organizationProjection.ready && organizationUsable) emptyMap() else cachedCollectionCovers, coverAccess=collectionCoverAccess, collectionsReady=collectionsLoaded)
                             TextButton({navController.navigate("visual-duplicates"){launchSingleTop=true}}){Text("Дубликаты фото и видео")}
                         }
                     },
@@ -1935,7 +1940,8 @@ fun MediaLoaderApp(
                     scopedDetails=true, detailCatalogId=collectionDetailId, detailCatalog=scopedCatalog,
                     onSelectedCollection={ if(collectionDetailId != it) collectionLegacyRequest=CollectionCatalogRequest.NONE; collectionDetailId=it },catalogByKey=fullProjection.value.byKey,
                     cachedCovers=if(fullCurrent && fullProjection.ready) emptyMap() else cachedCollectionCovers, overviewAccessReady=scopedAccess!=null && collectionsLoaded,
-                    detailChecking=scopeGuard!=null && !scopedProjection.ready,
+                    detailChecking=!collectionsLoaded || scopedAccess==null || (scopeGuard!=null && !scopedProjection.ready),
+                    coverAccess=collectionCoverAccess,
                     onCatalogRequest={collectionPickerRequest=it},
                     onRetryPicker={refreshPhoneLibraries(force=true)},
                     onRetryDetail={

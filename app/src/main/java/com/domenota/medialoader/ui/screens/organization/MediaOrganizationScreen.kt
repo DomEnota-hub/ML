@@ -125,7 +125,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     onSelectedCollection:(String?)->Unit={}, catalogByKey:Map<String,LibraryMediaRef>?=null,
     cachedCovers:Map<String,LibraryMediaRef> = emptyMap(), overviewAccessReady:Boolean=usable,
     detailChecking:Boolean=detailCatalog==null, onCatalogRequest:(com.domenota.medialoader.ui.CollectionCatalogRequest)->Unit={},
-    onRetryDetail:()->Unit={}, onRetryPicker:()->Unit={}) {
+    onRetryDetail:()->Unit={}, onRetryPicker:()->Unit={}, coverAccess:CollectionCoverAccess?=null) {
     var selected by rememberSaveable(initialCollection){mutableStateOf(initialCollection)}
     var filter by rememberSaveable(selected){mutableStateOf("Всё")}
     var musicExpanded by rememberSaveable(selected){mutableStateOf(audioOnly)}
@@ -235,7 +235,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     }
     LaunchedEffect(activeUsable,overviewAccessReady){if(!activeUsable&&!overviewAccessReady)picker=false}
     if(rename&&collection!=null){
-        CollectionCoverEditor(collection,refs,{rename=false},blockedIdentities=blockedIdentities.takeIf{activeUsable}){repository.rename(collection.record.id,it)}
+        CollectionCoverEditor(collection,refs,{rename=false},blockedIdentities=blockedIdentities.takeIf{activeUsable||overviewAccessReady},coverAccess=coverAccess){repository.rename(collection.record.id,it)}
         return
     }
     if(create){
@@ -251,7 +251,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 }
                 if(choosing){choosing=false;onAddComplete()}
                 selected=id;filter="Всё";create=false
-            },blockedIdentities=blockedIdentities.takeIf{activeUsable},onRename={})
+            },blockedIdentities=blockedIdentities.takeIf{activeUsable||overviewAccessReady},coverAccess=coverAccess,onRename={})
         return
     }
     BackHandler(selected!=null&&!choosing){if(ordering){ordering=false}else if(selecting){selecting=false;chosenMembers=arrayListOf()}else if(initialCreate||initialCollection!=null)onBack() else selected=null}
@@ -269,12 +269,12 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
         error?.let{Text(it,Modifier.padding(12.dp),color=MaterialTheme.colorScheme.error)}
         if(collection==null||choosing){
             LazyVerticalGrid(GridCells.Fixed(2),Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                if(collections.isEmpty())item(span={GridItemSpan(2)}){Text("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.")}
+                if(collections.isEmpty()&&overviewAccessReady)item(span={GridItemSpan(2)}){Text("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.")}
                 items(collections,key={it.record.id}){c->
                     val cover=c.members.firstNotNullOfOrNull{resolved[it.id]} ?: cachedCovers[c.record.id]?.takeIf { candidate -> c.members.any { member ->
                         !collectionMemberBlocked(member,blockedIdentities.orEmpty()) && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson),candidate)
                     } }
-                    CollectionCard(c,cover,{if(choosing){if(initialSelectionReady&&!busy)addInitial(c.record.id)}else selected=c.record.id},Modifier.fillMaxWidth(),blockedIdentities.takeIf{activeUsable||overviewAccessReady})
+                    CollectionCard(c,cover,{if(choosing){if(initialSelectionReady&&!busy)addInitial(c.record.id)}else selected=c.record.id},Modifier.fillMaxWidth(),blockedIdentities.takeIf{activeUsable||overviewAccessReady},coverAccess)
                 }
             }
         } else {
@@ -361,7 +361,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 item(key="collection-header",span={GridItemSpan(maxLineSpan)}){
                     Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
                         Row(verticalAlignment=Alignment.Top,horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                            CollectionCoverImage(collection,cover,Modifier.width(78.dp).aspectRatio(.8f).clip(RoundedCornerShape(14.dp)).clickable{rename=true},blockedIdentities.takeIf{activeUsable})
+                            CollectionCoverImage(collection,cover,Modifier.width(78.dp).aspectRatio(.8f).clip(RoundedCornerShape(14.dp)).clickable{rename=true},blockedIdentities.takeIf{activeUsable||overviewAccessReady},coverAccess)
                             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
                                 Row(verticalAlignment=Alignment.CenterVertically){
                                     Text(collection.record.name,Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,

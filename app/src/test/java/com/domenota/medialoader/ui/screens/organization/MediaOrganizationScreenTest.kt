@@ -257,4 +257,14 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithText("Test").assertIsDisplayed()
         compose.runOnIdle{assertEquals(com.domenota.medialoader.ui.CollectionCatalogRequest.NONE,request)}
     }
+    @Test fun emptyOverviewIsNotAnnouncedUntilItsOwnDataIsReady() {
+        val loaded=androidx.compose.runtime.mutableStateOf(false)
+        compose.setContent{MaterialTheme{CollectionsScreen(emptyList(),emptyList(),store,null,false,emptyList(),null,false,{},{_,_->},{},{},{},{},
+            scopedDetails=true,overviewAccessReady=loaded.value)}}
+        compose.onNodeWithText("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.").assertDoesNotExist()
+        compose.onNodeWithTag("organization-loading").assertExists()
+        compose.runOnIdle{loaded.value=true}
+        compose.onNodeWithText("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.").assertIsDisplayed()
+        compose.onNodeWithTag("organization-loading").assertDoesNotExist()
+    }
 }

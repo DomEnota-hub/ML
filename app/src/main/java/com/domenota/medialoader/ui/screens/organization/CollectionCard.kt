@@ -29,10 +29,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun CollectionCard(collection:MediaCollection,cover:LibraryMediaRef?,onOpen:()->Unit,modifier:Modifier=Modifier,blockedIdentities:Set<String>?=emptySet()) {
+internal fun CollectionCard(collection:MediaCollection,cover:LibraryMediaRef?,onOpen:()->Unit,modifier:Modifier=Modifier,blockedIdentities:Set<String>?=emptySet(),coverAccess:CollectionCoverAccess?=null) {
     Surface(modifier.aspectRatio(4f/5f).clickable(onClick=onOpen).testTag("collection-card-${collection.record.id}"),shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){
         Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){
-            CollectionCoverImage(collection,cover,Modifier.fillMaxSize().testTag("collection-cover-${collection.record.id}"),blockedIdentities)
+            CollectionCoverImage(collection,cover,Modifier.fillMaxSize().testTag("collection-cover-${collection.record.id}"),blockedIdentities,coverAccess)
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.92f)).padding(horizontal=10.dp,vertical=7.dp)) {
                 Text(collection.record.name,maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.primary)
@@ -41,17 +41,17 @@ internal fun CollectionCard(collection:MediaCollection,cover:LibraryMediaRef?,on
     }
 }
 @Composable
-internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaRef?,modifier:Modifier=Modifier,blockedIdentities:Set<String>?=emptySet()){
+internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaRef?,modifier:Modifier=Modifier,blockedIdentities:Set<String>?=emptySet(),coverAccess:CollectionCoverAccess?=null){
     val context=LocalContext.current
     val store=remember(context){CollectionCoverStore(context)}
     val revision by CollectionCoverStore.changes.collectAsState()
     var saved by remember(collection.record.id){mutableStateOf<CollectionCover?>(null)}
     LaunchedEffect(collection.record.id,revision){saved=withContext(Dispatchers.IO){store.read(collection.record.id)}}
     Box(modifier,contentAlignment=Alignment.Center){
-        val privateCover=saved?.takeIf{collectionCoverAllowed(it.source,blockedIdentities) &&
-            ((cover?.appDownloadId!=null && cover.item.savedUri==it.source) || PhoneMediaLibrary.canReadMissingMetadata(com.domenota.medialoader.core.model.MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
-                androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
-            })}
+        val access = coverAccess ?: CollectionCoverAccess(PhoneMediaLibrary.canReadMissingMetadata(com.domenota.medialoader.core.model.MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
+            androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
+        }, setOfNotNull(cover?.takeIf { it.appDownloadId!=null }?.item?.savedUri))
+        val privateCover=saved?.takeIf{access.permits(it.source,blockedIdentities)}
         if(privateCover!=null)DownloadThumbnail(android.net.Uri.fromFile(privateCover.file).toString(),null,MediaKind.IMAGE,Modifier.fillMaxSize())
         else if(cover!=null&&blockedIdentities!=null&&!collectionRefBlocked(cover,blockedIdentities))CollectionOriginalCover(cover,Modifier.fillMaxSize())
         else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
@@ -70,21 +70,21 @@ private fun CreateCollectionCard(onOpen:()->Unit,modifier:Modifier=Modifier) {
     }
 }
 @Composable
-internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit,onCreate:()->Unit={onOpen(null)},blockedIdentities:Set<String>?=emptySet(),cachedCovers:Map<String,LibraryMediaRef> = emptyMap()) {
+internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit,onCreate:()->Unit={onOpen(null)},blockedIdentities:Set<String>?=emptySet(),cachedCovers:Map<String,LibraryMediaRef> = emptyMap(),coverAccess:CollectionCoverAccess?=null,collectionsReady:Boolean=true) {
     var covers by remember{mutableStateOf(emptyMap<String,LibraryMediaRef>())}
     LaunchedEffect(collections,refs){covers=withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(collections.flatMap{it.members},refs)}}
     val live=remember(refs){refs.associateBy{it.key}}
     Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("Коллекции",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium);TextButton({onOpen(null)}){Text("Все коллекции")}}
-        if(collections.isEmpty())OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",onCreate)
-        else BoxWithConstraints(Modifier.fillMaxWidth()) {
+        if(collections.isEmpty()&&collectionsReady)OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",onCreate)
+        else if(collections.isNotEmpty()) BoxWithConstraints(Modifier.fillMaxWidth()) {
             val width=collectionCardWidth(maxWidth.value).dp
             LazyRow(Modifier.testTag("collection-gallery-strip"),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 items(collections,key={it.record.id}){collection->
                     val cover=collection.members.firstNotNullOfOrNull{covers[it.id]?.let{candidate->live[candidate.key]}} ?: cachedCovers[collection.record.id]?.takeIf { candidate -> collection.members.any { member ->
                         !collectionMemberBlocked(member,blockedIdentities.orEmpty()) && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson),candidate)
                     } }
-                    CollectionCard(collection,cover,{onOpen(collection.record.id)},Modifier.width(width),blockedIdentities)
+                    CollectionCard(collection,cover,{onOpen(collection.record.id)},Modifier.width(width),blockedIdentities,coverAccess)
                 }
                 if(collections.size==1)item("create") {CreateCollectionCard(onCreate,Modifier.width(width))}
             }

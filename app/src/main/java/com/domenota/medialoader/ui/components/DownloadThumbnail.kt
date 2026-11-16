@@ -174,6 +174,7 @@ private fun loadCachedOrCreateThumbnail(
     side: Int,
     identityToken: String? = null,
 ): Bitmap? {
+    val audioRevision = AudioThumbnailInvalidation.revision(savedUri).takeIf { kind == MediaKind.AUDIO }
     val cacheFile = thumbnailFile(context, savedUri, kind, side, identityToken)
     if (cacheFile.exists() && cacheFile.length() > 0L) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -203,11 +204,16 @@ private fun loadCachedOrCreateThumbnail(
         FileOutputStream(temporary).use { stream ->
             check(thumb.compress(Bitmap.CompressFormat.JPEG, 88, stream))
         }
-        if (!temporary.renameTo(cacheFile)) {
-            cacheFile.delete()
-            temporary.copyTo(cacheFile, overwrite = true)
-            temporary.delete()
+        fun commitThumbnail() {
+            if (!temporary.renameTo(cacheFile)) {
+                cacheFile.delete()
+                temporary.copyTo(cacheFile, overwrite = true)
+                temporary.delete()
+            }
         }
+        if (audioRevision != null) {
+            if (!AudioThumbnailInvalidation.publishIfCurrent(savedUri,audioRevision,::commitThumbnail)) temporary.delete()
+        } else commitThumbnail()
         val now = android.os.SystemClock.elapsedRealtime()
         val previous = lastThumbnailPrune.get()
         if ((previous == 0L || now - previous >= 60_000L) &&
@@ -314,8 +320,9 @@ private fun scaleThumbnail(bitmap: Bitmap, maxSide: Int): Bitmap {
 }
 
 private fun thumbnailFile(context: Context, savedUri: String, kind: MediaKind, side: Int, identityToken: String? = null): File {
-    if (kind == MediaKind.AUDIO && identityToken == null) return AudioThumbnailInvalidation.file(context.filesDir, savedUri)
-    val identitySuffix = identityToken?.let { "|$it|${if(kind==MediaKind.AUDIO) AudioThumbnailInvalidation.revision(savedUri) else 0L}" }.orEmpty()
+    if (kind == MediaKind.AUDIO) return if(identityToken==null) AudioThumbnailInvalidation.file(context.filesDir, savedUri)
+        else AudioThumbnailInvalidation.coverFile(context.filesDir,savedUri,identityToken)
+    val identitySuffix = identityToken?.let { "|$it" }.orEmpty()
     val digest = MessageDigest.getInstance("SHA-256")
         .digest("${kind.name}|v3|$side|$savedUri$identitySuffix".toByteArray())
         .joinToString("") { "%02x".format(it) }
