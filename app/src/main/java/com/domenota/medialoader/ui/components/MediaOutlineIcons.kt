@@ -54,11 +54,16 @@ internal val CalendarDatesOutline = ImageVector.Builder("CalendarDatesOutline",2
     }
 }.build()
 
+/** Collection music-section glyph: hollow note heads, a single joined beam and
+ * softened bends. Kept independent of playlist, player and navigation icons. */
 internal val CollectionNotesOutline = outlineIcon("CollectionNotesOutline") {
-    moveTo(8.5f,17.5f); lineTo(8.5f,5.8f); lineTo(20f,3.5f); lineTo(20f,15.4f)
+    moveTo(8.5f,17.5f); lineTo(8.5f,6.4f)
+    curveTo(8.5f,6.05f,8.75f,5.75f,9.1f,5.68f)
+    lineTo(19.05f,3.69f); curveTo(19.55f,3.59f,20f,3.97f,20f,4.48f)
+    lineTo(20f,15.4f)
     moveTo(8.5f,9f); lineTo(20f,6.7f)
     moveTo(8.5f,17.5f); curveTo(8.5f,20.3f,2.5f,21.1f,2.5f,18.1f)
-    curveTo(2.5f,15.5f,8.5f,14.7f,8.5f,17.5f)
+    curveTo(2.5f,15.5f,8.5f,14.7f,8.5f,17.5f); close()
     moveTo(20f,15.4f); curveTo(20f,18.2f,14f,19f,14f,16f)
-    curveTo(14f,13.4f,20f,12.6f,20f,15.4f)
+    curveTo(14f,13.4f,20f,12.6f,20f,15.4f); close()
 }

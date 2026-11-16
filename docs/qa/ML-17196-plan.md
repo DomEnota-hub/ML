@@ -1,0 +1,11 @@
+# ML 1.7.196 / 256 — agreed implementation and acceptance plan
+
+Base: released QA195 /255,32fcef644c0c31268b8acfa166b6600dada1b4f8, draftPR144. Separatebranch feature/ml-17196-safe-folder-recovery. All six issues authorized by owner16Nov2026. No production merge, no Releases, no real media operations in development. Source/reference documents and original device log remain outside Git.
+
+1. P0 QA19505: preserve immutable pending membership/cursor/locators/hashes, test46-member replay, safely enrich only provable legacy source metadata, fix MediaStore alias/index coverage, add privacy-safe exact stage/error reporting, distinguish plan preparation from0/0 and avoid claiming permission failure for every exception. Owners FolderVisibility* and core integration. No guessing original device exception.
+2. QA19504: preserve three prior optimization stages. Worker alias maps, bounded pre-visibility reference reuse and warm publication coalescing, asynchronous Looper-correct controller leases, bounded thumbnail synchronization/negative cache, direct encoded sample buffer with unchanged hashes. Compare source/log evidence; actual Xiaomi perf remains manual.
+3. QA19503/01: deterministic persisted automatic anchor, no fallback to later-resolved media; assigned cover semantics unchanged; collection-only outline double note.
+4. QA19502: explicit neutral Stop/Pause, durable partial progress/resume, safe report readiness independent from new-scan readiness; delete still fresh validated. Compact themed buttons.
+5. QA19506: scoped rounded outline on Find file, preserve availability/geometry/other buttons.
+6. Addressed regression tests during implementation; one final candidate: existing exact-HEAD main/full JVM and storage/integration CI, lint, ARM64 release. Reuse successful checks with unchanged inputs. Fix actual failures, no suppressions/test weakening, no duplicate local+CI full cycle without need.
+7. Source signing certificate, package/version/ABI/v2/v3; local split reconstruction and delivered-byte download-back verification. One version folder on Google Drive, exact sourceZIP, README all changes/limitations, SHA256SUMS. Update existing Summary only. Manual owner acceptance on Xiaomi including test copies before existing46folder; do not declare phone defects closed from CI.

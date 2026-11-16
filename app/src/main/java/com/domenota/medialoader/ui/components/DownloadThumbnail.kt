@@ -57,7 +57,9 @@ private val thumbnailMemory = object : LruCache<String, Bitmap>(12 * 1024 * 1024
 }
 private val thumbnailGate = Semaphore(2)
 private val sourceThumbnailGate = Semaphore(2)
-private val thumbnailLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+// Fixed stripes bound synchronization state across arbitrarily large libraries.
+private val thumbnailLocks = Array(64) { Mutex() }
+private val audioThumbnailFailures = LocalThumbnailFailures(now = android.os.SystemClock::elapsedRealtime)
 private val lastThumbnailPrune = java.util.concurrent.atomic.AtomicLong(0L)
 private fun memoryKey(uri: String, kind: MediaKind, side: Int = MAX_THUMBNAIL_SIDE, identityToken: String? = null): String =
     "$side|$kind|$uri|${if (kind == MediaKind.AUDIO) AudioThumbnailInvalidation.revision(uri) else 0L}" +
@@ -77,9 +79,15 @@ private suspend fun prepareFrameThumbnail(context: Context, uri: String, kind: M
     val key = memoryKey(uri, kind, side, identityToken)
     thumbnailMemory.get(key)?.let { return it }
     return withContext(Dispatchers.IO) {
-        thumbnailLocks.computeIfAbsent(key) { Mutex() }.withLock {
-            thumbnailMemory.get(key) ?: thumbnailGate.withPermit {
-                loadCachedOrCreateThumbnail(context, uri, kind, side, identityToken)?.also { thumbnailMemory.put(key, it) }
+        thumbnailLocks[(key.hashCode() and Int.MAX_VALUE) % thumbnailLocks.size].withLock {
+            thumbnailMemory.get(key) ?: if (kind == MediaKind.AUDIO && audioThumbnailFailures.suppressed(key)) null
+            else thumbnailGate.withPermit {
+                loadCachedOrCreateThumbnail(context, uri, kind, side, identityToken).also { bitmap ->
+                    if (bitmap != null) {
+                        thumbnailMemory.put(key, bitmap)
+                        if (kind == MediaKind.AUDIO) audioThumbnailFailures.succeeded(key)
+                    } else if (kind == MediaKind.AUDIO) audioThumbnailFailures.failed(key)
+                }
             }
         }
     }

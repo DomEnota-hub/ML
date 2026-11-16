@@ -22,13 +22,16 @@ internal object VisualDuplicateBackgroundScan {
     data class Request(val token: Long, val rows: List<LibraryMediaRef>, val source: LibrarySource, val epoch: Long)
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
         val session: VisualDuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false,
-        val phase:DuplicateScanPhase=DuplicateScanPhase.VISUAL,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:VisualScanResult?=null,val coverage:VisualScanCoverage?=null)
+        val stopped: Boolean = false, val phase:DuplicateScanPhase=DuplicateScanPhase.VISUAL,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:VisualScanResult?=null,val coverage:VisualScanCoverage?=null)
     private val mutable = MutableStateFlow(Status())
     val state = mutable.asStateFlow()
     private var pending: Request? = null
     private var nextToken = 0L
     private fun prefs(context: Context) = context.getSharedPreferences("visual_duplicate_background_scan",Context.MODE_PRIVATE)
     fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false)
+    fun stopped(context: Context) = !state.value.running &&
+        prefs(context).getLong("journalEpoch",0)==DuplicatePrivacyGuard.generation(context) &&
+        (state.value.stopped || prefs(context).getString("journalStatus",null) in setOf("stopped","paused"))
     fun journalStatus(context:Context):String=if(state.value.running)"Выполняется" else when(prefs(context).getString("journalStatus",null)){
         "paused"->"Приостановлен";"stopped"->"Остановлен";"failed"->"Прерван";else->"Незавершённый поиск"
     }
@@ -39,7 +42,7 @@ internal object VisualDuplicateBackgroundScan {
         pending = Request(token,rows,source,epoch)
         val now=android.os.SystemClock.elapsedRealtime()
         mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now,coverage=VisualScanCoverage(source,rows.size))
-        prefs(context).edit().putString("journalStatus","running").apply()
+        prefs(context).edit().putString("journalStatus","running").putLong("journalEpoch",epoch).apply()
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,VisualDuplicateScanService::class.java)) }
         catch (e: Exception) { pending = null; mark(context,false); mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
@@ -62,11 +65,16 @@ internal object VisualDuplicateBackgroundScan {
         mutable.value = s.copy(committing = true,phase=DuplicateScanPhase.SAVING)
         return true
     }
-    @Synchronized fun finish(context: Context, token: Long, session: VisualDuplicateSession?,error: String? = null, cancelled: Boolean = false) {
+    @Synchronized fun finish(context: Context, token: Long, session: VisualDuplicateSession?,error: String? = null, cancelled: Boolean = false, paused: Boolean = false) {
         if (mutable.value.token != token || !mutable.value.running) return
-        if (session != null || cancelled) mark(context,false)
-        prefs(context).edit().putString("journalStatus",when{session!=null->"completed";cancelled->"stopped";error?.contains("приостановлен")==true->"paused";else->"failed"}).apply()
-        mutable.value = Status(session = session,error = error,token = token,partial=if(session==null)mutable.value.partial else null)
+        if (session != null) mark(context,false)
+        else if (cancelled || paused) mark(context,true) // Stop preserves resumable fingerprints and the partial journal.
+        prefs(context).edit().putString("journalStatus",when{session!=null->"completed";cancelled->"stopped";paused->"paused";else->"failed"}).apply()
+        val previous=mutable.value
+        val coverage=previous.partial?.coverage?:previous.coverage
+        mutable.value = previous.copy(running = false, committing = false, session = session,error = if(cancelled || paused)null else error,
+            stopped = cancelled || paused,token = token,partial=if(session==null)previous.partial else null,
+            coverage=coverage,done=coverage?.checked?:previous.done,total=coverage?.total?:previous.total)
     }
     fun pause(context:Context){
         if(!state.value.running||state.value.committing)return
@@ -84,6 +92,7 @@ class VisualDuplicateScanService : Service() {
     private var terminal = false
     private var cancelReason: String? = null
     private var explicitCancel = false
+    private var explicitPause = false
     private var token = 0L
     private var wake: PowerManager.WakeLock? = null
     private var lastNotice = 0L
@@ -97,14 +106,15 @@ class VisualDuplicateScanService : Service() {
         if (intent?.action == CANCEL||intent?.action==PAUSE) {
             if (VisualDuplicateBackgroundScan.state.value.committing) return START_NOT_STICKY
             explicitCancel=intent?.action==CANCEL
+            explicitPause=intent?.action==PAUSE
             cancelReason=if(explicitCancel)"Поиск остановлен. Проверенные файлы сохранены." else "Поиск приостановлен. Можно продолжить."
-            if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); VisualDuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = explicitCancel) }
+            if (job?.isActive == true) job?.cancel() else { terminal = true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); VisualDuplicateBackgroundScan.finish(this,token,null,cancelReason,cancelled = explicitCancel, paused = explicitPause) }
             return START_NOT_STICKY
         }
         if (job != null && job?.isActive == true) return START_NOT_STICKY
         val request = VisualDuplicateBackgroundScan.claim()
         token = request?.token ?: VisualDuplicateBackgroundScan.state.value.token
-        terminal = false; cancelReason = null; explicitCancel = false
+        terminal = false; cancelReason = null; explicitCancel = false; explicitPause = false
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID,notice(0,request?.rows?.size ?: 0),ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else startForeground(ID,notice(0,request?.rows?.size ?: 0))
         if (request == null) { terminal = true; VisualDuplicateBackgroundScan.finish(this,token,null,"Поиск прерван. Запустите его снова."); stopSelf(); return START_NOT_STICKY }
@@ -144,7 +154,7 @@ class VisualDuplicateScanService : Service() {
                 if (wake?.isHeld == true) wake?.release()
                 wake = null
                 stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
-                cancelReason?.let { terminal = true; VisualDuplicateBackgroundScan.finish(this@VisualDuplicateScanService,scanToken,null,it,cancelled = explicitCancel) }
+                cancelReason?.let { terminal = true; VisualDuplicateBackgroundScan.finish(this@VisualDuplicateScanService,scanToken,null,it,cancelled = explicitCancel, paused = explicitPause) }
             }
         }
         return START_NOT_STICKY

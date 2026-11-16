@@ -1,12 +1,10 @@
 package com.domenota.medialoader.data.playback
 
-import android.content.ComponentName
 import android.content.Context
 import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
 import androidx.media3.common.MediaItem
 import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 import com.domenota.medialoader.data.library.LibraryMediaRef
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.model.MediaType
@@ -61,9 +59,7 @@ internal class LibraryAudioPreview(context: Context) {
     }
     private fun resetQueue(){queueOwner=null;queueTimeline=null;queueSnapshot=emptyList();queueGeneration++;identityItem=null;identityKeys=emptySet()}
     private suspend fun controller(): MediaController = withContext(Dispatchers.Main.immediate) {
-        val pending = future ?: MediaController.Builder(context,
-            SessionToken(context, ComponentName(context, AudioPlaybackService::class.java)))
-            .setListener(object:MediaController.Listener {
+        val pending = future ?: buildAudioControllerAsync(context, object:MediaController.Listener {
                 override fun onDisconnected(controller:MediaController) {
                     if(connected===controller) {
                         connected=null;future=null;resetQueue()
@@ -71,7 +67,7 @@ internal class LibraryAudioPreview(context: Context) {
                         mutableState.value=AudioPreviewState(connected=true)
                     }
                 }
-            }).buildAsync().also { future = it }
+            }).also { future = it }
         val controller = suspendCancellableCoroutine<MediaController> { continuation ->
             pending.addListener({
                 if (continuation.isActive) try { continuation.resume(pending.get()) }

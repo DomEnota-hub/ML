@@ -122,7 +122,13 @@ internal class VisibilityMediaStore(context: Context) {
             return@withContext origin
         }
         val evidence = com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context,locator)
-        val paths = evidence.filter { it.startsWith("file:") }.map { it.removePrefix("file:") }.distinct()
+        val paths = evidence.filter { it.startsWith("file:") }.flatMap {
+            val path = it.removePrefix("file:")
+            // MediaStore's DATA path is normally canonical, while the catalog
+            // may retain /sdcard or /storage/self/primary. This only discovers
+            // candidates: the captured physical stat must still match below.
+            listOfNotNull(path, runCatching { File(path).canonicalPath }.getOrNull())
+        }.distinct()
         val physical = evidence.filter { it.startsWith("file-stat:") }.toSet()
         check(physical.isNotEmpty()) { "Не удалось подтвердить физический адрес файла" }
         val candidates = mutableSetOf<String>()
@@ -207,7 +213,9 @@ internal class VisibilityMediaStore(context: Context) {
 
     suspend fun verifyHiddenNotIndexed(file: File, mime: String) = withContext(Dispatchers.IO) {
         requireRead(mime); requireMounted(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val uri = collection(MediaStore.VOLUME_EXTERNAL_PRIMARY,mime)
+        // A stale or differently classified row can live outside the original
+        // MIME collection. Files covers every indexed type at this exact path.
+        val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         fun absent() = query(uri,arrayOf(MediaStore.MediaColumns._ID),"${MediaStore.MediaColumns.DATA}=?",arrayOf(file.path)).use { it.count == 0 }
         if (!absent()) {
             MediaScannerConnection.scanFile(context,arrayOf(file.path),arrayOf(mime),null)

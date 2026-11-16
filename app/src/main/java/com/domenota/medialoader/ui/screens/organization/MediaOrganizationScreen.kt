@@ -282,9 +282,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             LazyVerticalGrid(GridCells.Fixed(2),Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                 if(collections.isEmpty()&&overviewAccessReady)item(span={GridItemSpan(2)}){Text("Создай коллекцию, чтобы собрать разные медиа и ссылки в одном месте. Файлы не копируются.")}
                 items(collections,key={it.record.id}){c->
-                    val cover=c.members.firstNotNullOfOrNull{resolved[it.id]} ?: cachedCovers[c.record.id]?.takeIf { candidate -> c.members.any { member ->
-                        !collectionMemberBlocked(member,blockedIdentities.orEmpty()) && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson),candidate)
-                    } }
+                    val cover=collectionAutomaticCover(c.members,resolved,blockedIdentities.takeIf{activeUsable||overviewAccessReady},cachedCovers[c.record.id])
                     CollectionCard(c,cover,{if(choosing){if(initialSelectionReady&&!busy)addInitial(c.record.id)}else selected=c.record.id},Modifier.fillMaxWidth(),blockedIdentities.takeIf{activeUsable||overviewAccessReady},coverAccess)
                 }
             }
@@ -312,7 +310,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
             }
             LaunchedEffect(missing,activeUsable){if(missing==0||!activeUsable){missingPanel=false;missingInfo=null;missingRemove=null}}
             val columns=if(largeCards)2 else 3
-            val cover=visible.firstOrNull()?.second
+            val cover=collectionAutomaticCover(collection.members,resolved,blockedIdentities.takeIf{activeUsable||overviewAccessReady})
             val tracks=visible.filter{it.second.item.mediaType==MediaType.AUDIO}
             val visibleLinks=if(!audioOnly)links else emptyList()
             val visualIds=filtered.map{it.first.id}

@@ -66,3 +66,22 @@ internal data class CollectionCoverAccess(val fullPhotoAccess: Boolean, val appP
     fun permits(source: String, blocked: Set<String>?): Boolean =
         collectionCoverAllowed(source, blocked) && (fullPhotoAccess || source in appPhotoUris)
 }
+
+/** The first public media slot in persisted collection order owns the automatic cover.
+ * Resolve that slot only: partial catalogs, loading and failed lookups must not promote
+ * a later song/video. Explicit reorder/removal changes the slot; display filters do not.
+ * The id tie-break matches Room's ordering, including legacy members without sortOrder. */
+internal fun collectionAutomaticCoverMember(members: List<MediaCollectionMemberEntity>, blocked: Set<String>?): MediaCollectionMemberEntity? {
+    if (blocked == null) return null
+    return members.asSequence().filter { it.link == null && !collectionMemberBlocked(it, blocked) }
+        .minWithOrNull(compareBy<MediaCollectionMemberEntity> { it.sortOrder ?: it.addedAt }.thenBy { it.id })
+}
+
+/** A cached thumbnail is eligible only for the same authoritative slot and identity. */
+internal fun collectionAutomaticCover(members: List<MediaCollectionMemberEntity>, resolved: Map<String, LibraryMediaRef>,
+    blocked: Set<String>?, cached: LibraryMediaRef? = null): LibraryMediaRef? {
+    val member = collectionAutomaticCoverMember(members, blocked) ?: return null
+    fun allowed(ref: LibraryMediaRef) = !collectionRefBlocked(ref, requireNotNull(blocked)) &&
+        CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson), ref)
+    return resolved[member.id]?.takeIf(::allowed) ?: cached?.takeIf(::allowed)
+}

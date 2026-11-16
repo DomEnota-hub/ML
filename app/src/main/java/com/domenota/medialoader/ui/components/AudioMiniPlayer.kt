@@ -2,7 +2,6 @@ package com.domenota.medialoader.ui.components
 import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 
 import com.domenota.medialoader.ui.model.displayFileName
-import android.content.ComponentName
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
@@ -53,15 +52,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
-import com.domenota.medialoader.data.playback.AudioPlaybackService
 
 @Composable
 fun AudioMiniPlayer(
@@ -71,14 +65,7 @@ fun AudioMiniPlayer(
     compact: Boolean = false,
     interactiveSeek: Boolean = false,
 ) {
-    val context = LocalContext.current
-    val token = remember {
-        SessionToken(context, ComponentName(context, AudioPlaybackService::class.java))
-    }
-    val controllerFuture = remember(token) {
-        MediaController.Builder(context, token).buildAsync()
-    }
-    var controller by remember { mutableStateOf<MediaController?>(null) }
+    val controller = rememberAudioController()
     var mediaId by remember { mutableStateOf<String?>(null) }
     var title by remember { mutableStateOf("") }
     var titleIsFilename by remember { mutableStateOf(false) }
@@ -93,28 +80,6 @@ fun AudioMiniPlayer(
     val duration=durationState.durationMs
     var seekable by remember { mutableStateOf(false) }
     var trackGeneration by remember { mutableLongStateOf(0) }
-
-    DisposableEffect(controllerFuture) {
-        controllerFuture.addListener(
-            {
-                runCatching { controllerFuture.get() }.getOrNull()?.let { connected ->
-                    controller = connected
-                    mediaId = connected.currentMediaItem?.mediaId
-                    title = connected.mediaMetadata.title?.toString().orEmpty()
-                    titleIsFilename = connected.mediaMetadata.extras?.getBoolean(AudioPlaybackMetadata.FILENAME_TITLE) == true
-                    artist = connected.mediaMetadata.artist?.toString()
-                    isPlaying = connected.isPlaying
-                    mediaCount = connected.mediaItemCount
-                    privateMedia = connected.mediaMetadata.extras?.getBoolean("private_media") == true
-                }
-            },
-            ContextCompat.getMainExecutor(context),
-        )
-        onDispose {
-            MediaController.releaseFuture(controllerFuture)
-            controller = null
-        }
-    }
 
     DisposableEffect(controller) {
         val active = controller
