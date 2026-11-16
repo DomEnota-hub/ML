@@ -257,6 +257,26 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithText("Test").assertIsDisplayed()
         compose.runOnIdle{assertEquals(com.domenota.medialoader.ui.CollectionCatalogRequest.NONE,request)}
     }
+    @Test fun unsettledDetailRevisionsCannotKeepInitialSpinner() {
+        val member=MediaCollectionMemberEntity("m","c",MediaOrganizationPolicy.encode(setOf("file-stat:unknown")),null,1)
+        val collection=MediaCollection(MediaCollectionEntity("c","Test",1),listOf(member))
+        var retried=false
+        compose.mainClock.autoAdvance=false
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(collection),emptyList(),store,"c",true,emptyList(),null,false,{},{_,_->},{},{},{},{},
+            scopedDetails=true,detailCatalogId="c",detailCatalog=null,overviewAccessReady=true,detailChecking=true,onRetryDetail={retried=true})}}
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        compose.onNodeWithTag("organization-loading").assertExists()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(16_100))
+        compose.mainClock.advanceTimeBy(16_100)
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        compose.onNodeWithTag("organization-loading").assertDoesNotExist()
+        compose.onNodeWithText("Повторить проверку").assertExists().performClick()
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        compose.runOnIdle{assertTrue(retried)}
+    }
     @Test fun emptyOverviewIsNotAnnouncedUntilItsOwnDataIsReady() {
         val loaded=androidx.compose.runtime.mutableStateOf(false)
         compose.setContent{MaterialTheme{CollectionsScreen(emptyList(),emptyList(),store,null,false,emptyList(),null,false,{},{_,_->},{},{},{},{},

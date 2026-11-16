@@ -167,6 +167,17 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     val initialSelectionReady = initialAdd.isEmpty() || ready
     val detailScope = detailCatalog.takeIf { useScoped && detailCatalogId == selected }
     val activeUsable = if (useScoped) detailScope != null else usable
+    // Bound the initial visible wait even if new provider revisions continually
+    // supersede an addressed result. Ordinary refreshes retain the current view.
+    var detailRetry by remember(selected) { mutableIntStateOf(0) }
+    var detailTimedOut by remember(selected) { mutableStateOf(false) }
+    LaunchedEffect(selected, useScoped, activeUsable, detailChecking, detailRetry) {
+        detailTimedOut = false
+        if (useScoped && !activeUsable && detailChecking) {
+            delay(16_000)
+            detailTimedOut = true
+        }
+    }
     val activeRefs = if (useScoped) detailScope?.refs.orEmpty() else refs
     val activeMembers = remember(useScoped, collection, collections) {
         if (useScoped) collection?.members.orEmpty() else collections.flatMap { it.members }
@@ -263,7 +274,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
 
         }
         if(useScoped) Box(Modifier.fillMaxWidth().height(4.dp)) {
-            if(busy||(!activeUsable&&detailChecking))
+            if(busy||(!activeUsable&&detailChecking&&!detailTimedOut))
                 LinearProgressIndicator(Modifier.fillMaxWidth().testTag("organization-loading"))
         } else if((!activeUsable && (!overviewAccessReady || (choosing && initialAdd.isNotEmpty())))||busy) LinearProgressIndicator(Modifier.fillMaxWidth().testTag("organization-loading"))
         error?.let{Text(it,Modifier.padding(12.dp),color=MaterialTheme.colorScheme.error)}
@@ -404,9 +415,9 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                         }
 
                         if(collection.members.isEmpty())Text("Пока нет файлов и ссылок",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                        if(useScoped && !detailChecking && (detailScope==null || detailScope.pending.any { it !in resolved })) {
+                        if(useScoped && (!detailChecking || detailTimedOut) && (detailScope==null || detailScope.pending.any { it !in resolved })) {
                             Text("Не удалось проверить часть файлов. Сохранённые данные не удалены.",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                            TextButton(onRetryDetail,enabled=!busy){Text("Повторить проверку")}
+                            TextButton({detailRetry++;onRetryDetail()},enabled=!busy){Text("Повторить проверку")}
                         }
                     }
                 }

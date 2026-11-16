@@ -841,18 +841,25 @@ fun MediaLoaderApp(
         (currentRoute == "home" && appMode == AppMode.GALLERY)) }
     val overviewCollections = collections
     val overviewHistory = historySnapshot
+    val overviewMembers = remember(overviewCollections) { overviewCollections.flatMap { it.members } }
+    val overviewRelevantHistory = remember(overviewMembers, historySnapshot) { historySnapshot?.forMembers(overviewMembers).orEmpty() }
+    val overviewRows = remember(overviewRelevantHistory) { overviewRelevantHistory }
+    var overviewMediaRevision by remember { mutableStateOf(mediaAddressSignal.revision) }
+    LaunchedEffect(mediaAddressSignal.revision) {
+        if (coverGuard != null && mediaAddressSignal.affects(overviewMembers, overviewRows)) overviewMediaRevision = mediaAddressSignal.revision
+    }
     suspend fun readOverviewCovers(): Map<String, LibraryMediaRef> {
         val stamp = collectionDiskCache.stamp()
         return buildMap {
             for (collection in overviewCollections) {
-                val cached = collectionDiskCache.read(collection.record.id,collection.members,collectionHistory,collectionBlocked,stamp)
-                    ?: overviewDiskCache.read(collection.record.id,collection.members,collectionHistory,collectionBlocked,stamp)
+                val cached = collectionDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)
+                    ?: overviewDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)
                 collection.members.firstNotNullOfOrNull { cached?.resolved?.get(it.id) }?.let { put(collection.record.id,it) }
             }
         }
     }
     val overviewProjection = addressedLibraryProjection<Map<String,LibraryMediaRef>?>(null,coverGuard,
-        collections,collectionHistory,collectionCacheRevision,fileScanEpoch,mediaAddressSignal.revision,
+        collections,overviewRows,collectionCacheRevision,fileScanEpoch,overviewMediaRevision,
         retain = { previous, next -> next ?: previous }, serial = true,
         seed = { CollectionLookupBudget.run(3_000) { readOverviewCovers() } }) {
         CollectionLookupBudget.run(12_000) {

@@ -116,6 +116,8 @@ class CollectionAddressResolverTest {
         val members=chosen.map(::member)
         val addressed=snapshot.forMembers(members)
         assertEquals(chosen.map { it.key }.toSet(),addressed.keys)
+        val unrelated = all.last().item
+        assertEquals(addressed, snapshot.copy(rows = snapshot.rows + (unrelated.id to unrelated.copy(originalName = "unrelated.mp3"))).forMembers(members))
         val visual=CollectionMediaSignal(1,setOf("content://media/external/images/media/3"),setOf(AppMode.GALLERY))
         assertFalse(visual.affects(members,addressed))
         val otherAudio=CollectionMediaSignal(2,setOf("content://media/external/audio/media/100"),setOf(AppMode.MUSIC))
