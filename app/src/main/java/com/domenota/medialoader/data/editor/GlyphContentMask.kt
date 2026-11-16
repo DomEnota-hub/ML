@@ -37,39 +37,39 @@ internal object GlyphContentMask {
         val profiles = mutableMapOf<Int, Background>()
         val outlined = mutableMapOf<Int, List<MaskStroke>>()
         var outlinedStrokeCount = 0
+        val outlinedLineGlyphs = mutableSetOf<Int>()
         for (line in OcrLineCandidatePolicy.credibleLines(glyphs.toList())) {
             if (line.count { it.confidence >= 75f && it.text.any(Char::isLetterOrDigit) } < 4) continue
             lineBackground(source,line)?.let { bg -> line.forEach { backgrounds[it.id]=bg } }
             // On a gradient or a vertical seam, the exterior above and below
             // each column can agree even when the whole line has no one color.
             columnBackground(source,line)?.let { bg -> line.forEach { profiles[it.id]=bg } }
-            // Repeated style evidence is mandatory; a solitary white patch
-            // surrounded by black on a photograph is not a verified caption.
-            val style = mutableMapOf<Int,List<MaskStroke>>()
-            var lineStrokeCount = 0
-            for (glyph in line) {
-                if (glyph.confidence < 75f || !glyph.text.any(Char::isLetterOrDigit)) continue
-                val candidate = extractOutlined(source, glyph) ?: continue
-                if (outlinedStrokeCount + lineStrokeCount + candidate.size > MAX_STROKES) {
-                    style.clear()
-                    break
+            // Repeated style evidence is mandatory. Resolve shared outline
+            // components over the whole selected line, not clipped glyph crops.
+            val eligible = line.filter { it.confidence >= 75f && it.text.any(Char::isLetterOrDigit) }
+            val style = extractOutlinedLine(source, eligible)
+            if (style.size >= 3 && (style.size * 2 >= eligible.size || style.size >= 5)) {
+                val count = style.values.sumOf { it.size }
+                if (outlinedStrokeCount + count <= MAX_STROKES) {
+                    outlined.putAll(style)
+                    outlinedLineGlyphs.addAll(eligible.map { it.id })
+                    outlinedStrokeCount += count
                 }
-                style[glyph.id] = candidate
-                lineStrokeCount += candidate.size
-            }
-            if (style.size >= 3 && style.size * 2 >= line.size) {
-                outlined.putAll(style)
-                outlinedStrokeCount += lineStrokeCount
             }
         }
         for (glyph in glyphs) {
             var reason="no_verified_ink"
             fun report(value:String){reason=value}
             val profile=profiles[glyph.id]
-            val segment = (if(profile!=null) extractSymbol(source,glyph,profile,::report)
+            // Direct repeated fill/outline evidence is stronger than a
+            // guessed single background colour for that glyph. Preserve the
+            // prior verified-background method for all other text styles.
+            val segment = outlined[glyph.id] ?: if (glyph.id in outlinedLineGlyphs) {
+                report("outlined_component_unverified"); null
+            } else if(profile!=null) extractSymbol(source,glyph,profile,::report)
                 else extractSymbol(source,glyph,null,::report) ?: backgrounds[glyph.id]?.let {
                     extractSymbol(source,glyph,it,::report)
-                }) ?: outlined[glyph.id]
+                }
             if (segment.isNullOrEmpty()) {
                 unresolved.add(glyph); reasons[reason]=(reasons[reason]?:0)+1
                 continue
@@ -82,23 +82,38 @@ internal object GlyphContentMask {
         return Analysis(result,unresolved,reasons)
     }
 
-    private fun extractOutlined(source: Bitmap, glyph: DetectedGlyph): List<MaskStroke>? {
-        val w = source.width; val h = source.height
-        val left = (glyph.left * w).toInt(); val top = (glyph.top * h).toInt()
-        val right = kotlin.math.ceil(glyph.right * w).toInt().coerceAtMost(w)
-        val bottom = kotlin.math.ceil(glyph.bottom * h).toInt().coerceAtMost(h)
-        val pad = (min(right-left,bottom-top)*.20f).toInt().coerceIn(2,8)
-        val x0 = max(0,left-pad); val y0 = max(0,top-pad)
-        val rw = min(w,right+pad)-x0; val rh = min(h,bottom+pad)-y0
-        if (rw < 7 || rh < 7 || rw.toLong()*rh > MAX_PIXELS_PER_SYMBOL) return null
-        val pixels = IntArray(rw*rh)
-        source.getPixels(pixels,0,rw,x0,y0,rw,rh)
-        val bits = OutlinedGlyphInk.extract(pixels,rw,rh) ?: return null
-        // Enclosure must be inside the glyph search region, not an unrelated
-        // nearby object in its padding. Keep only bounded raster dilation.
-        if (bits.indices.any { bits[it] && (x0+it%rw !in (left-1)..right ||
-                y0+it/rw !in (top-1)..bottom) }) return null
-        return rasterStrokes(bits,rw,rh,x0,y0,w,h)
+    private fun extractOutlinedLine(source: Bitmap, glyphs: List<DetectedGlyph>): Map<Int,List<MaskStroke>> {
+        if (glyphs.size < 3) return emptyMap()
+        val w=source.width;val h=source.height
+        val absolute=glyphs.map { glyph ->
+            val l=(glyph.left*w).toInt();val t=(glyph.top*h).toInt()
+            val r=kotlin.math.ceil(glyph.right*w).toInt().coerceAtMost(w)
+            val b=kotlin.math.ceil(glyph.bottom*h).toInt().coerceAtMost(h)
+            val pad=(min(r-l,b-t)*.22f).toInt().coerceIn(2,8)
+            OutlinedGlyphInk.Region(l,t,r,b,pad)
+        }
+        // Two extra exterior pixels distinguish cropped strokes from a real
+        // background edge. Per-glyph padding still limits selectable ink.
+        val x0=(absolute.minOf{it.left-it.pad}-2).coerceAtLeast(0)
+        val y0=(absolute.minOf{it.top-it.pad}-2).coerceAtLeast(0)
+        val rw=(absolute.maxOf{it.right+it.pad}+2).coerceAtMost(w)-x0
+        val rh=(absolute.maxOf{it.bottom+it.pad}+2).coerceAtMost(h)-y0
+        if(rw<7 || rh<7 || rw.toLong()*rh>MAX_PIXELS_PER_SYMBOL)return emptyMap()
+        val regions=absolute.map { it.copy(left=it.left-x0,top=it.top-y0,right=it.right-x0,bottom=it.bottom-y0) }
+        val pixels=IntArray(rw*rh);source.getPixels(pixels,0,rw,x0,y0,rw,rh)
+        val result=OutlinedGlyphInk.extractRegions(pixels,rw,rh,regions)?:return emptyMap()
+        val output=mutableMapOf<Int,MutableList<MaskStroke>>();var count=0
+        val diameter=(2f/min(w,h)).coerceIn(.00001f,.5f)
+        for(y in 0 until rh){var x=0;while(x<rw){
+            val id=result.owner[y*rw+x]
+            if(id<0){x++;continue}
+            val start=x;while(x<rw && result.owner[y*rw+x]==id)x++
+            val end=x-1;val yy=(y0+y+.5f)/h
+            val first=MaskPoint((x0+start+.5f)/w,yy);val last=MaskPoint((x0+end+.5f)/w,yy)
+            if(++count>MAX_STROKES)return emptyMap()
+            output.getOrPut(glyphs[id].id){mutableListOf()}.add(MaskStroke(if(start==end)listOf(first)else listOf(first,last),diameter))
+        }}
+        return output
     }
 
     private data class Background(val color: Int, val q75: Int, val columns: IntArray?=null, val left: Int=0) {

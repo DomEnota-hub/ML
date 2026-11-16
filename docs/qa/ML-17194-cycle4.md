@@ -20,3 +20,24 @@ Idle LaMa grace is at most 20 seconds only when Android reports no low-memory co
 Diagnostics distinguish model lookup, ORT environment/options/create, session reuse/release reason, tensor preparation, native run, readback, and native heap snapshot. LaMa is a raw pinned ONNX file, not a decompression stage at each use. CPU 2 threads, FP32 512x512 and checksum unchanged; no graph-cache/XNNPACK toggle without device A/B. First inference and warm inference are distinguishable from reuse and run logs. Actual cold/warm init/heap/timing and inpainting quality on Xiaomi require final device QA.
 
 Local tests execute actual pure Kotlin OCR/outline and serialized-cache test bodies with desktop JUnit stubs (not Android CI); concurrency/reuse, cancellation, retry, eviction generation, atomic replacement and memory grace. CI adds named addressable OCR and model lifecycle groups plus full JVM, both Android lint and ARM64 compilation. No prior tests weakened or removed.
+
+### Дополнительная проверка общей обводки
+
+На синтетической сцене с неоднородным фоном и линией двери использованы
+настоящие Tesseract 5.5 и поставляемые rus/eng traineddata. Desktop-проверка
+масок выполнялась Kotlin-кодом приложения с pixel-only Bitmap stub, без
+Android raster/inpainting. OCR-боксы зачастую содержат лишь белую заливку.
+Обводка теперь проверяется общей связной компонентой в пределах выбранной
+строки, с ограниченным допуском однопиксельного нейтрального перехода;
+общая граница соседних букв допустима, связь с фоном/краем отвергает всю
+зависимую группу. При сильном повторяющемся стиле непроверенные буквы не
+подтверждаются резервным методом фона. Независимая буква может оставаться
+проверенной, но частичный результат не разрешает автоматический inpainting.
+Новые регрессии: общая обводка + антиалиасинг, связанная линия двери +
+независимый символ. Контрольные центры маски синтетической верхней строки:
+16150 пикселей текста, 0 фона, 5 из 16 кандидатов не подтверждены; центральной:
+5491 пиксель текста, 0 фона, 6 из 11 не подтверждены. Нижняя строка старого
+метода: 12 из 16 кандидатов не подтверждены, 280 из 2702 отмеченных центров
+попали на фон; автоматический запуск запрещён, частичную маску следует
+проверять вручную. Не является оценкой реальной фотографии 1000042031.jpg
+или Android-растрирования. Исходное вложение не было доступно для проверки.

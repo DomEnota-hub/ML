@@ -42,4 +42,32 @@ class OutlinedGlyphInkTest {
             if ((it/w + it%w)%2==0) white else black
         },w,h))
     }
+    @Test fun sharedOutlineAndAntialiasAreVerifiedAcrossAdjacentBoxes() {
+        val width=48;val height=32
+        val pixels=IntArray(width*height){0xff967050.toInt()}
+        val expected=BooleanArray(pixels.size)
+        for (left in listOf(8,23)) for(y in 7..24) for(x in left..left+15) {
+            val edge=minOf(x-left,left+15-x,y-7,24-y)
+            pixels[y*width+x]=when { edge==0 -> black; x==left+1 && y in 9..22 -> 0xff909090.toInt(); else -> white }
+            expected[y*width+x]=true
+        }
+        val regions=listOf(OutlinedGlyphInk.Region(9,8,23,24,3),OutlinedGlyphInk.Region(24,8,38,24,3))
+        val result=OutlinedGlyphInk.extractRegions(pixels,width,height,regions)!!
+        assertEquals(setOf(0,1),result.verified)
+        assertArrayEquals(expected,BooleanArray(pixels.size){result.owner[it]>=0})
+    }
+    @Test fun seamRejectsSharedOutlineButPreservesIndependentGlyph() {
+        val width=76;val height=32
+        val pixels=IntArray(width*height){0xff967050.toInt()}
+        for(left in listOf(8,23,53)) for(y in 7..24) for(x in left..left+15) {
+            val edge=minOf(x-left,left+15-x,y-7,24-y)
+            pixels[y*width+x]=if(edge==0)black else white
+        }
+        for(y in 0..7)pixels[y*width+14]=black
+        val regions=listOf(OutlinedGlyphInk.Region(9,8,23,24,2),OutlinedGlyphInk.Region(24,8,38,24,2),OutlinedGlyphInk.Region(54,8,68,24,2))
+        val result=OutlinedGlyphInk.extractRegions(pixels,width,height,regions)!!
+        assertEquals(setOf(2),result.verified)
+        assertEquals(288,result.owner.count{it==2})
+        assertTrue(result.owner.none{it==0||it==1})
+    }
 }
