@@ -34,15 +34,15 @@ internal class PersistentProjectionCache(context: Context, namespace: String) {
         }
     }
 
-    suspend fun write(key: String, guard: String, value: JSONObject) = withContext(Dispatchers.IO) {
+    suspend fun write(key: String, guard: String, value: JSONObject, valid: () -> Boolean = { true }) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val bytes = JSONObject().put("schema", 1).put("guard", guard).put("value", value)
                 .toString().toByteArray(Charsets.UTF_8)
-            if (bytes.size > MAX_BYTES) return@withLock
+            if (bytes.size > MAX_BYTES || !valid()) return@withLock
             directory.mkdirs()
             val file = target(key)
             val output = file.startWrite()
-            try { output.write(bytes); file.finishWrite(output) }
+            try { output.write(bytes); if(valid()) file.finishWrite(output) else {file.failWrite(output);return@withLock} }
             catch (e: Exception) { file.failWrite(output); throw e }
             directory.listFiles { f -> f.name.endsWith(".json") }?.sortedByDescending { it.lastModified() }
                 ?.drop(MAX_ENTRIES)?.forEach { AtomicFile(it).delete() }

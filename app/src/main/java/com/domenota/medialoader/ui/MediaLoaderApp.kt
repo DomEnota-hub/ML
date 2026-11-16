@@ -473,7 +473,8 @@ fun MediaLoaderApp(
     fun awaitingPhone(id: String?): Boolean = id?.startsWith("phone:") == true &&
         (!indexedLibraryProjection.ready || !libraryAliasProjection.ready ||
             if (id.startsWith("phone:audio:")) !phoneMusic.loaded else !phoneGallery.loaded)
-    val publicLibraryRows = remember(indexedLibraryRows, libraryAudioState.queue, libraryPrivateKeys) {
+    val publicSessionProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        emptyList<com.domenota.medialoader.core.database.DownloadEntity>(),libraryPrivateKeys,indexedLibraryRows, libraryAudioState.queue) {
         val session = libraryPrivateKeys?.let { keys ->
             com.domenota.medialoader.data.playback.AudioPlaybackMetadata.publicSessionRows(libraryAudioState.queue, indexedLibraryRows, keys)
         }.orEmpty()
@@ -482,6 +483,7 @@ fun MediaLoaderApp(
             indexedLibraryRows + session.filter { knownIds.add(it.id) }
         }
     }
+    val publicLibraryRows=if(libraryAudioState.queue.isEmpty()||!publicSessionProjection.usable)indexedLibraryRows else publicSessionProjection.value
     val accessibleDownloads = remember(privateState.unlocked, publicLibraryRows, privateDownloads) {
         if (privateState.unlocked) publicLibraryRows + privateDownloads else publicLibraryRows
     }
@@ -934,6 +936,29 @@ fun MediaLoaderApp(
         if (!collectionRouteActive) emptyList() else externalCatalog.map { it.ref }.filter { it.appDownloadId == null && !collectionRefBlocked(it, collectionBlocked) }
     }
     val audioSnapshot = audioCatalog?.takeIf { it.guard.privacy == libraryPrivateKeys && it.guard.accessEpoch == musicAccessEpoch && !recoveryRunning }
+    val listeningHistoryRows by libraryModel.listeningHistoryRows.collectAsStateWithLifecycle()
+    val analyticsGuard = audioSnapshot?.guard?.takeIf { historySnapshot != null && listeningHistoryRows != null && appMode == AppMode.MUSIC }
+        ?.let { ListeningCatalogGuard(it,collectionBlocked,collectionPrivacyGeneration) }
+    val analyticsProjection = addressedLibraryProjection(ListeningCatalog.EMPTY, analyticsGuard,
+        audioSnapshot, listeningHistoryRows, statusSnapshot, statusUriSnapshot, serial=true,
+        retain={ previous,next -> if(previous.refs==next.refs) previous else next }) {
+        ListeningCatalog(filterRouteCatalog(audioSnapshot?.refs.orEmpty(),collectionBlocked,listeningHistoryRows.orEmpty(),statusSnapshot,statusUriSnapshot))
+    }
+    val currentAnalytics by rememberUpdatedState(analyticsProjection.value)
+    val currentAnalyticsGuard by rememberUpdatedState(analyticsGuard)
+    val currentAudioFavorites = remember(libraryCatalogAssignments) { libraryCatalogAssignments.filter { it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } }
+    fun currentAudioRef(id: String): LibraryMediaRef? {
+        val guard=currentAnalyticsGuard ?: return null
+        val blocked=libraryModel.privateKeys.value ?: return null
+        if(guard.access.privacy!=blocked || guard.access.accessEpoch!=libraryModel.musicAccessEpoch.value ||
+            guard.privacyGeneration!=DuplicatePrivacyGuard.generation(context) ||
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value) return null
+        val ref=currentAnalytics.byKey[id] ?: return null
+        val live=libraryModel.listeningHistoryRows.value ?: return null
+        if(collectionRefBlocked(ref,guard.blocked)||collectionRefBlocked(ref,blocked)||
+            !filterRouteCatalog(listOf(ref),guard.blocked,live,fileStatuses,fileStatusUris).any()) return null
+        return ref
+    }
     val recentGuard = audioSnapshot?.guard?.takeIf { historySnapshot != null && appMode == AppMode.MUSIC }
         ?.let { RecentAccessGuard(it, collectionBlocked, librarySource) }
     val recentProjection = addressedLibraryProjection(RouteMediaCatalog.EMPTY, recentGuard, audioSnapshot,
@@ -957,15 +982,15 @@ fun MediaLoaderApp(
         row.savedUri?.let { uri -> row.groupId?.let { uri to it } }
     }.toMap() }
     val currentRecentFolders by rememberUpdatedState(recentDeviceFolders)
-    suspend fun validCollectionRefs(ids: List<String>, recent: Boolean = false): List<LibraryMediaRef> {
+    suspend fun validCollectionRefs(ids: List<String>, recent: Boolean = false, analytics: Boolean = false, selectedId: String? = null): List<LibraryMediaRef> {
         val full = currentCollectionCatalog.byKey
         val scoped = currentScopedCatalog?.byKey.orEmpty()
         val music = currentRecentCatalog.byKey
         val audioEpoch = libraryModel.musicAccessEpoch.value
         val visualEpoch = libraryModel.galleryAccessEpoch.value
         val actionPrivacyEpoch = DuplicatePrivacyGuard.generation(context)
+        val candidates = ids.distinct().mapNotNull { id -> if (analytics) currentAudioRef(id) else if (recent) music[id] else scoped[id] ?: full[id] }
         val (checked, statuses) = withContext(Dispatchers.IO) {
-            val candidates = ids.distinct().mapNotNull { id -> if (recent) music[id] else scoped[id] ?: full[id] }
             val statuses = mutableMapOf<String, Pair<String?, SavedFileStatus>>()
             val hiddenKeys = musicVisibilityPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty()
             val blocked = libraryModel.privateKeys.value?.plus(com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.blockedIdentities(hiddenKeys))
@@ -975,18 +1000,22 @@ fun MediaLoaderApp(
             val checked = candidates.filter { ref ->
                 if (collectionRefBlocked(ref, blocked) || !DuplicatePrivacyGuard.accepts(context,actionPrivacyEpoch,ref.appDownloadId ?: ref.key,ref.aliases)) return@filter false
                 if (ref.appDownloadId == null && ref.item.mediaType !in allowedTypes) return@filter false
-                val current = ref.appDownloadId?.let { mediaRepository.downloadById(it) }
-                val status = availabilityCache.get(ref.item.savedUri, fresh = true)
+                val current = ref.appDownloadId?.let { if(analytics) libraryModel.listeningHistoryRows.value?.get(it) else mediaRepository.downloadById(it) }
+                // A large playback queue already comes from a complete current audio
+                // generation. Fresh-check the requested track; reuse the short-lived
+                // presence cache for the rest, with current privacy/URI checks below.
+                val targeted=!analytics || candidates.size<=30 || ref.key==selectedId
+                val status = availabilityCache.get(ref.item.savedUri, fresh = targeted)
                 ref.appDownloadId?.let { id -> statuses[id] = ref.item.savedUri to status }
                 status == SavedFileStatus.PRESENT &&
                     (ref.appDownloadId == null || current?.let { !it.isPrivate && !it.hidden && it.state == DownloadState.COMPLETED && it.savedUri == ref.item.savedUri } == true) &&
                     (ref.item.mediaType != MediaType.AUDIO || !com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(ref.item, hiddenKeys)) &&
                     (if (ref.appDownloadId != null) true else {
-                        val identities = com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, requireNotNull(ref.item.savedUri))
+                        val identities = if(targeted) com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, requireNotNull(ref.item.savedUri)) else ref.aliases
                         val strong = ref.aliases.filter { it.startsWith("file-stat:") }
                         val known = if (strong.isNotEmpty()) strong else ref.aliases.filter { it.startsWith("uri:") || it.startsWith("media:") || it.startsWith("file:") }
                         known.any(identities::contains) && identities.none(blocked::contains) &&
-                            (recent || !CollectionAddressResolver.isTypedPhoneAddress(requireNotNull(ref.item.savedUri)) || libraryModel.addressCollectionPhone(requireNotNull(ref.item.savedUri)).let { actual ->
+                            (recent || analytics || !CollectionAddressResolver.isTypedPhoneAddress(requireNotNull(ref.item.savedUri)) || libraryModel.addressCollectionPhone(requireNotNull(ref.item.savedUri)).let { actual ->
                                 actual.status == SavedFileStatus.PRESENT && actual.ref?.let { CollectionAddressResolver.matches(MediaOrganizationPolicy.keys(ref),it) } == true
                             })
                     })
@@ -1000,7 +1029,7 @@ fun MediaLoaderApp(
         val liveFull = currentCollectionCatalog.byKey
         val liveScoped = currentScopedCatalog?.byKey.orEmpty()
         val liveMusic = currentRecentCatalog.byKey
-        fun live(id: String) = if (recent) liveMusic[id] else liveScoped[id] ?: liveFull[id]
+        fun live(id: String) = if (analytics) currentAudioRef(id) else if (recent) liveMusic[id] else liveScoped[id] ?: liveFull[id]
         val updates = statuses.filter { (id, result) -> live(id)?.item?.savedUri == result.first && id !in keys }
         if (updates.any { (id, result) -> fileStatusUris[id] != result.first || fileStatuses[id] != result.second }) {
             if (statusScanActive) statusOverrides.putAll(updates)
@@ -1016,7 +1045,7 @@ fun MediaLoaderApp(
         return checked.filter { ref -> live(ref.key)?.item?.savedUri == ref.item.savedUri && !collectionRefBlocked(ref, keys) &&
             !collectionRefBlocked(ref, currentBlocked) && !collectionRefBlocked(ref, finalHidden) &&
             DuplicatePrivacyGuard.accepts(context,actionPrivacyEpoch,ref.appDownloadId ?: ref.key,ref.aliases) &&
-            (ref.appDownloadId != null || ref.item.mediaType in allowedTypes) && (!recent ||
+            (ref.appDownloadId != null || ref.item.mediaType in allowedTypes) && (!(recent || analytics) ||
                 com.domenota.medialoader.ui.screens.music.MusicFolderRules.visible(ref.item,excluded,currentRecentFolders)) }
     }
     val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
@@ -1034,13 +1063,13 @@ fun MediaLoaderApp(
         }
     }
     LaunchedEffect(currentPlayerRequest, libraryAudioState, libraryIndex.ready,
-        indexedLibraryProjection.ready, libraryAliasProjection.ready, libraryPrivateKeys,
+        indexedLibraryProjection.ready, libraryAliasProjection.ready, libraryPrivateKeys,publicSessionProjection.ready,
         publicLibraryRows, organizationHidden) {
         if (currentPlayerRequest <= 0) return@LaunchedEffect
         val request = currentPlayerRequest
         val decision = com.domenota.medialoader.data.playback.CurrentPlayerNavigation.resolve(
             controllerReady = libraryAudioState.connected,
-            catalogReady = libraryIndex.ready && indexedLibraryProjection.ready && libraryAliasProjection.ready,
+            catalogReady = libraryIndex.ready && indexedLibraryProjection.ready && libraryAliasProjection.ready && (libraryAudioState.queue.isEmpty()||publicSessionProjection.ready),
             privateReady = libraryPrivateKeys != null,
             currentItem = libraryAudioState.currentItem,
             rows = publicLibraryRows,
@@ -1259,16 +1288,29 @@ fun MediaLoaderApp(
                 AppNotice.post(context, "Нет доступа к файлу")
             } else if ((internalViewerEnabled || item.isPrivate || appMode != AppMode.DOWNLOADER || queueIds.isNotEmpty()) && item.state == DownloadState.COMPLETED && item.savedUri != null) {
                 if (item.mediaType == MediaType.AUDIO && !item.isPrivate) {
-                    val selectedRows = LibraryAudioQueue.resolve(queueIds, publicLibraryRows, false, fileStatuses)
-                    val selected = (listOf(item) + selectedRows).distinctBy { it.savedUri }.map { row ->
-                        libraryRefsByAlias[row.id] ?: com.domenota.medialoader.data.library.LibraryMediaRef(
-                            row.id, com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(requireNotNull(row.savedUri)) + row.id,
-                            row, row.id.takeUnless { it.startsWith("phone:") })
-                    }.toMutableList()
-                    val ref = libraryRefsByAlias[item.id] ?: selected.first().copy(aliases = selected.first().aliases +
-                        withContext(Dispatchers.IO) { com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, requireNotNull(item.savedUri)) })
-                    val queue = selectedRows.mapNotNull { row -> selected.firstOrNull { it.item.savedUri == row.savedUri } }
-                    try { libraryModel.audioPreview.open(if (queue.any { it.key == ref.key }) queue.map { if (it.key == ref.key) ref else it } else listOf(ref) + queue, ref.key, originPlaylistId) }
+                    val rows=publicLibraryRows
+                    val refsByAlias=libraryRefsByAlias
+                    val statuses=fileStatuses
+                    val accessEpoch=libraryModel.musicAccessEpoch.value
+                    val privacyEpoch=DuplicatePrivacyGuard.generation(context)
+                    val (ref,queue)=withContext(Dispatchers.IO) {
+                        val selectedRows=LibraryAudioQueue.resolve(queueIds,rows,false,statuses)
+                        fun resolve(row:com.domenota.medialoader.core.database.DownloadEntity):LibraryMediaRef =
+                            refsByAlias[row.id]?.takeIf { it.item.savedUri==row.savedUri } ?: LibraryMediaRef(
+                                row.id,com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(requireNotNull(row.savedUri))+row.id,
+                                row,row.id.takeUnless { it.startsWith("phone:") })
+                        val selected=(listOf(item)+selectedRows).distinctBy{it.savedUri}.map(::resolve).associateBy{it.item.savedUri}
+                        val base=requireNotNull(selected[item.savedUri])
+                        val exact=refsByAlias[item.id]?.takeIf{it.item.savedUri==item.savedUri} ?: base.copy(aliases=base.aliases+
+                            com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context,requireNotNull(item.savedUri)))
+                        val ordered=selectedRows.mapNotNull{selected[it.savedUri]}
+                        exact to (if(ordered.any{it.key==exact.key}) ordered.map{if(it.key==exact.key)exact else it} else listOf(exact)+ordered)
+                    }
+                    val livePrivacy=libraryModel.privateKeys.value ?: return@launch
+                    if(request!=openVisualRequest || accessEpoch!=libraryModel.musicAccessEpoch.value || privacyEpoch!=DuplicatePrivacyGuard.generation(context) ||
+                        collectionRefBlocked(ref,livePrivacy) || collectionRefBlocked(ref,currentBlocked)) return@launch
+                    val permitted=queue.filterNot { collectionRefBlocked(it,livePrivacy) || collectionRefBlocked(it,currentBlocked) }
+                    try { libraryModel.audioPreview.open(permitted,ref.key,originPlaylistId) }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) {
                         AppNotice.post(context, "Не удалось подключиться к музыкальному плееру")
@@ -1438,11 +1480,11 @@ fun MediaLoaderApp(
     }
 
     val previewLibraryAudio: (String,List<String>) -> Unit = { id, ids -> previewLibraryAudioInContext(id,ids,null) }
-    fun playRecentMusic(ids:List<String>,shuffle:Boolean,requestedId:String?=null,openPlayer:Boolean=false){
+    fun playRecentMusic(ids:List<String>,shuffle:Boolean,requestedId:String?=null,openPlayer:Boolean=false,analytics:Boolean=false){
         libraryPreviewJob?.cancel()
         libraryPreviewJob=fileActionScope.launch {
             try {
-                val valid=validCollectionRefs(ids,recent=true).filter{it.item.mediaType==MediaType.AUDIO}
+                val valid=validCollectionRefs(ids,recent=!analytics,analytics=analytics,selectedId=requestedId ?: ids.firstOrNull()).filter{it.item.mediaType==MediaType.AUDIO}
                 check(valid.isNotEmpty() && (requestedId==null || valid.any{it.key==requestedId})) { "Треки недоступны" }
                 if(requestedId!=null && openPlayer){
                     libraryModel.audioPreview.open(valid,requestedId)
@@ -1824,7 +1866,7 @@ fun MediaLoaderApp(
                     onRecentPlay = { ids, shuffle -> playRecentMusic(ids,shuffle) },
                     onRecentPreview = { id, ids -> playRecentMusic(ids,false,id) },
                     onRecentOpen = { id, ids -> playRecentMusic(ids,false,id,true) },
-                    favoriteIds = libraryCatalogAssignments.filter { it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId },
+                    favoriteIds = currentAudioFavorites,
                     header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneMusic.message else null,
                     onOpen = openDownloadWithQueue,
@@ -1840,58 +1882,57 @@ fun MediaLoaderApp(
                     onOpenDuplicates = { navController.navigate("music-duplicates") { launchSingleTop = true } },
                     onOpenCollections={openCollections(audioOnly=true)},onAddCollection=::addToCollection,onPassport=::openPassport,
                     onRecognize={id->openTrackRecognition(id)},
-                    listeningKeys = remember(publicLibraryRefs,fileStatuses) {
-                        publicLibraryRefs.filter { ref -> ref.item.mediaType == MediaType.AUDIO &&
-                            fileStatuses[ref.key] !in setOf(SavedFileStatus.MISSING,SavedFileStatus.INACCESSIBLE) }
-                            .mapNotNull { ref ->
-                                val keys = com.domenota.medialoader.data.playback.ListeningHistoryPolicy.keys(ref.item,ref.aliases)
-                                keys.takeIf { it.isNotEmpty() }?.let { ref.key to it }
-                            }.toMap()
+                    browseAccess = libraryPrivateKeys?.takeUnless{recoveryRunning}?.let{Triple(it,musicAccessEpoch,collectionPrivacyGeneration)},
+                    analyticsItems = analyticsProjection.value.items,
+                    analyticsAccess = analyticsGuard,
+                    analyticsReady = analyticsProjection.usable,
+                    listeningKeys = analyticsProjection.value.keys,
+                    validateFrequent = { ids,fresh ->
+                        val candidates=ids.mapNotNull(::currentAudioRef)
+                        val verified=withContext(Dispatchers.IO) {
+                            candidates.filter { ref -> availabilityCache.get(ref.item.savedUri,fresh=fresh)==SavedFileStatus.PRESENT }
+                        }
+                        verified.filter { ref -> currentAudioRef(ref.key)?.item?.savedUri==ref.item.savedUri }.mapTo(mutableSetOf()) { it.key }
                     },
-                    validateFrequent = { ids,fresh -> withContext(Dispatchers.IO) {
-                        ids.filterTo(mutableSetOf()) { id -> libraryRefsByAlias[id]?.item?.savedUri?.let {
-                            availabilityCache.get(it,fresh=fresh) == SavedFileStatus.PRESENT
-                        } == true }
-                    } },
-                    onPlayFrequent = { ids,shuffle ->
+                    onPlayFrequent = { ids,shuffle -> playRecentMusic(ids,shuffle,analytics=true) },
+                    onFolderPlay = { ids,shuffle ->
                         libraryPreviewJob?.cancel()
-                        libraryPreviewJob = fileActionScope.launch {
+                        libraryPreviewJob=fileActionScope.launch {
                             try {
-                                val refs = ids.mapNotNull(libraryRefsByAlias::get).distinctBy { it.key }
-                                val valid = withContext(Dispatchers.IO) { refs.filter { ref ->
-                                    availabilityCache.get(ref.item.savedUri,fresh=true) == SavedFileStatus.PRESENT
-                                } }
-                                libraryModel.audioPreview.playSelection(valid,shuffle)
-                            } catch (e:CancellationException) { throw e }
-                            catch (_:Exception) { AppNotice.post(context,"Нет доступных треков или плеер недоступен") }
+                                val refs=ids.mapNotNull(libraryRefsByAlias::get).distinctBy{it.key}
+                                val epoch=DuplicatePrivacyGuard.generation(context)
+                                val access=libraryModel.musicAccessEpoch.value
+                                val valid=withContext(Dispatchers.IO){refs.filter{availabilityCache.get(it.item.savedUri)==SavedFileStatus.PRESENT}}
+                                val blocked=libraryModel.privateKeys.value ?: return@launch
+                                val hidden=musicVisibilityPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty()
+                                check(access==libraryModel.musicAccessEpoch.value&&epoch==DuplicatePrivacyGuard.generation(context))
+                                val safe=valid.filter{!collectionRefBlocked(it,blocked)&&!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,hidden)&&DuplicatePrivacyGuard.accepts(context,epoch,it.key,it.aliases)}
+                                check(safe.isNotEmpty());libraryModel.audioPreview.playSelection(safe,shuffle)
+                            }catch(e:CancellationException){throw e}catch(_:Exception){AppNotice.post(context,"Нет доступных треков или плеер недоступен")}
                         }
                     },
+                    onAnalyticsPreview = { id,ids -> playRecentMusic(ids,false,id,analytics=true) },
+                    onAnalyticsOpen = { id,ids -> playRecentMusic(ids,false,id,true,analytics=true) },
                     onResumeSelection = { resolved ->
                         libraryPreviewJob?.cancel()
                         libraryPreviewJob = fileActionScope.launch {
                             try {
-                                check(libraryIndex.ready && libraryPrivateKeys != null) { "Медиатека ещё не готова" }
-                                val refs=resolved.availableIds.map { id ->
-                                    libraryRefsByAlias[id]?.takeIf { it.key==id && !it.item.isPrivate && !it.item.hidden }
-                                        ?: error("Состав очереди изменился")
-                                }
-                                val current=refs.getOrNull(resolved.currentIndex)?:error("Трек недоступен")
-                                val hidden=context.getSharedPreferences("music_folder_visibility",0).getStringSet("hidden_tracks",emptySet()).orEmpty().toSet()
-                                check(refs.none { com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,hidden) }) { "Состав очереди изменился" }
-                                val present=withContext(Dispatchers.IO) {
-                                    availabilityCache.get(current.item.savedUri,fresh=true)==SavedFileStatus.PRESENT &&
-                                        refs.all { availabilityCache.get(it.item.savedUri)==SavedFileStatus.PRESENT }
-                                }
-                                check(present) { "Часть файлов недоступна. Открой подборку заново." }
+                                val ids=resolved.availableIds
+                                val verified=validCollectionRefs(ids,analytics=true,selectedId=resolved.currentId).associateBy { it.key }
+                                val refs=ids.map { verified[it] ?: error("Состав очереди изменился") }
+                                check(refs.getOrNull(resolved.currentIndex)?.key==resolved.currentId) { "Трек недоступен" }
                                 libraryModel.audioPreview.resumeSelection(refs,resolved)
                             } catch(e:CancellationException){throw e}
                             catch(e:Exception){AppNotice.post(context,"Не удалось продолжить сеанс")}
                         }
                     },
-                    onSaveFrequent = { name,ids -> libraryModel.playlistRepository.createFromTracks(name,ids,libraryAliases); Unit },
+                    onSaveFrequent = { name,ids ->
+                        val refs=validCollectionRefs(ids,analytics=true)
+                        check(refs.map{it.key}==ids.distinct()) { "Состав подборки изменился" }
+                        val aliases=withContext(Dispatchers.Default) { refs.flatMap { ref -> (ref.aliases+ref.key).map { it to ref.key } }.toMap() }
+                        libraryModel.playlistRepository.createFromTracks(name,refs.map{it.key},aliases); Unit
+                    },
                     onFavorite = setLibraryFavorite,
-                    duplicateLinkedIds = libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +
-                        publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
                     searchVisible = librarySearchVisible, tabOverride = musicTab,
                      scrollToTopRequest = musicTopRequest, onTabChange = {
                          if (musicTab == it) musicTopRequest++

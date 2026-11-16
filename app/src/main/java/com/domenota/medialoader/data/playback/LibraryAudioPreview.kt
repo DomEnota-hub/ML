@@ -29,22 +29,38 @@ internal class LibraryAudioPreview(context: Context) {
     private var connected: MediaController? = null
     private val mutableState = MutableStateFlow(AudioPreviewState())
     val state = mutableState.asStateFlow()
+    private var queueOwner:Player?=null
+    private var queueTimeline:androidx.media3.common.Timeline?=null
+    private var queueSnapshot:List<MediaItem> = emptyList()
+    private var identityItem:MediaItem?=null
+    private var identityKeys:Set<String> = emptySet()
     private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) { sync(player) }
+        override fun onEvents(player: Player, events: Player.Events) { sync(player,events.contains(Player.EVENT_TIMELINE_CHANGED)) }
     }
-    private fun sync(player: Player) {
-        mutableState.value = if (player.currentMediaItem?.mediaMetadata?.extras?.getBoolean("private_media") == true)
-            AudioPreviewState(connected=true) else AudioPreviewState(player.currentMediaItem?.mediaId, player.playWhenReady,
-                player.currentMediaItem?.mediaMetadata?.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty().toSet(),
-                (0 until player.mediaItemCount).map { player.getMediaItemAt(it) },connected=true,currentItem=player.currentMediaItem)
+    private fun sync(player: Player, forceQueue:Boolean=false) {
+        val current=player.currentMediaItem
+        if(queueOwner!==player || queueTimeline!==player.currentTimeline || forceQueue || queueSnapshot.size!=player.mediaItemCount ||
+            queueSnapshot.getOrNull(player.currentMediaItemIndex)!=current) {
+            queueOwner=player;queueTimeline=player.currentTimeline
+            queueSnapshot=(0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+            com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(com.domenota.medialoader.core.logging.LibraryWork.AUDIO_QUEUE_CAPTURE)
+        }
+        if(identityItem!==current) {
+            identityItem=current
+            identityKeys=current?.mediaMetadata?.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty().toSet()
+        }
+        mutableState.value = if (current?.mediaMetadata?.extras?.getBoolean("private_media") == true)
+            AudioPreviewState(connected=true) else AudioPreviewState(current?.mediaId,player.playWhenReady,identityKeys,
+                queueSnapshot,connected=true,currentItem=current)
     }
+    private fun resetQueue(){queueOwner=null;queueTimeline=null;queueSnapshot=emptyList();identityItem=null;identityKeys=emptySet()}
     private suspend fun controller(): MediaController = withContext(Dispatchers.Main.immediate) {
         val pending = future ?: MediaController.Builder(context,
             SessionToken(context, ComponentName(context, AudioPlaybackService::class.java)))
             .setListener(object:MediaController.Listener {
                 override fun onDisconnected(controller:MediaController) {
                     if(connected===controller) {
-                        connected=null;future=null
+                        connected=null;future=null;resetQueue()
                         // Disconnection confirms no attached current item; never route stale metadata.
                         mutableState.value=AudioPreviewState(connected=true)
                     }
@@ -122,6 +138,7 @@ internal class LibraryAudioPreview(context: Context) {
     fun close() {
         connected?.removeListener(listener)
         connected = null
+        resetQueue()
         future?.let(MediaController::releaseFuture)
         future = null
     }

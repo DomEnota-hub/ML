@@ -1,4 +1,4 @@
-name: ML 1.7.194 cycle 2 QA and unsigned handoff
+name: ML 1.7.194 cycle 3 QA and unsigned handoff
 on:
   push:
     branches: [feature/ml-17194-cache-first]
@@ -44,13 +44,13 @@ jobs:
           python3 scripts/check-in-app-notices.py
       - name: Collection regression tests
         run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*PhoneLibraryCacheTest' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --tests '*BackgroundLibraryProjectionTest' --tests '*AudioThumbnailInvalidationTest' --stacktrace
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*PhoneLibraryCacheTest' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --tests '*BackgroundLibraryProjectionTest' --tests '*AudioThumbnailInvalidationTest' --tests '*AppAudioIdentityCacheTest' --stacktrace
       - name: Duplicate scan and acoustic regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace
       - name: Music folders, daily history and recognition regressions
         run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --stacktrace
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --tests '*MusicBrowseProjectionTest' --tests '*LibraryModeScreensTest' --tests '*PrivatePlayback*Test' --tests '*LibraryWorkCountersTest' --stacktrace
       - name: Shared photo editor, full resolution and drawing regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Photo*Test' --tests '*BatchWatermarkTest' --tests '*BatchTextDraftRestorationTest' --tests '*TextLayer*Test' --tests '*EditorTextDialogLayoutTest' --stacktrace

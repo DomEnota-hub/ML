@@ -13,7 +13,10 @@ internal enum class ListeningPeriod(val label: String, val days: Long?) {
 
 internal data class ListeningRank(val rowId: String, val trackId: String, val plays: Long, val lastPlayed: Long)
 internal data class ListeningExcluded(val trackId: String, val rowId: String?)
-internal data class ListeningSelection(val ranked: List<ListeningRank> = emptyList(), val excluded: List<ListeningExcluded> = emptyList())
+internal data class ListeningSelection(val ranked: List<ListeningRank> = emptyList(), val excluded: List<ListeningExcluded> = emptyList(),
+    val validUntil: Long = Long.MAX_VALUE) {
+    fun currentAt(now:Long):Boolean = now < validUntil
+}
 
 internal object ListeningHistoryPolicy {
     const val LIMIT = 30

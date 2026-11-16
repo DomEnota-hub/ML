@@ -210,6 +210,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     val audioPreview = com.domenota.medialoader.data.playback.LibraryAudioPreview(application)
     private val phone = PhoneMediaLibrary(application)
     private val phoneCache = PhoneLibraryCache(application)
+    private val appAudioIdentityCache=AppAudioIdentityCache(application)
     internal suspend fun addressCollectionPhone(uri: String): AddressedFile = phone.lookupCollectionAddress(uri)
     internal suspend fun addressCollectionApp(row: DownloadEntity,
         checkStatus: (String?) -> com.domenota.medialoader.data.storage.SavedFileStatus): AddressedFile = withContext(Dispatchers.IO) {
@@ -255,6 +256,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         }, relevant.filter { it.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED && !it.hidden && !it.isPrivate }
             .map { it.id to it.savedUri })
     }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    // Audio-only history prevents unrelated photo/video completion from rebuilding
+    // listening projections. Current global privacy is still a separate guard.
+    val listeningHistoryRows = collectionHistoryRows.map { rows ->
+        rows.filter { it.mediaType == com.domenota.medialoader.core.model.MediaType.AUDIO }.associateBy { it.id }
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.Eagerly,null as Map<String,DownloadEntity>?)
     // Active download progress is not library content. Do not cancel/restart identity indexing
     // on every byte/progress update while a gallery scan is in flight.
     private val completedDownloads = collectionHistoryRows.map { rows ->
@@ -274,13 +280,14 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         }
     }
     private suspend fun references(rows: List<DownloadEntity>, isApp: Boolean,
-        scannedIdentities: Map<String, Set<String>> = emptyMap()): List<LibraryMediaRef> = withContext(Dispatchers.IO) {
+        scannedIdentities: Map<String, Set<String>> = emptyMap(), freshTypedAudio:Boolean=false): List<LibraryMediaRef> = withContext(Dispatchers.IO) {
         suspend fun reference(row: DownloadEntity): LibraryMediaRef {
             coroutineContext.ensureActive()
             val uri = row.savedUri
-            val identities = if (uri == null) emptySet() else scannedIdentities[uri] ?: identityCache[uri]
+            val fresh=freshTypedAudio && uri!=null && CollectionAddressResolver.isTypedPhoneAddress(uri) && uri.contains("/audio/media/")
+            val identities = if (uri == null) emptySet() else scannedIdentities[uri] ?: (if(fresh)null else identityCache[uri])
                 ?: identityGate.withPermit {
-                    identityCache[uri] ?: PublicMediaIdentity.capture(getApplication(), uri).also { identityCache[uri] = it }
+                    (if(fresh)null else identityCache[uri]) ?: PublicMediaIdentity.capture(getApplication(), uri).also { identityCache[uri] = it }
                 }
             return LibraryMediaRef(row.id, identities + row.id, row, row.id.takeIf { isApp },
                 deviceAlbumId = if (isApp) null else row.bulkMediaKey ?: row.groupId,
@@ -292,28 +299,50 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     }
     // Partition the existing app scan, rather than adding another full scan. Each row is
     // captured once, and a large audio import cannot cancel the visual pass (or vice versa).
-    private fun referenceBatches(rowsFlow: Flow<List<DownloadEntity>>) = combine(rowsFlow, HistoricalRecoverySignals.isRunning,
+    private fun referenceBatches(rowsFlow: Flow<List<DownloadEntity>>,audio:Boolean=false) = combine(rowsFlow, HistoricalRecoverySignals.isRunning,
         HistoricalRecoverySignals.version) { rows, running, _ -> rows.takeUnless { running } }
         .transformLatest<List<DownloadEntity>?, AppReferenceBatch?> { rows ->
         if (rows == null) { emit(null); return@transformLatest }
         // Phone revisions must not restart this work, and a large history must not delay
         // the first visible page until its last provider URI has been resolved.
         val resolved = mutableListOf<LibraryMediaRef>()
+        // The audio metadata projection can survive a process restart without
+        // reopening every ML download. Only exact, fully authorized MediaStore
+        // locators with the same version/generation are eligible.
+        val cachePrivacy=if(audio&&rows.isNotEmpty())privateKeys.filterNotNull().first() else null
+        val privacyGeneration=DuplicatePrivacyGuard.generation(getApplication())
+        fun fullAudioAccess()=PhoneMediaLibrary.canReadMissingMetadata(com.domenota.medialoader.core.model.MediaType.AUDIO,android.os.Build.VERSION.SDK_INT){
+            ContextCompat.checkSelfPermission(getApplication(),it)==PackageManager.PERMISSION_GRANTED
+        }
+        val cacheTag=cachePrivacy?.takeIf{fullAudioAccess()}?.let{PhoneLibraryCache.privacyTag(it+"privacy-epoch:$privacyGeneration")}
+        val before=if(cacheTag!=null)CollectionLookupBudget.run(1500){phone.storeStamp()} else null
+        val cached=if(before!=null && cacheTag!=null && cachePrivacy!=null)withContext(Dispatchers.IO){
+            appAudioIdentityCache.read(rows,before,cacheTag,cachePrivacy)
+        } else emptyMap()
+        val reusable=cachePrivacy==privateKeys.value&&privacyGeneration==DuplicatePrivacyGuard.generation(getApplication())&&fullAudioAccess()
+        val identities=if(reusable)cached else emptyMap()
+        if(identities.isNotEmpty())com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(com.domenota.medialoader.core.logging.LibraryWork.APP_AUDIO_IDENTITY_CACHE_HIT)
         if (rows.isEmpty()) emit(AppReferenceBatch(emptyList(), true))
         var publishedAt = android.os.SystemClock.elapsedRealtime()
         for (batch in rows.chunked(16)) {
-            resolved += references(batch, true)
+            resolved += references(batch, true, identities,freshTypedAudio=audio&&before?.generation!=null)
             val now = android.os.SystemClock.elapsedRealtime()
             if (resolved.size == batch.size || resolved.size == rows.size || now - publishedAt >= 250L) {
                 emit(AppReferenceBatch(resolved.toList(), resolved.size == rows.size))
                 publishedAt = now
             }
         }
+        if(cacheTag!=null&&cachePrivacy!=null&&before?.generation!=null&&cachePrivacy==privateKeys.value&&
+            privacyGeneration==DuplicatePrivacyGuard.generation(getApplication())&&fullAudioAccess()) {
+            val after=CollectionLookupBudget.run(1500){phone.storeStamp()}
+            if(before==after)try {withContext(Dispatchers.IO){appAudioIdentityCache.write(resolved,before,cacheTag,cachePrivacy){cachePrivacy==privateKeys.value&&privacyGeneration==DuplicatePrivacyGuard.generation(getApplication())&&fullAudioAccess()&&!HistoricalRecoverySignals.isRunning.value}}}
+            catch(e:CancellationException){throw e}catch(_:Exception){/* derived snapshot can be rebuilt */}
+        }
         com.domenota.medialoader.core.logging.AppLog.i("Library", "App identity index ready · count=${resolved.size}")
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     private val appAudioReferences = referenceBatches(completedDownloads.map { rows ->
         rows.filter { it.mediaType == com.domenota.medialoader.core.model.MediaType.AUDIO }
-    }.distinctUntilChanged().flowOn(Dispatchers.Default))
+    }.distinctUntilChanged().flowOn(Dispatchers.Default),audio=true)
     private val appVisualReferences = referenceBatches(completedDownloads.map { rows ->
         rows.filter { it.mediaType != com.domenota.medialoader.core.model.MediaType.AUDIO }
     }.distinctUntilChanged().flowOn(Dispatchers.Default))

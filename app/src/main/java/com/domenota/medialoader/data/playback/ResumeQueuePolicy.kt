@@ -44,9 +44,14 @@ internal object ResumeQueuePolicy {
      * A conflicting/ambiguous match is unavailable, never a guessed replacement.
      * Build an index once rather than scanning hundreds of tracks per queue entry. */
     fun resolve(session:ResumeQueueSession,candidates:List<SmartTrackCandidate>,aliases:Map<String,String>):ResolvedResumeQueue {
+        return resolveAll(listOf(session),candidates,aliases).single()
+    }
+    fun resolveAll(sessions:List<ResumeQueueSession>,candidates:List<SmartTrackCandidate>,aliases:Map<String,String>):List<ResolvedResumeQueue> {
+        if(sessions.isEmpty()) return emptyList()
         val rows=SmartMusicPolicy.resolve(candidates,aliases)
         val keyIndex=rows.flatMap { (row,_)->row.keys.map {it to row.rowId} }.groupBy({it.first},{it.second})
         val trackIndex=rows.mapNotNull { (row,track)->track?.let{it to row.rowId} }.groupBy({it.first},{it.second})
+        return sessions.map { session ->
         val ids=session.entries.map { keys ->
             val known=keys.mapNotNull(aliases::get).distinct()
             if(known.size>1) null else {
@@ -54,7 +59,8 @@ internal object ResumeQueuePolicy {
                 matches.singleOrNull()
             }
         }
-        return ResolvedResumeQueue(session,ids)
+        ResolvedResumeQueue(session,ids)
+        }
     }
     /** Remove occurrences, never track IDs: the same track may appear repeatedly. */
     fun removeOccurrences(resolved:ResolvedResumeQueue,remove:Set<String>):ResumeQueueSession? {

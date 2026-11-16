@@ -82,3 +82,16 @@ internal data class CollectionMediaSignal(val revision: Long = 0, val uris: Set<
         return hasUnknown || addresses.any { address -> phoneModesForMediaChange(address).any(modes::contains) }
     }
 }
+
+/** Only the complete, current public audio catalog feeds listening analytics.
+ * Keys are built once on the projection worker, never per Compose frame. */
+internal class ListeningCatalog(val refs: List<LibraryMediaRef>) {
+    val items = refs.map { it.item }
+    val byKey = refs.associateBy { it.key }
+    val keys = refs.mapNotNull { ref ->
+        com.domenota.medialoader.data.playback.ListeningHistoryPolicy.keys(ref.item,ref.aliases)
+            .takeIf { it.isNotEmpty() }?.let { ref.key to it }
+    }.toMap()
+    companion object { val EMPTY = ListeningCatalog(emptyList()) }
+}
+internal data class ListeningCatalogGuard(val access: AudioCatalogGuard, val blocked: Set<String>, val privacyGeneration: Long)

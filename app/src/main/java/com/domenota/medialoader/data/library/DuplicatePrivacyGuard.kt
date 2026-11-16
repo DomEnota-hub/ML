@@ -41,6 +41,7 @@ internal object DuplicatePrivacyGuard {
             com.domenota.medialoader.data.recognition.TrackRecognitionCache.clearForPrivacy(context)
         }
         PersistentProjectionCache.clearAll(context)
+        com.domenota.medialoader.data.playback.ListeningHistoryStore.get(context).clearDerivedProjections()
         context.stopService(Intent(context,MusicDuplicateScanService::class.java))
         context.stopService(Intent(context,VisualDuplicateScanService::class.java))
     }

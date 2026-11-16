@@ -29,6 +29,8 @@ import com.domenota.medialoader.data.library.*
 import com.domenota.medialoader.data.playback.ListeningHistoryStore
 import com.domenota.medialoader.data.playback.ListeningPeriod
 import com.domenota.medialoader.data.playback.ListeningSelection
+import com.domenota.medialoader.data.playback.ListeningProjectionDomain
+import com.domenota.medialoader.data.playback.ListeningProjectionCodec
 import com.domenota.medialoader.data.playback.SmartMusicSnapshot
 import com.domenota.medialoader.data.playback.SmartTrackCandidate
 import com.domenota.medialoader.data.playback.SmartStatsPeriod
@@ -39,6 +41,8 @@ import com.domenota.medialoader.ui.components.*
 import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.ui.screens.music.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 @Composable
@@ -64,6 +68,7 @@ internal fun MusicModeScreen(
     listeningKeys: Map<String,Set<String>> = emptyMap(),
     validateFrequent: suspend (List<String>,Boolean) -> Set<String> = { ids,_ -> ids.toSet() },
     onPlayFrequent: ((List<String>,Boolean)->Unit)? = null,
+    onFolderPlay: ((List<String>,Boolean)->Unit)? = onPlayFrequent,
     onSaveFrequent: (suspend (String,List<String>)->Unit)? = null,
     onFavorite: (suspend (String,Boolean)->Unit)? = null,
     onResumeSelection: ((ResolvedResumeQueue)->Unit)? = null,
@@ -75,6 +80,12 @@ internal fun MusicModeScreen(
     onRecentPlay: ((List<String>,Boolean)->Unit)? = null,
     onRecentPreview: ((String,List<String>)->Unit)? = null,
     onRecentOpen: ((String,List<String>)->Unit)? = null,
+    browseAccess: Any? = Unit,
+    analyticsItems: List<DownloadEntity> = allAudio,
+    analyticsAccess: Any? = Unit,
+    analyticsReady: Boolean = !loading,
+    onAnalyticsPreview: (String,List<String>)->Unit = onPreview ?: onOpen,
+    onAnalyticsOpen: (String,List<String>)->Unit = onOpen,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -135,15 +146,38 @@ internal fun MusicModeScreen(
     }
     var folderOpen by rememberSaveable { mutableStateOf<String?>(null) }
     var showExcluded by rememberSaveable { mutableStateOf(false) }
-    val available = remember(allAudio) { allAudio.filter(::availableAudio).associateBy { it.id } }
+    val largeBrowse = items.size > 128 || allAudio.size > 128
+    val browse = if(largeBrowse) addressedLibraryProjection(MusicBrowseCatalog.EMPTY,browseAccess,items,allAudio,deviceMusicFolders,serial=true) {
+        withContext(Dispatchers.Default){ MusicBrowseCatalog.build(items,allAudio,deviceMusicFolders) }
+    } else BackgroundLibraryValue(remember(items,allAudio,deviceMusicFolders,browseAccess){
+        if(browseAccess==null)MusicBrowseCatalog.EMPTY else MusicBrowseCatalog.build(items,allAudio,deviceMusicFolders)
+    },browseAccess!=null)
+    val available = browse.value.available
     val listeningEnabled = onPlayFrequent != null && onSaveFrequent != null
     val listeningStore = remember(context) { ListeningHistoryStore.get(context) }
     val listeningRevision by listeningStore.revision.collectAsState()
-    val frequentRows = remember(available, hiddenTrackKeys, excludedFolders, deviceMusicFolders, listeningKeys) {
-        available.filterValues { row -> row.id in listeningKeys && !MusicTrackVisibility.hidden(row,hiddenTrackKeys) &&
-            MusicFolderRules.visible(row,excludedFolders,deviceMusicFolders) }
+    val currentHidden = hiddenTrackKeys
+    val currentExcluded = excludedFolders
+    val analyticsGuard = analyticsAccess?.let { Triple(it, currentHidden, currentExcluded) }
+    val eligibleProjection = addressedLibraryProjection(MusicAnalyticsRows.EMPTY, analyticsGuard,
+        analyticsItems, listeningKeys, deviceMusicFolders, favoriteIds, publishWhen = analyticsReady, serial=true,
+        retain={previous,next->
+            if(previous.keys==next.keys && previous.rows==next.rows && previous.candidates==next.candidates) previous
+            else next.withEpoch(if(previous.keys.all{(id,keys)->next.keys[id]==keys})previous.displayEpoch else Any())
+        }) {
+        val rows = analyticsItems.filter { row -> availableAudio(row) && row.id in listeningKeys &&
+            !MusicTrackVisibility.hidden(row, currentHidden) && MusicFolderRules.visible(row, currentExcluded, deviceMusicFolders) }.associateBy { it.id }
+        val keys = listeningKeys.filterKeys { it in rows }
+        MusicAnalyticsRows(rows, keys, rows.values.mapNotNull { row -> keys[row.id]?.let { SmartTrackCandidate(row.id,it,audioArtist(row),row.id in favoriteIds) } })
     }
-    val frequentKeys = remember(frequentRows,listeningKeys) { listeningKeys.filterKeys { it in frequentRows } }
+    val frequentRows = eligibleProjection.value.rows
+    val frequentKeys = eligibleProjection.value.keys
+    val smartCandidates = eligibleProjection.value.candidates
+    val analyticsUsable = analyticsReady && eligibleProjection.usable
+    val historyGeneration by listeningStore.visibilityRevision.collectAsState()
+    val displayEpoch = eligibleProjection.value.displayEpoch
+    val rankDigest = eligibleProjection.value.rankDigest
+    val candidateDigest = eligibleProjection.value.candidateDigest
     var statsIntervals by rememberSaveable(stateSaver=androidx.compose.runtime.saveable.listSaver<List<com.domenota.medialoader.data.playback.SmartStatsInterval>,String>(
         save={list->list.flatMap{interval->listOf(interval.first.toString(),interval.end.toString(),interval.granularity.name,interval.title)}},
         restore={values->values.chunked(4).mapNotNull{parts->if(parts.size!=4)null else runCatching{
@@ -154,46 +188,86 @@ internal fun MusicModeScreen(
     val smartPrefs = remember(context) { context.getSharedPreferences("smart_music",0) }
     var mixDiversity by remember { mutableIntStateOf(smartPrefs.getInt("diversity",50).coerceIn(0,100)/5*5) }
     var forgottenDays by remember { mutableLongStateOf(smartPrefs.getLong("forgotten_days",30L).takeIf { it==30L||it==60L } ?: 30L) }
-    var mixNonce by rememberSaveable { mutableLongStateOf(0L) }
+    var mixNonce by rememberSaveable { mutableLongStateOf(smartPrefs.getLong("mix_nonce",0L)) }
     fun localDay()=java.time.LocalDate.now().toEpochDay()
     var smartDay by remember{mutableLongStateOf(localDay())}
-    LaunchedEffect(smartPage){
-        if(smartPage==null)return@LaunchedEffect
-        while(true){smartDay=localDay();kotlinx.coroutines.delay(60_000L)}
+    var smartZone by remember{mutableStateOf(java.time.ZoneId.systemDefault())}
+    // Calendar and rolling windows can change even without a new listening event.
+    // Tick the lightweight clock, not the library or SQLite query.
+    var rankingBoundary by remember { mutableLongStateOf(Long.MAX_VALUE) }
+    var rankTimeRevision by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(rankingBoundary,historyGeneration){
+        var previous=System.currentTimeMillis()
+        while(true){
+            val now=System.currentTimeMillis()
+            smartDay=localDay();smartZone=java.time.ZoneId.systemDefault()
+            if(now<previous || (rankingBoundary!=Long.MAX_VALUE && now>=rankingBoundary)) {
+                rankTimeRevision++
+                if(now>=rankingBoundary)rankingBoundary=Long.MAX_VALUE
+            }
+            previous=now
+            val wait=if(rankingBoundary==Long.MAX_VALUE)60_000L else (rankingBoundary-now).coerceIn(1L,60_000L)
+            kotlinx.coroutines.delay(wait)
+        }
     }
     val smartRevision by listeningStore.smartRevision.collectAsState()
-    val smartCandidates = remember(frequentRows,frequentKeys,favoriteIds) {
-        frequentRows.values.mapNotNull { row -> frequentKeys[row.id]?.let { SmartTrackCandidate(row.id,it,
-            audioArtist(row),row.id in favoriteIds) } }
-    }
     val resumeStore=remember(context){ResumeQueueStore.get(context)}
     val resumeSessions by resumeStore.sessions.collectAsState()
+    val resumeMembership = remember(resumeSessions) { resumeSessions.map { Triple(it.id,it.entries,it.occurrenceIds) } }
     val resumeFailed by resumeStore.failed.collectAsState()
-    var resolvedSessions by remember{mutableStateOf<List<ResolvedResumeQueue>>(emptyList())}
+    var resolvedMappings by remember(analyticsGuard,historyGeneration,resumeMembership,displayEpoch){mutableStateOf<List<ResolvedResumeQueue>>(emptyList())}
+    var resumeHasData by remember(analyticsGuard,historyGeneration,resumeMembership,displayEpoch){mutableStateOf(false)}
     var resumeLoading by remember{mutableStateOf(false)}
-    var resumeError by remember{mutableStateOf(false)}
-    LaunchedEffect(resumeOpen,resumeSessions,smartCandidates) {
-        if(!resumeOpen||onResumeSelection==null)return@LaunchedEffect
-        resumeLoading=true;resumeError=false
-        try{resolvedSessions=listeningStore.resolveResume(resumeSessions,smartCandidates)}
-        catch(e:CancellationException){throw e}
-        catch(_:Exception){resolvedSessions=emptyList();resumeError=true}
+    var resumeError by remember(analyticsGuard,historyGeneration,resumeMembership,displayEpoch){mutableStateOf(false)}
+    // Position changes do not alter the identity mapping. Bind the cached ids to
+    // the latest scalar session state without rerunning SQLite or rebuilding keys.
+    val resolvedSessions=remember(resolvedMappings,resumeSessions){
+        val mappings=resolvedMappings.associateBy{it.session.id}
+        resumeSessions.mapNotNull{session->mappings[session.id]?.takeIf{it.session.entries==session.entries&&it.session.occurrenceIds==session.occurrenceIds}
+            ?.let{ResolvedResumeQueue(session,it.ids)}}
+    }
+    LaunchedEffect(resumeOpen,resumeMembership,candidateDigest,analyticsGuard,analyticsUsable,historyGeneration) {
+        if(!resumeOpen||onResumeSelection==null||!analyticsUsable)return@LaunchedEffect
+        resumeLoading=!resumeHasData;resumeError=false
+        try {
+            val sessions=resumeSessions
+            val key=withContext(Dispatchers.Default){ListeningProjectionCodec.resumeKey(sessions,candidateDigest)}
+            val cached=listeningStore.readProjection(key,ListeningProjectionDomain.RESUME){ListeningProjectionCodec.resume(it,sessions)}
+            val revision=cached?.currentRevision ?: listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RESUME)
+            val reusable=cached!=null&&cached.revision==revision
+            val result=if(reusable)requireNotNull(cached).value else listeningStore.resolveResume(sessions,smartCandidates)
+            if(listeningStore.visibilityRevision.value!=historyGeneration || listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RESUME)!=revision)return@LaunchedEffect
+            resolvedMappings=result;resumeHasData=true;resumeLoading=false
+            if(!reusable)try{listeningStore.writeProjection(key,ListeningProjectionDomain.RESUME,revision,System.currentTimeMillis(),withContext(Dispatchers.Default){ListeningProjectionCodec.encodeResume(result)})}
+            catch(e:CancellationException){throw e}catch(_:Exception){/* derived cache */}
+        } catch(e:CancellationException){throw e}
+        catch(_:Exception){if(!resumeHasData)resumeError=true}
         finally{resumeLoading=false}
     }
-    var smartSnapshot by remember { mutableStateOf(SmartMusicSnapshot()) }
+    var smartSnapshot by remember(analyticsGuard,historyGeneration,displayEpoch,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone) { mutableStateOf(SmartMusicSnapshot()) }
+    var smartHasData by remember(analyticsGuard,historyGeneration,displayEpoch,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone) { mutableStateOf(false) }
     var smartLoading by remember { mutableStateOf(false) }
-    var smartError by remember { mutableStateOf<String?>(null) }
-    // Read only when a smart screen is open. Don't turn every playback tick into a
-    // database scan or restart a real playback queue when recommendations change.
+    var smartError by remember(analyticsGuard,historyGeneration,displayEpoch,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone) { mutableStateOf<String?>(null) }
+    // Mix and forgotten stay stable between relevant history changes, a new day
+    // or an explicit regeneration. Only the stats page watches elapsed audio.
     val smartRefresh = if(smartPage==SmartMusicPage.STATS) smartRevision else listeningRevision
-    LaunchedEffect(smartPage,smartCandidates,smartRefresh,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay) {
-        if(smartPage==null||!listeningEnabled) return@LaunchedEffect
-        smartLoading=true;smartError=null
+    LaunchedEffect(smartPage,candidateDigest,smartRefresh,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone,analyticsGuard,analyticsUsable,historyGeneration) {
+        if(smartPage==null||!listeningEnabled||!analyticsUsable) return@LaunchedEffect
+        smartLoading=!smartHasData;smartError=null
         try {
             val now=System.currentTimeMillis()
             val seed=smartDay+mixNonce
+            val zone=smartZone
+            val cacheKey=withContext(Dispatchers.Default) { ListeningProjectionCodec.smartKey(candidateDigest,smartStatsPeriod,smartDay,seed,mixDiversity,forgottenDays,statsIntervals.lastOrNull(),zone) }
+            val cached=listeningStore.readProjection(cacheKey,ListeningProjectionDomain.STATS,ListeningProjectionCodec::smart)
+            val revision=cached?.currentRevision ?: listeningStore.persistedProjectionRevision(ListeningProjectionDomain.STATS)
             var candidates=smartCandidates
-            var result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays,interval=statsIntervals.lastOrNull())
+            val reusable=cached!=null && cached.reusable(now,if(smartPage==SmartMusicPage.STATS)60_000L else 60*60*1000L)
+            // A persisted result is safe only for the exact complete public
+            // catalog and current history revision. A stale disk result must not
+            // resurrect a deleted/excluded row on a cold start.
+            if(reusable&&!smartHasData && listeningStore.visibilityRevision.value==historyGeneration){smartSnapshot=requireNotNull(cached).value;smartHasData=true;smartLoading=false}
+            var result=if(reusable) requireNotNull(cached).value else listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays,zone,statsIntervals.lastOrNull())
             while(true) {
                 val ids=when(smartPage){SmartMusicPage.FORGOTTEN->result.forgotten;SmartMusicPage.MIX->result.mix;SmartMusicPage.STATS->result.playedTracks;null->emptyList()}.map {it.rowId}
                 if(ids.isEmpty()) break
@@ -201,25 +275,33 @@ internal fun MusicModeScreen(
                 val missing=ids.filterNot(valid::contains).toSet()
                 if(missing.isEmpty()) break
                 candidates=candidates.filterNot {it.rowId in missing}
-                result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays,interval=statsIntervals.lastOrNull())
+                result=listeningStore.smartSnapshot(candidates,smartStatsPeriod,now,seed,mixDiversity,forgottenDays,zone,statsIntervals.lastOrNull())
             }
-            smartSnapshot=result
+            if(listeningStore.visibilityRevision.value!=historyGeneration || (listeningStore.persistedProjectionRevision(ListeningProjectionDomain.STATS)!=revision && smartPage==SmartMusicPage.STATS))return@LaunchedEffect
+            smartSnapshot=result;smartHasData=true;smartLoading=false
+            if(!reusable && candidates==smartCandidates) try {
+                listeningStore.writeProjection(cacheKey,ListeningProjectionDomain.STATS,revision,now,withContext(Dispatchers.Default){ListeningProjectionCodec.encode(result)})
+            } catch(e:CancellationException){throw e} catch(_:Exception){/* derived cache can be rebuilt */}
         } catch(e:CancellationException){throw e}
-        catch(_:Exception){smartSnapshot=SmartMusicSnapshot();smartError="Не удалось загрузить подборку"}
+        catch(_:Exception){if(!smartHasData)smartError="Не удалось загрузить подборку"}
         finally{smartLoading=false}
     }
-    var listeningSelection by remember { mutableStateOf(ListeningSelection()) }
+    var listeningSelection by remember(analyticsGuard,historyGeneration,displayEpoch,listeningPeriod) { mutableStateOf(ListeningSelection()) }
+    var listeningHasData by remember(analyticsGuard,historyGeneration,displayEpoch,listeningPeriod) { mutableStateOf(false) }
     var listeningLoading by remember { mutableStateOf(false) }
-    var listeningError by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(listeningEnabled, listeningRevision, listeningPeriod, frequentKeys, frequentOpen) {
-        if (!listeningEnabled) return@LaunchedEffect
-        listeningLoading = true; listeningError = null
+    var listeningError by remember(analyticsGuard,historyGeneration,displayEpoch,listeningPeriod) { mutableStateOf<String?>(null) }
+    LaunchedEffect(listeningEnabled,listeningRevision,listeningPeriod,rankDigest,analyticsGuard,analyticsUsable,historyGeneration,rankTimeRevision,smartZone) {
+        if (!listeningEnabled || !analyticsUsable) return@LaunchedEffect
+        listeningLoading = !listeningHasData; listeningError = null
         try {
             var eligible = frequentKeys
             val now = System.currentTimeMillis()
-            var result = listeningStore.selection(eligible,listeningPeriod,now)
-            // Only verify ranked candidates, not the entire library. Refill from
-            // the next highest rank when a file disappeared or lost permission.
+            val cacheKey=withContext(Dispatchers.Default){ListeningProjectionCodec.selectionKey(rankDigest,listeningPeriod)}
+            val cached=listeningStore.readProjection(cacheKey,ListeningProjectionDomain.RANK,ListeningProjectionCodec::selection)
+            val revision=cached?.currentRevision ?: listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RANK)
+            val reusable=cached!=null && cached.reusable(now,Long.MAX_VALUE) && cached.value.currentAt(now)
+            if(reusable&&!listeningHasData && listeningStore.visibilityRevision.value==historyGeneration){val stored=requireNotNull(cached).value;listeningSelection=stored;rankingBoundary=stored.validUntil;listeningHasData=true;listeningLoading=false}
+            var result = if(reusable) requireNotNull(cached).value else listeningStore.selection(eligible,listeningPeriod,now)
             while (result.ranked.isNotEmpty()) {
                 val ids = result.ranked.map { it.rowId }
                 val valid = validateFrequent(ids,false)
@@ -228,22 +310,29 @@ internal fun MusicModeScreen(
                 eligible = eligible - missing.toSet()
                 result = listeningStore.selection(eligible,listeningPeriod,now)
             }
-            listeningSelection = result
+            if(listeningStore.visibilityRevision.value!=historyGeneration || listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RANK)!=revision)return@LaunchedEffect
+            listeningSelection = result;rankingBoundary=result.validUntil;listeningHasData=true;listeningLoading=false
+            if(!reusable && eligible==frequentKeys) try {
+                listeningStore.writeProjection(cacheKey,ListeningProjectionDomain.RANK,revision,now,withContext(Dispatchers.Default){ListeningProjectionCodec.encode(result)})
+            } catch(e:CancellationException){throw e} catch(_:Exception){/* derived cache can be rebuilt */}
         } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { listeningSelection = ListeningSelection(); listeningError = "Не удалось загрузить статистику" }
+        catch (_: Exception) { if(!listeningHasData)listeningError = "Не удалось загрузить статистику" }
         finally { listeningLoading = false }
     }
-    val tracks = remember(items) { items.filter(::availableAudio).distinctBy { it.id } }
-    val recentRows = remember(recentItems, hiddenTrackKeys, excludedFolders, deviceMusicFolders) {
-        recentItems.filter { availableAudio(it) && !it.savedUri.isNullOrBlank() &&
-            !MusicTrackVisibility.hidden(it, hiddenTrackKeys) && MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) }
-            .distinctBy { it.id }
-    }
-    // Include hidden tracks from both local phone storage and ML downloads, regardless
-    // of which source tab is active. No hidden record is made visible by playback.
-    val hiddenTracks = remember(allAudio, hiddenTrackKeys) {
-        allAudio.filter(::availableAudio).filter { MusicTrackVisibility.hidden(it, hiddenTrackKeys) }
-            .distinctBy { it.id }
+    // Card and detail consume exactly the same currently eligible rows.
+    val visibleSelection=remember(listeningSelection,frequentRows){listeningSelection.copy(ranked=listeningSelection.ranked.filter{it.rowId in frequentRows})}
+    val tracks = browse.value.tracks
+    val recentGuard = browseAccess?.let { Triple(it,currentHidden,currentExcluded) }
+    val recentView = if(recentItems.size>128) addressedLibraryProjection(emptyList<DownloadEntity>(),recentGuard,
+        recentItems,deviceMusicFolders,publishWhen=recentOpen,serial=true) {
+        withContext(Dispatchers.Default){ musicRecentRows(recentItems,currentHidden,currentExcluded,deviceMusicFolders) }
+    } else BackgroundLibraryValue(remember(recentItems,currentHidden,currentExcluded,deviceMusicFolders,recentGuard){
+        if(recentGuard==null)emptyList() else musicRecentRows(recentItems,currentHidden,currentExcluded,deviceMusicFolders)
+    },recentGuard!=null)
+    val recentRows = recentView.value
+    // Hidden tracks are only projected while their explicit dialog is open.
+    val hiddenTracks = remember(browse.value, hiddenTrackKeys,hiddenTracksOpen) {
+        if(!hiddenTracksOpen)emptyList() else available.values.filter { MusicTrackVisibility.hidden(it, hiddenTrackKeys) }
     }
     if (hiddenTracksOpen) AlertDialog(onDismissRequest = onDismissHiddenTracks, title = { Text("Скрытые треки") },
         text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 360.dp)) {
@@ -263,9 +352,7 @@ internal fun MusicModeScreen(
                 }
             }
         } }, confirmButton = { TextButton(onClick = onDismissHiddenTracks) { Text("Готово") } })
-    val folders = remember(tracks, deviceMusicFolders) {
-        tracks.groupBy { MusicFolderRules.key(it, deviceMusicFolders) }.filterKeys { it != null }
-    }
+    val folders = browse.value.folders
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen,recentOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null || recentOpen) }
@@ -273,28 +360,20 @@ internal fun MusicModeScreen(
     BackHandler(folderOpen != null || resumeOpen || smartPage != null || frequentOpen || playlist != null || recentOpen || tab == 1) { if(recentOpen)recentOpen=false else if(folderOpen!=null)folderOpen=null else if(resumeOpen)resumeOpen=false else if(smartPage==SmartMusicPage.STATS&&statsIntervals.isNotEmpty()) statsIntervals=statsIntervals.dropLast(1) else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
-        PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, available.values.toList(), emptyMap(),
+        PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, browse.value.allRows, emptyMap(),
             { addingPlaylist = null }, onPreview ?: onOpen, { onAddTracks(toAdd.id, it) })
         return
     }
-    val filtered = remember(tracks, allAudio, favoriteIds, favoritesOnly, playlist, tab,
-        available, search, excludedFolders, deviceMusicFolders, hiddenTrackKeys) {
-        val source = if (tab != 0) {
-            playlist?.trackIds?.mapNotNull(available::get).orEmpty()
-        } else if (favoritesOnly) {
-            // Favorites must include PHONE media even if the library source
-            // selector currently shows only app-downloaded tracks.
-            MusicFavoritesPolicy.select(allAudio, favoriteIds)
-        } else {
-            tracks.filter {
-                MusicFolderRules.visible(it, excludedFolders, deviceMusicFolders) &&
-                    !MusicTrackVisibility.hidden(it, hiddenTrackKeys)
-            }
-        }
-        source.filter { matchesMusicSearch(it, search) }
-    }
-    val displayed = remember(filtered, sort, tab) { if (tab == 0) sortMusicRows(filtered, sort) else filtered }
-    val sections = remember(displayed, sort) { displayed.groupBy { musicGroupHeading(it, sort) } }
+    val browseFilter = browseAccess?.let { MusicBrowseFilter(it,tab,playlist?.id,search,sort,favoritesOnly,currentHidden,currentExcluded) }
+    val needsRows=tab==0 || playlist!=null
+    val browseRows=if(largeBrowse) addressedLibraryProjection(MusicBrowseRows.EMPTY,browseFilter,browse.value,playlist,
+        favoriteIds,deviceMusicFolders,publishWhen=needsRows&&browse.usable,serial=true) {
+        withContext(Dispatchers.Default) { MusicBrowseRows.build(browse.value,playlist,tab,search,sort,favoritesOnly,favoriteIds,currentHidden,currentExcluded,deviceMusicFolders) }
+    } else BackgroundLibraryValue(remember(browse.value,playlist,browseFilter,favoriteIds,deviceMusicFolders){
+        if(browseFilter==null||!needsRows)MusicBrowseRows.EMPTY else MusicBrowseRows.build(browse.value,playlist,tab,search,sort,favoritesOnly,favoriteIds,currentHidden,currentExcluded,deviceMusicFolders)
+    },browseFilter!=null)
+    val displayed=browseRows.value.displayed
+    val sections=browseRows.value.sections
     LaunchedEffect(scrollToTopRequest) {
         if (scrollToTopRequest != handledTopRequest) {
             handledTopRequest = scrollToTopRequest
@@ -304,12 +383,8 @@ internal fun MusicModeScreen(
             } else tracksListState.scrollToItem(0)
         }
     }
-    val displayedIds = remember(displayed, playlist, available, search) {
-        if (playlist == null) displayed.map { it.id } else playlist.trackIds.filter { id ->
-            available[id]?.let { matchesMusicSearch(it, search) } ?: search.isBlank()
-        }
-    }
-    val queue = remember(displayed) { displayed.map { it.id } }
+    val displayedIds=browseRows.value.displayedIds
+    val queue=browseRows.value.queue
     fun preview(id: String) {
         if (playlist != null && onPreviewFromPlaylist != null) onPreviewFromPlaylist(id,queue,playlist.id)
         else (onPreview ?: onOpen)(id, queue)
@@ -320,7 +395,7 @@ internal fun MusicModeScreen(
     }
     if(recentOpen) {
         recentStateHolder.SaveableStateProvider("recent-music") {
-            RecentMusicScreen(recentRows, recentLoading, currentPlayingId, playing, { recentOpen=false },
+            RecentMusicScreen(recentRows, recentLoading || !recentView.usable, currentPlayingId, playing, { recentOpen=false },
                 onPlay = { ids, shuffle -> if(onRecentPlay!=null)onRecentPlay(ids,shuffle) else if(onPlayFrequent!=null)onPlayFrequent(ids,shuffle) else if(ids.isNotEmpty()) {
                     val order=if(shuffle)ids.shuffled() else ids; (onPreview?:onOpen)(order.first(),order)
                 } }, onPreview = onRecentPreview?:onPreview?:onOpen,
@@ -333,23 +408,27 @@ internal fun MusicModeScreen(
         }
     } else if(folderOpen!=null) {
         val folder=requireNotNull(folderOpen)
-        val folderTracks=remember(folders,folder,hiddenTrackKeys,sort){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,hiddenTrackKeys)},sort)}
+        val folderGuard=browseAccess?.let { Triple(it,folder,sort) to currentHidden }
+        val folderView=if(largeBrowse) addressedLibraryProjection(emptyList<DownloadEntity>(),folderGuard,browse.value,serial=true) {
+            withContext(Dispatchers.Default){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,currentHidden)},sort)}
+        } else BackgroundLibraryValue(remember(folders,folder,hiddenTrackKeys,sort){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,hiddenTrackKeys)},sort)},true)
+        val folderTracks=folderView.value
         val folderIds=remember(folderTracks){folderTracks.map{it.id}}
         MusicFolderScreen(MusicFolderRules.title(folder),folderTracks,folder in excludedFolders,currentPlayingId,playing,{folderOpen=null},
             onToggleVisibility={val exclude=folder !in excludedFolders;excludedFolders=if(exclude)excludedFolders+folder else excludedFolders-folder;folderPrefs.edit().putStringSet("excluded",excludedFolders).apply()},
-            onPlay={shuffle->if(onPlayFrequent!=null)onPlayFrequent(folderIds,shuffle) else (onPreview?:onOpen)(if(shuffle)folderIds.random() else folderIds.first(),if(shuffle)folderIds.shuffled() else folderIds)},
+            onPlay={shuffle->if(folderIds.isNotEmpty()){if(onFolderPlay!=null)onFolderPlay(folderIds,shuffle) else {val order=if(shuffle)folderIds.shuffled() else folderIds;(onPreview?:onOpen)(order.first(),order)}}},
             onPreview={id->(onPreview?:onOpen)(id,folderIds)},
             actions={track->val id=track.id;MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},{onOpen(id,folderIds)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,MusicTrackVisibility.hidden(track,hiddenTrackKeys),{toggleHidden(track)},
                 favorite=id in favoriteIds,onFavorite=onFavorite?.let{action->{mutate{action(id,id !in favoriteIds)}}},onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})})
     } else if(resumeOpen&&onResumeSelection!=null) {
-        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},resumeLoading||loading,
+        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},(!resumeHasData && (resumeLoading||!analyticsUsable||!resumeError)),
             resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore)
     } else if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
         SmartMusicScreen(smartPage!!,smartSnapshot,frequentRows,smartStatsPeriod,{smartStatsPeriod=it;statsIntervals=emptyList()},
             mixDiversity,{mixDiversity=it;smartPrefs.edit().putInt("diversity",it).apply()},
             forgottenDays,{forgottenDays=it;smartPrefs.edit().putLong("forgotten_days",it).apply()},
-            smartLoading||loading,smartError,currentPlayingId,playing,favoriteIds,{smartPage=null},{mixNonce++},
-            onPlayFrequent,onPreview?:onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport,
+            (!smartHasData && (smartLoading||!analyticsUsable||smartError==null)),smartError,currentPlayingId,playing,favoriteIds,{smartPage=null},{mixNonce++;smartPrefs.edit().putLong("mix_nonce",mixNonce).apply()},
+            onPlayFrequent,onAnalyticsPreview,onAnalyticsOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport,
             onRecognize=onRecognize,statsInterval=statsIntervals.lastOrNull(),onStatsDrill={point->
                 val interval=statsIntervals.lastOrNull() ?: smartSnapshot.statsInterval ?: com.domenota.medialoader.data.playback.SmartStatsInterval.overview(smartStatsPeriod,System.currentTimeMillis(),java.time.ZoneId.systemDefault())
                 point.date?.let { interval.drill(it) }?.let { statsIntervals=statsIntervals+it }
@@ -358,15 +437,12 @@ internal fun MusicModeScreen(
                     statsIntervals=statsIntervals.dropLast(1)+com.domenota.medialoader.data.playback.SmartStatsInterval.day(date)
             })
     } else if (frequentOpen && onPlayFrequent != null && onSaveFrequent != null) {
-        FrequentListeningScreen(listeningSelection,frequentRows,listeningPeriod,{listeningPeriod=it},listeningLoading||loading,listeningError,
+        FrequentListeningScreen(visibleSelection,frequentRows,listeningPeriod,{listeningPeriod=it},(!listeningHasData && (listeningLoading||!analyticsUsable||listeningError==null)),listeningError,
             currentPlayingId,playing,favoriteIds,listeningStore,{frequentOpen=false},onPlayFrequent,
-            onPreview ?: onOpen,onOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport,onRecognize=onRecognize)
+            onAnalyticsPreview,onAnalyticsOpen,onSaveFrequent,{addTrack=it},onShare,onDeleteFile,onEnqueue,onFavorite,onAddCollection,onPassport,onRecognize=onRecognize)
     } else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-        val fastLabels = remember(sections, displayedIds, tab, playlist) {
-            if (tab == 0) listOf("") + sections.flatMap { (label, records) -> val caption = if (sort == MusicLibrarySort.DATE || sort == MusicLibrarySort.DATE_OLDEST) label.take(7) else label; listOf(caption) + records.map { caption } }
-            else listOf("") + if (playlist != null) listOf("") + displayedIds.map { id -> available[id]?.let { musicGroupLetter(musicDisplayTitle(it)) }.orEmpty() } else emptyList()
-        }
+        val fastLabels=browseRows.value.fastLabels
         LazyColumn(Modifier.fillMaxSize().padding(end = if (tab == 0 && displayed.size > 5 || playlist != null && displayedIds.size > 5) musicFastScrollLaneWidth else 0.dp).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "music-controls") {
                 Column {
@@ -421,7 +497,7 @@ internal fun MusicModeScreen(
                         }
                     }
                     }
-                    Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading, message, error,
+                    Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading || !browse.usable || (needsRows && !browseRows.usable), message, error,
                         tab == 0 && displayed.isEmpty(), if (favoritesOnly) "В избранном пока нет треков" else "Нет аудиофайлов") }
                 }
             }
@@ -431,7 +507,7 @@ internal fun MusicModeScreen(
                     if(onResumeSelection!=null) item(key="resume-music-card"){ResumeMusicCard(resumeSessions.size){resumeOpen=true}}
                     item(key="recent-music-card") { RecentMusicCard { recentOpen=true } }
 
-                    item(key="frequent-playlist") { FrequentListeningCard(listeningSelection.ranked.size,listeningPeriod) { frequentOpen=true } }
+                    item(key="frequent-playlist") { FrequentListeningCard(visibleSelection.ranked.size.takeIf{listeningHasData},listeningPeriod) { frequentOpen=true } }
                     listOf(SmartMusicPage.FORGOTTEN,SmartMusicPage.MIX).forEach { page -> item(key="smart-${page.name}") { SmartMusicCard(page){smartPage=page} } }
                     if(onOpenCollections!=null)item(key="music-collections"){
                         MusicOverviewCard("Коллекции","Музыка из коллекций",Icons.Rounded.CollectionsBookmark,"music-collections",onOpenCollections)
@@ -524,7 +600,7 @@ internal fun MusicModeScreen(
                         horizontalArrangement = Arrangement.spacedBy(17.dp)) {
                         PlaylistCover(playlist, available, Modifier.size(100.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val minutes = playlist.trackIds.mapNotNull(available::get).sumOf { (it.durationMs ?: 0) / 60_000 }
+                            val minutes = browseRows.value.playlistMinutes
                             Text(RussianCounts.tracks(playlist.trackIds.size) + if (minutes > 0) " · $minutes минут" else "", fontSize = 13.sp)
                             Text("Музыка для тебя", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Button(enabled = displayed.isNotEmpty(), onClick = { displayed.firstOrNull()?.let { preview(it.id) } }, shape = RoundedCornerShape(18.dp)) {
@@ -538,7 +614,7 @@ internal fun MusicModeScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) {
                         Icon(Icons.Rounded.Add, "Добавить треки"); Spacer(Modifier.width(8.dp)); Text("Добавить треки")
                     }
-                    val missing = playlist.trackIds.count { it !in available }
+                    val missing = browseRows.value.playlistMissing.takeIf { browse.ready && browseRows.ready } ?: 0
                     if (missing > 0) Text("Недоступно треков: $missing. Записи сохранены в плейлисте.", Modifier.padding(horizontal = 17.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -559,14 +635,14 @@ internal fun MusicModeScreen(
                         }
                     }
                 } else items(displayedIds, key = { it }) { id ->
-                    val track = available[id] ?: tracks.firstOrNull { it.id == id }
-                    if (track == null && playlist != null) UnavailablePlaylistTrackRow(playlist.trackIds.indexOf(id) + 1) {
+                    val track = available[id] ?: browse.value.byId[id]
+                    if (track == null && playlist != null) UnavailablePlaylistTrackRow((browseRows.value.ordinals[id] ?: 0) + 1) {
                         mutate { onRemoveTrack(playlist.id, id) }
                     } else if (track != null) MusicLibraryTrackRow(track, { preview(id) }, id == currentPlayingId, playing) {
                         MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } }, { openTrack(id) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
                             playlist?.let { entry -> { mutate { onRemoveTrack(entry.id, id) } } },
-                            playlist?.takeIf { it.trackIds.indexOf(id) > 0 }?.let { entry -> { mutate { onMoveTrack(entry.id, id, -1) } } },
-                            playlist?.takeIf { it.trackIds.indexOf(id) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } }, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) },
+                            playlist?.takeIf { (browseRows.value.ordinals[id] ?: 0) > 0 }?.let { entry -> { mutate { onMoveTrack(entry.id, id, -1) } } },
+                            playlist?.takeIf { (browseRows.value.ordinals[id] ?: 0) < it.trackIds.lastIndex }?.let { entry -> { mutate { onMoveTrack(entry.id, id, 1) } } }, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) },
                                     onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})
                     }
                 }
@@ -593,6 +669,54 @@ internal fun MusicModeScreen(
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } }, confirmButton = { TextButton({ addTrack = null }) { Text("Закрыть") } }) }
 }
+
+/** Large library work is derived once on a worker. These objects share immutable
+ * row references with the primary catalog and are not another database. */
+internal class MusicBrowseCatalog(val tracks:List<DownloadEntity>,val available:Map<String,DownloadEntity>,
+    val folders:Map<String?,List<DownloadEntity>>) {
+    val allRows=available.values.toList()
+    val byId=tracks.associateBy{it.id}
+    companion object {
+        val EMPTY=MusicBrowseCatalog(emptyList(),emptyMap(),emptyMap())
+        fun build(items:List<DownloadEntity>,all:List<DownloadEntity>,deviceFolders:Map<String,String>):MusicBrowseCatalog {
+            val tracks=items.filter(::availableAudio).distinctBy{it.id}
+            return MusicBrowseCatalog(tracks,all.filter(::availableAudio).associateBy{it.id},
+                tracks.groupBy{MusicFolderRules.key(it,deviceFolders)}.filterKeys{it!=null})
+        }
+    }
+}
+private data class MusicBrowseFilter(val access:Any,val tab:Int,val playlist:String?,val search:String,val sort:MusicLibrarySort,
+    val favorites:Boolean,val hidden:Set<String>,val excluded:Set<String>)
+internal class MusicBrowseRows(val displayed:List<DownloadEntity>,val sections:Map<String,List<DownloadEntity>>,
+    val displayedIds:List<String>,val queue:List<String>,val fastLabels:List<String>,val playlistMinutes:Long,
+    val playlistMissing:Int,val ordinals:Map<String,Int>) {
+    companion object {
+        val EMPTY=MusicBrowseRows(emptyList(),emptyMap(),emptyList(),emptyList(),listOf(""),0,0,emptyMap())
+        fun build(catalog:MusicBrowseCatalog,playlist:MediaPlaylist?,tab:Int,search:String,sort:MusicLibrarySort,
+            favoritesOnly:Boolean,favoriteIds:Set<String>,hidden:Set<String>,excluded:Set<String>,deviceFolders:Map<String,String>):MusicBrowseRows {
+            val available=catalog.available
+            val source=when {
+                tab!=0->playlist?.trackIds?.mapNotNull(available::get).orEmpty()
+                favoritesOnly->MusicFavoritesPolicy.select(catalog.allRows,favoriteIds)
+                else->catalog.tracks.filter{MusicFolderRules.visible(it,excluded,deviceFolders)&&!MusicTrackVisibility.hidden(it,hidden)}
+            }
+            val filtered=source.filter{matchesMusicSearch(it,search)}
+            val displayed=if(tab==0)sortMusicRows(filtered,sort) else filtered
+            val sections=if(tab==0)displayed.groupBy{musicGroupHeading(it,sort)} else emptyMap()
+            val queue=displayed.map{it.id}
+            val ids=if(playlist==null)queue else playlist.trackIds.filter{id->available[id]?.let{matchesMusicSearch(it,search)}?:search.isBlank()}
+            val labels=if(tab==0)listOf("")+sections.flatMap{(label,records)->val caption=if(sort==MusicLibrarySort.DATE||sort==MusicLibrarySort.DATE_OLDEST)label.take(7) else label;listOf(caption)+records.map{caption}}
+                else listOf("")+if(playlist!=null)listOf("")+ids.map{id->available[id]?.let{musicGroupLetter(musicDisplayTitle(it))}.orEmpty()} else emptyList()
+            val minutes=playlist?.trackIds?.mapNotNull(available::get)?.sumOf{(it.durationMs?:0)/60_000}?:0L
+            val missing=playlist?.trackIds?.count{it !in available}?:0
+            val ordinals=buildMap{playlist?.trackIds?.forEachIndexed{index,id->if(id !in this)put(id,index)}}
+            return MusicBrowseRows(displayed,sections,ids,queue,labels,minutes,missing,ordinals)
+        }
+    }
+}
+private fun musicRecentRows(items:List<DownloadEntity>,hidden:Set<String>,excluded:Set<String>,folders:Map<String,String>)=items.filter{
+    availableAudio(it)&&!it.savedUri.isNullOrBlank()&&!MusicTrackVisibility.hidden(it,hidden)&&MusicFolderRules.visible(it,excluded,folders)
+}.distinctBy{it.id}
 
 private fun availableAudio(item: DownloadEntity) = item.state == DownloadState.COMPLETED && !item.hidden && !item.isPrivate && item.mediaType == MediaType.AUDIO
 private fun matchesMusicSearch(track: DownloadEntity, search: String) = listOfNotNull(track.originalName, track.recognizedArtist,
@@ -673,4 +797,11 @@ private fun musicSortLabel(sort: MusicLibrarySort): String = when (sort) {
     MusicLibrarySort.DATE -> "Сначала новые"
     MusicLibrarySort.DATE_OLDEST -> "Сначала старые"
     else -> sort.label
+}
+
+private class MusicAnalyticsRows(val rows: Map<String,DownloadEntity>, val keys: Map<String,Set<String>>, val candidates: List<SmartTrackCandidate>,
+    val displayEpoch: Any=Any(), val rankDigest: String=ListeningProjectionCodec.rankDigest(keys),
+    val candidateDigest: String=ListeningProjectionCodec.candidateDigest(candidates)) {
+    fun withEpoch(epoch:Any)=MusicAnalyticsRows(rows,keys,candidates,epoch,rankDigest,candidateDigest)
+    companion object { val EMPTY = MusicAnalyticsRows(emptyMap(),emptyMap(),emptyList()) }
 }

@@ -18,6 +18,60 @@ class ListeningHistoryStoreTest {
     }
     @After fun close() { store.closeForTest() }
 
+    @Test fun persistentProjectionsSurviveProcessRestartAndRespectRevisionDomains() = runBlocking {
+        val keys=setOf("app:cached")
+        val candidate=SmartTrackCandidate("cached",keys,"Artist",true)
+        val first=requireNotNull(store.begin(keys,0,1000))
+        store.save(first.copy(lastAt=31_000,mediaMs=30_000,wallMs=30_000,creditedAt=31_000))
+        val domain=ListeningProjectionDomain.STATS
+        val revision=store.persistedProjectionRevision(domain)
+        val rankRevision=store.persistedProjectionRevision(ListeningProjectionDomain.RANK)
+        val resumeRevision=store.persistedProjectionRevision(ListeningProjectionDomain.RESUME)
+        val snapshot=store.smartSnapshot(listOf(candidate),SmartStatsPeriod.ALL,50_000)
+        val key=ListeningProjectionCodec.smartKey(listOf(candidate),SmartStatsPeriod.ALL,0,0,50,30,null,java.time.ZoneId.of("UTC"))
+        store.writeProjection(key,domain,revision,50_000,ListeningProjectionCodec.encode(snapshot))
+        store.closeForTest()
+        store=ListeningHistoryStore.forTest(RuntimeEnvironment.getApplication())
+        val restored=requireNotNull(store.readProjection(key,domain,ListeningProjectionCodec::smart))
+        assertEquals(snapshot,restored.value)
+        assertTrue(restored.reusable(50_001,60_000))
+        assertEquals(rankRevision,store.persistedProjectionRevision(ListeningProjectionDomain.RANK))
+        assertEquals(resumeRevision,store.persistedProjectionRevision(ListeningProjectionDomain.RESUME))
+        // More elapsed playback is not another credited play or a changed queue.
+        store.save(first.copy(lastAt=41_000,mediaMs=40_000,wallMs=40_000,creditedAt=31_000))
+        assertEquals(rankRevision,store.persistedProjectionRevision(ListeningProjectionDomain.RANK))
+        assertEquals(resumeRevision,store.persistedProjectionRevision(ListeningProjectionDomain.RESUME))
+        assertFalse(requireNotNull(store.readProjection(key,domain,ListeningProjectionCodec::smart)).reusable(50_001,60_000))
+        store.writeProjection(key,domain,revision,60_000,ListeningProjectionCodec.encode(SmartMusicSnapshot()))
+        assertEquals(snapshot,store.readProjection(key,domain,ListeningProjectionCodec::smart)?.value)
+        store.clearHistory()
+        assertNull(store.readProjection(key,domain,ListeningProjectionCodec::smart))
+    }
+
+    @Test fun selectionCodecAndGuardDoNotReuseAcrossChangedCandidatesOrPeriod() = runBlocking {
+        val rows=mapOf("one" to setOf("app:one"),"two" to setOf("app:two"))
+        val key=ListeningProjectionCodec.selectionKey(rows,ListeningPeriod.ALL)
+        assertEquals(key,ListeningProjectionCodec.selectionKey(rows.toList().reversed().toMap(),ListeningPeriod.ALL))
+        assertNotEquals(key,ListeningProjectionCodec.selectionKey(rows-"two",ListeningPeriod.ALL))
+        assertNotEquals(key,ListeningProjectionCodec.selectionKey(rows,ListeningPeriod.WEEK))
+        val selection=ListeningSelection(listOf(ListeningRank("one","track",3,4000)),listOf(ListeningExcluded("excluded",null)))
+        val domain=ListeningProjectionDomain.RANK
+        store.writeProjection(key,domain,store.persistedProjectionRevision(domain),10,ListeningProjectionCodec.encode(selection))
+        assertEquals(selection,store.readProjection(key,domain,ListeningProjectionCodec::selection)?.value)
+        store.clearDerivedProjections()
+        assertNull(store.readProjection(key,domain,ListeningProjectionCodec::selection))
+    }
+
+    @Test fun resumeCodecReusesIdentityMappingWithCurrentQueuePosition() {
+        val session=ResumeQueueSession("id",null,listOf(setOf("app:one"),setOf("app:two")),0,100,5000,false,0,1f,1000)
+        val candidates=listOf(SmartTrackCandidate("one",setOf("app:one"),null,false))
+        val next=session.copy(positionMs=300,index=1,updatedAt=2000)
+        assertEquals(ListeningProjectionCodec.resumeKey(listOf(session),candidates),ListeningProjectionCodec.resumeKey(listOf(next),candidates))
+        val value=ListeningProjectionCodec.encodeResume(listOf(ResolvedResumeQueue(session,listOf("one",null))))
+        val resolved=ListeningProjectionCodec.resume(value,listOf(next)).single()
+        assertEquals(next,resolved.session);assertEquals(listOf("one",null),resolved.ids)
+    }
+
     @Test fun sameSessionIdNeverDoubleCountsAndExclusionSurvivesClear() = runBlocking {
         val keys = setOf("app:a","file-stat:a")
         val first = requireNotNull(store.begin(keys,0,1000))
@@ -159,5 +213,75 @@ class ListeningHistoryStoreTest {
         assertEquals(1L,snap.plays);assertEquals(30_000L,snap.wallMs)
         assertTrue(snap.daySessions.single().legacyAttribution)
         assertEquals(0L,store.smartSnapshot(listOf(row),SmartStatsPeriod.ALL,midnight+30_000,zone=java.time.ZoneId.of("UTC"),interval=SmartStatsInterval.day(today.first.minusDays(1))).wallMs)
+    }
+
+    @Test fun minuteAggregatesAreIdempotentAndPositionOnlyDoesNotInvalidateRank()=runBlocking {
+        val keys=setOf("app:minute")
+        val minute=java.time.Instant.parse("2026-11-15T00:00:00Z").toEpochMilli()
+        val first=requireNotNull(store.begin(keys,0,minute))
+        val sample=first.copy(lastAt=minute+30_000,mediaMs=30_000,wallMs=30_000,creditedAt=minute+30_000,wallMinutes=mapOf(minute to 30_000L),closed=true)
+        store.save(sample);store.save(sample)
+        val stats=store.persistedProjectionRevision(ListeningProjectionDomain.STATS)
+        val rank=store.persistedProjectionRevision(ListeningProjectionDomain.RANK)
+        store.save(sample.copy(lastAt=minute+31_000,position=15_000))
+        store.save(sample.copy(lastAt=minute+20_000,wallMs=20_000,mediaMs=20_000,wallMinutes=mapOf(minute to 20_000L)))
+        assertEquals(stats,store.persistedProjectionRevision(ListeningProjectionDomain.STATS))
+        assertEquals(rank,store.persistedProjectionRevision(ListeningProjectionDomain.RANK))
+        val second=requireNotNull(store.begin(keys,0,minute+32_000))
+        store.save(second.copy(lastAt=minute+55_000,mediaMs=30_000,wallMs=23_000,creditedAt=minute+55_000,wallMinutes=mapOf(minute to 23_000L)))
+        val candidates=listOf(SmartTrackCandidate("minute",keys,"Artist",false))
+        val now=minute+59_000
+        val day=store.smartSnapshot(candidates,SmartStatsPeriod.ALL,now,zone=java.time.ZoneId.of("UTC"),interval=SmartStatsInterval.day(java.time.LocalDate.of(2026,11,15)))
+        val month=store.smartSnapshot(candidates,SmartStatsPeriod.MONTH,now,zone=java.time.ZoneId.of("UTC"))
+        assertEquals(53_000L,day.wallMs);assertEquals(day.wallMs,month.wallMs);assertEquals(2L,month.plays)
+        assertEquals(2,day.daySessions.size);assertEquals(2L,store.selection(mapOf("minute" to keys),ListeningPeriod.ALL,now).ranked.single().plays)
+        store.clearHistory()
+        assertEquals(0L,store.smartSnapshot(candidates,SmartStatsPeriod.ALL,now).wallMs)
+        store.save(sample)
+        assertEquals(0L,store.smartSnapshot(candidates,SmartStatsPeriod.ALL,now).wallMs)
+    }
+
+    @Test fun migrationFromV2BackfillsMinuteTotalsAndKeepsExclusions()=runBlocking {
+        store.closeForTest()
+        val context=RuntimeEnvironment.getApplication();context.deleteDatabase("listening_history.db")
+        val db=android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath("listening_history.db"),null)
+        db.execSQL("CREATE TABLE tracks (id TEXT PRIMARY KEY)")
+        db.execSQL("CREATE TABLE aliases (alias TEXT PRIMARY KEY, track_id TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX alias_track ON aliases(track_id)")
+        db.execSQL("CREATE TABLE sessions (id TEXT PRIMARY KEY, track_id TEXT NOT NULL, started_at INTEGER NOT NULL, last_at INTEGER NOT NULL, media_ms INTEGER NOT NULL, wall_ms INTEGER NOT NULL, credited_at INTEGER, position INTEGER NOT NULL, closed INTEGER NOT NULL, legacy_wall_ms INTEGER NOT NULL DEFAULT 0, legacy_at INTEGER NOT NULL DEFAULT 0, timed_wall_ms INTEGER NOT NULL DEFAULT 0)")
+        db.execSQL("CREATE INDEX session_credit ON sessions(credited_at,track_id)")
+        db.execSQL("CREATE INDEX session_track ON sessions(track_id,closed,last_at)")
+        db.execSQL("CREATE TABLE excluded (track_id TEXT PRIMARY KEY)")
+        db.execSQL("CREATE TABLE session_wall_minutes (session_id TEXT NOT NULL, minute_at INTEGER NOT NULL, wall_ms INTEGER NOT NULL, PRIMARY KEY(session_id,minute_at))")
+        db.execSQL("CREATE INDEX wall_minute_time ON session_wall_minutes(minute_at,session_id)")
+        db.execSQL("INSERT INTO tracks VALUES ('t')");db.execSQL("INSERT INTO aliases VALUES ('app:a','t')");db.execSQL("INSERT INTO excluded VALUES ('t')")
+        val minute=java.time.Instant.parse("2026-11-15T00:00:00Z").toEpochMilli()
+        for(id in listOf("a","b")) {
+            db.execSQL("INSERT INTO sessions VALUES (?, 't',?,?,?,?,?,?,1,0,0,15000)",arrayOf(id,minute,minute+30_000,30_000,15_000,minute+30_000,30_000))
+            db.execSQL("INSERT INTO session_wall_minutes VALUES (?,?,15000)",arrayOf(id,minute))
+        }
+        db.version=2;db.close();store=ListeningHistoryStore.forTest(context)
+        val keys=setOf("app:a");val candidates=listOf(SmartTrackCandidate("a",keys,"Artist",false))
+        val snap=store.smartSnapshot(candidates,SmartStatsPeriod.MONTH,minute+55_000,zone=java.time.ZoneId.of("UTC"))
+        assertEquals(30_000L,snap.wallMs);assertEquals(2L,snap.plays)
+        assertEquals(1,store.selection(mapOf("a" to keys),ListeningPeriod.ALL,minute+55_000).excluded.size)
+        assertTrue(store.selection(mapOf("a" to keys),ListeningPeriod.ALL,minute+55_000).ranked.isEmpty())
+        store.setExcluded("t",false)
+        assertEquals(2L,store.selection(mapOf("a" to keys),ListeningPeriod.ALL,minute+55_000).ranked.single().plays)
+        assertTrue(store.persistedProjectionRevision(ListeningProjectionDomain.STATS)>0)
+    }
+
+    @Test fun rollingRankingExpiresWithoutAnyNewSessionAndDoesNotGuessPartialCount()=runBlocking {
+        val keys=setOf("app:old")
+        val start=100_000L
+        for(i in 0..1){val at=start+i*60_000;val p=requireNotNull(store.begin(keys,0,at));store.save(p.copy(lastAt=at+30_000,mediaMs=30_000,wallMs=30_000,creditedAt=at+30_000,closed=true))}
+        val boundary=start+30_000+7*86_400_000L+1
+        val now=boundary-1
+        val rows=(0 until 2500).associate { "row$it" to setOf("app:row$it") } + ("old" to keys)
+        val rank=store.selection(rows,ListeningPeriod.WEEK,now)
+        assertEquals("old",rank.ranked.single().rowId);assertEquals(boundary,rank.validUntil);assertTrue(rank.currentAt(now))
+        assertFalse(rank.currentAt(boundary));assertTrue(store.selection(rows,ListeningPeriod.WEEK,boundary).ranked.isEmpty())
+        assertEquals(1,store.selection(rows,ListeningPeriod.MONTH,boundary).ranked.size)
+        assertEquals(1,store.selection(rows,ListeningPeriod.ALL,boundary).ranked.size)
     }
 }
