@@ -105,4 +105,46 @@ class CollectionAddressResolverTest {
         assertNull(retainAudioCatalog(snapshot,AudioCatalogUpdate(null,null)))
         assertTrue(retainAudioCatalog(snapshot,AudioCatalogUpdate(guard,emptyList()))!!.refs.isEmpty())
     }
+
+    @Test fun musicRouteDoesNotDemandGalleryEvenWhenGalleryNeverCompletes() {
+        assertTrue(collectionScanModes(CollectionCatalogRequest.NONE).isEmpty())
+        assertEquals(setOf(AppMode.MUSIC),collectionScanModes(CollectionCatalogRequest.AUDIO))
+        assertEquals(setOf(AppMode.GALLERY,AppMode.MUSIC),collectionScanModes(CollectionCatalogRequest.ALL))
+        val all=(1..11_190).map { ref(it) }
+        val chosen=all.take(18)
+        val snapshot=CollectionHistorySnapshot(all.associate { it.key to it.item },emptySet(),emptySet(),emptyList())
+        val members=chosen.map(::member)
+        val addressed=snapshot.forMembers(members)
+        assertEquals(chosen.map { it.key }.toSet(),addressed.keys)
+        val visual=CollectionMediaSignal(1,setOf("content://media/external/images/media/3"),setOf(AppMode.GALLERY))
+        assertFalse(visual.affects(members,addressed))
+        val otherAudio=CollectionMediaSignal(2,setOf("content://media/external/audio/media/100"),setOf(AppMode.MUSIC))
+        assertFalse(otherAudio.affects(members,addressed))
+        assertTrue(otherAudio.copy(uris=setOf(chosen.first().item.savedUri!!)).affects(members,addressed))
+        assertFalse(visual.copy(uris=null).affects(members,addressed))
+    }
+    @Test fun cachedDisplayImmediatelyDropsChangedMembershipPrivacyAndConfirmedMissing()=runBlocking {
+        val a=ref(1); val b=ref(2); val members=listOf(member(a),member(b));val history=listOf(a,b).associate { it.key to it.item }
+        val value=CollectionAddressResolver.resolve(members,history,null,false,emptySet(),{ row -> AddressedFile(if(row.id==a.key)a else b,SavedFileStatus.PRESENT) },{error("no phone")})
+        assertEquals(2,filterAddressedDisplay(value,members,history,emptySet(),emptyMap(),emptyMap()).resolved.size)
+        assertEquals(1,filterAddressedDisplay(value,members.take(1),history,emptySet(),emptyMap(),emptyMap()).resolved.size)
+        val blocked=filterAddressedDisplay(value,members,history,setOf(a.key),emptyMap(),emptyMap())
+        assertFalse(member(a).id in blocked.resolved);assertTrue(member(a).id in blocked.suppressed)
+        val missing=filterAddressedDisplay(value,members,history,emptySet(),mapOf(a.key to SavedFileStatus.MISSING),mapOf(a.key to a.item.savedUri))
+        assertFalse(member(a).id in missing.resolved);assertFalse(member(a).id in missing.pending)
+        val replaced=filterAddressedDisplay(value,members,history+(a.key to a.item.copy(savedUri="content://other")),emptySet(),emptyMap(),emptyMap())
+        assertFalse(member(a).id in replaced.resolved);assertTrue(member(a).id in replaced.pending)
+    }
+    @Test fun oneSlowMemberDoesNotEraseEarlierConfirmedMember()=runBlocking {
+        val a=ref(1);val b=ref(2);val members=listOf(member(a),member(b));val history=listOf(a,b).associate{it.key to it.item}
+        val release=java.util.concurrent.CountDownLatch(1)
+        try {
+            val deadline=CollectionLookupDeadline(1_000,100)
+            val result=CollectionAddressResolver.resolve(members,history,null,false,emptySet(),{ row -> deadline.lookup {
+                if(row.id==a.key) AddressedFile(a,SavedFileStatus.PRESENT) else { release.await(10,java.util.concurrent.TimeUnit.SECONDS); AddressedFile(b,SavedFileStatus.PRESENT) }
+            } },{error("no phone")})
+            assertEquals(a.key,result.resolved[members.first().id]?.key)
+            assertEquals(setOf(members.last().id),result.pending)
+        } finally { release.countDown() }
+    }
 }

@@ -48,7 +48,10 @@ internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaR
     var saved by remember(collection.record.id){mutableStateOf<CollectionCover?>(null)}
     LaunchedEffect(collection.record.id,revision){saved=withContext(Dispatchers.IO){store.read(collection.record.id)}}
     Box(modifier,contentAlignment=Alignment.Center){
-        val privateCover=saved?.takeIf{collectionCoverAllowed(it.source,blockedIdentities)}
+        val privateCover=saved?.takeIf{collectionCoverAllowed(it.source,blockedIdentities) &&
+            ((cover?.appDownloadId!=null && cover.item.savedUri==it.source) || PhoneMediaLibrary.canReadMissingMetadata(com.domenota.medialoader.core.model.MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
+                androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
+            })}
         if(privateCover!=null)DownloadThumbnail(android.net.Uri.fromFile(privateCover.file).toString(),null,MediaKind.IMAGE,Modifier.fillMaxSize())
         else if(cover!=null&&blockedIdentities!=null&&!collectionRefBlocked(cover,blockedIdentities))CollectionOriginalCover(cover,Modifier.fillMaxSize())
         else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
@@ -67,7 +70,7 @@ private fun CreateCollectionCard(onOpen:()->Unit,modifier:Modifier=Modifier) {
     }
 }
 @Composable
-internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit,onCreate:()->Unit={onOpen(null)},blockedIdentities:Set<String>?=emptySet()) {
+internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit,onCreate:()->Unit={onOpen(null)},blockedIdentities:Set<String>?=emptySet(),cachedCovers:Map<String,LibraryMediaRef> = emptyMap()) {
     var covers by remember{mutableStateOf(emptyMap<String,LibraryMediaRef>())}
     LaunchedEffect(collections,refs){covers=withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(collections.flatMap{it.members},refs)}}
     val live=remember(refs){refs.associateBy{it.key}}
@@ -78,7 +81,9 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
             val width=collectionCardWidth(maxWidth.value).dp
             LazyRow(Modifier.testTag("collection-gallery-strip"),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 items(collections,key={it.record.id}){collection->
-                    val cover=collection.members.firstNotNullOfOrNull{covers[it.id]?.let{candidate->live[candidate.key]}}
+                    val cover=collection.members.firstNotNullOfOrNull{covers[it.id]?.let{candidate->live[candidate.key]}} ?: cachedCovers[collection.record.id]?.takeIf { candidate -> collection.members.any { member ->
+                        !collectionMemberBlocked(member,blockedIdentities.orEmpty()) && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson),candidate)
+                    } }
                     CollectionCard(collection,cover,{onOpen(collection.record.id)},Modifier.width(width),blockedIdentities)
                 }
                 if(collections.size==1)item("create") {CreateCollectionCard(onCreate,Modifier.width(width))}
@@ -91,11 +96,17 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
 internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modifier) {
     val context=LocalContext.current
     val kind=when(ref.item.mediaType){com.domenota.medialoader.core.model.MediaType.PHOTO->MediaKind.IMAGE;com.domenota.medialoader.core.model.MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO}
-    var bitmap by remember(ref.item.savedUri){mutableStateOf<android.graphics.Bitmap?>(null)}
-    LaunchedEffect(ref.item.savedUri,kind){
+    val audioRevisions by com.domenota.medialoader.core.storage.AudioThumbnailInvalidation.revisions.collectAsState()
+    val audioRevision=if(kind==MediaKind.AUDIO) ref.item.savedUri?.let { audioRevisions[it] } ?: 0L else 0L
+    val coverIdentity=remember(ref.key,ref.item.savedUri,ref.item.sizeBytes,ref.item.createdAtEpochMillis,ref.aliases){
+        PersistentProjectionCache.digest(listOf(ref.key,ref.item.savedUri,ref.item.sizeBytes,ref.item.createdAtEpochMillis,
+            ref.aliases.sorted().joinToString("\u0000")).joinToString("\u0000"))
+    }
+    var bitmap by remember(ref.item.savedUri,coverIdentity,audioRevision){mutableStateOf<android.graphics.Bitmap?>(null)}
+    LaunchedEffect(ref.item.savedUri,kind,coverIdentity,audioRevision){
         val uri=ref.item.savedUri
         bitmap=if(uri.isNullOrBlank())null else withContext(Dispatchers.IO){
-            com.domenota.medialoader.ui.components.prepareDownloadThumbnail(context,uri,kind,ref.item.previewUrl,side=1000)
+            com.domenota.medialoader.ui.components.prepareDownloadThumbnail(context,uri,kind,ref.item.previewUrl,side=512,identityToken=coverIdentity)
         }
     }
     Box(modifier,contentAlignment=Alignment.Center){

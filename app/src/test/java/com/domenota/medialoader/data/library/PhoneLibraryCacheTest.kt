@@ -22,6 +22,15 @@ class PhoneLibraryCacheTest {
         groupId = "Camera", bulkMediaKey = "7")), mapOf(uri to setOf("media:external:42", "file-stat:identity")),
         mapOf(uri to "fingerprint-42"))
 
+    @Test fun identicalCompleteScanDoesNotInvalidateCatalogButPartialOrChangedScanDoes() {
+        val original=snapshot()
+        val state=com.domenota.medialoader.ui.PhoneLibraryState(items=original.items,identities=original.identities,
+            fingerprints=original.fingerprints,loaded=true,complete=true,revision=7)
+        assertTrue(com.domenota.medialoader.ui.samePhoneContent(state,snapshot()))
+        assertFalse(com.domenota.medialoader.ui.samePhoneContent(state.copy(complete=false),snapshot()))
+        assertFalse(com.domenota.medialoader.ui.samePhoneContent(state,original.copy(fingerprints=mapOf(uri to "changed"))))
+        assertFalse(com.domenota.medialoader.ui.samePhoneContent(state,PhoneMediaSnapshot(emptyList(),emptyMap())))
+    }
     @Test fun freshInstanceRestoresMetadataPhysicalAliasesAndGeneration() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val original = snapshot()

@@ -52,12 +52,26 @@ internal data class PhoneLibraryState(
     val accessEpoch: Long = 0,
     val complete: Boolean = false,
 )
+/** Equal complete snapshots do not invalidate downstream catalogs. Compare on a worker. */
+internal fun samePhoneContent(previous: PhoneLibraryState, next: PhoneMediaSnapshot): Boolean =
+    previous.loaded && previous.complete && previous.items == next.items &&
+        previous.identities == next.identities && previous.fingerprints == next.fingerprints
 internal data class LibraryIndex(val ready: Boolean = false, val refs: List<LibraryMediaRef> = emptyList(),
     val galleryRevision: Long = 0, val musicRevision: Long = 0, val appComplete: Boolean = false,
     val privacyKeys: Set<String>? = null,
     val appUris: Set<Pair<String, String?>> = emptySet())
 internal data class CollectionHistorySnapshot(val rows: Map<String, DownloadEntity>, val appUris: Set<Pair<String, String?>>, val blocked: Set<String>,
-    val completedUris: List<Pair<String, String?>>)
+    val completedUris: List<Pair<String, String?>>) {
+    private val rowsByUri = rows.values.filter { !it.savedUri.isNullOrBlank() }.groupBy { it.savedUri }
+    fun forMembers(members: List<com.domenota.medialoader.core.database.MediaCollectionMemberEntity>): Map<String, DownloadEntity> = buildMap {
+        for (member in members) {
+            for (key in MediaOrganizationPolicy.decode(member.identityJson)) {
+                if (key.startsWith("app:")) rows[key.removePrefix("app:")]?.let { put(it.id,it) }
+            }
+            for (uri in CollectionAddressResolver.phoneAddresses(member)) rowsByUri[uri].orEmpty().forEach { put(it.id,it) }
+        }
+    }
+}
 private data class AppReferenceBatch(val refs: List<LibraryMediaRef>, val complete: Boolean)
 internal data class AudioCatalogGuard(val privacy: Set<String>, val accessEpoch: Long)
 internal data class AudioCatalogSnapshot(val guard: AudioCatalogGuard, val refs: List<LibraryMediaRef>)
@@ -372,6 +386,27 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private val storeStamps = mutableMapOf<AppMode, PhoneStoreStamp>()
     private var observedPrivateKeys: Set<String>? = null
     private var mediaChangeJob: Job? = null
+    private var collectionChangeJob: Job? = null
+    private val collectionAddressRevisionState = MutableStateFlow(CollectionMediaSignal())
+    val collectionAddressRevision = collectionAddressRevisionState.asStateFlow()
+    private val pendingCollectionUris = linkedSetOf<String>()
+    private val pendingCollectionModes = linkedSetOf<AppMode>()
+    private var unknownCollectionChange = false
+    private fun notifyCollectionAddresses(uri: android.net.Uri?) {
+        pendingCollectionModes += phoneModesForMediaChange(uri?.toString())
+        val typed = uri?.pathSegments?.let { it.size==4 && it[2]=="media" && it[3].toLongOrNull()!=null } == true
+        if(!typed || pendingCollectionUris.size>=128) unknownCollectionChange=true
+        else pendingCollectionUris += requireNotNull(uri).toString()
+        // Do not wait for a running full-gallery job. Continuous notifications
+        // are coalesced into fixed windows rather than starving the address pass.
+        if (collectionChangeJob?.isActive == true) return
+        collectionChangeJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(750)
+            collectionAddressRevisionState.value=CollectionMediaSignal(collectionAddressRevisionState.value.revision+1,
+                pendingCollectionUris.toSet().takeUnless { unknownCollectionChange },pendingCollectionModes.toSet())
+            pendingCollectionUris.clear();pendingCollectionModes.clear();unknownCollectionChange=false
+        }
+    }
     private val pendingMediaChanges = mutableSetOf<AppMode>()
     private var editorHoldsAutomaticIndexing = false
     private var recoveryRefreshPending = false
@@ -427,7 +462,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private fun scheduleMediaChange(uri: android.net.Uri?, addModes: Boolean = true) {
         // Only a changed media kind needs rescanning. Preserve unknown URI events
         // conservatively, and coalesce successive callbacks while scans are busy.
-        if (addModes) pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
+        if (addModes) {
+            pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
+            notifyCollectionAddresses(uri)
+        }
         mediaChangeJob?.cancel()
         if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
         if (AppMode.MUSIC in pendingMediaChanges) AudioWaveformPrecompute.request(getApplication())
@@ -598,11 +636,18 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     throw java.io.IOException("MediaStore database changed during indexing")
                 // Never label a scan with a newer generation that it may not have observed.
                 stamp = PhoneStoreStamp(stamp.versions, stamp.generation.takeIf { after == stamp })
-                state.value = PhoneLibraryState(items = snapshot.items, identities = snapshot.identities,
+                val existing = state.value
+                val unchanged = !blocking && existing.accessEpoch == accessEpoch &&
+                    withContext(Dispatchers.Default) { samePhoneContent(existing,snapshot) }
+                if (!stillAllowed()) { refresh(mode,force=true,invalidate=true); return@launch }
+                if (unchanged) {
+                    if (existing.loading || existing.message != null || existing.requiresValidation) state.value = existing.copy(loading=false,message=null,requiresValidation=false)
+                    com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone snapshot unchanged · mode=$mode")
+                } else state.value = PhoneLibraryState(items = snapshot.items, identities = snapshot.identities,
                     fingerprints = snapshot.fingerprints, loaded = true, complete = true, revision = revision + 1, requiresValidation = blocking, accessEpoch = accessEpoch)
                 storeStamps[mode] = stamp
                 refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
-                if (!partial) try { phoneCache.write(mode, accessKey, privacy, stamp, snapshot) }
+                if (!partial && (!unchanged || previousStamp != stamp)) try { phoneCache.write(mode, accessKey, privacy, stamp, snapshot) }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { com.domenota.medialoader.core.logging.AppLog.w("Library", "Phone metadata cache save deferred") }
             }

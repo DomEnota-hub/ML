@@ -62,4 +62,35 @@ class BackgroundLibraryProjectionTest {
         assertTrue(ready)
     }
 
+
+    @Test fun serialAddressProjectionSeedsBeforeRefreshAndRejectsSupersededGeneration() {
+        var revision by mutableIntStateOf(1)
+        val firstStarted=java.util.concurrent.atomic.AtomicBoolean(false)
+        val release=kotlinx.coroutines.CompletableDeferred<Unit>()
+        val calls=java.util.concurrent.CopyOnWriteArrayList<Int>()
+        var shown="";var ready=false
+        val publications=mutableListOf<String>()
+        compose.setContent {
+            val captured=revision
+            val result=addressedLibraryProjection("", "same-access",captured,serial=true,seed={"saved"}) {
+                calls.add(captured)
+                if(captured==1) { firstStarted.set(true);release.await() }
+                "fresh-$captured"
+            }
+            SideEffect { shown=result.value;ready=result.ready;publications.add(shown) }
+            Text(result.value)
+        }
+        try {
+            compose.waitUntil(5000){firstStarted.get() && shown=="saved"}
+            compose.runOnIdle { revision=2 }
+            compose.waitForIdle()
+            assertEquals("saved",shown);assertEquals(listOf(1),calls.toList())
+            compose.runOnIdle { revision=3 }
+            compose.waitForIdle()
+            release.complete(Unit)
+            compose.waitUntil(5000){shown=="fresh-3" && ready}
+            assertEquals(listOf(1,3),calls.toList())
+            assertFalse(publications.contains("fresh-1"));assertFalse(publications.contains("fresh-2"))
+        } finally { release.complete(Unit) }
+    }
 }

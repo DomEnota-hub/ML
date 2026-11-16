@@ -235,4 +235,26 @@ class MediaOrganizationScreenTest {
         compose.setContent{MaterialTheme{ReviewScreen(emptyList(),emptyList(),emptyList(),emptySet(),store,true,{},{_,_->},{},{},{},{},{_,_->},{_,_->},{})}}
         compose.onNodeWithText("Всё разобрано. Новые успешные загрузки появятся здесь.").assertIsDisplayed()
     }
+
+    @Test fun unresolvedCollectionStopsLoadingAndOffersRetryWithoutGallery() {
+        val member=MediaCollectionMemberEntity("m","c",MediaOrganizationPolicy.encode(setOf("file-stat:unknown")),null,1)
+        val collection=MediaCollection(MediaCollectionEntity("c","Test",1),listOf(member))
+        val terminal=AddressedCollection.unconfirmed(listOf(member),emptySet())
+        var retried=false
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(collection),emptyList(),store,"c",true,emptyList(),null,false,{},{_,_->},{},{},{},{},
+            scopedDetails=true,detailCatalogId="c",detailCatalog=terminal,overviewAccessReady=true,detailChecking=false,onRetryDetail={retried=true})}}
+        compose.onNodeWithTag("organization-loading").assertDoesNotExist()
+        compose.onNodeWithText("Повторить проверку").assertIsDisplayed().performClick()
+        compose.runOnIdle{assertTrue(retried)}
+        compose.onNodeWithText("1 недоступен").assertDoesNotExist()
+    }
+    @Test fun collectionOverviewDoesNotShowFullCatalogSpinnerOncePrivacyIsReady() {
+        val c=MediaCollection(MediaCollectionEntity("c","Test",1),emptyList())
+        var request=com.domenota.medialoader.ui.CollectionCatalogRequest.ALL
+        compose.setContent{MaterialTheme{CollectionsScreen(listOf(c),emptyList(),store,null,true,emptyList(),null,false,{},{_,_->},{},{},{},{},
+            scopedDetails=true,overviewAccessReady=true,onCatalogRequest={request=it})}}
+        compose.onNodeWithTag("organization-loading").assertDoesNotExist()
+        compose.onNodeWithText("Test").assertIsDisplayed()
+        compose.runOnIdle{assertEquals(com.domenota.medialoader.ui.CollectionCatalogRequest.NONE,request)}
+    }
 }

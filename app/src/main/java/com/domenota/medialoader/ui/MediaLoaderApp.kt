@@ -214,6 +214,9 @@ fun MediaLoaderApp(
     val reviewEntries by reviewFlow.collectAsStateWithLifecycle(initialValue=emptyList())
     var collectionInitial by rememberSaveable{mutableStateOf<String?>(null)}
     var collectionDetailId by rememberSaveable{mutableStateOf<String?>(null)}
+    var collectionPickerRequest by remember { mutableStateOf(CollectionCatalogRequest.NONE) }
+    var collectionLegacyRequest by remember { mutableStateOf(CollectionCatalogRequest.NONE) }
+    val collectionCatalogRequest = maxOf(collectionPickerRequest, collectionLegacyRequest)
     val collectionViewerActive = currentRoute == MEDIA_VIEWER_ROUTE && backStackEntry?.savedStateHandle?.get<Boolean>("collection_viewer") == true
     val collectionRouteActive = currentRoute == "collections" || collectionViewerActive
     var collectionCreate by rememberSaveable{mutableStateOf(false)}
@@ -231,7 +234,9 @@ fun MediaLoaderApp(
     val collectionsFlow = remember(organization, collectionsObserved) {
         if (collectionsObserved) organization.collections else kotlinx.coroutines.flow.flowOf(emptyList())
     }
-    val collections by collectionsFlow.collectAsStateWithLifecycle(initialValue=emptyList())
+    val collectionsState by collectionsFlow.collectAsStateWithLifecycle(initialValue=null as List<MediaCollection>?)
+    val collections = collectionsState.orEmpty()
+    val collectionsLoaded = collectionsObserved && collectionsState != null
     var privateNavigation by remember { mutableStateOf(false) }
     var duplicateRequest by rememberSaveable { mutableIntStateOf(0) }
     var galleryDateRequest by rememberSaveable { mutableIntStateOf(0) }
@@ -271,8 +276,9 @@ fun MediaLoaderApp(
     val historySnapshot by libraryModel.collectionHistory.collectAsStateWithLifecycle()
     val galleryAccessEpoch by libraryModel.galleryAccessEpoch.collectAsStateWithLifecycle()
     val musicAccessEpoch by libraryModel.musicAccessEpoch.collectAsStateWithLifecycle()
-    val audioCatalogFlow = remember(appMode, currentRoute) {
-        if (appMode == AppMode.MUSIC && currentRoute in setOf("home", MEDIA_VIEWER_ROUTE)) libraryModel.audioCatalog else kotlinx.coroutines.flow.flowOf(null)
+    val audioCatalogFlow = remember(appMode, currentRoute, collectionCatalogRequest) {
+        if ((appMode == AppMode.MUSIC && currentRoute in setOf("home", MEDIA_VIEWER_ROUTE)) ||
+            (currentRoute == "collections" && collectionCatalogRequest == CollectionCatalogRequest.AUDIO)) libraryModel.audioCatalog else kotlinx.coroutines.flow.flowOf(null)
     }
     val audioCatalog by audioCatalogFlow.collectAsStateWithLifecycle(initialValue = null)
     val libraryItems = remember(publicLibraryRefs) { publicLibraryRefs.map { it.item } }
@@ -304,6 +310,8 @@ fun MediaLoaderApp(
 
     fun openCollections(id:String?=null,audioOnly:Boolean=false,ids:List<String> = emptyList(),link:String?=null,create:Boolean=false){
         collectionInitial=id;collectionDetailId=id;collectionAudioOnly=audioOnly;collectionAddIds=ids;collectionLink=link;collectionCreate=create
+        collectionLegacyRequest=CollectionCatalogRequest.NONE
+        collectionPickerRequest=if(create || ids.isNotEmpty()) CollectionCatalogRequest.ALL else CollectionCatalogRequest.NONE
         navController.navigate("collections"){launchSingleTop=true}
     }
     fun addToCollection(ids:List<String>){
@@ -370,20 +378,24 @@ fun MediaLoaderApp(
     fun refreshPhoneLibraries(force: Boolean = false) {
         val needed = mutableSetOf<AppMode>()
         editorLibraryMode?.let { needed += it }
-        if(collectionRouteActive||currentRoute=="media-review"||currentRoute=="media-passport/{mediaId}"){
-            needed+=AppMode.GALLERY;needed+=AppMode.MUSIC
+        if (collectionRouteActive) {
+            if (!collectionViewerActive) needed += collectionScanModes(collectionCatalogRequest)
+        } else {
+            if (currentRoute=="media-review"||currentRoute=="media-passport/{mediaId}") {
+                needed+=AppMode.GALLERY;needed+=AppMode.MUSIC
+            }
+            if (appMode == AppMode.GALLERY && (librarySource == LibrarySource.PHONE ||
+                    externalCatalog.any { it.ref.item.mediaType != MediaType.AUDIO })) needed += AppMode.GALLERY
+            if (appMode == AppMode.MUSIC) needed += AppMode.MUSIC
+            if (phoneViewingId?.startsWith("phone:") == true) needed +=
+                if (phoneViewingId.startsWith("phone:audio:")) AppMode.MUSIC else AppMode.GALLERY
         }
-        if (appMode == AppMode.GALLERY && (librarySource == LibrarySource.PHONE ||
-                externalCatalog.any { it.ref.item.mediaType != MediaType.AUDIO })) needed += AppMode.GALLERY
-        if (appMode == AppMode.MUSIC) needed += AppMode.MUSIC
-        if (phoneViewingId?.startsWith("phone:") == true) needed +=
-            if (phoneViewingId.startsWith("phone:audio:")) AppMode.MUSIC else AppMode.GALLERY
         needed.forEach { mode ->
             val state = if (mode == AppMode.GALLERY) libraryModel.gallery.value else libraryModel.music.value
             if (force || (!state.loaded && !state.loading)) libraryModel.refresh(mode)
         }
     }
-    LaunchedEffect(appMode, librarySource, currentRoute) {
+    LaunchedEffect(appMode, librarySource, currentRoute, collectionCatalogRequest) {
         // MediaStore's ContentObserver tracks real photo/video changes. Do not
         // force a full 11k-row scan each time we return from a photo viewer.
         // LibraryViewModel.refresh throttles routine rechecks and still refreshes
@@ -392,8 +404,9 @@ fun MediaLoaderApp(
     }
     LaunchedEffect(phoneViewingId) { refreshPhoneLibraries() }
     LaunchedEffect(externalCatalog.map { it.ref.key }) { refreshPhoneLibraries() }
-    DisposableEffect(lifecycleOwner, appMode, librarySource, phoneViewingId) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refreshPhoneLibraries(force = true) }
+    val refreshVisibleLibraries by rememberUpdatedState<(Boolean) -> Unit>({ force -> refreshPhoneLibraries(force) })
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refreshVisibleLibraries(true) }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
@@ -733,26 +746,43 @@ fun MediaLoaderApp(
     val collectionHistory = historySnapshot?.rows.orEmpty()
     // The only synchronous gate contains small identity sets, not one newly allocated
     // set per media row. Real privacy/hidden changes invalidate retained projections.
-    val collectionBlocked = remember(libraryPrivateKeys, historySnapshot?.blocked, organizationHidden) {
+    val collectionPrivacyGeneration by DuplicatePrivacyGuard.changes.collectAsStateWithLifecycle()
+    val inFlightPrivacyKeys = remember(collectionPrivacyGeneration, libraryPrivateKeys, historySnapshot?.blocked) { DuplicatePrivacyGuard.currentBlockedKeys() }
+    val collectionBlocked = remember(libraryPrivateKeys, historySnapshot?.blocked, organizationHidden, inFlightPrivacyKeys) {
         buildSet {
+            addAll(inFlightPrivacyKeys)
             addAll(libraryPrivateKeys.orEmpty())
             addAll(historySnapshot?.blocked.orEmpty())
             addAll(com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.blockedIdentities(organizationHidden))
         }
     }
-    val collectionAccess = libraryPrivateKeys?.takeIf { !recoveryRunning && historySnapshot != null }?.let {
-        CollectionAccessGuard(it, collectionBlocked, galleryAccessEpoch, musicAccessEpoch)
+    val collectionPermissionTag = remember(fileScanEpoch, galleryAccessEpoch, musicAccessEpoch, currentRoute) {
+        val permissions = (PhoneMediaLibrary.permissions(AppMode.GALLERY) + PhoneMediaLibrary.permissions(AppMode.MUSIC)).distinct()
+        val granted = permissions.filter { ContextCompat.checkSelfPermission(context,it) == PackageManager.PERMISSION_GRANTED }
+        val partial = Build.VERSION.SDK_INT >= 34 && android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED in granted &&
+            (android.Manifest.permission.READ_MEDIA_IMAGES !in granted || android.Manifest.permission.READ_MEDIA_VIDEO !in granted)
+        granted.sorted().joinToString("|") + if (partial) ":selected:$fileScanEpoch" else ""
     }
-    val fullGuard = collectionAccess.takeIf { collectionRouteActive }
+    val collectionAccess = libraryPrivateKeys?.takeIf { !recoveryRunning && historySnapshot != null }?.let {
+        CollectionAccessGuard(it, collectionBlocked, galleryAccessEpoch, musicAccessEpoch, collectionPermissionTag, collectionPrivacyGeneration)
+    }
+    val fullGuard = collectionAccess.takeIf { collectionRouteActive && collectionCatalogRequest != CollectionCatalogRequest.NONE }
     // The full catalog is needed for picking arbitrary new files or legacy alias
     // fallback, not for displaying an already stored collection.
-    val collectionComplete = fullGuard != null && libraryIndex.ready && libraryIndex.appComplete &&
+    val audioPickerSnapshot = audioCatalog?.takeIf { it.guard.privacy == libraryPrivateKeys && it.guard.accessEpoch == musicAccessEpoch }
+    val allCatalogComplete = libraryIndex.ready && libraryIndex.appComplete &&
         libraryIndex.privacyKeys == libraryPrivateKeys && libraryIndex.appUris == historySnapshot?.appUris &&
         phoneGallery.loaded && phoneGallery.complete && !phoneGallery.loading && phoneMusic.loaded && phoneMusic.complete && !phoneMusic.loading &&
         phoneGallery.accessEpoch == galleryAccessEpoch && phoneMusic.accessEpoch == musicAccessEpoch &&
         libraryIndex.galleryRevision == phoneGallery.revision && libraryIndex.musicRevision == phoneMusic.revision
-    val completeRefs = publicLibraryRefs.takeIf { collectionComplete }
-    val fullCatalogProjection = addressedLibraryProjection<CollectionCatalogSnapshot?>(null, fullGuard, completeRefs,
+    val completeRefs = if(fullGuard == null) null else when(collectionCatalogRequest) {
+        CollectionCatalogRequest.NONE -> null
+        CollectionCatalogRequest.AUDIO -> audioPickerSnapshot?.refs
+        CollectionCatalogRequest.ALL -> publicLibraryRefs.takeIf { allCatalogComplete }
+    }
+    val collectionComplete = completeRefs != null
+    val pickerGuard = fullGuard?.let { it to collectionCatalogRequest }
+    val fullCatalogProjection = addressedLibraryProjection<CollectionCatalogSnapshot?>(null, pickerGuard, completeRefs,
         publishWhen = completeRefs != null) {
         completeRefs?.let { CollectionCatalogSnapshot(it, fullGuard!!.privacy, CollectionIdentityIndex.build(it)) }
     }
@@ -761,30 +791,112 @@ fun MediaLoaderApp(
     val statusSnapshot = fileStatuses
     val statusUriSnapshot = fileStatusUris
     val hiddenSnapshot = organizationHidden
-    val fullProjection = addressedLibraryProjection(RouteMediaCatalog.EMPTY, fullGuard.takeIf { collectionCatalog != null },
+    val fullProjection = addressedLibraryProjection(RouteMediaCatalog.EMPTY, pickerGuard.takeIf { collectionCatalog != null },
         collectionCatalog, collectionHistory, statusSnapshot, statusUriSnapshot) {
         RouteMediaCatalog(filterRouteCatalog(collectionCatalog?.refs.orEmpty(), collectionBlocked, collectionHistory, statusSnapshot, statusUriSnapshot))
     }
     val collectionRefs = fullProjection.value.refs
     val collectionUsable = fullProjection.usable && collectionCatalog != null
     val scopedCollection = collections.firstOrNull { it.record.id == collectionDetailId }
-    val scopeGuard = fullGuard?.let { guard -> scopedCollection?.record?.id?.let { CollectionDetailGuard(guard, it) } }
+    val scopedAccess = collectionAccess?.copy(galleryEpoch=0, musicEpoch=0)
+    val scopeGuard = scopedAccess.takeIf { collectionRouteActive }?.let { guard -> scopedCollection?.record?.id?.let { CollectionDetailGuard(guard, it) } }
     val scopeMembers = scopedCollection?.members.orEmpty()
+    val relevantHistory = remember(scopeMembers, historySnapshot) { historySnapshot?.forMembers(scopeMembers).orEmpty() }
+    val scopeHistory = remember(relevantHistory) { relevantHistory }
+    val mediaAddressSignal by libraryModel.collectionAddressRevision.collectAsStateWithLifecycle()
+    var scopedMediaRevision by remember { mutableStateOf(mediaAddressSignal.revision) }
+    LaunchedEffect(mediaAddressSignal.revision) {
+        if(mediaAddressSignal.affects(scopeMembers,scopeHistory)) scopedMediaRevision=mediaAddressSignal.revision
+    }
     // Do not restart the addressed pass for every incremental MediaStore batch.
     // A completed revision or actual history/access change is a meaningful trigger.
-    val galleryCompleteRevision = phoneGallery.revision.takeIf { phoneGallery.complete && !phoneGallery.loading }
-    val musicCompleteRevision = phoneMusic.revision.takeIf { phoneMusic.complete && !phoneMusic.loading }
+    val collectionDiskCache = remember(context) { CollectionProjectionCache(context) }
+    val overviewDiskCache = remember(context) { CollectionProjectionCache(context, "collection-overviews") }
+    var collectionCacheRevision by remember { mutableIntStateOf(0) }
     val scopedProjection = addressedLibraryProjection<AddressedCollection?>(null, scopeGuard,
-        scopeMembers, collectionHistory, collectionCatalog, fullCurrent, galleryCompleteRevision, musicCompleteRevision, fileScanEpoch, collectionRefreshEpoch,
-        retain = { previous, next -> next?.let { retainAddressedCollection(previous,it) } }) {
+        scopeMembers, scopeHistory, collectionCatalog, fullCurrent, fileScanEpoch, collectionRefreshEpoch, scopedMediaRevision,
+        retain = { previous, next -> next?.let { retainAddressedCollection(previous,it) } }, serial = true,
+        seed = { scopeGuard?.let { guard -> CollectionLookupBudget.run(2_000) {
+            collectionDiskCache.read(guard.id, scopeMembers, scopeHistory, collectionBlocked)
+        } } }) {
         val started = android.os.SystemClock.elapsedRealtime()
-        CollectionAddressResolver.resolve(scopeMembers, collectionHistory, collectionCatalog, fullCurrent, collectionBlocked,
-            { row -> libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } },
-            libraryModel::addressCollectionPhone) { ref ->
+        val cacheGuard = collectionDiskCache.guard(collectionBlocked)
+        val stamp = CollectionLookupBudget.run(2_000) { collectionDiskCache.stamp() } ?: PhoneStoreStamp(null,null)
+        val deadline = CollectionLookupDeadline()
+        val result = CollectionAddressResolver.resolve(scopeMembers, if(collectionCatalog==null) scopeHistory else collectionHistory, collectionCatalog,
+            fullCurrent && collectionCatalogRequest == CollectionCatalogRequest.ALL, collectionBlocked,
+            { row -> deadline.lookup { libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } } },
+            { uri -> deadline.lookup { libraryModel.addressCollectionPhone(uri) } }) { ref ->
             ref.item.mediaType == MediaType.AUDIO && com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(ref.item, hiddenSnapshot)
-        }.also { AppLog.i("Library", "Collection addresses · members=${scopeMembers.size} · resolved=${it.resolved.size} · pending=${it.pending.size} · full=$fullCurrent · ms=${android.os.SystemClock.elapsedRealtime()-started}") }
+        }.copy(verifiedStoreStamp = stamp, verifiedCacheGuard = cacheGuard)
+        result.also { AppLog.i("Library", "Collection addresses · members=${scopeMembers.size} · resolved=${it.resolved.size} · pending=${it.pending.size} · full=$fullCurrent · ms=${android.os.SystemClock.elapsedRealtime()-started}") }
     }
-    val scopedCatalog = scopedProjection.value
+    // Overview has its own cheap first-member projections, not a full media catalog.
+    val coverGuard = scopedAccess.takeIf { collectionsLoaded && ((currentRoute == "collections" && collectionDetailId == null) ||
+        (currentRoute == "home" && appMode == AppMode.GALLERY)) }
+    val overviewCollections = collections
+    val overviewHistory = historySnapshot
+    suspend fun readOverviewCovers(): Map<String, LibraryMediaRef> {
+        val stamp = collectionDiskCache.stamp()
+        return buildMap {
+            for (collection in overviewCollections) {
+                val cached = collectionDiskCache.read(collection.record.id,collection.members,collectionHistory,collectionBlocked,stamp)
+                    ?: overviewDiskCache.read(collection.record.id,collection.members,collectionHistory,collectionBlocked,stamp)
+                collection.members.firstNotNullOfOrNull { cached?.resolved?.get(it.id) }?.let { put(collection.record.id,it) }
+            }
+        }
+    }
+    val overviewProjection = addressedLibraryProjection<Map<String,LibraryMediaRef>?>(null,coverGuard,
+        collections,collectionHistory,collectionCacheRevision,fileScanEpoch,mediaAddressSignal.revision,
+        retain = { previous, next -> next ?: previous }, serial = true,
+        seed = { CollectionLookupBudget.run(3_000) { readOverviewCovers() } }) {
+        CollectionLookupBudget.run(12_000) {
+            val stamp = overviewDiskCache.stamp()
+            val cacheGuard = overviewDiskCache.guard(collectionBlocked)
+            val cached = readOverviewCovers()
+            buildMap {
+                for (collection in overviewCollections) {
+                    val eligible = collection.members.filter { it.link == null && !collectionMemberBlocked(it,collectionBlocked) }
+                    val oldCover = cached[collection.record.id]
+                    val oldMember = eligible.firstOrNull { oldCover != null && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(it.identityJson),oldCover) }
+                    val candidates = (eligible.take(3) + listOfNotNull(oldMember)).distinctBy { it.id }
+                    if (candidates.isEmpty()) continue
+                    val value = CollectionAddressResolver.resolve(candidates, overviewHistory?.forMembers(candidates).orEmpty(), null, false, collectionBlocked,
+                        { row -> libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } }, libraryModel::addressCollectionPhone)
+                    val cover = candidates.firstNotNullOfOrNull { value.resolved[it.id] }
+                    if (cover != null) {
+                        put(collection.record.id,cover)
+                        overviewDiskCache.write(collection.record.id,candidates,value,collectionBlocked,stamp,cacheGuard)
+                    } else {
+                        val old = cached[collection.record.id]
+                        val stillPending = candidates.any { it.id in value.pending && it.id !in value.invalidated &&
+                            it.id !in value.suppressed && old != null && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(it.identityJson),old) }
+                        if(stillPending && old != null) put(collection.record.id,old)
+                        else overviewDiskCache.write(collection.record.id,candidates,value,collectionBlocked,stamp,cacheGuard)
+                    }
+                }
+            }
+        }
+    }
+    val cachedCollectionCovers = remember(overviewProjection.value, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot) {
+        overviewProjection.value.orEmpty().filterValues { ref -> filterRouteCatalog(listOf(ref),collectionBlocked,collectionHistory,statusSnapshot,statusUriSnapshot).isNotEmpty() }
+    }
+    val scopedCatalog = remember(scopedProjection.value, scopeMembers, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot) {
+        scopedProjection.value?.let { filterAddressedDisplay(it, scopeMembers, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot) }
+    }
+    LaunchedEffect(scopedCatalog, scopeGuard, scopedProjection.ready) {
+        val result = scopedCatalog ?: return@LaunchedEffect
+        val guard = scopeGuard ?: return@LaunchedEffect
+        val stamp = result.verifiedStoreStamp ?: return@LaunchedEffect
+        val cacheGuard = result.verifiedCacheGuard ?: return@LaunchedEffect
+        if (!scopedProjection.ready) return@LaunchedEffect
+        try {
+            val wrote = CollectionLookupBudget.run(3_000) { collectionDiskCache.write(guard.id, scopeMembers, result, collectionBlocked, stamp, cacheGuard); true }
+            if(wrote==true) collectionCacheRevision++
+        }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { AppLog.w("Library", "Collection projection cache write deferred") }
+    }
     LaunchedEffect(scopedCatalog) {
         val changes = scopedCatalog?.statuses.orEmpty().filter { (id, result) ->
             collectionHistory[id]?.savedUri == result.first && result.second != SavedFileStatus.UNCHECKED &&
@@ -796,10 +908,11 @@ fun MediaLoaderApp(
             fileStatuses = fileStatuses + changes.mapValues { it.value.second }
         }
     }
-    LaunchedEffect(scopedCatalog, scopeGuard) {
+    LaunchedEffect(scopedCatalog, scopeGuard, scopedProjection.ready) {
+        if (!scopedProjection.ready) return@LaunchedEffect
         val scope = scopedCatalog ?: return@LaunchedEffect
         val guard = scopeGuard ?: return@LaunchedEffect
-        if (scopeMembers.any { it.metadataJson == null && it.id in scope.resolved }) {
+        if (scopeMembers.any { it.metadataJson == null && it.id in scope.resolved && it.id !in scope.pending }) {
             try { organization.rememberMemberMetadata(guard.id,scopeMembers,scope.resolved,guard.access.blocked) }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { AppLog.w("Library", "Collection metadata persistence deferred") }
@@ -838,6 +951,7 @@ fun MediaLoaderApp(
         val music = currentRecentCatalog.byKey
         val audioEpoch = libraryModel.musicAccessEpoch.value
         val visualEpoch = libraryModel.galleryAccessEpoch.value
+        val actionPrivacyEpoch = DuplicatePrivacyGuard.generation(context)
         val (checked, statuses) = withContext(Dispatchers.IO) {
             val candidates = ids.distinct().mapNotNull { id -> if (recent) music[id] else scoped[id] ?: full[id] }
             val statuses = mutableMapOf<String, Pair<String?, SavedFileStatus>>()
@@ -847,7 +961,7 @@ fun MediaLoaderApp(
             val allowedTypes = MediaType.entries.filter { type -> PhoneMediaLibrary.canRead(type,Build.VERSION.SDK_INT) {
                 ContextCompat.checkSelfPermission(context,it)==PackageManager.PERMISSION_GRANTED } }.toSet()
             val checked = candidates.filter { ref ->
-                if (collectionRefBlocked(ref, blocked)) return@filter false
+                if (collectionRefBlocked(ref, blocked) || !DuplicatePrivacyGuard.accepts(context,actionPrivacyEpoch,ref.appDownloadId ?: ref.key,ref.aliases)) return@filter false
                 if (ref.appDownloadId == null && ref.item.mediaType !in allowedTypes) return@filter false
                 val current = ref.appDownloadId?.let { mediaRepository.downloadById(it) }
                 val status = availabilityCache.get(ref.item.savedUri, fresh = true)
@@ -859,12 +973,16 @@ fun MediaLoaderApp(
                         val identities = com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(context, requireNotNull(ref.item.savedUri))
                         val strong = ref.aliases.filter { it.startsWith("file-stat:") }
                         val known = if (strong.isNotEmpty()) strong else ref.aliases.filter { it.startsWith("uri:") || it.startsWith("media:") || it.startsWith("file:") }
-                        known.any(identities::contains) && identities.none(blocked::contains)
+                        known.any(identities::contains) && identities.none(blocked::contains) &&
+                            (recent || !CollectionAddressResolver.isTypedPhoneAddress(requireNotNull(ref.item.savedUri)) || libraryModel.addressCollectionPhone(requireNotNull(ref.item.savedUri)).let { actual ->
+                                actual.status == SavedFileStatus.PRESENT && actual.ref?.let { CollectionAddressResolver.matches(MediaOrganizationPolicy.keys(ref),it) } == true
+                            })
                     })
             }
             checked to statuses
         }
-        if (libraryModel.musicAccessEpoch.value != audioEpoch || (!recent && libraryModel.galleryAccessEpoch.value != visualEpoch) ||
+        if ((checked.any { it.item.mediaType == MediaType.AUDIO } && libraryModel.musicAccessEpoch.value != audioEpoch) ||
+            (checked.any { it.item.mediaType != MediaType.AUDIO } && libraryModel.galleryAccessEpoch.value != visualEpoch) ||
             com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value) return emptyList()
         val keys = libraryModel.privateKeys.value ?: return emptyList()
         val liveFull = currentCollectionCatalog.byKey
@@ -885,6 +1003,7 @@ fun MediaLoaderApp(
             ContextCompat.checkSelfPermission(context,it)==PackageManager.PERMISSION_GRANTED } }.toSet()
         return checked.filter { ref -> live(ref.key)?.item?.savedUri == ref.item.savedUri && !collectionRefBlocked(ref, keys) &&
             !collectionRefBlocked(ref, currentBlocked) && !collectionRefBlocked(ref, finalHidden) &&
+            DuplicatePrivacyGuard.accepts(context,actionPrivacyEpoch,ref.appDownloadId ?: ref.key,ref.aliases) &&
             (ref.appDownloadId != null || ref.item.mediaType in allowedTypes) && (!recent ||
                 com.domenota.medialoader.ui.screens.music.MusicFolderRules.visible(ref.item,excluded,currentRecentFolders)) }
     }
@@ -1486,7 +1605,8 @@ fun MediaLoaderApp(
     val collectionNoticeBottom = with(noticeDensity) {
         (collectionNoticeFooterPx + WindowInsets.navigationBars.getBottom(noticeDensity)).toDp()
     }
-    val checkingPhoneAccess = if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)
+    val checkingPhoneAccess = if (collectionRouteActive) false
+    else if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)
         visibleLibraryValidationPending(appMode, libraryIndex, phoneGallery, phoneMusic)
     else phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
     MediaManagementAccessPrompt(enabled = appMode != AppMode.DOWNLOADER &&
@@ -1654,7 +1774,7 @@ fun MediaLoaderApp(
                     onTrashFolderContents = requestAlbumTrash,
                     collectionContent={
                         Column {
-                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)},blockedIdentities=collectionBlocked.takeIf{libraryPrivateKeys!=null})
+                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)},blockedIdentities=collectionBlocked.takeIf{scopedAccess!=null},cachedCovers=if(organizationProjection.ready && organizationUsable) emptyMap() else cachedCollectionCovers)
                             TextButton({navController.navigate("visual-duplicates"){launchSingleTop=true}}){Text("Дубликаты фото и видео")}
                         }
                     },
@@ -1813,7 +1933,17 @@ fun MediaLoaderApp(
                     blockedIdentities=collectionBlocked, history=collectionHistory,
                     identityIndex=collectionCatalog?.identityIndex, externalHistory=missingExternalRefs,
                     scopedDetails=true, detailCatalogId=collectionDetailId, detailCatalog=scopedCatalog,
-                    onSelectedCollection={collectionDetailId=it},catalogByKey=fullProjection.value.byKey,
+                    onSelectedCollection={ if(collectionDetailId != it) collectionLegacyRequest=CollectionCatalogRequest.NONE; collectionDetailId=it },catalogByKey=fullProjection.value.byKey,
+                    cachedCovers=if(fullCurrent && fullProjection.ready) emptyMap() else cachedCollectionCovers, overviewAccessReady=scopedAccess!=null && collectionsLoaded,
+                    detailChecking=scopeGuard!=null && !scopedProjection.ready,
+                    onCatalogRequest={collectionPickerRequest=it},
+                    onRetryPicker={refreshPhoneLibraries(force=true)},
+                    onRetryDetail={
+                        if(scopeMembers.any { it.id in scopedCatalog?.pending.orEmpty() && CollectionAddressResolver.phoneAddresses(it).isEmpty() &&
+                                MediaOrganizationPolicy.decode(it.identityJson).none { key -> key.startsWith("app:") } })
+                            collectionLegacyRequest=if(collectionAudioOnly) CollectionCatalogRequest.AUDIO else CollectionCatalogRequest.ALL
+                        collectionRefreshEpoch++
+                    },
                     validateSelection={ selected ->
                         val valid=validCollectionRefs(selected.map { it.key })
                         check(valid.size==selected.size && selected.all { ref -> valid.any { it.key==ref.key && it.item.savedUri==ref.item.savedUri } }) { "Часть файлов недоступна" }
@@ -2320,8 +2450,8 @@ fun MediaLoaderApp(
                         ?: accessibleDownloads.firstOrNull { it.id == downloadId }
                 if (item == null || item.savedUri == null) {
                     if (!privateViewer &&
-                        (awaitingPhone(downloadId) || (visualRoute &&
-                            ((selectedHistoryRow != null && !addressFinished) || libraryPrivateKeys == null || (collectionViewer && scopedCatalog == null))))) {
+                        ((!collectionViewer && awaitingPhone(downloadId)) || (visualRoute &&
+                            ((selectedHistoryRow != null && !addressFinished) || libraryPrivateKeys == null || (collectionViewer && scopedCatalog == null && scopeGuard != null && !scopedProjection.ready))))) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
