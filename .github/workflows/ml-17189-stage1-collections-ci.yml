@@ -9,7 +9,7 @@ on:
       final_acceptance:
         description: Run full final acceptance and unsigned handoff (stage 3)
         type: boolean
-        default: false
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -53,64 +53,64 @@ jobs:
           mkdir -p app/build/ml-jvm-shards/stage1-visibility
           cp app/build/test-results/testDebugUnitTest/TEST-*.xml app/build/ml-jvm-shards/stage1-visibility/
       - name: Stage 2 collection, coverage and visual duplicate regressions
-        if: inputs.final_acceptance != true
+        if: github.event_name == 'workflow_dispatch' && inputs.final_acceptance != true
         run: |
           python3 scripts/run-jvm-isolated-compose.py collection --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*PhoneLibraryCacheTest' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --tests '*BackgroundLibraryProjectionTest' --tests '*LibraryDisplayInventoryTest' --tests '*GalleryBrowseInventoryTest' --tests '*LibraryProjectionCountersTest' --tests '*AudioThumbnailInvalidationTest' --tests '*AppAudioIdentityCacheTest' --tests '*VisualDuplicate*Test' --tests '*LibraryValidationGateTest' --tests '*DuplicatePrivacyEpochTest'
           mkdir -p app/build/ml-jvm-shards/stage2-visual
           cp app/build/test-results/testDebugUnitTest/TEST-*.xml app/build/ml-jvm-shards/stage2-visual/
       - name: Stage 2 recognition, actual audio format and safe metadata regressions
-        if: inputs.final_acceptance != true
+        if: github.event_name == 'workflow_dispatch' && inputs.final_acceptance != true
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*AudioMetadata*Test' --tests '*TrackRecognition*Test' --tests '*LocalTrackRecognitionSearchTest' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*MediaWriteAccessTest' --tests '*MusicDuplicateSessionTest' --stacktrace
           mkdir -p app/build/ml-jvm-shards/stage2-audio
           cp app/build/test-results/testDebugUnitTest/TEST-*.xml app/build/ml-jvm-shards/stage2-audio/
       - name: Collection regression tests
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: |
           python3 scripts/run-jvm-isolated-compose.py collection --tests '*Collection*Test' --tests '*MediaOrganization*Test' --tests '*PhoneLibraryCacheTest' --tests '*GalleryViewerPhotoUiTest' --tests '*GalleryViewerStateTest' --tests '*BackgroundLibraryProjectionTest' --tests '*LibraryDisplayInventoryTest' --tests '*GalleryBrowseInventoryTest' --tests '*LibraryProjectionCountersTest' --tests '*AudioThumbnailInvalidationTest' --tests '*AppAudioIdentityCacheTest'
       - name: Duplicate scan and acoustic regressions
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace
       - name: Music folders, daily history and recognition regressions
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: |
           python3 scripts/run-jvm-isolated-compose.py music --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*AudioMetadata*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --tests '*MusicBrowseProjectionTest' --tests '*LibraryModeScreensTest' --tests '*PrivatePlayback*Test' --tests '*LibraryWorkCountersTest'
       - name: Shared photo editor, full resolution and drawing regressions
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Photo*Test' --tests '*BatchWatermarkTest' --tests '*BatchTextDraftRestorationTest' --tests '*TextLayer*Test' --tests '*EditorTextDialogLayoutTest' --stacktrace
       - name: Video editor filters and viewer regressions
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Video*Test' --tests '*GalleryStage5ViewerTest' --tests '*GalleryViewer*Test' --tests '*PrivateViewerChromeTest' --tests '*EditorPaletteTest' --stacktrace
       - name: Missing file restoration and deferred routing regressions
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*MissingFileRecovery*Test' --tests '*MissingRecovery*Test' --tests '*DeferredLinkStoreTest' --tests '*DownloadQueueTest' --tests '*RecoveryHistoryCasTest' --tests '*SavedFilePresenceTest' --stacktrace
       - name: In-app notices and Instagram mode regression tests
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*NoticePolicyTest' --tests '*AppNoticeControllerTest' --tests '*NoticeCardInteractionTest' --tests '*InstagramModeToggleTest' --tests '*InstagramShareRoutingTest' --tests '*PreviewMusicActionTest' --tests '*DownloadsGroupActionsUiTest' --tests '*HistorySwipeActionTest' --tests '*CatalogFavoriteBatchTest' --stacktrace
       - name: File name display and settings palette regressions
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*FileNameDisplay*Test' --tests '*SettingsIconPaletteTest' --stacktrace
       - name: OCR masks and native model lifecycle regressions
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*LocalTextOcrFallbackTest' --tests '*OcrLineCandidatePolicyTest' --tests '*GlyphContentMaskTest' --tests '*OutlinedGlyphInkTest' --tests '*TextGlyphMaskTest' --tests '*SerializedModelCacheTest' --tests '*LaMaCompositionTest' --tests '*LaMaInputSamplingEquivalenceTest' --tests '*MobileSamLaMaIntegrationTest' --stacktrace
       - name: Full JVM suite
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: python3 scripts/run-jvm-isolated-compose.py full
       - name: Android lint
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Internal ARM64 compilation (no distribution)
-        if: inputs.final_acceptance == true
+        if: (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace
       - name: Validate final APK and prepare exact-commit unsigned handoff
-        if: success() && inputs.final_acceptance == true
+        if: success() && (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         shell: bash
         run: |
           set -euo pipefail
@@ -131,7 +131,7 @@ jobs:
           (cd handoff && find . -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ml189-handoff-sha256.txt)
           cp /tmp/ml189-handoff-sha256.txt handoff/UNSIGNED_HANDOFF_SHA256.txt
       - name: Temporary unsigned handoff for local signing (not a release)
-        if: success() && inputs.final_acceptance == true
+        if: success() && (github.event_name != 'workflow_dispatch' || inputs.final_acceptance == true)
         uses: actions/upload-artifact@v4
         with:
           name: ML_1.7.195_PRIVATE_UNSIGNED_LOCAL_SIGNING
