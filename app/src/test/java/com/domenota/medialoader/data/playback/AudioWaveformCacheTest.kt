@@ -84,4 +84,15 @@ class AudioWaveformCacheTest {
     }
 
 
+    @Test fun boundedMemoryEvictsOldArraysButReusesDiskWaveforms() {
+        val cache = AudioWaveformCache(temporary.newFolder())
+        val original = floatArrayOf(.15f, .42f, .9f)
+        cache.get("old") { original }
+        repeat(128) { index -> cache.get("other-$index") { floatArrayOf(.2f, .7f) } }
+        val restored = cache.get("old") { error("Evicted memory must reuse the saved waveform") }
+        assertArrayEquals(original, restored, 0f)
+        assertTrue(original !== restored)
+        assertTrue(restored === cache.peek("old"))
+    }
+
 }
