@@ -14,7 +14,18 @@ internal object PublicMediaIdentity {
     const val EXTRA_KEYS = "public_media_identity_keys"
 
     /** Cheap identities can also protect old/restored queues without reopening their sources. */
-    fun uriKeys(value: String): Set<String> {
+    // Only lexical URI aliases are cached, never stat/provider/file availability.
+    // Bound memory; the result is immutable and safe across access generations.
+    private val uriCache = object: LinkedHashMap<String,Set<String>>(128,.75f,true) {
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,Set<String>>?):Boolean = size>1024
+    }
+    fun uriKeys(value:String):Set<String> {
+        synchronized(uriCache){uriCache[value]?.let{return it}}
+        val computed=java.util.Collections.unmodifiableSet(computeUriKeys(value))
+        synchronized(uriCache){uriCache[value]?.let{return it};uriCache[value]=computed}
+        return computed
+    }
+    private fun computeUriKeys(value: String): Set<String> {
         val uri = Uri.parse(value)
         val keys = mutableSetOf("uri:${uri.normalizeScheme()}")
         if (uri.scheme == "file") uri.path?.let { keys += fileKey(it) }

@@ -43,10 +43,13 @@ import com.domenota.medialoader.ui.model.MediaKind
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
-internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit) {
+internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean,phonePermission:Boolean,currentGeneration:()->Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit) {
     val context=LocalContext.current
+    val refs=catalog.all
     val status by VisualDuplicateBackgroundScan.state.collectAsStateWithLifecycle()
     val privacyEpoch by DuplicatePrivacyGuard.changes.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
@@ -66,10 +69,34 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     LaunchedEffect(journal,status.running,privacyEpoch){history=VisualDuplicateSessionStore.history(context);storedPartial=VisualDuplicateSessionStore.partial(context)}
     LaunchedEffect(privacyEpoch){preview=null;journal=false}
     val list=rememberLazyListState()
-    val byId=remember(refs,ready){if(ready)refs.groupBy{it.key}.mapNotNull{(id,rows)->rows.singleOrNull()?.let{id to it}}.toMap() else emptyMap()}
-    // Render only a projection validated against the current complete public catalog.
-    val current=remember(session,refs,ready,privacyEpoch){if(ready)session?.takeIf{it.result.privacyEpoch==privacyEpoch}?.reconcile(refs) else null}
+    val projectionGuard=emptySet<String>().takeIf{ready}
+    val indexProjection=com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        emptyMap<String,LibraryMediaRef>(),projectionGuard,refs,accessGuard=privacyEpoch) {
+        com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.DUPLICATE_INDEX){
+            refs.groupBy{it.key}.mapNotNull{(id,rows)->rows.singleOrNull()?.let{id to it}}.toMap()
+        }
+    }
+    val byId=if(indexProjection.ready)indexProjection.value else emptyMap()
+    // Never authorize/report against a retained index for a superseded catalog.
+    val currentProjection=com.domenota.medialoader.ui.components.backgroundLibraryProjection(
+        null as VisualDuplicateSession?,projectionGuard,session?.result,byId,accessGuard=privacyEpoch,enabled=indexProjection.ready){
+        session?.takeIf{it.result.privacyEpoch==privacyEpoch}?.reconcileById(byId)
+    }
+    val reconciled=currentProjection.value.takeIf{currentProjection.ready}
+    val current=remember(session,reconciled){if(session!=null&&reconciled!=null)session?.copy(result=reconciled.result)?.normalized() else null}
+    val displayReady=ready&&indexProjection.ready&&currentProjection.ready
     val latestSession by rememberUpdatedState(session)
+    val latestCatalog by rememberUpdatedState(catalog)
+    val latestReady by rememberUpdatedState(ready && phonePermission)
+    val latestEpoch by rememberUpdatedState(privacyEpoch)
+    val liveGeneration by rememberUpdatedState(currentGeneration)
+    fun startScan(){
+        if(latestReady && liveGeneration() && DuplicatePrivacyGuard.generation(context)==latestEpoch) {
+            val currentCatalog=latestCatalog
+            if(currentCatalog.source==LibrarySource.PHONE && !com.domenota.medialoader.ui.hasPhoneLibraryAccess(context,AppMode.GALLERY))return
+            if(currentCatalog.scan.isNotEmpty())VisualDuplicateBackgroundScan.start(context,currentCatalog.scan,currentCatalog.source,latestEpoch)
+        }
+    }
     val partial=(if(status.running)status.partial else status.partial?:storedPartial?.result)?.takeIf{it.privacyEpoch==privacyEpoch}
     fun exactBytes(value:List<VisualDuplicateGroup>)=value.filter{it.reason==VisualMatch.EXACT}.sumOf{g->g.files.sumOf{it.bytes}-(g.files.firstOrNull()?.bytes?:0L)}
     LaunchedEffect(privacyEpoch) {
@@ -81,8 +108,8 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
             if(fresh.scannedAt!=session?.scannedAt){session=fresh;restored=false}
         }
     }
-    LaunchedEffect(ready,refs,loaded,status.running,trash) {
-        if(ready&&loaded&&!status.running&&trash==null) session=session?.reconcile(refs)
+    LaunchedEffect(current,displayReady,loaded,status.running,trash) {
+        if(displayReady&&loaded&&!status.running&&trash==null&&current!=null&&current!=session)session=current
     }
     LaunchedEffect(current?.scannedAt,loaded,ready,restored) {
         if(loaded&&ready&&!restored&&current!=null){
@@ -140,26 +167,36 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
             Text("Дубликаты фото и видео",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,maxLines=2)
             IconButton({journal=true},enabled=trash==null){Icon(Icons.Rounded.History,"Журнал Галереи")}
         }
-        if(!ready||!loaded) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(!status.running && (!ready||!loaded)) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(!status.running && !phonePermission) Text("Нет доступа к фото и видео телефона",color=MaterialTheme.colorScheme.error)
+        else if(!status.running && !ready) Row(verticalAlignment=Alignment.CenterVertically){
+            Text("Подготовка полного каталога Галереи…",style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f))
+            TextButton(onRefresh){Text("Обновить")}
+        }
+        else if(!status.running) Text("Область поиска: ${if(catalog.source==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"} · ${catalog.scan.size}",style=MaterialTheme.typography.bodySmall)
         if(status.running){
             DuplicateScanPanel(status.phase,status.done,status.total,status.startedAt,status.phaseStartedAt,false,partial?.groups?.size?:0,exactBytes(partial?.groups.orEmpty()))
+            status.coverage?.let { VisualCoverageSummary(it) }
             Button(onBack,Modifier.fillMaxWidth()){Text("Продолжить в фоне")}
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 OutlinedButton({VisualDuplicateBackgroundScan.pause(context)},enabled=!status.committing,modifier=Modifier.weight(1f)){Text("Пауза")}
                 TextButton({VisualDuplicateBackgroundScan.cancel(context)},enabled=!status.committing){Text("Остановить")}
             }
         }else{
+            val previousScope=storedPartial?.result?.coverage?.source
+            val sameScope=previousScope==null||previousScope==catalog.source
+            if(!sameScope)Text("Незавершённый поиск: ${if(previousScope==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"}",style=MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button({VisualDuplicateBackgroundScan.start(context,refs)},enabled=ready&&loaded&&!saving&&trash==null){Text(if(VisualDuplicateBackgroundScan.interrupted(context))"Продолжить поиск" else "Новый поиск")}
+                Button(::startScan,enabled=ready&&phonePermission&&loaded&&!saving&&trash==null&&catalog.scan.isNotEmpty()){Text(if(sameScope&&VisualDuplicateBackgroundScan.interrupted(context))"Продолжить поиск" else "Новый поиск")}
                 OutlinedButton({scope.launch{
                     val previous=VisualDuplicateSessionStore.load(context)
-                    session=previous?.reconcile(refs);restored=false
+                    session=withContext(Dispatchers.Default){previous?.reconcile(refs)};restored=false
                 }},enabled=ready&&loaded&&!saving&&trash==null){Text("Последний поиск")}
             }
         }
         status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        if(!ready||!loaded)return@Column
+        if(!displayReady||!loaded)return@Column
         if(status.running&&partial!=null){
             Text("Предварительные результаты · удаление после завершения")
             LazyColumn(Modifier.weight(1f)){items(partial.groups,key={it.files.first().id}){g->
@@ -170,6 +207,7 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
             }};return@Column
         }
         if(current==null){Text(if(partial!=null)"Сохранено предварительно: ${partial.groups.size} групп. Продолжите поиск." else "Запустите поиск точных и похожих файлов.");return@Column}
+        current.result.coverage?.let { VisualCoverageSummary(it) }
         Text("Групп: ${current.result.groups.size} · пропущено: ${current.result.skipped} · выбрано: ${current.selected.size}")
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
             FilterChip(filter==null,{filter=null},{Text("Все")})
@@ -209,9 +247,9 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
     }
     if(journal)DuplicateJournalDialog("Журнал Галереи",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size})},
         storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size} ,VisualDuplicateBackgroundScan.journalStatus(context))},
-        onOpen={at->journal=false;if(!status.running&&ready)history.firstOrNull{it.scannedAt==at}?.let{persist(it.reconcile(refs));restored=false}},
-        onResume={journal=false;if(!status.running&&ready)VisualDuplicateBackgroundScan.start(context,refs)},onDismiss={journal=false},
-        onPartial={journal=false;showPartial=true},resumeEnabled=!status.running&&ready)
+        onOpen={at->journal=false;if(!status.running&&displayReady)history.firstOrNull{it.scannedAt==at}?.let{saved->scope.launch{val checked=withContext(Dispatchers.Default){saved.reconcileById(byId)};if(DuplicatePrivacyGuard.generation(context)==privacyEpoch){persist(checked);restored=false}}}},
+        onResume={journal=false;if(!status.running)startScan()},onDismiss={journal=false},
+        onPartial={journal=false;showPartial=true},resumeEnabled=!status.running&&ready&&phonePermission&&catalog.scan.isNotEmpty())
     if(showPartial&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
         text={LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             item{Text("Только просмотр. Удаление доступно после завершения.")}
@@ -224,6 +262,14 @@ internal fun VisualDuplicatesScreen(refs:List<LibraryMediaRef>,ready:Boolean,onB
         val pages=g.files.mapNotNull{f->byId[f.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(f,it)}}
         if(pages.isNotEmpty())VisualDuplicatePreview(pages,id){preview=null}
     }
+}
+
+@Composable
+private fun VisualCoverageSummary(coverage:VisualScanCoverage){
+    Text("${if(coverage.source==LibrarySource.PHONE)"Телефон" else "ML"} · охват: ${coverage.total} · проверено: ${coverage.checked}",style=MaterialTheme.typography.bodyMedium)
+    Text("Из кеша: ${coverage.cached} · новые: ${coverage.computed} · ошибки: ${coverage.failed}",style=MaterialTheme.typography.bodySmall)
+    if(coverage.aliases>0) Text("Совпадающие адреса: ${coverage.aliases}",style=MaterialTheme.typography.bodySmall)
+    if(coverage.incompleteVisual>0) Text("Без полного визуального отпечатка: ${coverage.incompleteVisual}",style=MaterialTheme.typography.bodySmall)
 }
 
 @Composable

@@ -9,6 +9,7 @@ import com.domenota.medialoader.data.storage.SavedFileStatus
 internal object GridMediaQueue {
     fun resolve(ids: List<String>, rows: List<DownloadEntity>, private: Boolean,
         statuses: Map<String, SavedFileStatus> = emptyMap()): List<DownloadEntity> {
+        if(ids.isEmpty())return emptyList()
         val byId = rows.associateBy { it.id }
         return ids.distinct().mapNotNull { byId[it] }.filter {
             it.isPrivate == private && !it.hidden && it.state == DownloadState.COMPLETED &&

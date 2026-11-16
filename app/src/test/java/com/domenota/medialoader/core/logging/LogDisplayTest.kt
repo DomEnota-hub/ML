@@ -87,4 +87,12 @@ class LogDisplayTest {
         assertTrue(LogDisplay.readable(crash).contains("медиасессии"))
         assertEquals("Сбой приложения", LogDisplay.groupName(crash))
     }
+
+    @Test fun preparedPresentationPreservesEveryRawAndReadableFilter(){
+        val prepared=LogDisplay.prepare(sample)
+        val raw=LogDisplay.entries(sample);val compact=LogDisplay.compact(raw)
+        assertEquals(raw,prepared.entries(null,false));assertEquals(compact,prepared.entries(null,true))
+        for(tone in LogTone.entries){assertEquals(LogDisplay.filter(raw,tone),prepared.entries(tone,false));assertEquals(LogDisplay.filter(compact,tone),prepared.entries(tone,true))}
+        assertEquals(raw.last().stack,prepared.raw.last().stack)
+    }
 }

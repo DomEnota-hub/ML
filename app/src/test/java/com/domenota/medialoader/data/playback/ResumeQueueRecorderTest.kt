@@ -51,7 +51,7 @@ class ResumeQueueRecorderTest {
         val store=ResumeQueueStore.forTest(context,name)
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
         val fake=Fake()
-        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true})
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},Dispatchers.Unconfined)
         try {
             recorder.attach()
             fake.queue=listOf(item("a","one"),item("b","one"));fake.index=1;fake.position=102_000;fake.playing=true
@@ -77,7 +77,7 @@ class ResumeQueueRecorderTest {
         val store=ResumeQueueStore.forTest(context,name)
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
         val fake=Fake().apply {queue=listOf(item("a","one"),item("a","one"),item("b","one"));index=1;position=50_000;playing=true}
-        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true})
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},Dispatchers.Unconfined)
         try {
             recorder.attach()
             val saved=withTimeout(5000){store.sessions.first {it.isNotEmpty()}}.single()
@@ -99,7 +99,7 @@ class ResumeQueueRecorderTest {
         val store=ResumeQueueStore.forTest(context,name)
         val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
         val fake=Fake().apply {queue=(0 until 2500).map{item("large$it","large")};index=1200;position=30_000;playing=true}
-        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true})
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},Dispatchers.Unconfined)
         try {
             recorder.attach()
             assertEquals(2500,fake.reads)
@@ -110,5 +110,77 @@ class ResumeQueueRecorderTest {
             fake.queue=fake.queue.reversed();recorder.refresh(true)
             assertEquals(5000,fake.reads)
         } finally {recorder.release();scope.cancel();store.closeForTest()}
+    }
+
+    private class DelayedPreparation:CoroutineDispatcher(){
+        private val pending=java.util.ArrayDeque<Runnable>()
+        override fun dispatch(context:kotlin.coroutines.CoroutineContext,block:Runnable){pending.addLast(block)}
+        fun drain(){while(pending.isNotEmpty())pending.removeFirst().run()}
+    }
+    @Test fun supersededWorkerCannotSaveOldQueueOrPrivateAccess()=runBlocking {
+        val store=ResumeQueueStore.forTest(context,name)
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
+        val worker=DelayedPreparation()
+        val fake=Fake().apply{queue=listOf(item("a","old"));position=5000;playing=true}
+        var access=PublicListeningIdentity.Access(true,emptySet())
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context,{access}){true},worker)
+        try{
+            recorder.attach();assertTrue(store.sessions.value.isEmpty())
+            fake.queue=listOf(item("b","new"));recorder.refresh()
+            worker.drain()
+            val saved=withTimeout(5000){store.sessions.first{it.isNotEmpty()}}
+            assertEquals(listOf("playlist:new"),saved.map{it.id})
+            fake.queue=listOf(item("secret","blocked"));recorder.refresh()
+            access=PublicListeningIdentity.Access(true,setOf("secret"));worker.drain()
+            val barrier=saved.single().copy(id="barrier");store.submit(barrier)
+            withTimeout(5000){store.sessions.first{it.any{s->s.id=="barrier"}}}
+            assertFalse(store.sessions.value.any{it.id=="playlist:blocked"||it.id=="playlist:old"})
+        }finally{recorder.release();worker.drain();scope.cancel();store.closeForTest()}
+    }
+    @Test fun clearDuringPreparationCannotRecreateEvenPreviouslyUnknownQueue()=runBlocking {
+        val store=ResumeQueueStore.forTest(context,name)
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
+        val worker=DelayedPreparation()
+        val fake=Fake().apply{queue=listOf(item("a","new"));position=5000;playing=true}
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},worker)
+        try{
+            recorder.attach();store.clearSaved();worker.drain()
+            val barrier=ResumeQueueSession("barrier",null,listOf(setOf("app:a")),0,1,100,false,0,1f,100)
+            store.submit(barrier);withTimeout(5000){store.sessions.first{it.any{s->s.id=="barrier"}}}
+            assertEquals(listOf("barrier"),store.readForTest().map{it.id})
+        }finally{recorder.release();worker.drain();scope.cancel();store.closeForTest()}
+    }
+    @Test fun releaseFinishesPendingCheckpointWithFrozenPosition()=runBlocking {
+        val store=ResumeQueueStore.forTest(context,name)
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
+        val worker=DelayedPreparation()
+        val fake=Fake().apply{queue=listOf(item("a","one"),item("b","one"));index=1;position=5000;playing=true}
+        val recorder=ResumeQueueRecorder(fake.player,scope,store,PublicListeningIdentity(context){true},worker)
+        try{
+            recorder.attach();fake.position=9000;recorder.release();fake.queue=emptyList();fake.position=0;worker.drain()
+            val saved=withTimeout(5000){store.sessions.first{it.isNotEmpty()}}.single()
+            assertEquals(1,saved.index);assertEquals(9000L,saved.positionMs);assertEquals(2,saved.entries.size)
+        }finally{scope.cancel();store.closeForTest()}
+    }
+    @Test fun frozenHiddenIdentityGatePreservesCanonicalIdsAndUriAliases() {
+        val prefs=context.getSharedPreferences("music_folder_visibility",android.content.Context.MODE_PRIVATE)
+        val old=prefs.getStringSet("hidden_tracks",emptySet()).orEmpty().toSet()
+        fun encode(value:String)=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray(Charsets.UTF_8))
+        fun hide(id:String,uri:String){assertTrue(prefs.edit().putStringSet("hidden_tracks",setOf("${encode(id)}.${encode(uri)}")).commit())}
+        val track=item("a","one")
+        val uri=track.mediaMetadata.extras!!.getString(AudioPlaybackMetadata.PUBLIC_URI)!!
+        val identity=PublicListeningIdentity(context,{PublicListeningIdentity.Access(true,emptySet())}){true}
+        try {
+            assertTrue(prefs.edit().remove("hidden_tracks").commit())
+            val before=identity.snapshot();assertTrue(before.keys(track).isNotEmpty())
+            hide("a","unrelated");assertTrue(identity.keys(track).isEmpty())
+            assertTrue(before.keys(track).isNotEmpty());assertNotEquals(before.token,identity.visibilityToken())
+            hide("unrelated",uri);assertTrue(identity.keys(track).isEmpty())
+            val alias=AudioPlaybackMetadata.item(DownloadEntity("alias","device","alias.mp3",MediaType.AUDIO,
+                DownloadState.COMPLETED,"content://media/external/audio/media/999",123L,100L),setOf("uri:$uri"),"one","playlist:one")
+            assertTrue(identity.keys(alias).isEmpty())
+            assertTrue(prefs.edit().putStringSet("hidden_tracks",setOf("${encode("a") }==.${encode("unrelated")}")).commit())
+            assertTrue(identity.keys(track).isNotEmpty())
+        } finally { prefs.edit().putStringSet("hidden_tracks",old).commit() }
     }
 }

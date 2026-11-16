@@ -36,6 +36,7 @@ object AppLog {
     private var sessionLogged = false
     @Volatile
     private var extended = false
+    @Volatile private var detailedPerformance = false
 
     fun init(context: Context) {
         val applicationContext = context.applicationContext
@@ -44,6 +45,8 @@ object AppLog {
                 appContext = applicationContext
                 extended = applicationContext.getSharedPreferences("ui", Context.MODE_PRIVATE)
                     .getBoolean("extended_app_log", false)
+                detailedPerformance = applicationContext.getSharedPreferences("ui", Context.MODE_PRIVATE)
+                    .getBoolean("detailed_performance_log", false)
             }
         }
         installCrashHandler()
@@ -83,6 +86,13 @@ object AppLog {
     }
 
     fun isExtended(): Boolean = extended
+    fun isDetailedPerformance(): Boolean = detailedPerformance
+    fun setDetailedPerformance(enabled:Boolean) {
+        if(detailedPerformance==enabled)return
+        detailedPerformance=enabled
+        appContext?.getSharedPreferences("ui",Context.MODE_PRIVATE)?.edit()?.putBoolean("detailed_performance_log",enabled)?.apply()
+        i("Logs","Detailed performance diagnostics " + if(enabled) "enabled" else "disabled")
+    }
 
     /** A short in-process correlation id for a user action; it contains no URL or account data. */
     fun newOperationId(prefix: String): String =
@@ -141,6 +151,10 @@ object AppLog {
             appendLine("- Устройство: ${Build.MANUFACTURER} ${Build.MODEL}")
             appendLine("- Расширенный журнал на момент экспорта: ${if (extended) "включён" else "выключен"}")
             appendLine("- Диагностика производительности: включена в активном приложении (UI_STALL / FRAME_GAPS / Perf)")
+            appendLine("- Счётчики процесса на момент экспорта: ${LibraryWorkCounters.summary()}")
+            appendLine("- Проекции медиатеки на момент экспорта: ${LibraryProjectionCounters.summary()}")
+            appendLine("- Подробная диагностика производительности: ${if (detailedPerformance) "включена" else "выключена"}")
+            appendLine("- Дополнительные операции процесса: ${DetailedPerformance.summary()}")
             appendLine("- Очередь журнала: flush=$flushed; пропущено при перегрузке=${writer.dropped.get()}")
             appendLine("- Пояснения: ${if (includeExplanations) "включены" else "выключены"}")
             appendLine()

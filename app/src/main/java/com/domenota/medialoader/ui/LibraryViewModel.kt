@@ -62,7 +62,19 @@ internal data class LibraryIndex(val ready: Boolean = false, val refs: List<Libr
     val galleryRevision: Long = 0, val musicRevision: Long = 0, val appComplete: Boolean = false,
     val privacyKeys: Set<String>? = null,
     val appUris: Set<Pair<String, String?>> = emptySet(),
-    val visibility: FolderVisibilityLibraryGuard? = null, val hiddenRefs: List<LibraryMediaRef> = emptyList())
+    val visibility: FolderVisibilityLibraryGuard? = null, val hiddenRefs: List<LibraryMediaRef> = emptyList()) {
+    // Index construction runs on IO. Derived fields are deliberately outside data-class
+    // equality: equal inventory generations must still conflate in StateFlow.
+    val display = LibraryDisplayInventory.build(refs, visibility?.external.orEmpty())
+}
+/** Duplicate search requires the complete current visual generation, not a
+ * browseable first page. Audio inventory is irrelevant to photo/video coverage. */
+internal fun visualDuplicateCatalogComplete(index: LibraryIndex, gallery: PhoneLibraryState,
+    accessEpoch: Long, currentAppUris: Set<Pair<String, String?>>?, scanInProgress:Boolean=false): Boolean =
+    index.ready && index.appComplete && currentAppUris != null && index.appUris == currentAppUris &&
+        gallery.loaded && gallery.complete && !gallery.loading && !scanInProgress &&
+        gallery.accessEpoch == accessEpoch && index.galleryRevision == gallery.revision
+
 internal data class CollectionHistorySnapshot(val rows: Map<String, DownloadEntity>, val appUris: Set<Pair<String, String?>>, val blocked: Set<String>,
     val completedUris: List<Pair<String, String?>>) {
     private val rowsByUri = rows.values.filter { !it.savedUri.isNullOrBlank() }.groupBy { it.savedUri }
@@ -260,6 +272,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private val galleryState = MutableStateFlow(PhoneLibraryState())
     private val musicState = MutableStateFlow(PhoneLibraryState())
     val gallery = galleryState.asStateFlow()
+    // Admission-only status: never invalidate the general library index when an
+    // unchanged silent MediaStore scan starts or ends.
+    private val galleryScanInProgressState=MutableStateFlow(false)
+    val galleryScanInProgress=galleryScanInProgressState.asStateFlow()
+    private var galleryScanToken:Any?=null
     val music = musicState.asStateFlow()
     private val galleryAccessEpochState = MutableStateFlow(0L)
     private val musicAccessEpochState = MutableStateFlow(0L)
@@ -595,7 +612,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     }
                 val currentStamp = phone.storeStamp()
                 if (maySkipUnchangedMediaNotification(storeStamps[mode], currentStamp,
-                        accessSignatures[mode] == signature, selectedOnly)) return@forEach
+                        accessSignatures[mode] == signature, selectedOnly)) {
+                    com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED){}
+                    return@forEach
+                }
                 refresh(mode, force = true)
             }
         }
@@ -657,6 +677,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         // Permission/privacy invalidation is the only reason to restart it.
         if (!changedAccess && !invalidate && jobs[mode]?.isActive == true) return
         if (silent && !force && now - (refreshedAt[mode] ?: Long.MIN_VALUE / 2) < 60_000) return
+        val scanToken=Any()
+        if(mode==AppMode.GALLERY){galleryScanToken=scanToken;galleryScanInProgressState.value=signature.any{it}}
         jobs.remove(mode)?.cancel()
         val epoch = if (mode == AppMode.GALLERY) galleryAccessEpochState else musicAccessEpochState
         if (changedAccess || invalidate || partial) epoch.value++
@@ -712,9 +734,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     PhoneMediaSnapshot(it.items, it.identities, it.fingerprints)
                 }
                 val startedAt = android.os.SystemClock.elapsedRealtime()
+                val scanTiming=com.domenota.medialoader.core.logging.DetailedPerformance.begin()
                 val cacheCheckpoint = PhoneScanCheckpointPolicy()
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan started · mode=$mode · retained=${previous?.items?.size ?: 0}")
-                val snapshot = phone.scanSnapshot(mode, previous, keys.filterTo(mutableSetOf()) { it.startsWith("file-stat:") }) { partialSnapshot ->
+                val progress: (suspend (PhoneMediaSnapshot) -> Unit)? = if (blocking && !partial) { { partialSnapshot ->
                     if (blocking && !partial && stillAllowed()) {
                         state.value = PhoneLibraryState(items = partialSnapshot.items, identities = partialSnapshot.identities,
                             fingerprints = partialSnapshot.fingerprints, loaded = true, loading = true,
@@ -731,6 +754,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                         }
                     }
                 }
+                } else null
+                val snapshot = phone.scanSnapshot(mode, previous, keys.filterTo(mutableSetOf()) { it.startsWith("file-stat:") }, onProgress = progress)
+                com.domenota.medialoader.core.logging.DetailedPerformance.end(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN,scanTiming)
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan finished · mode=$mode · count=${snapshot.items.size} · ms=${android.os.SystemClock.elapsedRealtime() - startedAt}")
                 val after = phone.storeStamp()
                 if (!stillAllowed()) { refresh(mode, force = true, invalidate = true); return@launch }
@@ -758,6 +784,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 val message = "Не удалось обновить файлы телефона. Проверьте доступ и повторите."
                 state.value = if (!blocking && state.value.loaded) state.value.copy(loading = false, message = message)
                     else PhoneLibraryState(loaded = true, revision = revision + 1, message = message, accessEpoch = accessEpoch)
+            }finally{
+                if(mode==AppMode.GALLERY&&galleryScanToken===scanToken)galleryScanInProgressState.value=false
             }
         }
     }

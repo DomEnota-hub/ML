@@ -24,9 +24,18 @@ internal class ResumeQueueStore private constructor(context:Context,fileName:Str
     val failed=error.asStateFlow()
     private val revisions=java.util.concurrent.ConcurrentHashMap<String,Long>()
     fun lease(id:String):Long=revisions[id] ?: 0L
+    // Frozen before a worker starts. A user edit during preparation must still
+    // invalidate that older recorder, including a newly discovered context ID.
+    fun leaseSnapshot():Map<String,Long> = revisions.toMap()
+    private val clearEpoch=java.util.concurrent.atomic.AtomicLong()
+    fun clearGeneration():Long=clearEpoch.get()
+    private val recorderEpoch = java.util.concurrent.atomic.AtomicLong()
+    fun beginRecorder():Long = recorderEpoch.incrementAndGet()
+    fun isRecorderCurrent(epoch:Long):Boolean = recorderEpoch.get()==epoch
     private var loaded=false
     private sealed interface Command {
         data class Save(val value:ResumeQueueSession,val lease:Long):Command
+        data class PreparedSave(val prepare:()->ResumeQueueSession,val lease:Long,val clearGeneration:Long):Command
         data class Finish(val id:String,val lease:Long):Command
     }
     private val commands=Channel<Command>(Channel.UNLIMITED)
@@ -34,13 +43,14 @@ internal class ResumeQueueStore private constructor(context:Context,fileName:Str
         scope.launch {
             try {mutex.withLock{load()}} catch(_:Exception){error.value=true}
             for(command in commands) {
-                try {when(command){is Command.Save->save(command.value,command.lease);is Command.Finish->remove(command.id,command.lease)};error.value=false}
+                try {when(command){is Command.Save->save(command.value,command.lease);is Command.PreparedSave->save(command.prepare(),command.lease,command.clearGeneration);is Command.Finish->remove(command.id,command.lease)};error.value=false}
                 catch(e:CancellationException){throw e}
                 catch(_:Exception){error.value=true}
             }
         }
     }
     fun submit(snapshot:ResumeQueueSession,lease:Long=this.lease(snapshot.id)) {commands.trySend(Command.Save(snapshot,lease))}
+    fun submitPrepared(lease:Long,clearGeneration:Long,prepare:()->ResumeQueueSession){commands.trySend(Command.PreparedSave(prepare,lease,clearGeneration))}
     fun finish(id:String,lease:Long=this.lease(id)) {commands.trySend(Command.Finish(id,lease))}
     private fun load() {
         if(loaded)return
@@ -75,8 +85,8 @@ internal class ResumeQueueStore private constructor(context:Context,fileName:Str
         catch(e:Exception){file.failWrite(out);throw e}
         state.value=records
     }
-    internal suspend fun save(snapshot:ResumeQueueSession,lease:Long?=null)=withContext(Dispatchers.IO){mutex.withLock{
-        load();if(lease==null || lease==this@ResumeQueueStore.lease(snapshot.id)) {
+    internal suspend fun save(snapshot:ResumeQueueSession,lease:Long?=null,clearGeneration:Long?=null)=withContext(Dispatchers.IO){mutex.withLock{
+        load();if((clearGeneration==null||clearGeneration==clearEpoch.get()) && (lease==null || lease==this@ResumeQueueStore.lease(snapshot.id))) {
             val result=ResumeQueuePolicy.keep(state.value,snapshot);if(result!=state.value)write(result)
         }
     }}
@@ -97,7 +107,7 @@ internal class ResumeQueueStore private constructor(context:Context,fileName:Str
         load();write(state.value.filterNot { it.id==id });revisions[id]=lease(id)+1
     }}
     suspend fun clearSaved()=withContext(Dispatchers.IO){mutex.withLock {
-        load();val ids=state.value.map { it.id };write(emptyList());ids.forEach { revisions[it]=lease(it)+1 }
+        load();val ids=state.value.map { it.id };write(emptyList());ids.forEach { revisions[it]=lease(it)+1 };clearEpoch.incrementAndGet()
     }}
     internal suspend fun readForTest()=withContext(Dispatchers.IO){mutex.withLock{load();state.value}}
     internal fun closeForTest(){commands.close();scope.cancel()}

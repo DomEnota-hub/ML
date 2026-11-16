@@ -24,10 +24,12 @@ internal data class VisualDuplicateSession(
     /** Reconcile only against a complete public catalog. Never use this to
      * authorize a trash operation; that requires a fresh full fingerprint. */
     fun reconcile(refs:List<LibraryMediaRef>):VisualDuplicateSession {
-        val byId=refs.groupBy{it.key}
+        return reconcileById(refs.groupBy{it.key}.mapNotNull{(id,rows)->rows.singleOrNull()?.let{id to it}}.toMap())
+    }
+    internal fun reconcileById(byId:Map<String,LibraryMediaRef>):VisualDuplicateSession {
         val groups=result.groups.mapNotNull{group->
             val remaining=group.files.filter{snapshot->
-                val ref=byId[snapshot.id]?.singleOrNull()
+                val ref=byId[snapshot.id]
                 ref!=null && VisualDuplicateScanner.matchesCatalog(snapshot,ref)
             }
             if(remaining.size>=2)group.copy(files=remaining) else null
@@ -104,7 +106,10 @@ internal object VisualDuplicateSessionStore {
         }
         return JSONObject().put("schema",1).put("groups",groups).put("skipped",session.result.skipped).put("privacyEpoch",session.result.privacyEpoch)
             .put("selected",JSONArray(session.selected.toList())).put("index",session.index)
-            .put("offset",session.offset).put("scannedAt",session.scannedAt).toString()
+            .put("offset",session.offset).put("scannedAt",session.scannedAt)
+            .apply { session.result.coverage?.let { c -> put("coverage",JSONObject().put("source",c.source.name)
+                .put("total",c.total).put("cached",c.cached).put("computed",c.computed).put("aliases",c.aliases)
+                .put("failed",c.failed).put("incompleteVisual",c.incompleteVisual)) } }.toString()
     }
     internal fun decode(raw:String):VisualDuplicateSession {
         val json=JSONObject(raw);require(json.getInt("schema")==1)
@@ -124,7 +129,9 @@ internal object VisualDuplicateSessionStore {
         }
         require(rows.flatMap{it.files}.map{it.id}.let{it.size==it.distinct().size})
         val selected=json.getJSONArray("selected")
-        return VisualDuplicateSession(VisualScanResult(rows,json.getInt("skipped"),json.optLong("privacyEpoch",0)),
+        val coverage=json.optJSONObject("coverage")?.let { c -> VisualScanCoverage(LibrarySource.valueOf(c.getString("source")),
+            c.getInt("total"),c.getInt("cached"),c.getInt("computed"),c.getInt("aliases"),c.getInt("failed"),c.getInt("incompleteVisual")) }
+        return VisualDuplicateSession(VisualScanResult(rows,json.getInt("skipped"),json.optLong("privacyEpoch",0),coverage),
             (0 until selected.length()).map{selected.getString(it)}.toSet(),json.getInt("index"),
             json.getInt("offset"),json.getLong("scannedAt")).normalized()
     }

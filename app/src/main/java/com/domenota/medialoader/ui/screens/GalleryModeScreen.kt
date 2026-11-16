@@ -32,6 +32,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.foundation.gestures.scrollBy
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,7 +60,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-fun GalleryModeScreen(
+internal fun GalleryModeScreen(
     items: List<DownloadEntity>, source: LibrarySource, loading: Boolean, message: String?,
     folders: List<CatalogFolderEntity>, assignments: List<CatalogAssignmentEntity>, header: @Composable () -> Unit,
     onOpen: (String, List<String>) -> Unit, onOpenPrivate: () -> Unit,
@@ -84,6 +86,8 @@ fun GalleryModeScreen(
     onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
     pendingVisibilityFolderId: String? = null,
     onShareFromAlbum: ((String,String?) -> Unit)? = null,
+    preparedBrowse: BackgroundLibraryValue<GalleryBrowseInventory>? = null,
+    preparedBrowseAccess: Any? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -165,25 +169,22 @@ fun GalleryModeScreen(
             saveSettings(albumSettings.copy(excludedFromMedia=next))
         }
     }
-    val catalog = remember(assignments) { assignments.associateBy { it.downloadId } }
-    val buckets = remember(items, source, deviceAlbums) {
-        if (source == LibrarySource.APP) emptyMap() else if (deviceAlbums.isNotEmpty()) deviceAlbums
-        else items.mapNotNull { row -> row.groupId?.let { row.id to DeviceAlbum(it, it) } }.toMap()
+    // Root navigation supplies the worker-built snapshot. Small independent
+    // callers/tests can still use the same pure builder without a root host.
+    val browse = preparedBrowse?.value ?: remember(items, folders, assignments, source, deviceAlbums, hiddenFolderIds) {
+        GalleryBrowseInventory.build(items, folders, assignments, source, deviceAlbums, hiddenFolderIds)
     }
-    val media = remember(items, assignments, buckets, hiddenFolderIds) { GalleryLibraryState.filter(items, assignments, "all", "", buckets, hiddenFolderIds) }
-    val displayed = remember(items, assignments, selection, search, buckets, hiddenFolderIds) {
-        GalleryLibraryState.filter(items, assignments, selection, search, buckets, hiddenFolderIds)
-    }
-    val albums = remember(items, folders, assignments, buckets, hiddenFolderIds) {
-        GalleryLibraryState.albums(items, folders, assignments, buckets, hiddenFolderIds)
-    }
-    LaunchedEffect(albumRequest, albums, loading, items, hiddenFolderIds) {
+    val catalog = browse.catalog
+    val buckets = browse.buckets
+    val albums = browse.albums
+    val checkingAlbum = loading || preparedBrowse?.ready == false
+    LaunchedEffect(albumRequest, browse, checkingAlbum) {
         val request = albumRequest ?: return@LaunchedEffect
         val found = albums.firstOrNull { it.key == request.album.key }
-        if (found != null && GalleryLibraryState.filter(items, assignments, found.key, "", buckets, hiddenFolderIds).any { it.id == request.itemId }) {
+        if (found != null && browse.select(found.key, "").any { it.id == request.itemId }) {
             search = ""; selection = found.key; selectionTitle = found.name; if (tab != 0) selectTab(0); jumpToMedia = request.itemId
             onAlbumRequestHandled()
-        } else if (!loading) { AppNotice.post(context, "Альбом недоступен"); onAlbumRequestHandled() }
+        } else if (!checkingAlbum) { AppNotice.post(context, "Альбом недоступен"); onAlbumRequestHandled() }
     }
     val orderedAlbums = remember(albums, albumSettings.order) { orderedGalleryAlbums(albums, albumSettings) }
     val visibleAlbums = orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
@@ -198,33 +199,32 @@ fun GalleryModeScreen(
         it.key !in albumSettings.quickAlbums && it.key !in standardQuickKeys
     }
     val otherAlbums = orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
-    val shortcutAllMedia = remember(media, catalog, buckets, albumSettings.excludedFromMedia) {
-        media.filter { row ->
-            visibleInGalleryMedia(row, catalog[row.id], buckets[row.id],
-                albumSettings.excludedFromMedia)
+    val gridKey=GalleryGridKey(selection,search,detailOpen,tab,albumFileSort,albumSettings.excludedFromMedia,
+        LocalDate.now(),ZoneId.systemDefault())
+    val canPrepare=preparedBrowse?.usable!=false
+    val grid=if(preparedBrowse==null)remember(browse,gridKey){browse.prepareGrid(gridKey)} else {
+        // A routine data refresh retains the previous safe grid until its new
+        // generation is ready; a permission/scope/search change never does.
+        val cached=remember(browse,gridKey,canPrepare){if(canPrepare)browse.cachedGrid(gridKey) else null}
+        var retained by remember(gridKey,canPrepare,preparedBrowseAccess){mutableStateOf(cached,referentialEqualityPolicy())}
+        LaunchedEffect(browse,gridKey,canPrepare,preparedBrowseAccess){
+            if(canPrepare)retained=cached?:withContext(Dispatchers.Default){browse.prepareGrid(gridKey)}
         }
+        if(canPrepare)cached?:retained else null
     }
-    val shortcutVideos = remember(media, assignments, buckets) {
-        GalleryLibraryState.filter(media, assignments, "videos", "", buckets)
-    }
-    val shortcutFavorites = remember(media, assignments, buckets) {
-        GalleryLibraryState.filter(media, assignments, "favorites", "", buckets)
-    }
+    val gridReady=grid!=null
+    val shortcutAllMedia=grid?.allVisible ?: browse.media.takeIf{albumSettings.excludedFromMedia.isEmpty()}.orEmpty()
+    val shortcutVideos = browse.videos
+    val shortcutFavorites = browse.favorites
     val defaultQuickItems = remember(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites) {
         galleryDefaultQuickItems(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites)
     }
-    val visibleDisplayed = remember(displayed, selection, detailOpen, tab, albumSettings.excludedFromMedia, assignments, buckets) {
-        if (tab == 0 && selection == "all") displayed.filter { row ->
-            visibleInGalleryMedia(row, catalog[row.id], buckets[row.id], albumSettings.excludedFromMedia)
-        } else displayed
-    }
-    val orderedDisplayed = remember(visibleDisplayed, detailOpen, albumFileSort) {
-        if (detailOpen) GalleryAlbumFileOrder.sorted(visibleDisplayed, albumFileSort) else visibleDisplayed
-    }
-    val queue = remember(orderedDisplayed) { orderedDisplayed.map { it.id } }
-    LaunchedEffect(queue) { val visible = queue.toHashSet(); selectedIds = ArrayList(selectedIds.filter { it in visible }) }
+    val visibleDisplayed=grid?.visible.orEmpty()
+    val orderedDisplayed=grid?.ordered.orEmpty()
+    val queue=grid?.queue.orEmpty()
+    val queueSet=grid?.queueSet.orEmpty()
+    LaunchedEffect(queue,gridReady) { if(gridReady)selectedIds=ArrayList(selectedIds.filter{it in queueSet}) }
     val selectedSet = remember(selectedIds) { selectedIds.toHashSet() }
-    val queueSet = remember(queue) { queue.toHashSet() }
     val mediaGridState = rememberLazyGridState()
     val albumGridState = rememberLazyGridState()
     val density = LocalDensity.current
@@ -245,20 +245,11 @@ fun GalleryModeScreen(
             }
         }
     }
-    // A phone gallery can hold 10k+ files: do not parse every timestamp on each selection recomposition.
-    val currentCalendarDay = LocalDate.now()
-    val selectableDateRange = remember(visibleDisplayed, currentCalendarDay) {
-        galleryDateRange(visibleDisplayed.map { it.createdAtEpochMillis }, currentCalendarDay)
-    }
-    val dateSections = remember(orderedDisplayed) {
-        orderedDisplayed.groupBy { Instant.ofEpochMilli(it.createdAtEpochMillis)
-            .atZone(ZoneId.systemDefault()).toLocalDate() }
-    }
-    // One label per actual grid item, including controls and full-width date headers.
-    // When sorting by name/size, the label is the date of the actual target file.
-    val galleryScrollLabels = remember(orderedDisplayed, dateSections, detailOpen, albumFileSort) {
-        galleryFastScrollLabels(orderedDisplayed, !detailOpen || GalleryAlbumFileOrder.groupedByDate(albumFileSort))
-    }
+    // The worker snapshot includes date grouping and labels, including exact
+    // LazyVerticalGrid offsets. No catalog-wide date parsing on the UI thread.
+    val selectableDateRange=grid?.dateRange
+    val dateSections=grid?.sections.orEmpty()
+    val galleryScrollLabels=grid?.labels.orEmpty()
     LaunchedEffect(jumpToMedia, orderedDisplayed, detailOpen, tab, albumFileSort) {
         val id = jumpToMedia ?: return@LaunchedEffect
         if (!detailOpen || tab != 0) return@LaunchedEffect
@@ -491,8 +482,8 @@ fun GalleryModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
                         leadingIcon = { Icon(Icons.Rounded.Search, null) })
-                    Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading, message, settingsError ?: error,
-                        tab == 0 && visibleDisplayed.isEmpty(), "Нет фото и видео") }
+                    Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading || (tab==0 && !gridReady), message, settingsError ?: error,
+                        tab == 0 && gridReady && visibleDisplayed.isEmpty(), "Нет фото и видео") }
                 }
             }
             if (tab == 1) {
@@ -714,7 +705,7 @@ fun GalleryModeScreen(
     }
     deletingAlbum?.let { album ->
         val appFolder = album.key.startsWith("folder:")
-        val albumRows = GalleryLibraryState.filter(items, assignments, album.key, "", buckets, hiddenFolderIds)
+        val albumRows = browse.select(album.key, "")
         var includeContents by remember(album.key) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { deletingAlbum = null },

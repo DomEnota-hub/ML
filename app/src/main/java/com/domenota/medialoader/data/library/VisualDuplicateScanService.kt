@@ -19,10 +19,10 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Main-thread admission, one service-owned scan. The screen only observes progress. */
 internal object VisualDuplicateBackgroundScan {
     const val OPEN_ACTION = "com.domenota.medialoader.OPEN_VISUAL_DUPLICATES"
-    data class Request(val token: Long, val rows: List<LibraryMediaRef>)
+    data class Request(val token: Long, val rows: List<LibraryMediaRef>, val source: LibrarySource, val epoch: Long)
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
         val session: VisualDuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false,
-        val phase:DuplicateScanPhase=DuplicateScanPhase.VISUAL,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:VisualScanResult?=null)
+        val phase:DuplicateScanPhase=DuplicateScanPhase.VISUAL,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:VisualScanResult?=null,val coverage:VisualScanCoverage?=null)
     private val mutable = MutableStateFlow(Status())
     val state = mutable.asStateFlow()
     private var pending: Request? = null
@@ -33,12 +33,12 @@ internal object VisualDuplicateBackgroundScan {
         "paused"->"Приостановлен";"stopped"->"Остановлен";"failed"->"Прерван";else->"Незавершённый поиск"
     }
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
-    @Synchronized fun start(context: Context, rows: List<LibraryMediaRef>) {
+    @Synchronized fun start(context: Context, rows: List<LibraryMediaRef>, source:LibrarySource, epoch:Long) {
         if (mutable.value.running) return
         val token = ++nextToken
-        pending = Request(token,rows.toList())
+        pending = Request(token,rows,source,epoch)
         val now=android.os.SystemClock.elapsedRealtime()
-        mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now)
+        mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now,coverage=VisualScanCoverage(source,rows.size))
         prefs(context).edit().putString("journalStatus","running").apply()
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,VisualDuplicateScanService::class.java)) }
@@ -46,9 +46,9 @@ internal object VisualDuplicateBackgroundScan {
     }
     @Synchronized fun invalidateForPrivacy(){pending=null;mutable.value=Status(error="Поиск сброшен после переноса в Личное",token=++nextToken)}
     @Synchronized fun claim(): Request? = pending.also { pending = null }
-    @Synchronized fun progress(token: Long, done: Int,total: Int) {
+    @Synchronized fun progress(token: Long, coverage:VisualScanCoverage) {
         if (mutable.value.token == token && mutable.value.running && !mutable.value.committing)
-            mutable.value = mutable.value.copy(done=done,total=total)
+            mutable.value = mutable.value.copy(done=coverage.checked,total=coverage.total,coverage=coverage)
     }
     @Synchronized fun phase(token:Long,phase:DuplicateScanPhase){
         val s=mutable.value;if(s.token==token&&s.running)mutable.value=s.copy(phase=phase,done=0,total=0,phaseStartedAt=android.os.SystemClock.elapsedRealtime())
@@ -115,14 +115,15 @@ class VisualDuplicateScanService : Service() {
         }
         job = scope.launch {
             try {
-                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
+                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,request.source,request.epoch,onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
                         VisualDuplicateBackgroundScan.partial(scanToken,partial)
                         VisualDuplicateSessionStore.savePartial(this@VisualDuplicateScanService,VisualDuplicateSession(partial,emptySet(),0,0,scanAt))
-                    }) { done,total ->
-                    VisualDuplicateBackgroundScan.progress(scanToken,done,total)
+                    }) { coverage ->
+                    val done=coverage.checked;val total=coverage.total
                     val now = android.os.SystemClock.elapsedRealtime()
-                    if (VisualDuplicateBackgroundScan.state.value.token == scanToken && VisualDuplicateBackgroundScan.state.value.running && (now - lastNotice >= 1000 || done == total)) {
+                    if (VisualDuplicateBackgroundScan.state.value.token == scanToken && VisualDuplicateBackgroundScan.state.value.running && (done == 0 || now - lastNotice >= 1000 || done == total)) {
                         lastNotice = now
+                        VisualDuplicateBackgroundScan.progress(scanToken,coverage)
                         notifyAllowed(ID,notice(done,total))
                     }
                 }

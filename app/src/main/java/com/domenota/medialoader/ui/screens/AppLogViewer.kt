@@ -19,6 +19,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,13 +51,14 @@ internal fun AppLogViewer(
     onReadableChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val events = remember(rawText) { LogDisplay.entries(rawText) }
-    var selectedTone by remember { mutableStateOf<LogTone?>(null) }
-    val filtered = remember(events, selectedTone) { LogDisplay.filter(events, selectedTone) }
-    val displayed = remember(events, selectedTone, readable) {
-        // Compact before filtering so non-adjacent events are never merged.
-        if (readable) LogDisplay.filter(LogDisplay.compact(events), selectedTone) else filtered
+    var presentation by remember(rawText) { mutableStateOf<LogDisplay.Presentation?>(null) }
+    LaunchedEffect(rawText) {
+        presentation=withContext(Dispatchers.Default){LogDisplay.prepare(rawText)}
     }
+    val events=presentation?.raw.orEmpty()
+    var selectedTone by remember { mutableStateOf<LogTone?>(null) }
+    val filtered=presentation?.entries(selectedTone,false).orEmpty()
+    val displayed=presentation?.entries(selectedTone,readable).orEmpty()
     val tones = remember { LogTone.entries.toList() }
     val name = if (readable) "Понятный" else "Технический"
 
@@ -82,7 +86,7 @@ internal fun AppLogViewer(
                 onClick = { selectedTone = null },
                 label = { Text("Все · ${events.size}") })
             tones.forEach { tone ->
-                val count = events.count { it.tone == tone }
+                val count = presentation?.rawByTone?.get(tone)?.size ?: 0
                 FilterChip(
                     selected = selectedTone == tone,
                     onClick = { selectedTone = if (selectedTone == tone) null else tone },
@@ -94,7 +98,8 @@ internal fun AppLogViewer(
             }
         }
         Text(
-            if (selectedTone != null && filtered.isEmpty()) "По выбранному фильтру событий нет."
+            if (presentation==null) "Подготовка журнала…"
+            else if (selectedTone != null && filtered.isEmpty()) "По выбранному фильтру событий нет."
             else "Режим «$name» · событий: ${filtered.size}",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -105,7 +110,7 @@ internal fun AppLogViewer(
         ) {
             if (displayed.isEmpty()) {
                 item {
-                    Text("Журнал пока пуст или события не соответствуют фильтру.",
+                    Text(if(presentation==null) "Подготовка журнала…" else "Журнал пока пуст или события не соответствуют фильтру.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {

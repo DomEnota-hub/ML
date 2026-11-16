@@ -67,10 +67,30 @@ class AudioPlaybackService : MediaSessionService() {
         internal suspend fun finishReplacement(uri: String, revised: com.domenota.medialoader.core.database.DownloadEntity?,
             suspended: ReplacementPlayback?) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
                 val player = liveSession?.player ?: return@withContext
-                if (revised != null) for (index in 0 until player.mediaItemCount) {
-                    val item = player.getMediaItemAt(index)
-                    if (AudioPlaybackMetadata.matchesPublicUri(item, uri))
-                        player.replaceMediaItem(index, AudioPlaybackMetadata.revisedItem(item, revised))
+                if (revised != null) {
+                    // Capture only MediaItem references on the player looper. URI matching,
+                    // metadata copying and allocation belong to the worker. Never apply an
+                    // index from a superseded timeline.
+                    while (liveSession?.player === player) {
+                        val items = (0 until player.mediaItemCount).map(player::getMediaItemAt)
+                        val changes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                            com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.AUDIO_METADATA_REFRESH) {
+                                items.mapIndexedNotNull { index,item ->
+                                    if (AudioPlaybackMetadata.matchesPublicUri(item, uri)) {
+                                        val next=AudioPlaybackMetadata.revisedItem(item,revised)
+                                        if(next!==item) index to next else null
+                                    } else null
+                                }
+                            }
+                        }
+                        if(liveSession?.player !== player) return@withContext
+                        if(player.mediaItemCount!=items.size || items.indices.any{!AudioQueuePlayback.sameQueueItem(player.getMediaItemAt(it),items[it])}) continue
+                        for((index,next) in changes) {
+                            // Listener callbacks may synchronously alter the timeline.
+                            if(index<player.mediaItemCount && AudioQueuePlayback.sameQueueItem(player.getMediaItemAt(index),items[index])) player.replaceMediaItem(index,next)
+                        }
+                        break
+                    }
                 }
                 if (suspended != null && player === suspended.player &&
                     player.currentMediaItem?.mediaId == suspended.mediaId &&
@@ -186,7 +206,7 @@ class AudioPlaybackService : MediaSessionService() {
         val listening=ListeningRecorder(this,player,privateScope,ListeningHistoryStore.get(this),allowPublic)
         listeningRecorder = listening
         listening.attach()
-        val resume=ResumeQueueRecorder(player,privateScope,ResumeQueueStore.get(this),PublicListeningIdentity(this,allowPublic))
+        val resume=ResumeQueueRecorder(player,privateScope,ResumeQueueStore.get(this),PublicListeningIdentity(this, { PublicListeningIdentity.Access(privateReady, privateIds) }, allowPublic))
         resumeRecorder=resume;resume.attach()
         privateScope.launch {
             combine(access.state, MediaRepository.get(this@AudioPlaybackService).privateMediaIds) { state, ids -> state to ids }

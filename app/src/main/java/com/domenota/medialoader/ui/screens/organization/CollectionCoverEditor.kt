@@ -50,7 +50,8 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
     var initialized by rememberSaveable(collectionId){mutableStateOf(false)}
     var automatic by rememberSaveable(collectionId){mutableStateOf(false)}
     var choosing by rememberSaveable{mutableStateOf(false)}
-    var saved by remember{mutableStateOf<CollectionCover?>(null)}
+    var saved by remember(collectionId){mutableStateOf<CollectionCover?>(null)}
+    var originalSelection by remember(collectionId){mutableStateOf<CollectionCoverSelection>(CollectionCoverSelection.Loading)}
     var decoded by remember{mutableStateOf<Pair<String,Bitmap>?>(null)}
     val fallbackAppPhotos=remember(refs,blockedIdentities){refs.asSequence().filter { it.appDownloadId!=null && it.item.mediaType==MediaType.PHOTO && !collectionRefBlocked(it,blockedIdentities.orEmpty()) }.mapNotNull{it.item.savedUri}.toSet()}
     val currentCoverAccess=coverAccess ?: CollectionCoverAccess(PhoneMediaLibrary.canReadMissingMetadata(MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
@@ -73,9 +74,16 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
     }
     val liveAutomatic=automaticCover?.let{candidate->refs.firstOrNull{it.key==candidate.key&&MediaOrganizationPolicy.keys(it).isNotEmpty()&&blockedIdentities!=null&&!collectionRefBlocked(it,blockedIdentities)}}
     LaunchedEffect(collectionId){
-        val cover=collectionId?.let{ id->withContext(Dispatchers.IO){store.read(id)}}
+        val selection=collectionId?.let{ id->withContext(Dispatchers.IO){store.readSelection(id)}}?:CollectionCoverSelection.Automatic
+        originalSelection=selection
+        val cover=(selection as? CollectionCoverSelection.Selected)?.cover
+        val unavailable=selection as? CollectionCoverSelection.Unavailable
         saved=cover
-        if(!initialized){source=cover?.source;x=cover?.crop?.centerX?:.5f;y=cover?.crop?.centerY?:.5f;zoom=cover?.crop?.zoom?:1f;automatic=cover==null;initialized=true}
+        if(!initialized){
+            val crop=cover?.crop?:unavailable?.crop
+            source=cover?.source?:unavailable?.source;x=crop?.centerX?:.5f;y=crop?.centerY?:.5f;zoom=crop?.zoom?:1f
+            automatic=selection==CollectionCoverSelection.Automatic;initialized=true
+        }
     }
     val sourceAllowed=source?.let(::coverSourceAllowed)==true
     LaunchedEffect(source,blockedIdentities,sourceAllowed){
@@ -130,13 +138,13 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
                         val cover=if(!automatic)saved?.takeIf{coverSourceAllowed(it.source)}?.file?.let{android.net.Uri.fromFile(it).toString()} else null
                         val auto=liveAutomatic
                         if(cover!=null)DownloadThumbnail(cover,null,MediaKind.IMAGE,viewport.clickable(enabled=!busy){choosing=true})
-                        else if(auto!=null)CollectionOriginalCover(auto,viewport.clickable(enabled=!busy){
+                        else if(initialized&&automatic&&auto!=null)CollectionOriginalCover(auto,viewport.clickable(enabled=!busy){
                             val uri=auto.item.savedUri
                             if(auto.item.mediaType==MediaType.PHOTO&&!uri.isNullOrBlank()){
                                 source=uri;x=.5f;y=.5f;zoom=1f;automatic=false
                             }else choosing=true
                         })
-                        else Surface(viewport.clickable(enabled=!busy){choosing=true},color=MaterialTheme.colorScheme.surfaceVariant){Box(contentAlignment=Alignment.Center){Text("Автоматическая обложка")}}
+                        else Surface(viewport.clickable(enabled=!busy){choosing=true},color=MaterialTheme.colorScheme.surfaceVariant){Box(contentAlignment=Alignment.Center){Text(if(!initialized)"Загрузка обложки…" else if(automatic)"Автоматическая обложка" else "Выбранная обложка недоступна")}}
                     }
                 }
             }
@@ -154,11 +162,12 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
                 error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
             }
         }
-        Button(enabled=!busy&&!loading&&initialized&&name.isNotBlank()&&(automatic||bitmap!=null||(!creating&&source==saved?.source)),modifier=Modifier.fillMaxWidth().padding(16.dp),onClick={scope.launch{
+        val originalSource=saved?.source?:(originalSelection as? CollectionCoverSelection.Unavailable)?.source
+        Button(enabled=!busy&&!loading&&initialized&&originalSelection!=CollectionCoverSelection.Loading&&name.isNotBlank()&&(automatic||bitmap!=null||(!creating&&source==originalSource)),modifier=Modifier.fillMaxWidth().padding(16.dp),onClick={scope.launch{
             busy=true;error=null
             try {
-                if(!automatic&&source!=null&&(creating||source!=saved?.source||bitmap!=null))check(coverSourceAllowed(requireNotNull(source))){"Изображение недоступно"}
-                if(!automatic&&source!=saved?.source)check(photos.any{it.item.savedUri==source}){"Выбранное изображение больше недоступно"}
+                if(!automatic&&source!=null&&(creating||source!=originalSource||bitmap!=null))check(coverSourceAllowed(requireNotNull(source))){"Изображение недоступно"}
+                if(!automatic&&source!=originalSource)check(photos.any{it.item.savedUri==source}){"Выбранное изображение больше недоступно"}
                 if(creating){
                     checkNotNull(onCreate)(name,source.takeUnless{automatic},bitmap.takeUnless{automatic},CollectionCrop(x,y,zoom))
                 }else{

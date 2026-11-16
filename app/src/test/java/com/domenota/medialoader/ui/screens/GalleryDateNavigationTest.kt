@@ -25,4 +25,15 @@ class GalleryDateNavigationTest {
         assertEquals(8, galleryDateSectionIndex(sections, d("2026-10-15")))
         assertNull(galleryDateSectionIndex(emptyMap(), d("2026-10-01")))
     }
+
+    @Test fun fastScrollLabelsPreserveNonContiguousDateGroupAndGridOffsets(){
+        val zone=java.time.ZoneId.of("UTC")
+        fun row(id:String,date:String)=com.domenota.medialoader.core.database.DownloadEntity(id,"device",id,
+            com.domenota.medialoader.core.model.MediaType.PHOTO,com.domenota.medialoader.core.model.DownloadState.COMPLETED,
+            "content://media/$id",null,d(date).atStartOfDay(zone).toInstant().toEpochMilli())
+        val rows=listOf(row("a","2026-11-16"),row("b","2026-11-10"),row("c","2026-11-16"))
+        val a="16.11.2026";val b="10.11.2026"
+        assertEquals(listOf(a,a,a,a,b,b),com.domenota.medialoader.ui.screens.gallery.galleryFastScrollLabels(rows,true,zone))
+        assertEquals(listOf(a,a,b,a),com.domenota.medialoader.ui.screens.gallery.galleryFastScrollLabels(rows,false,zone))
+    }
 }

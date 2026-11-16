@@ -49,11 +49,19 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
     var error by remember{mutableStateOf<String?>(null)}
     var updateMessage by remember{mutableStateOf<String?>(null)}
     var updated by remember{mutableStateOf(false)}
-    var confirm by remember{mutableStateOf(false)}
+    var confirm by remember{mutableStateOf<AudioMetadataAction?>(null)}
     var search by remember{mutableStateOf(false)}
     var pending by remember{mutableStateOf<TrackRecognitionMatch?>(null)}
     val eligible=AudioReplacePolicy.eligible(source)
     val currentMatch=match
+    var format by remember(currentMatch?.version){mutableStateOf<AudioFileFormat?>(null)}
+    var formatError by remember(currentMatch?.version){mutableStateOf<String?>(null)}
+    val action=format?.action(eligible)
+    LaunchedEffect(currentMatch?.version){
+        if(currentMatch!=null)try{format=repository.inspectLocalTrackFormat(source,currentMatch)}
+        catch(e:CancellationException){throw e}
+        catch(_:Exception){formatError="Не удалось подтвердить фактический аудиоформат"}
+    }
     LaunchedEffect(privacyEpoch,currentMatch,source.hidden,source.isPrivate){
         if(source.hidden||source.isPrivate||(currentMatch!=null&&!DuplicatePrivacyGuard.accepts(context,currentMatch.version.privacyEpoch,source.id)))onDismiss()
     }
@@ -75,12 +83,16 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
             finally{rejecting=false}
         }
     }
-    fun apply(result:TrackRecognitionMatch){
+    fun apply(result:TrackRecognitionMatch,operation:AudioMetadataAction){
         applying=true;updateMessage=null
         scope.launch{
             try{
-                repository.applyLocalTrackRecognition(source,result)
-                updated=true;updateMessage="Данные исходного MP3 обновлены"
+                when(operation){
+                    AudioMetadataAction.REPLACE_MP3->repository.applyLocalTrackRecognition(source,result)
+                    AudioMetadataAction.TAGGED_COPY,AudioMetadataAction.CONVERT_MP3->repository.saveRecognizedAudioCopy(source,result,operation==AudioMetadataAction.CONVERT_MP3)
+                    AudioMetadataAction.UNAVAILABLE->error("Формат недоступен")
+                }
+                updated=true;updateMessage=if(operation==AudioMetadataAction.REPLACE_MP3)"Данные исходного MP3 обновлены" else "Копия сохранена. Оригинал не изменён"
                 onUpdated()
             }catch(e:CancellationException){throw e}
             catch(e:Exception){updateMessage=e.message?:"Не удалось изменить теги"}
@@ -89,19 +101,23 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
     }
     val grant=rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()){response->
         val result=pending
-        if(response.resultCode==Activity.RESULT_OK&&result!=null)apply(result)
+        if(response.resultCode==Activity.RESULT_OK&&result!=null)apply(result,AudioMetadataAction.REPLACE_MP3)
         else{pending=null;updateMessage="Разрешение на изменение файла не получено"}
     }
-    fun requestUpdate(result:TrackRecognitionMatch){
-        confirm=false
-        if(!eligible)return
+    fun requestUpdate(result:TrackRecognitionMatch,operation:AudioMetadataAction){
+        confirm=null
+        if(operation!=AudioMetadataAction.REPLACE_MP3){
+            if(operation==AudioMetadataAction.TAGGED_COPY&&action==operation || operation==AudioMetadataAction.CONVERT_MP3&&format?.canConvert==true)apply(result,operation)
+            return
+        }
+        if(!eligible||action!=operation)return
         if(Build.VERSION.SDK_INT>=30){
             try{
                 pending=result
                 val request=MediaStore.createWriteRequest(context.contentResolver,listOf(Uri.parse(result.version.uri)))
                 grant.launch(IntentSenderRequest.Builder(request.intentSender).build())
             }catch(_:Exception){pending=null;updateMessage="Не удалось запросить разрешение Android"}
-        }else apply(result)
+        }else apply(result,operation)
     }
     if(search&&currentMatch!=null){
         FullSongSearchDialog(FullSongSource.AUTO,currentMatch.result.artist,currentMatch.result.title,
@@ -136,8 +152,17 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
                             if(outcome?.conflict==true)"Результаты разных фрагментов расходились. Проверьте композицию." else "Дополнительное совпадение не подтверждено. Проверьте композицию.",
                             style=MaterialTheme.typography.bodySmall)
                         if(applying)LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Button({confirm=true},Modifier.fillMaxWidth(),enabled=eligible&&!updated&&!applying&&pending==null){Text("Обновить данные трека")}
-                        if(!eligible)Text("Безопасное изменение тегов доступно для MP3 в общей медиатеке. Распознавание и скачивание доступны.",style=MaterialTheme.typography.bodySmall)
+                        format?.let{Text("Формат: ${it.label}",style=MaterialTheme.typography.bodySmall)}
+                        if(format==null)Text(formatError?:"Проверка формата…",style=MaterialTheme.typography.bodySmall)
+                        if(action!=null&&action!=AudioMetadataAction.UNAVAILABLE){
+                            Button({confirm=action},Modifier.fillMaxWidth(),enabled=!updated&&!applying&&pending==null){Text(when(action){
+                                AudioMetadataAction.REPLACE_MP3->"Обновить данные трека"
+                                AudioMetadataAction.TAGGED_COPY->"Сохранить копию с тегами"
+                                else->"Создать копию MP3"
+                            })}
+                            if(action==AudioMetadataAction.TAGGED_COPY&&format?.canConvert==true&&!updated&&updateMessage!=null&&!applying)
+                                TextButton({confirm=AudioMetadataAction.CONVERT_MP3}){Text("Конвертировать копию в MP3")}
+                        }else if(action==AudioMetadataAction.UNAVAILABLE)Text("Безопасная запись тегов недоступна для этого формата. Оригинал сохранён.",style=MaterialTheme.typography.bodySmall)
                         OutlinedButton({search=true},Modifier.fillMaxWidth(),enabled=!applying&&pending==null){Text("Скачать композицию")}
                         TextButton(onClick={reject(currentMatch)},enabled=!updated&&!applying&&pending==null&&!rejecting,modifier=Modifier.fillMaxWidth()){
                             Icon(Icons.Rounded.Refresh,null);Spacer(Modifier.width(8.dp));Text("Это не тот трек")
@@ -157,9 +182,18 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
             }
         }
     }
-    if(confirm&&currentMatch!=null)AlertDialog(onDismissRequest={confirm=false},
-        title={Text("Обновить исходный MP3?")},
-        text={Text("Будут изменены теги и доступная обложка. Имя файла, записи медиатеки, избранное и плейлисты сохранятся. Перед записью проверяется неизменность аудио.")},
-        confirmButton={TextButton({requestUpdate(currentMatch)}){Text("Обновить")}},
-        dismissButton={TextButton({confirm=false}){Text("Отмена")}})
+    val confirmedAction=confirm
+    if(confirmedAction!=null&&currentMatch!=null)AlertDialog(onDismissRequest={confirm=null},
+        title={Text(when(confirmedAction){
+            AudioMetadataAction.REPLACE_MP3->"Обновить исходный MP3?"
+            AudioMetadataAction.TAGGED_COPY->"Сохранить копию с тегами?"
+            else->"Создать копию MP3?"
+        })},
+        text={Text(when(confirmedAction){
+            AudioMetadataAction.REPLACE_MP3->"Будут изменены теги и доступная обложка. Имя файла, записи медиатеки, избранное и плейлисты сохранятся. Перед записью проверяется неизменность аудио."
+            AudioMetadataAction.TAGGED_COPY->"Копия в формате ${format?.tagFormat?.extension?.uppercase().orEmpty()} без перекодирования. Исходный файл, история, избранное и плейлисты остаются без изменений."
+            else->"Копия MP3, 192 кбит/с. Перекодирование с потерями. Исходный файл, история, избранное и плейлисты сохраняются."
+        })},
+        confirmButton={TextButton({requestUpdate(currentMatch,confirmedAction)}){Text(if(confirmedAction==AudioMetadataAction.REPLACE_MP3)"Обновить" else "Сохранить копию")}},
+        dismissButton={TextButton({confirm=null}){Text("Отмена")}})
 }

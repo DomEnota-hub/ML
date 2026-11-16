@@ -106,4 +106,19 @@ class LibraryValidationGateTest {
         assertTrue(phoneValidationPending(index, scanned.copy(requiresValidation = true), retained))
     }
 
+
+    @Test fun duplicateScanRequiresFullCurrentVisualGenerationEvenWhenPartialPageIsVisible(){
+        val uris=setOf("app" to "content://media/app")
+        val index=LibraryIndex(ready=true,appComplete=true,galleryRevision=12,appUris=uris)
+        val complete=PhoneLibraryState(loaded=true,complete=true,revision=12,accessEpoch=3)
+        assertTrue(visualDuplicateCatalogComplete(index,complete,3,uris))
+        assertFalse(visualDuplicateCatalogComplete(index,complete.copy(complete=false),3,uris))
+        assertFalse(visualDuplicateCatalogComplete(index,complete.copy(loading=true),3,uris))
+        assertFalse(visualDuplicateCatalogComplete(index,complete,3,uris,scanInProgress=true))
+        assertFalse(visualDuplicateCatalogComplete(index,complete.copy(revision=13),3,uris))
+        assertFalse(visualDuplicateCatalogComplete(index,complete,4,uris))
+        assertFalse(visualDuplicateCatalogComplete(index,complete,3,emptySet()))
+        assertFalse(visualDuplicateCatalogComplete(index.copy(appComplete=false),complete,3,uris))
+        assertFalse(visualDuplicateCatalogComplete(index,complete,3,null))
+    }
 }

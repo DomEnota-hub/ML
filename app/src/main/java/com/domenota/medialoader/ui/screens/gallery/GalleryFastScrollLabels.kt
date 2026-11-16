@@ -11,8 +11,20 @@ internal fun galleryFastScrollLabels(rows: List<DownloadEntity>, grouped: Boolea
     zone: ZoneId = ZoneId.systemDefault()): List<String> {
     if (rows.isEmpty()) return listOf("")
     val format = DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.ROOT)
-    fun label(row: DownloadEntity) = Instant.ofEpochMilli(row.createdAtEpochMillis).atZone(zone).toLocalDate().format(format)
-    val dates = rows.map(::label)
-    return listOf(dates.first()) + if (grouped) dates.groupBy { it }.flatMap { (date, items) -> listOf(date) + items }
-        else dates
+    val labels=HashMap<java.time.LocalDate,String>()
+    fun label(row: DownloadEntity):String {
+        val date=Instant.ofEpochMilli(row.createdAtEpochMillis).atZone(zone).toLocalDate()
+        return labels.getOrPut(date){date.format(format)}
+    }
+    // The grid groups by date in first-seen order, even for non-contiguous dates.
+    // Keep identical labels and indices without creating a list per date or formatting every row.
+    val first=label(rows.first())
+    return buildList(rows.size+1) {
+        add(first)
+        if(grouped){
+            val counts=LinkedHashMap<String,Int>()
+            rows.forEach{val date=label(it);counts[date]=(counts[date]?:0)+1}
+            counts.forEach{(date,count)->repeat(count+1){add(date)}}
+        }else rows.forEach{add(label(it))}
+    }
 }

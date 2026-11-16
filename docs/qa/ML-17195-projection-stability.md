@@ -1,0 +1,31 @@
+# ML 1.7.195 / 255 — projection stability
+
+Base: released 1.7.194 commit `5b1dfd1fac1bd14830f115e44d1e6f44b9202318`, tree `b04fe86fb02fdfb9fa4c73748d402d34ea98ddff`.
+
+Device log 2026-11-16 16:13 MSK: 11,214 visual rows; 3,190 audio catalog rows; 2 scans, 35 index builds, 2,737 background projection starts; mode dispatch 0–8 ms; gallery first frame 540–656 ms; music 209–300 ms; sampled music Choreographer gaps 63–122 >=50 ms per 10 s, max 520 ms. Counts are cumulative and frame gaps are not dropped-frame counts. No causal trace attributing all stalls to a single projection.
+
+The old root allocated fresh filtered indexed/public lists on each composition; the audio-session projection keys collections by reference identity. Fix: build filtered indexed rows once per immutable worker generation; reuse the same public list when no extra session rows; no empty-queue worker. The access gate includes the actual visibility guard, not just blocked keys; fail closed on null, changed scope, or disabled projection. Keep live file-action checks. Initial loading, permission/visibility changes, and genuinely changed sources still require validation; never use cached data as authorization.
+
+Worker-derived immutable display inventory, gallery base inventory with exact hidden membership and album counts/cover rules, music browse catalog and recent/analytics base data retained at the root across ordinary mode switching. Gallery dynamic search and selected-album ordering remain UI-local; no claim of total absence of work or measured speedup. Gallery/phone permissions remain independently validated. The gallery prepared snapshot uses same generation for rows/assignments and explicitly excludes hidden rows whose current assignment does not match the verified hidden folder. Folder actions, private storage, trash, physical move journal, and original files are unchanged.
+
+New cumulative fixed-label metrics: `ALIASES`, `PUBLIC_ROWS`, `AUDIO_SESSION`, `ASSIGNMENTS`, `GALLERY_BROWSE`, `MUSIC_BROWSE`, `OTHER` (initial/input/access, completed/aborted, reused, elapsed total/max). Existing `BACKGROUND_PROJECTION` retained. Export header captures the current process counters, not just the last pause. No titles, media paths or file IDs in these metrics. Other addressed projections keep their existing independent semantics and are not included in these new named counters.
+
+Tests: 5 new pure methods and 2 new Compose methods. Existing assertions preserved. Local Kotlin desktop 11/11 methods (production logic with extracted model declarations and minimal JUnit stub; includes 6 old tests). UI guard scripts passed. Android CI must validate exact candidate and all previous tests before technical acceptance. No signing/distribution or production merge on a WIP.
+
+Device acceptance after QA: clear journal (not app data), start ML with existing media, alternate Gallery/Music/Downloader 10 times after initial catalog settles, stay 30 s in each, open same collections/folder, play/pause and switch while a public queue exists. Repeat with an empty queue; compare per-kind counter deltas, first-frame timings and FRAME_GAPS windows with original workload. Stable data/queue must not cause new PUBLIC_ROWS or AUDIO_SESSION builds merely from recomposition; AUDIO_SESSION must remain zero with empty queue. Check source changes, actual media additions/deletion, permissions, hidden folder hide/restore and explicit access, favorite/collections and queue identities. No performance acceptance solely from Robolectric/CI.
+
+## Expanded stage 1 — optimization, no feature expansion
+- Source: signed 1.7.194 user device logs, 2026-11-16; UI_STALL up to 3.053 s, heap sample 254/256 MiB, 9,420 cumulative projections. No proven memory leak or claimed on-device speedup yet.
+- Resume queue: immutable access and item snapshots, background identity/context/occurrence construction, latest generation publication, CAS lease and clear generation, frozen final position after release. Preserve complete queue/order/duplicates, existing 5,000-entry storage policy, position/history, private and hidden gates. No player calls on arbitrary worker.
+- Exact equivalent queue seeks instead of replacing; real changes still replace. Metadata replacement matching and construction off player thread with revalidation. Bounded URI alias cache is lexical only, not authorization. Preview retains one prepared queue. Actual first Media3/Android Binder queue publication may still require platform work; verify device after stage 3.
+- Stable navigation graph, current callbacks via rememberUpdatedState, exact route topology unchanged. Viewer builds only the relevant queue on a worker, access/scope/status changes discard stale output. Gallery date formatting once per day. Duplicate screen index and report reconciliation off main (coverage/readiness and redundant indicator changes are stage 2).
+- MediaStore warm scan no longer creates unused incremental snapshot copies; existing access/revision checks unchanged. Actual new screenshots and media edits must still refresh.
+- Optional detailed diagnostics: fixed aggregate categories, GC count/time and heap, worker parsing/filtering of logs, raw log unchanged, default disabled. No per-track records or media locators. Runtime counters not a proof of all work.
+- Stage 1 acceptance: targeted Android JVM tests for changed components, privacy, navigation, playback/history and logs, plus UI guards. Full JVM, full Main/Storage/lint/ARM64 and signed handoff deferred to stage 3 by explicit workflow input; no tests removed or assertions weakened. Device-only performance/quality validation pending.
+
+### Stage 1 retained grid follow-up
+
+- Gallery grid caches a bounded pair of prepared selections per immutable inventory, with exact order, date labels and visible IDs. Background publication retains only matching access/scope/query; invalidated access immediately discards old grid.
+- Audio preview cache compares actual ordered items and metadata revision; timeline identity is ordinary remembered reference, not snapshot state.
+- Navigation route descriptors use structural equality; routes and current content remain unchanged.
+- Hidden listening keys regression covers canonical encoded IDs/URIs, aliases and frozen gate isolation. Visibility XML is preserved separately for exact stage acceptance.
