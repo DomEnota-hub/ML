@@ -20,8 +20,12 @@ jobs:
           mkdir -p out
           cp "$bt/lib/apksigner.jar" out/
           cp "$bt/zipalign" out/
+          # Build-tools zipalign dynamically links libc++; include its runtime, never any key.
+          runtime="$(find "$ANDROID_SDK_ROOT" -type f -name 'libc++.so*' -print -quit)"
+          test -n "$runtime" && test -f "$runtime"
+          cp -L "$runtime" out/libc++.so
           chmod +x out/zipalign
-          sha256sum out/apksigner.jar out/zipalign > out/SHA256SUMS.txt
+          sha256sum out/apksigner.jar out/zipalign out/libc++.so > out/SHA256SUMS.txt
           du -h out/*
       - uses: actions/upload-artifact@v4
         with:
