@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -144,7 +145,9 @@ fun HomeScreen(
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline))
                 Spacer(Modifier.height(14.dp))
                 GradientActionButton("Найти файл", onClick = onCheckClick,
-                    enabled = url.isNotBlank(), leadingIcon = Icons.Rounded.Search)
+                    enabled = url.isNotBlank(), leadingIcon = Icons.Rounded.Search,
+                    border = BorderStroke(1.dp, if (url.isNotBlank()) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outline.copy(alpha = .55f)))
              }
         }
         Spacer(Modifier.height(24.dp))

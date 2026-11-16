@@ -68,14 +68,17 @@ internal class FolderVisibilityCatalogBindings(
      * typed MediaStore identity are proven. All data comes from the current row. */
     @androidx.annotation.RequiresApi(30)
     suspend fun plan(folderId: String, direction: VisibilityDirection, state: CatalogVisibilityState,
-        media: VisibilityMediaStore): VisibilityBatchRecord = withContext(Dispatchers.IO) {
+        media: VisibilityMediaStore, onPlanning: (Int,Int) -> Unit = {_,_->}): VisibilityBatchRecord = withContext(Dispatchers.IO) {
         check(catalog.folderById(folderId) != null)
         val app = catalog.memberIds(folderId).toSet()
         val phone = externalMemberIds(folderId)
         check(app.intersect(phone).isEmpty()) { "Неоднозначный состав папки" }
         val ids = (app + phone).sorted()
         check(ids.size <= VisibilityBatchRecord.MAX_MEMBERS)
-        val members = ids.map { id -> planRecord(id,folderId,direction,member(id,folderId).ref.item,state,media) }
+        onPlanning(0,ids.size)
+        val members = ids.mapIndexed { index,id ->
+            planRecord(id,folderId,direction,member(id,folderId).ref.item,state,media).also { onPlanning(index+1,ids.size) }
+        }
         VisibilityBatchRecord(java.util.UUID.randomUUID().toString(),folderId,direction,members)
     }
     @androidx.annotation.RequiresApi(30)
@@ -103,6 +106,46 @@ internal class FolderVisibilityCatalogBindings(
             check(fingerprint==previous.fingerprint && current.sizeBytes==fingerprint.bytes) { "Содержимое скрытого файла изменилось" }
             VisibilityMoveRecord(operation,folder,id,direction,uri,origin.name,origin.modifiedMillis,fingerprint,token,publicOrigin=origin)
         }
+    }
+
+    /** Legacy v1 omitted placement metadata. Recover it only while this exact
+     * journaled public source still exists and matches its immutable full hash. */
+    @androidx.annotation.RequiresApi(30)
+    suspend fun enrichLegacy(record: VisibilityMoveRecord, media: VisibilityMediaStore): VisibilityMoveRecord = withContext(Dispatchers.IO) {
+        if (record.publicOrigin != null) return@withContext record
+        check(record.direction == VisibilityDirection.HIDE) {
+            "В старом журнале показа нет исходного расположения; журналы сохранены"
+        }
+        val current = checkNotNull(currentMember(record.downloadId)) {
+            "Не найдена точная запись старого переноса; журналы сохранены"
+        }
+        requirePublic(current.ref.item)
+        check(current.folder == record.folderId && current.ref.item.sizeBytes == record.fingerprint.bytes &&
+            current.ref.item.savedUri in setOfNotNull(record.logicalSourceUri, record.destinationUri)) {
+            "Запись старого переноса изменилась; журналы сохранены"
+        }
+        val mime = when (current.ref.item.mediaType) {
+            MediaType.PHOTO -> "image/*"; MediaType.VIDEO -> "video/*"; MediaType.AUDIO -> "audio/*"
+        }
+        // Never search by filename or substitute the current catalog locator.
+        val origin = try { media.captureCatalog(record.sourceUri, mime) }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            throw IllegalStateException("Не удалось точно подтвердить исходник старого переноса; журналы сохранены", failure)
+        }
+        check(origin.name == record.sourceName && origin.bytes == record.fingerprint.bytes &&
+            (record.sourceModifiedMillis == null || origin.modifiedMillis == record.sourceModifiedMillis) &&
+            HiddenFolderFileStore.fingerprint(media.openOriginal(origin)) == record.fingerprint) {
+            "Исходник старого переноса не совпал по имени, дате или SHA-256; журналы сохранены"
+        }
+        check(currentMember(record.downloadId) == current) {
+            "Запись старого переноса изменилась во время проверки; журналы сохранены"
+        }
+        check(record.sourceUri == origin.uri || record.sourceUri == record.logicalSourceUri) {
+            "В старом журнале недостаточно точных адресов исходника; журналы сохранены"
+        }
+        record.copy(sourceUri = origin.uri, sourceModifiedMillis = origin.modifiedMillis, publicOrigin = origin,
+            catalogSourceUri = record.logicalSourceUri.takeUnless { it == origin.uri })
     }
 
     suspend fun memberFolder(ref:LibraryMediaRef):String? = withContext(Dispatchers.IO) {

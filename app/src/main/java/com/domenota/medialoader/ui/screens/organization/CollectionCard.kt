@@ -81,9 +81,12 @@ private fun CreateCollectionCard(onOpen:()->Unit,modifier:Modifier=Modifier) {
 }
 @Composable
 internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit,onCreate:()->Unit={onOpen(null)},blockedIdentities:Set<String>?=emptySet(),cachedCovers:Map<String,LibraryMediaRef> = emptyMap(),coverAccess:CollectionCoverAccess?=null,collectionsReady:Boolean=true) {
-    var covers by remember{mutableStateOf(emptyMap<String,LibraryMediaRef>())}
+    var covers by remember(collections,refs){mutableStateOf(emptyMap<String,LibraryMediaRef>())}
     LaunchedEffect(collections,refs){covers=withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(collections.flatMap{it.members},refs)}}
     val live=remember(refs){refs.associateBy{it.key}}
+    val liveCovers=remember(covers,live){covers.mapNotNull { (id,candidate) ->
+        live[candidate.key]?.let { id to it }
+    }.toMap()}
     Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("Коллекции",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium);TextButton({onOpen(null)}){Text("Все коллекции")}}
         if(collections.isEmpty()&&collectionsReady)OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",onCreate)
@@ -91,9 +94,7 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
             val width=collectionCardWidth(maxWidth.value).dp
             LazyRow(Modifier.testTag("collection-gallery-strip"),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 items(collections,key={it.record.id}){collection->
-                    val cover=collection.members.firstNotNullOfOrNull{covers[it.id]?.let{candidate->live[candidate.key]}} ?: cachedCovers[collection.record.id]?.takeIf { candidate -> collection.members.any { member ->
-                        !collectionMemberBlocked(member,blockedIdentities.orEmpty()) && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson),candidate)
-                    } }
+                    val cover=collectionAutomaticCover(collection.members,liveCovers,blockedIdentities,cachedCovers[collection.record.id])
                     CollectionCard(collection,cover,{onOpen(collection.record.id)},Modifier.width(width),blockedIdentities,coverAccess)
                 }
                 if(collections.size==1)item("create") {CreateCollectionCard(onCreate,Modifier.width(width))}
@@ -108,8 +109,8 @@ internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modif
     val kind=when(ref.item.mediaType){com.domenota.medialoader.core.model.MediaType.PHOTO->MediaKind.IMAGE;com.domenota.medialoader.core.model.MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO}
     val audioRevisions by com.domenota.medialoader.core.storage.AudioThumbnailInvalidation.revisions.collectAsState()
     val audioRevision=if(kind==MediaKind.AUDIO) ref.item.savedUri?.let { audioRevisions[it] } ?: 0L else 0L
-    val coverIdentity=remember(ref.key,ref.item.savedUri,ref.item.sizeBytes,ref.item.createdAtEpochMillis,ref.aliases){
-        PersistentProjectionCache.digest(listOf(ref.key,ref.item.savedUri,ref.item.sizeBytes,ref.item.createdAtEpochMillis,
+    val coverIdentity=remember(ref.key,ref.item.savedUri,ref.item.mediaType,ref.item.previewUrl,ref.item.sizeBytes,ref.item.createdAtEpochMillis,ref.aliases){
+        PersistentProjectionCache.digest(listOf(ref.key,ref.item.savedUri,ref.item.mediaType,ref.item.previewUrl,ref.item.sizeBytes,ref.item.createdAtEpochMillis,
             ref.aliases.sorted().joinToString("\u0000")).joinToString("\u0000"))
     }
     var bitmap by remember(ref.item.savedUri,coverIdentity,audioRevision){mutableStateOf<android.graphics.Bitmap?>(null)}

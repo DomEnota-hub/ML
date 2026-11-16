@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.components
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +40,7 @@ fun GradientActionButton(
     enabled: Boolean = true,
     leadingIcon: ImageVector? = null,
     trailingIcon: ImageVector? = null,
+    border: BorderStroke? = null,
 ) {
     val shape = RoundedCornerShape(16.dp)
     val buttonInk = if (isDarkPalette) MaterialTheme.colorScheme.onPrimary else Color.White
@@ -51,6 +54,7 @@ fun GradientActionButton(
         modifier = modifier
             .fillMaxWidth()
             .background(gradient, shape)
+            .then(if (border != null) Modifier.border(border, shape) else Modifier)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.Center,

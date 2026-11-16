@@ -12,7 +12,6 @@ import com.domenota.medialoader.data.playback.PublicMediaIdentity
 import java.io.File
 import android.util.AtomicFile
 import org.json.JSONObject
-import java.nio.ByteBuffer
 import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -56,8 +55,13 @@ internal object MusicDuplicateScanner {
     }
     /** Hash encoded audio samples, independent of outer metadata tags. NOT a cross-codec acoustic fingerprint. */
     internal suspend fun payload(context: Context, uri: Uri): String? {
+        // No suspension within this priority window: restore the same shared IO worker
+        // even on cancellation/provider failure; player/main priorities are unchanged.
+        val active = coroutineContext
+        val previousPriority = android.os.Process.getThreadPriority(android.os.Process.myTid())
         val ex = MediaExtractor()
         try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             ex.setDataSource(context, uri, null)
             val index = (0 until ex.trackCount).firstOrNull { ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true } ?: return null
             val format = ex.getTrackFormat(index)
@@ -69,18 +73,18 @@ internal object MusicDuplicateScanner {
             }
             for (i in 0..2) format.getByteBuffer("csd-$i")?.duplicate()?.let { digest.update(it) }
             ex.selectTrack(index)
-            val size = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE).coerceIn(64*1024, 4*1024*1024) else 1024*1024
-            val buf = ByteBuffer.allocate(size); var count = 0
-            while (true) {
-                coroutineContext.ensureActive(); buf.clear(); val n = ex.readSampleData(buf,0); if (n < 0) break
-                if (n > buf.capacity()) return null
-                buf.position(0); buf.limit(n); digest.update(buf); count++
-                if (!ex.advance()) break
-            }
-            return if (count > 0) digest.digest().joinToString("") { "%02x".format(it) } else null
+            val maxInputSize = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) else null
+            return EncodedAudioPayload.digestSamples(digest, maxInputSize,
+                checkActive = { active.ensureActive() },
+                read = { ex.readSampleData(it, 0) },
+                advance = { ex.advance() })
         } catch (e: CancellationException) { throw e } catch (_: Exception) { return null }
-        finally { ex.release() }
+        finally {
+            try { ex.release() }
+            finally { android.os.Process.setThreadPriority(previousPriority) }
+        }
     }
+
     private fun cacheDirectory(context:Context,expanded:Boolean)=File(context.noBackupFilesDir,"duplicate-scan-cache-v2-a${AcousticFingerprint.VERSION}"+if(expanded)"-full" else "")
     private fun checkpoint(context: Context, uri: String,expanded:Boolean): AtomicFile {
         val folder = cacheDirectory(context,expanded).apply { mkdirs() }

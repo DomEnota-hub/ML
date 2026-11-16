@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+internal enum class PhoneScanReason { REQUEST, MEDIASTORE_CHANGE, PRIVACY_CHANGE, ACCESS_CHANGED, RECOVERY }
 internal data class PhoneLibraryState(
     val items: List<DownloadEntity> = emptyList(), val loading: Boolean = false,
     val loaded: Boolean = false, val message: String? = null, val revision: Long = 0,
@@ -101,6 +102,11 @@ internal fun retainAudioCatalog(previous: AudioCatalogSnapshot?, update: AudioCa
     val guard = update.guard ?: return null
     return update.refs?.let { AudioCatalogSnapshot(guard, it) } ?: previous?.takeIf { it.guard == guard }
 }
+private data class PhoneReferenceInput(
+    val pictures: List<DownloadEntity>, val audio: List<DownloadEntity>, val app: List<DownloadEntity>,
+    val pictureIdentities: Map<String, Set<String>>, val audioIdentities: Map<String, Set<String>>,
+    val privacy: Set<String>, val pictureAccess: Long, val audioAccess: Long,
+)
 private data class AudioIndexInput(val app: AppReferenceBatch?, val phone: PhoneLibraryState,
     val privacy: Set<String>?, val recovering: Boolean, val accessEpoch: Long)
 private data class LibraryIndexInput(val app: AppReferenceBatch?, val gallery: PhoneLibraryState,
@@ -283,6 +289,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     val galleryAccessEpoch = galleryAccessEpochState.asStateFlow()
     val musicAccessEpoch = musicAccessEpochState.asStateFlow()
     private val jobs = mutableMapOf<AppMode, Job>()
+    private var phoneScanGeneration = 0L
     private val mediaRepository = MediaRepository.get(application)
     private val folderVisibility = mediaRepository.folderVisibility
     // Await the durable settings generation. Corrupt metadata must not publish a
@@ -375,12 +382,14 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     }
     // Partition the existing app scan, rather than adding another full scan. Each row is
     // captured once, and a large audio import cannot cancel the visual pass (or vice versa).
-    private fun referenceBatches(rowsFlow: Flow<List<DownloadEntity>>,audio:Boolean=false) = combine(rowsFlow, HistoricalRecoverySignals.isRunning,
+    private fun referenceBatches(rowsFlow: Flow<List<DownloadEntity>>,audio:Boolean=false): kotlinx.coroutines.flow.StateFlow<AppReferenceBatch?> {
+        val publication = AppReferencePublicationPolicy()
+        return combine(rowsFlow, HistoricalRecoverySignals.isRunning,
         HistoricalRecoverySignals.version) { rows, running, _ -> rows.takeUnless { running } }
         .transformLatest<List<DownloadEntity>?, AppReferenceBatch?> { rows ->
         if (rows == null) { emit(null); return@transformLatest }
-        // Phone revisions must not restart this work, and a large history must not delay
-        // the first visible page until its last provider URI has been resolved.
+        // Phone revisions must not restart this work. Keep cold first-page progress,
+        // but do not feed every warm identity batch into a full catalog rebuild.
         val resolved = mutableListOf<LibraryMediaRef>()
         // The audio metadata projection can survive a process restart without
         // reopening every ML download. Only exact, fully authorized MediaStore
@@ -398,13 +407,18 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         val reusable=cachePrivacy==privateKeys.value&&privacyGeneration==DuplicatePrivacyGuard.generation(getApplication())&&fullAudioAccess()
         val identities=if(reusable)cached else emptyMap()
         if(identities.isNotEmpty())com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(com.domenota.medialoader.core.logging.LibraryWork.APP_AUDIO_IDENTITY_CACHE_HIT)
-        if (rows.isEmpty()) emit(AppReferenceBatch(emptyList(), true))
+        if (rows.isEmpty()) {
+            emit(AppReferenceBatch(emptyList(), true))
+            publication.completed()
+        }
         var publishedAt = android.os.SystemClock.elapsedRealtime()
         for (batch in rows.chunked(16)) {
             resolved += references(batch, true, identities,freshTypedAudio=audio&&before?.generation!=null)
             val now = android.os.SystemClock.elapsedRealtime()
-            if (resolved.size == batch.size || resolved.size == rows.size || now - publishedAt >= 250L) {
-                emit(AppReferenceBatch(resolved.toList(), resolved.size == rows.size))
+            if (publication.shouldPublish(resolved.size, rows.size, resolved.size == batch.size, now - publishedAt)) {
+                val complete = resolved.size == rows.size
+                emit(AppReferenceBatch(resolved.toList(), complete))
+                if (complete) publication.completed()
                 publishedAt = now
             }
         }
@@ -416,6 +430,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         }
         com.domenota.medialoader.core.logging.AppLog.i("Library", "App identity index ready · count=${resolved.size}")
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    }
     private val appAudioReferences = referenceBatches(completedDownloads.map { rows ->
         rows.filter { it.mediaType == com.domenota.medialoader.core.model.MediaType.AUDIO }
     }.distinctUntilChanged().flowOn(Dispatchers.Default),audio=true)
@@ -427,6 +442,21 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             audio?.complete == true && visual?.complete == true)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    // Receipt/progress changes need fresh visibility checks, not a second allocation of
+    // every unchanged phone row and identity set. Cache only pre-visibility references;
+    // both callers still filter/normalize under their exact current guard below.
+    private val indexPhoneReferences = LatestProjectionCache<PhoneReferenceInput, List<LibraryMediaRef>>()
+    private val audioPhoneReferences = LatestProjectionCache<PhoneReferenceInput, List<LibraryMediaRef>>()
+    private suspend fun phoneReferences(cache: LatestProjectionCache<PhoneReferenceInput, List<LibraryMediaRef>>,
+        pictures: PhoneLibraryState, audio: PhoneLibraryState, app: List<LibraryMediaRef>, privacy: Set<String>): List<LibraryMediaRef> {
+        val key = PhoneReferenceInput(pictures.items, audio.items, app.map { it.item }, pictures.identities,
+            audio.identities, privacy, pictures.accessEpoch, audio.accessEpoch)
+        return cache.get(key) {
+            val rows = PhoneLibraryChronology.reconcile(pictures.items + audio.items, key.app)
+            references(rows, false, pictures.identities + audio.identities)
+        }
+    }
+
     // Independent complete audio projection. No photo/video readiness or collection
     // readiness enters this flow. Retention is invalidated by real access/privacy changes.
     val audioCatalog = combine(appAudioReferences, music, privateKeys, HistoricalRecoverySignals.isRunning,
@@ -436,9 +466,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             val (app, audio, private, recovering, epoch) = input
             val guard = private?.takeUnless { recovering || visibility == null || visibility.policy.unknownPending }?.let { AudioCatalogGuard(it, epoch, visibility) }
             val refs = if (guard != null && app?.complete == true && audio.loaded && audio.complete && !audio.loading && audio.accessEpoch == epoch) withContext(Dispatchers.IO) {
-                val phoneRows = PhoneLibraryChronology.reconcile(audio.items, app.refs.map { it.item })
+                val phoneRefs = phoneReferences(audioPhoneReferences, PhoneLibraryState(), audio, app.refs, guard.privacy)
                 UnifiedMediaLibrary.merge(app.refs.filterNot { visibility!!.excluded(it) },
-                    references(phoneRows, false, audio.identities).filterNot { visibility!!.excluded(it) }.map { visibility!!.normalizePublic(it) }, guard.privacy).also {
+                    phoneRefs.filterNot { visibility!!.excluded(it) }.map { visibility!!.normalizePublic(it) }, guard.privacy).also {
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Audio catalog ready · count=${it.size}")
                 }
             } else null
@@ -458,10 +488,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             // Reconcile only identical URI/type pairs, never by name or size.
             com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
                 com.domenota.medialoader.core.logging.LibraryWork.LIBRARY_INDEX_BUILD)
-            val phoneRows = PhoneLibraryChronology.reconcile(
-                pictures.items + audio.items, app?.refs.orEmpty().map { it.item })
+            val phoneRefs = phoneReferences(indexPhoneReferences, pictures, audio, app?.refs.orEmpty(), private)
             val merged = UnifiedMediaLibrary.merge(app?.refs.orEmpty().filterNot(visibility::excluded),
-                references(phoneRows, false, pictures.identities + audio.identities).filterNot(visibility::excluded).map(visibility::normalizePublic), private)
+                phoneRefs.filterNot(visibility::excluded).map(visibility::normalizePublic), private)
             val hidden = (app?.refs.orEmpty() + visibility.external.map { it.ref }.filter { it.appDownloadId == null })
                 .mapNotNull { verifiedHidden(it,visibility) }.filterNot { ref ->
                     ref.key in private || ref.aliases.any(private::contains)
@@ -543,8 +572,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         if (!recoveryRefreshPending || editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
         recoveryRefreshPending = false
         pendingMediaChanges.clear()
-        refresh(AppMode.GALLERY, force = true, invalidate = true)
-        refresh(AppMode.MUSIC, force = true, invalidate = true)
+        refresh(AppMode.GALLERY, force = true, invalidate = true, reason = PhoneScanReason.RECOVERY)
+        refresh(AppMode.MUSIC, force = true, invalidate = true, reason = PhoneScanReason.RECOVERY)
     }
 
     init {
@@ -616,7 +645,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED){}
                     return@forEach
                 }
-                refresh(mode, force = true)
+                refresh(mode, force = true, reason = PhoneScanReason.MEDIASTORE_CHANGE)
             }
         }
     }
@@ -640,14 +669,14 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     identityCache.clear()
                     for (mode in listOf(AppMode.GALLERY, AppMode.MUSIC)) {
                         val state = if (mode == AppMode.GALLERY) galleryState else musicState
-                        if (state.value.loaded || jobs[mode]?.isActive == true) refresh(mode, force = true, invalidate = true)
+                        if (state.value.loaded || jobs[mode]?.isActive == true) refresh(mode, force = true, invalidate = true, reason = PhoneScanReason.PRIVACY_CHANGE)
                     }
                 }
             }
         }
     }
 
-    fun refresh(mode: AppMode, force: Boolean = false, invalidate: Boolean = false) {
+    fun refresh(mode: AppMode, force: Boolean = false, invalidate: Boolean = false, reason: PhoneScanReason = PhoneScanReason.REQUEST) {
         if (mode == AppMode.DOWNLOADER) return
         if (HistoricalRecoverySignals.isRunning.value) {
             pendingMediaChanges += mode
@@ -678,6 +707,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         if (!changedAccess && !invalidate && jobs[mode]?.isActive == true) return
         if (silent && !force && now - (refreshedAt[mode] ?: Long.MIN_VALUE / 2) < 60_000) return
         val scanToken=Any()
+        val scanGeneration = ++phoneScanGeneration
+        val scanReason = if (changedAccess) PhoneScanReason.ACCESS_CHANGED else reason
         if(mode==AppMode.GALLERY){galleryScanToken=scanToken;galleryScanInProgressState.value=signature.any{it}}
         jobs.remove(mode)?.cancel()
         val epoch = if (mode == AppMode.GALLERY) galleryAccessEpochState else musicAccessEpochState
@@ -704,10 +735,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 fun stillAllowed(): Boolean = !HistoricalRecoverySignals.isRunning.value &&
                     currentSignature() == signature && privateKeys.value == keys
                 var stamp = phone.storeStamp()
-                if (!stillAllowed()) { refresh(mode, force = true, invalidate = true); return@launch }
+                if (!stillAllowed()) { refresh(mode, force = true, invalidate = true, reason = PhoneScanReason.ACCESS_CHANGED); return@launch }
                 if (coldStart && !partial) {
                     val cached = phoneCache.read(mode, accessKey, privacy, stamp)
-                    if (!stillAllowed()) { refresh(mode, force = true, invalidate = true); return@launch }
+                    if (!stillAllowed()) { refresh(mode, force = true, invalidate = true, reason = PhoneScanReason.ACCESS_CHANGED); return@launch }
                     if (cached != null) {
                         blocking = false
                         revision++
@@ -726,6 +757,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 }
                 if (!blocking && state.value.complete && stamp.generation != null && previousStamp == stamp) {
                     state.value = state.value.copy(loading = false)
+                    com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED) {}
+                    com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan skipped · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch · stamp=unchanged")
                     refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
                     return@launch
                 }
@@ -736,7 +769,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 val startedAt = android.os.SystemClock.elapsedRealtime()
                 val scanTiming=com.domenota.medialoader.core.logging.DetailedPerformance.begin()
                 val cacheCheckpoint = PhoneScanCheckpointPolicy()
-                com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan started · mode=$mode · retained=${previous?.items?.size ?: 0}")
+                com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan started · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch · retained=${previous?.items?.size ?: 0}")
                 val progress: (suspend (PhoneMediaSnapshot) -> Unit)? = if (blocking && !partial) { { partialSnapshot ->
                     if (blocking && !partial && stillAllowed()) {
                         state.value = PhoneLibraryState(items = partialSnapshot.items, identities = partialSnapshot.identities,
@@ -757,9 +790,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 } else null
                 val snapshot = phone.scanSnapshot(mode, previous, keys.filterTo(mutableSetOf()) { it.startsWith("file-stat:") }, onProgress = progress)
                 com.domenota.medialoader.core.logging.DetailedPerformance.end(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN,scanTiming)
-                com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan finished · mode=$mode · count=${snapshot.items.size} · ms=${android.os.SystemClock.elapsedRealtime() - startedAt}")
+                com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan finished · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch · count=${snapshot.items.size} · ms=${android.os.SystemClock.elapsedRealtime() - startedAt}")
                 val after = phone.storeStamp()
-                if (!stillAllowed()) { refresh(mode, force = true, invalidate = true); return@launch }
+                if (!stillAllowed()) { refresh(mode, force = true, invalidate = true, reason = PhoneScanReason.ACCESS_CHANGED); return@launch }
                 if (stamp.versions != null && after.versions != stamp.versions)
                     throw java.io.IOException("MediaStore database changed during indexing")
                 // Never label a scan with a newer generation that it may not have observed.
@@ -767,7 +800,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 val existing = state.value
                 val unchanged = !blocking && existing.accessEpoch == accessEpoch &&
                     withContext(Dispatchers.Default) { samePhoneContent(existing,snapshot) }
-                if (!stillAllowed()) { refresh(mode,force=true,invalidate=true); return@launch }
+                if (!stillAllowed()) { refresh(mode,force=true,invalidate=true,reason=PhoneScanReason.ACCESS_CHANGED); return@launch }
                 if (unchanged) {
                     if (existing.loading || existing.message != null || existing.requiresValidation) state.value = existing.copy(loading=false,message=null,requiresValidation=false)
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone snapshot unchanged · mode=$mode")
@@ -779,8 +812,12 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { com.domenota.medialoader.core.logging.AppLog.w("Library", "Phone metadata cache save deferred") }
             }
-            catch (e: CancellationException) { throw e }
+            catch (e: CancellationException) {
+                com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan cancelled · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch")
+                throw e
+            }
             catch (_: Exception) {
+                com.domenota.medialoader.core.logging.AppLog.w("Library", "Phone scan failed · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch")
                 val message = "Не удалось обновить файлы телефона. Проверьте доступ и повторите."
                 state.value = if (!blocking && state.value.loaded) state.value.copy(loading = false, message = message)
                     else PhoneLibraryState(loaded = true, revision = revision + 1, message = message, accessEpoch = accessEpoch)

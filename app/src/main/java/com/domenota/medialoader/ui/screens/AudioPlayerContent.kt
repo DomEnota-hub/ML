@@ -2,7 +2,6 @@ package com.domenota.medialoader.ui.screens
 import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 
 import com.domenota.medialoader.ui.model.displayAudioTitle
-import android.content.ComponentName
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
@@ -61,14 +60,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 import com.domenota.medialoader.core.database.DownloadEntity
-import com.domenota.medialoader.data.playback.AudioPlaybackService
 import com.domenota.medialoader.ui.components.AudioPlaybackModes
 import com.domenota.medialoader.ui.components.MusicSpeedAction
 import com.domenota.medialoader.ui.components.AudioWaveform
@@ -100,14 +96,7 @@ fun BackgroundAudioPlayer(
             .distinctBy { it.id }
         if (candidates.any { it.id == item.id }) candidates else listOf(item) + candidates
     }
-    val token = remember {
-        SessionToken(context, ComponentName(context, AudioPlaybackService::class.java))
-    }
-    val controllerFuture = remember(token) {
-        MediaController.Builder(context, token).buildAsync()
-    }
-
-    var controller by remember { mutableStateOf<MediaController?>(null) }
+    val controller = com.domenota.medialoader.ui.components.rememberAudioController()
     var currentItem by remember { mutableStateOf(item) }
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableLongStateOf(0L) }
@@ -128,7 +117,7 @@ fun BackgroundAudioPlayer(
     var artwork by remember { mutableStateOf<Bitmap?>(null) }
     var waveform by remember { mutableStateOf<FloatArray?>(null) }
     var sessionItems by remember { mutableStateOf<List<MediaItem>>(emptyList(), androidx.compose.runtime.referentialEqualityPolicy()) }
-    val sessionTimeline=remember(controllerFuture){arrayOfNulls<androidx.media3.common.Timeline>(1)}
+    val sessionTimeline=remember(controller){arrayOfNulls<androidx.media3.common.Timeline>(1)}
     var privateSession by remember { mutableStateOf(false) }
     var currentIdentityKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var queueOpen by remember { mutableStateOf(false) }
@@ -157,25 +146,6 @@ fun BackgroundAudioPlayer(
         shuffleEnabled = active.shuffleModeEnabled
         playbackSpeed = active.playbackParameters.speed
         isPlaying = if (libraryLayout) active.playWhenReady else active.isPlaying
-    }
-
-    DisposableEffect(controllerFuture) {
-        controllerFuture.addListener(
-            {
-                runCatching { controllerFuture.get() }.getOrNull()?.let { connected ->
-                    controller = connected
-                    isPlaying = connected.isPlaying
-                    repeatMode = connected.repeatMode
-                    shuffleEnabled = connected.shuffleModeEnabled
-                    playbackSpeed = connected.playbackParameters.speed
-                }
-            },
-            ContextCompat.getMainExecutor(context),
-        )
-        onDispose {
-            MediaController.releaseFuture(controllerFuture)
-            controller = null
-        }
     }
 
     LaunchedEffect(controller, item.id, playableQueue, libraryLayout, currentSessionOnly) {

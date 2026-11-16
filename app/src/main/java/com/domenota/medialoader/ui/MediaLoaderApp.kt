@@ -278,7 +278,7 @@ fun MediaLoaderApp(
         check(!visibilityBusy) { "Перенос уже выполняется" }
         visibilityBusy=true
         try { visibilityAccess.ensure(); action() }
-        finally { visibilityBusy=false; libraryModel.refresh(AppMode.GALLERY,force=true); libraryModel.refresh(AppMode.MUSIC,force=true) }
+        finally { visibilityBusy=false }
     }
     val toggleFolderVisibility:suspend (String,Boolean)->Unit={ folder,hidden ->
         if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation {
@@ -292,11 +292,19 @@ fun MediaLoaderApp(
 
     val visibilityProgress by mediaRepository.folderVisibility.status.collectAsStateWithLifecycle()
     if(visibilityBusy) AlertDialog(onDismissRequest={},confirmButton={},title={Text("Перенос файлов")},text={
-        Text("Проверка и перенос: ${visibilityProgress.completed} из ${visibilityProgress.total}")
+        Text(when {
+            visibilityProgress.preparing && visibilityProgress.total>0 -> "Подготовка: ${visibilityProgress.prepared} из ${visibilityProgress.total}"
+            visibilityProgress.total>0 -> "Перенос: ${visibilityProgress.completed} из ${visibilityProgress.total}"
+            else -> "Чтение и проверка плана переноса…"
+        })
     })
     if(visibilityProgress.pending && !visibilityBusy && !visibilityResumeDismissed) AlertDialog(
         onDismissRequest={visibilityResumeDismissed=true}, title={Text("Незавершённый перенос")},
-        text={Text("Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. Для завершения требуется доступ к исходным файлам.")},
+        text={Text(visibilityProgress.failure?.let { failure ->
+            (if(visibilityProgress.total>0) "Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. " else "") + failure.message
+        } ?: if(visibilityProgress.total>0)
+            "Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. План и проверенные копии сохранены."
+            else "Сохранённый план требует проверки. Исходные файлы не удаляются автоматически.")},
         confirmButton={TextButton(onClick={fileActionScope.launch {
             try { if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation { mediaRepository.resumeFolderVisibility(visibilityAccess.approve) } }
             catch(e:CancellationException){throw e}catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось продолжить перенос");visibilityResumeDismissed=true}
@@ -340,13 +348,16 @@ fun MediaLoaderApp(
     val libraryItems = displayInventory.items
     val libraryAudioItems = displayInventory.audio
     val libraryAliasProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
-        emptyMap<String, com.domenota.medialoader.data.library.LibraryMediaRef>(), publicProjectionGuard, publicLibraryRefs,
-        accessGuard = publicProjectionAccess, kind = LibraryProjectionKind.ALIASES) { buildMap {
-        publicLibraryRefs.forEach { ref -> (ref.aliases + ref.key).forEach { alias -> put(alias, ref) } }
-    } }
-    val libraryRefsByAlias = libraryAliasProjection.value
+        (emptyMap<String, com.domenota.medialoader.data.library.LibraryMediaRef>() to emptyMap<String,String>()), publicProjectionGuard, publicLibraryRefs,
+        accessGuard = publicProjectionAccess, kind = LibraryProjectionKind.ALIASES) {
+        val refs=buildMap<String,com.domenota.medialoader.data.library.LibraryMediaRef> {
+            publicLibraryRefs.forEach { ref -> ref.aliases.forEach { put(it,ref) }; put(ref.key,ref) }
+        }
+        refs to refs.mapValues { it.value.key }
+    }
+    val libraryRefsByAlias = libraryAliasProjection.value.first
     val liveLibraryRefsByAlias by rememberUpdatedState(libraryRefsByAlias)
-    val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
+    val libraryAliases = libraryAliasProjection.value.second
     val organizationReady=visibilityReady&&libraryIndex.visibility==visibilityGuard&&libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
     val organizationUsable=visibilityReady&&libraryIndex.visibility==visibilityGuard&&libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.usable
     var trackRecognitionTarget by remember{mutableStateOf<Pair<String,Long?>?>(null)}
@@ -990,9 +1001,11 @@ fun MediaLoaderApp(
         val stamp = collectionDiskCache.stamp()
         return buildMap {
             for (collection in overviewCollections) {
-                val cached = collectionDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)
-                    ?: overviewDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)
-                collection.members.firstNotNullOfOrNull { cached?.resolved?.get(it.id) }?.let { put(collection.record.id,it) }
+                val detail = collectionDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)
+                val cover = com.domenota.medialoader.data.library.collectionAutomaticCover(collection.members,detail?.resolved.orEmpty(),collectionBlocked)
+                    ?: com.domenota.medialoader.data.library.collectionAutomaticCover(collection.members,
+                        overviewDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)?.resolved.orEmpty(),collectionBlocked)
+                cover?.let { put(collection.record.id,it) }
             }
         }
     }
@@ -1006,14 +1019,11 @@ fun MediaLoaderApp(
             val cached = readOverviewCovers()
             buildMap {
                 for (collection in overviewCollections) {
-                    val eligible = collection.members.filter { it.link == null && !collectionMemberBlocked(it,collectionBlocked) }
-                    val oldCover = cached[collection.record.id]
-                    val oldMember = eligible.firstOrNull { oldCover != null && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(it.identityJson),oldCover) }
-                    val candidates = (eligible.take(3) + listOfNotNull(oldMember)).distinctBy { it.id }
+                    val candidates = listOfNotNull(com.domenota.medialoader.data.library.collectionAutomaticCoverMember(collection.members,collectionBlocked))
                     if (candidates.isEmpty()) continue
                     val value = CollectionAddressResolver.resolve(candidates, overviewHistory?.forMembers(candidates).orEmpty(), null, false, collectionBlocked,
                         { row -> libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } }, libraryModel::addressCollectionPhone)
-                    val cover = candidates.firstNotNullOfOrNull { value.resolved[it.id] }
+                    val cover = com.domenota.medialoader.data.library.collectionAutomaticCover(collection.members,value.resolved,collectionBlocked)
                     if (cover != null) {
                         put(collection.record.id,cover)
                         overviewDiskCache.write(collection.record.id,candidates,value,collectionBlocked,stamp,cacheGuard)
@@ -1121,13 +1131,15 @@ fun MediaLoaderApp(
     val visualScanComplete = visualScanRoute && organizationReady && organizationProjection.ready &&
         visualDuplicateCatalogComplete(libraryIndex, phoneGallery, galleryAccessEpoch, historySnapshot?.appUris,visualScanInProgress) &&
         (!visualScanHasPhoneAccess || phoneGallery.message==null)
-    val visualScanAccess = collectionAccess.takeIf { visualScanRoute && visualScanComplete }
-    val visualScanCatalog = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
-        VisualDuplicateCatalog.EMPTY, publicProjectionGuard, organizationRefs, displayInventory.appItems, gallerySource,
-        accessGuard = visualScanAccess, enabled = visualScanRoute) {
+    // Safe read-only reports survive routine refresh; new scans and destructive actions still
+    // require the complete fresh generation. Permission/privacy changes replace this guard.
+    val visualReportAccess = collectionAccess.takeIf { visualScanRoute && organizationUsable && organizationProjection.usable }
+    val visualScanCatalog = addressedLibraryProjection(
+        VisualDuplicateCatalog.EMPTY, visualReportAccess, organizationRefs, displayInventory.appItems, gallerySource,
+        publishWhen = visualScanComplete) {
         VisualDuplicateCatalog.build(organizationRefs, displayInventory.appItems, gallerySource)
     }
-    val visualScanReady = visualScanComplete && visualScanCatalog.ready && visualScanAccess != null
+    val visualScanReady = visualScanComplete && visualScanCatalog.ready && visualReportAccess != null
     val visualPhonePermission = gallerySource != LibrarySource.PHONE || visualScanHasPhoneAccess
 
     val currentCollectionCatalog by rememberUpdatedState(fullProjection.value)
@@ -2294,7 +2306,8 @@ fun MediaLoaderApp(
                             libraryModel.collectionHistory.value===historySnapshot
                     },
                     onBack={navController.popBackStack()},onAppTrash=viewModel::trashVerifiedAlbumMedia,
-                    onRefresh={libraryModel.refresh(AppMode.GALLERY, force = true)})
+                    onRefresh={libraryModel.refresh(AppMode.GALLERY, force = true)},
+                    reportReady=visualReportAccess!=null && visualScanCatalog.usable)
             },
             LibraryRouteContent("music-duplicates") {
                 if (!libraryIndex.ready || libraryPrivateKeys == null || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded)) {

@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   storage-and-regression:
-    if: github.head_ref != 'feature/ml-17168-dated-replacement'
+    # QA196 runs these storage tests inside its full suite, plus the same integration guards.
+    if: github.head_ref != 'feature/ml-17168-dated-replacement' && github.head_ref != 'feature/ml-17196-safe-folder-recovery'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:

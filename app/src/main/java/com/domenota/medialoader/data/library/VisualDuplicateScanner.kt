@@ -152,34 +152,45 @@ internal object VisualDuplicateScanner {
         onPhase(DuplicateScanPhase.VISUAL)
         progress(coverage)
         onPartial(VisualScanResult(emptyList(),0,epoch,coverage))
-        for((index,ref) in candidates.withIndex()){
-            coroutineContext.ensureActive()
-            check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск сброшен после изменения приватности"}
-            val outcome=try{
-                val ids=metrics.measure("identity"){PublicMediaIdentity.capture(context,requireNotNull(ref.item.savedUri))}
-                check(DuplicatePrivacyGuard.accepts(context,epoch,ref.key,ids))
-                if(ref.appDownloadId!=null)check(DuplicatePrivacyGuard.accepts(context,epoch,ref.appDownloadId,ids))
-                if(ids.any{it in seen}) coverage.record(VisualScanOutcome.ALIAS)
-                else {
-                    val (fingerprint,cached)=read(context,ref,metrics,epoch)
-                    rows+=fingerprint;seen+=ids
-                    coverage.record(if(cached)VisualScanOutcome.CACHED else VisualScanOutcome.COMPUTED,
-                        fingerprint.frames.size!=(if(fingerprint.type==MediaType.PHOTO)1 else 5))
-                }
-            }catch(e:CancellationException){throw e}catch(_:Exception){coverage.record(VisualScanOutcome.FAILED)}
-            coverage=outcome
-            progress(coverage)
-            if((index+1)%100==0){
-                val exact=rows.filter{it.sha.isNotBlank()}.groupBy{Triple(it.type,it.bytes,it.sha)}.values.filter{it.size>1}.map{VisualDuplicateGroup(it,VisualMatch.EXACT)}
-                check(DuplicatePrivacyGuard.generation(context)==epoch);onPartial(VisualScanResult(exact,coverage.failed,epoch,coverage));metrics.report("visual",index+1,coverage.failed)
-            }
+        fun publishChecked() {
+            if(DuplicatePrivacyGuard.generation(context)!=epoch)return
+            val exact=rows.filter{it.sha.isNotBlank()}.groupBy{Triple(it.type,it.bytes,it.sha)}.values.filter{it.size>1}.map{VisualDuplicateGroup(it,VisualMatch.EXACT)}
+            onPartial(VisualScanResult(exact,coverage.failed,epoch,coverage))
         }
-        onPhase(DuplicateScanPhase.GROUPING)
-        val ctx=coroutineContext
-        val groups=metrics.measure("grouping"){VisualDuplicatePolicy.groups(rows){ctx.ensureActive();check(DuplicatePrivacyGuard.generation(context)==epoch)}}
-        check(DuplicatePrivacyGuard.generation(context)==epoch)
-        metrics.report("completed",candidates.size,coverage.failed)
-        com.domenota.medialoader.core.logging.AppLog.i("DuplicateScanMetrics", "gallery coverage=${coverage.total} cached=${coverage.cached} computed=${coverage.computed} aliases=${coverage.aliases} failed=${coverage.failed} incompleteVisual=${coverage.incompleteVisual} scope=${coverage.source}")
-        VisualScanResult(groups,coverage.failed,epoch,coverage)
+        try {
+            for((index,ref) in candidates.withIndex()){
+                coroutineContext.ensureActive()
+                check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск сброшен после изменения приватности"}
+                val outcome=try{
+                    val ids=metrics.measure("identity"){PublicMediaIdentity.capture(context,requireNotNull(ref.item.savedUri))}
+                    check(DuplicatePrivacyGuard.accepts(context,epoch,ref.key,ids))
+                    if(ref.appDownloadId!=null)check(DuplicatePrivacyGuard.accepts(context,epoch,ref.appDownloadId,ids))
+                    if(ids.any{it in seen}) coverage.record(VisualScanOutcome.ALIAS)
+                    else {
+                        val (fingerprint,cached)=read(context,ref,metrics,epoch)
+                        rows+=fingerprint;seen+=ids
+                        coverage.record(if(cached)VisualScanOutcome.CACHED else VisualScanOutcome.COMPUTED,
+                            fingerprint.frames.size!=(if(fingerprint.type==MediaType.PHOTO)1 else 5))
+                    }
+                }catch(e:CancellationException){throw e}catch(_:Exception){coverage.record(VisualScanOutcome.FAILED)}
+                coverage=outcome
+                progress(coverage)
+                if((index+1)%100==0){
+                    publishChecked();metrics.report("visual",index+1,coverage.failed)
+                }
+            }
+            onPhase(DuplicateScanPhase.GROUPING)
+            val ctx=coroutineContext
+            val groups=metrics.measure("grouping"){VisualDuplicatePolicy.groups(rows){ctx.ensureActive();check(DuplicatePrivacyGuard.generation(context)==epoch)}}
+            check(DuplicatePrivacyGuard.generation(context)==epoch)
+            metrics.report("completed",candidates.size,coverage.failed)
+            com.domenota.medialoader.core.logging.AppLog.i("DuplicateScanMetrics", "gallery coverage=${coverage.total} cached=${coverage.cached} computed=${coverage.computed} aliases=${coverage.aliases} failed=${coverage.failed} incompleteVisual=${coverage.incompleteVisual} scope=${coverage.source}")
+            VisualScanResult(groups,coverage.failed,epoch,coverage)
+        } catch(e:CancellationException) {
+            // Capture the final checked batch too, including scans stopped before 100 files.
+            // The callback writes synchronously under the privacy guard; no cancelled IO launch.
+            publishChecked()
+            throw e
+        }
     }
 }

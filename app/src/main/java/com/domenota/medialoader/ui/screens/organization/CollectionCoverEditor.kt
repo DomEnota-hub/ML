@@ -65,11 +65,11 @@ internal fun CollectionCoverEditor(collection:MediaCollection?,refs:List<Library
     val scope=rememberCoroutineScope()
     DisposableEffect(decoded){val owned=decoded?.second;onDispose{owned?.recycle()}}
     val photos=remember(refs){refs.filter{it.item.mediaType==MediaType.PHOTO&&!it.item.savedUri.isNullOrBlank()&&MediaOrganizationPolicy.keys(it).isNotEmpty()}}
-    var automaticCover by remember(collectionId){mutableStateOf<LibraryMediaRef?>(null)}
-    LaunchedEffect(collection?.members.orEmpty(),refs){
+    var automaticCover by remember(collectionId,collection?.members,refs,blockedIdentities){mutableStateOf<LibraryMediaRef?>(null)}
+    LaunchedEffect(collection?.members.orEmpty(),refs,blockedIdentities){
         automaticCover=withContext(Dispatchers.Default){
             val resolved=MediaOrganizationPolicy.resolve(collection?.members.orEmpty(),refs)
-            collection?.members.orEmpty().firstNotNullOfOrNull{resolved[it.id]}
+            collectionAutomaticCover(collection?.members.orEmpty(),resolved,blockedIdentities)
         }
     }
     val liveAutomatic=automaticCover?.let{candidate->refs.firstOrNull{it.key==candidate.key&&MediaOrganizationPolicy.keys(it).isNotEmpty()&&blockedIdentities!=null&&!collectionRefBlocked(it,blockedIdentities)}}

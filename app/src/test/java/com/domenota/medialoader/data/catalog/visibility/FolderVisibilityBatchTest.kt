@@ -58,6 +58,42 @@ class FolderVisibilityBatchTest {
             f.failMember = null; f.engine().resume(); assertTrue(f.committed); assertNull(f.batchJournal.read())
             assertEquals(listOf("source1","source2","source3"),f.deleted) }
     }
+    @Test fun durable46MemberPlanResumesAcrossEngineRecreationWithoutDuplicateRemoval() = runBlocking {
+        val root = Files.createTempDirectory("ml-visibility-46").toFile()
+        try {
+            val template = plan().members.first()
+            val members = (1..46).map { index -> template.copy(operationId = "op$index", downloadId = "id$index",
+                sourceUri = "source$index", destinationToken = "token$index") }
+            val batch = VisibilityBatchRecord("batch-46", "folder", VisibilityDirection.HIDE, members)
+            val f = Fixture(root, batch)
+            f.failMember = "op24"
+            fails { f.engine().begin(batch) }
+            val durableBatch = FileVisibilityBatchJournal(File(root, "batch")).read()!!
+            val durableMove = FileVisibilityMoveJournal(File(root, "move")).read()!!
+            assertEquals(23, durableBatch.next)
+            assertEquals(members, durableBatch.members)
+            assertEquals("op24", durableMove.operationId)
+            assertEquals(VisibilityMovePhase.ALLOCATED, durableMove.phase)
+            assertEquals(members.take(23).map { it.sourceUri }, f.deleted)
+            assertTrue(members.drop(23).all { it.sourceUri in f.files })
+            assertFalse(f.committed)
+            f.failMember = null
+            // New journals and engine model a restart; the fixture retains durable storage/catalog effects.
+            fun restarted() = FolderVisibilityBatch(FileVisibilityBatchJournal(File(root, "batch")),
+                FileVisibilityMoveJournal(File(root, "move")),
+                FolderVisibilityMove(FileVisibilityMoveJournal(File(root, "move")), f), f)
+            restarted().resume()
+            assertTrue(f.committed)
+            assertEquals(members.map { it.sourceUri }, f.deleted)
+            assertEquals(46, f.deleted.toSet().size)
+            assertEquals(46, f.receipts.size)
+            assertTrue(members.all { f.bindings[it.downloadId] == "destination-${it.operationId}" &&
+                f.files["destination-${it.operationId}"] == it.fingerprint && it.sourceUri !in f.files })
+            assertNull(f.batchJournal.read()); assertNull(f.moveJournal.read())
+            restarted().resume()
+            assertEquals(46, f.deleted.size)
+        } finally { root.deleteRecursively() }
+    }
     @Test fun interruptedFinalCommitDoesNotToggleOrMoveTwice() = runBlocking {
         fixture { f -> f.failCommit = true; fails { f.engine().begin(f.batch) }
             assertEquals(3,f.batchJournal.read()?.next); assertTrue(f.committed); assertNull(f.moveJournal.read())

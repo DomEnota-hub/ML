@@ -47,7 +47,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean,phonePermission:Boolean,currentGeneration:()->Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit) {
+internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean,phonePermission:Boolean,currentGeneration:()->Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit,reportReady:Boolean=ready) {
     val context=LocalContext.current
     val refs=catalog.all
     val status by VisualDuplicateBackgroundScan.state.collectAsStateWithLifecycle()
@@ -69,7 +69,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     LaunchedEffect(journal,status.running,privacyEpoch){history=VisualDuplicateSessionStore.history(context);storedPartial=VisualDuplicateSessionStore.partial(context)}
     LaunchedEffect(privacyEpoch){preview=null;journal=false}
     val list=rememberLazyListState()
-    val projectionGuard=emptySet<String>().takeIf{ready}
+    val projectionGuard=emptySet<String>().takeIf{reportReady && phonePermission}
     val indexProjection=com.domenota.medialoader.ui.components.backgroundLibraryProjection(
         emptyMap<String,LibraryMediaRef>(),projectionGuard,refs,accessGuard=privacyEpoch) {
         com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.DUPLICATE_INDEX){
@@ -84,7 +84,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     }
     val reconciled=currentProjection.value.takeIf{currentProjection.ready}
     val current=remember(session,reconciled){if(session!=null&&reconciled!=null)session?.copy(result=reconciled.result)?.normalized() else null}
-    val displayReady=ready&&indexProjection.ready&&currentProjection.ready
+    val displayReady=reportReady&&phonePermission&&indexProjection.ready&&currentProjection.ready
+    val stopped=VisualDuplicateBackgroundScan.stopped(context)
     val latestSession by rememberUpdatedState(session)
     val latestCatalog by rememberUpdatedState(catalog)
     val latestReady by rememberUpdatedState(ready && phonePermission)
@@ -140,7 +141,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     }
     if(confirm) AlertDialog(onDismissRequest={confirm=false},title={Text("Переместить выбранные файлы в корзину?")},
         text={Text("Похожие файлы могут различаться. Сохраняемый экземпляр будет повторно проверен. Окончательное удаление не выполняется.")},
-        confirmButton={TextButton({confirm=false;trash=current?.takeIf{it.selected.isNotEmpty()}}){Text("Переместить")}},
+        confirmButton={TextButton({confirm=false;if(latestReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)trash=current?.takeIf{it.selected.isNotEmpty()}}){Text("Переместить")}},
         dismissButton={TextButton({confirm=false}){Text("Отмена")}})
     trash?.let { snapshot ->
         val request=remember(snapshot){
@@ -159,7 +160,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 if(next==null){error="Файл перемещён, но журнал не обновлён. Обновите поиск."; error("Не удалось сохранить результат корзины")}
                 session=next
             },
-            onClose={trash=null;onRefresh()},visual=fingerprints)
+            onClose={trash=null;onRefresh()},visual=fingerprints,
+            catalogReady=ready && phonePermission && currentGeneration())
     }
     Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Row(verticalAlignment=Alignment.CenterVertically){
@@ -167,9 +169,9 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             Text("Дубликаты фото и видео",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,maxLines=2)
             IconButton({journal=true},enabled=trash==null){Icon(Icons.Rounded.History,"Журнал Галереи")}
         }
-        if(!status.running && (!ready||!loaded)) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(!status.running && (!reportReady||!loaded) && !stopped) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(!status.running && !phonePermission) Text("Нет доступа к фото и видео телефона",color=MaterialTheme.colorScheme.error)
-        else if(!status.running && !ready) Row(verticalAlignment=Alignment.CenterVertically){
+        else if(!status.running && !ready && !stopped) Row(verticalAlignment=Alignment.CenterVertically){
             Text("Подготовка полного каталога Галереи…",style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f))
             TextButton(onRefresh){Text("Обновить")}
         }
@@ -186,12 +188,23 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             val previousScope=storedPartial?.result?.coverage?.source
             val sameScope=previousScope==null||previousScope==catalog.source
             if(!sameScope)Text("Незавершённый поиск: ${if(previousScope==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"}",style=MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button(::startScan,enabled=ready&&phonePermission&&loaded&&!saving&&trash==null&&catalog.scan.isNotEmpty()){Text(if(sameScope&&VisualDuplicateBackgroundScan.interrupted(context))"Продолжить поиск" else "Новый поиск")}
-                OutlinedButton({scope.launch{
-                    val previous=VisualDuplicateSessionStore.load(context)
-                    session=withContext(Dispatchers.Default){previous?.reconcile(refs)};restored=false
-                }},enabled=ready&&loaded&&!saving&&trash==null){Text("Последний поиск")}
+            val canStart=ready&&phonePermission&&loaded&&!saving&&trash==null&&catalog.scan.isNotEmpty()
+            val canShow=displayReady&&loaded&&!saving&&trash==null&&(session!=null||partial!=null)
+            val openResults:()->Unit={
+                if(session==null&&partial!=null)showPartial=true
+                else {
+                    val actionEpoch=latestEpoch
+                    scope.launch{
+                        val previous=VisualDuplicateSessionStore.load(context)
+                        val checked=withContext(Dispatchers.Default){previous?.reconcileById(byId)}
+                        if(DuplicatePrivacyGuard.generation(context)==actionEpoch&&checked?.result?.privacyEpoch==actionEpoch){session=checked;restored=false}
+                    }
+                }
+            }
+            if(stopped)VisualDuplicateStoppedPanel(canStart,canShow,::startScan,openResults)
+            else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                Button(::startScan,enabled=canStart){Text(if(sameScope&&VisualDuplicateBackgroundScan.interrupted(context))"Продолжить поиск" else "Новый поиск",maxLines=1,softWrap=false)}
+                OutlinedButton(openResults,enabled=canShow){Text("Последний поиск",maxLines=1,softWrap=false)}
             }
         }
         status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
@@ -241,7 +254,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }
         }
         val selectedBytes=current.result.groups.sumOf{g->g.files.filter{it.id in current.selected}.sumOf{it.bytes}}
-        Button({confirm=true},enabled=current.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,modifier=Modifier.fillMaxWidth()){
+        Button({if(ready&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true},enabled=ready&&currentGeneration()&&current.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,modifier=Modifier.fillMaxWidth()){
             Text("В корзину: ${current.selected.size} · ${android.text.format.Formatter.formatFileSize(context,selectedBytes)}")
         }
     }
@@ -250,7 +263,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         onOpen={at->journal=false;if(!status.running&&displayReady)history.firstOrNull{it.scannedAt==at}?.let{saved->scope.launch{val checked=withContext(Dispatchers.Default){saved.reconcileById(byId)};if(DuplicatePrivacyGuard.generation(context)==privacyEpoch){persist(checked);restored=false}}}},
         onResume={journal=false;if(!status.running)startScan()},onDismiss={journal=false},
         onPartial={journal=false;showPartial=true},resumeEnabled=!status.running&&ready&&phonePermission&&catalog.scan.isNotEmpty())
-    if(showPartial&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
+    if(showPartial&&displayReady&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
         text={LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             item{Text("Только просмотр. Удаление доступно после завершения.")}
             items(partial.groups,key={it.files.first().id}){g->Column{
@@ -258,9 +271,48 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 g.files.forEach{f->byId[f.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(f,it)}?.let{row->Text(displayFileName(row.item),style=MaterialTheme.typography.bodySmall)}}
             }}
         }},confirmButton={TextButton({showPartial=false}){Text("Закрыть")}})
-    preview?.let{(g,id)->
+    preview?.takeIf{displayReady}?.let{(g,id)->
         val pages=g.files.mapNotNull{f->byId[f.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(f,it)}}
         if(pages.isNotEmpty())VisualDuplicatePreview(pages,id){preview=null}
+    }
+}
+
+/** Cancellation is a normal resumable state; errors keep their separate error treatment. */
+@Composable
+internal fun VisualDuplicateStoppedPanel(canResume:Boolean,canShowResults:Boolean,onResume:()->Unit,onResults:()->Unit){
+    Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            Icon(Icons.Rounded.Pause,contentDescription=null,tint=MaterialTheme.colorScheme.primary)
+            Text("Поиск остановлен",color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.titleMedium)
+        }
+        Text("Проверенные файлы и результаты сохранены.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            CompactStoppedAction("Продолжить",canResume,true,onResume)
+            CompactStoppedAction("Результаты",canShowResults,false,onResults)
+        }
+    }
+}
+
+/** Content-sized actions: Material3 Button's default minimum constraints can clip
+ * Cyrillic labels on narrow screens even when they have maxLines=1. */
+@Composable
+private fun CompactStoppedAction(label:String,enabled:Boolean,filled:Boolean,onClick:()->Unit){
+    val scheme=MaterialTheme.colorScheme
+    Surface(
+        onClick=onClick,
+        enabled=enabled,
+        shape=CircleShape,
+        color=if(filled) {
+            if(enabled) scheme.primary else scheme.onSurface.copy(alpha=0.12f)
+        } else Color.Transparent,
+        contentColor=if(!enabled) scheme.onSurface.copy(alpha=0.38f)
+            else if(filled) scheme.onPrimary else scheme.primary,
+        border=if(filled) null else androidx.compose.foundation.BorderStroke(
+            1.dp,if(enabled) scheme.outline else scheme.onSurface.copy(alpha=0.12f)
+        )
+    ){
+        Text(label,modifier=Modifier.padding(horizontal=10.dp,vertical=10.dp).widthIn(min=110.dp),
+            maxLines=1,softWrap=true,style=MaterialTheme.typography.labelSmall)
     }
 }
 

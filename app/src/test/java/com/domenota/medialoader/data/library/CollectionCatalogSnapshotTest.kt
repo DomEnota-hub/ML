@@ -67,4 +67,34 @@ class CollectionCatalogSnapshotTest {
         assertFalse(collectionCoverAllowed(a.item.savedUri!!,setOf("uri:${a.item.savedUri}")))
         assertFalse(collectionCoverAllowed(a.item.savedUri!!,null))
     }
+    @Test fun automaticCoverNeverChangesToAudioDuringPartialOrReorderedDelivery() {
+        val video=ref(1).copy(item=ref(1).item.copy(mediaType=MediaType.VIDEO))
+        val rows=listOf(video)+(2..18).map { n ->
+            ref(n).let{it.copy(item=it.item.copy(mediaType=if(n<=6)MediaType.AUDIO else MediaType.PHOTO))}
+        }
+        assertEquals(5,rows.count{it.item.mediaType==MediaType.AUDIO})
+        val members=rows.mapIndexed { i,r -> member(r).copy(sortOrder=i.toLong()) }
+        val resolved=members.zip(rows).associate{it.first.id to it.second}
+        // The persisted first member is authoritative even if another media section resolves first.
+        assertEquals(video,collectionAutomaticCover(members,resolved,emptySet()))
+        assertNull(collectionAutomaticCover(members,resolved.filterValues{it!=video},emptySet()))
+        assertNull(collectionAutomaticCover(members,emptyMap(),emptySet(),rows[1]))
+        assertEquals(video,collectionAutomaticCover(members.reversed(),resolved,emptySet(),rows[1]))
+        assertEquals(video,collectionAutomaticCover(members.map{it.copy()},emptyMap(),emptySet(),video))
+        val reordered=members.mapIndexed{i,m->m.copy(sortOrder=if(i==1)-1 else i.toLong())}
+        assertEquals(rows[1],collectionAutomaticCover(reordered,resolved,emptySet(),video))
+    }
+    @Test fun automaticCoverRejectsOldBindingAndUnavailablePrivacy() {
+        val a=ref(1); val b=ref(2)
+        val member=member(a)
+        val rebound=member.copy(identityJson=member(b).identityJson)
+        assertNull(collectionAutomaticCover(listOf(rebound),mapOf(member.id to a),emptySet(),a))
+        assertNull(collectionAutomaticCover(listOf(member),mapOf(member.id to a),null,a))
+        assertNull(collectionAutomaticCover(listOf(member),mapOf(member.id to a),setOf(a.key),a))
+        assertNull(collectionAutomaticCover(listOf(member),mapOf(member.id to a.copy(item=a.item.copy(hidden=true))),emptySet()))
+        val tied=listOf(member.copy(id="b"),member(b).copy(id="a"))
+        assertEquals("a",collectionAutomaticCoverMember(tied,emptySet())?.id)
+        assertEquals("a",collectionAutomaticCoverMember(tied.reversed(),emptySet())?.id)
+    }
+
 }
