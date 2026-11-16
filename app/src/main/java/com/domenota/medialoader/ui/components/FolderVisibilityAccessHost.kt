@@ -44,7 +44,14 @@ internal fun rememberFolderVisibilityAccessHost(): FolderVisibilityAccessHost {
         if(!FolderVisibilityStorageAccess.granted()) {
             check(storage==null)
             val result=CompletableDeferred<Unit>(); storage=result
-            try { storageLauncher.launch(FolderVisibilityStorageAccess.permissionIntent(context)); result.await() } finally { storage=null }
+            try {
+                if (Build.VERSION.SDK_INT >= 30) {
+                    storageLauncher.launch(FolderVisibilityStorageAccess.permissionIntent(context))
+                    result.await()
+                } else {
+                    error("Скрытие папок доступно с Android 11")
+                }
+            } finally { storage=null }
         }
         check(FolderVisibilityStorageAccess.granted()) { "Управление всеми файлами не разрешено" }
     },approve={ intent ->
