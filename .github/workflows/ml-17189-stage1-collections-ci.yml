@@ -1,4 +1,4 @@
-name: ML 1.7.194 cycle 3 QA and unsigned handoff
+name: ML 1.7.194 cycle 4 QA and unsigned handoff
 on:
   push:
     branches: [feature/ml-17194-cache-first]
@@ -66,6 +66,9 @@ jobs:
       - name: File name display and settings palette regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*FileNameDisplay*Test' --tests '*SettingsIconPaletteTest' --stacktrace
+      - name: OCR masks and native model lifecycle regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*LocalTextOcrFallbackTest' --tests '*OcrLineCandidatePolicyTest' --tests '*GlyphContentMaskTest' --tests '*OutlinedGlyphInkTest' --tests '*TextGlyphMaskTest' --tests '*SerializedModelCacheTest' --tests '*LaMaCompositionTest' --tests '*LaMaInputSamplingEquivalenceTest' --tests '*MobileSamLaMaIntegrationTest' --stacktrace
       - name: Full JVM suite
         run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
       - name: Android lint

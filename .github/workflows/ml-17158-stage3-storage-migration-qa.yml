@@ -59,6 +59,9 @@ jobs:
             --tests '*LocalTextOcrFallbackTest' \
             --tests '*TextGlyphMaskTest' \
             --tests '*GlyphContentMaskTest' \
+            --tests '*OcrLineCandidatePolicyTest' \
+            --tests '*OutlinedGlyphInkTest' \
+            --tests '*SerializedModelCacheTest' \
             --tests '*PersonInstancePolicyTest' \
             --tests '*LaMaCompositionTest' \
             --stacktrace

@@ -2,6 +2,7 @@ package com.domenota.medialoader.data.editor
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import android.os.Debug
 import android.os.SystemClock
 import com.domenota.medialoader.core.logging.AppLog
 import java.io.IOException
@@ -20,7 +21,9 @@ internal class LaMaOnnxRunner(private val models: LaMaModelStore) : InpaintingMo
         require(image.size == 3 * size * size && mask.size == size * size)
         val started = SystemClock.elapsedRealtime()
         val model = models.requireInstalled()
+        val modelReady = SystemClock.elapsedRealtime()
         val env = OrtEnvironment.getEnvironment()
+        val environmentReady = SystemClock.elapsedRealtime()
         currentCoroutineContext().ensureActive()
         return OrtSessions.lama.use(model, LaMaModelStore.SHA256) { session ->
             val sessionReady = SystemClock.elapsedRealtime()
@@ -46,10 +49,13 @@ internal class LaMaOnnxRunner(private val models: LaMaModelStore) : InpaintingMo
                             throw IOException("LaMa: неверная длина выходного буфера.")
                         buffer.get(result)
                         AppLog.i("AiOrtPerf", "model=LAMA " +
-                            "session_wait_ms=${sessionReady - started} " +
+                            "model_lookup_ms=${modelReady - started} " +
+                            "environment_ms=${environmentReady - modelReady} " +
+                            "session_wait_ms=${sessionReady - environmentReady} " +
                             "tensor_prepare_ms=${tensorReady - sessionReady} " +
                             "ort_run_ms=${onnxFinished - tensorReady} " +
-                            "readback_ms=${SystemClock.elapsedRealtime() - onnxFinished}")
+                            "readback_ms=${SystemClock.elapsedRealtime() - onnxFinished} " +
+                            "native_heap_bytes=${Debug.getNativeHeapAllocatedSize()}")
                         result
                     }
                 }
