@@ -121,7 +121,11 @@ class ExternalMediaCatalogRepository(context: Context) {
         require(!ref.item.isPrivate && !ref.item.hidden) { "Файл недоступен" }
         val aliases = ref.aliases + ref.key
         mutate { rows -> rows.map { entry ->
-            if (entry.ref.key in aliases || entry.ref.aliases.any(aliases::contains)) operation(entry) else entry
+            if (entry.ref.key in aliases || entry.ref.aliases.any(aliases::contains)) {
+                if(entry.visibilityManaged) check(entry.ref.item.savedUri==ref.item.savedUri &&
+                    entry.ref.aliases.any { it.startsWith("file-stat:") && it in ref.aliases }) { "Идентификатор файла изменился" }
+                operation(entry)
+            } else entry
         }.filter { it.isFavorite || it.folderId != null || it.visibilityManaged } }
     }
     private suspend fun update(ref: LibraryMediaRef, operation: (ExternalMediaEntry) -> ExternalMediaEntry) {
@@ -164,13 +168,15 @@ class ExternalMediaCatalogRepository(context: Context) {
             check(!change.app && change.externalSeed != null)
             val seed=decodeVisibilitySeed(change.externalSeed)
             check(seed.ref.key==change.id && seed.ref.item.savedUri==change.sourceUri && seed.folderId==change.sourceFolder && seed.isFavorite==change.favorite)
-            val rows=read(); val existing=rows.singleOrNull { it.ref.key==change.id }
+            val rows=read(); val matches=rows.filter { it.ref.key==change.id }
+            check(matches.size<=1) { "Неоднозначная запись внешнего каталога" }
+            val existing=matches.singleOrNull()
             val current=existing ?: seed.also { check(change.sourceFolder==null && !change.favorite && allowedUri==change.sourceUri) }
             check(current.ref.item.savedUri==allowedUri && current.isFavorite==change.favorite &&
                 current.folderId in setOf(change.sourceFolder,change.targetFolder)) { "Состав внешнего каталога изменился" }
             check(rows.none { it.ref.key!=change.id && it.ref.item.savedUri==allowedUri }) { "Неоднозначная запись внешнего каталога" }
             val updated=current.copy(folderId=desired,visibilityManaged=current.visibilityManaged || markManaged)
-            val next=rows.filterNot { it.ref.key==change.id } + updated
+            val next=if(existing==null) rows+updated else rows.map { if(it.ref.key==change.id) updated else it }
             if(next!=rows && !preferences.edit().putString("catalog",encode(next)).commit()) error("Не удалось сохранить состав папки")
             state.value=next
         }
@@ -182,7 +188,8 @@ class ExternalMediaCatalogRepository(context: Context) {
             val ref = entry.ref
             val item = ref.item
             entries.put(JSONObject().put("key", ref.key).put("aliases", JSONArray(ref.aliases.sorted()))
-                .put("folder", entry.folderId ?: JSONObject.NULL).put("favorite", entry.isFavorite).put("visibilityManaged",entry.visibilityManaged)
+                .put("folder", entry.folderId ?: JSONObject.NULL).put("favorite", entry.isFavorite)
+                .apply { if(entry.visibilityManaged) put("visibilityManaged",true) }
                 .put("uri", item.savedUri).put("name", item.originalName).put("type", item.mediaType.name)
                 .put("date", item.createdAtEpochMillis).put("size", item.sizeBytes ?: JSONObject.NULL)
                 .put("duration", item.durationMs ?: JSONObject.NULL).put("album", item.groupId ?: JSONObject.NULL)

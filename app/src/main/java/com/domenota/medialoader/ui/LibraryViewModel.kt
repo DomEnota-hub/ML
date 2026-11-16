@@ -238,6 +238,25 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         else AddressedFile(ref, status)
     }
 
+    /** A remembered logical ID/URI is not a live identity after a MediaStore row is
+     * removed and recreated. Recheck managed files immediately before opening. */
+    internal suspend fun verifyVisibilityOpen(row: DownloadEntity, folder: String?): Boolean = withContext(Dispatchers.IO) {
+        val guard=visibilityGuard.value ?: return@withContext false
+        if(row.isPrivate) return@withContext true
+        val uri=row.savedUri ?: return@withContext false
+        if(guard.policy.unknownPending) return@withContext false
+        val managed=guard.policy.snapshot.receipts.any { it.downloadId==row.id || it.destinationUri==uri || it.sourceUri==uri } ||
+            guard.external.any { it.visibilityManaged && (it.ref.key==row.id || it.ref.item.savedUri==uri) }
+        if(!managed) return@withContext guard.canOpen(row,folder,emptyList())
+        val app=mediaRepository.downloadById(row.id)
+        if(app!=null && (app.savedUri!=uri || app.hidden || app.isPrivate || app.sizeBytes!=row.sizeBytes)) return@withContext false
+        val keys=PublicMediaIdentity.capture(getApplication(),uri)
+        val ref=LibraryMediaRef(row.id,keys+row.id,row,app?.id)
+        val allowed=if(guard.excluded(ref)) folder!=null && guard.explicitFolder(ref)==folder && verifiedHidden(ref,guard)!=null
+            else guard.normalizePublic(ref).key==row.id && !row.hidden
+        allowed && visibilityGuard.value==guard
+    }
+
     private val galleryState = MutableStateFlow(PhoneLibraryState())
     private val musicState = MutableStateFlow(PhoneLibraryState())
     val gallery = galleryState.asStateFlow()

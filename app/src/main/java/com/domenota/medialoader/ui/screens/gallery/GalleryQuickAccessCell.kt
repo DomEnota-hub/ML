@@ -87,7 +87,7 @@ internal fun GalleryQuickAccessCell(
                     Box(Modifier.align(Alignment.TopStart).padding(3.dp)
                         .background(Color.Black.copy(alpha = .6f), RoundedCornerShape(5.dp))
                         .padding(2.dp)) {
-                        Icon(Icons.Rounded.VisibilityOff, "Скрыто из «Медиа»",
+                        Icon(Icons.Rounded.VisibilityOff, "Скрыто из медиатеки",
                             Modifier.size(13.dp), tint = Color.White)
                     }
                 }

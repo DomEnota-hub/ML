@@ -58,7 +58,7 @@ object GalleryLibraryState {
         val catalog = assignments.associateBy { it.downloadId }
         val app = folders.map { folder ->
             val rows = media.filter { catalog[it.id]?.folderId == folder.id }
-            GalleryAlbum("folder:${folder.id}", folder.name, "Приложение", rows.size, rows.firstOrNull())
+            GalleryAlbum("folder:${folder.id}", folder.name, "Приложение", rows.size, rows.firstOrNull().takeUnless { folder.id in hiddenFolderIds })
         }
         val device = generalMedia.groupBy { deviceAlbums[it.id]?.id }.mapNotNull { (id, rows) ->
             if (id == null) null else GalleryAlbum("device:$id", deviceAlbums.getValue(rows.first().id).name,

@@ -730,7 +730,9 @@ fun GalleryModeScreen(
                             }
                             Text("Удалить также содержимое")
                         }
-                        if (includeContents) Text("Файлы исчезнут и из других обычных представлений. При неполном переносе альбом сохранится.",
+                        if (includeContents) Text(if(appFolder && album.key.removePrefix("folder:") in hiddenFolderIds)
+                            "Скрытые файлы сначала будут восстановлены в исходные места, затем перенесены в корзину. При неполном переносе альбом сохранится."
+                        else "Файлы исчезнут и из других обычных представлений. При неполном переносе альбом сохранится.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }

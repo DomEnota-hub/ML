@@ -43,6 +43,7 @@ class GalleryLibraryStateTest {
         assertTrue(GalleryLibraryState.filter(items, assignments, "all", "a", device, hidden).isEmpty())
         val albums = GalleryLibraryState.albums(items, folders, assignments, device, hidden)
         assertEquals(2, albums.first { it.key == "folder:hidden" }.count)
+        assertNull(albums.first { it.key == "folder:hidden" }.cover)
         assertEquals(1, albums.first { it.key == "device:camera" }.count)
         assertEquals("c", albums.first { it.key == "device:camera" }.cover?.id)
     }

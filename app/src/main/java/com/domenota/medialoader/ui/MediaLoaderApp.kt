@@ -335,6 +335,7 @@ fun MediaLoaderApp(
         publicLibraryRefs.forEach { ref -> (ref.aliases + ref.key).forEach { alias -> put(alias, ref) } }
     } }
     val libraryRefsByAlias = libraryAliasProjection.value
+    val liveLibraryRefsByAlias by rememberUpdatedState(libraryRefsByAlias)
     val libraryAliases = remember(libraryRefsByAlias) { libraryRefsByAlias.mapValues { it.value.key } }
     val organizationReady=visibilityReady&&libraryIndex.visibility==visibilityGuard&&libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.ready
     val organizationUsable=visibilityReady&&libraryIndex.visibility==visibilityGuard&&libraryIndex.ready&&libraryPrivateKeys!=null&&libraryAliasProjection.usable
@@ -1383,6 +1384,10 @@ fun MediaLoaderApp(
           fileActionScope.launch {
             val status = withContext(Dispatchers.IO) { availabilityCache.get(item.savedUri, fresh = true) }
             if (request != openVisualRequest || !canOpenFolderMedia(item,explicitFolder)) return@launch
+            if(!item.isPrivate && status==SavedFileStatus.PRESENT && !libraryModel.verifyVisibilityOpen(item,explicitFolder)) {
+                AppNotice.post(context,"Идентичность файла изменилась или видимость не подтверждена")
+                return@launch
+            }
             val appVisual = !item.isPrivate && item.mediaType != MediaType.AUDIO &&
                 (directVisual != null || explicitRef?.appDownloadId == item.id || libraryRefsByAlias[id]?.appDownloadId == item.id)
             if (appVisual && viewModel.downloads.value.none { row ->
@@ -1463,12 +1468,22 @@ fun MediaLoaderApp(
     val openDownload: (String) -> Unit = { openDownloadWithQueue(it, emptyList()) }
     val shareDownload: (String) -> Unit = { id ->
         (folderRefsById[id]?.item ?: downloads.firstOrNull { it.id == id && canOpenFolderMedia(it) })?.let { item ->
-            shareSavedFile(context, item)
+            fileActionScope.launch {
+                val scope=folderRefsById[id]?.let { libraryModel.visibilityGuard.value?.explicitFolder(it) }
+                if(libraryModel.verifyVisibilityOpen(item,scope)) shareSavedFile(context,item)
+                else AppNotice.post(context,"Файл недоступен")
+            }
         }
     }
 
     val shareLibraryFile: (String) -> Unit = { id ->
-        (folderRefsById[id]?.item ?: publicLibraryRows.firstOrNull { it.id == id && !it.isPrivate })?.let { shareSavedFile(context, it) }
+        (folderRefsById[id]?.item ?: publicLibraryRows.firstOrNull { it.id == id && !it.isPrivate })?.let { item ->
+            fileActionScope.launch {
+                val scope=folderRefsById[id]?.let { libraryModel.visibilityGuard.value?.explicitFolder(it) }
+                if(libraryModel.verifyVisibilityOpen(item,scope)) shareSavedFile(context,item)
+                else AppNotice.post(context,"Файл недоступен")
+            }
+        }
     }
     // Store ID/URI pairs rather than re-looking up provider rows after Android deletes them.
     // Large multi-select operations are transient; persisting every ID/URI
@@ -1491,7 +1506,33 @@ fun MediaLoaderApp(
     fun albumMemberIds(folderId: String): Set<String> =
         viewModel.catalogAssignments.value.filter { it.folderId == folderId }.map { it.downloadId }.toSet() +
             libraryModel.externalCatalog.entries.value.filter { it.folderId == folderId }.map { it.ref.key }
-    val requestAlbumTrash: (String,List<String>) -> Unit = { folderId, ids ->
+    val requestAlbumTrash: (String,List<String>) -> Unit = request@{ folderId, ids ->
+        if(folderId in visibilityFolders) {
+            fileActionScope.launch {
+                try {
+                    val selected=ids.distinct().mapNotNull { folderRefsById[it] }
+                    val members=viewModel.albumMemberIds(folderId)+libraryModel.externalCatalog.albumMemberIds(folderId)
+                    check(selected.isNotEmpty() && selected.size==ids.distinct().size && selected.map { it.key }.toSet()==members &&
+                        selected.all { libraryModel.visibilityGuard.value?.explicitFolder(it)==folderId &&
+                            it.item.mediaType in setOf(MediaType.PHOTO,MediaType.VIDEO) }) { "Состав скрытого альбома не подтверждён полностью" }
+                    for(ref in selected) check(libraryModel.verifyVisibilityOpen(ref.item,folderId)) { "Файл скрытого альбома изменился" }
+                    check(android.os.Build.VERSION.SDK_INT>=30)
+                    toggleFolderVisibility(folderId,false)
+                    check(!mediaRepository.folderVisibility.isHidden(folderId) && !mediaRepository.folderVisibility.pending().pending)
+                    val fresh=withTimeoutOrNull(20_000L) {
+                        androidx.compose.runtime.snapshotFlow { liveLibraryRefsByAlias }.first { aliases ->
+                            selected.all { old -> aliases[old.key]?.let { it.item.savedUri!=old.item.savedUri && it.key==old.key }==true }
+                        }
+                    } ?: error("Файлы восстановлены. Дождитесь обновления медиатеки и повторите удаление альбома.")
+                    val resolved=selected.map { checkNotNull(fresh[it.key]) }
+                    check(members==viewModel.albumMemberIds(folderId)+libraryModel.externalCatalog.albumMemberIds(folderId)) { "Состав альбома изменился" }
+                    for(ref in resolved) check(libraryModel.verifyVisibilityOpen(ref.item,null)) { "Восстановленный файл изменился" }
+                    albumTrash=com.domenota.medialoader.ui.components.AlbumTrashRequest(folderId,resolved,members)
+                } catch(e:CancellationException){throw e}
+                catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось удалить скрытый альбом")}
+            }
+            return@request
+        }
         val resolved = ids.distinct().mapNotNull { libraryRefsByAlias[it] }.distinctBy { it.item.savedUri }
         val expectedAliases = resolved.flatMap { it.aliases + it.key + listOfNotNull(it.appDownloadId) }.toSet()
         val members = albumMemberIds(folderId)
@@ -2676,8 +2717,10 @@ fun MediaLoaderApp(
                         onShare = { selected ->
                             // Only an explicit user press while the vault is unlocked
                             // may share an otherwise private file.
-                            if (!selected.isPrivate || privateState.unlocked)
-                                shareSavedFile(context, selected)
+                            if (!selected.isPrivate || privateState.unlocked) fileActionScope.launch {
+                                if (libraryModel.verifyVisibilityOpen(selected,visibilityScope)) shareSavedFile(context,selected)
+                                else AppNotice.post(context,"Файл недоступен")
+                            }
                         },
                         onEdit = ::openVisibilityEditor,
                         onDelete = { selected ->
@@ -2692,8 +2735,10 @@ fun MediaLoaderApp(
                         onFavorite = setLibraryFavorite, folders = catalogFolders, onSetFolder = setLibraryFolder,
                         onMoveToPrivate = { if (!it.isPrivate) requestPrivateMove(listOf(it.id)) },
                         onOpenExternal = { selected ->
-                            if (!selected.isPrivate || privateState.unlocked)
-                                openSavedFile(context, selected)
+                            if (!selected.isPrivate || privateState.unlocked) fileActionScope.launch {
+                                if (libraryModel.verifyVisibilityOpen(selected,visibilityScope)) openSavedFile(context,selected)
+                                else AppNotice.post(context,"Файл недоступен")
+                            }
                         },
                         onCurrentItemChanged = { selected ->
                             if (!selected.isPrivate && visualRoute) entry.savedStateHandle["gallery_selection"] = arrayListOf(
@@ -2726,8 +2771,14 @@ fun MediaLoaderApp(
                         item = item,
                         currentAudioSessionOnly = entry.savedStateHandle.get<Boolean>("current_audio_session_only") == true,
                         onBack = { navController.popBackStack() },
-                        onOpenExternal = { selected -> if (!selected.isPrivate) openSavedFile(context, selected) },
-                        onShare = { selected -> if (!selected.isPrivate) shareSavedFile(context, selected) },
+                        onOpenExternal = { selected -> if (!selected.isPrivate) fileActionScope.launch {
+                            if(libraryModel.verifyVisibilityOpen(selected,visibilityScope)) openSavedFile(context,selected)
+                            else AppNotice.post(context,"Файл недоступен")
+                        } },
+                        onShare = { selected -> if (!selected.isPrivate) fileActionScope.launch {
+                            if(libraryModel.verifyVisibilityOpen(selected,visibilityScope)) shareSavedFile(context,selected)
+                            else AppNotice.post(context,"Файл недоступен")
+                        } },
                         audioQueue = LibraryAudioQueue.resolve(
                             snapshot, viewerRows, item.isPrivate,
                             fileStatuses),
