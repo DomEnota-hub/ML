@@ -52,7 +52,7 @@ jobs:
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Acoustic*Test' --tests '*Duplicate*Test' --tests '*Waveform*Test' --stacktrace
       - name: Music folders, daily history and recognition regressions
         run: |
-          ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --tests '*MusicBrowseProjectionTest' --tests '*LibraryModeScreensTest' --tests '*PrivatePlayback*Test' --tests '*LibraryWorkCountersTest' --stacktrace
+          python3 scripts/run-music-jvm-isolated.py music --tests '*RecentMusic*Test' --tests '*MusicScanModeControlsTest' --tests '*MusicFolder*Test' --tests '*MusicPlayerControls*Test' --tests '*MusicOverviewUiTest' --tests '*CompactAudioSeekTest' --tests '*ListeningHistory*Test' --tests '*SmartMusic*Test' --tests '*SmartStatsInterval*Test' --tests '*Recognition*Test' --tests '*DirectMp3TagsTest' --tests '*Mp3TagArgumentsTest' --tests '*AudioReplace*Test' --tests '*AudioPlaybackMetadata*Test' --tests '*PlaybackDurationStateTest' --tests '*MediaWriteAccessTest' --tests '*InstagramPublicationMusicTest' --tests '*ResumeQueue*Test' --tests '*PreviousTrackPolicyTest' --tests '*AudioQueuePlaybackTest' --tests '*MusicBrowseProjectionTest' --tests '*LibraryModeScreensTest' --tests '*PrivatePlayback*Test' --tests '*LibraryWorkCountersTest'
       - name: Shared photo editor, full resolution and drawing regressions
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*Photo*Test' --tests '*BatchWatermarkTest' --tests '*BatchTextDraftRestorationTest' --tests '*TextLayer*Test' --tests '*EditorTextDialogLayoutTest' --stacktrace
@@ -72,7 +72,7 @@ jobs:
         run: |
           ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests '*LocalTextOcrFallbackTest' --tests '*OcrLineCandidatePolicyTest' --tests '*GlyphContentMaskTest' --tests '*OutlinedGlyphInkTest' --tests '*TextGlyphMaskTest' --tests '*SerializedModelCacheTest' --tests '*LaMaCompositionTest' --tests '*LaMaInputSamplingEquivalenceTest' --tests '*MobileSamLaMaIntegrationTest' --stacktrace
       - name: Full JVM suite
-        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --stacktrace
+        run: python3 scripts/run-music-jvm-isolated.py full
       - name: Android lint
         run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
       - name: Internal ARM64 compilation (no distribution)
@@ -115,6 +115,7 @@ jobs:
           path: |
             app/build/test-results/testDebugUnitTest/
             app/build/reports/tests/testDebugUnitTest/
+            app/build/ml-jvm-shards/
             app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
           retention-days: 3
