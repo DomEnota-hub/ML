@@ -31,7 +31,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "97009ac18487f87c9a59a26c933bfef20e7c647d"
           grep -Eq 'versionCode 256$' app/build.gradle
           grep -Fq "versionName '1.7.196'" app/build.gradle
-          for value in GAPI_B64 SIGNING_B64 SIGNING_PASS SIGNING_ALIAS SIGNING_KEY_PASS SIGNING_CERT; do
+          for value in SIGNING_B64 SIGNING_PASS SIGNING_ALIAS SIGNING_KEY_PASS SIGNING_CERT GAPI_B64; do
             if test -z "${!value:-}"; then echo "::error::Required protected input unavailable: $value"; exit 1; fi
           done
           expected=4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2
