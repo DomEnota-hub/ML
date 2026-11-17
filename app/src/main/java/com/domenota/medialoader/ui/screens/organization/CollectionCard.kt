@@ -122,9 +122,12 @@ internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modif
     LaunchedEffect(ref.item.savedUri,kind,coverIdentity,audioRevision){
         val uri=ref.item.savedUri
         val decoded=if(uri.isNullOrBlank())null else withContext(Dispatchers.IO){
-            com.domenota.medialoader.ui.components.prepareDownloadThumbnail(context,uri,kind,ref.item.previewUrl,side=512,identityToken=coverIdentity)
+            com.domenota.medialoader.ui.components.prepareDownloadThumbnail(
+                context,uri,kind,ref.item.previewUrl,side=512,identityToken=coverIdentity).also { image ->
+                // Scale the small retained preview off main to prevent new frame gaps.
+                if(image!=null) CollectionCoverWarmBitmapCache.remember(warmKey,image)
+            }
         }
-        if(decoded!=null) CollectionCoverWarmBitmapCache.remember(warmKey,decoded)
         bitmap=decoded
     }
     Box(modifier,contentAlignment=Alignment.Center){
