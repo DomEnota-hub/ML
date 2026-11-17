@@ -62,6 +62,7 @@ jobs:
             --tests '*VisibilityCheckpointPauseGateTest' \
             --tests '*VisibilityExecutionStateTest' \
             --tests '*VisibilityUserApprovalGateTest' \
+            --tests '*VisibilityWorkCommandSlotTest' \
             --tests '*HiddenFolderFileStoreTest' \
             --tests '*GalleryLibraryStateTest' \
             --stacktrace --no-daemon --console=plain

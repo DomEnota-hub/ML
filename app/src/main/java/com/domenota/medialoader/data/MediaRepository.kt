@@ -218,6 +218,9 @@ class MediaRepository private constructor(context: Context) {
             com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager.hasPendingJournal(appContext))
     }
     internal val folderVisibility by lazy { com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager(appContext,historyDb) }
+    internal val folderVisibilityWork by lazy {
+        com.domenota.medialoader.data.catalog.visibility.FolderVisibilityWorkCoordinator(appContext,this)
+    }
     @androidx.annotation.RequiresApi(30)
     internal suspend fun setFolderVisibility(folderId: String, hidden: Boolean,
         approve: suspend (android.app.PendingIntent) -> Boolean) = musicPostProcessGate.withPermit {
