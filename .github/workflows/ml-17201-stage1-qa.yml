@@ -60,6 +60,7 @@ jobs:
             --tests '*FolderVisibilityMoveTest' \
             --tests '*FolderVisibilityBatchTest' \
             --tests '*VisibilityCheckpointPauseGateTest' \
+            --tests '*VisibilityExecutionStateTest' \
             --tests '*HiddenFolderFileStoreTest' \
             --tests '*GalleryLibraryStateTest' \
             --stacktrace --no-daemon --console=plain
