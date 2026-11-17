@@ -96,7 +96,8 @@ internal class FolderVisibilityWorkCoordinator(
 
     private suspend fun userApproval(request: PendingIntent): Boolean {
         observe(repository.folderVisibility.status.value)
-        if (execution.state.value.phase != VisibilityExecutionPhase.RUNNING)
+        if (execution.state.value.phase != VisibilityExecutionPhase.RUNNING &&
+            execution.state.value.phase != VisibilityExecutionPhase.PAUSE_REQUESTED)
             throw IllegalStateException("Запрос Android вне активного переноса")
         execution.waitingForAndroid()
         AppLog.i("FolderVisibility","ANDROID_APPROVAL requested=true")
@@ -112,7 +113,15 @@ internal class FolderVisibilityWorkCoordinator(
     @RequiresApi(30)
     suspend fun executeReserved(request: VisibilityWorkReservation) = coroutineScope {
         val manager = repository.folderVisibility
-        val collector = launch { manager.status.collect { observe(it) } }
+        val collector = launch {
+            manager.status.collect { progress ->
+                // Presentation observer failure must not cancel an in-flight
+                // file cleanup or interrupt a journaled atomic transition.
+                runCatching { observe(progress) }.onFailure {
+                    AppLog.w("FolderVisibility","PROGRESS_OBSERVER_REJECTED reason=${it.javaClass.simpleName}")
+                }
+            }
+        }
         try {
             when (val cmd = request.command) {
                 is VisibilityWorkCommand.SetHidden ->
@@ -133,9 +142,13 @@ internal class FolderVisibilityWorkCoordinator(
             } else {
                 val now = execution.state.value
                 if (now.phase == VisibilityExecutionPhase.PREPARING) execution.running(0,0)
-                if (execution.state.value.phase == VisibilityExecutionPhase.RUNNING) {
+                if (execution.state.value.phase == VisibilityExecutionPhase.RUNNING ||
+                    execution.state.value.phase == VisibilityExecutionPhase.PAUSE_REQUESTED) {
                     val ready = execution.state.value
-                    execution.verifying(ready.confirmed,ready.total)
+                    // The manager completed its final durable CAS and confirmed
+                    // that there is no pending journal. A late pause must not
+                    // strand a completed transfer at PAUSE_REQUESTED.
+                    execution.verifying(ready.total,ready.total)
                     execution.completeAfterFinalCheck()
                 }
             }

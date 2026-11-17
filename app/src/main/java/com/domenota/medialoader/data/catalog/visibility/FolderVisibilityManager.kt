@@ -181,14 +181,19 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
                 try { refreshPending() } finally {
-                    bindings.batchContext(null)
-                    if (running) {
-                        if (skipUnchangedProofInvalidation) com.domenota.medialoader.core.logging.AppLog.i(
-                            "FolderVisibility", "RECOVERY_SCAN_DECISION force=false reason=PROOF_PRE_CAS_UNCHANGED invalidates=NONE")
-                        HistoricalRecoverySignals.end(changed = !skipUnchangedProofInvalidation)
+                    try {
+                        bindings.batchContext(null)
+                        if (running) {
+                            if (skipUnchangedProofInvalidation) com.domenota.medialoader.core.logging.AppLog.i(
+                                "FolderVisibility", "RECOVERY_SCAN_DECISION force=false reason=PROOF_PRE_CAS_UNCHANGED invalidates=NONE")
+                            HistoricalRecoverySignals.end(changed = !skipUnchangedProofInvalidation)
+                        }
+                    } finally {
+                        // A diagnostic/refresh error must not leave the process
+                        // permanently marked active or a stale pause armed.
+                        operationActive.set(false)
+                        pauseGate.reset()
                     }
-                    operationActive.set(false)
-                    pauseGate.reset()
                 }
             }
         }

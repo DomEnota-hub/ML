@@ -57,6 +57,26 @@ class VisibilityExecutionStateTest {
         assertEquals(VisibilityExecutionPhase.COMPLETED,model.state.value.phase)
         assertFalse(model.state.value.hasPendingJournal)
     }
+    @Test fun pauseRequestedDuringAndroidApprovalSurvivesUntilDurableCheckpoint() {
+        val model=VisibilityExecutionStateMachine()
+        model.startNew();model.running(2,46)
+        model.requestPause()
+        model.waitingForAndroid()
+        assertEquals(VisibilityExecutionPhase.WAITING_FOR_ANDROID,model.state.value.phase)
+        model.androidDecision(true)
+        assertEquals(VisibilityExecutionPhase.PAUSE_REQUESTED,model.state.value.phase)
+        model.checkpoint(3,46)
+        assertEquals(VisibilityExecutionPhase.PAUSED,model.state.value.phase)
+    }
+    @Test fun finalDurableCommitWinsOverPauseRequestedTooLate() {
+        val model=VisibilityExecutionStateMachine()
+        model.startNew();model.running(45,46)
+        model.requestPause()
+        model.verifying(46,46)
+        model.completeAfterFinalCheck()
+        assertEquals(VisibilityExecutionPhase.COMPLETED,model.state.value.phase)
+        assertFalse(model.state.value.hasPendingJournal)
+    }
     @Test fun duplicateRunsBackwardsCountersAndSensitiveErrorReasonsRejected() {
         val model=VisibilityExecutionStateMachine()
         model.startNew()

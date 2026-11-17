@@ -79,7 +79,9 @@ class FolderVisibilityService : Service() {
         }
         operation = scope.launch {
             try { coordinator.executeReserved(request) }
-            finally { stopSelfResult(startId) }
+            // A duplicate/stale onStartCommand may advance the platform
+            // startId. Do not leak a running notification after work completes.
+            finally { stopSelf() }
         }
         return START_NOT_STICKY
     }

@@ -30,12 +30,14 @@ internal data class VisibilityExecutionSnapshot(
 }
 
 internal class VisibilityExecutionStateMachine {
+    private var pauseAfterApproval = false
     private val current = MutableStateFlow(VisibilityExecutionSnapshot())
     val state = current.asStateFlow()
 
     /** A cold start never replays file deletion or Android permission on its own. */
     @Synchronized fun restoreFromJournal(pending: Boolean, confirmed: Int = 0, total: Int = 0) {
         check(!current.value.active) { "Нельзя подменять активный перенос" }
+        pauseAfterApproval = false
         current.value = VisibilityExecutionSnapshot(
             phase = if (pending) VisibilityExecutionPhase.RECOVERABLE_PENDING else VisibilityExecutionPhase.IDLE,
             confirmed = confirmed, total = total, hasPendingJournal = pending,
@@ -88,20 +90,33 @@ internal class VisibilityExecutionStateMachine {
     }
 
     @Synchronized fun waitingForAndroid() {
-        check(current.value.phase == VisibilityExecutionPhase.RUNNING) {
+        check(current.value.phase == VisibilityExecutionPhase.RUNNING ||
+            current.value.phase == VisibilityExecutionPhase.PAUSE_REQUESTED) {
             "Подтверждение Android допустимо только для активного переноса"
         }
+        // The current file still needs its OS-owned approval before reaching
+        // the *next* safe checkpoint. A pause may not skip this operation.
+        pauseAfterApproval = current.value.phase == VisibilityExecutionPhase.PAUSE_REQUESTED
         current.value = current.value.copy(phase = VisibilityExecutionPhase.WAITING_FOR_ANDROID)
     }
 
     @Synchronized fun androidDecision(approved: Boolean) {
         check(current.value.phase == VisibilityExecutionPhase.WAITING_FOR_ANDROID) { "Нет ожидаемого разрешения Android" }
         current.value = current.value.copy(
-            phase = if (approved) VisibilityExecutionPhase.RUNNING else VisibilityExecutionPhase.RECOVERABLE_PENDING)
+            phase = if (!approved) VisibilityExecutionPhase.RECOVERABLE_PENDING
+                else if (pauseAfterApproval) VisibilityExecutionPhase.PAUSE_REQUESTED
+                else VisibilityExecutionPhase.RUNNING)
+        pauseAfterApproval = false
     }
 
     @Synchronized fun verifying(confirmed: Int, total: Int) {
-        check(current.value.phase == VisibilityExecutionPhase.RUNNING) { "Нельзя завершать незапущенный перенос" }
+        check(current.value.phase == VisibilityExecutionPhase.RUNNING ||
+            current.value.phase == VisibilityExecutionPhase.PAUSE_REQUESTED) {
+            "Нельзя завершать незапущенный перенос"
+        }
+        // A late pause can arrive after the final safe checkpoint but before
+        // the successful durable final commit. The verified commit wins.
+        
         check(confirmed == total && confirmed >= current.value.confirmed) { "Не все файлы подтверждены" }
         current.value = current.value.copy(phase = VisibilityExecutionPhase.VERIFYING,
             confirmed = confirmed,total = total)
