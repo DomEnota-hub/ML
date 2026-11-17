@@ -150,7 +150,7 @@ internal fun FolderVisibilityTransferDialog(
                         horizontalArrangement=Arrangement.SpaceBetween) {
                         Text(if (state.total > 0) "${state.confirmed} / ${state.total}" else "Подготовка",
                             style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.SemiBold)
-                        Text(if (state.total > 0) "${state.confirmed * 100 / state.total}%" else "…",
+                        Text(if (state.total > 0) "${((state.confirmed.toLong()*100L + state.total/2L)/state.total)}%" else "…",
                             color=primary,style=MaterialTheme.typography.titleMedium,
                             modifier=Modifier.testTag("visibility-transfer-percent"))
                     }

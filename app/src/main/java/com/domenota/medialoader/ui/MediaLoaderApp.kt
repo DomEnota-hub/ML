@@ -769,7 +769,10 @@ fun MediaLoaderApp(
         else libraryModel.externalCatalog.setFavorite(ref, favorite)
     }
     val setLibraryFolder: suspend (String, String?) -> Unit = { id, folder ->
-        check(!visibilityWork.state.value.active) { "Дождитесь завершения переноса папки" }
+        check(!visibilityWork.state.value.active &&
+            !FolderVisibilityManager.hasPendingJournal(context)) {
+            "Сначала завершите или проверьте незаконченный перенос папки"
+        }
         val ref = folderRefsById[id] ?: publicLibraryRefs.firstOrNull { it.key == id || id in it.aliases }
             ?: mediaRepository.downloadById(id)?.takeIf { canOpenFolderMedia(it) && !it.isPrivate && !it.hidden && it.state==DownloadState.COMPLETED }
                 ?.let { LibraryMediaRef(it.id,emptySet(),it,it.id) }
@@ -792,7 +795,10 @@ fun MediaLoaderApp(
         } else libraryModel.externalCatalog.setFolder(ref, folder)
     }
     val deleteVisibilityFolder:suspend (String)->Unit={ folder ->
-        check(!visibilityWork.state.value.active) { "Дождитесь завершения переноса папки" }
+        check(!visibilityWork.state.value.active &&
+            !FolderVisibilityManager.hasPendingJournal(context)) {
+            "Сначала завершите или проверьте незаконченный перенос папки"
+        }
         if(mediaRepository.folderVisibility.isHidden(folder)) {
             toggleFolderVisibility(folder,false)
             // The newly scheduled service is asynchronous: never delete the
