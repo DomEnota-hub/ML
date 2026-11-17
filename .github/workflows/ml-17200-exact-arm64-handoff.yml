@@ -5,6 +5,8 @@ on:
     branches: [feature/ml-17200-rebind-gallery-status]
     paths:
       - .github/workflows/ml-17200-exact-arm64-handoff.yml
+      - scripts/run-jvm-isolated-compose.py
+      - app/build.gradle
   workflow_dispatch:
 
 permissions:
