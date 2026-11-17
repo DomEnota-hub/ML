@@ -84,6 +84,9 @@ internal class FolderVisibilityBatch(
     private val move: FolderVisibilityMove,
     private val ports: VisibilityBatchPorts,
     private val onCheckpoint: (VisibilityBatchRecord?) -> Unit = {},
+    /** The pause gate is evaluated only after a durable journal checkpoint,
+     * never between copy/verification/rebind/source cleanup operations. */
+    private val atSafeCheckpoint: suspend () -> Unit = {},
 ) {
     suspend fun begin(batch: VisibilityBatchRecord) = gate.withLock {
         require(batch.next == 0)
@@ -102,6 +105,8 @@ internal class FolderVisibilityBatch(
         }
         onCheckpoint(batch)
         ports.prepareMembership(batch,moves.read())
+        // The already-durable batch can safely wait before its first member.
+        if (moves.read() == null) atSafeCheckpoint()
         while (batch.next < batch.members.size) {
             val member = batch.members[batch.next]
             val workStartedAt = System.nanoTime()
@@ -124,6 +129,9 @@ internal class FolderVisibilityBatch(
                     "MOVE_FILE checkpoint=${batch.next}/${batch.members.size} direction=${batch.direction.name} " +
                     "bytes=${member.fingerprint.bytes} elapsedMs=${visibilityDurationMs(workStartedAt,System.nanoTime())} confirmed=true")
             }
+            // At this exact point the move journal is empty and the batch cursor
+            // was durably committed. An exception here cannot interrupt deletion.
+            atSafeCheckpoint()
         }
         check(moves.read() == null)
         for (member in batch.members) check(ports.completed(member)) { "Состояние перенесённого файла изменилось" }
