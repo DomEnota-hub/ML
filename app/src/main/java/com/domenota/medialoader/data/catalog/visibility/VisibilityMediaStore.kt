@@ -211,19 +211,46 @@ internal class VisibilityMediaStore(context: Context) {
         HiddenFolderFileStore.fingerprint(checkNotNull(resolver.openInputStream(readable)))
     }
 
+    /** A Files row beneath .nomedia is not necessarily a gallery-visible file.
+     * Permit only non-media Files classification, then independently verify that
+     * no published image, video or audio URI exists at the exact destination.
+     * Never delete indexed rows, which could also delete the verified copy.
+     */
+    @RequiresApi(30)
     suspend fun verifyHiddenNotIndexed(file: File, mime: String) = withContext(Dispatchers.IO) {
         requireRead(mime); requireMounted(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        // A stale or differently classified row can live outside the original
-        // MIME collection. Files covers every indexed type at this exact path.
-        val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        fun absent() = query(uri,arrayOf(MediaStore.MediaColumns._ID),"${MediaStore.MediaColumns.DATA}=?",arrayOf(file.path)).use { it.count == 0 }
-        if (!absent()) {
-            MediaScannerConnection.scanFile(context,arrayOf(file.path),arrayOf(mime),null)
-            repeat(12) { attempt ->
-                if (absent()) return@withContext
-                if (attempt != 11) delay(400)
+        val exactPath = arrayOf(file.absolutePath)
+        val selection = "${MediaStore.MediaColumns.DATA}=?"
+        val files = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val columns = arrayOf(MediaStore.MediaColumns._ID, MediaStore.Files.FileColumns.MEDIA_TYPE,
+            MediaStore.MediaColumns.IS_PENDING, MediaStore.MediaColumns.IS_TRASHED)
+        var rowCount = 0
+        query(files, columns, selection, exactPath).use { cursor ->
+            while (cursor.moveToNext()) {
+                rowCount++
+                check(rowCount == 1) { "Несколько записей скрытого файла в MediaStore" }
+                val kind = cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE))
+                check(kind == MediaStore.Files.FileColumns.MEDIA_TYPE_NONE) {
+                    "Системная медиатека всё ещё распознаёт скрытый файл как медиа"
+                }
             }
-            error("Системная медиатека ещё индексирует скрытый файл")
+        }
+        val publicArgs = Bundle().apply {
+            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, exactPath)
+            putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_EXCLUDE)
+            putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_EXCLUDE)
+        }
+        val galleries = listOf(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY))
+        for (uri in galleries) {
+            val cursor = checkNotNull(resolver.query(uri, arrayOf(MediaStore.MediaColumns._ID), publicArgs, null)) {
+                "Системная медиатека не ответила на проверку скрытого файла"
+            }
+            cursor.use {
+                check(it.count == 0) { "Скрытый файл всё ещё доступен в публичной медиатеке" }
+            }
         }
     }
 
