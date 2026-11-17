@@ -26,6 +26,8 @@ internal object NoticePolicy {
     fun classify(text: String): NoticeTone {
         val value = text.lowercase()
         return when {
+            // A stopped transfer is not a success even when its copies were saved.
+            "перенос остановлен" in value || "перенос был прерван" in value -> NoticeTone.WARNING
             listOf("не удалось", "ошибка", "ошибок:").any(value::contains) -> NoticeTone.ERROR
             listOf("недоступ", "нет доступа", "прерван", "разрешите", "сначала").any(value::contains) -> NoticeTone.WARNING
             listOf("сохранён", "сохранен", "сохранена", "скопирован", "добавлено", "обновлено", "установлены", "импортированы").any(value::contains) -> NoticeTone.SUCCESS
