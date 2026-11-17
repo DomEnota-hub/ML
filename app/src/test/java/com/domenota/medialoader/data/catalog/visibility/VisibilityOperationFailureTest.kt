@@ -54,4 +54,12 @@ class VisibilityOperationFailureTest {
         }
         assertEquals(listOf(VisibilityOperationStage.COPY), stages)
     }
+    @Test fun proofGuardGetsSpecificSafeCodeAndNoCatalogMutationFlag() {
+        val error = VisibilityProofStoreFailure("DIR_SYMLINK")
+        val failure = VisibilityOperationFailure.wrap(VisibilityOperationStage.REBIND, error)
+        assertEquals("FV_REBIND_PROOF_DIR_SYMLINK", failure.info.code)
+        assertTrue(failure.proofFailedBeforeCatalogMutation)
+        assertFalse(VisibilityOperationFailure.wrap(VisibilityOperationStage.BINDING_VERIFY, error)
+            .proofFailedBeforeCatalogMutation)
+    }
 }
