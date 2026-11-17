@@ -252,8 +252,8 @@ class VisibilityMediaStoreAdapterTest {
         var includedPendingAndTrashed = false
         override fun onCreate() = true
         override fun query(uri: Uri, projection: Array<out String>?, queryArgs: Bundle?, cancellationSignal: CancellationSignal?): Cursor {
-            includedPendingAndTrashed = queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_PENDING) == MediaStore.MATCH_INCLUDE &&
-                queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_TRASHED) == MediaStore.MATCH_INCLUDE
+            includedPendingAndTrashed = includedPendingAndTrashed || (queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_PENDING) == MediaStore.MATCH_INCLUDE &&
+                queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_TRASHED) == MediaStore.MATCH_INCLUDE)
             excludePendingAndTrashed = queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_PENDING) == MediaStore.MATCH_EXCLUDE &&
                 queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_TRASHED) == MediaStore.MATCH_EXCLUDE
             return query(uri, projection, queryArgs?.getString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION),
