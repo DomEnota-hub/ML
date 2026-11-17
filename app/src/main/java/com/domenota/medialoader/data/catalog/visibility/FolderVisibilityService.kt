@@ -88,11 +88,14 @@ class FolderVisibilityService : Service() {
 
     @RequiresApi(35)
     override fun onTimeout(startId: Int, fgsType: Int) {
-        AppLog.w("FolderVisibility","FOREGROUND_TIMEOUT type=dataSync; journal retained")
-        MediaRepository.get(applicationContext).folderVisibilityWork.pauseAtNextCheckpoint()
-        // Android mandates stopping shortly after timeout. An interrupted stage
-        // remains durable/replayable; the service never claims transfer success.
-        stopSelfResult(startId)
+        // Android 15+ requires unconditional stopSelf() within seconds.
+        // stopSelfResult(startId) may return false after a newer
+        // onStartCommand and then Android kills this process with a fatal FGS
+        // timeout. The journal is already durable; do not block this callback
+        // on Room initialization or a best-effort cooperative pause.
+        AppLog.w("FolderVisibility",
+            "FOREGROUND_TIMEOUT type=dataSync forcedStop=true checkpointUnconfirmed=true journalRetained=true")
+        stopSelf()
     }
 
     override fun onDestroy() {

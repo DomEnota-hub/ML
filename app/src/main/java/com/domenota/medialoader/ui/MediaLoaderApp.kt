@@ -304,6 +304,10 @@ fun MediaLoaderApp(
         }
     }
     var visibilityBusy by remember { mutableStateOf(false) }
+    // The legacy blocking dialog is only for membership moves that still
+    // execute from the screen. An ordinary folder hide/show transitions to
+    // the new service dialog rather than flashing the legacy placeholder.
+    var visibilityMembershipBusy by remember { mutableStateOf(false) }
     var visibilityResumeDismissed by remember { mutableStateOf(false) }
     suspend fun visibilityOperation(action:suspend ()->Unit) {
         check(!visibilityBusy && !visibilityWork.state.value.active) { "Перенос уже выполняется" }
@@ -323,7 +327,7 @@ fun MediaLoaderApp(
     }
 
     val visibilityProgress by mediaRepository.folderVisibility.status.collectAsStateWithLifecycle()
-    if(visibilityBusy) AlertDialog(onDismissRequest={},confirmButton={},title={Text("Перенос файлов")},text={
+    if(visibilityBusy && visibilityMembershipBusy) AlertDialog(onDismissRequest={},confirmButton={},title={Text("Перенос файлов")},text={
         Text(when {
             visibilityProgress.preparing && visibilityProgress.total>0 -> "Подготовка: ${visibilityProgress.prepared} из ${visibilityProgress.total}"
             visibilityProgress.total>0 -> "Перенос: ${visibilityProgress.completed} из ${visibilityProgress.total}"
@@ -789,7 +793,14 @@ fun MediaLoaderApp(
         val physical=mediaRepository.folderVisibility.requiresMembershipMove(ref,folder)
         if(physical) {
             check(android.os.Build.VERSION.SDK_INT>=30)
-            visibilityOperation { check(mediaRepository.changeFolderMembership(ref,folder,visibilityAccess.approve)) }
+            visibilityMembershipBusy=true
+            try {
+                visibilityOperation {
+                    check(mediaRepository.changeFolderMembership(ref,folder,visibilityAccess.approve))
+                }
+            } finally {
+                visibilityMembershipBusy=false
+            }
         } else if (ref.appDownloadId != null) {
             viewModel.setCatalogFolder(ref.appDownloadId, folder)
             libraryModel.externalCatalog.setExistingFolder(ref, folder)
