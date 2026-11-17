@@ -66,6 +66,7 @@ jobs:
             --tests '*VisibilityUserApprovalGateTest' \
             --tests '*VisibilityWorkCommandSlotTest' \
             --tests '*FolderVisibilityServiceTimeoutTest' \
+            --tests '*VisibilityServiceCancellationTest' \
             --tests '*VisibilityPortTelemetryTest' \
             --tests '*FolderVisibilityTransferUiTest' \
             --tests '*FolderVisibilityTransferComposeTest' \

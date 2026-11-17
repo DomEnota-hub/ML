@@ -10,6 +10,9 @@ import com.domenota.medialoader.data.MediaRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -163,8 +166,12 @@ internal class FolderVisibilityWorkCoordinator(
             AppLog.w("FolderVisibility","FOREGROUND_STOP kind=${error.javaClass.simpleName} journalPending=$pending")
             // Manager has already logged the precise failure reason without paths.
         } finally {
-            collector.cancelAndJoin()
-            commands.finish(request.id)
+            // Cancellation of the Service scope must not cancel the join before
+            // releasing the one-command reservation. Otherwise a stopped
+            // service leaves the in-process slot permanently busy.
+            releaseVisibilityRequestAfterCancellation(collector) {
+                commands.finish(request.id)
+            }
         }
     }
 
@@ -172,4 +179,17 @@ internal class FolderVisibilityWorkCoordinator(
     fun claimAndroidApproval(id: Long): Boolean = approval.claim(id)
     fun resolveAndroidApproval(id: Long, granted: Boolean): Boolean = approval.decide(id, granted)
     fun rejectAndroidApprovalOnActivityLoss(id: Long): Boolean = approval.rejectClaimed(id)
+}
+
+/** Finish the observer and release the one-shot transfer reservation even when
+ * the Service work coroutine has already been cancelled. This does not approve
+ * an Android request, delete a file or alter a durable move/batch journal. */
+internal suspend fun releaseVisibilityRequestAfterCancellation(
+    observer: Job, release: () -> Unit,
+) {
+    try {
+        withContext(NonCancellable) { observer.cancelAndJoin() }
+    } finally {
+        release()
+    }
 }
