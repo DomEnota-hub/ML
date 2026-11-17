@@ -36,6 +36,8 @@ class NoticePolicyTest {
 
     @Test fun distinctOutcomeTones() {
         assertEquals(NoticeTone.SUCCESS, NoticePolicy.classify("Файл скопирован"))
+        assertEquals(NoticeTone.WARNING, NoticePolicy.classify("Проверка новой копии: перенос остановлен. План и проверенные копии сохранены."))
+        assertEquals(NoticeTone.WARNING, NoticePolicy.classify("Перенос был прерван. Проверьте файлы"))
         assertEquals(NoticeTone.WARNING, NoticePolicy.classify("Файл недоступен"))
         assertEquals(NoticeTone.ERROR, NoticePolicy.classify("Не удалось сохранить лог"))
         assertEquals(NoticeTone.INFO, NoticePolicy.classify("Ищу название трека…"))
