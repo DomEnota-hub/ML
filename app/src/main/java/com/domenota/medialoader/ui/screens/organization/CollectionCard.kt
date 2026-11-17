@@ -113,12 +113,19 @@ internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modif
         PersistentProjectionCache.digest(listOf(ref.key,ref.item.savedUri,ref.item.mediaType,ref.item.previewUrl,ref.item.sizeBytes,ref.item.createdAtEpochMillis,
             ref.aliases.sorted().joinToString("\u0000")).joinToString("\u0000"))
     }
-    var bitmap by remember(ref.item.savedUri,coverIdentity,audioRevision){mutableStateOf<android.graphics.Bitmap?>(null)}
+    // A recycled LazyGrid item must not briefly replace the last authorized image
+    // with the placeholder. The warm preview is keyed by the exact public identity.
+    val warmKey = remember(coverIdentity,audioRevision) { "$coverIdentity:$audioRevision" }
+    var bitmap by remember(ref.item.savedUri,coverIdentity,audioRevision) {
+        mutableStateOf(CollectionCoverWarmBitmapCache.peek(warmKey))
+    }
     LaunchedEffect(ref.item.savedUri,kind,coverIdentity,audioRevision){
         val uri=ref.item.savedUri
-        bitmap=if(uri.isNullOrBlank())null else withContext(Dispatchers.IO){
+        val decoded=if(uri.isNullOrBlank())null else withContext(Dispatchers.IO){
             com.domenota.medialoader.ui.components.prepareDownloadThumbnail(context,uri,kind,ref.item.previewUrl,side=512,identityToken=coverIdentity)
         }
+        if(decoded!=null) CollectionCoverWarmBitmapCache.remember(warmKey,decoded)
+        bitmap=decoded
     }
     Box(modifier,contentAlignment=Alignment.Center){
         val image=bitmap

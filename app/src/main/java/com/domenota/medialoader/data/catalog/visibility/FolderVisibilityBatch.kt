@@ -104,6 +104,7 @@ internal class FolderVisibilityBatch(
         ports.prepareMembership(batch,moves.read())
         while (batch.next < batch.members.size) {
             val member = batch.members[batch.next]
+            val workStartedAt = System.nanoTime()
             val pending = moves.read()
             if (pending != null) {
                 check(pending.copy(destinationUri = null, phase = VisibilityMovePhase.PREPARED) == member) {
@@ -118,6 +119,11 @@ internal class FolderVisibilityBatch(
             batches.replace(batch, advanced)
             batch = advanced
             onCheckpoint(batch)
+            if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
+                com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+                    "MOVE_FILE checkpoint=${batch.next}/${batch.members.size} direction=${batch.direction.name} " +
+                    "bytes=${member.fingerprint.bytes} elapsedMs=${visibilityDurationMs(workStartedAt,System.nanoTime())} confirmed=true")
+            }
         }
         check(moves.read() == null)
         for (member in batch.members) check(ports.completed(member)) { "Состояние перенесённого файла изменилось" }
