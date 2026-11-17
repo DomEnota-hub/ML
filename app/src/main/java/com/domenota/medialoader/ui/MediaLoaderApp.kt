@@ -276,7 +276,8 @@ fun MediaLoaderApp(
     val visibilityWorkState by visibilityWork.state.collectAsStateWithLifecycle()
     val androidApprovalTicket by visibilityWork.pendingAndroidApproval.collectAsStateWithLifecycle()
     var visibilityWorkExpanded by rememberSaveable { mutableStateOf(true) }
-    var visibilityWorkDismissed by remember { mutableStateOf(false) }
+    // The user-dismissed final result must not reappear on Activity rotation.
+    var visibilityWorkDismissed by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(visibilityWorkState.phase) {
         if (visibilityWorkState.phase == VisibilityExecutionPhase.PREPARING) {
             visibilityWorkExpanded=true
@@ -800,13 +801,14 @@ fun MediaLoaderApp(
             "Сначала завершите или проверьте незаконченный перенос папки"
         }
         if(mediaRepository.folderVisibility.isHidden(folder)) {
+            // The service is asynchronous: keep the folder and all its metadata
+            // until every member has been returned and the final CAS succeeds.
             toggleFolderVisibility(folder,false)
-            // The newly scheduled service is asynchronous: never delete the
-            // folder before its return/restore has been physically confirmed.
-            error("Возврат файлов запущен. Удалите папку после завершения переноса")
+            AppNotice.post(context,"Возврат файлов запущен. После завершения повторите удаление папки")
+        } else {
+            viewModel.deleteCatalogFolder(folder)
+            libraryModel.externalCatalog.removeFolder(folder)
         }
-        viewModel.deleteCatalogFolder(folder)
-        libraryModel.externalCatalog.removeFolder(folder)
     }
     val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
     val instagramSessionRevision by viewModel.instagramSessionRevision.collectAsStateWithLifecycle()
