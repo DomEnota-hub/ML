@@ -78,6 +78,58 @@ class HiddenFolderFileStoreTest {
             assertFalse(file.exists())
         }
     }
+    @Test fun mediaProviderCleanDirectoryMarkerIsAcceptedAndPreservedForReceipts() = runBlocking {
+        withStore { root, store ->
+            val target = store.target(token,"scan.jpg")
+            val fingerprint = HiddenFolderFileStore.fingerprint(bytes.inputStream())
+            store.copyVerified(target,fingerprint,date) { bytes.inputStream() }
+            val marker = File(root,"hidden/.nomedia")
+            val systemBytes = File(root,"hidden").absoluteFile.path.toByteArray(Charsets.UTF_8)
+            marker.writeBytes(systemBytes)
+            assertEquals(HiddenNomediaKind.ANDROID_PATH,store.verifyExistingRoot())
+            store.ensureRoot()
+            store.verifyLocation(target,date)
+            val receipt=VisibilityMoveRecord("op","folder","download",VisibilityDirection.HIDE,
+                "content://media/external/images/media/9","scan.jpg",date,fingerprint,token,
+                target.toURI().toString(),VisibilityMovePhase.ALLOCATED)
+            assertTrue(store.matchesReceipt(target,receipt))
+            assertArrayEquals(systemBytes,marker.readBytes())
+            assertArrayEquals(bytes,target.readBytes())
+        }
+    }
+
+    @Test fun unknownNomediaContentOfSameLengthIsNeverAcceptedOrRewritten() = runBlocking {
+        withStore { root, store ->
+            val target = store.target(token,"scan.jpg")
+            val marker = File(root,"hidden/.nomedia")
+            val exactPath = File(root,"hidden").absoluteFile.path.toByteArray(Charsets.UTF_8)
+            for (invalid in listOf(ByteArray(exactPath.size) { 88 }, exactPath + byteArrayOf(10))) {
+                marker.writeBytes(invalid)
+                assertNull(HiddenNomediaPolicy.classify(marker,File(root,"hidden").absoluteFile))
+                try { store.verifyExistingRoot(); fail("Unrecognized marker must fail closed") }
+                catch (_: IllegalStateException) { }
+                assertArrayEquals(invalid,marker.readBytes())
+                assertFalse(target.exists())
+            }
+        }
+    }
+
+    @Test fun readOnlyPreflightDoesNotCreateHiddenRootOrMissingMarker() = runBlocking {
+        withStore { root, store ->
+            val marker=File(root,"hidden/.nomedia")
+            try { store.verifyExistingRoot(); fail("Missing owned root must fail") }
+            catch (_: IllegalStateException) { }
+            assertFalse(File(root,"hidden").exists())
+            store.ensureRoot()
+            val owner=File(root,"hidden/.ml-folder-visibility-v1").readBytes()
+            assertTrue(marker.delete())
+            try { store.verifyExistingRoot(); fail("Missing marker must fail") }
+            catch (_: IllegalStateException) { }
+            assertFalse(marker.exists())
+            assertArrayEquals(owner,File(root,"hidden/.ml-folder-visibility-v1").readBytes())
+        }
+    }
+
     @Test fun readOnlyRootProbeDistinguishesMissingDirectoryAndNonemptyMarker() = runBlocking {
         withStore { root, store ->
             val marker = File(root, "hidden/.nomedia")

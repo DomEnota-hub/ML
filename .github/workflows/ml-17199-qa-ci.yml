@@ -1,0 +1,73 @@
+name: ML 1.7.199 full JVM, storage integration and lint
+on:
+  push:
+    branches: [feature/ml-17199-nomedia-recovery]
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17199-visibility-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+jobs:
+  collections:
+    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17199-nomedia-recovery'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle and SDK
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Verify identity and UI guards
+        run: |
+          grep -Eq 'versionCode 259$' app/build.gradle
+          grep -Fq "versionName '1.7.199'" app/build.gradle
+          python3 scripts/audit_ui_palette.py
+          python3 scripts/check-round-sliders.py
+          python3 scripts/check-in-app-notices.py
+      - name: Storage integration guards
+        run: |
+          grep -q "MediaStore.Images.Media.EXTERNAL_CONTENT_URI" app/src/main/java/com/domenota/medialoader/data/storage/StorageManager.kt
+          grep -q "MediaStore.Video.Media.EXTERNAL_CONTENT_URI" app/src/main/java/com/domenota/medialoader/data/storage/StorageManager.kt
+          grep -q "moveSavedUriWhenCurrent" app/src/main/java/com/domenota/medialoader/core/database/HistoryDatabase.kt
+          ! grep -q "moveSavedUriWhenCurrent" app/src/main/java/com/domenota/medialoader/data/storage/LegacyMediaMigration.kt
+          grep -q "storageMigrationRunning" app/src/main/java/com/domenota/medialoader/ui/screens/SettingsScreen.kt
+      - name: Focused stopped-panel layout regression
+        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests "*VisualDuplicateStoppedPanelTest" --stacktrace --no-daemon --console=plain
+      - name: Focused hidden-root marker diagnostics and safe resume
+        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests "*HiddenFolderFileStoreTest" --tests "*FolderVisibilityMoveTest" --tests "*AppLogAsyncTest" --stacktrace --no-daemon --console=plain
+      - name: Focused visibility and notice regressions
+        run: ./gradlew :app:testDebugUnitTest -Parm64Release=true --tests "*VisibilityMediaStoreAdapterTest" --tests "*FolderVisibilityMoveTest" --tests "*NoticePolicyTest" --stacktrace --no-daemon --console=plain
+      - name: Full JVM suite (includes storage, replay, privacy and Android adapter integration)
+        run: python3 scripts/run-jvm-isolated-compose.py full
+      - name: Android lint
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace
+      - name: Save diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17199-qa-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/ml-jvm-shards/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 3

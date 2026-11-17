@@ -31,30 +31,43 @@ internal class HiddenFolderFileStore(root: File) {
                 channel.force(true)
             }
         }
-        val ownerVerified = Files.isRegularFile(owner.toPath(), NOFOLLOW_LINKS) &&
-            owner.length() == OWNER_BYTES.size.toLong() && owner.readBytes().contentEquals(OWNER_BYTES)
-        if (!ownerVerified) {
-            AppLog.w("FolderVisibility", "ROOT_GUARD code=OWNER_UNVERIFIED stage=ROOT ownerVerified=false")
-        }
-        check(ownerVerified) { "Не подтверждена принадлежность скрытого хранилища ML" }
+        verifyOwner() // Critical: refuse a foreign/symlink owner BEFORE creating .nomedia.
         val marker = File(base, ".nomedia")
         if (!Files.exists(marker.toPath(), NOFOLLOW_LINKS)) {
             try { Files.createFile(marker.toPath()) }
             catch (_: java.nio.file.FileAlreadyExistsException) { }
         }
-        // Preserve the original fail-closed condition. Inspect only when it fails:
-        // frequent successful calls to root() must have no new diagnostic I/O.
-        val markerVerified = Files.isRegularFile(marker.toPath(), NOFOLLOW_LINKS) && marker.length() == 0L
-        if (!markerVerified) {
-            val observation = HiddenRootDiagnostic.observeNomedia(marker)
-            AppLog.w("FolderVisibility",
-                "ROOT_GUARD code=NOMEDIA_${observation.code} stage=ROOT ownerVerified=true")
-            if (AppLog.isExtended()) {
-                AppLog.d("FolderVisibility", "ROOT_DETAIL ${observation.extendedSummary()} ownerVerified=true")
-            }
-        }
-        check(markerVerified) { "Не удалось подтвердить .nomedia" }
+        verifyNomedia()
         return base
+    }
+
+    private fun verifyOwner() {
+        val owner = File(base, OWNER_FILE)
+        val ownerVerified = Files.isRegularFile(owner.toPath(), NOFOLLOW_LINKS) &&
+            owner.length() == OWNER_BYTES.size.toLong() && owner.readBytes().contentEquals(OWNER_BYTES)
+        if (!ownerVerified) AppLog.w("FolderVisibility", "ROOT_GUARD code=OWNER_UNVERIFIED stage=ROOT ownerVerified=false")
+        check(ownerVerified) { "Не подтверждена принадлежность скрытого хранилища ML" }
+    }
+
+    private fun verifyNomedia(): HiddenNomediaKind {
+        val marker = File(base, ".nomedia")
+        val kind = HiddenNomediaPolicy.classify(marker, base)
+        if (kind == null) {
+            val observation = HiddenRootDiagnostic.observeNomedia(marker)
+            AppLog.w("FolderVisibility", "ROOT_GUARD code=NOMEDIA_${observation.code} stage=ROOT ownerVerified=true")
+            if (AppLog.isExtended()) AppLog.d("FolderVisibility", "ROOT_DETAIL ${observation.extendedSummary()} ownerVerified=true")
+        }
+        check(kind != null) { "Не удалось подтвердить .nomedia" }
+        return kind
+    }
+
+    /** Recovery-only preflight. No mkdir, marker creation, journal write or
+     * cache invalidation before the existing destination is accepted. */
+    fun verifyExistingRoot(): HiddenNomediaKind {
+        check(base.canonicalFile == base) { "Некорректный путь скрытого хранилища" }
+        check(Files.isDirectory(base.toPath(), NOFOLLOW_LINKS)) { "Скрытое хранилище недоступно" }
+        verifyOwner()
+        return verifyNomedia()
     }
 
     fun ensureRoot(): File = root()
@@ -91,7 +104,7 @@ internal class HiddenFolderFileStore(root: File) {
             file.parentFile?.name == record.destinationToken && file.name == record.sourceName &&
             Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS) && file.length() == record.fingerprint.bytes &&
             (record.sourceModifiedMillis == null || file.lastModified() == record.sourceModifiedMillis) &&
-            File(base,".nomedia").let { Files.isRegularFile(it.toPath(),NOFOLLOW_LINKS) && it.length() == 0L }
+            File(base,".nomedia").let { HiddenNomediaPolicy.classify(it,base) != null }
     }.getOrDefault(false)
 
     suspend fun copyVerified(target: File, expected: VisibilityFingerprint, modifiedMillis: Long?, open: () -> InputStream) {
