@@ -108,6 +108,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     private suspend fun runOperation(approve: suspend (PendingIntent) -> Boolean, action: suspend (FolderVisibilityBatch) -> Unit) {
         lastFailure=null
         var running=false
+        val attempt = com.domenota.medialoader.core.logging.AppLog.newOperationId("visibility")
+        com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+            "ATTEMPT_BEGIN id=$attempt pending=${hasPendingJournal(context)}")
         try {
             currentStage=VisibilityOperationStage.ACCESS
             check(FolderVisibilityStorageAccess.granted()) { "Разрешите управление всеми файлами" }
@@ -133,7 +136,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             lastFailure=failure
             val trace=failure.stackTrace.take(8).joinToString(" > ") { "${it.className}.${it.methodName}:${it.lineNumber}" }
             com.domenota.medialoader.core.logging.AppLog.w("FolderVisibility",
-                "STOP code=${failure.info.code} stage=${failure.info.stage.name} type=${failure.originalType} confirmed=${progress.value.completed} total=${progress.value.total} trace=$trace")
+                "STOP id=$attempt code=${failure.info.code} stage=${failure.info.stage.name} type=${failure.originalType} confirmed=${progress.value.completed} total=${progress.value.total} trace=$trace")
             throw failure
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {

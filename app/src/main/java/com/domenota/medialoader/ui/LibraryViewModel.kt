@@ -571,6 +571,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private fun refreshAfterHistoricalRecovery() {
         if (!recoveryRefreshPending || editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
         recoveryRefreshPending = false
+        if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
+            com.domenota.medialoader.core.logging.AppLog.i("Perf",
+                "RECOVERY_REFRESH_REQUEST modes=GALLERY,MUSIC pendingMediaChanges=${pendingMediaChanges.size} " +
+                "galleryLoaded=${galleryState.value.loaded} musicLoaded=${musicState.value.loaded}")
+        }
         pendingMediaChanges.clear()
         refresh(AppMode.GALLERY, force = true, invalidate = true, reason = PhoneScanReason.RECOVERY)
         refresh(AppMode.MUSIC, force = true, invalidate = true, reason = PhoneScanReason.RECOVERY)
@@ -582,6 +587,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 running to version
             }.collect { (running, version) ->
                 if (running) {
+                    if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
+                        com.domenota.medialoader.core.logging.AppLog.i("Perf",
+                            "RECOVERY_GATE state=ENTER activeScans=${jobs.values.count { it.isActive }} " +
+                            "galleryLoaded=${galleryState.value.loaded} musicLoaded=${musicState.value.loaded}")
+                    }
                     galleryAccessEpochState.value++
                     musicAccessEpochState.value++
                     mediaChangeJob?.cancel()
@@ -590,6 +600,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     galleryState.value = PhoneLibraryState(revision = galleryState.value.revision + 1)
                     musicState.value = PhoneLibraryState(revision = musicState.value.revision + 1)
                 } else if (version != observedRecoveryVersion) {
+                    if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
+                        com.domenota.medialoader.core.logging.AppLog.i("Perf",
+                            "RECOVERY_GATE state=EXIT changedVersion=true " +
+                            "invalidates=GALLERY,MUSIC,IDENTITY,STAMP,CACHE")
+                    }
                     observedRecoveryVersion = version
                     recoveryRefreshPending = true
                     // StateFlow may conflate a very short begin/end pair.
@@ -709,6 +724,13 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         val scanToken=Any()
         val scanGeneration = ++phoneScanGeneration
         val scanReason = if (changedAccess) PhoneScanReason.ACCESS_CHANGED else reason
+        if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance() && reason == PhoneScanReason.RECOVERY) {
+            com.domenota.medialoader.core.logging.AppLog.i("Perf",
+                "RECOVERY_SCAN_DECISION mode=$mode effectiveReason=$scanReason force=$force invalidate=$invalidate " +
+                "blocking=$blocking changedAccess=$changedAccess partialAccess=$partial " +
+                "previousLoaded=${state.value.loaded} previousCount=${state.value.items.size} " +
+                "previousScanActive=${jobs[mode]?.isActive == true}")
+        }
         if(mode==AppMode.GALLERY){galleryScanToken=scanToken;galleryScanInProgressState.value=signature.any{it}}
         jobs.remove(mode)?.cancel()
         val epoch = if (mode == AppMode.GALLERY) galleryAccessEpochState else musicAccessEpochState
@@ -768,6 +790,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 }
                 val startedAt = android.os.SystemClock.elapsedRealtime()
                 val scanTiming=com.domenota.medialoader.core.logging.DetailedPerformance.begin()
+                val recoveryTiming=if (scanReason == PhoneScanReason.RECOVERY)
+                    com.domenota.medialoader.core.logging.DetailedPerformance.begin() else Long.MIN_VALUE
                 val cacheCheckpoint = PhoneScanCheckpointPolicy()
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan started · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch · retained=${previous?.items?.size ?: 0}")
                 val progress: (suspend (PhoneMediaSnapshot) -> Unit)? = if (blocking && !partial) { { partialSnapshot ->
@@ -790,6 +814,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 } else null
                 val snapshot = phone.scanSnapshot(mode, previous, keys.filterTo(mutableSetOf()) { it.startsWith("file-stat:") }, onProgress = progress)
                 com.domenota.medialoader.core.logging.DetailedPerformance.end(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN,scanTiming)
+                com.domenota.medialoader.core.logging.DetailedPerformance.end(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_RECOVERY,recoveryTiming)
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan finished · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch · count=${snapshot.items.size} · ms=${android.os.SystemClock.elapsedRealtime() - startedAt}")
                 val after = phone.storeStamp()
                 if (!stillAllowed()) { refresh(mode, force = true, invalidate = true, reason = PhoneScanReason.ACCESS_CHANGED); return@launch }

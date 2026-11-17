@@ -6,6 +6,7 @@ import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.security.MessageDigest
+import com.domenota.medialoader.core.logging.AppLog
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -30,16 +31,29 @@ internal class HiddenFolderFileStore(root: File) {
                 channel.force(true)
             }
         }
-        check(Files.isRegularFile(owner.toPath(), NOFOLLOW_LINKS) && owner.length() == OWNER_BYTES.size.toLong() &&
-            owner.readBytes().contentEquals(OWNER_BYTES)) { "Не подтверждена принадлежность скрытого хранилища ML" }
+        val ownerVerified = Files.isRegularFile(owner.toPath(), NOFOLLOW_LINKS) &&
+            owner.length() == OWNER_BYTES.size.toLong() && owner.readBytes().contentEquals(OWNER_BYTES)
+        if (!ownerVerified) {
+            AppLog.w("FolderVisibility", "ROOT_GUARD code=OWNER_UNVERIFIED stage=ROOT ownerVerified=false")
+        }
+        check(ownerVerified) { "Не подтверждена принадлежность скрытого хранилища ML" }
         val marker = File(base, ".nomedia")
         if (!Files.exists(marker.toPath(), NOFOLLOW_LINKS)) {
             try { Files.createFile(marker.toPath()) }
             catch (_: java.nio.file.FileAlreadyExistsException) { }
         }
-        check(Files.isRegularFile(marker.toPath(), NOFOLLOW_LINKS) && marker.length() == 0L) {
-            "Не удалось подтвердить .nomedia"
+        // Preserve the original fail-closed condition. Inspect only when it fails:
+        // frequent successful calls to root() must have no new diagnostic I/O.
+        val markerVerified = Files.isRegularFile(marker.toPath(), NOFOLLOW_LINKS) && marker.length() == 0L
+        if (!markerVerified) {
+            val observation = HiddenRootDiagnostic.observeNomedia(marker)
+            AppLog.w("FolderVisibility",
+                "ROOT_GUARD code=NOMEDIA_${observation.code} stage=ROOT ownerVerified=true")
+            if (AppLog.isExtended()) {
+                AppLog.d("FolderVisibility", "ROOT_DETAIL ${observation.extendedSummary()} ownerVerified=true")
+            }
         }
+        check(markerVerified) { "Не удалось подтвердить .nomedia" }
         return base
     }
 
