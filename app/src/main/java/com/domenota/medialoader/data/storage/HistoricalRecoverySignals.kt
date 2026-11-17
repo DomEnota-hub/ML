@@ -57,9 +57,11 @@ internal object HistoricalRecoverySignals {
         BackgroundMediaWork.setBusy("historical-recovery", true)
     }
 
-    @Synchronized fun end() {
+    /** Only a confirmed catalog mutation advances the media-generation counter.
+     * A rejected first binding proof has not changed any public alias or index. */
+    @Synchronized fun end(changed: Boolean = true) {
         check(running.value) { "Восстановление файлов не запущено" }
-        completedVersion.value += 1L
+        if (changed) completedVersion.value += 1L
         running.value = false
         BackgroundMediaWork.setBusy("historical-recovery", false)
     }

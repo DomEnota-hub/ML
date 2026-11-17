@@ -15,7 +15,7 @@ internal enum class VisibilityOperationStage(val label: String) {
 }
 internal data class VisibilityFailureInfo(val stage: VisibilityOperationStage, val code: String, val message: String)
 internal class VisibilityOperationFailure(val info: VisibilityFailureInfo, val originalType: String,
-    trace: Array<StackTraceElement>) : IllegalStateException(info.message) {
+    trace: Array<StackTraceElement>, val proofFailedBeforeCatalogMutation: Boolean = false) : IllegalStateException(info.message) {
     init { stackTrace = trace }
     companion object {
         fun wrap(stage: VisibilityOperationStage, error: Exception): VisibilityOperationFailure {
@@ -25,13 +25,17 @@ internal class VisibilityOperationFailure(val info: VisibilityFailureInfo, val o
                 .take(8).any { it is SecurityException }
             val noSpace = error.message == "Недостаточно свободного места"
             val kind = if(permission) "ACCESS" else if(noSpace) "SPACE" else if(error is java.io.IOException) "IO" else "STATE"
+            val proofReason = (error as? VisibilityProofStoreFailure)?.reason
             val message = when {
                 permission -> "Доступ к исходным файлам не подтверждён. План и проверенные копии сохранены."
                 noSpace -> "Недостаточно свободного места. План и исходные файлы сохранены."
                 else -> "${stage.label}: перенос остановлен. План и проверенные копии сохранены."
             }
-            return VisibilityOperationFailure(VisibilityFailureInfo(stage,"FV_${stage.name}_$kind",message),
-                error.javaClass.simpleName,error.stackTrace)
+            val code = if (stage == VisibilityOperationStage.REBIND && proofReason != null)
+                "FV_REBIND_PROOF_$proofReason" else "FV_${stage.name}_$kind"
+            return VisibilityOperationFailure(VisibilityFailureInfo(stage,code,message),
+                error.javaClass.simpleName,error.stackTrace,
+                proofFailedBeforeCatalogMutation = stage == VisibilityOperationStage.REBIND && proofReason != null)
         }
     }
 }
@@ -54,7 +58,12 @@ internal class ReportingVisibilityPorts(
     override suspend fun allocate(record: VisibilityMoveRecord) = at(VisibilityOperationStage.ALLOCATE) { files.allocate(record) }
     override suspend fun copyAndSync(record: VisibilityMoveRecord) = at(VisibilityOperationStage.COPY) { files.copyAndSync(record) }
     override suspend fun verifyDestination(record: VisibilityMoveRecord) = at(VisibilityOperationStage.DESTINATION) { files.verifyDestination(record) }
-    override suspend fun rebind(record: VisibilityMoveRecord) = at(VisibilityOperationStage.REBIND) { files.rebind(record) }
+    override suspend fun rebind(record: VisibilityMoveRecord) = at(VisibilityOperationStage.REBIND) {
+        com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+            "BINDING_STEP operation=${record.operationId} phase=${record.phase.name} direction=${record.direction.name} " +
+                "sourceVerified=true destinationAllocated=${record.destinationUri != null} bytes=${record.fingerprint.bytes}")
+        files.rebind(record)
+    }
     override suspend fun verifyBinding(record: VisibilityMoveRecord) = at(VisibilityOperationStage.BINDING_VERIFY) { files.verifyBinding(record) }
     override suspend fun removeSource(record: VisibilityMoveRecord) = at(VisibilityOperationStage.CLEANUP) { files.removeSource(record) }
     override suspend fun verifyFinalVisibility(record: VisibilityMoveRecord) = at(VisibilityOperationStage.FINAL_VERIFY) { files.verifyFinalVisibility(record) }

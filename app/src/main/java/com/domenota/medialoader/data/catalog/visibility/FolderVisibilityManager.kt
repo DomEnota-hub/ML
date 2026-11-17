@@ -108,6 +108,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     private suspend fun runOperation(approve: suspend (PendingIntent) -> Boolean, action: suspend (FolderVisibilityBatch) -> Unit) {
         lastFailure=null
         var running=false
+        var skipUnchangedProofInvalidation = false
         val attempt = com.domenota.medialoader.core.logging.AppLog.newOperationId("visibility")
         com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
             "ATTEMPT_BEGIN id=$attempt pending=${hasPendingJournal(context)}")
@@ -145,13 +146,30 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         catch(error:Exception) {
             val failure=VisibilityOperationFailure.wrap(currentStage,error)
             lastFailure=failure
+            // A proof-store guard fails before rebind's first catalog CAS.
+            // Only a confirmed first-member VERIFIED phase with no prior batch
+            // checkpoint may skip global catalog invalidation. Other failures
+            // conservatively refresh, including any possible partial rebind.
+            if (failure.proofFailedBeforeCatalogMutation && progress.value.completed == 0) {
+                skipUnchangedProofInvalidation = try {
+                    batchJournal.read()?.next == 0 &&
+                        moveJournal.read()?.phase == VisibilityMovePhase.VERIFIED
+                } catch (_: Exception) { false }
+            }
             val trace=failure.stackTrace.take(8).joinToString(" > ") { "${it.className}.${it.methodName}:${it.lineNumber}" }
             com.domenota.medialoader.core.logging.AppLog.w("FolderVisibility",
-                "STOP id=$attempt code=${failure.info.code} stage=${failure.info.stage.name} type=${failure.originalType} confirmed=${progress.value.completed} total=${progress.value.total} trace=$trace")
+                "STOP id=$attempt code=${failure.info.code} stage=${failure.info.stage.name} type=${failure.originalType} confirmed=${progress.value.completed} total=${progress.value.total} catalogUnchanged=$skipUnchangedProofInvalidation trace=$trace")
             throw failure
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
-                try { refreshPending() } finally { bindings.batchContext(null); if(running) HistoricalRecoverySignals.end() }
+                try { refreshPending() } finally {
+                    bindings.batchContext(null)
+                    if (running) {
+                        if (skipUnchangedProofInvalidation) com.domenota.medialoader.core.logging.AppLog.i(
+                            "FolderVisibility", "RECOVERY_SCAN_DECISION force=false reason=PROOF_PRE_CAS_UNCHANGED invalidates=NONE")
+                        HistoricalRecoverySignals.end(changed = !skipUnchangedProofInvalidation)
+                    }
+                }
             }
         }
     }

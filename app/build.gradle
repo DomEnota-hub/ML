@@ -57,8 +57,8 @@ android {
         minSdk 26
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 259
-        versionName '1.7.199'
+        versionCode 260
+        versionName '1.7.200'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
         // Package only ARM64 native libraries without changing the release app ID.
         if (project.hasProperty('arm64Release')) {
@@ -107,6 +107,9 @@ android {
                 }
                 if (isolation in ['collection', 'full']) {
                     testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest')
+                }
+                if (isolation == 'full') {
+                    testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.components.DownloadVideoSongMenuUiTest')
                 }
             }
         }

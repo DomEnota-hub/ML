@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.RemoveRedEye
 import androidx.compose.material3.AlertDialog
@@ -181,10 +183,10 @@ internal fun DownloadFolderSheet(
                 val visibilityPending = pendingVisibilityFolderId == folder.id
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CatalogSheetRow(if (folderHidden) Icons.Rounded.VisibilityOff else Icons.Rounded.Folder,
-                        if (visibilityPending) "${folder.name} · перенос не завершён" else folder.name, count,
+                        folder.name, count,
                         if (targetDownloadId == null) selectedKey == folderKey(folder.id)
                             else currentFolderId == folder.id,
-                        !busy, Modifier.weight(1f)) { choose(folderKey(folder.id), folder.id) }
+                        !busy, Modifier.weight(1f), pendingVisibility = visibilityPending) { choose(folderKey(folder.id), folder.id) }
                     if (targetDownloadId == null) {
                         var menuOpen by remember { mutableStateOf(false) }
                         androidx.compose.foundation.layout.Box {
@@ -285,6 +287,7 @@ private fun CatalogSheetRow(
     selected: Boolean,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    pendingVisibility: Boolean = false,
     onClick: () -> Unit,
 ) {
     Row(modifier.fillMaxWidth().background(
@@ -295,7 +298,17 @@ private fun CatalogSheetRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, style = MaterialTheme.typography.titleMedium)
+            if (pendingVisibility) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Icon(Icons.Rounded.WarningAmber, contentDescription = null,
+                        modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                    Text("Перенос не завершён", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
         Text(count.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

@@ -21,7 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 MUSIC = ('com.domenota.medialoader.ui.screens.music.RecentMusicScreenTest',
          'com.domenota.medialoader.ui.screens.music.SmartMusicScreenTest')
 COLLECTION = ('com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest',)
-GROUPS = {'music': MUSIC, 'collection': COLLECTION, 'full': MUSIC + COLLECTION}
+# Robolectric paused-looper popup state can inherit idle/view state when run
+# among ~2000 UI methods. Preserve both checks, each in a fresh worker.
+VIDEO_SONG_MENU = ('com.domenota.medialoader.ui.components.DownloadVideoSongMenuUiTest',)
+GROUPS = {'music': MUSIC, 'collection': COLLECTION, 'full': MUSIC + COLLECTION + VIDEO_SONG_MENU}
 RESULTS = ROOT / 'app/build/test-results/testDebugUnitTest'
 HTML = ROOT / 'app/build/reports/tests/testDebugUnitTest'
 SHARDS = ROOT / 'app/build/ml-jvm-shards'
