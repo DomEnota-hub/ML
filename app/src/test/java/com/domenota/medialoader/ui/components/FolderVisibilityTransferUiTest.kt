@@ -25,6 +25,17 @@ class FolderVisibilityTransferUiTest {
         assertFalse(pause.canPause)
         assertFalse(pause.canResume)
     }
+    @Test fun preparingDoesNotPromiseAnUnavailablePauseAndFailedStartCanClose() {
+        val preparing=visibilityTransferPresentation(model(VisibilityExecutionPhase.PREPARING))
+        assertFalse(preparing.canPause)
+        val failed=visibilityTransferPresentation(model(VisibilityExecutionPhase.FAILED))
+        assertTrue(failed.canDismiss)
+        assertFalse(failed.canResume)
+        assertFalse(failed.isComplete)
+        val persisted=visibilityTransferPresentation(model(VisibilityExecutionPhase.FAILED,true))
+        assertFalse(persisted.canDismiss)
+        assertTrue(persisted.canResume)
+    }
     @Test fun realSuccessOnlyAfterFinalModelState() {
         val completed=visibilityTransferPresentation(model(VisibilityExecutionPhase.COMPLETED))
         assertTrue(completed.isComplete)

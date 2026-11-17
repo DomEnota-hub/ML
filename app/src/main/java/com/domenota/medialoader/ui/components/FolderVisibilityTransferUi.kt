@@ -56,6 +56,7 @@ internal data class VisibilityTransferPresentation(
     val canPause: Boolean = false,
     val canResume: Boolean = false,
     val isComplete: Boolean = false,
+    val canDismiss: Boolean = false,
 )
 
 internal fun visibilityTransferPresentation(state: VisibilityExecutionSnapshot): VisibilityTransferPresentation =
@@ -63,7 +64,7 @@ internal fun visibilityTransferPresentation(state: VisibilityExecutionSnapshot):
         VisibilityExecutionPhase.IDLE -> VisibilityTransferPresentation(
             "Перенос не запущен","Данные не изменяются")
         VisibilityExecutionPhase.PREPARING -> VisibilityTransferPresentation(
-            "Подготовка","Проверяем файлы и разрешения",canPause=true)
+            "Подготовка","Проверяем файлы и разрешения")
         VisibilityExecutionPhase.RUNNING -> VisibilityTransferPresentation(
             "Перенос выполняется","Проверенные этапы сохраняются. Окно можно свернуть",canPause=true)
         VisibilityExecutionPhase.PAUSE_REQUESTED -> VisibilityTransferPresentation(
@@ -79,8 +80,10 @@ internal fun visibilityTransferPresentation(state: VisibilityExecutionSnapshot):
         VisibilityExecutionPhase.RECOVERABLE_PENDING -> VisibilityTransferPresentation(
             "Перенос не завершён","Исходные данные и журнал сохранены; требуется проверка",canResume=true)
         VisibilityExecutionPhase.FAILED -> VisibilityTransferPresentation(
-            "Перенос остановлен","Сохранённое состояние можно проверить и продолжить",
-            canResume=state.hasPendingJournal)
+            "Перенос остановлен",
+            if(state.hasPendingJournal) "Сохранённое состояние можно проверить и продолжить"
+            else "Операция не началась. Исходные файлы не изменены",
+            canResume=state.hasPendingJournal,canDismiss=!state.hasPendingJournal)
     }
 
 @Composable
@@ -189,22 +192,25 @@ internal fun FolderVisibilityTransferDialog(
                     }
                     OutlinedButton(
                         onClick=when {
-                            presentation.isComplete -> onDone
+                            presentation.isComplete || presentation.canDismiss -> onDone
                             presentation.canResume -> onResume
                             presentation.canPause -> onPause
                             else -> ({})
                         },
-                        enabled=presentation.canPause||presentation.canResume||presentation.isComplete,
+                        enabled=presentation.canPause||presentation.canResume||
+                            presentation.isComplete||presentation.canDismiss,
                         modifier=Modifier.weight(1f).heightIn(min=48.dp)
                     ) {
                         Icon(when {
                             presentation.canResume -> Icons.Rounded.PlayArrow
                             presentation.isComplete -> Icons.Rounded.CheckCircle
+                            presentation.canDismiss -> Icons.Rounded.KeyboardArrowDown
                             else -> Icons.Rounded.Pause
                         },null,modifier=Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
                         Text(when {
                             presentation.isComplete -> "Готово"
+                            presentation.canDismiss -> "Закрыть"
                             presentation.canResume -> "Продолжить"
                             state.phase == VisibilityExecutionPhase.PAUSE_REQUESTED -> "Остановка…"
                             presentation.canPause -> "Пауза"

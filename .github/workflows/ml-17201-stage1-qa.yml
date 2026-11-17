@@ -11,7 +11,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ml-17201-stage1-qa-${{ github.event.pull_request.head.sha || github.sha }}
+  # A new commit supersedes the previous full CI on this working branch.
+  # This avoids concurrent Gradle dependency storms (Maven HTTP 429).
+  group: ml-17201-qa-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -63,6 +65,7 @@ jobs:
             --tests '*VisibilityExecutionStateTest' \
             --tests '*VisibilityUserApprovalGateTest' \
             --tests '*VisibilityWorkCommandSlotTest' \
+            --tests '*VisibilityPortTelemetryTest' \
             --tests '*FolderVisibilityTransferUiTest' \
             --tests '*FolderVisibilityTransferComposeTest' \
             --tests '*HiddenFolderFileStoreTest' \
