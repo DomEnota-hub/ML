@@ -54,7 +54,9 @@ class FolderVisibilityService : Service() {
                 MediaRepository.get(applicationContext).folderVisibilityWork
                     .rejectUnclaimedForegroundStart(failedId)
             }
-            stopSelfResult(startId)
+            // A failed foreground promotion must not leave an unpromoted
+            // Service alive if a newer startId arrived in the meantime.
+            stopSelf()
             return START_NOT_STICKY
         }
 
@@ -62,13 +64,27 @@ class FolderVisibilityService : Service() {
         val coordinator = repository.folderVisibilityWork
         val id = if (intent?.action == ACTION_RUN_REQUEST)
             intent.getLongExtra(EXTRA_REQUEST_ID,-1L) else -1L
-        val request = coordinator.claimServiceRequest(id)
-        if (request == null) {
-            // A replayed/null/foreign start must not interrupt valid ongoing work.
-            if (operation == null) stopSelfResult(startId)
+        // A second Intent can arrive after the old coordinator reservation
+        // has been released but before Android destroys this Service. Never
+        // claim that new command while the old Job still owns this Service:
+        // it would either crash at check(operation == null), or an old
+        // stopSelf() could destroy the new worker. Reject fail-closed and
+        // preserve all pending durable journals for explicit retry.
+        if (operation != null) {
+            coordinator.rejectUnclaimedForegroundStart(id)
+            runCatching {
+                getSystemService(NotificationManager::class.java)
+                    .notify(NOTIFICATION_ID,buildNotification(coordinator.state.value))
+            }
+            AppLog.w("FolderVisibility","FOREGROUND_REENTRANT_REJECT activeServiceJob=true")
             return START_NOT_STICKY
         }
-        check(operation == null) { "Нельзя запустить второй перенос" }
+        val request = coordinator.claimServiceRequest(id)
+        if (request == null) {
+            // A replayed/null/foreign start must never execute file mutation.
+            stopSelf()
+            return START_NOT_STICKY
+        }
         observer = scope.launch {
             coordinator.state.collectLatest { snapshot ->
                 runCatching {
