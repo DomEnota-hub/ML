@@ -103,8 +103,32 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
     }
 }
 
+/** The production decoder remains unchanged. Injection makes lifecycle/compose
+ * regression tests deterministic without relying on Robolectric's incomplete
+ * native JPEG decoder or a real file/content resolver. */
+internal fun interface CollectionOriginalCoverDecoder {
+    suspend fun decode(
+        context: android.content.Context,
+        uri: String,
+        kind: MediaKind,
+        previewUrl: String?,
+        identity: String,
+    ): android.graphics.Bitmap?
+}
+
+private object DefaultCollectionOriginalCoverDecoder : CollectionOriginalCoverDecoder {
+    override suspend fun decode(context: android.content.Context,uri:String,
+        kind:MediaKind,previewUrl:String?,identity:String):android.graphics.Bitmap? =
+        com.domenota.medialoader.ui.components.prepareDownloadThumbnail(
+            context,uri,kind,previewUrl,side=512,identityToken=identity)
+}
+
 @Composable
-internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modifier) {
+internal fun CollectionOriginalCover(
+    ref:LibraryMediaRef,
+    modifier:Modifier=Modifier,
+    decoder:CollectionOriginalCoverDecoder=DefaultCollectionOriginalCoverDecoder,
+) {
     val context=LocalContext.current
     val kind=when(ref.item.mediaType){com.domenota.medialoader.core.model.MediaType.PHOTO->MediaKind.IMAGE;com.domenota.medialoader.core.model.MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO}
     val audioRevisions by com.domenota.medialoader.core.storage.AudioThumbnailInvalidation.revisions.collectAsState()
@@ -119,11 +143,10 @@ internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modif
     var bitmap by remember(ref.item.savedUri,coverIdentity,audioRevision) {
         mutableStateOf(CollectionCoverWarmBitmapCache.peek(warmKey))
     }
-    LaunchedEffect(ref.item.savedUri,kind,coverIdentity,audioRevision){
+    LaunchedEffect(ref.item.savedUri,kind,coverIdentity,audioRevision,decoder){
         val uri=ref.item.savedUri
         val decoded=if(uri.isNullOrBlank())null else withContext(Dispatchers.IO){
-            com.domenota.medialoader.ui.components.prepareDownloadThumbnail(
-                context,uri,kind,ref.item.previewUrl,side=512,identityToken=coverIdentity).also { image ->
+            decoder.decode(context,uri,kind,ref.item.previewUrl,coverIdentity).also { image ->
                 // Scale the small retained preview off main to prevent new frame gaps.
                 if(image!=null) CollectionCoverWarmBitmapCache.remember(warmKey,image)
             }
