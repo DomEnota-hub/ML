@@ -139,12 +139,35 @@ class VisibilityMediaStoreAdapterTest {
         provider.kind = "video"
         provider.pending = true
         provider.trashed = true
-        expectFailure("Системная медиатека ещё индексирует скрытый файл") {
+        expectFailure("распознаёт скрытый файл как медиа") {
             media.verifyHiddenNotIndexed(source, "image/jpeg")
         }
         assertTrue(source.exists())
         assertEquals(0, provider.mutations)
         assertTrue(provider.includedPendingAndTrashed)
+    }
+
+    @Test fun unclassifiedFilesRowDoesNotBlockVerifiedHiddenCopy() = runBlocking {
+        provider.kind = "file"
+        provider.mediaType = MediaStore.Files.FileColumns.MEDIA_TYPE_NONE
+        media.verifyHiddenNotIndexed(source, "image/jpeg")
+        assertTrue(source.exists()); assertEquals(0, provider.mutations)
+        assertTrue(provider.publicCollectionsChecked.containsAll(setOf("images", "video", "audio")))
+    }
+
+    @Test fun unclassifiedFilesRowButPublishedImageBlocksVerification() = runBlocking {
+        provider.mediaType = MediaStore.Files.FileColumns.MEDIA_TYPE_NONE
+        provider.visibleInImages = true
+        expectFailure("публичной медиатеке") { media.verifyHiddenNotIndexed(source, "image/jpeg") }
+        assertTrue(source.exists()); assertEquals(0, provider.mutations)
+    }
+
+    @Test fun pendingMediaClassifiedFilesRowRemainsFailClosed() = runBlocking {
+        provider.kind = "file"
+        provider.mediaType = MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
+        provider.pending = true
+        expectFailure("распознаёт скрытый файл как медиа") { media.verifyHiddenNotIndexed(source, "image/jpeg") }
+        assertTrue(source.exists()); assertEquals(0, provider.mutations)
     }
 
     @Test fun legacyBindingEnrichmentPreservesExactIdentityAndChecksOriginalHash() = runBlocking {
@@ -214,6 +237,10 @@ class VisibilityMediaStoreAdapterTest {
 
     private class MediaProvider(private val file: File) : ContentProvider() {
         var kind = "images"
+        var mediaType = MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
+        var visibleInImages = false
+        val publicCollectionsChecked = mutableSetOf<String>()
+        private var excludePendingAndTrashed = false
         var pending = false
         var trashed = false
         var denyQueries = false
@@ -227,6 +254,8 @@ class VisibilityMediaStoreAdapterTest {
         override fun query(uri: Uri, projection: Array<out String>?, queryArgs: Bundle?, cancellationSignal: CancellationSignal?): Cursor {
             includedPendingAndTrashed = queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_PENDING) == MediaStore.MATCH_INCLUDE &&
                 queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_TRASHED) == MediaStore.MATCH_INCLUDE
+            excludePendingAndTrashed = queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_PENDING) == MediaStore.MATCH_EXCLUDE &&
+                queryArgs?.getInt(MediaStore.QUERY_ARG_MATCH_TRASHED) == MediaStore.MATCH_EXCLUDE
             return query(uri, projection, queryArgs?.getString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION),
                 queryArgs?.getStringArray(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS), null)
         }
@@ -237,10 +266,14 @@ class VisibilityMediaStoreAdapterTest {
             if (exact) beforeExactRead?.also { beforeExactRead = null; it() }
             val columns = requireNotNull(projection)
             val matchesPath = selection == null || selectionArgs?.firstOrNull() == file.path
-            val matchesKind = uri.pathSegments.getOrNull(1) in setOf(kind, "file")
+            val queryKind = uri.pathSegments.getOrNull(1).orEmpty()
+            if (excludePendingAndTrashed && queryKind != "file") publicCollectionsChecked += queryKind
+            val matchesKind = queryKind in setOf(kind, "file") || visibleInImages && queryKind == "images"
+            val publicEligible = !excludePendingAndTrashed || queryKind == "file" || !pending && !trashed
             return MatrixCursor(columns).apply {
-                if (present && matchesPath && matchesKind) repeat(if (duplicatePath && !exact) 2 else 1) { offset -> addRow(columns.map { key -> when (key) {
+                if (present && matchesPath && matchesKind && publicEligible) repeat(if (duplicatePath && !exact) 2 else 1) { offset -> addRow(columns.map { key -> when (key) {
                     "_id" -> 42L + offset
+                    MediaStore.Files.FileColumns.MEDIA_TYPE -> mediaType
                     "volume_name" -> MediaStore.VOLUME_EXTERNAL_PRIMARY
                     "relative_path" -> "Pictures/"
                     "_display_name" -> file.name
