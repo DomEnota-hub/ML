@@ -39,9 +39,8 @@ class FolderVisibilityService : Service() {
 
     @RequiresApi(30)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val repository = MediaRepository.get(applicationContext)
-        val coordinator = repository.folderVisibilityWork
-        // Establish foreground promptly, before any file preflight or IPC.
+        // Establish foreground promptly, before repository/Room initialization,
+        // any file preflight or IPC. FGS creation may be timed by Android.
         try {
             val initial = buildNotification(VisibilityExecutionSnapshot(VisibilityExecutionPhase.PREPARING))
             if (Build.VERSION.SDK_INT >= 29)
@@ -49,10 +48,18 @@ class FolderVisibilityService : Service() {
             else startForeground(NOTIFICATION_ID,initial)
         } catch (e: Exception) {
             AppLog.w("FolderVisibility","FOREGROUND_CREATE_FAILED type=${e.javaClass.simpleName}")
+            val failedId = if (intent?.action == ACTION_RUN_REQUEST)
+                intent.getLongExtra(EXTRA_REQUEST_ID,-1L) else -1L
+            runCatching {
+                MediaRepository.get(applicationContext).folderVisibilityWork
+                    .rejectUnclaimedForegroundStart(failedId)
+            }
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
 
+        val repository = MediaRepository.get(applicationContext)
+        val coordinator = repository.folderVisibilityWork
         val id = if (intent?.action == ACTION_RUN_REQUEST)
             intent.getLongExtra(EXTRA_REQUEST_ID,-1L) else -1L
         val request = coordinator.claimServiceRequest(id)

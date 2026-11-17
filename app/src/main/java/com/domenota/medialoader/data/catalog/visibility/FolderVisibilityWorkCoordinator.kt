@@ -66,6 +66,13 @@ internal class FolderVisibilityWorkCoordinator(
         }
     }
 
+    /** A foreground-start rejection must not leave a queued command/false
+     * PREPARING state permanently resident in the process. */
+    fun rejectUnclaimedForegroundStart(id: Long) {
+        if (commands.cancelUnclaimed(id) && execution.state.value.active)
+            execution.failed("FV_FGS_START_REJECTED",FolderVisibilityManager.hasPendingJournal(context))
+    }
+
     /** Called only from the already-foreground Service. */
     fun claimServiceRequest(id: Long): VisibilityWorkReservation? = commands.claim(id)
 
