@@ -118,6 +118,17 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             check(!HistoricalRecoverySignals.hasPendingHistoricalJournal(context) && !OldDownloadsRecovery.pending(context)) {
                 "Сначала завершите восстановление исторических файлов"
             }
+            // Existing interrupted batches may be replayed only under the exact
+            // owner-root. Reject an invalid .nomedia *before* recovery enters its
+            // global cache/scanner gate. No user media or durable journal changes.
+            if (hasPendingJournal(context)) {
+                currentStage=VisibilityOperationStage.DESTINATION
+                val marker = withContext(Dispatchers.IO) {
+                    FolderVisibilityStorageAccess.store().verifyExistingRoot()
+                }
+                com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+                    "ROOT_PREFLIGHT code=${marker.name} pending=true ownerVerified=true")
+            }
             HistoricalRecoverySignals.beginFolderVisibility(); running=true
             ensureHistoricalPlaybackIdle(context)
             com.domenota.medialoader.data.storage.HistoricalReferenceLinks(context,database).ensureIdle()
