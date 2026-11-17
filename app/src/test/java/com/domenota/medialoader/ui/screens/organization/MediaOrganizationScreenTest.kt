@@ -87,6 +87,35 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithText("Сбросить").performClick()
         compose.onNodeWithText("Выбрано: 0").assertIsDisplayed()
     }
+    @Test fun automaticCoverRetainsItsLastAuthorizedFrameAfterLazyDisposal() {
+        val context=RuntimeEnvironment.getApplication() as android.content.Context
+        val image=android.graphics.Bitmap.createBitmap(320,240,android.graphics.Bitmap.Config.ARGB_8888)
+        val file=java.io.File(context.cacheDir,"collection-cover-recompose.jpg")
+        file.outputStream().use { output -> assertTrue(image.compress(android.graphics.Bitmap.CompressFormat.JPEG,90,output)) }
+        val ref=LibraryMediaRef("stable-cover-key",setOf("file-stat:stable-cover"),
+            DownloadEntity("stable-cover-id","device","cover.jpg",MediaType.PHOTO,DownloadState.COMPLETED,
+                android.net.Uri.fromFile(file).toString(),file.length(),1000L),null)
+        val visible=androidx.compose.runtime.mutableStateOf(true)
+        try {
+            com.domenota.medialoader.ui.screens.organization.CollectionCoverWarmBitmapCache.clear()
+            compose.setContent { MaterialTheme {
+                if(visible.value) CollectionOriginalCover(ref)
+            } }
+            compose.waitUntil(12_000) {
+                compose.onAllNodesWithTag("collection-original-cover-image").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.runOnIdle { visible.value=false }
+            compose.onNodeWithTag("collection-original-cover-image").assertDoesNotExist()
+            compose.runOnIdle { visible.value=true }
+            compose.onNodeWithTag("collection-original-cover-image").assertIsDisplayed()
+            compose.onNodeWithTag("collection-original-cover-placeholder").assertDoesNotExist()
+        } finally {
+            file.delete()
+            image.recycle()
+            com.domenota.medialoader.ui.screens.organization.CollectionCoverWarmBitmapCache.clear()
+        }
+    }
+
     @Test fun singleGalleryCollectionHasOrdinaryCoverAndCreateNeighbor() {
         val c=MediaCollection(MediaCollectionEntity("c","Work",1),emptyList())
         compose.setContent{MaterialTheme{CollectionGalleryStrip(listOf(c),emptyList(),{})}}

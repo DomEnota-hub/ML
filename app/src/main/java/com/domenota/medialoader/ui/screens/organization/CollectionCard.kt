@@ -132,7 +132,9 @@ internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modif
     }
     Box(modifier,contentAlignment=Alignment.Center){
         val image=bitmap
-        if(image!=null)androidx.compose.foundation.Image(image.asImageBitmap(),null,Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
-        else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
+        if(image!=null)androidx.compose.foundation.Image(image.asImageBitmap(),null,
+            Modifier.fillMaxSize().testTag("collection-original-cover-image"),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+        else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp).testTag("collection-original-cover-placeholder"),
+            tint=MaterialTheme.colorScheme.primary)
     }
 }
