@@ -78,6 +78,43 @@ class HiddenFolderFileStoreTest {
             assertFalse(file.exists())
         }
     }
+    @Test fun readOnlyRootProbeDistinguishesMissingDirectoryAndNonemptyMarker() = runBlocking {
+        withStore { root, store ->
+            val marker = File(root, "hidden/.nomedia")
+            assertEquals(HiddenRootMarkerCode.MISSING, HiddenRootDiagnostic.observeNomedia(marker).code)
+            store.ensureRoot()
+            assertEquals(HiddenRootMarkerCode.VALID, HiddenRootDiagnostic.observeNomedia(marker).code)
+            marker.writeText("unrelated data")
+            val original = marker.readBytes()
+            val observation = HiddenRootDiagnostic.observeNomedia(marker)
+            assertEquals(HiddenRootMarkerCode.NONEMPTY, observation.code)
+            assertEquals(original.size.toLong(), observation.sizeBytes)
+            assertTrue(observation.extendedSummary().contains("markerType=NONEMPTY"))
+            assertFalse(observation.extendedSummary().contains(marker.absolutePath))
+            try { store.ensureRoot(); fail("Must refuse nonempty marker") } catch (_: IllegalStateException) { }
+            assertArrayEquals(original, marker.readBytes())
+            assertTrue(marker.delete())
+            assertTrue(marker.mkdir())
+            assertEquals(HiddenRootMarkerCode.DIRECTORY, HiddenRootDiagnostic.observeNomedia(marker).code)
+            try { store.ensureRoot(); fail("Must refuse directory marker") } catch (_: IllegalStateException) { }
+            assertTrue(marker.isDirectory)
+        }
+    }
+
+    @Test fun readOnlyRootProbeDetectsSymlinkWithoutFollowingOrRewritingIt() = runBlocking {
+        withStore { root, store ->
+            store.ensureRoot()
+            val marker = File(root, "hidden/.nomedia")
+            val outside = File(root, "outside-nomedia").apply { writeText("leave me") }
+            assertTrue(marker.delete())
+            Files.createSymbolicLink(marker.toPath(), outside.toPath())
+            assertEquals(HiddenRootMarkerCode.SYMBOLIC_LINK, HiddenRootDiagnostic.observeNomedia(marker).code)
+            try { store.ensureRoot(); fail("Must refuse symlink") } catch (_: IllegalStateException) { }
+            assertEquals("leave me", outside.readText())
+            assertTrue(Files.isSymbolicLink(marker.toPath()))
+        }
+    }
+
     @Test fun ownershipMarkerSymlinkNeverChangesUnrelatedFile() = runBlocking {
         withStore { root, store ->
             val outside = File(root,"outside-marker").apply { writeBytes(bytes) }

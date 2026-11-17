@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicLongArray
 internal enum class PerfWork {
     RESUME_MEMBERSHIP, PLAYER_QUEUE_REUSE, PLAYER_QUEUE_REPLACE, PLAYER_QUEUE_CAPTURE,
     VIEWER_QUEUE, GALLERY_DATES, PHONE_SCAN, LOG_PARSE, LOG_FILTER, COLLECTION_COVER, DUPLICATE_INDEX,
-    AUDIO_METADATA_REFRESH, PHONE_SCAN_SKIPPED
+    AUDIO_METADATA_REFRESH, PHONE_SCAN_SKIPPED, PHONE_SCAN_RECOVERY
 }
 internal class PerfWorkCounters(private val now:()->Long=System::nanoTime) {
     private val counts=AtomicLongArray(PerfWork.entries.size*3)
