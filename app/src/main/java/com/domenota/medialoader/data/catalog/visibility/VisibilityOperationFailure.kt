@@ -46,29 +46,51 @@ internal class ReportingVisibilityPorts(
     private val batches: VisibilityBatchPorts,
     private val onStage: (VisibilityOperationStage) -> Unit,
 ) : VisibilityMovePorts by files, VisibilityBatchPorts by batches {
-    private suspend fun <T> at(stage: VisibilityOperationStage, block: suspend () -> T): T {
+    private suspend fun <T> at(stage: VisibilityOperationStage,
+        record: VisibilityMoveRecord? = null, block: suspend () -> T): T {
         onStage(stage)
-        try { return block() } catch(error: Exception) { throw VisibilityOperationFailure.wrap(stage,error) }
+        val detailed = record != null && com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()
+        val startedAt = if (detailed) System.nanoTime() else 0L
+        var confirmed = false
+        try {
+            val result = block()
+            confirmed = true
+            return result
+        } catch(error: Exception) {
+            throw VisibilityOperationFailure.wrap(stage,error)
+        } finally {
+            if (detailed && record != null) {
+                com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+                    visibilityPortMetric(stage,record,visibilityDurationMs(startedAt,System.nanoTime()),confirmed))
+            }
+        }
     }
-    override suspend fun currentUri(record: VisibilityMoveRecord) = at(VisibilityOperationStage.BINDING_READ) { files.currentUri(record) }
+    override suspend fun currentUri(record: VisibilityMoveRecord) = at(VisibilityOperationStage.BINDING_READ,record) { files.currentUri(record) }
     override suspend fun fingerprint(uri: String) = at(VisibilityOperationStage.SOURCE) { files.fingerprint(uri) }
     override suspend fun presence(uri: String) = at(VisibilityOperationStage.SOURCE) { files.presence(uri) }
-    override suspend fun fingerprint(record: VisibilityMoveRecord, uri: String) = at(if(uri==record.destinationUri) VisibilityOperationStage.DESTINATION else VisibilityOperationStage.SOURCE) { files.fingerprint(record,uri) }
-    override suspend fun presence(record: VisibilityMoveRecord, uri: String) = at(if(uri==record.destinationUri) VisibilityOperationStage.DESTINATION else VisibilityOperationStage.SOURCE) { files.presence(record,uri) }
-    override suspend fun allocate(record: VisibilityMoveRecord) = at(VisibilityOperationStage.ALLOCATE) { files.allocate(record) }
-    override suspend fun copyAndSync(record: VisibilityMoveRecord) = at(VisibilityOperationStage.COPY) { files.copyAndSync(record) }
-    override suspend fun verifyDestination(record: VisibilityMoveRecord) = at(VisibilityOperationStage.DESTINATION) { files.verifyDestination(record) }
-    override suspend fun rebind(record: VisibilityMoveRecord) = at(VisibilityOperationStage.REBIND) {
+    override suspend fun fingerprint(record: VisibilityMoveRecord, uri: String) = at(if(uri==record.destinationUri) VisibilityOperationStage.DESTINATION else VisibilityOperationStage.SOURCE,record) { files.fingerprint(record,uri) }
+    override suspend fun presence(record: VisibilityMoveRecord, uri: String) = at(if(uri==record.destinationUri) VisibilityOperationStage.DESTINATION else VisibilityOperationStage.SOURCE,record) { files.presence(record,uri) }
+    override suspend fun allocate(record: VisibilityMoveRecord) = at(VisibilityOperationStage.ALLOCATE,record) { files.allocate(record) }
+    override suspend fun copyAndSync(record: VisibilityMoveRecord) = at(VisibilityOperationStage.COPY,record) { files.copyAndSync(record) }
+    override suspend fun verifyDestination(record: VisibilityMoveRecord) = at(VisibilityOperationStage.DESTINATION,record) { files.verifyDestination(record) }
+    override suspend fun rebind(record: VisibilityMoveRecord) = at(VisibilityOperationStage.REBIND,record) {
         com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
             "BINDING_STEP operation=${record.operationId} phase=${record.phase.name} direction=${record.direction.name} " +
                 "sourceVerified=true destinationAllocated=${record.destinationUri != null} bytes=${record.fingerprint.bytes}")
         files.rebind(record)
     }
-    override suspend fun verifyBinding(record: VisibilityMoveRecord) = at(VisibilityOperationStage.BINDING_VERIFY) { files.verifyBinding(record) }
-    override suspend fun removeSource(record: VisibilityMoveRecord) = at(VisibilityOperationStage.CLEANUP) { files.removeSource(record) }
-    override suspend fun verifyFinalVisibility(record: VisibilityMoveRecord) = at(VisibilityOperationStage.FINAL_VERIFY) { files.verifyFinalVisibility(record) }
+    override suspend fun verifyBinding(record: VisibilityMoveRecord) = at(VisibilityOperationStage.BINDING_VERIFY,record) { files.verifyBinding(record) }
+    override suspend fun removeSource(record: VisibilityMoveRecord) = at(VisibilityOperationStage.CLEANUP,record) { files.removeSource(record) }
+    override suspend fun verifyFinalVisibility(record: VisibilityMoveRecord) = at(VisibilityOperationStage.FINAL_VERIFY,record) { files.verifyFinalVisibility(record) }
     override suspend fun preflight(batch: VisibilityBatchRecord) = at(VisibilityOperationStage.PREFLIGHT) { batches.preflight(batch) }
     override suspend fun prepareMembership(batch: VisibilityBatchRecord, pending: VisibilityMoveRecord?) = at(VisibilityOperationStage.MEMBERSHIP) { batches.prepareMembership(batch,pending) }
     override suspend fun completed(member: VisibilityMoveRecord) = at(VisibilityOperationStage.RECEIPT) { batches.completed(member) }
     override suspend fun commitVisibility(batch: VisibilityBatchRecord) = at(VisibilityOperationStage.COMMIT) { batches.commitVisibility(batch) }
 }
+
+/** A fixed-schema profiler record: never includes a file name, source URI,
+ * destination URI, ContentResolver token, proof bytes or failure message. */
+internal fun visibilityPortMetric(stage: VisibilityOperationStage, record: VisibilityMoveRecord,
+    elapsedMs: Long, success: Boolean): String =
+    "MOVE_PORT operation=${record.operationId} stage=${stage.name} direction=${record.direction.name} " +
+        "bytes=${record.fingerprint.bytes} elapsedMs=${elapsedMs.coerceAtLeast(0L)} success=$success"
