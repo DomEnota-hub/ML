@@ -257,12 +257,25 @@ class StorageManager(
 
     /** Copies a finished temp file into the download folder and returns the actual saved name. */
     suspend fun publish(source: File, fileName: String, mimeType: String, historicalMillis: Long? = null,
-        fileMillis: Long? = historicalMillis): PublishedFile =
+        fileMillis: Long? = historicalMillis, independentPrivateRestore: Boolean = false): PublishedFile =
         withContext(Dispatchers.IO) {
-            HistoricalRecoverySignals.requireIdle()
+            if (independentPrivateRestore) HistoricalRecoverySignals.requireIndependentPrivatePublication()
+            else HistoricalRecoverySignals.requireIdle()
+            try {
             val recovery=currentCoroutineContext()[MissingRecoveryPublication]
             recovery?.prepare(source,mimeType)
             val initialNames = existingNames().toMutableSet()
+            // A stalled SHOW does not yet appear in MediaStore for every planned
+            // filename. Reserve all names from the verified, immutable journal
+            // before the private export chooses its own unique public name.
+            if (independentPrivateRestore &&
+                com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager.hasPendingJournal(context)) {
+                check(!usesSelectedFolder) {
+                    "Восстановление в выбранную SAF-папку при незавершённом переносе недоступно"
+                }
+                initialNames += com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager
+                    .reservedPendingPublicNames(context,MediaStoragePolicy.route(relativeDirectory,mimeType))
+            }
             selectedFolder()?.let { folder ->
                 if (!folder.canWrite()) throw IOException("Выбранная папка недоступна")
                 val actualName = StorageNaming.availableName(fileName, initialNames)
@@ -340,6 +353,7 @@ class StorageManager(
                     }
                 }
                 PublishedFile(uri, actualName)
+            }
             }
         }
 
