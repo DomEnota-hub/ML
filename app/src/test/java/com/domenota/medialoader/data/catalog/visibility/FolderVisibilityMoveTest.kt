@@ -26,6 +26,7 @@ class FolderVisibilityMoveTest {
         var failAfterBinding = false
         var failAfterRemoval = false
         var failIndex = false
+        var failBindingProof = false
         var removalCount = 0
         var finalDirection: VisibilityDirection? = null
         override suspend fun currentUri(record: VisibilityMoveRecord) = binding
@@ -47,7 +48,10 @@ class FolderVisibilityMoveTest {
             binding = "destination"
             if (failAfterBinding) error("interrupted binding")
         }
-        override suspend fun verifyBinding(record: VisibilityMoveRecord) { check(binding == "destination") }
+        override suspend fun verifyBinding(record: VisibilityMoveRecord) {
+            check(!failBindingProof) { "binding proof failed" }
+            check(binding == "destination")
+        }
         override suspend fun removeSource(record: VisibilityMoveRecord) {
             check(binding == "destination" && files["destination"] == original)
             removalCount++; files.remove("source")
@@ -90,6 +94,19 @@ class FolderVisibilityMoveTest {
         p.failAfterAllocation=false; FolderVisibilityMove(j,p).resume()
         assertEquals(1,p.files.size); assertNull(j.record)
     }
+    @Test fun engineStillRequiresFullBindingProofAfterRebindBeforeCleanup() = runBlocking {
+        val journal = Journal(); val ports = Ports(); ports.failBindingProof = true
+        fails { FolderVisibilityMove(journal,ports).begin(plan()) }
+        // Rebinding the URI alone cannot commit LINKED or remove the source.
+        assertEquals(VisibilityMovePhase.VERIFIED, journal.record?.phase)
+        assertEquals(original, ports.files["source"])
+        assertEquals(0, ports.removalCount)
+        ports.failBindingProof = false
+        FolderVisibilityMove(journal,ports).resume()
+        assertNull(journal.record)
+        assertEquals(1, ports.removalCount)
+    }
+
     @Test fun processDeathAfterBindingReplaysWithoutDeletingOriginalEarly() = runBlocking {
         val j=Journal(); val p=Ports(); p.failAfterBinding=true
         fails { FolderVisibilityMove(j,p).begin(plan()) }
