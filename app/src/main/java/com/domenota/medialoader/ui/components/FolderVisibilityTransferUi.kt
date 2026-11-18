@@ -79,11 +79,14 @@ internal fun visibilityTransferPresentation(
         VisibilityExecutionPhase.VERIFYING -> VisibilityTransferPresentation(
             "Проверяем результат","Все элементы обработаны; финальная проверка ещё выполняется")
         VisibilityExecutionPhase.COMPLETED -> when (catalogStatus) {
+            PostTransferCatalogStatus.IDLE -> VisibilityTransferPresentation(
+                "Файлы перенесены","Ожидаем проверку медиатеки. Завершение ещё не подтверждено")
             PostTransferCatalogStatus.UPDATING -> VisibilityTransferPresentation(
-                "Файлы перенесены","Обновляем Галерею и Музыку. Проверенные файлы остаются доступны",isComplete=true)
+                "Файлы перенесены","Обновляем медиатеку. Проверенные файлы остаются доступны")
             PostTransferCatalogStatus.INCOMPLETE -> VisibilityTransferPresentation(
-                "Файлы перенесены","Обновление медиатеки не подтверждено. Проверьте доступ и журнал",isComplete=true)
-            else -> VisibilityTransferPresentation(
+                "Обновление не подтверждено","Проверьте доступ и журнал. Перенос файлов завершён, но медиатека не проверена",
+                canDismiss=true)
+            PostTransferCatalogStatus.READY -> VisibilityTransferPresentation(
                 "Перенос завершён","Результат подтверждён после проверки всех элементов",isComplete=true)
         }
         VisibilityExecutionPhase.RECOVERABLE_PENDING -> VisibilityTransferPresentation(
@@ -242,14 +245,35 @@ internal fun FolderVisibilityTransferDialog(
     }
 }
 
+/** The compact first line reports the last *verified* phase, not X/Y alone.
+ * Keep the second line numeric and do not expose a private folder name. */
+internal fun visibilityMiniPanelTitle(
+    state:VisibilityExecutionSnapshot,
+    catalogStatus:PostTransferCatalogStatus,
+):String = when(state.phase) {
+    VisibilityExecutionPhase.COMPLETED -> when(catalogStatus) {
+        PostTransferCatalogStatus.READY -> "Перенос завершён"
+        PostTransferCatalogStatus.UPDATING -> "Обновляем медиатеку"
+        PostTransferCatalogStatus.INCOMPLETE -> "Медиатека не проверена"
+        PostTransferCatalogStatus.IDLE -> "Проверяем медиатеку"
+    }
+    VisibilityExecutionPhase.VERIFYING -> "Проверяем файлы"
+    VisibilityExecutionPhase.RECOVERABLE_PENDING -> "Перенос не завершён"
+    VisibilityExecutionPhase.FAILED -> "Перенос остановлен"
+    VisibilityExecutionPhase.PAUSED -> "Перенос приостановлен"
+    VisibilityExecutionPhase.WAITING_FOR_ANDROID -> "Ожидание Android"
+    else -> "Перенос файлов"
+}
+
 /** This never includes private folder names, paths or media previews. */
 @Composable
 internal fun FolderVisibilityMiniPanel(
     state:VisibilityExecutionSnapshot,
     onOpen:()->Unit,
     modifier:Modifier=Modifier,
+    catalogStatus:PostTransferCatalogStatus=PostTransferCatalogStatus.IDLE,
 ) {
-    val present=visibilityTransferPresentation(state)
+    val title=visibilityMiniPanelTitle(state,catalogStatus)
     Surface(modifier=modifier.fillMaxWidth().testTag("visibility-transfer-compact"),
         shape=RoundedCornerShape(16.dp),color=transferSurface(),shadowElevation=5.dp) {
         Column(Modifier.clickable(onClick=onOpen).padding(12.dp),
@@ -258,7 +282,7 @@ internal fun FolderVisibilityMiniPanel(
                 horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Rounded.Folder,null,tint=transferAccent())
                 Column(Modifier.weight(1f)) {
-                    Text("Перенос файлов",style=MaterialTheme.typography.bodyMedium,
+                    Text(title,style=MaterialTheme.typography.bodyMedium,
                         fontWeight=FontWeight.Medium)
                     if (state.total > 0) Text(
                         "${state.confirmed}/${state.total}",
