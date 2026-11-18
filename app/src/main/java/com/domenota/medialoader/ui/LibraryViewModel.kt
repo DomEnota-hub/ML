@@ -50,6 +50,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 internal enum class PhoneScanReason { REQUEST, MEDIASTORE_CHANGE, PRIVACY_CHANGE, ACCESS_CHANGED, RECOVERY }
 internal enum class PostTransferCatalogStatus { IDLE, UPDATING, READY, INCOMPLETE }
 
+/** Version updates during a running operation are not a second ENTER. */
+internal fun enteringRecoveryGate(running: Boolean, previouslyRunning: Boolean): Boolean =
+    running && !previouslyRunning
+
 /** Only changed provider kinds require a physical rescan; an unrelated
  * MediaStore callback queued during the transfer is also honored. */
 internal fun recoveryRefreshModes(
@@ -741,6 +745,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private var editorHoldsAutomaticIndexing = false
     private var recoveryRefreshPending = false
     private var observedRecoveryVersion = HistoricalRecoverySignals.version.value
+    private var recoveryGateObservedRunning = false
     private var recoveryAffectedModes: Set<AppMode> = setOf(AppMode.GALLERY,AppMode.MUSIC)
     private var postTransferSerial = 0L
     private var postTransferJob: Job? = null
@@ -806,7 +811,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             combine(HistoricalRecoverySignals.isRunning, HistoricalRecoverySignals.version) { running, version ->
                 running to version
             }.collect { (running, version) ->
-                if (running) {
+                val entered = enteringRecoveryGate(running,recoveryGateObservedRunning)
+                recoveryGateObservedRunning = running
+                if (entered) {
                     transferBootstrapEpochs.clear()
                     postTransferSerial++
                     postTransferJob?.cancel()
@@ -827,7 +834,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     // Actual permission changes still advance accessEpoch in
                     // refresh(); historical file operations must not masquerade
                     // as revoked READ_MEDIA_* grants.
-                } else if (version != observedRecoveryVersion) {
+                } else if (!running && version != observedRecoveryVersion) {
                     if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
                         com.domenota.medialoader.core.logging.AppLog.i("Perf",
                             "RECOVERY_GATE state=EXIT changedVersion=true " +
