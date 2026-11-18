@@ -39,5 +39,8 @@ object GalleryViewerState {
         return snapshot.drop((index + 1).coerceAtLeast(0)).firstOrNull { it in available }
             ?: snapshot.take(index.coerceAtLeast(0)).lastOrNull { it in available }
     }
-    fun canCreateVideo(page: Int, settledPage: Int, dragging: Boolean) = page == settledPage && !dragging
+    /** A tentative finger drag must not destroy/recreate the same playing video.
+     * Release only after the pager settles on a different exact page; the
+     * caller still gates the actual file against the current authorized queue. */
+    fun canCreateVideo(page: Int, settledPage: Int, dragging: Boolean) = page == settledPage
 }
