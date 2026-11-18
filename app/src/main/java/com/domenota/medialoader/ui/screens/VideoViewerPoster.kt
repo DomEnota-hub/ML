@@ -47,8 +47,15 @@ internal fun rememberVideoViewerPoster(itemId: String, uri: Uri): VideoViewerPos
     }
     // A neighboring page can stay composed while its player saves a newer resume position.
     DisposableEffect(prefs, itemId, uri) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-            positionMs = VideoWatchProgress.resumePosition(prefs, itemId)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changedKey ->
+            // Watch-mark/duration writes are not a seek. Avoid a synchronous
+            // alias lookup on the main thread for every periodic progress save.
+            if (changedKey == null || (changedKey != null &&
+                !changedKey.startsWith("watched_") &&
+                !changedKey.startsWith("duration_") &&
+                !changedKey.startsWith("updated_"))) {
+                positionMs = VideoWatchProgress.resumePosition(prefs, itemId)
+            }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
