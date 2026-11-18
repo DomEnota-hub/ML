@@ -85,7 +85,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
     }
 
     suspend fun rebind(snapshot: JSONObject, oldUri: String, newUri: String, oldHash: String,
-        newHash: String, newName: String, newBytes: Long) {
+        newHash: String, newName: String, newBytes: Long, verifyInline: Boolean = true) {
         val key = snapshot.getString("key")
         val recordFile = File(directory, "$key.json")
         if (!recordFile.exists()) write(key, snapshot)
@@ -114,7 +114,11 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         switchArtwork(record)
         val all = strings(record.getJSONArray("allAliases"))
         VideoWatchProgress.linkAliases(watch, all.associateWith { record.getString("id") })
-        verify(snapshot, newUri, newHash)
+        // Visibility's move engine performs the authoritative addressed
+        // verifyBinding before the durable LINKED checkpoint and source cleanup.
+        // Skip this immediate duplicate full cross-store verification ONLY for
+        // that engine. Historical and other callers retain inline verification.
+        if (verifyInline) verify(snapshot, newUri, newHash)
     }
 
     suspend fun verify(snapshot: JSONObject, expectedUri: String, expectedHash: String, addressed: Boolean = false,
