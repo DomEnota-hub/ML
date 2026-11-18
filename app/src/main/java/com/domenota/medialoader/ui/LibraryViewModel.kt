@@ -81,6 +81,34 @@ internal data class LibraryIndex(val ready: Boolean = false, val refs: List<Libr
     // equality: equal inventory generations must still conflate in StateFlow.
     val display = LibraryDisplayInventory.build(refs, visibility?.external.orEmpty())
 }
+/** During a visibility-receipt change the canonical index is rebuilt on IO.
+ * Its previous, already authenticated generation is safe to DISPLAY only after
+ * immediate re-filtering with the new fail-closed guard. Without this bridge,
+ * even unchanged 10k+ phone rows disappear until the slow index rebuild lands.
+ * The result never authorizes a destructive action or admits a new locator.
+ * Permission and private-access changes must not reuse this generation. */
+internal fun guardedRetainedIndexRefs(
+    index: LibraryIndex,
+    visibility: FolderVisibilityLibraryGuard?,
+    privacy: Set<String>?,
+    gallery: PhoneLibraryState,
+    music: PhoneLibraryState,
+): List<LibraryMediaRef>? {
+    if (!index.ready || index.visibility == null || privacy == null ||
+        index.privacyKeys != privacy || visibility == null ||
+        visibility.policy.unknownPending) return null
+    if (visibility == index.visibility) return index.refs
+    // Old index revisions are not allowed across an unvalidated READ_MEDIA_*
+    // grant change, selected-only access or a private-media invalidation.
+    if (gallery.requiresValidation && index.galleryRevision != gallery.revision ||
+        music.requiresValidation && index.musicRevision != music.revision) return null
+    val denied = visibility.blockedKeys() + privacy
+    return index.refs.filter { ref ->
+        ref.key !in denied && ref.aliases.none(denied::contains) &&
+            !visibility.excluded(ref)
+    }
+}
+
 /** Duplicate search requires the complete current visual generation, not a
  * browseable first page. Audio inventory is irrelevant to photo/video coverage. */
 internal fun visualDuplicateCatalogComplete(index: LibraryIndex, gallery: PhoneLibraryState,
