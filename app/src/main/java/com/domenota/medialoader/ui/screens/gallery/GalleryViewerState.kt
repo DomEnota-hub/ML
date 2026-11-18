@@ -14,6 +14,27 @@ object GalleryViewerState {
             (ref.aliases.filter { it.startsWith("phone:") || it in routeIds } + ref.key).distinct().map { ref.item.copy(id = it) }
         }
     }
+    /** The normal public Gallery route receives LibraryIndex.refs, already
+     * grouped off-main by UnifiedMediaLibrary.merge and revalidated against
+     * current privacy/visibility. Do NOT repeat that costly 11k-row merge on
+     * the player/composition thread. Scoped/unmerged queues use the regular
+     * publicCandidates() path instead. */
+    fun publicCandidatesFromUnified(refs: List<LibraryMediaRef>, privateKeys: Set<String>?,
+        routeIds: Set<String> = emptySet()): List<DownloadEntity> {
+        if (privateKeys == null) return emptyList()
+        return refs.asSequence()
+            .filter { ref ->
+                !ref.item.hidden && !ref.item.isPrivate &&
+                    ref.item.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED &&
+                    !ref.item.savedUri.isNullOrBlank() &&
+                    ref.key !in privateKeys && ref.item.id !in privateKeys &&
+                    ref.aliases.none { it in privateKeys }
+            }
+            .flatMap { ref ->
+                (ref.aliases.filter { it.startsWith("phone:") || it in routeIds } + ref.key)
+                    .distinct().asSequence().map { ref.item.copy(id = it) }
+            }.toList()
+    }
     /** The caller supplies an already-authorized, isolated vault queue.
      * Preserve that scope through the viewer's own final queue filter. */
     fun queue(ids: List<String>, rows: List<DownloadEntity>, privateMode: Boolean = false): List<DownloadEntity> =
