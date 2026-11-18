@@ -133,14 +133,17 @@ internal fun guardedRetainedIndexRefs(
 internal fun postTransferIndexAligned(
     index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState,
     guard: FolderVisibilityLibraryGuard?,
-): Boolean = index.ready && index.appComplete && guard != null &&
-    index.visibility == guard &&
-    gallery.loaded && music.loaded && gallery.complete && music.complete &&
-    !gallery.loading && !music.loading &&
-    gallery.message == null && music.message == null &&
-    index.galleryRevision == gallery.revision &&
-    index.musicRevision == music.revision &&
-    index.galleryAccessEpoch == gallery.accessEpoch && index.musicAccessEpoch == music.accessEpoch
+    affected: Set<AppMode> = setOf(AppMode.GALLERY,AppMode.MUSIC),
+): Boolean {
+    if (!index.ready || !index.appComplete || guard == null || index.visibility != guard) return false
+    fun verified(phone: PhoneLibraryState, revision: Long, epoch: Long): Boolean =
+        phone.loaded && phone.complete && !phone.loading && phone.message == null &&
+            revision == phone.revision && epoch == phone.accessEpoch
+    return (AppMode.GALLERY !in affected ||
+        verified(gallery,index.galleryRevision,index.galleryAccessEpoch)) &&
+        (AppMode.MUSIC !in affected ||
+        verified(music,index.musicRevision,index.musicAccessEpoch))
+}
 
 /** Duplicate search requires the complete current visual generation, not a
  * browseable first page. Audio inventory is irrelevant to photo/video coverage. */
@@ -785,7 +788,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 galleryJob?.join()
                 musicJob?.join()
                 combine(index, gallery, music, visibilityGuard) { current, pictures, audio, guard ->
-                    postTransferIndexAligned(current, pictures, audio, guard)
+                    postTransferIndexAligned(current, pictures, audio, guard, modes)
                 }.first { it }
                 true
             } == true
