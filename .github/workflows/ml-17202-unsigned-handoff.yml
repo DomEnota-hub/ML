@@ -1,0 +1,70 @@
+name: ML 1.7.202 exact unsigned ARM64 local-sign handoff
+on:
+  push:
+    branches: [qa/ml-17202-unsigned-handoff]
+    paths: [.github/workflows/ml-17202-unsigned-handoff.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17202-exact-unsigned-handoff
+  cancel-in-progress: true
+jobs:
+  build-exact-unsigned:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6de1d88117afe0b751dbb56e030ea22b3b0cf81d
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Exact immutable source and version guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "6de1d88117afe0b751dbb56e030ea22b3b0cf81d"
+          grep -Eq 'versionCode 262$' app/build.gradle
+          grep -Fq "versionName '1.7.202'" app/build.gradle
+          test ! -e .gapi-local/builtin-keys.json
+      - name: Android SDK and Gradle bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for i in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$i" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Unsigned exact 1.7.202 ARM64 release
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon --console=plain
+      - name: Verify exact ABI and package and export source
+        shell: bash
+        run: |
+          set -euo pipefail
+          unsigned=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$unsigned"
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          "$bt/aapt" dump badging "$unsigned" | grep -F "package: name='com.domenota.medialoader' versionCode='262' versionName='1.7.202'"
+          test "$(unzip -Z1 "$unsigned" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          mkdir -p exact
+          cp "$unsigned" exact/ML_1.7.202_ARM64_UNSIGNED.apk
+          git archive --format=zip -o exact/ML_1.7.202_SOURCES_EXACT_COMMIT.zip 6de1d88117afe0b751dbb56e030ea22b3b0cf81d
+          printf '%s\n' "6de1d88117afe0b751dbb56e030ea22b3b0cf81d" > exact/EXACT_SOURCE_SHA.txt
+          (cd exact && sha256sum ML_1.7.202_ARM64_UNSIGNED.apk ML_1.7.202_SOURCES_EXACT_COMMIT.zip > SHA256SUMS_SOURCE_AND_UNSIGNED.txt)
+          echo "Exact source 6de1d88117afe0b751dbb56e030ea22b3b0cf81d, arm64-v8a, unsigned only."
+      - name: Short-lived private unsigned and exact sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.202_EXACT_UNSIGNED_HANDOFF
+          path: exact/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
