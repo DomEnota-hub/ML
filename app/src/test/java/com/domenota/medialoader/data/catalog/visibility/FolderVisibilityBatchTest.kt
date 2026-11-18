@@ -94,6 +94,52 @@ class FolderVisibilityBatchTest {
             assertEquals(46, f.deleted.size)
         } finally { root.deleteRecursively() }
     }
+    @Test fun explicitPauseStopsOnlyAfterCompletedMemberCheckpointAndResumesOnce() = runBlocking {
+        val root = Files.createTempDirectory("ml-visibility-safe-pause").toFile()
+        try {
+            val fixture = Fixture(root,plan())
+            val pause = VisibilityCheckpointPauseGate()
+            var sawPause = false
+            val engine = FolderVisibilityBatch(fixture.batchJournal,fixture.moveJournal,
+                FolderVisibilityMove(fixture.moveJournal,fixture),fixture,
+                { record ->
+                    if (record?.next == 1) assertTrue(pause.request())
+                },
+                { pause.checkpoint() })
+            try { engine.begin(fixture.batch); fail("Expected cooperative pause") }
+            catch (_: VisibilityPausedAtCheckpoint) { sawPause = true }
+            assertTrue(sawPause)
+            assertEquals(1,fixture.batchJournal.read()?.next)
+            assertNull(fixture.moveJournal.read())
+            assertEquals(listOf("source1"),fixture.deleted)
+            assertEquals("destination-op1",fixture.bindings["id1"])
+            val resumed=fixture.engine()
+            resumed.resume()
+            assertTrue(fixture.committed)
+            assertEquals(listOf("source1","source2","source3"),fixture.deleted)
+            assertEquals(3,fixture.deleted.toSet().size)
+            assertNull(fixture.batchJournal.read())
+            assertNull(fixture.moveJournal.read())
+        } finally { root.deleteRecursively() }
+    }
+    @Test fun pauseBeforeTheFirstMemberDoesNotCopyOrDeleteAnything() = runBlocking {
+        val root = Files.createTempDirectory("ml-visibility-early-pause").toFile()
+        try {
+            val fixture = Fixture(root,plan())
+            val pause = VisibilityCheckpointPauseGate()
+            assertTrue(pause.request())
+            val engine = FolderVisibilityBatch(fixture.batchJournal,fixture.moveJournal,
+                FolderVisibilityMove(fixture.moveJournal,fixture),fixture,
+                {},{pause.checkpoint()})
+            try { engine.begin(fixture.batch); fail("Expected pause") }
+            catch (_: VisibilityPausedAtCheckpoint) { }
+            assertEquals(0,fixture.batchJournal.read()?.next)
+            assertNull(fixture.moveJournal.read())
+            assertTrue(fixture.deleted.isEmpty())
+            fixture.engine().resume()
+            assertTrue(fixture.committed)
+        } finally { root.deleteRecursively() }
+    }
     @Test fun interruptedFinalCommitDoesNotToggleOrMoveTwice() = runBlocking {
         fixture { f -> f.failCommit = true; fails { f.engine().begin(f.batch) }
             assertEquals(3,f.batchJournal.read()?.next); assertTrue(f.committed); assertNull(f.moveJournal.read())

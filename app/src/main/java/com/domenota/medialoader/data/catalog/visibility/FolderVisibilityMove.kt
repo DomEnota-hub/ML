@@ -97,6 +97,15 @@ internal class FolderVisibilityMove(
             record = next
         }
         while (true) {
+            // A phase is timed without altering journaling order, CAS, fingerprinting,
+            // cleanup, cancellation or existing recovery behavior.
+            val measuredPhase = record.phase
+            val measuredOperation = record.operationId
+            val measuredDirection = record.direction
+            val measuredBytes = record.fingerprint.bytes
+            val startedAt = System.nanoTime()
+            var stageCompleted = false
+            try {
             when (record.phase) {
                 VisibilityMovePhase.PREPARED -> {
                     check(ports.currentUri(record) == record.sourceUri)
@@ -144,7 +153,16 @@ internal class FolderVisibilityMove(
                     check(ports.presence(record, record.sourceUri) == VisibilityPresence.MISSING)
                     ports.verifyFinalVisibility(record)
                     journal.replace(record, null)
+                    stageCompleted = true
                     return
+                }
+            }
+            stageCompleted = true
+            } finally {
+                if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
+                    com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+                        "MOVE_PHASE operation=$measuredOperation phase=${measuredPhase.name} direction=${measuredDirection.name} " +
+                            "bytes=$measuredBytes elapsedMs=${visibilityDurationMs(startedAt,System.nanoTime())} success=$stageCompleted")
                 }
             }
         }

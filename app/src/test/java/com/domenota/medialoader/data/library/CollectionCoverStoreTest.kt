@@ -63,6 +63,25 @@ class CollectionCoverStoreTest {
         image.recycle()
     }
 
+    @Test fun automaticCoverMetadataSurvivesScrollAcrossHundredsOfCollections() {
+        val otherStore=CollectionCoverStore(context)
+        val total=384
+        // A long album list should not lose the first verified Automatic state
+        // and flicker into Loading when its Lazy item is recreated.
+        repeat(total){ index ->
+            val id="cover-scroll-cache-${index}"
+            assertEquals(CollectionCoverSelection.Automatic,store.readSelection(id))
+        }
+        assertEquals(CollectionCoverSelection.Automatic,
+            otherStore.cachedSelection("cover-scroll-cache-0"))
+        assertEquals(CollectionCoverSelection.Automatic,
+            otherStore.cachedSelection("cover-scroll-cache-191"))
+        assertEquals(CollectionCoverSelection.Automatic,
+            otherStore.cachedSelection("cover-scroll-cache-383"))
+        // Explicitly unknown metadata must never be silently treated as
+        // automatic; the normal read/access path still applies.
+        assertNull(otherStore.cachedSelection("cover-not-previously-read"))
+    }
     @Test fun selectedMissingOrUnreadableCoverNeverFallsBackToMember()=runBlocking {
         val image=Bitmap.createBitmap(40,50,Bitmap.Config.ARGB_8888)
         val uri="content://media/selected"

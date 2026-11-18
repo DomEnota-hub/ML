@@ -90,6 +90,9 @@
         <service android:name=".data.download.ActiveDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service android:name=".data.catalog.visibility.FolderVisibilityService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <service
             android:name=".data.playback.AudioPlaybackService"
             android:exported="false"

@@ -272,10 +272,45 @@ fun MediaLoaderApp(
     val libraryIndex by libraryModel.index.collectAsStateWithLifecycle()
     val visibilityGuard by libraryModel.visibilityGuard.collectAsStateWithLifecycle()
     val visibilityAccess=com.domenota.medialoader.ui.components.rememberFolderVisibilityAccessHost()
+    val visibilityWork=remember(mediaRepository) { mediaRepository.folderVisibilityWork }
+    val visibilityWorkState by visibilityWork.state.collectAsStateWithLifecycle()
+    val androidApprovalTicket by visibilityWork.pendingAndroidApproval.collectAsStateWithLifecycle()
+    var visibilityWorkExpanded by rememberSaveable { mutableStateOf(true) }
+    // The user-dismissed final result must not reappear on Activity rotation.
+    var visibilityWorkDismissed by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(visibilityWorkState.phase) {
+        if (visibilityWorkState.phase == VisibilityExecutionPhase.PREPARING) {
+            visibilityWorkExpanded=true
+            visibilityWorkDismissed=false
+        }
+    }
+    // Service requests never launch system consent from background. The Activity
+    // becomes RESUMED first, then its own ActivityResultLauncher makes the request.
+    LaunchedEffect(androidApprovalTicket?.id,lifecycleOwner) {
+        val ticket=androidApprovalTicket ?: return@LaunchedEffect
+        lifecycleOwner.lifecycle.currentStateFlow.first {
+            it.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        if(!visibilityWork.claimAndroidApproval(ticket.id)) return@LaunchedEffect
+        try {
+            val permitted=visibilityAccess.approve(ticket.payload)
+            visibilityWork.resolveAndroidApproval(ticket.id,permitted)
+        } catch(cancelled:CancellationException) {
+            visibilityWork.rejectAndroidApprovalOnActivityLoss(ticket.id)
+            throw cancelled
+        } catch(error:Exception) {
+            visibilityWork.rejectAndroidApprovalOnActivityLoss(ticket.id)
+            AppLog.w("FolderVisibility","ANDROID_APPROVAL_ACTIVITY error=${error.javaClass.simpleName}")
+        }
+    }
     var visibilityBusy by remember { mutableStateOf(false) }
+    // The legacy blocking dialog is only for membership moves that still
+    // execute from the screen. An ordinary folder hide/show transitions to
+    // the new service dialog rather than flashing the legacy placeholder.
+    var visibilityMembershipBusy by remember { mutableStateOf(false) }
     var visibilityResumeDismissed by remember { mutableStateOf(false) }
     suspend fun visibilityOperation(action:suspend ()->Unit) {
-        check(!visibilityBusy) { "Перенос уже выполняется" }
+        check(!visibilityBusy && !visibilityWork.state.value.active) { "Перенос уже выполняется" }
         visibilityBusy=true
         try { visibilityAccess.ensure(); action() }
         finally { visibilityBusy=false }
@@ -285,20 +320,22 @@ fun MediaLoaderApp(
             val pending=mediaRepository.folderVisibility.pending()
             if(pending.pending) {
                 check(pending.folderId==folder) { "Сначала завершите предыдущий перенос" }
-                mediaRepository.resumeFolderVisibility(visibilityAccess.approve)
-            } else mediaRepository.setFolderVisibility(folder,hidden,visibilityAccess.approve)
+                visibilityWork.resumeFromVisibleActivity()
+            } else visibilityWork.startFromVisibleActivity(folder,hidden)
+            visibilityResumeDismissed=true
         } else error("Скрытие папок доступно с Android 11")
     }
 
     val visibilityProgress by mediaRepository.folderVisibility.status.collectAsStateWithLifecycle()
-    if(visibilityBusy) AlertDialog(onDismissRequest={},confirmButton={},title={Text("Перенос файлов")},text={
+    if(visibilityBusy && visibilityMembershipBusy) AlertDialog(onDismissRequest={},confirmButton={},title={Text("Перенос файлов")},text={
         Text(when {
             visibilityProgress.preparing && visibilityProgress.total>0 -> "Подготовка: ${visibilityProgress.prepared} из ${visibilityProgress.total}"
             visibilityProgress.total>0 -> "Перенос: ${visibilityProgress.completed} из ${visibilityProgress.total}"
             else -> "Чтение и проверка плана переноса…"
         })
     })
-    if(visibilityProgress.pending && !visibilityBusy && !visibilityResumeDismissed) AlertDialog(
+    if(visibilityProgress.pending && !visibilityBusy && !visibilityResumeDismissed &&
+        visibilityWorkState.phase == VisibilityExecutionPhase.IDLE) AlertDialog(
         onDismissRequest={visibilityResumeDismissed=true}, title={Text("Незавершённый перенос")},
         text={Text(visibilityProgress.failure?.let { failure ->
             (if(visibilityProgress.total>0) "Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. " else "") + failure.message
@@ -306,7 +343,10 @@ fun MediaLoaderApp(
             "Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. План и проверенные копии сохранены."
             else "Сохранённый план требует проверки. Исходные файлы не удаляются автоматически.")},
         confirmButton={TextButton(onClick={fileActionScope.launch {
-            try { if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation { mediaRepository.resumeFolderVisibility(visibilityAccess.approve) } }
+            try { if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation {
+                visibilityWork.resumeFromVisibleActivity()
+                visibilityResumeDismissed=true
+            } }
             catch(e:CancellationException){throw e}catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось продолжить перенос");visibilityResumeDismissed=true}
         }}){Text("Продолжить")}}, dismissButton={TextButton(onClick={visibilityResumeDismissed=true}){Text("Позже")}})
 
@@ -734,6 +774,10 @@ fun MediaLoaderApp(
         else libraryModel.externalCatalog.setFavorite(ref, favorite)
     }
     val setLibraryFolder: suspend (String, String?) -> Unit = { id, folder ->
+        check(!visibilityWork.state.value.active &&
+            !FolderVisibilityManager.hasPendingJournal(context)) {
+            "Сначала завершите или проверьте незаконченный перенос папки"
+        }
         val ref = folderRefsById[id] ?: publicLibraryRefs.firstOrNull { it.key == id || id in it.aliases }
             ?: mediaRepository.downloadById(id)?.takeIf { canOpenFolderMedia(it) && !it.isPrivate && !it.hidden && it.state==DownloadState.COMPLETED }
                 ?.let { LibraryMediaRef(it.id,emptySet(),it,it.id) }
@@ -749,16 +793,33 @@ fun MediaLoaderApp(
         val physical=mediaRepository.folderVisibility.requiresMembershipMove(ref,folder)
         if(physical) {
             check(android.os.Build.VERSION.SDK_INT>=30)
-            visibilityOperation { check(mediaRepository.changeFolderMembership(ref,folder,visibilityAccess.approve)) }
+            visibilityMembershipBusy=true
+            try {
+                visibilityOperation {
+                    check(mediaRepository.changeFolderMembership(ref,folder,visibilityAccess.approve))
+                }
+            } finally {
+                visibilityMembershipBusy=false
+            }
         } else if (ref.appDownloadId != null) {
             viewModel.setCatalogFolder(ref.appDownloadId, folder)
             libraryModel.externalCatalog.setExistingFolder(ref, folder)
         } else libraryModel.externalCatalog.setFolder(ref, folder)
     }
     val deleteVisibilityFolder:suspend (String)->Unit={ folder ->
-        if(mediaRepository.folderVisibility.isHidden(folder)) toggleFolderVisibility(folder,false)
-        viewModel.deleteCatalogFolder(folder)
-        libraryModel.externalCatalog.removeFolder(folder)
+        check(!visibilityWork.state.value.active &&
+            !FolderVisibilityManager.hasPendingJournal(context)) {
+            "Сначала завершите или проверьте незаконченный перенос папки"
+        }
+        if(mediaRepository.folderVisibility.isHidden(folder)) {
+            // The service is asynchronous: keep the folder and all its metadata
+            // until every member has been returned and the final CAS succeeds.
+            toggleFolderVisibility(folder,false)
+            AppNotice.post(context,"Возврат файлов запущен. После завершения повторите удаление папки")
+        } else {
+            viewModel.deleteCatalogFolder(folder)
+            libraryModel.externalCatalog.removeFolder(folder)
+        }
     }
     val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
     val instagramSessionRevision by viewModel.instagramSessionRevision.collectAsStateWithLifecycle()
@@ -3022,10 +3083,43 @@ fun MediaLoaderApp(
             currentRoute in setOf(MEDIA_VIEWER_ROUTE, VIDEO_EDITOR_ROUTE, AUDIO_EDITOR_ROUTE, PHOTO_EDITOR_ROUTE, "batch-photo-editor", "trash-viewer/{downloadId}") -> 100.dp
             else -> 0.dp
         }
+        val showWorkPanel = !visibilityWorkDismissed &&
+            visibilityWorkState.phase != VisibilityExecutionPhase.IDLE
+        if (showWorkPanel && !visibilityWorkExpanded) {
+            com.domenota.medialoader.ui.components.FolderVisibilityMiniPanel(
+                state = visibilityWorkState,
+                onOpen = { visibilityWorkExpanded=true },
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .padding(start=16.dp,end=16.dp,
+                        bottom=innerPadding.calculateBottomPadding()+noticeExtra+12.dp),
+            )
+        }
         com.domenota.medialoader.ui.components.InAppNoticeHost(
             Modifier.align(Alignment.BottomCenter),
-            bottomPadding = innerPadding.calculateBottomPadding() + noticeExtra,
+            bottomPadding = innerPadding.calculateBottomPadding() + noticeExtra +
+                if(showWorkPanel && !visibilityWorkExpanded) 92.dp else 0.dp,
         )
+        if (showWorkPanel && visibilityWorkExpanded) {
+            com.domenota.medialoader.ui.components.FolderVisibilityTransferDialog(
+                state = visibilityWorkState,
+                folderName = visibilityProgress.folderId?.let { id ->
+                    viewModel.catalogFolders.value.firstOrNull { it.id==id }?.name
+                },
+                onCollapse = { visibilityWorkExpanded=false },
+                onPause = {
+                    if(!visibilityWork.pauseAtNextCheckpoint())
+                        AppNotice.post(context,"Пауза доступна при выполнении переноса")
+                },
+                onResume = { fileActionScope.launch {
+                    try {
+                        visibilityAccess.ensure()
+                        visibilityWork.resumeFromVisibleActivity()
+                    } catch(cancelled:CancellationException){throw cancelled}
+                    catch(error:Exception){AppNotice.post(context,error.message ?: "Не удалось продолжить перенос")}
+                } },
+                onDone = { visibilityWorkDismissed=true },
+            )
+        }
         }
     }
     }

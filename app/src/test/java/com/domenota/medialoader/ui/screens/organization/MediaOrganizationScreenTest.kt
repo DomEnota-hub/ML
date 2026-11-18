@@ -87,6 +87,59 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithText("Сбросить").performClick()
         compose.onNodeWithText("Выбрано: 0").assertIsDisplayed()
     }
+    @Test fun automaticCoverRetainsItsLastAuthorizedFrameAfterLazyDisposal() {
+        // Verify the *real Compose display behavior*, but supply a deterministic
+        // decoded bitmap. Robolectric SDK34 does not implement the full native
+        // image decoder; depending on a real JPEG made this test race Compose
+        // disposal and fail with CalledFromWrongThread/SlotTable corruption.
+        val image=android.graphics.Bitmap.createBitmap(320,240,android.graphics.Bitmap.Config.ARGB_8888)
+        val calls=java.util.concurrent.atomic.AtomicInteger()
+        val decoder=object:CollectionOriginalCoverDecoder {
+            override suspend fun decode(
+                context:android.content.Context, uri:String,
+                kind:com.domenota.medialoader.ui.model.MediaKind,
+                previewUrl:String?, identity:String,
+            ):android.graphics.Bitmap? {
+                calls.incrementAndGet()
+                return image
+            }
+        }
+        val ref=LibraryMediaRef("stable-cover-key",setOf("file-stat:stable-cover"),
+            DownloadEntity("stable-cover-id","device","cover.jpg",MediaType.PHOTO,DownloadState.COMPLETED,
+                "content://test-collection/public/cover.jpg",320L,1000L),null)
+        val visible=androidx.compose.runtime.mutableStateOf(true)
+        try {
+            CollectionCoverWarmBitmapCache.clear()
+            compose.setContent { MaterialTheme {
+                if(visible.value) CollectionOriginalCover(ref,decoder=decoder)
+            } }
+            compose.waitUntil(12_000) {
+                compose.onAllNodesWithTag("collection-original-cover-image").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.runOnIdle {
+                assertTrue("The real image must have been decoded at least once",calls.get()>0)
+                assertNotNull("The first image must be held in the warm cache",
+                    CollectionCoverWarmBitmapCache.peek(
+                        com.domenota.medialoader.data.library.PersistentProjectionCache.digest(
+                            listOf(ref.key,ref.item.savedUri,ref.item.mediaType,ref.item.previewUrl,
+                                ref.item.sizeBytes,ref.item.createdAtEpochMillis,
+                                ref.aliases.sorted().joinToString("\u0000")).joinToString("\u0000"))+":0"
+                    ))
+                visible.value=false
+            }
+            compose.onNodeWithTag("collection-original-cover-image").assertDoesNotExist()
+            compose.runOnIdle { visible.value=true }
+            compose.onNodeWithTag("collection-original-cover-image").assertIsDisplayed()
+            compose.onNodeWithTag("collection-original-cover-placeholder").assertDoesNotExist()
+            compose.runOnIdle { visible.value=false }
+            compose.onNodeWithTag("collection-original-cover-image").assertDoesNotExist()
+        } finally {
+            CollectionCoverWarmBitmapCache.clear()
+            // Do not recycle an image while a Robolectric composition may
+            // still be disposing its native-backed ImageBitmap.
+        }
+    }
+
     @Test fun singleGalleryCollectionHasOrdinaryCoverAndCreateNeighbor() {
         val c=MediaCollection(MediaCollectionEntity("c","Work",1),emptyList())
         compose.setContent{MaterialTheme{CollectionGalleryStrip(listOf(c),emptyList(),{})}}

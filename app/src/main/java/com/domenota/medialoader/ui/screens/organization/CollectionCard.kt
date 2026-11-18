@@ -103,8 +103,32 @@ internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<
     }
 }
 
+/** The production decoder remains unchanged. Injection makes lifecycle/compose
+ * regression tests deterministic without relying on Robolectric's incomplete
+ * native JPEG decoder or a real file/content resolver. */
+internal fun interface CollectionOriginalCoverDecoder {
+    suspend fun decode(
+        context: android.content.Context,
+        uri: String,
+        kind: MediaKind,
+        previewUrl: String?,
+        identity: String,
+    ): android.graphics.Bitmap?
+}
+
+private object DefaultCollectionOriginalCoverDecoder : CollectionOriginalCoverDecoder {
+    override suspend fun decode(context: android.content.Context,uri:String,
+        kind:MediaKind,previewUrl:String?,identity:String):android.graphics.Bitmap? =
+        com.domenota.medialoader.ui.components.prepareDownloadThumbnail(
+            context,uri,kind,previewUrl,side=512,identityToken=identity)
+}
+
 @Composable
-internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modifier) {
+internal fun CollectionOriginalCover(
+    ref:LibraryMediaRef,
+    modifier:Modifier=Modifier,
+    decoder:CollectionOriginalCoverDecoder=DefaultCollectionOriginalCoverDecoder,
+) {
     val context=LocalContext.current
     val kind=when(ref.item.mediaType){com.domenota.medialoader.core.model.MediaType.PHOTO->MediaKind.IMAGE;com.domenota.medialoader.core.model.MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO}
     val audioRevisions by com.domenota.medialoader.core.storage.AudioThumbnailInvalidation.revisions.collectAsState()
@@ -113,16 +137,27 @@ internal fun CollectionOriginalCover(ref:LibraryMediaRef,modifier:Modifier=Modif
         PersistentProjectionCache.digest(listOf(ref.key,ref.item.savedUri,ref.item.mediaType,ref.item.previewUrl,ref.item.sizeBytes,ref.item.createdAtEpochMillis,
             ref.aliases.sorted().joinToString("\u0000")).joinToString("\u0000"))
     }
-    var bitmap by remember(ref.item.savedUri,coverIdentity,audioRevision){mutableStateOf<android.graphics.Bitmap?>(null)}
-    LaunchedEffect(ref.item.savedUri,kind,coverIdentity,audioRevision){
+    // A recycled LazyGrid item must not briefly replace the last authorized image
+    // with the placeholder. The warm preview is keyed by the exact public identity.
+    val warmKey = remember(coverIdentity,audioRevision) { "$coverIdentity:$audioRevision" }
+    var bitmap by remember(ref.item.savedUri,coverIdentity,audioRevision) {
+        mutableStateOf(CollectionCoverWarmBitmapCache.peek(warmKey))
+    }
+    LaunchedEffect(ref.item.savedUri,kind,coverIdentity,audioRevision,decoder){
         val uri=ref.item.savedUri
-        bitmap=if(uri.isNullOrBlank())null else withContext(Dispatchers.IO){
-            com.domenota.medialoader.ui.components.prepareDownloadThumbnail(context,uri,kind,ref.item.previewUrl,side=512,identityToken=coverIdentity)
+        val decoded=if(uri.isNullOrBlank())null else withContext(Dispatchers.IO){
+            decoder.decode(context,uri,kind,ref.item.previewUrl,coverIdentity).also { image ->
+                // Scale the small retained preview off main to prevent new frame gaps.
+                if(image!=null) CollectionCoverWarmBitmapCache.remember(warmKey,image)
+            }
         }
+        bitmap=decoded
     }
     Box(modifier,contentAlignment=Alignment.Center){
         val image=bitmap
-        if(image!=null)androidx.compose.foundation.Image(image.asImageBitmap(),null,Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
-        else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
+        if(image!=null)androidx.compose.foundation.Image(image.asImageBitmap(),null,
+            Modifier.fillMaxSize().testTag("collection-original-cover-image"),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+        else Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp).testTag("collection-original-cover-placeholder"),
+            tint=MaterialTheme.colorScheme.primary)
     }
 }

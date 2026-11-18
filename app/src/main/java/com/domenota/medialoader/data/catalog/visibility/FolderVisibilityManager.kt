@@ -18,7 +18,8 @@ import kotlinx.coroutines.withContext
 internal data class FolderVisibilityProgress(val folderId: String?, val direction: VisibilityDirection?,
     val completed: Int, val total: Int, val pending: Boolean,
     val members: List<VisibilityMoveRecord> = emptyList(),
-    val preparing: Boolean = false, val prepared: Int = 0, val failure: VisibilityFailureInfo? = null)
+    val preparing: Boolean = false, val prepared: Int = 0, val failure: VisibilityFailureInfo? = null,
+    val pausedAtCheckpoint: Boolean = false)
 
 /** One explicit operation owner. No background deletion or implicit consent.
  * Keep this separate from the vault and from historical-date recovery. */
@@ -30,6 +31,12 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     private val state = CatalogVisibilityState(database)
     private val bindings = FolderVisibilityCatalogBindings(this.context,database)
     private val gate = Mutex()
+    private val pauseGate = VisibilityCheckpointPauseGate()
+    private val operationActive = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var pausedByUser = false
+    /** Cooperative request; processing stops only after a durable member cursor.
+     * False means no operation is in progress, not that existing journals are gone. */
+    fun requestPauseAtCheckpoint(): Boolean = operationActive.get() && pauseGate.request()
     private var lastFailure: VisibilityOperationFailure? = null
     private var currentStage = VisibilityOperationStage.JOURNAL
     private val progress = MutableStateFlow(FolderVisibilityProgress(null,null,0,0,hasPendingJournal(this.context)))
@@ -53,12 +60,15 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         catch (_: Exception) { unknownPending() }
     }
     private fun unknownPending() {
-        progress.value = FolderVisibilityProgress(null,null,0,0,true,failure=lastFailure?.info)
+        progress.value = FolderVisibilityProgress(null,null,0,0,true,failure=lastFailure?.info,
+            pausedAtCheckpoint=pausedByUser)
         HistoricalRecoverySignals.markFolderVisibilityPending(true)
     }
     private fun publish(batch: VisibilityBatchRecord?, pendingMove:VisibilityMoveRecord?=null) {
         progress.value = if (batch == null) FolderVisibilityProgress(null,null,0,0,false,failure=lastFailure?.info)
-            else FolderVisibilityProgress(batch.folderId,batch.direction,batch.next,batch.members.size,true,batch.members + listOfNotNull(pendingMove),failure=lastFailure?.info)
+            else FolderVisibilityProgress(batch.folderId,batch.direction,batch.next,batch.members.size,true,
+                batch.members + listOfNotNull(pendingMove),failure=lastFailure?.info,
+                pausedAtCheckpoint=pausedByUser)
         HistoricalRecoverySignals.markFolderVisibilityPending(batch != null)
     }
     suspend fun requiresMembershipMove(ref:com.domenota.medialoader.data.library.LibraryMediaRef,target:String?):Boolean = gate.withLock {
@@ -107,6 +117,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     @RequiresApi(30)
     private suspend fun runOperation(approve: suspend (PendingIntent) -> Boolean, action: suspend (FolderVisibilityBatch) -> Unit) {
         lastFailure=null
+        pausedByUser=false
+        pauseGate.reset()
+        check(operationActive.compareAndSet(false,true)) { "Перенос уже выполняется" }
         var running=false
         var skipUnchangedProofInvalidation = false
         val attempt = com.domenota.medialoader.core.logging.AppLog.newOperationId("visibility")
@@ -141,7 +154,12 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             val ports = ReportingVisibilityPorts(androidPorts,androidPorts) { currentStage=it }
             val move = FolderVisibilityMove(moveJournal,ports)
             currentStage=VisibilityOperationStage.JOURNAL
-            action(FolderVisibilityBatch(batchJournal,moveJournal,move,ports,{ publish(it) }))
+            action(FolderVisibilityBatch(batchJournal,moveJournal,move,ports,{ publish(it) },
+                { pauseGate.checkpoint() }))
+        } catch(paused: VisibilityPausedAtCheckpoint) {
+            pausedByUser = true
+            com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+                "PAUSE_CHECKPOINT id=$attempt confirmed=${progress.value.completed} total=${progress.value.total} journalDurable=true")
         } catch(cancelled:kotlinx.coroutines.CancellationException) { throw cancelled }
         catch(error:Exception) {
             val failure=VisibilityOperationFailure.wrap(currentStage,error)
@@ -163,11 +181,18 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
                 try { refreshPending() } finally {
-                    bindings.batchContext(null)
-                    if (running) {
-                        if (skipUnchangedProofInvalidation) com.domenota.medialoader.core.logging.AppLog.i(
-                            "FolderVisibility", "RECOVERY_SCAN_DECISION force=false reason=PROOF_PRE_CAS_UNCHANGED invalidates=NONE")
-                        HistoricalRecoverySignals.end(changed = !skipUnchangedProofInvalidation)
+                    try {
+                        bindings.batchContext(null)
+                        if (running) {
+                            if (skipUnchangedProofInvalidation) com.domenota.medialoader.core.logging.AppLog.i(
+                                "FolderVisibility", "RECOVERY_SCAN_DECISION force=false reason=PROOF_PRE_CAS_UNCHANGED invalidates=NONE")
+                            HistoricalRecoverySignals.end(changed = !skipUnchangedProofInvalidation)
+                        }
+                    } finally {
+                        // A diagnostic/refresh error must not leave the process
+                        // permanently marked active or a stale pause armed.
+                        operationActive.set(false)
+                        pauseGate.reset()
                     }
                 }
             }
