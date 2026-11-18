@@ -39,19 +39,37 @@ class FolderVisibilityTransferUiTest {
     }
     @Test fun transferBytesCanFinishBeforePhoneMediaCatalogIsReindexed() {
         val completed = model(VisibilityExecutionPhase.COMPLETED)
+        val idle = visibilityTransferPresentation(completed,PostTransferCatalogStatus.IDLE)
+        assertFalse(idle.isComplete)
+        assertFalse(idle.canDismiss)
+        assertTrue(idle.explanation.contains("не подтверждено"))
         val updating = visibilityTransferPresentation(completed,PostTransferCatalogStatus.UPDATING)
-        assertTrue(updating.isComplete)
+        assertFalse(updating.isComplete)
+        assertFalse(updating.canDismiss)
         assertEquals("Файлы перенесены",updating.message)
         assertTrue(updating.explanation.contains("Обновляем"))
         val incomplete = visibilityTransferPresentation(completed,PostTransferCatalogStatus.INCOMPLETE)
-        assertTrue(incomplete.isComplete)
-        assertTrue(incomplete.explanation.contains("не подтверждено"))
+        assertFalse(incomplete.isComplete)
+        assertTrue(incomplete.canDismiss)
+        assertTrue(incomplete.explanation.contains("не проверена"))
         val ready = visibilityTransferPresentation(completed,PostTransferCatalogStatus.READY)
+        assertTrue(ready.isComplete)
         assertEquals("Перенос завершён",ready.message)
     }
 
+    @Test fun compactPanelNamesVerificationAndIncompleteStatusWithoutPrivateFolderNames() {
+        val state=model(VisibilityExecutionPhase.COMPLETED)
+        assertEquals("Проверяем медиатеку",visibilityMiniPanelTitle(state,PostTransferCatalogStatus.IDLE))
+        assertEquals("Обновляем медиатеку",visibilityMiniPanelTitle(state,PostTransferCatalogStatus.UPDATING))
+        assertEquals("Медиатека не проверена",visibilityMiniPanelTitle(state,PostTransferCatalogStatus.INCOMPLETE))
+        assertEquals("Перенос завершён",visibilityMiniPanelTitle(state,PostTransferCatalogStatus.READY))
+        assertEquals("Проверяем файлы",visibilityMiniPanelTitle(model(VisibilityExecutionPhase.VERIFYING),PostTransferCatalogStatus.READY))
+        assertEquals("Перенос не завершён",visibilityMiniPanelTitle(model(VisibilityExecutionPhase.RECOVERABLE_PENDING),PostTransferCatalogStatus.IDLE))
+        assertEquals("Перенос файлов",visibilityMiniPanelTitle(model(VisibilityExecutionPhase.RUNNING),PostTransferCatalogStatus.IDLE))
+    }
+
     @Test fun realSuccessOnlyAfterFinalModelState() {
-        val completed=visibilityTransferPresentation(model(VisibilityExecutionPhase.COMPLETED))
+        val completed=visibilityTransferPresentation(model(VisibilityExecutionPhase.COMPLETED),PostTransferCatalogStatus.READY)
         assertTrue(completed.isComplete)
         assertFalse(completed.canPause)
         val denied=visibilityTransferPresentation(model(VisibilityExecutionPhase.WAITING_FOR_ANDROID,true))
