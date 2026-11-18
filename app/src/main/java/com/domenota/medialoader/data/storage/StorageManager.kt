@@ -261,7 +261,6 @@ class StorageManager(
         withContext(Dispatchers.IO) {
             if (independentPrivateRestore) HistoricalRecoverySignals.requireIndependentPrivatePublication()
             else HistoricalRecoverySignals.requireIdle()
-            try {
             val recovery=currentCoroutineContext()[MissingRecoveryPublication]
             recovery?.prepare(source,mimeType)
             val initialNames = existingNames().toMutableSet()
@@ -353,7 +352,6 @@ class StorageManager(
                     }
                 }
                 PublishedFile(uri, actualName)
-            }
             }
         }
 
