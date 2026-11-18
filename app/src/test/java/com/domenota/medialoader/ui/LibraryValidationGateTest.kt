@@ -135,6 +135,25 @@ class LibraryValidationGateTest {
         assertNull(guardedRetainedIndexRefs(index.copy(ready = false), newGuard, emptySet(),gallery,music))
     }
 
+    @Test fun postTransferReportsIndexReadyOnlyAfterBothMediaGenerationsAlign() {
+        val guard = FolderVisibilityLibraryGuard(
+            FolderVisibilityReadPolicy(FolderVisibilitySnapshot()), emptyList(), emptyList())
+        val ready = LibraryIndex(ready = true, appComplete = true,
+            galleryRevision = 43, musicRevision = 21, privacyKeys = emptySet(),
+            visibility = guard)
+        val gallery = PhoneLibraryState(loaded = true, complete = true,
+            revision = 43, requiresValidation = false)
+        val music = PhoneLibraryState(loaded = true, complete = true,
+            revision = 21, requiresValidation = false)
+        assertTrue(postTransferIndexAligned(ready,gallery,music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery.copy(revision=44),music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery,music.copy(loading=true),guard))
+        assertFalse(postTransferIndexAligned(ready,gallery,music.copy(loaded=false),guard))
+        assertFalse(postTransferIndexAligned(ready.copy(appComplete=false),gallery,music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery,music,null))
+        assertFalse(postTransferIndexAligned(ready.copy(visibility=null),gallery,music,guard))
+    }
+
     @Test fun validatedFirstPageBecomesVisibleWhileRemainingScanContinues() {
         val partial = PhoneLibraryState(loaded = true, loading = true, revision = 7)
         val other = PhoneLibraryState()
