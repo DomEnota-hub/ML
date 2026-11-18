@@ -25,6 +25,10 @@ internal object HistoricalRecoverySignals {
     private val completedVersion = MutableStateFlow(0L)
     private val folderVisibilityPending = MutableStateFlow(false)
     private val editorHolds = java.util.WeakHashMap<Any, Boolean>()
+    // The private vault can publish a distinct, collision-protected public
+    // destination even while an unrelated folder SHOW journal is pending.
+    // Hold this gate until private publication AND its date proof complete.
+    private var privateRestorePublicationActive = false
     val isRunning: StateFlow<Boolean> = running.asStateFlow()
     val version: StateFlow<Long> = completedVersion.asStateFlow()
 
@@ -53,7 +57,7 @@ internal object HistoricalRecoverySignals {
     @Synchronized fun beginFolderVisibility() = beginExclusive(folder = true)
     @Synchronized fun markFolderVisibilityPending(pending: Boolean) { folderVisibilityPending.value = pending }
     private fun beginExclusive(folder: Boolean = false) {
-        check(!running.value) { "Восстановление файлов уже выполняется" }
+        check(!running.value && !privateRestorePublicationActive) { "Восстановление файлов уже выполняется" }
         check(editorHolds.isEmpty()) { "Закройте редактор перед восстановлением файлов" }
         folderOperation = folder
         running.value = true
@@ -70,8 +74,33 @@ internal object HistoricalRecoverySignals {
         BackgroundMediaWork.setBusy("historical-recovery", false)
     }
 
+    /** Unlike a general mutation, a verified private restore does not touch an
+     * existing hidden source, receipt or catalog binding. No concurrent file
+     * mutation is allowed and historic recovery must still be idle. Exact
+     * pending SHOW filenames are reserved separately by FolderVisibilityManager. */
+    @Synchronized fun beginIndependentPrivatePublication(context: Context) {
+        check(!running.value && !privateRestorePublicationActive) { "Другая файловая операция выполняется" }
+        check(!hasPendingHistoricalJournal(context) && !OldDownloadsRecovery.pending(context)) {
+            "Сначала завершите восстановление исторических файлов"
+        }
+        privateRestorePublicationActive = true
+    }
+
+    @Synchronized fun requireIndependentPrivatePublication() {
+        check(privateRestorePublicationActive && !running.value) {
+            "Не подтверждена независимая операция восстановления из Личного"
+        }
+    }
+
+    @Synchronized fun endIndependentPrivatePublication() {
+        check(privateRestorePublicationActive) { "Восстановление из Личного не выполняется" }
+        privateRestorePublicationActive = false
+    }
+
     fun requireIdle() {
-        check(!running.value && !folderVisibilityPending.value) { "Дождитесь завершения восстановления или переноса файлов" }
+        check(!running.value && !folderVisibilityPending.value && !privateRestorePublicationActive) {
+            "Дождитесь завершения восстановления или переноса файлов"
+        }
     }
 
     fun <T> normalMutation(block: () -> T): T = synchronized(this) {
