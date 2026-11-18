@@ -89,6 +89,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
                 progress.value=FolderVisibilityProgress(folder,direction,0,total,false,preparing=true,prepared=prepared)
             }
             currentStage=VisibilityOperationStage.PREFLIGHT
+            HistoricalRecoverySignals.markFolderMediaTypes(
+                plan.members.mapNotNull { it.publicOrigin?.mime }
+                    .takeIf { it.size == plan.members.size } ?: emptyList())
             com.domenota.medialoader.data.playback.ensureFolderVisibilityPlaybackSafe(context,plan.members)
             batch.begin(plan)
         }
@@ -107,6 +110,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             currentStage=VisibilityOperationStage.PLAN
             val plan=checkNotNull(bindings.planMembership(ref,target,state,VisibilityMediaStore(context)))
             currentStage=VisibilityOperationStage.PREFLIGHT
+            HistoricalRecoverySignals.markFolderMediaTypes(
+                plan.members.mapNotNull { it.publicOrigin?.mime }
+                    .takeIf { it.size == plan.members.size } ?: emptyList())
             com.domenota.medialoader.data.playback.ensureFolderVisibilityPlaybackSafe(context,plan.members)
             batch.begin(plan); changed=true
         }
@@ -118,6 +124,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         runOperation(approve) { batch ->
             currentStage=VisibilityOperationStage.PREFLIGHT
             val plan=checkNotNull(batchJournal.read()) { "Нет точного плана переноса" }
+            HistoricalRecoverySignals.markFolderMediaTypes(
+                plan.members.mapNotNull { it.publicOrigin?.mime }
+                    .takeIf { it.size == plan.members.size } ?: emptyList())
             com.domenota.medialoader.data.playback.ensureFolderVisibilityPlaybackSafe(context,plan.members)
             batch.resume()
         }
