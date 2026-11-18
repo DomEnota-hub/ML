@@ -34,7 +34,7 @@ class VisibilityVerifiedCopyTest {
         val target=File.createTempFile("visibility-shared-copy-", ".tmp")
         try {
             for(input in listOf(original.copyOfRange(0,original.size-1),
-                original.clone().also { it[100]=99 })) {
+                original.copyOf().also { it[100]=99 })) {
                 val completed=runCatching {
                     ByteArrayInputStream(input).use { source ->
                         FileOutputStream(target,false).use { dest ->
