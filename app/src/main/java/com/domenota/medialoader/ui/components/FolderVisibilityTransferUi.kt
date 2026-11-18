@@ -3,6 +3,7 @@ package com.domenota.medialoader.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -213,15 +214,20 @@ internal fun FolderVisibilityTransferDialog(
                         },
                         enabled=presentation.canPause||presentation.canResume||
                             presentation.isComplete||presentation.canDismiss,
-                        modifier=Modifier.weight(1f).heightIn(min=48.dp)
+                        modifier=Modifier.weight(1f).heightIn(min=48.dp),
+                        contentPadding=PaddingValues(horizontal=8.dp,vertical=8.dp)
                     ) {
-                        Icon(when {
-                            presentation.canResume -> Icons.Rounded.PlayArrow
-                            presentation.isComplete -> Icons.Rounded.CheckCircle
-                            presentation.canDismiss -> Icons.Rounded.KeyboardArrowDown
-                            else -> Icons.Rounded.Pause
-                        },null,modifier=Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
+                        // The "Продолжить" action must be fully readable on narrow
+                        // phones at user font scales. An optional play icon must
+                        // not steal the last character of the label.
+                        if (!presentation.canResume) {
+                            Icon(when {
+                                presentation.isComplete -> Icons.Rounded.CheckCircle
+                                presentation.canDismiss -> Icons.Rounded.KeyboardArrowDown
+                                else -> Icons.Rounded.Pause
+                            },null,modifier=Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                        }
                         Text(when {
                             presentation.isComplete -> "Готово"
                             presentation.canDismiss -> "Закрыть"
