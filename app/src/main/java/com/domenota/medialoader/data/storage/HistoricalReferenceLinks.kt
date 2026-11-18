@@ -182,8 +182,12 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         check(db.downloadDao().countSavedUriReferences(record.getString("oldUri")) == 0) { "Остались ссылки на старый URI" }
         readVk { handle ->
             for (table in listOf("images", "hashes")) {
-                val oldCount = rows(handle, "SELECT * FROM $table WHERE saved_uri=?", arrayOf(record.getString("oldUri"))).length()
-                check(oldCount == 0) { "Индекс VK всё ещё использует оригинал" }
+                // Only existence matters: scanning all columns into JSON on
+                // every durable verification boundary is costly for large VK
+                // histories. An indexed LIMIT 1 is the same fail-closed proof.
+                check(!hasVisibilitySourceUri(handle,table,record.getString("oldUri"))) {
+                    "Индекс VK всё ещё использует оригинал"
+                }
                 val baseline = record.getJSONObject("vk").getJSONArray(table)
                 for (i in 0 until baseline.length()) {
                     val desired = vkTarget(baseline.getJSONObject(i), expectedUri, expectedHash)
@@ -350,6 +354,13 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
     private fun vkTarget(before: JSONObject, uri: String, hash: String): JSONObject = JSONObject(before.toString()).apply {
         put("saved_uri", uri)
     }
+    private fun hasVisibilitySourceUri(handle: SQLiteDatabase, table: String, uri: String): Boolean {
+        check(table == "images" || table == "hashes")
+        return handle.rawQuery("SELECT 1 FROM $table WHERE saved_uri=? LIMIT 1",arrayOf(uri)).use {
+            it.moveToFirst()
+        }
+    }
+
     private fun vkRow(handle: SQLiteDatabase, table: String, row: JSONObject): JSONObject? {
         val result = if (table == "images") rows(handle, "SELECT * FROM images WHERE job_id=? AND photo_key=?",
             arrayOf(row.getString("job_id"), row.getString("photo_key")))
