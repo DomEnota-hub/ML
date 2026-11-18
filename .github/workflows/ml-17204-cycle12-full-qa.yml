@@ -76,10 +76,10 @@ jobs:
           set -euo pipefail
           apk=app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$apk"
-          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" > /tmp/ml203-badging.txt
-          grep -F "name='com.domenota.medialoader'" /tmp/ml203-badging.txt
-          grep -F "versionCode='264'" /tmp/ml203-badging.txt
-          grep -F "versionName='1.7.204'" /tmp/ml203-badging.txt
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" > /tmp/ml204-badging.txt
+          grep -F "name='com.domenota.medialoader'" /tmp/ml204-badging.txt
+          grep -F "versionCode='264'" /tmp/ml204-badging.txt
+          grep -F "versionName='1.7.204'" /tmp/ml204-badging.txt
           test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
           mkdir -p handoff
           cp "$apk" handoff/ML_1.7.204_ARM64_UNSIGNED.apk
