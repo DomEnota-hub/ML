@@ -1,0 +1,142 @@
+{
+  "fileTotals": {
+    "HIDE": [
+      4,
+      19875
+    ],
+    "SHOW": [
+      4,
+      24717
+    ]
+  },
+  "stages": {
+    "MOVE_BIND/APP_CAS/HIDE": [
+      4,
+      43
+    ],
+    "MOVE_BIND/APP_CAS/SHOW": [
+      4,
+      20
+    ],
+    "MOVE_BIND/COLLECTIONS/HIDE": [
+      4,
+      14
+    ],
+    "MOVE_BIND/COLLECTIONS/SHOW": [
+      4,
+      9
+    ],
+    "MOVE_BIND/EVIDENCE/HIDE": [
+      4,
+      1633
+    ],
+    "MOVE_BIND/EVIDENCE/SHOW": [
+      4,
+      1635
+    ],
+    "MOVE_BIND/MEMBER/HIDE": [
+      4,
+      8
+    ],
+    "MOVE_BIND/MEMBER/SHOW": [
+      4,
+      11
+    ],
+    "MOVE_BIND/REFERENCE_LINKS/HIDE": [
+      4,
+      2423
+    ],
+    "MOVE_BIND/REFERENCE_LINKS/SHOW": [
+      4,
+      3104
+    ],
+    "MOVE_BIND/VERIFY_COLLECTIONS/HIDE": [
+      28,
+      95
+    ],
+    "MOVE_BIND/VERIFY_COLLECTIONS/SHOW": [
+      28,
+      77
+    ],
+    "MOVE_BIND/VERIFY_LINKS/HIDE": [
+      28,
+      4441
+    ],
+    "MOVE_BIND/VERIFY_LINKS/SHOW": [
+      28,
+      4806
+    ],
+    "MOVE_PORT/ALLOCATE/HIDE": [
+      4,
+      41
+    ],
+    "MOVE_PORT/ALLOCATE/SHOW": [
+      4,
+      501
+    ],
+    "MOVE_PORT/BINDING_READ/HIDE": [
+      28,
+      97
+    ],
+    "MOVE_PORT/BINDING_READ/SHOW": [
+      28,
+      135
+    ],
+    "MOVE_PORT/BINDING_VERIFY/HIDE": [
+      12,
+      2753
+    ],
+    "MOVE_PORT/BINDING_VERIFY/SHOW": [
+      12,
+      2878
+    ],
+    "MOVE_PORT/CLEANUP/HIDE": [
+      4,
+      1985
+    ],
+    "MOVE_PORT/CLEANUP/SHOW": [
+      4,
+      1776
+    ],
+    "MOVE_PORT/COPY/HIDE": [
+      4,
+      772
+    ],
+    "MOVE_PORT/COPY/SHOW": [
+      4,
+      246
+    ],
+    "MOVE_PORT/DESTINATION/HIDE": [
+      48,
+      863
+    ],
+    "MOVE_PORT/DESTINATION/SHOW": [
+      48,
+      4211
+    ],
+    "MOVE_PORT/FINAL_VERIFY/HIDE": [
+      4,
+      6092
+    ],
+    "MOVE_PORT/FINAL_VERIFY/SHOW": [
+      4,
+      7224
+    ],
+    "MOVE_PORT/REBIND/HIDE": [
+      4,
+      4150
+    ],
+    "MOVE_PORT/REBIND/SHOW": [
+      4,
+      4821
+    ],
+    "MOVE_PORT/SOURCE/HIDE": [
+      60,
+      1013
+    ],
+    "MOVE_PORT/SOURCE/SHOW": [
+      60,
+      307
+    ]
+  }
+}

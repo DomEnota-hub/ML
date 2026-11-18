@@ -20,6 +20,8 @@ import kotlinx.coroutines.withTimeout
 /** Process-local coordination for public media replacement and rebuildable library state. */
 internal object HistoricalRecoverySignals {
     private val running = MutableStateFlow(false)
+    @Volatile private var folderOperation = false
+    fun isFolderVisibilityOperation(): Boolean = running.value && folderOperation
     private val completedVersion = MutableStateFlow(0L)
     private val folderVisibilityPending = MutableStateFlow(false)
     private val editorHolds = java.util.WeakHashMap<Any, Boolean>()
@@ -48,11 +50,12 @@ internal object HistoricalRecoverySignals {
         check(!folderVisibilityPending.value) { "Сначала завершите перенос скрытой папки" }
         beginExclusive()
     }
-    @Synchronized fun beginFolderVisibility() = beginExclusive()
+    @Synchronized fun beginFolderVisibility() = beginExclusive(folder = true)
     @Synchronized fun markFolderVisibilityPending(pending: Boolean) { folderVisibilityPending.value = pending }
-    private fun beginExclusive() {
+    private fun beginExclusive(folder: Boolean = false) {
         check(!running.value) { "Восстановление файлов уже выполняется" }
         check(editorHolds.isEmpty()) { "Закройте редактор перед восстановлением файлов" }
+        folderOperation = folder
         running.value = true
         BackgroundMediaWork.setBusy("historical-recovery", true)
     }
@@ -63,6 +66,7 @@ internal object HistoricalRecoverySignals {
         check(running.value) { "Восстановление файлов не запущено" }
         if (changed) completedVersion.value += 1L
         running.value = false
+        folderOperation = false
         BackgroundMediaWork.setBusy("historical-recovery", false)
     }
 

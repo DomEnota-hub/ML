@@ -88,4 +88,20 @@ class VisibilityBindingProofStoreTest {
             assertArrayEquals(corrupted, file.readBytes())
         } finally { dir.deleteRecursively() }
     }
+    @Test fun largeUnicodeProofRetainsExactBytesAndRejectsChangedDigestTrailer() = runBlocking {
+        val root=Files.createTempDirectory("visibility-proof-unicode").toFile()
+        try {
+            val payload="{\"synthetic\":\""+"🦝Я".repeat(65536)+"\"}"
+            val store=VisibilityBindingProofStore(root)
+            store.write("unicode",null,payload)
+            repeat(3) { assertEquals(payload,store.read("unicode")) }
+            val file=File(root,"unicode.binding")
+            val bytes=file.readBytes();bytes[bytes.lastIndex]=(bytes.last().toInt() xor 1).toByte()
+            file.writeBytes(bytes)
+            try { store.read("unicode");fail("A changed SHA trailer must fail closed") }
+            catch(_:VisibilityProofStoreFailure) { }
+            assertArrayEquals(bytes,file.readBytes())
+        } finally { root.deleteRecursively() }
+    }
+
 }

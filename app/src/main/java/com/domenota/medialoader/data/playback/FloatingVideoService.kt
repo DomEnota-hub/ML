@@ -1,5 +1,6 @@
 package com.domenota.medialoader.data.playback
 
+import kotlinx.coroutines.flow.onEach
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -65,6 +66,28 @@ class FloatingVideoService : Service() {
             Unit
         }
 
+        internal suspend fun excludeFolderVisibilityMembers(context: Context, affected: Set<String>): Unit = withContext(Dispatchers.Main.immediate) {
+            val service = liveInstance ?: return@withContext
+            val player = service.player ?: return@withContext
+            val items = FolderVisibilityPlaybackSafety.snapshot(player)
+            val proof = FolderVisibilityPlaybackSafety.prove(context, items)
+            val currentService=liveInstance
+            val currentPlayer=currentService?.player
+            check(currentPlayer==null || currentService===service && currentPlayer===player) {
+                "Плеер изменился во время проверки переноса"
+            }
+            if (currentService===service && currentPlayer===player) {
+                FolderVisibilityPlaybackSafety.removeAffected(player, affected, items, proof,
+                    FolderVisibilityPlaybackSafety.currentPrivacyWithRead(context, com.domenota.medialoader.core.model.MediaType.VIDEO, service.folderVisibilityPrivateIds))
+                if (player.mediaItemCount == 0 || service.itemId in affected) {
+                    service.playbackJob?.cancel()
+                    service.closeWindow()
+                    check(service.player == null && service.window == null)
+                }
+            }
+            Unit
+        }
+
         fun canShow(context: Context): Boolean = Settings.canDrawOverlays(context)
 
         fun start(context: Context, id: String, uri: Uri, positionMs: Long, play: Boolean) {
@@ -83,6 +106,7 @@ class FloatingVideoService : Service() {
     private var params: WindowManager.LayoutParams? = null
     private var player: ExoPlayer? = null
     private var itemId: String? = null
+    private var folderVisibilityPrivateIds: Set<String>? = null
     private var controls: FrameLayout? = null
     private var playButton: ImageButton? = null
     private var expandButton: ImageButton? = null
@@ -127,10 +151,12 @@ class FloatingVideoService : Service() {
         playbackJob = privateScope.launch {
             try {
                 val uri = Uri.parse(source)
+                val identities = PublicMediaIdentity.capture(this@FloatingVideoService, source)
+                folderVisibilityPrivateIds = null
                 guardFloatingPlayback(id,
                     PrivateFileStore(this@FloatingVideoService).owns(source) || uri.path?.contains("/private-media/") == true,
-                    MediaRepository.get(this@FloatingVideoService).privateMediaIds,
-                    open = { openVideo(intent, uri) },
+                    MediaRepository.get(this@FloatingVideoService).privateMediaIds.onEach { folderVisibilityPrivateIds = it },
+                    open = { openVideo(intent, uri, identities) },
                     close = { closeWindow(); stopSelf() })
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
@@ -142,10 +168,14 @@ class FloatingVideoService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun openVideo(intent: Intent, source: Uri) {
+    private fun openVideo(intent: Intent, source: Uri, identities: Set<String>) {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
         val video = ExoPlayer.Builder(this).build().also { active ->
-            active.setMediaItem(MediaItem.fromUri(source))
+            active.setMediaItem(MediaItem.Builder().setMediaId(requireNotNull(itemId)).setUri(source)
+                .setMediaMetadata(androidx.media3.common.MediaMetadata.Builder().setExtras(android.os.Bundle().apply {
+                    putString(AudioPlaybackMetadata.PUBLIC_URI, source.toString())
+                    putStringArrayList(PublicMediaIdentity.EXTRA_KEYS, ArrayList(identities))
+                }).build()).build())
             active.seekTo(intent.getLongExtra(EXTRA_POSITION, 0L).coerceAtLeast(0L))
             active.addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {

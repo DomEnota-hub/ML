@@ -28,6 +28,27 @@ internal class GalleryBrowseInventory private constructor(
         val built=com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.GALLERY_DATES){GalleryGridInventory.build(this,key)}
         return synchronized(gridCache){gridCache[key]?:built.also{gridCache[key]=it}}
     }
+    /** Visibility-only transition: remove rows, preserving ordering and warm grids.
+     * No provider lookup, identity resolution, sort, decode or bitmap copy. */
+    fun retainAllowed(allowed: (DownloadEntity) -> Boolean): GalleryBrowseInventory {
+        if (items.all(allowed)) return this
+        val kept = items.filter(allowed)
+        val ids = kept.mapTo(HashSet()) { it.id }
+        val byFolder = GalleryLibraryState.filter(kept, assignments, "all", "", buckets).groupBy { catalog[it.id]?.folderId }
+        val byDevice = media.filter { it.id in ids }.groupBy { buckets[it.id]?.id }
+        val nextAlbums = albums.map { album ->
+            val rows = if (album.key.startsWith("folder:")) byFolder[album.key.removePrefix("folder:")].orEmpty()
+                else byDevice[album.key.removePrefix("device:")].orEmpty()
+            album.copy(count = rows.size, cover = rows.firstOrNull().takeIf { album.cover != null })
+        }
+        val next = GalleryBrowseInventory(kept, assignments.filter { it.downloadId in ids },
+            catalog.filterKeys { it in ids }, buckets.filterKeys { it in ids }, media.filter { it.id in ids },
+            nextAlbums, videos.filter { it.id in ids }, favorites.filter { it.id in ids }, hiddenFolders)
+        synchronized(gridCache) {
+            gridCache.forEach { (key, value) -> next.gridCache[key] = value.retainAllowed(key) { it.id in ids } }
+        }
+        return next
+    }
     fun select(selection: String, search: String): List<DownloadEntity> {
         if (search.isBlank()) when (selection) {
             "all" -> return media

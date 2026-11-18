@@ -16,6 +16,17 @@ internal data class GalleryGridInventory(val allVisible:List<DownloadEntity> = e
     val queue:List<String> = emptyList(),val queueSet:Set<String> = emptySet(),
     val sections:Map<LocalDate,List<DownloadEntity>> = emptyMap(),val labels:List<String> = listOf(""),
     val dateRange:GalleryDateRange?=null) {
+    fun retainAllowed(key: GalleryGridKey, allowed: (DownloadEntity) -> Boolean): GalleryGridInventory {
+        val kept = ordered.filter(allowed)
+        if (kept.size == ordered.size && allVisible.all(allowed)) return this
+        val ids = kept.map { it.id }
+        val remainingVisible = visible.filter(allowed)
+        return copy(allVisible = allVisible.filter(allowed), visible = remainingVisible,
+            ordered = kept, queue = ids, queueSet = ids.toHashSet(),
+            sections = sections.mapValues { (_, rows) -> rows.filter(allowed) }.filterValues { it.isNotEmpty() },
+            labels = galleryFastScrollLabels(kept, !key.detail || GalleryAlbumFileOrder.groupedByDate(key.sort), key.zone),
+            dateRange = galleryDateRange(remainingVisible.map { it.createdAtEpochMillis }, key.today, key.zone))
+    }
     companion object {
         fun build(browse:GalleryBrowseInventory,key:GalleryGridKey):GalleryGridInventory {
             val all=if(key.excluded.isEmpty())browse.media else browse.media.filter{row->

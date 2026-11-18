@@ -257,7 +257,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 try {
                     if(source!=null&&image!=null)withContext(Dispatchers.IO){CollectionCoverStore(context).save(id,source,image,crop)}
                 }catch(e:Exception){
-                    withContext(kotlinx.coroutines.NonCancellable){repository.delete(id);withContext(Dispatchers.IO){CollectionCoverStore(context).automatic(id)}}
+                    withContext(kotlinx.coroutines.NonCancellable){repository.delete(id);withContext(Dispatchers.IO){CollectionCoverStore(context).delete(id)}}
                     throw e
                 }
                 if(choosing){choosing=false;onAddComplete()}
@@ -559,7 +559,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     if(linkDialog&&collection!=null)ValueDialog("Добавить ссылку","","HTTP(S) ссылка",{linkDialog=false}){repository.addLink(collection.record.id,it)}
     if(remove&&collection!=null)AlertDialog(onDismissRequest={remove=false},title={Text("Удалить коллекцию?")},
         text={Text("Будет удалена только подборка «${collection.record.name}». Все файлы, альбомы и плейлисты останутся.")},
-        confirmButton={TextButton({remove=false;mutate{repository.delete(collection.record.id);withContext(Dispatchers.IO){CollectionCoverStore(context).automatic(collection.record.id)};selected=null}}){Text("Удалить",color=MaterialTheme.colorScheme.error)}},
+        confirmButton={TextButton({remove=false;mutate{repository.delete(collection.record.id);withContext(Dispatchers.IO){CollectionCoverStore(context).delete(collection.record.id)};selected=null}}){Text("Удалить",color=MaterialTheme.colorScheme.error)}},
         dismissButton={TextButton({remove=false}){Text("Отмена")}})
 }
 

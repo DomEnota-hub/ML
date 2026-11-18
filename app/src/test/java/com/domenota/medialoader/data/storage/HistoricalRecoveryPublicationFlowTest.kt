@@ -331,4 +331,19 @@ class HistoricalRecoveryPublicationFlowTest {
         private fun sha(file: File) = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
             .joinToString("") { "%02x".format(it) }
     }
+    @Test fun folderPreparationOwnerIsExclusiveAndCannotBeConfusedWithHistoricalReplacement() {
+        assertFalse(HistoricalRecoverySignals.isFolderVisibilityOperation())
+        HistoricalRecoverySignals.beginFolderVisibility()
+        try { assertTrue(HistoricalRecoverySignals.isFolderVisibilityOperation()) }
+        finally { HistoricalRecoverySignals.end(changed=false) }
+        assertFalse(HistoricalRecoverySignals.isFolderVisibilityOperation())
+        HistoricalRecoverySignals.begin()
+        try {
+            assertFalse(HistoricalRecoverySignals.isFolderVisibilityOperation())
+            try { HistoricalRecoverySignals.beginFolderVisibility(); fail("Concurrent owner must be refused") }
+            catch(_:IllegalStateException) { }
+            assertFalse(HistoricalRecoverySignals.isFolderVisibilityOperation())
+        } finally { HistoricalRecoverySignals.end(changed=false) }
+    }
+
 }

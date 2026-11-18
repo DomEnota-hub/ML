@@ -24,7 +24,7 @@ class LibraryValidationGateTest {
         assertEquals(listOf(media), kept.items)
         assertEquals(41L, kept.revision)
         assertFalse(visibleLibraryValidationPending(AppMode.GALLERY,
-            LibraryIndex(ready = true, galleryRevision = kept.revision),
+            LibraryIndex(ready = true, galleryRevision = kept.revision, galleryAccessEpoch = kept.accessEpoch),
             kept, PhoneLibraryState()))
     }
 
@@ -63,7 +63,7 @@ class LibraryValidationGateTest {
         val kept = retainPhoneSnapshotAtTransferBoundary(complete, complete.revision, true)
         assertSame(complete, kept)
         assertFalse(visibleLibraryValidationPending(AppMode.MUSIC,
-            LibraryIndex(ready = true, musicRevision = 14), PhoneLibraryState(), kept))
+            LibraryIndex(ready = true, musicRevision = 14, musicAccessEpoch = kept.accessEpoch), PhoneLibraryState(), kept))
         assertFalse(canRefreshLibrarySilently(kept,
             LibraryIndex(ready = true, musicRevision = 14), 14,
             accessChanged = true, selectedOnlyAccess = false, privacyInvalidated = false))
@@ -273,4 +273,61 @@ class LibraryValidationGateTest {
         assertFalse(visualDuplicateCatalogComplete(index.copy(appComplete=false),complete,3,uris))
         assertFalse(visualDuplicateCatalogComplete(index,complete,3,null))
     }
+    @Test fun unchangedVisibilityDoesNotBypassPermissionOrSelectedOnlyValidation() {
+        val guard=FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot()),emptyList(),emptyList())
+        val index=LibraryIndex(ready=true,privacyKeys=emptySet(),visibility=guard,galleryRevision=5,musicRevision=3)
+        val photos=PhoneLibraryState(loaded=true,complete=true,revision=5,requiresValidation=false)
+        val audio=PhoneLibraryState(loaded=true,complete=true,revision=3,requiresValidation=false)
+        assertNotNull(guardedRetainedIndexRefs(index,guard,emptySet(),photos,audio))
+        for (unvalidated in listOf(photos.copy(revision=6,loaded=false,loading=true,requiresValidation=true),
+            photos.copy(revision=6,requiresValidation=true))) {
+            assertNull(guardedRetainedIndexRefs(index,guard,emptySet(),unvalidated,audio))
+        }
+    }
+
+    @Test fun scopedRefreshCannotBlankUnrelatedMediaOrAppOwnedRows() {
+        val app=publicPhoto("app","content://media/external/images/media/22")
+        val phone=publicPhoto("phone","content://media/external/images/media/23").copy(appDownloadId=null)
+        val audio=publicPhoto("audio","content://media/external/audio/media/24").let { it.copy(appDownloadId=null,item=it.item.copy(mediaType=MediaType.AUDIO)) }
+        val guard=FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot()),emptyList(),emptyList())
+        val index=LibraryIndex(ready=true,refs=listOf(app,phone,audio),galleryRevision=8,musicRevision=5,privacyKeys=emptySet(),visibility=guard)
+        val photos=PhoneLibraryState(loaded=true,complete=true,requiresValidation=false,revision=8)
+        val music=PhoneLibraryState(loaded=false,requiresValidation=true,revision=6)
+        assertEquals(listOf(app,phone),guardedRetainedIndexRefs(index,guard,emptySet(),photos,music,allowUnaffectedKinds=true))
+        assertEquals(listOf(app),guardedRetainedIndexRefs(index,guard,emptySet(),photos.copy(revision=9,requiresValidation=true),music,allowUnaffectedKinds=true))
+        assertNull(guardedRetainedIndexRefs(index,guard,setOf("app"),photos,music,allowUnaffectedKinds=true))
+        val unknown=guard.copy(policy=FolderVisibilityReadPolicy(FolderVisibilitySnapshot(),unknownPending=true))
+        assertNull(guardedRetainedIndexRefs(index,unknown,emptySet(),photos,music,allowUnaffectedKinds=true))
+    }
+
+    @Test fun coldPhoneBootstrapRequiresExactKnownFolderExplicitRequestAndOneAttemptPerEpoch() {
+        val guard=FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot(),pendingFolder="folder"),emptyList(),emptyList())
+        val cold=PhoneLibraryState()
+        assertTrue(canBootstrapPhoneDuringTransfer(PhoneScanReason.REQUEST,true,guard,cold,false,false,false))
+        assertFalse(canBootstrapPhoneDuringTransfer(PhoneScanReason.MEDIASTORE_CHANGE,true,guard,cold,false,false,false))
+        assertFalse(canBootstrapPhoneDuringTransfer(PhoneScanReason.RECOVERY,true,guard,cold,false,false,false))
+        assertFalse(canBootstrapPhoneDuringTransfer(PhoneScanReason.REQUEST,false,guard,cold,false,false,false))
+        assertFalse(canBootstrapPhoneDuringTransfer(PhoneScanReason.REQUEST,true,null,cold,false,false,false))
+        val unknown=guard.copy(policy=FolderVisibilityReadPolicy(FolderVisibilitySnapshot(),unknownPending=true))
+        assertFalse(canBootstrapPhoneDuringTransfer(PhoneScanReason.REQUEST,true,unknown,cold,false,false,false))
+        val warm=cold.copy(loaded=true,complete=true)
+        assertFalse(canBootstrapPhoneDuringTransfer(PhoneScanReason.REQUEST,true,guard,warm,false,false,false))
+        assertTrue(canBootstrapPhoneDuringTransfer(PhoneScanReason.REQUEST,true,guard,warm,true,false,false))
+        assertTrue(canBootstrapPhoneDuringTransfer(PhoneScanReason.REQUEST,true,guard,warm,false,false,true))
+        val attempts=PhoneTransferBootstrapAttempts()
+        assertTrue(attempts.reserve(AppMode.GALLERY,1));assertFalse(attempts.reserve(AppMode.GALLERY,1))
+        assertTrue(attempts.reserve(AppMode.MUSIC,1));assertTrue(attempts.reserve(AppMode.GALLERY,2))
+        attempts.clear();assertTrue(attempts.reserve(AppMode.GALLERY,2))
+    }
+
+    @Test fun completedColdScanCannotAuthorizeRawReferencesFromAnOlderPhoneEpoch() {
+        val phone=publicPhoto("photo","content://media/external/images/media/45").copy(appDownloadId=null)
+        val guard=FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot()),emptyList(),emptyList())
+        val raw=LibraryIndex(ready=true,refs=listOf(phone),galleryRevision=4,privacyKeys=emptySet(),visibility=guard,galleryAccessEpoch=1)
+        val fresh=PhoneLibraryState(loaded=true,complete=true,revision=5,requiresValidation=false,accessEpoch=2)
+        assertTrue(visibleLibraryValidationPending(AppMode.GALLERY,raw,fresh,PhoneLibraryState()))
+        assertTrue(guardedRetainedIndexRefs(raw,guard,emptySet(),fresh,PhoneLibraryState(),true)!!.isEmpty())
+        assertEquals(listOf(phone),guardedRetainedIndexRefs(raw.copy(galleryAccessEpoch=2),guard,emptySet(),fresh,PhoneLibraryState(),true))
+    }
+
 }

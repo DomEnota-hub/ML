@@ -87,7 +87,7 @@ fun BackgroundAudioPlayer(
     libraryLayout: Boolean = false, metadataLookup: List<DownloadEntity> = emptyList(), blockedIdentities: Set<String> = emptySet(),
     onBack: () -> Unit = {}, onEqualizer: (() -> Unit)? = null,
     favoriteIds: Set<String> = emptySet(), onFavorite: ((DownloadEntity) -> Unit)? = null, onEdit: ((DownloadEntity) -> Unit)? = null,
-    onRecognize:((DownloadEntity,Long)->Unit)?=null,
+    onRecognize:((DownloadEntity,Long)->Unit)?=null, onToggle:(()->Unit)?=null,
 ) {
     val context = LocalContext.current
     val playableQueue = remember(item.id, queue) {
@@ -154,6 +154,9 @@ fun BackgroundAudioPlayer(
         // A race with service shutdown must never initialize a replacement queue.
         if (currentSessionOnly) { syncSession(active); return@LaunchedEffect }
         if (libraryLayout && active.mediaItemCount > 0) { syncSession(active); return@LaunchedEffect }
+        if (runCatching { com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle() }.isFailure) {
+            syncSession(active); return@LaunchedEffect
+        }
         val desiredItems = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             playableQueue.map { entry ->
                 val identity = entry.savedUri?.let {
@@ -161,6 +164,9 @@ fun BackgroundAudioPlayer(
                 }.orEmpty()
                 toAudioMediaItem(entry, identity)
             }
+        }
+        if (runCatching { com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle() }.isFailure) {
+            syncSession(active); return@LaunchedEffect
         }
         val desiredIds = playableQueue.map { it.id }
         val currentIds = (0 until active.mediaItemCount).map { index ->
@@ -297,7 +303,7 @@ fun BackgroundAudioPlayer(
             MusicPlayerControls(currentItem, controller, positionMs, durationMs, isPlaying, shuffleEnabled, repeatMode, playbackSpeed,
                 onBack, onEqualizer, { queueOpen = true }, onFavorite?.let { action -> { action(currentItem) } },
                 seekAvailable=seekAvailable, favorite = currentItem.id in favoriteIds, onEdit = onEdit?.let { action -> { action(currentItem) } },
-                onRecognize=onRecognize?.takeIf{!currentItem.isPrivate&&!currentItem.hidden&&controller!=null}?.let{action->{action(currentItem,controller?.currentPosition?.coerceAtLeast(0L)?:positionMs)}})
+                onToggle=onToggle,onRecognize=onRecognize?.takeIf{!currentItem.isPrivate&&!currentItem.hidden&&controller!=null}?.let{action->{action(currentItem,controller?.currentPosition?.coerceAtLeast(0L)?:positionMs)}})
         }
         if (queueOpen && !blocked) ModalBottomSheet(onDismissRequest = { queueOpen = false }) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
@@ -413,7 +419,7 @@ fun BackgroundAudioPlayer(
                 IconButton(
                     onClick = {
                         controller?.let {
-                            com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it)
+                            if(onToggle!=null)onToggle() else com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it)
                         }
                     },
                     modifier = Modifier.size(72.dp),

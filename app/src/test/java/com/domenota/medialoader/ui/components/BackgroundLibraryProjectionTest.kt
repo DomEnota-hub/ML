@@ -151,4 +151,66 @@ class BackgroundLibraryProjectionTest {
             assertFalse(publications.contains("fresh-1"));assertFalse(publications.contains("fresh-2"))
         } finally { release.complete(Unit) }
     }
+    @Test fun receiptTransitionsFilterImmediatelyWithoutPublishingEmptyOrRemovedMedia() {
+        var revision by mutableIntStateOf(0)
+        var access by mutableStateOf<Any?>("permission-1")
+        var unknown by mutableStateOf(false)
+        val public = listOf("moving", "untouched")
+        val release = java.util.concurrent.atomic.AtomicBoolean(false)
+        val waiting = java.util.concurrent.atomic.AtomicBoolean(false)
+        val frames = mutableListOf<Pair<Int, List<String>>>()
+        val baselineFrames = mutableListOf<Pair<Int, List<String>>>()
+        val workers = java.util.concurrent.atomic.AtomicInteger(0)
+        var shown = emptyList<String>(); var ready = false; var original = emptyList<String>()
+        compose.setContent {
+            val generation = revision
+            val denied = if (generation % 2 == 1) setOf("moving") else emptySet()
+            val baseline = backgroundLibraryProjection(emptyList<String>(), denied, generation,
+                accessGuard = if (unknown) null else generation) {
+                // Let the old implementation finish: record its first EMPTY frame
+                // instead of pinning a second Default worker on a two-core JVM.
+                public.filterNot { it in denied }
+            }
+            val result = backgroundLibraryProjection(emptyList<String>(), denied, generation,
+                accessGuard = if (unknown) null else generation,
+                retentionGuard = if (unknown) null else access,
+                revalidateRetained = { rows -> rows.filterNot { it in denied } }) {
+                if (generation > 0 && !release.get()) {
+                    workers.incrementAndGet()
+                    try {
+                        waiting.set(true)
+                        while (!release.get()) Thread.yield()
+                    } finally { workers.decrementAndGet() }
+                }
+                public.filterNot { it in denied }
+            }
+            SideEffect { shown=result.value; ready=result.ready; original=baseline.value; frames.add(generation to shown); baselineFrames.add(generation to original) }
+            Text(shown.joinToString())
+        }
+        try {
+            compose.waitUntil(5000) { ready && shown == public && original == public }
+            compose.runOnIdle { revision=1 }
+            compose.waitForIdle()
+            try { compose.waitUntil(5000) { waiting.get() && shown==listOf("untouched") } }
+            catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError("projection evidence revision=$revision waiting=${waiting.get()} workers=${workers.get()} ready=$ready shown=$shown frames=$frames baseline=$baselineFrames", failure)
+            }
+            assertFalse(ready)
+            assertTrue(baselineFrames.any { it.first==1 && it.second.isEmpty() }) // Original first EMPTY reproduced.
+            assertTrue(frames.filter { it.first==1 }.all { it.second==listOf("untouched") })
+            release.set(true)
+            compose.waitUntil(5000) { workers.get()==0 && ready }
+            compose.runOnIdle { release.set(false);waiting.set(false);revision=2 }
+            compose.waitForIdle()
+            compose.waitUntil(5000) { waiting.get() && shown==listOf("untouched") }
+            assertEquals(listOf("untouched"),shown) // SHOW must not resurrect an unverified locator.
+            compose.runOnIdle { unknown=true }
+            compose.waitForIdle();assertTrue(shown.isEmpty())
+            release.set(true)
+            compose.waitUntil(5000) { workers.get()==0 }
+            compose.runOnIdle { release.set(false);unknown=false;access="permission-2" }
+            compose.waitForIdle();assertTrue(shown.isEmpty())
+        } finally { release.set(true) }
+    }
+
 }

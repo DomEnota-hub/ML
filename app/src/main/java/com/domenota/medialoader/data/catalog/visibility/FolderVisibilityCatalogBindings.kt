@@ -306,9 +306,8 @@ internal class FolderVisibilityCatalogBindings(
         val oldAliases = old.aliases + record.sourceUri + record.logicalSourceUri
         // No other history row or external member may own the same physical source or target.
         val physical = oldAliases + target.aliases
-        check(dao.all().filter { it.id != current.ref.appDownloadId }.none { row ->
-            listOfNotNull(row.savedUri,row.privateSourceUri).any { uri -> PublicMediaIdentity.uriKeys(uri).any(physical::contains) }
-        }) { "Файл связан с другой записью истории" }
+        check(!com.domenota.medialoader.data.storage.HistoricalReferenceQueries.hasLiveSource(
+            database,physical,current.ref.appDownloadId,physicalOnly=true)) { "Файл связан с другой записью истории" }
         check(external.visibilityEntries().filter { it.ref.key != current.ref.key }.none { entry ->
             entry.ref.item.savedUri?.let { PublicMediaIdentity.uriKeys(it).any(physical::contains) } == true
         }) { "Файл связан с другой записью внешнего каталога" }
@@ -418,8 +417,7 @@ internal class FolderVisibilityCatalogBindings(
     override suspend fun verifySourceUnreferenced(record: VisibilityMoveRecord) = withContext(Dispatchers.IO) {
         val proof = checkNotNull(evidence(record))
         val old = strings(proof,"oldAliases")
-        check(dao.all().none { row -> listOfNotNull(row.savedUri,row.privateSourceUri,row.previewUrl,
-            row.sourceAudioArtworkUrl,row.recognitionArtworkUrl,row.sourceUrl,row.sourcePageUrl).any { uri -> uri in old || PublicMediaIdentity.uriKeys(uri).any(old::contains) } }) {
+        check(!com.domenota.medialoader.data.storage.HistoricalReferenceQueries.hasLiveSource(database,old)) {
             "Остались живые ссылки на исходный файл"
         }
         check(external.visibilityEntries().none { entry -> entry.ref.item.savedUri?.let { it in old || PublicMediaIdentity.uriKeys(it).any(old::contains) } == true })

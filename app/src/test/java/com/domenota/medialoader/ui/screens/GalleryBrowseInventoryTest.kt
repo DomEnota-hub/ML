@@ -57,4 +57,29 @@ class GalleryBrowseInventoryTest {
         val excluded=browse.prepareGrid(key.copy(excluded=setOf("device:camera")))
         assertTrue(excluded.queue.isEmpty())
     }
+    @Test fun hideFiltersOnlyAffectedRowsAndCarriesWarmGridWithMatchingCountsAndCover() {
+        val moving=row("moving");val safe=row("safe")
+        val folders=listOf(CatalogFolderEntity("f","Folder","f",0))
+        val assignments=listOf(CatalogAssignmentEntity(moving.id,"f",true),CatalogAssignmentEntity(safe.id,"f",true))
+        for(source in LibrarySource.entries) {
+            val browse=GalleryBrowseInventory.build(listOf(moving,safe),folders,assignments,source,
+                mapOf("moving" to DeviceAlbum("camera","Camera"),"safe" to DeviceAlbum("camera","Camera")),emptySet())
+            val key=GalleryGridKey("all","",false,0,GalleryAlbumFileSort.entries.first(),emptySet(),java.time.LocalDate.of(2026,11,18),java.time.ZoneId.of("UTC"))
+            browse.prepareGrid(key)
+            assertSame(browse,browse.retainAllowed { true })
+            val hidden=browse.retainAllowed { it.id!="moving" }
+            assertEquals(listOf("safe"),hidden.media.map { it.id })
+            assertEquals(listOf("safe"),hidden.favorites.map { it.id })
+            assertEquals(1,hidden.albums.single { it.key=="folder:f" }.count)
+            assertEquals("safe",hidden.albums.single { it.key=="folder:f" }.cover?.id)
+            val warm=requireNotNull(hidden.cachedGrid(key))
+            assertEquals(listOf("safe"),warm.queue)
+            assertEquals(listOf("safe"),warm.sections.values.flatten().map { it.id })
+            assertEquals(hidden.prepareGrid(key).labels,warm.labels)
+            // SHOW cannot recreate an unverified URI out of an older read model.
+            assertSame(hidden,hidden.retainAllowed { true })
+            assertEquals(listOf("safe"),hidden.items.map { it.id })
+        }
+    }
+
 }

@@ -20,6 +20,7 @@ class AudioPlaybackService : MediaSessionService() {
     companion object {
         private var liveSession: MediaSession? = null
         private var liveTimer: MusicStopTimer? = null
+        private var folderVisibilityPrivateIds: Set<String>? = null
         private val timerFallback = kotlinx.coroutines.flow.MutableStateFlow(MusicStopStatus())
         internal fun timerState(): kotlinx.coroutines.flow.StateFlow<MusicStopStatus> = liveTimer?.state ?: timerFallback
         internal fun startStopTimer(request: MusicStopRequest): Boolean = liveTimer?.start(request) == true
@@ -51,6 +52,18 @@ class AudioPlaybackService : MediaSessionService() {
                 if (uris.any { AudioPlaybackMetadata.matchesPublicUri(item,it) }) p.removeMediaItem(index)
             }
         }
+
+        internal suspend fun excludeFolderVisibilityMembers(context: android.content.Context, affected: Set<String>): Unit =
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                val player = liveSession?.player ?: return@withContext
+                val items = FolderVisibilityPlaybackSafety.snapshot(player)
+                val proof = FolderVisibilityPlaybackSafety.prove(context, items)
+                val currentPlayer = liveSession?.player
+                check(currentPlayer == null || currentPlayer === player) { "Плеер изменился во время проверки переноса" }
+                if (currentPlayer === player)
+                    FolderVisibilityPlaybackSafety.removeAffected(player, affected, items, proof,
+                        FolderVisibilityPlaybackSafety.currentPrivacyWithRead(context, com.domenota.medialoader.core.model.MediaType.AUDIO, folderVisibilityPrivateIds))
+            }
 
         internal data class ReplacementPlayback(val player: Player, val mediaId: String,
             val position: Long, val playWhenReady: Boolean, val timerGeneration: Long)
@@ -174,6 +187,7 @@ class AudioPlaybackService : MediaSessionService() {
 
         mediaSession = MediaSession.Builder(this, MusicPreviousPlayer(player))
             .setSessionActivity(CurrentPlayerRequest.pendingIntent(this)).build()
+        folderVisibilityPrivateIds = null
         liveSession = mediaSession
         liveTimer = MusicStopTimer(player,privateScope).also { it.attach() }
         val access = PrivateAccessManager.get(this)
@@ -210,7 +224,7 @@ class AudioPlaybackService : MediaSessionService() {
         resumeRecorder=resume;resume.attach()
         privateScope.launch {
             combine(access.state, MediaRepository.get(this@AudioPlaybackService).privateMediaIds) { state, ids -> state to ids }
-                .collect { (_, ids) -> privateIds = ids; privateReady = true; guardPrivate(force=true); listening.refresh(); resume.refresh() }
+                .collect { (_, ids) -> privateIds = ids; folderVisibilityPrivateIds = ids; privateReady = true; guardPrivate(force=true); listening.refresh(); resume.refresh() }
         }
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {

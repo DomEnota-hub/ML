@@ -34,7 +34,7 @@ internal fun MusicPlayerControls(
     item: DownloadEntity, player: Player?, positionMs: Long, durationMs: Long, playing: Boolean,
     shuffle: Boolean, repeatMode: Int, speed: Float,
     onBack: () -> Unit, onEqualizer: (() -> Unit)?, onQueue: () -> Unit, onFavorite: (() -> Unit)?,
-    seekAvailable: Boolean = true, favorite: Boolean = false, onEdit: (() -> Unit)? = null, onRecognize:(()->Unit)?=null,
+    seekAvailable: Boolean = true, favorite: Boolean = false, onEdit: (() -> Unit)? = null, onRecognize:(()->Unit)?=null, onToggle:(()->Unit)?=null,
 ) {
     var scrub by remember(item.id,item.savedUri,durationMs) { mutableStateOf<Float?>(null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -73,7 +73,7 @@ internal fun MusicPlayerControls(
                 Icon(Icons.Rounded.Shuffle, "Перемешать", tint = if (shuffle) musicPlaybackAccent else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton({ player?.seekToPrevious() }, enabled = player!=null && player.mediaItemCount>0) { Icon(Icons.Rounded.SkipPrevious, "Предыдущий трек") }
-            FilledIconButton(onClick = { player?.let { com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it) } },
+            FilledIconButton(onClick = { if(onToggle!=null)onToggle() else player?.let { com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it) } },
                 enabled = player != null, modifier = Modifier.size(65.dp), shape = CircleShape) {
                 Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Пауза" else "Воспроизвести", Modifier.size(30.dp))
             }

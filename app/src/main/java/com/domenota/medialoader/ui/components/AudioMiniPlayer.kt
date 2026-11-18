@@ -64,6 +64,7 @@ fun AudioMiniPlayer(
     onOpenQueue: ((String, List<String>) -> Unit)? = null,
     compact: Boolean = false,
     interactiveSeek: Boolean = false,
+    onToggle: (() -> Unit)? = null,
 ) {
     val controller = rememberAudioController()
     var mediaId by remember { mutableStateOf<String?>(null) }
@@ -175,7 +176,7 @@ fun AudioMiniPlayer(
                     if (!compact) IconButton({ controller?.seekToPrevious() }, Modifier.size(40.dp), enabled = mediaCount > 0) {
                         Icon(Icons.Rounded.SkipPrevious, "Предыдущий трек", Modifier.size(22.dp))
                     }
-                    IconButton({ controller?.let { com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it) } }, Modifier.size(40.dp)) {
+                    IconButton({ if(onToggle != null) onToggle() else controller?.let { com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it) } }, Modifier.size(40.dp)) {
                         Icon(if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (isPlaying) "Пауза" else "Воспроизвести", Modifier.size(24.dp))
                     }
                     if (!compact) IconButton({ controller?.seekToNextMediaItem() }, Modifier.size(40.dp), enabled = mediaCount > 1) {

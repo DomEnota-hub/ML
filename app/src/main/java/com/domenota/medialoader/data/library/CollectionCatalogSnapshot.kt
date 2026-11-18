@@ -62,7 +62,8 @@ internal fun collectionCoverAllowed(source: String, blocked: Set<String>?): Bool
 
 /** Explicit, immutable cover access input. A resumed permission change invalidates
  * an otherwise unchanged card; app-owned public source photos need not be members. */
-internal data class CollectionCoverAccess(val fullPhotoAccess: Boolean, val appPhotoUris: Set<String>) {
+internal data class CollectionCoverAccess(val fullPhotoAccess: Boolean, val appPhotoUris: Set<String>,
+    val snapshotPrivacy: Set<String>? = null, val sourceRevision: Long = 0L) {
     fun permits(source: String, blocked: Set<String>?): Boolean =
         collectionCoverAllowed(source, blocked) && (fullPhotoAccess || source in appPhotoUris)
 }

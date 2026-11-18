@@ -6,7 +6,6 @@ import androidx.annotation.RequiresApi
 import com.domenota.medialoader.core.database.HistoryDatabase
 import com.domenota.medialoader.data.storage.HistoricalRecoverySignals
 import com.domenota.medialoader.data.storage.OldDownloadsRecovery
-import com.domenota.medialoader.data.storage.ensureHistoricalPlaybackIdle
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -89,6 +88,8 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             val plan = bindings.plan(folder,direction,state,VisibilityMediaStore(context)) { prepared,total ->
                 progress.value=FolderVisibilityProgress(folder,direction,0,total,false,preparing=true,prepared=prepared)
             }
+            currentStage=VisibilityOperationStage.PREFLIGHT
+            com.domenota.medialoader.data.playback.ensureFolderVisibilityPlaybackSafe(context,plan.members)
             batch.begin(plan)
         }
     }
@@ -105,6 +106,8 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         runOperation(approve) { batch ->
             currentStage=VisibilityOperationStage.PLAN
             val plan=checkNotNull(bindings.planMembership(ref,target,state,VisibilityMediaStore(context)))
+            currentStage=VisibilityOperationStage.PREFLIGHT
+            com.domenota.medialoader.data.playback.ensureFolderVisibilityPlaybackSafe(context,plan.members)
             batch.begin(plan); changed=true
         }
         changed
@@ -112,7 +115,12 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     @RequiresApi(30)
     suspend fun resume(approve: suspend (PendingIntent) -> Boolean) = gate.withLock {
         check(hasPendingJournal(context)) { "Нет незавершённого переноса" }
-        runOperation(approve) { it.resume() }
+        runOperation(approve) { batch ->
+            currentStage=VisibilityOperationStage.PREFLIGHT
+            val plan=checkNotNull(batchJournal.read()) { "Нет точного плана переноса" }
+            com.domenota.medialoader.data.playback.ensureFolderVisibilityPlaybackSafe(context,plan.members)
+            batch.resume()
+        }
     }
     @RequiresApi(30)
     private suspend fun runOperation(approve: suspend (PendingIntent) -> Boolean, action: suspend (FolderVisibilityBatch) -> Unit) {
@@ -144,7 +152,6 @@ internal class FolderVisibilityManager(context: Context, private val database: H
                     "ROOT_PREFLIGHT code=${marker.name} pending=true ownerVerified=true")
             }
             HistoricalRecoverySignals.beginFolderVisibility(); running=true
-            ensureHistoricalPlaybackIdle(context)
             com.domenota.medialoader.data.storage.HistoricalReferenceLinks(context,database).ensureIdle()
             currentStage=VisibilityOperationStage.LEGACY
             VisibilityLegacyUpgrade(batchJournal,moveJournal) {

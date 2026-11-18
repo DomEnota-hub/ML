@@ -28,9 +28,19 @@ class ExternalMediaCatalogRepository(context: Context) {
         storageMutex.withLock { read() }
     }
 
+    private var validatedHistoricalSnapshot: String? = null
+
     internal suspend fun snapshotHistoricalMedia(): String = withContext(Dispatchers.IO) {
         loaded.await()
-        storageMutex.withLock { preferences.getString("catalog", null).orEmpty().also { read() } }
+        storageMutex.withLock {
+            val stored = preferences.getString("catalog", null)
+            // Missing document is valid; an explicitly empty/corrupt document is not.
+            if (stored != validatedHistoricalSnapshot || stored?.isEmpty() == true) {
+                if(stored != null) decode(stored)
+                validatedHistoricalSnapshot = stored?.takeIf { it.length <= 1_048_576 }
+            }
+            stored.orEmpty()
+        }
     }
 
     internal suspend fun rebindHistoricalMedia(oldUri: String, newUri: String, downloadId: String,

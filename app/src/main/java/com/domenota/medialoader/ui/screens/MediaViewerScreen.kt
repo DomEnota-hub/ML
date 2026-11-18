@@ -172,7 +172,7 @@ fun MediaViewerScreen(
     audioBlockedIdentities: Set<String> = emptySet(), audioFavoriteIds: Set<String> = emptySet(),
     onAudioFavorite: ((DownloadEntity) -> Unit)? = null, onEqualizer: (() -> Unit)? = null,
     onAudioCurrentItemChanged: (DownloadEntity) -> Unit = {},
-    onAudioRecognize:((DownloadEntity,Long)->Unit)?=null,
+    onAudioRecognize:((DownloadEntity,Long)->Unit)?=null, onPublicAudioToggle:(()->Unit)?=null,
 ) {
     var selectedId by rememberSaveable(item.id) { mutableStateOf(item.id) }
     val selectedItem = mediaQueue.firstOrNull { it.id == selectedId } ?: item
@@ -340,7 +340,7 @@ fun MediaViewerScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 currentSessionOnly = currentAudioSessionOnly,
                 libraryLayout = modernAudioLayout, metadataLookup = audioMetadataRows, blockedIdentities = audioBlockedIdentities,
-                onBack = onBack, onEqualizer = onEqualizer, favoriteIds = audioFavoriteIds, onFavorite = onAudioFavorite, onEdit = onEdit, onRecognize=onAudioRecognize?.takeUnless{trashReadOnly||selectedItem.isPrivate},
+                onBack = onBack, onEqualizer = onEqualizer, favoriteIds = audioFavoriteIds, onFavorite = onAudioFavorite, onEdit = onEdit, onToggle=onPublicAudioToggle.takeUnless{selectedItem.isPrivate}, onRecognize=onAudioRecognize?.takeUnless{trashReadOnly||selectedItem.isPrivate},
             )
         }
     }

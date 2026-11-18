@@ -22,6 +22,12 @@ import org.json.JSONObject
 
 /** Cross-store intent is persisted BEFORE a CAS, making a committed-but-unacknowledged step replayable. */
 internal class HistoricalReferenceLinks(private val context: Context, private val db: HistoryDatabase) {
+    private val proofReads = ExactTextReadCache<JSONObject>()
+    private val catalogReads = ExactTextReadCache<List<JSONObject>>()
+    private val playlistReads = ExactTextReadCache<List<JSONObject>>()
+    private val expectedCatalogReads = ExactTextReadCache<List<JSONObject>>()
+    private val beforeCatalogReads = ExactTextReadCache<List<JSONObject>>()
+    private val expectedPlaylistReads = ExactTextReadCache<List<JSONObject>>()
     private val catalog = ExternalMediaCatalogRepository(context)
     private val playlists = PlaylistRepository(context)
     private val directory = File(context.noBackupFilesDir, "historical-reference-links-v1")
@@ -29,7 +35,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
     private val watch get() = context.getSharedPreferences("video_playback_positions", Context.MODE_PRIVATE)
 
     suspend fun ensureIdle() {
-        check(db.downloadDao().all().none { it.state in setOf(DownloadState.RUNNING, DownloadState.QUEUED) }) {
+        check(!HistoricalReferenceQueries.hasActiveDownloads(db)) {
             "Дождитесь завершения загрузок и очереди"
         }
         readVk { vk -> vk.rawQuery("SELECT COUNT(*) FROM jobs WHERE phase IN ('SCANNING','DOWNLOADING')", null).use {
@@ -113,7 +119,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
 
     suspend fun verify(snapshot: JSONObject, expectedUri: String, expectedHash: String, addressed: Boolean = false,
         membership: VisibilityMemberChange? = null) {
-        val record = read(snapshot.getString("key"))
+        val record = proofReads.read(readText(snapshot.getString("key")), ::JSONObject)
         check(record.getString("newUri") == expectedUri && record.getString("newHash") == expectedHash)
         val currentCatalog = catalog.snapshotHistoricalMedia()
         val currentPlaylists = playlists.snapshotHistoricalMedia()
@@ -124,9 +130,9 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
             // Other members of the same batch may already have changed their own
             // entries. Only the affected entries/references are compared here.
             val oldUri = record.getString("oldUri")
-            val before = catalogEntries(record.getString("catalog"))
-            val after = catalogEntries(record.getString("catalogTarget"))
-            val current = catalogEntries(currentCatalog)
+            val before = beforeCatalogReads.read(record.getString("catalog"), ::catalogEntries)
+            val after = expectedCatalogReads.read(record.getString("catalogTarget"), ::catalogEntries)
+            val current = catalogReads.read(currentCatalog, ::catalogEntries)
             val affected = before.filter { it.getString("uri") == oldUri }.map { it.getString("key") }.toSet()
             for (key in affected) {
                 val wanted = after.single { it.getString("key") == key }
@@ -138,8 +144,8 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
             }
             check(current.none { it.getString("uri") == oldUri }) { "Остались живые адреса каталога" }
             val aliases = strings(record.getJSONArray("allAliases"))
-            val desiredLists = playlistEntries(record.getString("playlistsTarget"))
-            val actualLists = playlistEntries(currentPlaylists)
+            val desiredLists = expectedPlaylistReads.read(record.getString("playlistsTarget"), ::playlistEntries)
+            val actualLists = playlistReads.read(currentPlaylists, ::playlistEntries)
             for (list in desiredLists) {
                 val refs = list.optJSONObject("trackReferences") ?: continue
                 for (track in strings(list.getJSONArray("trackIds"))) {
@@ -165,7 +171,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
             "Изменилось избранное или альбом загрузки"
         }
         if (record.optBoolean("external")) {
-            check(db.downloadDao().byId(id) == null && catalogEntries(currentCatalog).singleOrNull {
+            check(db.downloadDao().byId(id) == null && catalogReads.read(currentCatalog, ::catalogEntries).singleOrNull {
                 it.getString("key") == id
             }?.getString("uri") == expectedUri) { "Внешний каталог не открывает новый URI" }
         } else check(db.downloadDao().byId(id)?.savedUri == expectedUri) { "История загрузок не открывает новый URI" }
@@ -294,7 +300,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
     }
     private suspend fun verifyArtwork(record: JSONObject) {
         val old = record.getString("oldUri")
-        check(db.downloadDao().all().none { listOf(it.previewUrl, it.sourceAudioArtworkUrl, it.recognitionArtworkUrl).contains(old) }) {
+        check(!HistoricalReferenceQueries.hasArtwork(db,old)) {
             "Остались локальные превью старого файла"
         }
     }
@@ -371,7 +377,11 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
     }
     private fun read(key: String): JSONObject {
         check(UUID.fromString(key).toString() == key)
-        return AtomicFile(File(directory, "$key.json")).openRead().bufferedReader().use { JSONObject(it.readText()) }
+        return JSONObject(readText(key))
+    }
+    private fun readText(key: String): String {
+        check(UUID.fromString(key).toString() == key)
+        return AtomicFile(File(directory, "$key.json")).openRead().bufferedReader().use { it.readText() }
     }
     private fun strings(value: JSONArray): Set<String> = (0 until value.length()).map { value.getString(it) }.toSet()
     private fun sameJson(first: JSONObject, second: JSONObject): Boolean {
