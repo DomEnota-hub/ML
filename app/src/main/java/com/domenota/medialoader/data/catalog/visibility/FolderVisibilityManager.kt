@@ -217,5 +217,24 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             return VisibilityPendingJournal.pending(File(root,MOVE)) { VisibilityJournalCodec.decode(it) == null } ||
                 VisibilityPendingJournal.pending(File(root,BATCH)) { VisibilityBatchCodec.decode(it) == null }
         }
+
+        /** Read-only exact reserved-name proof for independent Private exports.
+         * A stalled SHOW may not yet have a public row, so querying MediaStore
+         * alone is insufficient to prevent stealing its original destination.
+         * Corrupt, missing or legacy ambiguous plans fail closed. */
+        internal suspend fun reservedPendingPublicNames(context: Context, relativePath: String): Set<String> {
+            if (!hasPendingJournal(context)) return emptySet()
+            check(relativePath.endsWith('/') && !relativePath.contains(".."))
+            val root = File(context.noBackupFilesDir,DIRECTORY)
+            val plan = checkNotNull(FileVisibilityBatchJournal(File(root,BATCH)).read()) {
+                "Незавершённый перенос без проверенного плана"
+            }
+            check(plan.members.all { it.publicOrigin != null }) {
+                "Неполный план переноса: проверка имён недоступна"
+            }
+            return plan.members.mapNotNull { member ->
+                member.publicOrigin?.takeIf { it.relativePath == relativePath }?.name
+            }.toSet()
+        }
     }
 }
