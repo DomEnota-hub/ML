@@ -817,7 +817,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     // Only a validated exact MIME list narrows provider rescans.
                     // On a skipped/conflated version, unknown source or unrelated
                     // historical recovery, the signal conservatively selects both.
-                    val affectedKinds = HistoricalRecoverySignals.affectedMediaKindsFor(version)
+                    val affectedKinds = HistoricalRecoverySignals.affectedMediaKindsSince(observedRecoveryVersion,version)
                     recoveryAffectedModes = buildSet {
                         if (com.domenota.medialoader.data.storage.HistoricalMediaKind.VISUAL in affectedKinds)
                             add(AppMode.GALLERY)
