@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.domenota.medialoader.data.catalog.visibility.VisibilityExecutionPhase
 import com.domenota.medialoader.data.catalog.visibility.VisibilityExecutionSnapshot
+import com.domenota.medialoader.ui.PostTransferCatalogStatus
 
 /** A small pure mapping: text and actions must reflect verified state, not an
  * animation, guessed ETA or an uncommitted file count. */
@@ -59,8 +60,10 @@ internal data class VisibilityTransferPresentation(
     val canDismiss: Boolean = false,
 )
 
-internal fun visibilityTransferPresentation(state: VisibilityExecutionSnapshot): VisibilityTransferPresentation =
-    when (state.phase) {
+internal fun visibilityTransferPresentation(
+    state: VisibilityExecutionSnapshot,
+    catalogStatus: PostTransferCatalogStatus = PostTransferCatalogStatus.IDLE,
+): VisibilityTransferPresentation = when (state.phase) {
         VisibilityExecutionPhase.IDLE -> VisibilityTransferPresentation(
             "Перенос не запущен","Данные не изменяются")
         VisibilityExecutionPhase.PREPARING -> VisibilityTransferPresentation(
@@ -75,8 +78,14 @@ internal fun visibilityTransferPresentation(state: VisibilityExecutionSnapshot):
             "Требуется подтверждение Android","Вернитесь в приложение и подтвердите системный запрос")
         VisibilityExecutionPhase.VERIFYING -> VisibilityTransferPresentation(
             "Проверяем результат","Все элементы обработаны; финальная проверка ещё выполняется")
-        VisibilityExecutionPhase.COMPLETED -> VisibilityTransferPresentation(
-            "Перенос завершён","Результат подтверждён после проверки всех элементов",isComplete=true)
+        VisibilityExecutionPhase.COMPLETED -> when (catalogStatus) {
+            PostTransferCatalogStatus.UPDATING -> VisibilityTransferPresentation(
+                "Файлы перенесены","Обновляем Галерею и Музыку. Проверенные файлы остаются доступны",isComplete=true)
+            PostTransferCatalogStatus.INCOMPLETE -> VisibilityTransferPresentation(
+                "Файлы перенесены","Обновление медиатеки не подтверждено. Проверьте доступ и журнал",isComplete=true)
+            else -> VisibilityTransferPresentation(
+                "Перенос завершён","Результат подтверждён после проверки всех элементов",isComplete=true)
+        }
         VisibilityExecutionPhase.RECOVERABLE_PENDING -> VisibilityTransferPresentation(
             "Перенос не завершён","Исходные данные и журнал сохранены; требуется проверка",canResume=true)
         VisibilityExecutionPhase.FAILED -> VisibilityTransferPresentation(
@@ -120,8 +129,9 @@ internal fun FolderVisibilityTransferDialog(
     onPause:()->Unit,
     onResume:()->Unit,
     onDone:()->Unit,
+    catalogStatus: PostTransferCatalogStatus = PostTransferCatalogStatus.IDLE,
 ) {
-    val presentation=visibilityTransferPresentation(state)
+    val presentation=visibilityTransferPresentation(state,catalogStatus)
     val primary=transferAccent()
     Dialog(onDismissRequest=onCollapse) {
         Surface(shape=RoundedCornerShape(24.dp),color=transferSurface(),
@@ -172,7 +182,11 @@ internal fun FolderVisibilityTransferDialog(
                         Row(verticalAlignment=Alignment.CenterVertically,
                             horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                             Icon(when(state.phase) {
-                                VisibilityExecutionPhase.COMPLETED -> Icons.Rounded.CheckCircle
+                                VisibilityExecutionPhase.COMPLETED -> when (catalogStatus) {
+                                    PostTransferCatalogStatus.UPDATING -> Icons.Rounded.Refresh
+                                    PostTransferCatalogStatus.INCOMPLETE -> Icons.Rounded.WarningAmber
+                                    else -> Icons.Rounded.CheckCircle
+                                }
                                 VisibilityExecutionPhase.PAUSED -> Icons.Rounded.Pause
                                 VisibilityExecutionPhase.FAILED,
                                 VisibilityExecutionPhase.RECOVERABLE_PENDING,
