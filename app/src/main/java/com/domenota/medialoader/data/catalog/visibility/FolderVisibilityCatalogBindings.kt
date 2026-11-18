@@ -333,28 +333,59 @@ internal class FolderVisibilityCatalogBindings(
             row.originalName == proof.getString("name") && row.createdAtEpochMillis == proof.getLong("date") && row.sizeBytes == record.fingerprint.bytes)
         return current.ref.copy(aliases=strings(proof,"newAliases"),item=row.copy(savedUri=record.destinationUri))
     }
+    /** Time the substage, not just whole-file REBIND. No paths, names, URIs,
+     * file fingerprints or private content are written to diagnostic logs. */
+    private suspend fun <T> measureBinding(record: VisibilityMoveRecord, stage: String,
+        block: suspend () -> T): T {
+        val start = System.nanoTime()
+        var success = false
+        try {
+            val result = block()
+            success = true
+            return result
+        } finally {
+            if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
+                com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+                    "MOVE_BIND operation=${record.operationId} stage=$stage direction=${record.direction.name} " +
+                        "elapsedMs=${visibilityDurationMs(start,System.nanoTime())} success=$success")
+            }
+        }
+    }
+
     override suspend fun rebind(record: VisibilityMoveRecord) = withContext(Dispatchers.IO) {
-        val current = member(record.downloadId,record.folderId)
+        val current = measureBinding(record,"MEMBER") { member(record.downloadId,record.folderId) }
         check(currentUri(record) in setOf(record.sourceUri,record.destinationUri))
-        val proof = evidence(record) ?: captureEvidence(record,current)
+        val proof = measureBinding(record,"EVIDENCE") {
+            evidence(record) ?: captureEvidence(record,current)
+        }
         val target = targetRef(record,current,proof)
         val snapshot = proof.getJSONObject("links")
         val destination = requireNotNull(record.destinationUri)
-        if (current.ref.appDownloadId != null) database.withTransaction {
-            val row = checkNotNull(dao.byId(record.downloadId))
-            if (row.savedUri != destination) {
-                check(row.savedUri == record.logicalSourceUri)
-                check(dao.rebindVisibilityUri(row.id,record.logicalSourceUri,destination,record.fingerprint.bytes) == 1)
+        if (current.ref.appDownloadId != null) measureBinding(record,"APP_CAS") {
+            database.withTransaction {
+                val row = checkNotNull(dao.byId(record.downloadId))
+                if (row.savedUri != destination) {
+                    check(row.savedUri == record.logicalSourceUri)
+                    check(dao.rebindVisibilityUri(row.id,record.logicalSourceUri,destination,record.fingerprint.bytes) == 1)
+                }
             }
         }
         // Historical links' per-operation atomic snapshot is replayable after the
         // app-row CAS, and covers external catalog, playlist, VK, artwork and video position.
-        links.rebind(snapshot,record.logicalSourceUri,destination,record.fingerprint.sha256,
-            record.fingerprint.sha256,target.item.originalName,record.fingerprint.bytes)
-        collections.rebind(strings(proof,"oldKeys"),target,strings(proof,"members"))
-        if (target.item.mediaType == MediaType.AUDIO)
+        measureBinding(record,"REFERENCE_LINKS") {
+            links.rebind(snapshot,record.logicalSourceUri,destination,record.fingerprint.sha256,
+                record.fingerprint.sha256,target.item.originalName,record.fingerprint.bytes)
+        }
+        measureBinding(record,"COLLECTIONS") {
+            collections.rebind(strings(proof,"oldKeys"),target,strings(proof,"members"))
+        }
+        if (target.item.mediaType == MediaType.AUDIO) measureBinding(record,"LISTENING") {
             listening.rebindVerifiedVisibility(strings(proof,"oldListening"),strings(proof,"newListening"))
-        verifyBinding(record)
+        }
+        // FolderVisibilityMove.VERIFIED immediately runs the authoritative
+        // verifyBinding() BEFORE advancing the durable LINKED checkpoint.
+        // Repeating the full cross-store pass here only doubles provider/DB
+        // reads; crashes still replay VERIFIED and cannot remove the source.
     }
     override suspend fun verifyBinding(record: VisibilityMoveRecord) = withContext(Dispatchers.IO) {
         val proof = checkNotNull(evidence(record)) { "Не найден журнал связей файла" }
@@ -363,10 +394,15 @@ internal class FolderVisibilityCatalogBindings(
         check(current.ref.item.savedUri == destination)
         val target = targetRef(record,current,proof)
         check(MediaOrganizationPolicy.keys(target) == strings(proof,"newKeys"))
-        links.verify(proof.getJSONObject("links"),destination,record.fingerprint.sha256,addressed=true, membership=activeBatch?.membership)
-        collections.verify(strings(proof,"oldKeys"),target,strings(proof,"members"))
-        if (target.item.mediaType == MediaType.AUDIO)
+        measureBinding(record,"VERIFY_LINKS") {
+            links.verify(proof.getJSONObject("links"),destination,record.fingerprint.sha256,addressed=true, membership=activeBatch?.membership)
+        }
+        measureBinding(record,"VERIFY_COLLECTIONS") {
+            collections.verify(strings(proof,"oldKeys"),target,strings(proof,"members"))
+        }
+        if (target.item.mediaType == MediaType.AUDIO) measureBinding(record,"VERIFY_LISTENING") {
             listening.verifyVisibilityAliases(strings(proof,"oldListening"),strings(proof,"newListening"))
+        }
     }
     override suspend fun finishBinding(record: VisibilityMoveRecord) = withContext(Dispatchers.IO) {
         check(record.phase == VisibilityMovePhase.CLEANED)

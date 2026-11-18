@@ -60,7 +60,8 @@ class FolderVisibilityTransferComposeTest {
                 onOpen={reopened=true})
         } }
         compose.onNodeWithTag("visibility-transfer-compact").assertIsDisplayed()
-        compose.onNodeWithText("Перенос выполняется • 11/46").assertIsDisplayed()
+        compose.onNodeWithText("11/46").assertIsDisplayed()
+        compose.onNodeWithText("Перенос выполняется").assertDoesNotExist()
         compose.onNodeWithText("Мелкие").assertDoesNotExist()
         compose.onNodeWithText("Открыть").performClick()
         compose.runOnIdle { assertTrue(reopened) }

@@ -2,6 +2,7 @@ package com.domenota.medialoader.ui.components
 
 import com.domenota.medialoader.data.catalog.visibility.VisibilityExecutionPhase
 import com.domenota.medialoader.data.catalog.visibility.VisibilityExecutionSnapshot
+import com.domenota.medialoader.ui.PostTransferCatalogStatus
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -36,6 +37,19 @@ class FolderVisibilityTransferUiTest {
         assertFalse(persisted.canDismiss)
         assertTrue(persisted.canResume)
     }
+    @Test fun transferBytesCanFinishBeforePhoneMediaCatalogIsReindexed() {
+        val completed = model(VisibilityExecutionPhase.COMPLETED)
+        val updating = visibilityTransferPresentation(completed,PostTransferCatalogStatus.UPDATING)
+        assertTrue(updating.isComplete)
+        assertEquals("Файлы перенесены",updating.message)
+        assertTrue(updating.explanation.contains("Обновляем"))
+        val incomplete = visibilityTransferPresentation(completed,PostTransferCatalogStatus.INCOMPLETE)
+        assertTrue(incomplete.isComplete)
+        assertTrue(incomplete.explanation.contains("не подтверждено"))
+        val ready = visibilityTransferPresentation(completed,PostTransferCatalogStatus.READY)
+        assertEquals("Перенос завершён",ready.message)
+    }
+
     @Test fun realSuccessOnlyAfterFinalModelState() {
         val completed=visibilityTransferPresentation(model(VisibilityExecutionPhase.COMPLETED))
         assertTrue(completed.isComplete)

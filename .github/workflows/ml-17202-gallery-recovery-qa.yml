@@ -1,0 +1,111 @@
+name: ML 1.7.202 gallery recovery stability full QA
+
+on:
+  push:
+    branches: [feature/ml-17202-library-recovery-stability]
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new commit supersedes the previous full CI on this working branch.
+  # This avoids concurrent Gradle dependency storms (Maven HTTP 429).
+  group: ml-17202-qa-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  full-qa:
+    if: github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17202-library-recovery-stability'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle and Android SDK
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Version, UI and identity checks
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 262$' app/build.gradle
+          grep -Fq "versionName '1.7.202'" app/build.gradle
+          python3 scripts/audit_ui_palette.py
+          python3 scripts/check-round-sliders.py
+          python3 scripts/check-in-app-notices.py
+          grep -q 'Icons.Rounded.WarningAmber' app/src/main/java/com/domenota/medialoader/ui/screens/DownloadFolderSheet.kt
+          ! grep -q 'перенос не завершён" else folder.name' app/src/main/java/com/domenota/medialoader/ui/screens/DownloadFolderSheet.kt
+      - name: Focused checkpoint pause, proof and journal regression
+        run: |
+          ./gradlew :app:testDebugUnitTest -Parm64Release=true \
+            --tests '*CollectionCoverWarmBitmapCacheTest' \
+            --tests '*VisibilityTransferTimingTest' \
+            --tests '*CollectionCoverStoreTest' \
+            --tests '*VisibilityBindingProofStoreTest' \
+            --tests '*VisibilityOperationFailureTest' \
+            --tests '*FolderVisibilityMoveTest' \
+            --tests '*FolderVisibilityBatchTest' \
+            --tests '*VisibilityCheckpointPauseGateTest' \
+            --tests '*VisibilityExecutionStateTest' \
+            --tests '*VisibilityUserApprovalGateTest' \
+            --tests '*VisibilityWorkCommandSlotTest' \
+            --tests '*FolderVisibilityServiceTimeoutTest' \
+            --tests '*VisibilityServiceCancellationTest' \
+            --tests '*VisibilityPortTelemetryTest' \
+            --tests '*FolderVisibilityTransferUiTest' \
+            --tests '*FolderVisibilityTransferComposeTest' \
+            --tests '*HiddenFolderFileStoreTest' \
+            --tests '*GalleryLibraryStateTest' \
+            --tests '*LibraryValidationGateTest' \
+            --tests '*HistoricalRecoveryPublicationFlowTest' \
+            --tests '*VisibilityReferencePolicyTest' \
+            --stacktrace --no-daemon --console=plain
+      - name: Full JVM suite including Compose, Gallery and privacy
+        run: python3 scripts/run-jvm-isolated-compose.py full
+      - name: Storage contract checks
+        run: |
+          set -euo pipefail
+          grep -q 'MediaStore.Images.Media.EXTERNAL_CONTENT_URI' app/src/main/java/com/domenota/medialoader/data/storage/StorageManager.kt
+          grep -q 'MediaStore.Video.Media.EXTERNAL_CONTENT_URI' app/src/main/java/com/domenota/medialoader/data/storage/StorageManager.kt
+          grep -q 'moveSavedUriWhenCurrent' app/src/main/java/com/domenota/medialoader/core/database/HistoryDatabase.kt
+          ! grep -q 'moveSavedUriWhenCurrent' app/src/main/java/com/domenota/medialoader/data/storage/LegacyMediaMigration.kt
+      - name: Android lint
+        run: ./gradlew :app:lintDebug -Parm64Release=true --stacktrace --no-daemon
+      - name: Unsigned exact ARM64 release
+        run: ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon
+      - name: Confirm package and ABI
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "name='com.domenota.medialoader'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          sha256sum "$apk"
+      - name: Save private-run diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17202-gallery-recovery-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/ml-jvm-shards/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 3

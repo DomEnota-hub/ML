@@ -1,10 +1,162 @@
 package com.domenota.medialoader.ui
 
 import com.domenota.medialoader.data.library.AppMode
+import com.domenota.medialoader.data.library.LibraryMediaRef
+import com.domenota.medialoader.data.catalog.visibility.*
+import com.domenota.medialoader.core.database.DownloadEntity
+import com.domenota.medialoader.core.model.DownloadState
+import com.domenota.medialoader.core.model.MediaType
 import org.junit.Assert.*
 import org.junit.Test
 
 class LibraryValidationGateTest {
+    @Test fun folderTransferRetainsCompletePhoneRowsInsteadOfPublishingFalseZero() {
+        val media = com.domenota.medialoader.core.database.DownloadEntity(
+            "public-photo", "https://example.invalid/test", "image.jpg",
+            com.domenota.medialoader.core.model.MediaType.PHOTO,
+            com.domenota.medialoader.core.model.DownloadState.COMPLETED,
+            "content://media/external/images/media/42", 6144L, 1700000000000L)
+        val complete = PhoneLibraryState(items = listOf(media), loaded = true,
+            complete = true, loading = false, requiresValidation = false,
+            revision = 41, accessEpoch = 8)
+        val kept = retainPhoneSnapshotAtTransferBoundary(complete, complete.revision, true)
+        assertSame(complete, kept)
+        assertEquals(listOf(media), kept.items)
+        assertEquals(41L, kept.revision)
+        assertFalse(visibleLibraryValidationPending(AppMode.GALLERY,
+            LibraryIndex(ready = true, galleryRevision = kept.revision),
+            kept, PhoneLibraryState()))
+    }
+
+    @Test fun completedFirstPhoneScanWithIndexedRevisionSurvivesTransfer() {
+        // An initial full scan can still set requiresValidation=true after
+        // the matching canonical index has been published safely.
+        val complete = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = true, revision = 77, accessEpoch = 9)
+        assertSame(complete, retainPhoneSnapshotAtTransferBoundary(complete, 77, true))
+        assertFalse(retainPhoneSnapshotAtTransferBoundary(complete, 76, true).loaded)
+        assertFalse(retainPhoneSnapshotAtTransferBoundary(complete, 77, false).loaded)
+    }
+
+    @Test fun folderTransferNeverRetainsPartialOrPermissionUnvalidatedRows() {
+        val complete = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 21, accessEpoch = 7)
+        for (unsafe in listOf(
+            complete.copy(loaded = false),
+            complete.copy(complete = false),
+            complete.copy(loading = true),
+            complete.copy(requiresValidation = true),
+            complete.copy(message = "Permission denied")
+        )) {
+            val dropped = retainPhoneSnapshotAtTransferBoundary(unsafe, unsafe.revision - 1, true)
+            assertFalse(dropped.loaded)
+            assertTrue(dropped.items.isEmpty())
+            assertTrue(dropped.requiresValidation)
+            assertEquals(unsafe.accessEpoch, dropped.accessEpoch)
+            assertEquals(unsafe.revision + 1, dropped.revision)
+        }
+    }
+
+    @Test fun transferBoundaryKeepsVerifiedMusicWithoutFakingPermissionChanges() {
+        val complete = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 14, accessEpoch = 3)
+        val kept = retainPhoneSnapshotAtTransferBoundary(complete, complete.revision, true)
+        assertSame(complete, kept)
+        assertFalse(visibleLibraryValidationPending(AppMode.MUSIC,
+            LibraryIndex(ready = true, musicRevision = 14), PhoneLibraryState(), kept))
+        assertFalse(canRefreshLibrarySilently(kept,
+            LibraryIndex(ready = true, musicRevision = 14), 14,
+            accessChanged = true, selectedOnlyAccess = false, privacyInvalidated = false))
+    }
+
+    @Test fun compactTransferStatusIsOnlyOnDownloaderChrome() {
+        assertTrue(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER,
+            com.domenota.medialoader.ui.navigation.AppDestination.Downloads.route))
+        assertTrue(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER,
+            com.domenota.medialoader.ui.navigation.AppDestination.Home.route))
+        assertTrue(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER,
+            com.domenota.medialoader.ui.navigation.AppDestination.Settings.route))
+        assertFalse(visibilityMiniPanelHostAllowed(AppMode.GALLERY,
+            com.domenota.medialoader.ui.navigation.AppDestination.Home.route))
+        assertFalse(visibilityMiniPanelHostAllowed(AppMode.MUSIC,
+            com.domenota.medialoader.ui.navigation.AppDestination.Home.route))
+        assertFalse(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER, "media-viewer"))
+        assertFalse(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER, "collections"))
+    }
+
+    private fun publicPhoto(id: String, uri: String): LibraryMediaRef =
+        LibraryMediaRef(id, setOf(id, uri), DownloadEntity(id, "test", "$id.jpg",
+            MediaType.PHOTO, DownloadState.COMPLETED, uri, 200L, 1700000000000L), id)
+
+    @Test fun visibilityRebuildKeepsOtherMediaWithoutExposingPendingMember() {
+        val moving = publicPhoto("moving", "content://media/external/images/media/15")
+        val safe = publicPhoto("safe", "content://media/external/images/media/17")
+        val old = FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot()), emptyList(), emptyList())
+        val pending = VisibilityMoveRecord("move-1", "hidden-folder", "moving",
+            VisibilityDirection.HIDE, moving.item.savedUri!!, "moving.jpg", null,
+            VisibilityFingerprint(200, "a".repeat(64)), "target-token")
+        val active = FolderVisibilityLibraryGuard(
+            FolderVisibilityReadPolicy(FolderVisibilitySnapshot(),
+                pendingFolder = "hidden-folder", pendingMembers = listOf(pending)),
+            emptyList(), emptyList())
+        val indexed = LibraryIndex(ready = true, refs = listOf(moving, safe),
+            galleryRevision = 8, musicRevision = 5,
+            privacyKeys = emptySet(), visibility = old)
+        val gallery = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 8)
+        val music = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 5)
+        assertEquals(listOf(moving, safe),
+            guardedRetainedIndexRefs(indexed, old, emptySet(), gallery, music))
+        assertEquals(listOf(safe),
+            guardedRetainedIndexRefs(indexed, active, emptySet(), gallery, music))
+        // Same current guard but changed private keys must not reuse old public data.
+        assertNull(guardedRetainedIndexRefs(indexed, active, setOf("new-private"), gallery, music))
+        // The same fail-closed policy applies when the recovered journal is unknown.
+        val unknown = FolderVisibilityLibraryGuard(
+            FolderVisibilityReadPolicy(FolderVisibilitySnapshot(), unknownPending = true),
+            emptyList(), emptyList())
+        assertNull(guardedRetainedIndexRefs(indexed, unknown, emptySet(), gallery, music))
+    }
+
+    @Test fun visibilityRebuildNeverReusesUnvalidatedPermissionGeneration() {
+        val safe = publicPhoto("safe", "content://media/external/images/media/18")
+        val old = FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot()), emptyList(), emptyList())
+        val newGuard = FolderVisibilityLibraryGuard(
+            FolderVisibilityReadPolicy(FolderVisibilitySnapshot(hiddenFolders = setOf("hidden-folder"))),
+            emptyList(), emptyList())
+        val index = LibraryIndex(ready = true, refs = listOf(safe),
+            galleryRevision = 9, musicRevision = 4, privacyKeys = emptySet(), visibility = old)
+        val gallery = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = true, revision = 10)
+        val music = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 4)
+        assertNull(guardedRetainedIndexRefs(index, newGuard, emptySet(), gallery, music))
+        assertNull(guardedRetainedIndexRefs(index.copy(ready = false), newGuard, emptySet(),gallery,music))
+    }
+
+    @Test fun postTransferReportsIndexReadyOnlyAfterBothMediaGenerationsAlign() {
+        val guard = FolderVisibilityLibraryGuard(
+            FolderVisibilityReadPolicy(FolderVisibilitySnapshot()), emptyList(), emptyList())
+        val ready = LibraryIndex(ready = true, appComplete = true,
+            galleryRevision = 43, musicRevision = 21, privacyKeys = emptySet(),
+            visibility = guard)
+        val gallery = PhoneLibraryState(loaded = true, complete = true,
+            revision = 43, requiresValidation = false)
+        val music = PhoneLibraryState(loaded = true, complete = true,
+            revision = 21, requiresValidation = false)
+        assertTrue(postTransferIndexAligned(ready,gallery,music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery.copy(complete=false),music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery,music.copy(complete=false),guard))
+        assertFalse(postTransferIndexAligned(ready,gallery.copy(message="Не удалось обновить файлы"),music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery.copy(revision=44),music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery,music.copy(loading=true),guard))
+        assertFalse(postTransferIndexAligned(ready,gallery,music.copy(loaded=false),guard))
+        assertFalse(postTransferIndexAligned(ready.copy(appComplete=false),gallery,music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery,music,null))
+        assertFalse(postTransferIndexAligned(ready.copy(visibility=null),gallery,music,guard))
+    }
+
     @Test fun validatedFirstPageBecomesVisibleWhileRemainingScanContinues() {
         val partial = PhoneLibraryState(loaded = true, loading = true, revision = 7)
         val other = PhoneLibraryState()

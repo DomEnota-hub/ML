@@ -159,6 +159,13 @@ import androidx.compose.material.icons.rounded.Restore
 private const val PRIVATE_ROUTE = "private"
 private const val PLAYLIST_ADD_ROUTE = "playlist-add/{playlistId}"
 
+/** The compact transfer panel belongs to Downloader chrome only. Gallery,
+ * Music and media viewers stay usable while the dataSync service runs. */
+internal fun visibilityMiniPanelHostAllowed(mode: AppMode, route: String?): Boolean =
+    mode == AppMode.DOWNLOADER && route in setOf(
+        AppDestination.Home.route, AppDestination.Downloads.route, AppDestination.Settings.route)
+
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun fileNameFieldColors() = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) {
@@ -274,6 +281,7 @@ fun MediaLoaderApp(
     val visibilityAccess=com.domenota.medialoader.ui.components.rememberFolderVisibilityAccessHost()
     val visibilityWork=remember(mediaRepository) { mediaRepository.folderVisibilityWork }
     val visibilityWorkState by visibilityWork.state.collectAsStateWithLifecycle()
+    val postTransferCatalogStatus by libraryModel.postTransferCatalogStatus.collectAsStateWithLifecycle()
     val androidApprovalTicket by visibilityWork.pendingAndroidApproval.collectAsStateWithLifecycle()
     var visibilityWorkExpanded by rememberSaveable { mutableStateOf(true) }
     // The user-dismissed final result must not reappear on Activity rotation.
@@ -359,21 +367,29 @@ fun MediaLoaderApp(
     fun canOpenFolderMedia(row: com.domenota.medialoader.core.database.DownloadEntity, folder: String? = null): Boolean =
         row.isPrivate || libraryModel.visibilityGuard.value?.canOpen(row,folder,liveFolderRefs) == true
 
-    val unifiedLibrary = libraryIndex.refs
     val libraryAudioState by libraryModel.audioPreview.state.collectAsStateWithLifecycle()
     val libraryPrivateKeys by libraryModel.privateKeys.collectAsStateWithLifecycle()
     val visibilityBlocked=remember(visibilityGuard){visibilityGuard?.blockedKeys().orEmpty()}
     val publicProjectionGuard=remember(libraryPrivateKeys,visibilityGuard,visibilityBlocked) {
         libraryPrivateKeys?.takeIf { visibilityReady }?.plus(visibilityBlocked)
     }
-    // The ViewModel already merged and privacy-filtered this generation on IO.
-    // Never build the same full union-find and alias sets a second time on the UI thread.
-    val publicIndexAllowed = libraryPrivateKeys != null && libraryIndex.privacyKeys == libraryPrivateKeys &&
-        visibilityReady && libraryIndex.visibility == visibilityGuard
-    val publicLibraryRefs = if (publicIndexAllowed) unifiedLibrary else emptyList()
-    val displayInventory = if (publicIndexAllowed) libraryIndex.display else LibraryDisplayInventory.EMPTY
-    // The entire visibility guard matters: equal blocked IDs do not prove that
-    // a restored locator or its assignment is still valid.
+    // The IO-built index may briefly lag a *visibility-only* receipt update.
+    // Re-check previously admitted refs against the current fail-closed guard
+    // instead of blanking the other thousands of valid photos and songs.
+    // Permission/private changes still return null immediately.
+    val guardedPublicRefs = remember(libraryIndex,visibilityGuard,libraryPrivateKeys,phoneGallery,phoneMusic) {
+        guardedRetainedIndexRefs(libraryIndex,visibilityGuard,libraryPrivateKeys,phoneGallery,phoneMusic)
+    }
+    val publicIndexAllowed = guardedPublicRefs != null
+    val publicLibraryRefs = guardedPublicRefs.orEmpty()
+    val displayInventory = remember(libraryIndex,visibilityGuard,guardedPublicRefs) {
+        when {
+            guardedPublicRefs == null -> LibraryDisplayInventory.EMPTY
+            libraryIndex.visibility == visibilityGuard -> libraryIndex.display
+            else -> LibraryDisplayInventory.build(guardedPublicRefs,visibilityGuard?.external.orEmpty())
+        }
+    }
+    // Always use the live guard for follow-on projections and addressed actions.
     val publicProjectionAccess = visibilityGuard.takeIf { publicIndexAllowed }
     val historySnapshot by libraryModel.collectionHistory.collectAsStateWithLifecycle()
     val galleryAccessEpoch by libraryModel.galleryAccessEpoch.collectAsStateWithLifecycle()
@@ -1213,7 +1229,9 @@ fun MediaLoaderApp(
     val currentRecentFolders by rememberUpdatedState(recentDeviceFolders)
     val musicHomeItems = if (musicLibrarySource == LibrarySource.APP) appLibraryAudioItems
         else if (!phoneMusic.loaded) emptyList() else libraryAudioItems
-    val musicBrowseAccess = publicProjectionAccess?.takeUnless { recoveryRunning ||
+    // Historical transfer keeps a guarded, complete music snapshot. Only
+    // actual permission/visibility validation may hide it.
+    val musicBrowseAccess = publicProjectionAccess?.takeUnless {
         visibleLibraryValidationPending(AppMode.MUSIC, libraryIndex, phoneGallery, phoneMusic) }
         ?.let { Triple(it, musicAccessEpoch, collectionPrivacyGeneration) to musicLibrarySource }
     val musicBrowse = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
@@ -3085,7 +3103,9 @@ fun MediaLoaderApp(
         }
         val showWorkPanel = !visibilityWorkDismissed &&
             visibilityWorkState.phase != VisibilityExecutionPhase.IDLE
-        if (showWorkPanel && !visibilityWorkExpanded) {
+        val showCompactWorkPanel = showWorkPanel && !visibilityWorkExpanded &&
+            visibilityMiniPanelHostAllowed(appMode,currentRoute)
+        if (showCompactWorkPanel) {
             com.domenota.medialoader.ui.components.FolderVisibilityMiniPanel(
                 state = visibilityWorkState,
                 onOpen = { visibilityWorkExpanded=true },
@@ -3097,7 +3117,7 @@ fun MediaLoaderApp(
         com.domenota.medialoader.ui.components.InAppNoticeHost(
             Modifier.align(Alignment.BottomCenter),
             bottomPadding = innerPadding.calculateBottomPadding() + noticeExtra +
-                if(showWorkPanel && !visibilityWorkExpanded) 92.dp else 0.dp,
+                if(showCompactWorkPanel) 92.dp else 0.dp,
         )
         if (showWorkPanel && visibilityWorkExpanded) {
             com.domenota.medialoader.ui.components.FolderVisibilityTransferDialog(
@@ -3118,6 +3138,7 @@ fun MediaLoaderApp(
                     catch(error:Exception){AppNotice.post(context,error.message ?: "Не удалось продолжить перенос")}
                 } },
                 onDone = { visibilityWorkDismissed=true },
+                catalogStatus = postTransferCatalogStatus,
             )
         }
         }
