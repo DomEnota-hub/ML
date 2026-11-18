@@ -14,13 +14,23 @@ class LibraryValidationGateTest {
         val complete = PhoneLibraryState(items = listOf(media), loaded = true,
             complete = true, loading = false, requiresValidation = false,
             revision = 41, accessEpoch = 8)
-        val kept = retainPhoneSnapshotAtTransferBoundary(complete)
+        val kept = retainPhoneSnapshotAtTransferBoundary(complete, complete.revision, true)
         assertSame(complete, kept)
         assertEquals(listOf(media), kept.items)
         assertEquals(41L, kept.revision)
         assertFalse(visibleLibraryValidationPending(AppMode.GALLERY,
             LibraryIndex(ready = true, galleryRevision = kept.revision),
             kept, PhoneLibraryState()))
+    }
+
+    @Test fun completedFirstPhoneScanWithIndexedRevisionSurvivesTransfer() {
+        // An initial full scan can still set requiresValidation=true after
+        // the matching canonical index has been published safely.
+        val complete = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = true, revision = 77, accessEpoch = 9)
+        assertSame(complete, retainPhoneSnapshotAtTransferBoundary(complete, 77, true))
+        assertFalse(retainPhoneSnapshotAtTransferBoundary(complete, 76, true).loaded)
+        assertFalse(retainPhoneSnapshotAtTransferBoundary(complete, 77, false).loaded)
     }
 
     @Test fun folderTransferNeverRetainsPartialOrPermissionUnvalidatedRows() {
@@ -33,7 +43,7 @@ class LibraryValidationGateTest {
             complete.copy(requiresValidation = true),
             complete.copy(message = "Permission denied")
         )) {
-            val dropped = retainPhoneSnapshotAtTransferBoundary(unsafe)
+            val dropped = retainPhoneSnapshotAtTransferBoundary(unsafe, unsafe.revision - 1, true)
             assertFalse(dropped.loaded)
             assertTrue(dropped.items.isEmpty())
             assertTrue(dropped.requiresValidation)
@@ -45,7 +55,7 @@ class LibraryValidationGateTest {
     @Test fun transferBoundaryKeepsVerifiedMusicWithoutFakingPermissionChanges() {
         val complete = PhoneLibraryState(loaded = true, complete = true,
             requiresValidation = false, revision = 14, accessEpoch = 3)
-        val kept = retainPhoneSnapshotAtTransferBoundary(complete)
+        val kept = retainPhoneSnapshotAtTransferBoundary(complete, complete.revision, true)
         assertSame(complete, kept)
         assertFalse(visibleLibraryValidationPending(AppMode.MUSIC,
             LibraryIndex(ready = true, musicRevision = 14), PhoneLibraryState(), kept))
