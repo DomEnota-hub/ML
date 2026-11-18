@@ -358,8 +358,10 @@ class StorageManager(
     /** Private original stays intact until PrivateMediaOperations commits the new URI. */
     internal suspend fun publishPrivateWithDate(source: File, name: String, mime: String, downloaded: Long): PublishedFile =
         withContext(Dispatchers.IO) {
+            HistoricalRecoverySignals.beginIndependentPrivatePublication(context)
+            try {
             if (Build.VERSION.SDK_INT < 29 || usesSelectedFolder || mime !in setOf("image/jpeg", "video/mp4"))
-                return@withContext publish(source, name, mime)
+                return@withContext publish(source, name, mime, independentPrivateRestore = true)
             require(downloaded in 946684800000L..System.currentTimeMillis()) { "Исходная дата загрузки неизвестна" }
             val codec = HistoricalDatedCopyCodec()
             val photoOrVideo = mime.startsWith("image/") || mime.startsWith("video/")
@@ -375,8 +377,11 @@ class StorageManager(
                         codec.verify(source, it, mime)
                     }
                 } else source
-                publish(prepared, name, mime, taken, downloaded)
+                publish(prepared, name, mime, taken, downloaded, independentPrivateRestore = true)
             } finally { scratch?.delete() }
+            } finally {
+                HistoricalRecoverySignals.endIndependentPrivatePublication()
+            }
         }
 
     private suspend fun confirmPrivateDate(uri: Uri, source: File, mime: String, taken: Long, modified: Long) {
