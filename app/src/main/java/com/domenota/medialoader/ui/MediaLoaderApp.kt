@@ -281,6 +281,7 @@ fun MediaLoaderApp(
     val visibilityAccess=com.domenota.medialoader.ui.components.rememberFolderVisibilityAccessHost()
     val visibilityWork=remember(mediaRepository) { mediaRepository.folderVisibilityWork }
     val visibilityWorkState by visibilityWork.state.collectAsStateWithLifecycle()
+    val postTransferCatalogStatus by libraryModel.postTransferCatalogStatus.collectAsStateWithLifecycle()
     val androidApprovalTicket by visibilityWork.pendingAndroidApproval.collectAsStateWithLifecycle()
     var visibilityWorkExpanded by rememberSaveable { mutableStateOf(true) }
     // The user-dismissed final result must not reappear on Activity rotation.
@@ -3137,6 +3138,7 @@ fun MediaLoaderApp(
                     catch(error:Exception){AppNotice.post(context,error.message ?: "Не удалось продолжить перенос")}
                 } },
                 onDone = { visibilityWorkDismissed=true },
+                catalogStatus = postTransferCatalogStatus,
             )
         }
         }
