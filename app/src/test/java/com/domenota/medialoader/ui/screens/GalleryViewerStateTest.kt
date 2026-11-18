@@ -24,6 +24,31 @@ class GalleryViewerStateTest {
         assertTrue(GalleryViewerState.publicCandidates(listOf(ref), setOf("physical:42"), routes).isEmpty())
         assertTrue(GalleryViewerState.publicCandidates(listOf(ref), null, routes).isEmpty())
     }
+    @Test fun alreadyUnifiedPublicIndexNeedsNoSecondMergeOnViewerThreadAndStillFailsClosed() {
+        val app = row("download", MediaType.VIDEO)
+        val download = LibraryMediaRef("download",
+            setOf("download", "phone:video:42", "physical:42"), app, "download")
+        val samePhoneFile = LibraryMediaRef("phone:video:42",
+            setOf("phone:video:42", "physical:42"),
+            app.copy(id = "phone:video:42"), null)
+        val unified = com.domenota.medialoader.data.library.UnifiedMediaLibrary.merge(
+            listOf(download, samePhoneFile), emptyList(), emptySet())
+        assertEquals(1, unified.size)
+        val ids = setOf("download", "phone:video:42")
+        assertEquals(
+            GalleryViewerState.publicCandidates(unified, emptySet(), ids),
+            GalleryViewerState.publicCandidatesFromUnified(unified, emptySet(), ids))
+        assertEquals(ids, GalleryViewerState.publicCandidatesFromUnified(
+            unified, emptySet(), ids).map { it.id }.toSet())
+        assertTrue(GalleryViewerState.publicCandidatesFromUnified(
+            unified, setOf("physical:42"), ids).isEmpty())
+        assertTrue(GalleryViewerState.publicCandidatesFromUnified(
+            unified, null, ids).isEmpty())
+        assertTrue(GalleryViewerState.publicCandidatesFromUnified(
+            unified.map { it.copy(item = it.item.copy(hidden = true)) },
+            emptySet(), ids).isEmpty())
+    }
+
     private fun row(id: String, type: MediaType) = DownloadEntity(id, "device", id, type,
         DownloadState.COMPLETED, "content://media/$id", null, 0)
 
@@ -59,9 +84,32 @@ class GalleryViewerStateTest {
         assertNull(GalleryViewerState.addressedPublic(a.copy(hidden = true), ref, emptySet()))
     }
 
-    @Test fun videoExistsOnlyOnSettledVisiblePageAndIsReleasedAsSoonAsSwipeStarts() {
+    @Test fun queueRebindKeepsOnlyTheExactStillAuthorizedPlayingVideo() {
+        val video = row("playing", MediaType.VIDEO)
+        val other = row("other", MediaType.PHOTO)
+        val existing = listOf(video, other)
+        assertTrue(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, existing))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 1, existing))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(savedUri="content://media/changed"))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(hidden=true))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(isPrivate=true))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(state=DownloadState.FAILED))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(mediaType=MediaType.PHOTO))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, emptyList()))
+    }
+
+    @Test fun tentativeSwipeRetainsExactSettledVideoUntilAnotherPageActuallySettles() {
         assertTrue(GalleryViewerState.canCreateVideo(1, 1, false))
+        assertTrue(GalleryViewerState.canCreateVideo(1, 1, true))
         assertFalse(GalleryViewerState.canCreateVideo(1, 2, false))
-        assertFalse(GalleryViewerState.canCreateVideo(1, 1, true))
+        assertFalse(GalleryViewerState.canCreateVideo(1, 2, true))
     }
 }

@@ -412,6 +412,7 @@ internal fun LocalVideoPlayer(
     var showGalleryTracks by remember(uri) { mutableStateOf(false) }
     var supportedAudioTrackCount by remember(uri) { mutableStateOf(0) }
     val notifyAudioTrackCount by rememberUpdatedState(onAudioTrackCountChanged)
+    val durationContinuity = remember(uri) { VideoDurationContinuity() }
     var playableDurationMs by remember(uri) { mutableStateOf(0L) }
     var isPlaying by remember(uri) { mutableStateOf(false) }
     var playbackSpeed by remember(uri) { mutableStateOf(1f) }
@@ -462,6 +463,11 @@ internal fun LocalVideoPlayer(
             playWhenReady = autoplayOnNavigation
             prepare()
         }
+    }
+    val playerSession = remember(player) { Integer.toHexString(System.identityHashCode(player)) }
+    DisposableEffect(player) {
+        AppLog.i("VideoPlayer", "PLAYER_CREATED session=$playerSession source=local")
+        onDispose { AppLog.i("VideoPlayer", "PLAYER_COMPOSE_REMOVED session=$playerSession") }
     }
     val holdSpeed = remember(player) { VideoHoldSpeedSession() }
     var holdSpeedVisible by remember(player) { mutableStateOf(false) }
@@ -582,7 +588,18 @@ internal fun LocalVideoPlayer(
 
             override fun onPlayerError(error: PlaybackException) {
                 endHoldSpeed()
+                AppLog.w("VideoPlayer",
+                    "PLAYER_ERROR session=$playerSession code=${error.errorCodeName} state=${player.playbackState} " +
+                        "positionMs=${player.currentPosition} durationMs=${player.duration}", error)
                 playbackError = error
+            }
+
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                val previous = playableDurationMs
+                playableDurationMs = durationContinuity.accept(player.duration)
+                AppLog.i("VideoPlayer",
+                    "PLAYER_TIMELINE session=$playerSession reason=$reason state=${player.playbackState} " +
+                        "reportedMs=${player.duration} confirmedMs=$playableDurationMs previousMs=$previous")
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -594,16 +611,22 @@ internal fun LocalVideoPlayer(
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
-                playableDurationMs = player.duration.coerceAtLeast(0L)
+                val reportedDuration = player.duration
+                playableDurationMs = durationContinuity.accept(reportedDuration)
+                AppLog.i("VideoPlayer",
+                    "PLAYER_STATE session=$playerSession state=$playbackState playing=${player.isPlaying} " +
+                        "positionMs=${player.currentPosition} reportedMs=$reportedDuration confirmedMs=$playableDurationMs")
                 if (playbackState == Player.STATE_ENDED) {
                     endHoldSpeed()
                     playbackEnded = true
                     chromeVisible = true
-                    com.domenota.medialoader.data.playback.VideoWatchProgress.record(prefs, itemId, playableDurationMs, playableDurationMs)
-                    com.domenota.medialoader.data.playback.VideoWatchProgress.saveResume(prefs, itemId, null)
+                    com.domenota.medialoader.data.playback.VideoWatchProgress.recordQueued(
+                        prefs, itemId, playableDurationMs, playableDurationMs)
+                    com.domenota.medialoader.data.playback.VideoWatchProgress.saveResumeQueued(prefs, itemId, null)
                 } else if (playbackState == Player.STATE_READY) {
                     playbackEnded = false
-                    com.domenota.medialoader.data.playback.VideoWatchProgress.record(prefs, itemId, player.currentPosition, playableDurationMs)
+                    com.domenota.medialoader.data.playback.VideoWatchProgress.recordQueued(
+                        prefs, itemId, player.currentPosition, playableDurationMs)
                 }
             }
         }
@@ -612,13 +635,14 @@ internal fun LocalVideoPlayer(
         fun savePosition() {
             val duration = player.duration
             val position = player.currentPosition.coerceAtLeast(0L)
-            com.domenota.medialoader.data.playback.VideoWatchProgress.record(prefs, itemId, position, duration)
+            com.domenota.medialoader.data.playback.VideoWatchProgress.recordQueued(
+                prefs, itemId, position, durationContinuity.accept(duration))
             if (player.playbackState == Player.STATE_ENDED ||
                 (duration > 0 && position >= duration - 1_500L)
             ) {
-                com.domenota.medialoader.data.playback.VideoWatchProgress.saveResume(prefs, itemId, null)
+                com.domenota.medialoader.data.playback.VideoWatchProgress.saveResumeQueued(prefs, itemId, null)
             } else if (position > 1_000L) {
-                com.domenota.medialoader.data.playback.VideoWatchProgress.saveResume(prefs, itemId, position)
+                com.domenota.medialoader.data.playback.VideoWatchProgress.saveResumeQueued(prefs, itemId, position)
             }
         }
 
@@ -626,6 +650,7 @@ internal fun LocalVideoPlayer(
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> endHoldSpeed()
                 Lifecycle.Event.ON_STOP -> {
+                    AppLog.i("VideoPlayer", "PLAYER_LIFECYCLE session=$playerSession event=ON_STOP")
                     endHoldSpeed()
                     savePosition()
                     player.pause()
@@ -645,6 +670,8 @@ internal fun LocalVideoPlayer(
         lifecycleOwner.lifecycle.addObserver(observer)
 
         onDispose {
+            AppLog.i("VideoPlayer",
+                "PLAYER_RELEASE session=$playerSession positionMs=${player.currentPosition} state=${player.playbackState}")
             endHoldSpeed()
             savePosition()
             lifecycleOwner.lifecycle.removeObserver(observer)
@@ -1240,7 +1267,9 @@ internal fun LocalVideoPlayer(
                     } else onPreviousVideo.invoke(player.playWhenReady)
                 },
                 onNext = { onNextVideo?.invoke(player.playWhenReady) },
-                onSeekTo = { position -> player.seekTo(position.coerceIn(0L, playableDurationMs.coerceAtLeast(0L))) },
+                onSeekTo = { position ->
+                    if (playableDurationMs > 0L) player.seekTo(position.coerceIn(0L, playableDurationMs))
+                },
                 onLockChange = { next ->
                     // On lock, show a real unlock target immediately; on
                     // unlock, restore the ordinary player controls.

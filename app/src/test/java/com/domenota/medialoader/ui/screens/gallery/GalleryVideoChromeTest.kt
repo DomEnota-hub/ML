@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
@@ -30,6 +32,27 @@ class GalleryVideoChromeTest {
         assertEquals("00:19", galleryVideoClock(19_123L))
         assertEquals("01:05", galleryVideoClock(65_000L))
         assertEquals("1:02:03", galleryVideoClock(3_723_000L))
+    }
+    @Test fun missingDurationNeverPretendsResumedVideoIsAtEnd() {
+        var duration by mutableStateOf(0L)
+        var soughtTo:Long? = null
+        compose.setContent {
+            MaterialTheme {
+                GalleryVideoChrome(
+                    visible = true, locked = false, unlockVisible = false,
+                    playing = false, positionMs = 86_000L, durationMs = duration,
+                    hasPrevious = false, hasNext = false,
+                    onPlayPause = {}, onPrevious = {}, onNext = {},
+                    onSeekTo = { soughtTo = it }, onLockChange = {},
+                )
+            }
+        }
+        compose.onNodeWithText("01:26").assertIsDisplayed()
+        compose.onNodeWithText("--:--").assertIsDisplayed()
+        org.junit.Assert.assertNull(soughtTo)
+        compose.runOnIdle { duration = 147_000L }
+        compose.onNodeWithText("02:27").assertIsDisplayed()
+        org.junit.Assert.assertNull(soughtTo)
     }
     @Test fun centerControlsAndRightLockAreInSingleGalleryOverlay() {
         var locked by mutableStateOf(false)

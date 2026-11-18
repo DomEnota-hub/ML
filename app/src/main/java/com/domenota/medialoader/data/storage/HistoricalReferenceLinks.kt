@@ -85,7 +85,7 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
     }
 
     suspend fun rebind(snapshot: JSONObject, oldUri: String, newUri: String, oldHash: String,
-        newHash: String, newName: String, newBytes: Long) {
+        newHash: String, newName: String, newBytes: Long, verifyInline: Boolean = true) {
         val key = snapshot.getString("key")
         val recordFile = File(directory, "$key.json")
         if (!recordFile.exists()) write(key, snapshot)
@@ -114,7 +114,11 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         switchArtwork(record)
         val all = strings(record.getJSONArray("allAliases"))
         VideoWatchProgress.linkAliases(watch, all.associateWith { record.getString("id") })
-        verify(snapshot, newUri, newHash)
+        // Visibility's move engine performs the authoritative addressed
+        // verifyBinding before the durable LINKED checkpoint and source cleanup.
+        // Skip this immediate duplicate full cross-store verification ONLY for
+        // that engine. Historical and other callers retain inline verification.
+        if (verifyInline) verify(snapshot, newUri, newHash)
     }
 
     suspend fun verify(snapshot: JSONObject, expectedUri: String, expectedHash: String, addressed: Boolean = false,
@@ -178,8 +182,12 @@ internal class HistoricalReferenceLinks(private val context: Context, private va
         check(db.downloadDao().countSavedUriReferences(record.getString("oldUri")) == 0) { "Остались ссылки на старый URI" }
         readVk { handle ->
             for (table in listOf("images", "hashes")) {
-                val oldCount = rows(handle, "SELECT * FROM $table WHERE saved_uri=?", arrayOf(record.getString("oldUri"))).length()
-                check(oldCount == 0) { "Индекс VK всё ещё использует оригинал" }
+                // Only existence matters: scanning all columns into JSON on
+                // every durable verification boundary is costly for large VK
+                // histories. An indexed LIMIT 1 is the same fail-closed proof.
+                check(!VisibilityVkSourceQuery.exists(handle,table,record.getString("oldUri"))) {
+                    "Индекс VK всё ещё использует оригинал"
+                }
                 val baseline = record.getJSONObject("vk").getJSONArray(table)
                 for (i in 0 until baseline.length()) {
                     val desired = vkTarget(baseline.getJSONObject(i), expectedUri, expectedHash)

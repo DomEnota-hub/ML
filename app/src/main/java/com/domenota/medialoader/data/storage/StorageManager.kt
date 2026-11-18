@@ -257,12 +257,24 @@ class StorageManager(
 
     /** Copies a finished temp file into the download folder and returns the actual saved name. */
     suspend fun publish(source: File, fileName: String, mimeType: String, historicalMillis: Long? = null,
-        fileMillis: Long? = historicalMillis): PublishedFile =
+        fileMillis: Long? = historicalMillis, independentPrivateRestore: Boolean = false): PublishedFile =
         withContext(Dispatchers.IO) {
-            HistoricalRecoverySignals.requireIdle()
+            if (independentPrivateRestore) HistoricalRecoverySignals.requireIndependentPrivatePublication()
+            else HistoricalRecoverySignals.requireIdle()
             val recovery=currentCoroutineContext()[MissingRecoveryPublication]
             recovery?.prepare(source,mimeType)
             val initialNames = existingNames().toMutableSet()
+            // A stalled SHOW does not yet appear in MediaStore for every planned
+            // filename. Reserve all names from the verified, immutable journal
+            // before the private export chooses its own unique public name.
+            if (independentPrivateRestore &&
+                com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager.hasPendingJournal(context)) {
+                check(!usesSelectedFolder) {
+                    "Восстановление в выбранную SAF-папку при незавершённом переносе недоступно"
+                }
+                initialNames += com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager
+                    .reservedPendingPublicNames(context,MediaStoragePolicy.route(relativeDirectory,mimeType))
+            }
             selectedFolder()?.let { folder ->
                 if (!folder.canWrite()) throw IOException("Выбранная папка недоступна")
                 val actualName = StorageNaming.availableName(fileName, initialNames)
@@ -346,8 +358,10 @@ class StorageManager(
     /** Private original stays intact until PrivateMediaOperations commits the new URI. */
     internal suspend fun publishPrivateWithDate(source: File, name: String, mime: String, downloaded: Long): PublishedFile =
         withContext(Dispatchers.IO) {
+            HistoricalRecoverySignals.beginIndependentPrivatePublication(context)
+            try {
             if (Build.VERSION.SDK_INT < 29 || usesSelectedFolder || mime !in setOf("image/jpeg", "video/mp4"))
-                return@withContext publish(source, name, mime)
+                return@withContext publish(source, name, mime, independentPrivateRestore = true)
             require(downloaded in 946684800000L..System.currentTimeMillis()) { "Исходная дата загрузки неизвестна" }
             val codec = HistoricalDatedCopyCodec()
             val photoOrVideo = mime.startsWith("image/") || mime.startsWith("video/")
@@ -363,8 +377,11 @@ class StorageManager(
                         codec.verify(source, it, mime)
                     }
                 } else source
-                publish(prepared, name, mime, taken, downloaded)
+                publish(prepared, name, mime, taken, downloaded, independentPrivateRestore = true)
             } finally { scratch?.delete() }
+            } finally {
+                HistoricalRecoverySignals.endIndependentPrivatePublication()
+            }
         }
 
     private suspend fun confirmPrivateDate(uri: Uri, source: File, mime: String, taken: Long, modified: Long) {

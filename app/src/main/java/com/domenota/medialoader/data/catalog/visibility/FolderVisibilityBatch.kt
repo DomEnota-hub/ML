@@ -104,9 +104,13 @@ internal class FolderVisibilityBatch(
             return
         }
         onCheckpoint(batch)
-        ports.prepareMembership(batch,moves.read())
+        val pendingAtResume = moves.read()
+        VisibilityRecoveryPlanner.inspect(batch,pendingAtResume)
+        // Membership preparation must not mutate a catalog before validating
+        // that the pending move belongs to this exact 1.7.203 checkpoint.
+        ports.prepareMembership(batch,pendingAtResume)
         // The already-durable batch can safely wait before its first member.
-        if (moves.read() == null) atSafeCheckpoint()
+        if (pendingAtResume == null) atSafeCheckpoint()
         while (batch.next < batch.members.size) {
             val member = batch.members[batch.next]
             val workStartedAt = System.nanoTime()

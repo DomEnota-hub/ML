@@ -14,6 +14,27 @@ object GalleryViewerState {
             (ref.aliases.filter { it.startsWith("phone:") || it in routeIds } + ref.key).distinct().map { ref.item.copy(id = it) }
         }
     }
+    /** The normal public Gallery route receives LibraryIndex.refs, already
+     * grouped off-main by UnifiedMediaLibrary.merge and revalidated against
+     * current privacy/visibility. Do NOT repeat that costly 11k-row merge on
+     * the player/composition thread. Scoped/unmerged queues use the regular
+     * publicCandidates() path instead. */
+    fun publicCandidatesFromUnified(refs: List<LibraryMediaRef>, privateKeys: Set<String>?,
+        routeIds: Set<String> = emptySet()): List<DownloadEntity> {
+        if (privateKeys == null) return emptyList()
+        return refs.asSequence()
+            .filter { ref ->
+                !ref.item.hidden && !ref.item.isPrivate &&
+                    ref.item.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED &&
+                    !ref.item.savedUri.isNullOrBlank() &&
+                    ref.key !in privateKeys && ref.item.id !in privateKeys &&
+                    ref.aliases.none { it in privateKeys }
+            }
+            .flatMap { ref ->
+                (ref.aliases.filter { it.startsWith("phone:") || it in routeIds } + ref.key)
+                    .distinct().asSequence().map { ref.item.copy(id = it) }
+            }.toList()
+    }
     /** The caller supplies an already-authorized, isolated vault queue.
      * Preserve that scope through the viewer's own final queue filter. */
     fun queue(ids: List<String>, rows: List<DownloadEntity>, privateMode: Boolean = false): List<DownloadEntity> =
@@ -39,5 +60,24 @@ object GalleryViewerState {
         return snapshot.drop((index + 1).coerceAtLeast(0)).firstOrNull { it in available }
             ?: snapshot.take(index.coerceAtLeast(0)).lastOrNull { it in available }
     }
-    fun canCreateVideo(page: Int, settledPage: Int, dragging: Boolean) = page == settledPage && !dragging
+    /** Preserve a still-authorized video across a *routine* reorder of other
+     * gallery rows. The caller owns the permission/privacy gate and supplies
+     * only its current authorized queue. A changed URI, ID, privacy class,
+     * visibility or pager index must dispose the old video immediately. */
+    fun canRetainCurrentVideoOnQueueRebind(
+        acceptedId: String?, acceptedUri: String?, acceptedPrivate: Boolean,
+        page: Int, currentQueue: List<DownloadEntity>,
+    ): Boolean {
+        if (acceptedId.isNullOrBlank() || acceptedUri.isNullOrBlank()) return false
+        val row = currentQueue.getOrNull(page) ?: return false
+        return row.id == acceptedId && row.savedUri == acceptedUri &&
+            row.mediaType == com.domenota.medialoader.core.model.MediaType.VIDEO &&
+            row.isPrivate == acceptedPrivate && !row.hidden &&
+            row.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED
+    }
+
+    /** A tentative finger drag must not destroy/recreate the same playing video.
+     * Release only after the pager settles on a different exact page; the
+     * caller still gates the actual file against the current authorized queue. */
+    fun canCreateVideo(page: Int, settledPage: Int, dragging: Boolean) = page == settledPage
 }

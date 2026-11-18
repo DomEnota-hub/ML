@@ -146,6 +146,12 @@ class LibraryValidationGateTest {
         val music = PhoneLibraryState(loaded = true, complete = true,
             revision = 21, requiresValidation = false)
         assertTrue(postTransferIndexAligned(ready,gallery,music,guard))
+        // A photo-only folder transfer must not force an unrelated, never-opened
+        // audio library to scan merely to dismiss the transfer's completion UI.
+        assertTrue(postTransferIndexAligned(ready,gallery,PhoneLibraryState(),guard,setOf(AppMode.GALLERY)))
+        assertFalse(postTransferIndexAligned(ready,gallery.copy(complete=false),PhoneLibraryState(),guard,setOf(AppMode.GALLERY)))
+        assertTrue(postTransferIndexAligned(ready,PhoneLibraryState(),music,guard,setOf(AppMode.MUSIC)))
+        assertFalse(postTransferIndexAligned(ready,PhoneLibraryState(),music.copy(loaded=false),guard,setOf(AppMode.MUSIC)))
         assertFalse(postTransferIndexAligned(ready,gallery.copy(complete=false),music,guard))
         assertFalse(postTransferIndexAligned(ready,gallery,music.copy(complete=false),guard))
         assertFalse(postTransferIndexAligned(ready,gallery.copy(message="Не удалось обновить файлы"),music,guard))

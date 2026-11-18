@@ -14,7 +14,10 @@ import org.robolectric.annotation.Config
 class VideoWatchProgressTest {
     private val prefs = ApplicationProvider.getApplicationContext<Context>()
         .getSharedPreferences("video_playback_positions", Context.MODE_PRIVATE)
-    @Before fun reset() { prefs.edit().clear().commit() }
+    @Before fun reset() {
+        kotlinx.coroutines.runBlocking { VideoWatchProgress.awaitQueuedWrites() }
+        prefs.edit().clear().commit()
+    }
 
     @Test fun existingResumePositionAppearsWithoutOpeningTheVideo() {
         prefs.edit().putLong("old", 25_000L).commit()
@@ -56,4 +59,17 @@ class VideoWatchProgressTest {
         assertEquals(0L, VideoWatchProgress.resumePosition(prefs, "download"))
         assertEquals(1f, VideoWatchProgress.read(prefs, "download", null), 0f)
     }
+
+    @Test fun queuedWatchWritesPreserveEndOfVideoClearAndSourceAliases() {
+        kotlinx.coroutines.runBlocking {
+            VideoWatchProgress.recordQueued(prefs, "video", 86_000L, 147_000L)
+            VideoWatchProgress.saveResumeQueued(prefs, "video", 86_000L)
+            VideoWatchProgress.recordQueued(prefs, "video", 147_000L, 147_000L)
+            VideoWatchProgress.saveResumeQueued(prefs, "video", null)
+            VideoWatchProgress.awaitQueuedWrites()
+        }
+        assertEquals(1f, VideoWatchProgress.read(prefs, "video", null), 0f)
+        assertEquals(0L, VideoWatchProgress.resumePosition(prefs, "video"))
+    }
+
 }

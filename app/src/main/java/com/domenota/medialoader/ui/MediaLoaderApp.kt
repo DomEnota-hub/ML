@@ -2839,11 +2839,25 @@ fun MediaLoaderApp(
                 }
                 val viewerPublicRefs = if (visibilityScope != null) scopedFolderRefs else if (collectionViewer) scopedCatalog?.refs.orEmpty() else publicLibraryRefs
                 val indexedCandidates = remember(visualRoute, viewerPublicRefs, libraryPrivateKeys,
-                    snapshot, downloadId, currentGalleryId, fileStatuses, fileStatusUris, collectionViewer) { if (visualRoute) GalleryViewerState.publicCandidates(viewerPublicRefs, libraryPrivateKeys,
-                    snapshot.toSet() + listOfNotNull(downloadId, currentGalleryId)).filter { row ->
-                    !row.hidden && !row.isPrivate && row.savedUri != null && row.state == DownloadState.COMPLETED &&
-                        (fileStatusUris[row.id] != row.savedUri || (fileStatuses[row.id] != SavedFileStatus.MISSING && fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE))
-                } else emptyList() }
+                    snapshot, downloadId, currentGalleryId, fileStatuses, fileStatusUris, collectionViewer, visibilityScope) {
+                    if (!visualRoute) emptyList() else {
+                        val requested = snapshot.toSet() + listOfNotNull(downloadId, currentGalleryId)
+                        // publicLibraryRefs is *already* UnifiedMediaLibrary.merge output.
+                        // A second merge on the playback UI thread caused long stalls
+                        // on the real Xiaomi 11k-item catalog. Scoped/collection
+                        // refs are not guaranteed grouped and retain the strict path.
+                        val candidates = if (visibilityScope == null && !collectionViewer)
+                            GalleryViewerState.publicCandidatesFromUnified(viewerPublicRefs, libraryPrivateKeys, requested)
+                        else GalleryViewerState.publicCandidates(viewerPublicRefs, libraryPrivateKeys, requested)
+                        candidates.filter { row ->
+                            !row.hidden && !row.isPrivate && row.savedUri != null &&
+                                row.state == DownloadState.COMPLETED &&
+                                (fileStatusUris[row.id] != row.savedUri ||
+                                    (fileStatuses[row.id] != SavedFileStatus.MISSING &&
+                                        fileStatuses[row.id] != SavedFileStatus.INACCESSIBLE))
+                        }
+                    }
+                }
                 // Resolve the exact fresh history row without waiting for a whole-phone index.
                 // A scoped collection must never be expanded into raw public history.
                 val selectedHistoryRow = if (visualRoute && !privateViewer && !collectionViewer)
@@ -3182,6 +3196,7 @@ fun MediaLoaderApp(
                 com.domenota.medialoader.ui.components.FolderVisibilityMiniPanel(
                     state = visibilityWorkState,
                     onOpen = { visibilityWorkExpanded=true },
+                    catalogStatus = postTransferCatalogStatus,
                 )
             }
         }

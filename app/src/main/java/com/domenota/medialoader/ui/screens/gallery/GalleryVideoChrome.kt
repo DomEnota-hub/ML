@@ -113,24 +113,28 @@ internal fun GalleryVideoChrome(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val durationKnown = durationMs > 0L
                 val length = durationMs.coerceAtLeast(1L)
-                Text(galleryVideoClock(scrubbing?.toLong() ?: positionMs),
+                Text(galleryVideoClock(if (durationKnown) scrubbing?.toLong() ?: positionMs else positionMs),
                     color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 // Render thumb and track in ONE Canvas coordinate system.
                 // This prevents any vertical offset or Material3-specific gap.
-                val visiblePosition = (scrubbing ?: positionMs.toFloat())
-                    .coerceIn(0f, length.toFloat())
+                // An unknown timeline never makes a resumed 01:26 position
+                // look like 100% progress against a fabricated 1ms duration.
+                val visiblePosition = if (durationKnown)
+                    (scrubbing ?: positionMs.toFloat()).coerceIn(0f, length.toFloat())
+                    else 0f
                 Canvas(
                     Modifier.weight(1f).height(40.dp)
-                        .pointerInput(length) {
-                            detectTapGestures { point ->
+                        .pointerInput(length, durationKnown) {
+                            if (durationKnown) detectTapGestures { point ->
                                 val fraction = galleryTimelineFraction(
                                     point.x, size.width.toFloat(), 6.dp.toPx())
                                 onSeekTo((fraction * length).toLong())
                             }
                         }
-                        .pointerInput(length) {
-                            detectDragGestures(
+                        .pointerInput(length, durationKnown) {
+                            if (durationKnown) detectDragGestures(
                                 onDragStart = { point ->
                                     scrubbing = galleryTimelineFraction(
                                         point.x, size.width.toFloat(), 6.dp.toPx()) * length
@@ -149,11 +153,13 @@ internal fun GalleryVideoChrome(
                         }
                         .semantics {
                             contentDescription = "Положение воспроизведения"
-                            progressBarRangeInfo = ProgressBarRangeInfo(
-                                visiblePosition, 0f..length.toFloat())
-                            setProgress { newValue ->
-                                onSeekTo(newValue.toLong().coerceIn(0L, length))
-                                true
+                            if (durationKnown) {
+                                progressBarRangeInfo = ProgressBarRangeInfo(
+                                    visiblePosition, 0f..length.toFloat())
+                                setProgress { newValue ->
+                                    onSeekTo(newValue.toLong().coerceIn(0L, length))
+                                    true
+                                }
                             }
                         },
                 ) {
@@ -171,7 +177,8 @@ internal fun GalleryVideoChrome(
                         strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
                     drawCircle(Color.White, radius = radius, center = Offset(thumbX, centerY))
                 }
-                Text(galleryVideoClock(durationMs), color = Color.White, fontSize = 12.sp,
+                Text(if (durationKnown) galleryVideoClock(durationMs) else "--:--",
+                    color = Color.White, fontSize = 12.sp,
                     fontWeight = FontWeight.Medium)
             }
         }

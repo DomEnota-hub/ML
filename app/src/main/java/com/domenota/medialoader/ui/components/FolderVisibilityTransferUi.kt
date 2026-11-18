@@ -3,6 +3,7 @@ package com.domenota.medialoader.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,7 +23,6 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
@@ -79,11 +79,14 @@ internal fun visibilityTransferPresentation(
         VisibilityExecutionPhase.VERIFYING -> VisibilityTransferPresentation(
             "Проверяем результат","Все элементы обработаны; финальная проверка ещё выполняется")
         VisibilityExecutionPhase.COMPLETED -> when (catalogStatus) {
+            PostTransferCatalogStatus.IDLE -> VisibilityTransferPresentation(
+                "Файлы перенесены","Ожидаем проверку медиатеки. Завершение ещё не подтверждено")
             PostTransferCatalogStatus.UPDATING -> VisibilityTransferPresentation(
-                "Файлы перенесены","Обновляем Галерею и Музыку. Проверенные файлы остаются доступны",isComplete=true)
+                "Файлы перенесены","Обновляем медиатеку. Проверенные файлы остаются доступны")
             PostTransferCatalogStatus.INCOMPLETE -> VisibilityTransferPresentation(
-                "Файлы перенесены","Обновление медиатеки не подтверждено. Проверьте доступ и журнал",isComplete=true)
-            else -> VisibilityTransferPresentation(
+                "Обновление не подтверждено","Проверьте доступ и журнал. Перенос файлов завершён, но медиатека не проверена",
+                canDismiss=true)
+            PostTransferCatalogStatus.READY -> VisibilityTransferPresentation(
                 "Перенос завершён","Результат подтверждён после проверки всех элементов",isComplete=true)
         }
         VisibilityExecutionPhase.RECOVERABLE_PENDING -> VisibilityTransferPresentation(
@@ -213,15 +216,20 @@ internal fun FolderVisibilityTransferDialog(
                         },
                         enabled=presentation.canPause||presentation.canResume||
                             presentation.isComplete||presentation.canDismiss,
-                        modifier=Modifier.weight(1f).heightIn(min=48.dp)
+                        modifier=Modifier.weight(1f).heightIn(min=48.dp),
+                        contentPadding=PaddingValues(horizontal=8.dp,vertical=8.dp)
                     ) {
-                        Icon(when {
-                            presentation.canResume -> Icons.Rounded.PlayArrow
-                            presentation.isComplete -> Icons.Rounded.CheckCircle
-                            presentation.canDismiss -> Icons.Rounded.KeyboardArrowDown
-                            else -> Icons.Rounded.Pause
-                        },null,modifier=Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
+                        // The "Продолжить" action must be fully readable on narrow
+                        // phones at user font scales. An optional play icon must
+                        // not steal the last character of the label.
+                        if (!presentation.canResume) {
+                            Icon(when {
+                                presentation.isComplete -> Icons.Rounded.CheckCircle
+                                presentation.canDismiss -> Icons.Rounded.KeyboardArrowDown
+                                else -> Icons.Rounded.Pause
+                            },null,modifier=Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                        }
                         Text(when {
                             presentation.isComplete -> "Готово"
                             presentation.canDismiss -> "Закрыть"
@@ -237,14 +245,35 @@ internal fun FolderVisibilityTransferDialog(
     }
 }
 
+/** The compact first line reports the last *verified* phase, not X/Y alone.
+ * Keep the second line numeric and do not expose a private folder name. */
+internal fun visibilityMiniPanelTitle(
+    state:VisibilityExecutionSnapshot,
+    catalogStatus:PostTransferCatalogStatus,
+):String = when(state.phase) {
+    VisibilityExecutionPhase.COMPLETED -> when(catalogStatus) {
+        PostTransferCatalogStatus.READY -> "Перенос завершён"
+        PostTransferCatalogStatus.UPDATING -> "Обновляем медиатеку"
+        PostTransferCatalogStatus.INCOMPLETE -> "Медиатека не проверена"
+        PostTransferCatalogStatus.IDLE -> "Проверяем медиатеку"
+    }
+    VisibilityExecutionPhase.VERIFYING -> "Проверяем файлы"
+    VisibilityExecutionPhase.RECOVERABLE_PENDING -> "Перенос не завершён"
+    VisibilityExecutionPhase.FAILED -> "Перенос остановлен"
+    VisibilityExecutionPhase.PAUSED -> "Перенос приостановлен"
+    VisibilityExecutionPhase.WAITING_FOR_ANDROID -> "Ожидание Android"
+    else -> "Перенос файлов"
+}
+
 /** This never includes private folder names, paths or media previews. */
 @Composable
 internal fun FolderVisibilityMiniPanel(
     state:VisibilityExecutionSnapshot,
     onOpen:()->Unit,
     modifier:Modifier=Modifier,
+    catalogStatus:PostTransferCatalogStatus=PostTransferCatalogStatus.IDLE,
 ) {
-    val present=visibilityTransferPresentation(state)
+    val title=visibilityMiniPanelTitle(state,catalogStatus)
     Surface(modifier=modifier.fillMaxWidth().testTag("visibility-transfer-compact"),
         shape=RoundedCornerShape(16.dp),color=transferSurface(),shadowElevation=5.dp) {
         Column(Modifier.clickable(onClick=onOpen).padding(12.dp),
@@ -253,7 +282,7 @@ internal fun FolderVisibilityMiniPanel(
                 horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Rounded.Folder,null,tint=transferAccent())
                 Column(Modifier.weight(1f)) {
-                    Text("Перенос файлов",style=MaterialTheme.typography.bodyMedium,
+                    Text(title,style=MaterialTheme.typography.bodyMedium,
                         fontWeight=FontWeight.Medium)
                     if (state.total > 0) Text(
                         "${state.confirmed}/${state.total}",

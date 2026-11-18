@@ -89,6 +89,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
                 progress.value=FolderVisibilityProgress(folder,direction,0,total,false,preparing=true,prepared=prepared)
             }
             currentStage=VisibilityOperationStage.PREFLIGHT
+            HistoricalRecoverySignals.markFolderMediaTypes(
+                plan.members.mapNotNull { it.publicOrigin?.mime }
+                    .takeIf { it.size == plan.members.size } ?: emptyList())
             com.domenota.medialoader.data.playback.ensureFolderVisibilityPlaybackSafe(context,plan.members)
             batch.begin(plan)
         }
@@ -107,6 +110,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             currentStage=VisibilityOperationStage.PLAN
             val plan=checkNotNull(bindings.planMembership(ref,target,state,VisibilityMediaStore(context)))
             currentStage=VisibilityOperationStage.PREFLIGHT
+            HistoricalRecoverySignals.markFolderMediaTypes(
+                plan.members.mapNotNull { it.publicOrigin?.mime }
+                    .takeIf { it.size == plan.members.size } ?: emptyList())
             com.domenota.medialoader.data.playback.ensureFolderVisibilityPlaybackSafe(context,plan.members)
             batch.begin(plan); changed=true
         }
@@ -118,6 +124,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         runOperation(approve) { batch ->
             currentStage=VisibilityOperationStage.PREFLIGHT
             val plan=checkNotNull(batchJournal.read()) { "Нет точного плана переноса" }
+            HistoricalRecoverySignals.markFolderMediaTypes(
+                plan.members.mapNotNull { it.publicOrigin?.mime }
+                    .takeIf { it.size == plan.members.size } ?: emptyList())
             com.domenota.medialoader.data.playback.ensureFolderVisibilityPlaybackSafe(context,plan.members)
             batch.resume()
         }
@@ -144,6 +153,18 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             // owner-root. Reject an invalid .nomedia *before* recovery enters its
             // global cache/scanner gate. No user media or durable journal changes.
             if (hasPendingJournal(context)) {
+                currentStage=VisibilityOperationStage.JOURNAL
+                // Read-only compatibility preflight, including a 1.7.203 batch
+                // that crashed after the batch-first legacy metadata upgrade.
+                // Reject orphan/corrupt/wrong-member plans BEFORE entering the
+                // expensive global media-index refresh gate.
+                val checkpoint = VisibilityRecoveryPlanner.inspect(
+                    batchJournal.read(), moveJournal.read(), allowLegacyUpgrade = true)
+                checkNotNull(checkpoint)
+                com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+                    "RECOVERY_PLAN verified=true direction=${checkpoint.direction} " +
+                        "confirmed=${checkpoint.confirmed}/${checkpoint.total} " +
+                        "phase=${checkpoint.active?.phase ?: "BETWEEN_FILES"}")
                 currentStage=VisibilityOperationStage.DESTINATION
                 val marker = withContext(Dispatchers.IO) {
                     FolderVisibilityStorageAccess.store().verifyExistingRoot()
@@ -216,6 +237,25 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             val root = File(context.noBackupFilesDir,DIRECTORY)
             return VisibilityPendingJournal.pending(File(root,MOVE)) { VisibilityJournalCodec.decode(it) == null } ||
                 VisibilityPendingJournal.pending(File(root,BATCH)) { VisibilityBatchCodec.decode(it) == null }
+        }
+
+        /** Read-only exact reserved-name proof for independent Private exports.
+         * A stalled SHOW may not yet have a public row, so querying MediaStore
+         * alone is insufficient to prevent stealing its original destination.
+         * Corrupt, missing or legacy ambiguous plans fail closed. */
+        internal suspend fun reservedPendingPublicNames(context: Context, relativePath: String): Set<String> {
+            if (!hasPendingJournal(context)) return emptySet()
+            check(relativePath.endsWith('/') && !relativePath.contains(".."))
+            val root = File(context.noBackupFilesDir,DIRECTORY)
+            val plan = checkNotNull(FileVisibilityBatchJournal(File(root,BATCH)).read()) {
+                "Незавершённый перенос без проверенного плана"
+            }
+            check(plan.members.all { it.publicOrigin != null }) {
+                "Неполный план переноса: проверка имён недоступна"
+            }
+            return plan.members.mapNotNull { member ->
+                member.publicOrigin?.takeIf { it.relativePath == relativePath }?.name
+            }.toSet()
         }
     }
 }

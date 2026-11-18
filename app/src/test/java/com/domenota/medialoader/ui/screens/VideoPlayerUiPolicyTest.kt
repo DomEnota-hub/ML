@@ -47,4 +47,16 @@ class VideoPlayerUiPolicyTest {
         org.junit.Assert.assertNull(policy.adjacentVideoIndex(items, 99, -1))
         org.junit.Assert.assertNull(policy.adjacentVideoIndex(items, 0, 0))
     }
+
+    @Test fun confirmedVideoDurationNeverFallsBackToZeroDuringBufferingOrUnknownTimeline() {
+        val continuity = VideoDurationContinuity()
+        org.junit.Assert.assertEquals(0L, continuity.accept(androidx.media3.common.C.TIME_UNSET))
+        org.junit.Assert.assertEquals(147_000L, continuity.accept(147_000L))
+        org.junit.Assert.assertEquals(147_000L, continuity.accept(androidx.media3.common.C.TIME_UNSET))
+        org.junit.Assert.assertEquals(147_000L, continuity.accept(0L))
+        org.junit.Assert.assertEquals(147_000L, continuity.accept(-1L))
+        org.junit.Assert.assertEquals(148_000L, continuity.accept(148_000L))
+        org.junit.Assert.assertEquals(0L, VideoDurationContinuity().accept(0L))
+    }
+
 }

@@ -3,12 +3,49 @@ package com.domenota.medialoader.data.playback
 import android.content.SharedPreferences
 import org.json.JSONObject
 import java.util.WeakHashMap
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 
 /** Watch marks are separate from resume positions so a completed video can still show 100%. */
 internal object VideoWatchProgress {
     private const val LINKS = "identity_aliases_v1"
     private data class CachedAliases(val json: String?, val values: Map<String, String>)
     private val cache = WeakHashMap<SharedPreferences, CachedAliases>()
+
+    // A provider/index worker can hold prefs' identity lock for several seconds.
+    // Player.Listener runs on Android's main looper: never wait for that lock or
+    // JSON alias parsing while handling READY/ENDED/lifecycle callbacks.
+    // A single FIFO writer guarantees ENDED -> clear resume cannot race with an
+    // older READY snapshot from the same player.
+    private val writes = Channel<() -> Unit>(Channel.UNLIMITED)
+    private val writerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    init {
+        writerScope.launch {
+            for (operation in writes) {
+                try { operation() } catch (failure: Exception) {
+                    com.domenota.medialoader.core.logging.AppLog.w(
+                        "VideoPlayer", "Deferred watch progress write failed", failure)
+                }
+            }
+        }
+    }
+    fun recordQueued(prefs: SharedPreferences, id: String, positionMs: Long, durationMs: Long) {
+        if (durationMs <= 0L) return
+        writes.trySend { record(prefs, id, positionMs, durationMs) }
+    }
+    fun saveResumeQueued(prefs: SharedPreferences, id: String, positionMs: Long?) {
+        writes.trySend { saveResume(prefs, id, positionMs) }
+    }
+    /** Deterministic drain for unit tests; never call from the playback looper. */
+    internal suspend fun awaitQueuedWrites() {
+        val complete = CompletableDeferred<Unit>()
+        writes.send { complete.complete(Unit) }
+        complete.await()
+    }
     @Synchronized private fun aliases(prefs: SharedPreferences): Map<String, String> {
         val json = prefs.getString(LINKS, null)
         cache[prefs]?.takeIf { it.json == json }?.let { return it.values }

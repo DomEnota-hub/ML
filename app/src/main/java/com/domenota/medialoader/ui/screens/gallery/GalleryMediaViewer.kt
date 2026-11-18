@@ -92,6 +92,21 @@ internal fun GalleryMediaViewer(
     var chrome by rememberSaveable { mutableStateOf(true) }
     var zoomed by remember { mutableStateOf(false) }
     val current = if (synchronizedQueue) queue.getOrNull(pager.currentPage) ?: item else queue.firstOrNull { it.id == currentId } ?: item
+    // A new background queue generation can change neighbor IDs without
+    // changing the selected source. Keep only the exact previously authorized
+    // video at its unchanged page index until the pager resynchronizes.
+    // Never bridge a changed URI, hidden/private row or missing current index.
+    var acceptedVideo by remember { mutableStateOf<Triple<String,String,Boolean>?>(null) }
+    SideEffect {
+        if (synchronizedQueue) queue.getOrNull(pager.currentPage)
+            ?.takeIf { it.id == currentId && it.mediaType == MediaType.VIDEO &&
+                !it.hidden && !it.savedUri.isNullOrBlank() }
+            ?.let { acceptedVideo = Triple(it.id, requireNotNull(it.savedUri), it.isPrivate) }
+    }
+    val retainVideoDuringQueueRebind = !synchronizedQueue && acceptedVideo?.let { (id, source, wasPrivate) ->
+        GalleryViewerState.canRetainCurrentVideoOnQueueRebind(id, source, wasPrivate,
+            pager.currentPage, queue)
+    } == true
     // Keep fullscreen when navigating episodes through the player arrows.
     var fullscreen by rememberSaveable { mutableStateOf(false) }
     var locked by rememberSaveable(current.id) { mutableStateOf(false) }
@@ -245,7 +260,8 @@ internal fun GalleryMediaViewer(
                 modifier = Modifier.fillMaxSize()) { page ->
                 // Keep the pager measured so scrollToPage can synchronize, but
                 // never construct a player from its old numeric index.
-                if (!synchronizedQueue) return@HorizontalPager
+                if (!synchronizedQueue && !(retainVideoDuringQueueRebind && page == pager.currentPage))
+                    return@HorizontalPager
                 val row = queue.getOrNull(page) ?: return@HorizontalPager
                 val uri = Uri.parse(requireNotNull(row.savedUri))
                 val poster = if (row.mediaType == MediaType.VIDEO) rememberVideoViewerPoster(row.id, uri) else null

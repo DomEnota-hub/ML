@@ -17,14 +17,63 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
+/** A media provider rescan is needed only for the kinds affected by a
+ * confirmed folder move. Unknown/legacy plans still require both. */
+internal enum class HistoricalMediaKind { VISUAL, AUDIO }
+
+internal fun visibilityAffectedMediaKinds(mimes: Collection<String>): Set<HistoricalMediaKind> {
+    if (mimes.isEmpty()) return HistoricalMediaKind.entries.toSet()
+    val kinds = mutableSetOf<HistoricalMediaKind>()
+    for (mime in mimes) when {
+        mime.startsWith("image/") || mime.startsWith("video/") -> kinds += HistoricalMediaKind.VISUAL
+        mime.startsWith("audio/") -> kinds += HistoricalMediaKind.AUDIO
+        else -> return HistoricalMediaKind.entries.toSet()
+    }
+    return kinds
+}
+
+/** A skipped/missing generation must never suppress a required provider scan. */
+internal fun aggregateRecoveryMediaImpacts(
+    previousVersion: Long, currentVersion: Long, known: Map<Long, Set<HistoricalMediaKind>>,
+): Set<HistoricalMediaKind> {
+    val both = HistoricalMediaKind.entries.toSet()
+    if (currentVersion <= previousVersion) return both
+    if (currentVersion - previousVersion > 32) return both
+    val observed = mutableSetOf<HistoricalMediaKind>()
+    for (version in previousVersion + 1..currentVersion) {
+        observed += known[version] ?: return both
+    }
+    return observed.ifEmpty { both }
+}
+
 /** Process-local coordination for public media replacement and rebuildable library state. */
 internal object HistoricalRecoverySignals {
     private val running = MutableStateFlow(false)
     @Volatile private var folderOperation = false
     fun isFolderVisibilityOperation(): Boolean = running.value && folderOperation
     private val completedVersion = MutableStateFlow(0L)
+    private val allMediaKinds = HistoricalMediaKind.entries.toSet()
+    private var operationMediaKinds: Set<HistoricalMediaKind> = allMediaKinds
+    private data class CompletedMediaImpact(val version: Long, val kinds: Set<HistoricalMediaKind>)
+    private val impactHistory = java.util.ArrayDeque<CompletedMediaImpact>()
+    /** Short successive begin/end pairs can be conflated by StateFlow. Always
+     * union ALL unobserved impacts; missing/aged-out evidence means scan both. */
+    @Synchronized fun affectedMediaKindsSince(previousVersion: Long, currentVersion: Long): Set<HistoricalMediaKind> {
+        if (currentVersion <= previousVersion) return allMediaKinds
+        val history = impactHistory.associate { it.version to it.kinds }
+        return aggregateRecoveryMediaImpacts(previousVersion,currentVersion,history)
+    }
+
+    @Synchronized fun markFolderMediaTypes(mimes: Collection<String>) {
+        check(running.value && folderOperation) { "Нет активного переноса папки" }
+        operationMediaKinds = visibilityAffectedMediaKinds(mimes)
+    }
     private val folderVisibilityPending = MutableStateFlow(false)
     private val editorHolds = java.util.WeakHashMap<Any, Boolean>()
+    // The private vault can publish a distinct, collision-protected public
+    // destination even while an unrelated folder SHOW journal is pending.
+    // Hold this gate until private publication AND its date proof complete.
+    private var privateRestorePublicationActive = false
     val isRunning: StateFlow<Boolean> = running.asStateFlow()
     val version: StateFlow<Long> = completedVersion.asStateFlow()
 
@@ -53,9 +102,10 @@ internal object HistoricalRecoverySignals {
     @Synchronized fun beginFolderVisibility() = beginExclusive(folder = true)
     @Synchronized fun markFolderVisibilityPending(pending: Boolean) { folderVisibilityPending.value = pending }
     private fun beginExclusive(folder: Boolean = false) {
-        check(!running.value) { "Восстановление файлов уже выполняется" }
+        check(!running.value && !privateRestorePublicationActive) { "Восстановление файлов уже выполняется" }
         check(editorHolds.isEmpty()) { "Закройте редактор перед восстановлением файлов" }
         folderOperation = folder
+        operationMediaKinds = allMediaKinds
         running.value = true
         BackgroundMediaWork.setBusy("historical-recovery", true)
     }
@@ -64,14 +114,45 @@ internal object HistoricalRecoverySignals {
      * A rejected first binding proof has not changed any public alias or index. */
     @Synchronized fun end(changed: Boolean = true) {
         check(running.value) { "Восстановление файлов не запущено" }
-        if (changed) completedVersion.value += 1L
+        if (changed) {
+            val next = completedVersion.value + 1L
+            impactHistory.addLast(CompletedMediaImpact(next,
+                if (folderOperation) operationMediaKinds else allMediaKinds))
+            while (impactHistory.size > 32) impactHistory.removeFirst()
+            completedVersion.value = next
+        }
         running.value = false
         folderOperation = false
         BackgroundMediaWork.setBusy("historical-recovery", false)
     }
 
+    /** Unlike a general mutation, a verified private restore does not touch an
+     * existing hidden source, receipt or catalog binding. No concurrent file
+     * mutation is allowed and historic recovery must still be idle. Exact
+     * pending SHOW filenames are reserved separately by FolderVisibilityManager. */
+    @Synchronized fun beginIndependentPrivatePublication(context: Context) {
+        check(!running.value && !privateRestorePublicationActive) { "Другая файловая операция выполняется" }
+        check(!hasPendingHistoricalJournal(context) && !OldDownloadsRecovery.pending(context)) {
+            "Сначала завершите восстановление исторических файлов"
+        }
+        privateRestorePublicationActive = true
+    }
+
+    @Synchronized fun requireIndependentPrivatePublication() {
+        check(privateRestorePublicationActive && !running.value) {
+            "Не подтверждена независимая операция восстановления из Личного"
+        }
+    }
+
+    @Synchronized fun endIndependentPrivatePublication() {
+        check(privateRestorePublicationActive) { "Восстановление из Личного не выполняется" }
+        privateRestorePublicationActive = false
+    }
+
     fun requireIdle() {
-        check(!running.value && !folderVisibilityPending.value) { "Дождитесь завершения восстановления или переноса файлов" }
+        check(!running.value && !folderVisibilityPending.value && !privateRestorePublicationActive) {
+            "Дождитесь завершения восстановления или переноса файлов"
+        }
     }
 
     fun <T> normalMutation(block: () -> T): T = synchronized(this) {

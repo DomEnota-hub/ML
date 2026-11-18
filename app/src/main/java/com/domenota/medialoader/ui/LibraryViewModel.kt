@@ -49,6 +49,21 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 internal enum class PhoneScanReason { REQUEST, MEDIASTORE_CHANGE, PRIVACY_CHANGE, ACCESS_CHANGED, RECOVERY }
 internal enum class PostTransferCatalogStatus { IDLE, UPDATING, READY, INCOMPLETE }
+
+/** Version updates during a running operation are not a second ENTER. */
+internal fun enteringRecoveryGate(running: Boolean, previouslyRunning: Boolean): Boolean =
+    running && !previouslyRunning
+
+/** Only changed provider kinds require a physical rescan; an unrelated
+ * MediaStore callback queued during the transfer is also honored. */
+internal fun recoveryRefreshModes(
+    kinds: Set<com.domenota.medialoader.data.storage.HistoricalMediaKind>,
+    pending: Set<AppMode> = emptySet(),
+): Set<AppMode> = buildSet {
+    if (com.domenota.medialoader.data.storage.HistoricalMediaKind.VISUAL in kinds) add(AppMode.GALLERY)
+    if (com.domenota.medialoader.data.storage.HistoricalMediaKind.AUDIO in kinds) add(AppMode.MUSIC)
+    addAll(pending.filter { it == AppMode.GALLERY || it == AppMode.MUSIC })
+}
 internal data class PhoneLibraryState(
     val items: List<DownloadEntity> = emptyList(), val loading: Boolean = false,
     val loaded: Boolean = false, val message: String? = null, val revision: Long = 0,
@@ -122,14 +137,17 @@ internal fun guardedRetainedIndexRefs(
 internal fun postTransferIndexAligned(
     index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState,
     guard: FolderVisibilityLibraryGuard?,
-): Boolean = index.ready && index.appComplete && guard != null &&
-    index.visibility == guard &&
-    gallery.loaded && music.loaded && gallery.complete && music.complete &&
-    !gallery.loading && !music.loading &&
-    gallery.message == null && music.message == null &&
-    index.galleryRevision == gallery.revision &&
-    index.musicRevision == music.revision &&
-    index.galleryAccessEpoch == gallery.accessEpoch && index.musicAccessEpoch == music.accessEpoch
+    affected: Set<AppMode> = setOf(AppMode.GALLERY,AppMode.MUSIC),
+): Boolean {
+    if (!index.ready || !index.appComplete || guard == null || index.visibility != guard) return false
+    fun verified(phone: PhoneLibraryState, revision: Long, epoch: Long): Boolean =
+        phone.loaded && phone.complete && !phone.loading && phone.message == null &&
+            revision == phone.revision && epoch == phone.accessEpoch
+    return (AppMode.GALLERY !in affected ||
+        verified(gallery,index.galleryRevision,index.galleryAccessEpoch)) &&
+        (AppMode.MUSIC !in affected ||
+        verified(music,index.musicRevision,index.musicAccessEpoch))
+}
 
 /** Duplicate search requires the complete current visual generation, not a
  * browseable first page. Audio inventory is irrelevant to photo/video coverage. */
@@ -727,6 +745,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private var editorHoldsAutomaticIndexing = false
     private var recoveryRefreshPending = false
     private var observedRecoveryVersion = HistoricalRecoverySignals.version.value
+    private var recoveryGateObservedRunning = false
+    private var recoveryAffectedModes: Set<AppMode> = setOf(AppMode.GALLERY,AppMode.MUSIC)
     private var postTransferSerial = 0L
     private var postTransferJob: Job? = null
     private val postTransferState = MutableStateFlow(PostTransferCatalogStatus.IDLE)
@@ -743,9 +763,15 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private fun refreshAfterHistoricalRecovery() {
         if (!recoveryRefreshPending || editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
         recoveryRefreshPending = false
+        val modes = recoveryRefreshModes(
+            recoveryAffectedModes.mapTo(mutableSetOf()) {
+                if (it == AppMode.GALLERY)
+                    com.domenota.medialoader.data.storage.HistoricalMediaKind.VISUAL
+                else com.domenota.medialoader.data.storage.HistoricalMediaKind.AUDIO
+            },pendingMediaChanges)
         if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
             com.domenota.medialoader.core.logging.AppLog.i("Perf",
-                "RECOVERY_REFRESH_REQUEST modes=GALLERY,MUSIC pendingMediaChanges=${pendingMediaChanges.size} " +
+                "RECOVERY_REFRESH_REQUEST modes=${modes.joinToString(",")} pendingMediaChanges=${pendingMediaChanges.size} " +
                 "galleryLoaded=${galleryState.value.loaded} musicLoaded=${musicState.value.loaded}")
         }
         pendingMediaChanges.clear()
@@ -756,8 +782,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         // Folder receipts/pending members already invalidate the exact visibility
         // projection. Do not revoke the unrelated, still-authorized 11k-row
         // phone generation: reconcile from it and publish once verified.
-        refresh(AppMode.GALLERY, force = true, reason = PhoneScanReason.RECOVERY)
-        refresh(AppMode.MUSIC, force = true, reason = PhoneScanReason.RECOVERY)
+        for (mode in modes) refresh(mode, force = true, reason = PhoneScanReason.RECOVERY)
         val galleryJob = jobs[AppMode.GALLERY]
         val musicJob = jobs[AppMode.MUSIC]
         postTransferJob = viewModelScope.launch {
@@ -768,7 +793,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 galleryJob?.join()
                 musicJob?.join()
                 combine(index, gallery, music, visibilityGuard) { current, pictures, audio, guard ->
-                    postTransferIndexAligned(current, pictures, audio, guard)
+                    postTransferIndexAligned(current, pictures, audio, guard, modes)
                 }.first { it }
                 true
             } == true
@@ -786,7 +811,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             combine(HistoricalRecoverySignals.isRunning, HistoricalRecoverySignals.version) { running, version ->
                 running to version
             }.collect { (running, version) ->
-                if (running) {
+                val entered = enteringRecoveryGate(running,recoveryGateObservedRunning)
+                recoveryGateObservedRunning = running
+                if (entered) {
                     transferBootstrapEpochs.clear()
                     postTransferSerial++
                     postTransferJob?.cancel()
@@ -807,23 +834,29 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     // Actual permission changes still advance accessEpoch in
                     // refresh(); historical file operations must not masquerade
                     // as revoked READ_MEDIA_* grants.
-                } else if (version != observedRecoveryVersion) {
+                } else if (!running && version != observedRecoveryVersion) {
                     if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
                         com.domenota.medialoader.core.logging.AppLog.i("Perf",
                             "RECOVERY_GATE state=EXIT changedVersion=true " +
                             "invalidates=GALLERY,MUSIC,IDENTITY,STAMP,CACHE")
                     }
+                    // Only a validated exact MIME list narrows provider rescans.
+                    // On a skipped/conflated version, unknown source or unrelated
+                    // historical recovery, the signal conservatively selects both.
+                    val affectedKinds = HistoricalRecoverySignals.affectedMediaKindsSince(observedRecoveryVersion,version)
+                    recoveryAffectedModes = recoveryRefreshModes(affectedKinds)
                     observedRecoveryVersion = version
                     recoveryRefreshPending = true
-                    // StateFlow can conflate a short begin/end pair. Do not
-                    // drop the validated generation retained at transfer start.
+                    // Alias changes still require a fresh current canonical index.
+                    // Provider inventories, however, only change for touched MIME.
                     identityCache.clear()
-                    storeStamps.clear()
-                    refreshedAt.clear()
+                    for (mode in recoveryAffectedModes) {
+                        storeStamps.remove(mode)
+                        refreshedAt.remove(mode)
+                        phoneCache.clear(mode)
+                    }
                     externalCatalog.reloadHistoricalMedia()
                     playlistRepository.reloadHistoricalMedia()
-                    phoneCache.clear(AppMode.GALLERY)
-                    phoneCache.clear(AppMode.MUSIC)
                     refreshAfterHistoricalRecovery()
                 }
             }

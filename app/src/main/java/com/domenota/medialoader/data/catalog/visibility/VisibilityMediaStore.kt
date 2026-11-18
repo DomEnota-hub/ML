@@ -293,20 +293,11 @@ internal class VisibilityMediaStore(context: Context) {
             check(HiddenFolderFileStore.fingerprint(checkNotNull(resolver.openInputStream(readable))) == expected)
             return@withContext
         }
-        val digest = MessageDigest.getInstance("SHA-256"); var copied = 0L
         checkNotNull(resolver.openFileDescriptor(uri,"rwt")).use { fd ->
             open().use { input -> FileOutputStream(fd.fileDescriptor).use { output ->
-                val buffer = ByteArray(64*1024)
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val n = input.read(buffer); if (n < 0) break; if (n == 0) continue
-                    check(n.toLong() <= expected.bytes - copied)
-                    output.write(buffer,0,n); digest.update(buffer,0,n); copied += n
-                }
-                output.flush(); output.fd.sync()
+                VisibilityVerifiedCopy.writeAndSync(input,output,expected)
             } }
         }
-        check(VisibilityFingerprint(copied,digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }) == expected)
         check(HiddenFolderFileStore.fingerprint(checkNotNull(resolver.openInputStream(uri))) == expected)
     }
     suspend fun publishRestore(origin: VisibilityPublicOrigin, token: String, destination: String,
@@ -331,19 +322,50 @@ internal class VisibilityMediaStore(context: Context) {
         check(file.path == File(origin.physicalPath).canonicalPath && file.isFile && file.length() == expected.bytes)
         if (file.lastModified() != origin.modifiedMillis) check(file.setLastModified(origin.modifiedMillis))
         check(file.lastModified() == origin.modifiedMillis)
-        if (row.size == expected.bytes && row.modified == origin.modifiedSeconds &&
-            (origin.takenMillis == null || row.taken == origin.takenMillis)) return@withContext
+        fun observed(current: Row): VisibilityRestoreMetadataStatus =
+            VisibilityRestoreMetadataPolicy.observe(
+                expected.bytes,origin.modifiedSeconds,origin.takenMillis,
+                current.size,current.modified,current.taken)
+        // Android can round DATE_TAKEN to seconds. Never confuse a harmless
+        // <=1s provider rounding with changed content; all byte/owner/path
+        // proofs above and in FolderVisibilityMove still apply.
+        if (observed(row).confirmed) return@withContext
         MediaScannerConnection.scanFile(context,arrayOf(file.path),arrayOf(origin.mime),null)
+        var lastStatus = observed(row)
         repeat(12) { attempt ->
             val scanned = reserved(origin,token,uri,allowPublished=true)
-            if (!scanned.pending && scanned.name == origin.name && scanned.size == expected.bytes &&
-                scanned.modified == origin.modifiedSeconds && (origin.takenMillis == null || scanned.taken == origin.takenMillis)) {
+            lastStatus = observed(scanned)
+            if (!scanned.pending && scanned.name == origin.name && lastStatus.confirmed) {
                 val original = if (origin.mime.startsWith("audio/")) uri else MediaStore.setRequireOriginal(uri)
                 check(HiddenFolderFileStore.fingerprint(checkNotNull(resolver.openInputStream(original))) == expected)
                 return@withContext
             }
+            // Some Android providers accept a file timestamp on disk but leave
+            // their indexed DATE_MODIFIED/DATE_TAKEN stale indefinitely. Repair
+            // only the EXACT owned journal destination after verifying its path,
+            // size, physical mtime and SHA. Never alter the old hidden source.
+            if (attempt in setOf(0,4,8) && (!lastStatus.modifiedConfirmed || !lastStatus.takenConfirmed)) {
+                check(file.canonicalPath == File(origin.physicalPath).canonicalPath &&
+                    file.isFile && file.length() == expected.bytes && file.lastModified() == origin.modifiedMillis)
+                val corrections = ContentValues().apply {
+                    if (!lastStatus.modifiedConfirmed)
+                        put(MediaStore.MediaColumns.DATE_MODIFIED,origin.modifiedSeconds)
+                    if (!lastStatus.takenConfirmed && origin.takenMillis != null &&
+                        !origin.mime.startsWith("audio/"))
+                        put(MediaStore.MediaColumns.DATE_TAKEN,origin.takenMillis)
+                }
+                if (corrections.size() > 0) {
+                    val updated = resolver.update(uri,corrections,null,null)
+                    check(updated in 0..1) { "MediaStore вернул неоднозначный результат исправления даты" }
+                }
+            }
             if (attempt != 11) delay(400)
         }
-        error("Системная медиатека ещё не подтвердила восстановление файла")
+        // Fail closed and retain the old SHA-verified hidden source + journals.
+        // A published public file may coexist with it; do not try another
+        // allocation or silently discard the unconfirmed restored metadata.
+        com.domenota.medialoader.core.logging.AppLog.w("FolderVisibility",
+            "RESTORE_METADATA_PENDING code=${lastStatus.diagnosticCode} attempts=12 originalRetained=true")
+        error("Дата или размер восстановленного файла не подтверждены: ${lastStatus.diagnosticCode}. Исходник и журнал сохранены")
     }
 }

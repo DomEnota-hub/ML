@@ -34,3 +34,18 @@ internal object VideoPlayerUiPolicy {
         return null
     }
 }
+
+/** Media3 may report TIME_UNSET during a legal BUFFERING/timeline transition.
+ * Never replace a confirmed current-source duration with 00:00. Instances
+ * belong to one exact video URI and must not leak metadata to another file. */
+internal class VideoDurationContinuity {
+    var confirmedMs: Long = 0L
+        private set
+
+    fun accept(reportedMs: Long): Long {
+        if (reportedMs > 0L && reportedMs < Long.MAX_VALUE / 2L) {
+            confirmedMs = reportedMs
+        }
+        return confirmedMs
+    }
+}

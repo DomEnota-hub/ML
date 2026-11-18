@@ -27,6 +27,7 @@ class FolderVisibilityMoveTest {
         var failAfterRemoval = false
         var failIndex = false
         var failBindingProof = false
+        var failPublishedMetadata = false
         var removalCount = 0
         var finalDirection: VisibilityDirection? = null
         override suspend fun currentUri(record: VisibilityMoveRecord) = binding
@@ -42,7 +43,10 @@ class FolderVisibilityMoveTest {
             if (failCopy) error("disk full")
             files["destination"] = if (corruptCopy) wrong else files.getValue("source")
         }
-        override suspend fun verifyDestination(record: VisibilityMoveRecord) { check(record.destinationUri == "destination") }
+        override suspend fun verifyDestination(record: VisibilityMoveRecord) {
+            check(record.destinationUri == "destination")
+            check(!failPublishedMetadata) { "MediaStore metadata unconfirmed" }
+        }
         override suspend fun rebind(record: VisibilityMoveRecord) {
             check(binding == "source" || binding == "destination")
             binding = "destination"
@@ -81,6 +85,24 @@ class FolderVisibilityMoveTest {
         assertEquals("source",p.binding); assertEquals(original,p.files["source"]); assertEquals(0,p.removalCount)
         p.corruptCopy=false; FolderVisibilityMove(j,p).resume(); assertNull(j.record)
     }
+    @Test fun publishedButUnconfirmedRestoreKeepsHiddenBytesAndJournalForResume() = runBlocking {
+        val journal = Journal(); val ports = Ports()
+        ports.failPublishedMetadata = true
+        fails { FolderVisibilityMove(journal, ports).begin(plan(VisibilityDirection.SHOW)) }
+        assertEquals(VisibilityMovePhase.ALLOCATED,journal.record?.phase)
+        assertEquals(original,ports.files["source"])
+        assertEquals(original,ports.files["destination"])
+        assertEquals("source",ports.binding)
+        assertEquals(0,ports.removalCount)
+        // Once Android confirms the SAME exact destination, resume cannot
+        // reallocate or overwrite another public media row.
+        ports.failPublishedMetadata = false
+        FolderVisibilityMove(journal,ports).resume()
+        assertNull(journal.record)
+        assertEquals(1,ports.removalCount)
+        assertEquals(original,ports.files["destination"])
+    }
+
     @Test fun diskFullRetainsOriginalAndCanResume() = runBlocking {
         val j=Journal(); val p=Ports(); p.failCopy=true
         fails { FolderVisibilityMove(j,p).begin(plan()) }
