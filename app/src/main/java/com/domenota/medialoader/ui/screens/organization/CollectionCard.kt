@@ -136,9 +136,7 @@ internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaR
                 // A temporarily unavailable MediaStore query is NOT evidence
                 // of new content. Keep an exact already accepted frame, but never
                 // decode/persist a new generation using a guessed fallback token.
-                if(check.token==null)return@withContext committed?.takeIf {
-                    it.metadata.slotToken==slot && it.metadata.source==source
-                }
+                if(check.token==null)return@withContext unverifiedCoverFallback(committed,slot,source)
                 val verifiedToken=check.token
                 val metadata=LastCollectionCover(slot,verifiedToken,source,identities,System.currentTimeMillis())
                 if(committed?.metadata?.let{it.slotToken==slot && it.contentToken==verifiedToken && it.identities==identities}==true)
@@ -198,6 +196,16 @@ internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaR
         else if(diskReady && privacy!=null && selection!=CollectionCoverSelection.Loading)
             Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
     }
+}
+
+/** On unknown provider state the only permissible display is the exact
+ * previously accepted source/slot; never manufacture a new frame or token. */
+internal fun unverifiedCoverFallback(
+    committed:LastCollectionCoverFrame?,
+    slot:String,
+    source:String,
+):LastCollectionCoverFrame? = committed?.takeIf {
+    it.metadata.slotToken==slot && it.metadata.source==source
 }
 
 private data class CollectionCoverSourceCheck(val token:String?,val confirmedAbsent:Boolean=false)
