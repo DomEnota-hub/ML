@@ -1,0 +1,66 @@
+[
+  {
+    "scope": "query_layer_real_logger_enqueue_not_phone_fs_flush",
+    "appLogInitialized": true,
+    "alternatingOrder": true,
+    "enabled": false,
+    "kind": "artwork",
+    "sources": 4,
+    "samplesMs": [
+      20.171318,
+      16.667715,
+      14.705867,
+      29.966597,
+      9.587246,
+      15.184485
+    ]
+  },
+  {
+    "scope": "query_layer_real_logger_enqueue_not_phone_fs_flush",
+    "appLogInitialized": true,
+    "alternatingOrder": true,
+    "enabled": true,
+    "kind": "artwork",
+    "sources": 4,
+    "samplesMs": [
+      15.928023,
+      41.25702,
+      22.666272,
+      18.647614,
+      16.299401,
+      15.634111
+    ]
+  },
+  {
+    "scope": "query_layer_real_logger_enqueue_not_phone_fs_flush",
+    "appLogInitialized": true,
+    "alternatingOrder": true,
+    "enabled": false,
+    "kind": "live_source",
+    "sources": 4,
+    "samplesMs": [
+      184.435736,
+      79.53466,
+      66.579766,
+      63.984797,
+      67.324024,
+      63.150859
+    ]
+  },
+  {
+    "scope": "query_layer_real_logger_enqueue_not_phone_fs_flush",
+    "appLogInitialized": true,
+    "alternatingOrder": true,
+    "enabled": true,
+    "kind": "live_source",
+    "sources": 4,
+    "samplesMs": [
+      103.900672,
+      100.518068,
+      93.941317,
+      67.717716,
+      80.183815,
+      90.476742
+    ]
+  }
+]

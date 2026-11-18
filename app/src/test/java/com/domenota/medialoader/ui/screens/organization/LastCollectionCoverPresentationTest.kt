@@ -128,4 +128,36 @@ class LastCollectionCoverPresentationTest {
         }finally{releaseReplacement.complete(Unit)}
     }
 
+    @Test fun changingAutomaticToCustomKeepsAcceptedFrameWhileSnapshotWriterIsBlocked() {
+        val bitmap=Bitmap.createBitmap(320,240,Bitmap.Config.ARGB_8888)
+        val decoder=object:CollectionOriginalCoverDecoder {
+            override suspend fun decode(context:Context,uri:String,kind:MediaKind,previewUrl:String?,identity:String)=bitmap
+        }
+        compose.setContent{MaterialTheme{
+            CollectionCoverImage(collection,ref,coverAccess=CollectionCoverAccess(true,emptySet(),emptySet()),decoder=decoder)
+        }}
+        compose.waitUntil(12_000){LastCollectionCoverStore(context).peek(id)?.metadata?.slotToken?.startsWith("automatic:")==true}
+        compose.onNodeWithTag("collection-last-cover-image").assertIsDisplayed()
+        val field=LastCollectionCoverStore::class.java.getDeclaredField("ioLock").apply{isAccessible=true}
+        val lock=field.get(null)
+        val entered=java.util.concurrent.CountDownLatch(1)
+        val release=java.util.concurrent.CountDownLatch(1)
+        val holder=kotlin.concurrent.thread {
+            synchronized(lock){entered.countDown();release.await()}
+        }
+        try {
+            assertTrue(entered.await(5,java.util.concurrent.TimeUnit.SECONDS))
+            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO){
+                CollectionCoverStore(context).save(id,"content://test-cover/new-custom",bitmap,CollectionCrop())
+            }
+            compose.waitUntil(12_000){compose.onAllNodesWithTag("collection-cover-custom-slot").fetchSemanticsNodes().isNotEmpty()}
+            // The desired custom mode is already composed, but no replacement can
+            // be accepted while the actual snapshot IO lock is held.
+            compose.onNodeWithTag("collection-last-cover-image").assertIsDisplayed()
+            assertTrue(LastCollectionCoverStore(context).peek(id)!!.metadata.slotToken.startsWith("automatic:"))
+        } finally { release.countDown();holder.join(5000) }
+        compose.waitUntil(12_000){LastCollectionCoverStore(context).peek(id)?.metadata?.slotToken?.startsWith("custom:")==true}
+        compose.onNodeWithTag("collection-last-cover-image").assertIsDisplayed()
+    }
+
 }

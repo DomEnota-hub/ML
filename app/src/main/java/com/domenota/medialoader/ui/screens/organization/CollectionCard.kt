@@ -65,10 +65,12 @@ internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaR
     }
     val selected=(selection as? CollectionCoverSelection.Selected)?.cover
     val member=collectionAutomaticCoverMember(collection.members,privacy)
-    val slot=remember(selected,selection,member?.id,member?.identityJson){when {
+    val automaticSlot=remember(member?.id,member?.identityJson){member?.takeIf {
+        MediaOrganizationPolicy.decode(it.identityJson).isNotEmpty()
+    }?.let { "automatic:"+PersistentProjectionCache.digest(it.id+"\u0000"+it.identityJson) }}
+    val slot=remember(selected,selection,automaticSlot){when {
         selected!=null -> "custom:"+PersistentProjectionCache.digest(selected.file.absolutePath+selected.source+selected.crop)
-        selection==CollectionCoverSelection.Automatic && member!=null && MediaOrganizationPolicy.decode(member.identityJson).isNotEmpty() ->
-            "automatic:"+PersistentProjectionCache.digest(member.id+"\u0000"+member.identityJson)
+        selection==CollectionCoverSelection.Automatic -> automaticSlot
         else -> null
     }}
     val audioRevisions by com.domenota.medialoader.core.storage.AudioThumbnailInvalidation.revisions.collectAsState()
@@ -171,7 +173,7 @@ internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaR
         }
         if(removed){removedSlot=slot;last=null}
     }
-    Box(modifier,contentAlignment=Alignment.Center){
+    Box(modifier.testTag(if(selected!=null) "collection-cover-custom-slot" else "collection-cover-automatic-slot"),contentAlignment=Alignment.Center){
         val automaticSafe=selected!=null || cover==null || (privacy!=null && member!=null &&
             cover.item.state==com.domenota.medialoader.core.model.DownloadState.COMPLETED &&
             !collectionRefBlocked(cover,privacy) && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson),cover))
@@ -180,6 +182,10 @@ internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaR
                 (cached.metadata.slotToken.startsWith("custom:") &&
                     ((selected!=null && collectionCoverAllowed(selected.source,privacy) && selected.identities.none{it in privacy.orEmpty()}) ||
                         (selection==CollectionCoverSelection.Automatic && slot!=null)) &&
+                    lastCollectionCoverAllowed(cached.metadata,cached.metadata.slotToken,privacy)) ||
+                (selected!=null && privacy!=null && cached.metadata.slotToken==automaticSlot &&
+                    (cover==null || !collectionRefBlocked(cover,privacy)) &&
+                    collectionCoverAllowed(selected.source,privacy) && selected.identities.none{it in privacy.orEmpty()} &&
                     lastCollectionCoverAllowed(cached.metadata,cached.metadata.slotToken,privacy)))
         }
         if(frame!=null)androidx.compose.foundation.Image(frame.bitmap.asImageBitmap(),null,Modifier.fillMaxSize().testTag("collection-last-cover-image"),

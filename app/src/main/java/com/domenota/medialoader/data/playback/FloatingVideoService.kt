@@ -71,7 +71,12 @@ class FloatingVideoService : Service() {
             val player = service.player ?: return@withContext
             val items = FolderVisibilityPlaybackSafety.snapshot(player)
             val proof = FolderVisibilityPlaybackSafety.prove(context, items)
-            if (liveInstance === service && service.player === player) {
+            val currentService=liveInstance
+            val currentPlayer=currentService?.player
+            check(currentPlayer==null || currentService===service && currentPlayer===player) {
+                "Плеер изменился во время проверки переноса"
+            }
+            if (currentService===service && currentPlayer===player) {
                 FolderVisibilityPlaybackSafety.removeAffected(player, affected, items, proof,
                     FolderVisibilityPlaybackSafety.currentPrivacyWithRead(context, com.domenota.medialoader.core.model.MediaType.VIDEO, service.folderVisibilityPrivateIds))
                 if (player.mediaItemCount == 0 || service.itemId in affected) {

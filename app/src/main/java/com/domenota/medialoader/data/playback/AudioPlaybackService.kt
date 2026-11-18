@@ -58,7 +58,9 @@ class AudioPlaybackService : MediaSessionService() {
                 val player = liveSession?.player ?: return@withContext
                 val items = FolderVisibilityPlaybackSafety.snapshot(player)
                 val proof = FolderVisibilityPlaybackSafety.prove(context, items)
-                if (liveSession?.player === player)
+                val currentPlayer = liveSession?.player
+                check(currentPlayer == null || currentPlayer === player) { "Плеер изменился во время проверки переноса" }
+                if (currentPlayer === player)
                     FolderVisibilityPlaybackSafety.removeAffected(player, affected, items, proof,
                         FolderVisibilityPlaybackSafety.currentPrivacyWithRead(context, com.domenota.medialoader.core.model.MediaType.AUDIO, folderVisibilityPrivateIds))
             }
