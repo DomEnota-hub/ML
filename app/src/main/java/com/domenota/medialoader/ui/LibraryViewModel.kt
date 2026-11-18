@@ -61,9 +61,11 @@ internal data class PhoneLibraryState(
  * the *current* FolderVisibilityLibraryGuard on every index build.
  *
  * Do not retain partial/cold/permission-unvalidated snapshots. */
-internal fun retainPhoneSnapshotAtTransferBoundary(previous: PhoneLibraryState): PhoneLibraryState =
-    if (previous.loaded && previous.complete && !previous.loading &&
-        !previous.requiresValidation && previous.message == null) previous
+internal fun retainPhoneSnapshotAtTransferBoundary(
+    previous: PhoneLibraryState, indexedRevision: Long, indexReady: Boolean,
+): PhoneLibraryState =
+    if (previous.loaded && previous.complete && !previous.loading && previous.message == null &&
+        (!previous.requiresValidation || (indexReady && previous.revision == indexedRevision))) previous
     else PhoneLibraryState(revision = previous.revision + 1, accessEpoch = previous.accessEpoch)
 
 /** Equal complete snapshots do not invalidate downstream catalogs. Compare on a worker. */
@@ -618,8 +620,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     mediaChangeJob?.cancel()
                     jobs.values.forEach { it.cancel() }
                     jobs.clear()
-                    galleryState.value = retainPhoneSnapshotAtTransferBoundary(galleryState.value)
-                    musicState.value = retainPhoneSnapshotAtTransferBoundary(musicState.value)
+                    val indexed = index.value
+                    galleryState.value = retainPhoneSnapshotAtTransferBoundary(
+                        galleryState.value, indexed.galleryRevision, indexed.ready)
+                    musicState.value = retainPhoneSnapshotAtTransferBoundary(
+                        musicState.value, indexed.musicRevision, indexed.ready)
                     // Actual permission changes still advance accessEpoch in
                     // refresh(); historical file operations must not masquerade
                     // as revoked READ_MEDIA_* grants.
@@ -631,11 +636,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     }
                     observedRecoveryVersion = version
                     recoveryRefreshPending = true
-                    // StateFlow can conflate a short begin/end pair. Keep only
-                    // fully validated, unchanged-permission generations;
-                    // the current visibility guard excludes moved members.
-                    galleryState.value = retainPhoneSnapshotAtTransferBoundary(galleryState.value)
-                    musicState.value = retainPhoneSnapshotAtTransferBoundary(musicState.value)
+                    // StateFlow can conflate a short begin/end pair. Do not
+                    // drop the validated generation retained at transfer start.
                     identityCache.clear()
                     storeStamps.clear()
                     refreshedAt.clear()
