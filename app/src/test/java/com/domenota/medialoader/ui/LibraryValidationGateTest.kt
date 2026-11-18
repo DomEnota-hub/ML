@@ -5,6 +5,55 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LibraryValidationGateTest {
+    @Test fun folderTransferRetainsCompletePhoneRowsInsteadOfPublishingFalseZero() {
+        val media = com.domenota.medialoader.core.database.DownloadEntity(
+            "public-photo", "https://example.invalid/test", "image.jpg",
+            com.domenota.medialoader.core.model.MediaType.PHOTO,
+            com.domenota.medialoader.core.model.DownloadState.COMPLETED,
+            "content://media/external/images/media/42", 6144L, 1700000000000L)
+        val complete = PhoneLibraryState(items = listOf(media), loaded = true,
+            complete = true, loading = false, requiresValidation = false,
+            revision = 41, accessEpoch = 8)
+        val kept = retainPhoneSnapshotAtTransferBoundary(complete)
+        assertSame(complete, kept)
+        assertEquals(listOf(media), kept.items)
+        assertEquals(41L, kept.revision)
+        assertFalse(visibleLibraryValidationPending(AppMode.GALLERY,
+            LibraryIndex(ready = true, galleryRevision = kept.revision),
+            kept, PhoneLibraryState()))
+    }
+
+    @Test fun folderTransferNeverRetainsPartialOrPermissionUnvalidatedRows() {
+        val complete = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 21, accessEpoch = 7)
+        for (unsafe in listOf(
+            complete.copy(loaded = false),
+            complete.copy(complete = false),
+            complete.copy(loading = true),
+            complete.copy(requiresValidation = true),
+            complete.copy(message = "Permission denied")
+        )) {
+            val dropped = retainPhoneSnapshotAtTransferBoundary(unsafe)
+            assertFalse(dropped.loaded)
+            assertTrue(dropped.items.isEmpty())
+            assertTrue(dropped.requiresValidation)
+            assertEquals(unsafe.accessEpoch, dropped.accessEpoch)
+            assertEquals(unsafe.revision + 1, dropped.revision)
+        }
+    }
+
+    @Test fun transferBoundaryKeepsVerifiedMusicWithoutFakingPermissionChanges() {
+        val complete = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 14, accessEpoch = 3)
+        val kept = retainPhoneSnapshotAtTransferBoundary(complete)
+        assertSame(complete, kept)
+        assertFalse(visibleLibraryValidationPending(AppMode.MUSIC,
+            LibraryIndex(ready = true, musicRevision = 14), PhoneLibraryState(), kept))
+        assertFalse(canRefreshLibrarySilently(kept,
+            LibraryIndex(ready = true, musicRevision = 14), 14,
+            accessChanged = true, selectedOnlyAccess = false, privacyInvalidated = false))
+    }
+
     @Test fun validatedFirstPageBecomesVisibleWhileRemainingScanContinues() {
         val partial = PhoneLibraryState(loaded = true, loading = true, revision = 7)
         val other = PhoneLibraryState()
