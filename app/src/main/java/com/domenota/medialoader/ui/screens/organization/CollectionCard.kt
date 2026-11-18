@@ -133,10 +133,13 @@ internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaR
                     }
                     return@withContext null
                 }
-                // A failed provider check cannot replace an already accepted
-                // frame with an unverified fallback generation.
-                if(check.token==null && committed?.metadata?.let{it.slotToken==slot && it.source==source}==true)return@withContext committed
-                val verifiedToken=check.token?:contentToken
+                // A temporarily unavailable MediaStore query is NOT evidence
+                // of new content. Keep an exact already accepted frame, but never
+                // decode/persist a new generation using a guessed fallback token.
+                if(check.token==null)return@withContext committed?.takeIf {
+                    it.metadata.slotToken==slot && it.metadata.source==source
+                }
+                val verifiedToken=check.token
                 val metadata=LastCollectionCover(slot,verifiedToken,source,identities,System.currentTimeMillis())
                 if(committed?.metadata?.let{it.slotToken==slot && it.contentToken==verifiedToken && it.identities==identities}==true)
                     return@withContext committed
