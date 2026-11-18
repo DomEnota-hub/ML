@@ -241,10 +241,11 @@ internal fun FolderVisibilityMiniPanel(
                 Column(Modifier.weight(1f)) {
                     Text("Перенос файлов",style=MaterialTheme.typography.bodyMedium,
                         fontWeight=FontWeight.Medium)
-                    Text(if(state.total>0) "${present.message} • ${state.confirmed}/${state.total}"
-                        else present.message,style=MaterialTheme.typography.bodySmall,
-                        color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,
-                        overflow=TextOverflow.Ellipsis)
+                    if (state.total > 0) Text(
+                        "${state.confirmed}/${state.total}",
+                        style=MaterialTheme.typography.bodySmall,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
                 OutlinedButton(onClick=onOpen,modifier=Modifier.heightIn(min=48.dp)) {
                     Text("Открыть")
