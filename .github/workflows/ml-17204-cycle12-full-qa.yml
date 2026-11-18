@@ -1,4 +1,4 @@
-name: ML 1.7.204 stages 1-2 full recovery QA
+name: ML 1.7.204 stages 3-4 full compatibility and performance QA
 
 on:
   push:
@@ -48,6 +48,9 @@ jobs:
           set -euo pipefail
           grep -Eq 'versionCode 264$' app/build.gradle
           grep -Fq "versionName '1.7.204'" app/build.gradle
+          test -s app/src/main/java/com/domenota/medialoader/data/catalog/visibility/VisibilityRecoveryPlan.kt
+          test -s app/src/main/java/com/domenota/medialoader/data/catalog/visibility/VisibilityVerifiedCopy.kt
+          grep -q 'verifyInline = false' app/src/main/java/com/domenota/medialoader/data/catalog/visibility/FolderVisibilityCatalogBindings.kt
           python3 scripts/audit_ui_palette.py
           python3 scripts/check-round-sliders.py
           python3 scripts/check-in-app-notices.py
