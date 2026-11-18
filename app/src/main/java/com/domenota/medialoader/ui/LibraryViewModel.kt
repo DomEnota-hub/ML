@@ -49,6 +49,17 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 internal enum class PhoneScanReason { REQUEST, MEDIASTORE_CHANGE, PRIVACY_CHANGE, ACCESS_CHANGED, RECOVERY }
 internal enum class PostTransferCatalogStatus { IDLE, UPDATING, READY, INCOMPLETE }
+
+/** Only changed provider kinds require a physical rescan; an unrelated
+ * MediaStore callback queued during the transfer is also honored. */
+internal fun recoveryRefreshModes(
+    kinds: Set<com.domenota.medialoader.data.storage.HistoricalMediaKind>,
+    pending: Set<AppMode> = emptySet(),
+): Set<AppMode> = buildSet {
+    if (com.domenota.medialoader.data.storage.HistoricalMediaKind.VISUAL in kinds) add(AppMode.GALLERY)
+    if (com.domenota.medialoader.data.storage.HistoricalMediaKind.AUDIO in kinds) add(AppMode.MUSIC)
+    addAll(pending.filter { it == AppMode.GALLERY || it == AppMode.MUSIC })
+}
 internal data class PhoneLibraryState(
     val items: List<DownloadEntity> = emptyList(), val loading: Boolean = false,
     val loaded: Boolean = false, val message: String? = null, val revision: Long = 0,
@@ -744,7 +755,12 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private fun refreshAfterHistoricalRecovery() {
         if (!recoveryRefreshPending || editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
         recoveryRefreshPending = false
-        val modes = recoveryAffectedModes + pendingMediaChanges
+        val modes = recoveryRefreshModes(
+            recoveryAffectedModes.mapTo(mutableSetOf()) {
+                if (it == AppMode.GALLERY)
+                    com.domenota.medialoader.data.storage.HistoricalMediaKind.VISUAL
+                else com.domenota.medialoader.data.storage.HistoricalMediaKind.AUDIO
+            },pendingMediaChanges)
         if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
             com.domenota.medialoader.core.logging.AppLog.i("Perf",
                 "RECOVERY_REFRESH_REQUEST modes=${modes.joinToString(",")} pendingMediaChanges=${pendingMediaChanges.size} " +
@@ -818,12 +834,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     // On a skipped/conflated version, unknown source or unrelated
                     // historical recovery, the signal conservatively selects both.
                     val affectedKinds = HistoricalRecoverySignals.affectedMediaKindsSince(observedRecoveryVersion,version)
-                    recoveryAffectedModes = buildSet {
-                        if (com.domenota.medialoader.data.storage.HistoricalMediaKind.VISUAL in affectedKinds)
-                            add(AppMode.GALLERY)
-                        if (com.domenota.medialoader.data.storage.HistoricalMediaKind.AUDIO in affectedKinds)
-                            add(AppMode.MUSIC)
-                    }
+                    recoveryAffectedModes = recoveryRefreshModes(affectedKinds)
                     observedRecoveryVersion = version
                     recoveryRefreshPending = true
                     // Alias changes still require a fresh current canonical index.
