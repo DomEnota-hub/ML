@@ -162,8 +162,7 @@ private const val PLAYLIST_ADD_ROUTE = "playlist-add/{playlistId}"
 /** The compact transfer panel belongs to Downloader chrome only. Gallery,
  * Music and media viewers stay usable while the dataSync service runs. */
 internal fun visibilityMiniPanelHostAllowed(mode: AppMode, route: String?): Boolean =
-    mode == AppMode.DOWNLOADER && route in setOf(
-        AppDestination.Home.route, AppDestination.Downloads.route, AppDestination.Settings.route)
+    mode == AppMode.DOWNLOADER && route == AppDestination.Downloads.route
 
 
 @OptIn(ExperimentalMaterial3Api::class)
