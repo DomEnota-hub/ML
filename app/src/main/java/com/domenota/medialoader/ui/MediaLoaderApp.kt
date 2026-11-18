@@ -3182,6 +3182,7 @@ fun MediaLoaderApp(
                 com.domenota.medialoader.ui.components.FolderVisibilityMiniPanel(
                     state = visibilityWorkState,
                     onOpen = { visibilityWorkExpanded=true },
+                    catalogStatus = postTransferCatalogStatus,
                 )
             }
         }
