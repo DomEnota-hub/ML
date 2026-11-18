@@ -114,7 +114,9 @@ internal fun reusableCollectionCovers(
 internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit,onCreate:()->Unit={onOpen(null)},blockedIdentities:Set<String>?=emptySet(),cachedCovers:Map<String,LibraryMediaRef> = emptyMap(),coverAccess:CollectionCoverAccess?=null,collectionsReady:Boolean=true) {
     var covers by remember { mutableStateOf<Map<String,CollectionCoverCandidate>>(emptyMap()) }
     val memberIdentities=remember(collections){
-        collections.flatMap { it.members }.associate { it.id to it.identityJson }
+        collections.flatMap { it.members }.mapNotNull { member ->
+            member.identityJson?.let { member.id to it }
+        }.toMap()
     }
     LaunchedEffect(collections,refs) {
         val resolved=withContext(Dispatchers.Default){
