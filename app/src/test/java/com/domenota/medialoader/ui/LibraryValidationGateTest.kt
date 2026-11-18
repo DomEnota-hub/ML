@@ -146,6 +146,9 @@ class LibraryValidationGateTest {
         val music = PhoneLibraryState(loaded = true, complete = true,
             revision = 21, requiresValidation = false)
         assertTrue(postTransferIndexAligned(ready,gallery,music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery.copy(complete=false),music,guard))
+        assertFalse(postTransferIndexAligned(ready,gallery,music.copy(complete=false),guard))
+        assertFalse(postTransferIndexAligned(ready,gallery.copy(message="Не удалось обновить файлы"),music,guard))
         assertFalse(postTransferIndexAligned(ready,gallery.copy(revision=44),music,guard))
         assertFalse(postTransferIndexAligned(ready,gallery,music.copy(loading=true),guard))
         assertFalse(postTransferIndexAligned(ready,gallery,music.copy(loaded=false),guard))
