@@ -28,10 +28,9 @@ internal object VisibilityRecoveryPlanner {
             check(pending.copy(destinationUri = null, phase = VisibilityMovePhase.PREPARED) == member) {
                 "Незавершённый перенос не принадлежит текущему файлу папки"
             }
-            check(pending.phase != VisibilityMovePhase.PREPARED) {
-                "Незавершённый перенос не содержит подтверждённого назначения"
-            }
-            check(pending.destinationUri != null)
+            // Process death is also legal between the initial journal CAS and
+            // allocation. PREPARED has no destination and must be replayable.
+            check((pending.phase == VisibilityMovePhase.PREPARED) == (pending.destinationUri == null))
         }
         return VisibilityRecoveryPlan(batch.id,batch.direction,batch.next,batch.members.size,pending)
     }
