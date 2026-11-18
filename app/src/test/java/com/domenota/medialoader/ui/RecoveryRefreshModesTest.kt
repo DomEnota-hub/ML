@@ -5,6 +5,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RecoveryRefreshModesTest {
+    @Test fun completedVersionWhileStillRunningDoesNotEnterRecoveryTwice() {
+        assertFalse(enteringRecoveryGate(false,false))
+        assertTrue(enteringRecoveryGate(true,false))
+        // StateFlow may emit an updated version while the same move remains
+        // marked running. Cancel/retain the catalog only on the first ENTER.
+        assertFalse(enteringRecoveryGate(true,true))
+        assertFalse(enteringRecoveryGate(false,true))
+        assertTrue(enteringRecoveryGate(true,false))
+    }
+
     @Test fun visualHideNeverForcesUnrelatedMusicProviderRefresh() {
         assertEquals(setOf(AppMode.GALLERY),
             recoveryRefreshModes(setOf(HistoricalMediaKind.VISUAL)))
