@@ -293,20 +293,11 @@ internal class VisibilityMediaStore(context: Context) {
             check(HiddenFolderFileStore.fingerprint(checkNotNull(resolver.openInputStream(readable))) == expected)
             return@withContext
         }
-        val digest = MessageDigest.getInstance("SHA-256"); var copied = 0L
         checkNotNull(resolver.openFileDescriptor(uri,"rwt")).use { fd ->
             open().use { input -> FileOutputStream(fd.fileDescriptor).use { output ->
-                val buffer = ByteArray(64*1024)
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val n = input.read(buffer); if (n < 0) break; if (n == 0) continue
-                    check(n.toLong() <= expected.bytes - copied)
-                    output.write(buffer,0,n); digest.update(buffer,0,n); copied += n
-                }
-                output.flush(); output.fd.sync()
+                VisibilityVerifiedCopy.writeAndSync(input,output,expected)
             } }
         }
-        check(VisibilityFingerprint(copied,digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }) == expected)
         check(HiddenFolderFileStore.fingerprint(checkNotNull(resolver.openInputStream(uri))) == expected)
     }
     suspend fun publishRestore(origin: VisibilityPublicOrigin, token: String, destination: String,
