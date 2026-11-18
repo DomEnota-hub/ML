@@ -656,12 +656,12 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         val galleryJob = jobs[AppMode.GALLERY]
         val musicJob = jobs[AppMode.MUSIC]
         postTransferJob = viewModelScope.launch {
-            galleryJob?.join()
-            musicJob?.join()
-            // Wait for the same current visibility and phone generations to
-            // reach the canonical index. Never hold a file operation open or
-            // alter its durable journal while the UI finishes reconciling.
+            // Bound the WHOLE background recovery, including provider scans.
+            // A stalled Android cursor must not leave the UI in "updating" forever.
+            // The deadline never cancels or rolls back the durable transfer.
             val ready = withTimeoutOrNull(90_000L) {
+                galleryJob?.join()
+                musicJob?.join()
                 combine(index, gallery, music, visibilityGuard) { current, pictures, audio, guard ->
                     postTransferIndexAligned(current, pictures, audio, guard)
                 }.first { it }
