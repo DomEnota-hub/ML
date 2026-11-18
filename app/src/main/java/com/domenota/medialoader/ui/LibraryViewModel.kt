@@ -118,7 +118,9 @@ internal fun postTransferIndexAligned(
     guard: FolderVisibilityLibraryGuard?,
 ): Boolean = index.ready && index.appComplete && guard != null &&
     index.visibility == guard &&
-    gallery.loaded && music.loaded && !gallery.loading && !music.loading &&
+    gallery.loaded && music.loaded && gallery.complete && music.complete &&
+    !gallery.loading && !music.loading &&
+    gallery.message == null && music.message == null &&
     index.galleryRevision == gallery.revision &&
     index.musicRevision == music.revision
 
