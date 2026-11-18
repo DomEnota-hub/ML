@@ -16,7 +16,8 @@ internal data class VisibilityRecoveryPlan(
 )
 
 internal object VisibilityRecoveryPlanner {
-    fun inspect(batch: VisibilityBatchRecord?, pending: VisibilityMoveRecord?): VisibilityRecoveryPlan? {
+    fun inspect(batch: VisibilityBatchRecord?, pending: VisibilityMoveRecord?,
+        allowLegacyUpgrade: Boolean = false): VisibilityRecoveryPlan? {
         if (batch == null) {
             check(pending == null) { "Найден перенос без проверенного плана папки" }
             return null
@@ -25,7 +26,21 @@ internal object VisibilityRecoveryPlanner {
         val member = batch.members.getOrNull(batch.next)
         if (pending != null) {
             check(member != null) { "Журнал файла остался после завершения плана папки" }
-            check(pending.copy(destinationUri = null, phase = VisibilityMovePhase.PREPARED) == member) {
+            val prepared = pending.copy(destinationUri = null, phase = VisibilityMovePhase.PREPARED)
+            val legacyBatchFirstUpgrade = allowLegacyUpgrade &&
+                pending.direction == VisibilityDirection.HIDE &&
+                pending.publicOrigin == null && member.publicOrigin != null &&
+                prepared.operationId == member.operationId &&
+                prepared.folderId == member.folderId &&
+                prepared.downloadId == member.downloadId &&
+                prepared.direction == member.direction &&
+                prepared.sourceName == member.sourceName &&
+                prepared.fingerprint == member.fingerprint &&
+                prepared.destinationToken == member.destinationToken &&
+                prepared.logicalSourceUri == member.logicalSourceUri &&
+                prepared.sourceUri in setOf(member.sourceUri,member.logicalSourceUri) &&
+                (prepared.sourceModifiedMillis == null || prepared.sourceModifiedMillis == member.sourceModifiedMillis)
+            check(prepared == member || legacyBatchFirstUpgrade) {
                 "Незавершённый перенос не принадлежит текущему файлу папки"
             }
             // Process death is also legal between the initial journal CAS and
