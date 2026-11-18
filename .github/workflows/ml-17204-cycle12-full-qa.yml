@@ -6,6 +6,11 @@ on:
       - feature/ml-17204-recovery-compatibility
     paths:
       - .github/workflows/ml-17204-cycle12-full-qa.yml
+      - app/src/main/java/com/domenota/medialoader/ui/components/FolderVisibilityTransferUi.kt
+      - app/src/main/java/com/domenota/medialoader/ui/screens/organization/CollectionCard.kt
+      - app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
+      - app/src/test/java/com/domenota/medialoader/ui/components/FolderVisibilityTransferUiTest.kt
+      - app/src/test/java/com/domenota/medialoader/ui/screens/organization/LastCollectionCoverPresentationTest.kt
   workflow_dispatch:
 
 permissions:
