@@ -17,12 +17,39 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
+/** A media provider rescan is needed only for the kinds affected by a
+ * confirmed folder move. Unknown/legacy plans still require both. */
+internal enum class HistoricalMediaKind { VISUAL, AUDIO }
+
+internal fun visibilityAffectedMediaKinds(mimes: Collection<String>): Set<HistoricalMediaKind> {
+    if (mimes.isEmpty()) return HistoricalMediaKind.entries.toSet()
+    val kinds = mutableSetOf<HistoricalMediaKind>()
+    for (mime in mimes) when {
+        mime.startsWith("image/") || mime.startsWith("video/") -> kinds += HistoricalMediaKind.VISUAL
+        mime.startsWith("audio/") -> kinds += HistoricalMediaKind.AUDIO
+        else -> return HistoricalMediaKind.entries.toSet()
+    }
+    return kinds
+}
+
 /** Process-local coordination for public media replacement and rebuildable library state. */
 internal object HistoricalRecoverySignals {
     private val running = MutableStateFlow(false)
     @Volatile private var folderOperation = false
     fun isFolderVisibilityOperation(): Boolean = running.value && folderOperation
     private val completedVersion = MutableStateFlow(0L)
+    private val allMediaKinds = HistoricalMediaKind.entries.toSet()
+    private var operationMediaKinds: Set<HistoricalMediaKind> = allMediaKinds
+    private data class CompletedMediaImpact(val version: Long, val kinds: Set<HistoricalMediaKind>)
+    @Volatile private var completedMediaImpact = CompletedMediaImpact(0L, allMediaKinds)
+    /** A missed/conflated generation never narrows the scan by guessing. */
+    fun affectedMediaKindsFor(version: Long): Set<HistoricalMediaKind> =
+        completedMediaImpact.takeIf { it.version == version }?.kinds ?: allMediaKinds
+
+    @Synchronized fun markFolderMediaTypes(mimes: Collection<String>) {
+        check(running.value && folderOperation) { "Нет активного переноса папки" }
+        operationMediaKinds = visibilityAffectedMediaKinds(mimes)
+    }
     private val folderVisibilityPending = MutableStateFlow(false)
     private val editorHolds = java.util.WeakHashMap<Any, Boolean>()
     // The private vault can publish a distinct, collision-protected public
@@ -60,6 +87,7 @@ internal object HistoricalRecoverySignals {
         check(!running.value && !privateRestorePublicationActive) { "Восстановление файлов уже выполняется" }
         check(editorHolds.isEmpty()) { "Закройте редактор перед восстановлением файлов" }
         folderOperation = folder
+        operationMediaKinds = allMediaKinds
         running.value = true
         BackgroundMediaWork.setBusy("historical-recovery", true)
     }
@@ -68,7 +96,11 @@ internal object HistoricalRecoverySignals {
      * A rejected first binding proof has not changed any public alias or index. */
     @Synchronized fun end(changed: Boolean = true) {
         check(running.value) { "Восстановление файлов не запущено" }
-        if (changed) completedVersion.value += 1L
+        if (changed) {
+            val next = completedVersion.value + 1L
+            completedMediaImpact = CompletedMediaImpact(next,if (folderOperation) operationMediaKinds else allMediaKinds)
+            completedVersion.value = next
+        }
         running.value = false
         folderOperation = false
         BackgroundMediaWork.setBusy("historical-recovery", false)
