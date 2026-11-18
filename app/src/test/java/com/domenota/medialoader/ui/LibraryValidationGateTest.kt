@@ -1,6 +1,11 @@
 package com.domenota.medialoader.ui
 
 import com.domenota.medialoader.data.library.AppMode
+import com.domenota.medialoader.data.library.LibraryMediaRef
+import com.domenota.medialoader.data.catalog.visibility.*
+import com.domenota.medialoader.core.database.DownloadEntity
+import com.domenota.medialoader.core.model.DownloadState
+import com.domenota.medialoader.core.model.MediaType
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -77,6 +82,57 @@ class LibraryValidationGateTest {
             com.domenota.medialoader.ui.navigation.AppDestination.Home.route))
         assertFalse(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER, "media-viewer"))
         assertFalse(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER, "collections"))
+    }
+
+    private fun publicPhoto(id: String, uri: String): LibraryMediaRef =
+        LibraryMediaRef(id, setOf(id, uri), DownloadEntity(id, "test", "$id.jpg",
+            MediaType.PHOTO, DownloadState.COMPLETED, uri, 200L, 1700000000000L), id)
+
+    @Test fun visibilityRebuildKeepsOtherMediaWithoutExposingPendingMember() {
+        val moving = publicPhoto("moving", "content://media/external/images/media/15")
+        val safe = publicPhoto("safe", "content://media/external/images/media/17")
+        val old = FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot()), emptyList(), emptyList())
+        val pending = VisibilityMoveRecord("move-1", "hidden-folder", "moving",
+            VisibilityDirection.HIDE, moving.item.savedUri!!, "moving.jpg", null,
+            VisibilityFingerprint(200, "a".repeat(64)), "target-token")
+        val active = FolderVisibilityLibraryGuard(
+            FolderVisibilityReadPolicy(FolderVisibilitySnapshot(),
+                pendingFolder = "hidden-folder", pendingMembers = listOf(pending)),
+            emptyList(), emptyList())
+        val indexed = LibraryIndex(ready = true, refs = listOf(moving, safe),
+            galleryRevision = 8, musicRevision = 5,
+            privacyKeys = emptySet(), visibility = old)
+        val gallery = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 8)
+        val music = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 5)
+        assertEquals(listOf(moving, safe),
+            guardedRetainedIndexRefs(indexed, old, emptySet(), gallery, music))
+        assertEquals(listOf(safe),
+            guardedRetainedIndexRefs(indexed, active, emptySet(), gallery, music))
+        // Same current guard but changed private keys must not reuse old public data.
+        assertNull(guardedRetainedIndexRefs(indexed, active, setOf("new-private"), gallery, music))
+        // The same fail-closed policy applies when the recovered journal is unknown.
+        val unknown = FolderVisibilityLibraryGuard(
+            FolderVisibilityReadPolicy(FolderVisibilitySnapshot(), unknownPending = true),
+            emptyList(), emptyList())
+        assertNull(guardedRetainedIndexRefs(indexed, unknown, emptySet(), gallery, music))
+    }
+
+    @Test fun visibilityRebuildNeverReusesUnvalidatedPermissionGeneration() {
+        val safe = publicPhoto("safe", "content://media/external/images/media/18")
+        val old = FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot()), emptyList(), emptyList())
+        val newGuard = FolderVisibilityLibraryGuard(
+            FolderVisibilityReadPolicy(FolderVisibilitySnapshot(hiddenFolders = setOf("hidden-folder"))),
+            emptyList(), emptyList())
+        val index = LibraryIndex(ready = true, refs = listOf(safe),
+            galleryRevision = 9, musicRevision = 4, privacyKeys = emptySet(), visibility = old)
+        val gallery = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = true, revision = 10)
+        val music = PhoneLibraryState(loaded = true, complete = true,
+            requiresValidation = false, revision = 4)
+        assertNull(guardedRetainedIndexRefs(index, newGuard, emptySet(), gallery, music))
+        assertNull(guardedRetainedIndexRefs(index.copy(ready = false), newGuard, emptySet(),gallery,music))
     }
 
     @Test fun validatedFirstPageBecomesVisibleWhileRemainingScanContinues() {
