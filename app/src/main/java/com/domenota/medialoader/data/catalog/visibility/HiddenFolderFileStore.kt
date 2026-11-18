@@ -119,21 +119,10 @@ internal class HiddenFolderFileStore(root: File) {
         }
         val stage = Files.createTempFile(target.parentFile.toPath(), ".visibility-", ".tmp").toFile()
         try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            var bytes = 0L
             open().use { input -> FileOutputStream(stage).use { out ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val n = input.read(buffer)
-                    if (n < 0) break
-                    if (n == 0) continue
-                    check(n.toLong() <= expected.bytes - bytes) { "Исходный файл увеличился" }
-                    out.write(buffer, 0, n); digest.update(buffer, 0, n); bytes += n
-                }
-                out.flush(); out.fd.sync()
+                VisibilityVerifiedCopy.writeAndSync(input,out,expected)
             } }
-            check(VisibilityFingerprint(bytes, digest.hex()) == expected && fingerprint(stage.inputStream()) == expected)
+            check(fingerprint(stage.inputStream()) == expected)
             confirmModified(stage, modifiedMillis)
             currentCoroutineContext().ensureActive()
             // No REPLACE_EXISTING. The operation gate serializes all app writers;
