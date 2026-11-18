@@ -1,0 +1,37 @@
+name: ML 1.7.204 exact-source private QA handoff
+on:
+  push:
+    branches:
+      - qa/ml-17204-source-handoff
+    paths:
+      - .github/workflows/ml-17204-source-handoff.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact accepted candidate, never temporary workflow HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: 0c600a1b97d78bc13f9446e5b9c97754e4913704
+          persist-credentials: false
+      - name: Verify and package only Git-tracked source at the accepted SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '0c600a1b97d78bc13f9446e5b9c97754e4913704'
+          mkdir -p handoff
+          git archive --format=zip -o handoff/ML_1.7.204_SOURCES_EXACT_COMMIT.zip HEAD
+          unzip -t handoff/ML_1.7.204_SOURCES_EXACT_COMMIT.zip >/dev/null
+          git rev-parse HEAD > handoff/EXACT_SOURCE_SHA.txt
+          (cd handoff && sha256sum ML_1.7.204_SOURCES_EXACT_COMMIT.zip EXACT_SOURCE_SHA.txt > SHA256SUMS.txt)
+      - name: Private source artifact; no release, signing keys or private media
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17204-exact-source-handoff
+          path: handoff/
+          compression-level: 0
+          retention-days: 2
