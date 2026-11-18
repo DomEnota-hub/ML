@@ -79,14 +79,54 @@ private fun CreateCollectionCard(onOpen:()->Unit,modifier:Modifier=Modifier) {
         }
     }
 }
+/** Previous cover selection may be reused during an asynchronous rebind
+ * only if the same collection member still resolves to the exact current,
+ * public physical identity. This prevents a full placeholder frame on a
+ * routine gallery recomposition without leaking a retired/private image. */
+internal data class CollectionCoverCandidate(
+    val memberIdentity: String,
+    val ref: LibraryMediaRef,
+)
+
+internal fun reusableCollectionCovers(
+    previous: Map<String, CollectionCoverCandidate>,
+    memberIdentities: Map<String, String>,
+    currentRefs: List<LibraryMediaRef>,
+): Map<String, LibraryMediaRef> {
+    val live = currentRefs.associateBy { it.key }
+    return previous.mapNotNull { (memberId, cached) ->
+        if (memberIdentities[memberId] != cached.memberIdentity) return@mapNotNull null
+        val current = live[cached.ref.key] ?: return@mapNotNull null
+        val a = cached.ref
+        val b = current
+        if (a.item.savedUri != b.item.savedUri ||
+            a.item.sizeBytes != b.item.sizeBytes ||
+            a.item.createdAtEpochMillis != b.item.createdAtEpochMillis ||
+            a.item.mediaType != b.item.mediaType ||
+            a.aliases != b.aliases ||
+            b.item.hidden || b.item.isPrivate ||
+            b.item.state != com.domenota.medialoader.core.model.DownloadState.COMPLETED)
+            null else memberId to b
+    }.toMap()
+}
+
 @Composable
 internal fun CollectionGalleryStrip(collections:List<MediaCollection>,refs:List<LibraryMediaRef>,onOpen:(String?)->Unit,onCreate:()->Unit={onOpen(null)},blockedIdentities:Set<String>?=emptySet(),cachedCovers:Map<String,LibraryMediaRef> = emptyMap(),coverAccess:CollectionCoverAccess?=null,collectionsReady:Boolean=true) {
-    var covers by remember(collections,refs){mutableStateOf(emptyMap<String,LibraryMediaRef>())}
-    LaunchedEffect(collections,refs){covers=withContext(Dispatchers.Default){MediaOrganizationPolicy.resolve(collections.flatMap{it.members},refs)}}
-    val live=remember(refs){refs.associateBy{it.key}}
-    val liveCovers=remember(covers,live){covers.mapNotNull { (id,candidate) ->
-        live[candidate.key]?.let { id to it }
-    }.toMap()}
+    var covers by remember { mutableStateOf<Map<String,CollectionCoverCandidate>>(emptyMap()) }
+    val memberIdentities=remember(collections){
+        collections.flatMap { it.members }.associate { it.id to it.identityJson }
+    }
+    LaunchedEffect(collections,refs) {
+        val resolved=withContext(Dispatchers.Default){
+            MediaOrganizationPolicy.resolve(collections.flatMap{it.members},refs)
+        }
+        covers=resolved.mapNotNull { (memberId,ref) ->
+            memberIdentities[memberId]?.let { memberId to CollectionCoverCandidate(it,ref) }
+        }.toMap()
+    }
+    val liveCovers=remember(covers,memberIdentities,refs) {
+        reusableCollectionCovers(covers,memberIdentities,refs)
+    }
     Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("Коллекции",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium);TextButton({onOpen(null)}){Text("Все коллекции")}}
         if(collections.isEmpty()&&collectionsReady)OrganizationEntry("Новая коллекция","Фото, видео, музыка и ссылки",onCreate)
