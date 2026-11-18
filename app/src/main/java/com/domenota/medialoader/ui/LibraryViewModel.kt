@@ -55,6 +55,17 @@ internal data class PhoneLibraryState(
     val accessEpoch: Long = 0,
     val complete: Boolean = false,
 )
+/** Transfer changes MediaStore locators, not the user's permission grant. Never
+ * publish zero rows for a completed, authorized generation simply because
+ * its background reconciliation began. Visibility is still filtered through
+ * the *current* FolderVisibilityLibraryGuard on every index build.
+ *
+ * Do not retain partial/cold/permission-unvalidated snapshots. */
+internal fun retainPhoneSnapshotAtTransferBoundary(previous: PhoneLibraryState): PhoneLibraryState =
+    if (previous.loaded && previous.complete && !previous.loading &&
+        !previous.requiresValidation && previous.message == null) previous
+    else PhoneLibraryState(revision = previous.revision + 1, accessEpoch = previous.accessEpoch)
+
 /** Equal complete snapshots do not invalidate downstream catalogs. Compare on a worker. */
 internal fun samePhoneContent(previous: PhoneLibraryState, next: PhoneMediaSnapshot): Boolean =
     previous.loaded && previous.complete && previous.items == next.items &&
@@ -385,8 +396,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private fun referenceBatches(rowsFlow: Flow<List<DownloadEntity>>,audio:Boolean=false): kotlinx.coroutines.flow.StateFlow<AppReferenceBatch?> {
         val publication = AppReferencePublicationPolicy()
         return combine(rowsFlow, HistoricalRecoverySignals.isRunning,
-        HistoricalRecoverySignals.version) { rows, running, _ -> rows.takeUnless { running } }
-        .transformLatest<List<DownloadEntity>?, AppReferenceBatch?> { rows ->
+        HistoricalRecoverySignals.version) { rows, running, version ->
+            rows.takeUnless { running } to (version > 0L)
+        }
+        .transformLatest<Pair<List<DownloadEntity>?, Boolean>, AppReferenceBatch?> { (rows, afterTransfer) ->
         if (rows == null) { emit(null); return@transformLatest }
         // Phone revisions must not restart this work. Keep cold first-page progress,
         // but do not feed every warm identity batch into a full catalog rebuild.
@@ -417,7 +430,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             val now = android.os.SystemClock.elapsedRealtime()
             if (publication.shouldPublish(resolved.size, rows.size, resolved.size == batch.size, now - publishedAt)) {
                 val complete = resolved.size == rows.size
-                emit(AppReferenceBatch(resolved.toList(), complete))
+                // After a move, build new aliases atomically: a partial rebound
+                // app batch must not replace 747 already-confirmed identities.
+                if (!afterTransfer || complete) emit(AppReferenceBatch(resolved.toList(), complete))
                 if (complete) publication.completed()
                 publishedAt = now
             }
@@ -429,6 +444,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             catch(e:CancellationException){throw e}catch(_:Exception){/* derived snapshot can be rebuilt */}
         }
         com.domenota.medialoader.core.logging.AppLog.i("Library", "App identity index ready · count=${resolved.size}")
+    }.runningFold<AppReferenceBatch?>(null) { previous, update ->
+        // The recovery signal temporarily suspends reference writes. Keep the
+        // last *complete* snapshot and re-check its privacy/visibility under
+        // the live guards; never retain an unvalidated partial batch.
+        update ?: previous?.takeIf { it.complete }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     }
     private val appAudioReferences = referenceBatches(completedDownloads.map { rows ->
@@ -464,7 +484,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         .combine(visibilityGuard) { input, visibility -> input to visibility }
         .mapLatest { (input, visibility) ->
             val (app, audio, private, recovering, epoch) = input
-            val guard = private?.takeUnless { recovering || visibility == null || visibility.policy.unknownPending }?.let { AudioCatalogGuard(it, epoch, visibility) }
+            val guard = private?.takeUnless { visibility == null || visibility.policy.unknownPending }?.let { AudioCatalogGuard(it, epoch, visibility) }
             val refs = if (guard != null && app?.complete == true && audio.loaded && audio.complete && !audio.loading && audio.accessEpoch == epoch) withContext(Dispatchers.IO) {
                 val phoneRefs = phoneReferences(audioPhoneReferences, PhoneLibraryState(), audio, app.refs, guard.privacy)
                 UnifiedMediaLibrary.merge(app.refs.filterNot { visibility!!.excluded(it) },
@@ -482,7 +502,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     }.combine(visibilityGuard) { input, visibility -> input to visibility }
     .mapLatest { (input, visibility) ->
         val (app, pictures, audio, private, recovering) = input
-        if (private == null || recovering || visibility == null || visibility.policy.unknownPending) LibraryIndex() else withContext(Dispatchers.IO) {
+        if (private == null || visibility == null || visibility.policy.unknownPending) LibraryIndex() else withContext(Dispatchers.IO) {
             // MediaStore's DATE_ADDED changes after a copied legacy download.
             // The matching app history still has the pre-migration timestamp.
             // Reconcile only identical URI/type pairs, never by name or size.
@@ -577,8 +597,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 "galleryLoaded=${galleryState.value.loaded} musicLoaded=${musicState.value.loaded}")
         }
         pendingMediaChanges.clear()
-        refresh(AppMode.GALLERY, force = true, invalidate = true, reason = PhoneScanReason.RECOVERY)
-        refresh(AppMode.MUSIC, force = true, invalidate = true, reason = PhoneScanReason.RECOVERY)
+        // Folder receipts/pending members already invalidate the exact visibility
+        // projection. Do not revoke the unrelated, still-authorized 11k-row
+        // phone generation: reconcile from it and publish once verified.
+        refresh(AppMode.GALLERY, force = true, reason = PhoneScanReason.RECOVERY)
+        refresh(AppMode.MUSIC, force = true, reason = PhoneScanReason.RECOVERY)
     }
 
     init {
@@ -592,13 +615,14 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                             "RECOVERY_GATE state=ENTER activeScans=${jobs.values.count { it.isActive }} " +
                             "galleryLoaded=${galleryState.value.loaded} musicLoaded=${musicState.value.loaded}")
                     }
-                    galleryAccessEpochState.value++
-                    musicAccessEpochState.value++
                     mediaChangeJob?.cancel()
                     jobs.values.forEach { it.cancel() }
                     jobs.clear()
-                    galleryState.value = PhoneLibraryState(revision = galleryState.value.revision + 1)
-                    musicState.value = PhoneLibraryState(revision = musicState.value.revision + 1)
+                    galleryState.value = retainPhoneSnapshotAtTransferBoundary(galleryState.value)
+                    musicState.value = retainPhoneSnapshotAtTransferBoundary(musicState.value)
+                    // Actual permission changes still advance accessEpoch in
+                    // refresh(); historical file operations must not masquerade
+                    // as revoked READ_MEDIA_* grants.
                 } else if (version != observedRecoveryVersion) {
                     if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
                         com.domenota.medialoader.core.logging.AppLog.i("Perf",
@@ -607,9 +631,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     }
                     observedRecoveryVersion = version
                     recoveryRefreshPending = true
-                    // StateFlow may conflate a very short begin/end pair.
-                    galleryState.value = PhoneLibraryState(revision = galleryState.value.revision + 1)
-                    musicState.value = PhoneLibraryState(revision = musicState.value.revision + 1)
+                    // StateFlow can conflate a short begin/end pair. Keep only
+                    // fully validated, unchanged-permission generations;
+                    // the current visibility guard excludes moved members.
+                    galleryState.value = retainPhoneSnapshotAtTransferBoundary(galleryState.value)
+                    musicState.value = retainPhoneSnapshotAtTransferBoundary(musicState.value)
                     identityCache.clear()
                     storeStamps.clear()
                     refreshedAt.clear()
