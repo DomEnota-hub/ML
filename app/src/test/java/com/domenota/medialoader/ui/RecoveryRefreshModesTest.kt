@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui
 
+import com.domenota.medialoader.data.library.AppMode
 import com.domenota.medialoader.data.storage.HistoricalMediaKind
 import org.junit.Assert.*
 import org.junit.Test
