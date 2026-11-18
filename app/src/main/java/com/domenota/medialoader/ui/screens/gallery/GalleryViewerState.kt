@@ -60,6 +60,22 @@ object GalleryViewerState {
         return snapshot.drop((index + 1).coerceAtLeast(0)).firstOrNull { it in available }
             ?: snapshot.take(index.coerceAtLeast(0)).lastOrNull { it in available }
     }
+    /** Preserve a still-authorized video across a *routine* reorder of other
+     * gallery rows. The caller owns the permission/privacy gate and supplies
+     * only its current authorized queue. A changed URI, ID, privacy class,
+     * visibility or pager index must dispose the old video immediately. */
+    fun canRetainCurrentVideoOnQueueRebind(
+        acceptedId: String?, acceptedUri: String?, acceptedPrivate: Boolean,
+        page: Int, currentQueue: List<DownloadEntity>,
+    ): Boolean {
+        if (acceptedId.isNullOrBlank() || acceptedUri.isNullOrBlank()) return false
+        val row = currentQueue.getOrNull(page) ?: return false
+        return row.id == acceptedId && row.savedUri == acceptedUri &&
+            row.mediaType == com.domenota.medialoader.core.model.MediaType.VIDEO &&
+            row.isPrivate == acceptedPrivate && !row.hidden &&
+            row.state == com.domenota.medialoader.core.model.DownloadState.COMPLETED
+    }
+
     /** A tentative finger drag must not destroy/recreate the same playing video.
      * Release only after the pager settles on a different exact page; the
      * caller still gates the actual file against the current authorized queue. */
