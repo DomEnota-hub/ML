@@ -727,6 +727,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private var editorHoldsAutomaticIndexing = false
     private var recoveryRefreshPending = false
     private var observedRecoveryVersion = HistoricalRecoverySignals.version.value
+    private var recoveryAffectedModes: Set<AppMode> = setOf(AppMode.GALLERY,AppMode.MUSIC)
     private var postTransferSerial = 0L
     private var postTransferJob: Job? = null
     private val postTransferState = MutableStateFlow(PostTransferCatalogStatus.IDLE)
@@ -743,9 +744,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private fun refreshAfterHistoricalRecovery() {
         if (!recoveryRefreshPending || editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
         recoveryRefreshPending = false
+        val modes = recoveryAffectedModes + pendingMediaChanges
         if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
             com.domenota.medialoader.core.logging.AppLog.i("Perf",
-                "RECOVERY_REFRESH_REQUEST modes=GALLERY,MUSIC pendingMediaChanges=${pendingMediaChanges.size} " +
+                "RECOVERY_REFRESH_REQUEST modes=${modes.joinToString(",")} pendingMediaChanges=${pendingMediaChanges.size} " +
                 "galleryLoaded=${galleryState.value.loaded} musicLoaded=${musicState.value.loaded}")
         }
         pendingMediaChanges.clear()
@@ -756,8 +758,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         // Folder receipts/pending members already invalidate the exact visibility
         // projection. Do not revoke the unrelated, still-authorized 11k-row
         // phone generation: reconcile from it and publish once verified.
-        refresh(AppMode.GALLERY, force = true, reason = PhoneScanReason.RECOVERY)
-        refresh(AppMode.MUSIC, force = true, reason = PhoneScanReason.RECOVERY)
+        for (mode in modes) refresh(mode, force = true, reason = PhoneScanReason.RECOVERY)
         val galleryJob = jobs[AppMode.GALLERY]
         val musicJob = jobs[AppMode.MUSIC]
         postTransferJob = viewModelScope.launch {
@@ -813,17 +814,28 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                             "RECOVERY_GATE state=EXIT changedVersion=true " +
                             "invalidates=GALLERY,MUSIC,IDENTITY,STAMP,CACHE")
                     }
+                    // Only a validated exact MIME list narrows provider rescans.
+                    // On a skipped/conflated version, unknown source or unrelated
+                    // historical recovery, the signal conservatively selects both.
+                    val affectedKinds = HistoricalRecoverySignals.affectedMediaKindsFor(version)
+                    recoveryAffectedModes = buildSet {
+                        if (com.domenota.medialoader.data.storage.HistoricalMediaKind.VISUAL in affectedKinds)
+                            add(AppMode.GALLERY)
+                        if (com.domenota.medialoader.data.storage.HistoricalMediaKind.AUDIO in affectedKinds)
+                            add(AppMode.MUSIC)
+                    }
                     observedRecoveryVersion = version
                     recoveryRefreshPending = true
-                    // StateFlow can conflate a short begin/end pair. Do not
-                    // drop the validated generation retained at transfer start.
+                    // Alias changes still require a fresh current canonical index.
+                    // Provider inventories, however, only change for touched MIME.
                     identityCache.clear()
-                    storeStamps.clear()
-                    refreshedAt.clear()
+                    for (mode in recoveryAffectedModes) {
+                        storeStamps.remove(mode)
+                        refreshedAt.remove(mode)
+                        phoneCache.clear(mode)
+                    }
                     externalCatalog.reloadHistoricalMedia()
                     playlistRepository.reloadHistoricalMedia()
-                    phoneCache.clear(AppMode.GALLERY)
-                    phoneCache.clear(AppMode.MUSIC)
                     refreshAfterHistoricalRecovery()
                 }
             }
