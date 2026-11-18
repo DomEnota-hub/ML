@@ -1,4 +1,4 @@
-name: ML 1.7.204 stages 3-4 full compatibility and performance QA
+name: ML 1.7.204 blocked-release video and storage full QA
 
 on:
   push:
@@ -11,6 +11,16 @@ on:
       - app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
       - app/src/test/java/com/domenota/medialoader/ui/components/FolderVisibilityTransferUiTest.kt
       - app/src/test/java/com/domenota/medialoader/ui/screens/organization/LastCollectionCoverPresentationTest.kt
+      - app/src/main/java/com/domenota/medialoader/ui/screens/MediaViewerScreen.kt
+      - app/src/main/java/com/domenota/medialoader/ui/screens/VideoPlayerUiPolicy.kt
+      - app/src/main/java/com/domenota/medialoader/ui/screens/VideoViewerPoster.kt
+      - app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryViewerState.kt
+      - app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryVideoChrome.kt
+      - app/src/main/java/com/domenota/medialoader/data/playback/VideoWatchProgress.kt
+      - app/src/test/java/com/domenota/medialoader/ui/screens/VideoPlayerUiPolicyTest.kt
+      - app/src/test/java/com/domenota/medialoader/ui/screens/GalleryViewerStateTest.kt
+      - app/src/test/java/com/domenota/medialoader/ui/screens/gallery/GalleryVideoChromeTest.kt
+      - app/src/test/java/com/domenota/medialoader/data/playback/VideoWatchProgressTest.kt
   workflow_dispatch:
 
 permissions:
