@@ -382,7 +382,10 @@ internal class FolderVisibilityCatalogBindings(
         if (target.item.mediaType == MediaType.AUDIO) measureBinding(record,"LISTENING") {
             listening.rebindVerifiedVisibility(strings(proof,"oldListening"),strings(proof,"newListening"))
         }
-        measureBinding(record,"POST_VERIFY") { verifyBinding(record) }
+        // FolderVisibilityMove.VERIFIED immediately runs the authoritative
+        // verifyBinding() BEFORE advancing the durable LINKED checkpoint.
+        // Repeating the full cross-store pass here only doubles provider/DB
+        // reads; crashes still replay VERIFIED and cannot remove the source.
     }
     override suspend fun verifyBinding(record: VisibilityMoveRecord) = withContext(Dispatchers.IO) {
         val proof = checkNotNull(evidence(record)) { "Не найден журнал связей файла" }
