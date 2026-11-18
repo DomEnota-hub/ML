@@ -32,6 +32,20 @@ internal fun visibilityAffectedMediaKinds(mimes: Collection<String>): Set<Histor
     return kinds
 }
 
+/** A skipped/missing generation must never suppress a required provider scan. */
+internal fun aggregateRecoveryMediaImpacts(
+    previousVersion: Long, currentVersion: Long, known: Map<Long, Set<HistoricalMediaKind>>,
+): Set<HistoricalMediaKind> {
+    val both = HistoricalMediaKind.entries.toSet()
+    if (currentVersion <= previousVersion) return both
+    if (currentVersion - previousVersion > 32) return both
+    val observed = mutableSetOf<HistoricalMediaKind>()
+    for (version in previousVersion + 1..currentVersion) {
+        observed += known[version] ?: return both
+    }
+    return observed.ifEmpty { both }
+}
+
 /** Process-local coordination for public media replacement and rebuildable library state. */
 internal object HistoricalRecoverySignals {
     private val running = MutableStateFlow(false)
@@ -41,10 +55,14 @@ internal object HistoricalRecoverySignals {
     private val allMediaKinds = HistoricalMediaKind.entries.toSet()
     private var operationMediaKinds: Set<HistoricalMediaKind> = allMediaKinds
     private data class CompletedMediaImpact(val version: Long, val kinds: Set<HistoricalMediaKind>)
-    @Volatile private var completedMediaImpact = CompletedMediaImpact(0L, allMediaKinds)
-    /** A missed/conflated generation never narrows the scan by guessing. */
-    fun affectedMediaKindsFor(version: Long): Set<HistoricalMediaKind> =
-        completedMediaImpact.takeIf { it.version == version }?.kinds ?: allMediaKinds
+    private val impactHistory = java.util.ArrayDeque<CompletedMediaImpact>()
+    /** Short successive begin/end pairs can be conflated by StateFlow. Always
+     * union ALL unobserved impacts; missing/aged-out evidence means scan both. */
+    @Synchronized fun affectedMediaKindsSince(previousVersion: Long, currentVersion: Long): Set<HistoricalMediaKind> {
+        if (currentVersion <= previousVersion) return allMediaKinds
+        val history = impactHistory.associate { it.version to it.kinds }
+        return aggregateRecoveryMediaImpacts(previousVersion,currentVersion,history)
+    }
 
     @Synchronized fun markFolderMediaTypes(mimes: Collection<String>) {
         check(running.value && folderOperation) { "Нет активного переноса папки" }
@@ -98,7 +116,9 @@ internal object HistoricalRecoverySignals {
         check(running.value) { "Восстановление файлов не запущено" }
         if (changed) {
             val next = completedVersion.value + 1L
-            completedMediaImpact = CompletedMediaImpact(next,if (folderOperation) operationMediaKinds else allMediaKinds)
+            impactHistory.addLast(CompletedMediaImpact(next,
+                if (folderOperation) operationMediaKinds else allMediaKinds))
+            while (impactHistory.size > 32) impactHistory.removeFirst()
             completedVersion.value = next
         }
         running.value = false
