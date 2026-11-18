@@ -365,21 +365,29 @@ fun MediaLoaderApp(
     fun canOpenFolderMedia(row: com.domenota.medialoader.core.database.DownloadEntity, folder: String? = null): Boolean =
         row.isPrivate || libraryModel.visibilityGuard.value?.canOpen(row,folder,liveFolderRefs) == true
 
-    val unifiedLibrary = libraryIndex.refs
     val libraryAudioState by libraryModel.audioPreview.state.collectAsStateWithLifecycle()
     val libraryPrivateKeys by libraryModel.privateKeys.collectAsStateWithLifecycle()
     val visibilityBlocked=remember(visibilityGuard){visibilityGuard?.blockedKeys().orEmpty()}
     val publicProjectionGuard=remember(libraryPrivateKeys,visibilityGuard,visibilityBlocked) {
         libraryPrivateKeys?.takeIf { visibilityReady }?.plus(visibilityBlocked)
     }
-    // The ViewModel already merged and privacy-filtered this generation on IO.
-    // Never build the same full union-find and alias sets a second time on the UI thread.
-    val publicIndexAllowed = libraryPrivateKeys != null && libraryIndex.privacyKeys == libraryPrivateKeys &&
-        visibilityReady && libraryIndex.visibility == visibilityGuard
-    val publicLibraryRefs = if (publicIndexAllowed) unifiedLibrary else emptyList()
-    val displayInventory = if (publicIndexAllowed) libraryIndex.display else LibraryDisplayInventory.EMPTY
-    // The entire visibility guard matters: equal blocked IDs do not prove that
-    // a restored locator or its assignment is still valid.
+    // The IO-built index may briefly lag a *visibility-only* receipt update.
+    // Re-check previously admitted refs against the current fail-closed guard
+    // instead of blanking the other thousands of valid photos and songs.
+    // Permission/private changes still return null immediately.
+    val guardedPublicRefs = remember(libraryIndex,visibilityGuard,libraryPrivateKeys,phoneGallery,phoneMusic) {
+        guardedRetainedIndexRefs(libraryIndex,visibilityGuard,libraryPrivateKeys,phoneGallery,phoneMusic)
+    }
+    val publicIndexAllowed = guardedPublicRefs != null
+    val publicLibraryRefs = guardedPublicRefs.orEmpty()
+    val displayInventory = remember(libraryIndex,visibilityGuard,guardedPublicRefs) {
+        when {
+            guardedPublicRefs == null -> LibraryDisplayInventory.EMPTY
+            libraryIndex.visibility == visibilityGuard -> libraryIndex.display
+            else -> LibraryDisplayInventory.build(guardedPublicRefs,visibilityGuard?.external.orEmpty())
+        }
+    }
+    // Always use the live guard for follow-on projections and addressed actions.
     val publicProjectionAccess = visibilityGuard.takeIf { publicIndexAllowed }
     val historySnapshot by libraryModel.collectionHistory.collectAsStateWithLifecycle()
     val galleryAccessEpoch by libraryModel.galleryAccessEpoch.collectAsStateWithLifecycle()
