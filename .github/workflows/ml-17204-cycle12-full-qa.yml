@@ -50,6 +50,7 @@ jobs:
           grep -Fq "versionName '1.7.204'" app/build.gradle
           test -s app/src/main/java/com/domenota/medialoader/data/catalog/visibility/VisibilityRecoveryPlan.kt
           test -s app/src/main/java/com/domenota/medialoader/data/catalog/visibility/VisibilityVerifiedCopy.kt
+          test -s app/src/main/java/com/domenota/medialoader/data/storage/VisibilityVkSourceQuery.kt
           grep -q 'verifyInline = false' app/src/main/java/com/domenota/medialoader/data/catalog/visibility/FolderVisibilityCatalogBindings.kt
           python3 scripts/audit_ui_palette.py
           python3 scripts/check-round-sliders.py
