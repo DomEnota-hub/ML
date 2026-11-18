@@ -24,6 +24,31 @@ class GalleryViewerStateTest {
         assertTrue(GalleryViewerState.publicCandidates(listOf(ref), setOf("physical:42"), routes).isEmpty())
         assertTrue(GalleryViewerState.publicCandidates(listOf(ref), null, routes).isEmpty())
     }
+    @Test fun alreadyUnifiedPublicIndexNeedsNoSecondMergeOnViewerThreadAndStillFailsClosed() {
+        val app = row("download", MediaType.VIDEO)
+        val download = LibraryMediaRef("download",
+            setOf("download", "phone:video:42", "physical:42"), app, "download")
+        val samePhoneFile = LibraryMediaRef("phone:video:42",
+            setOf("phone:video:42", "physical:42"),
+            app.copy(id = "phone:video:42"), null)
+        val unified = com.domenota.medialoader.data.library.UnifiedMediaLibrary.merge(
+            listOf(download, samePhoneFile), emptyList(), emptySet())
+        assertEquals(1, unified.size)
+        val ids = setOf("download", "phone:video:42")
+        assertEquals(
+            GalleryViewerState.publicCandidates(unified, emptySet(), ids),
+            GalleryViewerState.publicCandidatesFromUnified(unified, emptySet(), ids))
+        assertEquals(ids, GalleryViewerState.publicCandidatesFromUnified(
+            unified, emptySet(), ids).map { it.id }.toSet())
+        assertTrue(GalleryViewerState.publicCandidatesFromUnified(
+            unified, setOf("physical:42"), ids).isEmpty())
+        assertTrue(GalleryViewerState.publicCandidatesFromUnified(
+            unified, null, ids).isEmpty())
+        assertTrue(GalleryViewerState.publicCandidatesFromUnified(
+            unified.map { it.copy(item = it.item.copy(hidden = true)) },
+            emptySet(), ids).isEmpty())
+    }
+
     private fun row(id: String, type: MediaType) = DownloadEntity(id, "device", id, type,
         DownloadState.COMPLETED, "content://media/$id", null, 0)
 
