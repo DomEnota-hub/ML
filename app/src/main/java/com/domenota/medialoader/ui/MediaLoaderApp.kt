@@ -1213,7 +1213,9 @@ fun MediaLoaderApp(
     val currentRecentFolders by rememberUpdatedState(recentDeviceFolders)
     val musicHomeItems = if (musicLibrarySource == LibrarySource.APP) appLibraryAudioItems
         else if (!phoneMusic.loaded) emptyList() else libraryAudioItems
-    val musicBrowseAccess = publicProjectionAccess?.takeUnless { recoveryRunning ||
+    // Historical transfer keeps a guarded, complete music snapshot. Only
+    // actual permission/visibility validation may hide it.
+    val musicBrowseAccess = publicProjectionAccess?.takeUnless {
         visibleLibraryValidationPending(AppMode.MUSIC, libraryIndex, phoneGallery, phoneMusic) }
         ?.let { Triple(it, musicAccessEpoch, collectionPrivacyGeneration) to musicLibrarySource }
     val musicBrowse = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
