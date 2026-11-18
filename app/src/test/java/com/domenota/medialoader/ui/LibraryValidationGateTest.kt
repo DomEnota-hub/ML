@@ -54,6 +54,19 @@ class LibraryValidationGateTest {
             accessChanged = true, selectedOnlyAccess = false, privacyInvalidated = false))
     }
 
+    @Test fun compactTransferStatusIsOnlyOnDownloaderChrome() {
+        assertTrue(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER,
+            com.domenota.medialoader.ui.navigation.AppDestination.Downloads.route))
+        assertTrue(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER,
+            com.domenota.medialoader.ui.navigation.AppDestination.Home.route))
+        assertFalse(visibilityMiniPanelHostAllowed(AppMode.GALLERY,
+            com.domenota.medialoader.ui.navigation.AppDestination.Home.route))
+        assertFalse(visibilityMiniPanelHostAllowed(AppMode.MUSIC,
+            com.domenota.medialoader.ui.navigation.AppDestination.Home.route))
+        assertFalse(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER, "media-viewer"))
+        assertFalse(visibilityMiniPanelHostAllowed(AppMode.DOWNLOADER, "collections"))
+    }
+
     @Test fun validatedFirstPageBecomesVisibleWhileRemainingScanContinues() {
         val partial = PhoneLibraryState(loaded = true, loading = true, revision = 7)
         val other = PhoneLibraryState()
