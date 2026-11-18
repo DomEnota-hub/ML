@@ -159,6 +159,13 @@ import androidx.compose.material.icons.rounded.Restore
 private const val PRIVATE_ROUTE = "private"
 private const val PLAYLIST_ADD_ROUTE = "playlist-add/{playlistId}"
 
+/** The compact transfer panel belongs to Downloader chrome only. Gallery,
+ * Music and media viewers stay usable while the dataSync service runs. */
+internal fun visibilityMiniPanelHostAllowed(mode: AppMode, route: String?): Boolean =
+    mode == AppMode.DOWNLOADER && route in setOf(
+        AppDestination.Home.route, AppDestination.Downloads.route, AppDestination.Settings.route)
+
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun fileNameFieldColors() = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) {
@@ -3087,7 +3094,9 @@ fun MediaLoaderApp(
         }
         val showWorkPanel = !visibilityWorkDismissed &&
             visibilityWorkState.phase != VisibilityExecutionPhase.IDLE
-        if (showWorkPanel && !visibilityWorkExpanded) {
+        val showCompactWorkPanel = showWorkPanel && !visibilityWorkExpanded &&
+            visibilityMiniPanelHostAllowed(appMode,currentRoute)
+        if (showCompactWorkPanel) {
             com.domenota.medialoader.ui.components.FolderVisibilityMiniPanel(
                 state = visibilityWorkState,
                 onOpen = { visibilityWorkExpanded=true },
@@ -3099,7 +3108,7 @@ fun MediaLoaderApp(
         com.domenota.medialoader.ui.components.InAppNoticeHost(
             Modifier.align(Alignment.BottomCenter),
             bottomPadding = innerPadding.calculateBottomPadding() + noticeExtra +
-                if(showWorkPanel && !visibilityWorkExpanded) 92.dp else 0.dp,
+                if(showCompactWorkPanel) 92.dp else 0.dp,
         )
         if (showWorkPanel && visibilityWorkExpanded) {
             com.domenota.medialoader.ui.components.FolderVisibilityTransferDialog(
