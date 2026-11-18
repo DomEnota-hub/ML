@@ -373,7 +373,8 @@ internal class FolderVisibilityCatalogBindings(
         // app-row CAS, and covers external catalog, playlist, VK, artwork and video position.
         measureBinding(record,"REFERENCE_LINKS") {
             links.rebind(snapshot,record.logicalSourceUri,destination,record.fingerprint.sha256,
-                record.fingerprint.sha256,target.item.originalName,record.fingerprint.bytes)
+                record.fingerprint.sha256,target.item.originalName,record.fingerprint.bytes,
+                verifyInline = false)
         }
         measureBinding(record,"COLLECTIONS") {
             collections.rebind(strings(proof,"oldKeys"),target,strings(proof,"members"))
