@@ -30,9 +30,19 @@ class PlaylistRepository(context: Context) {
 
     suspend fun awaitLoaded() { loaded.await() }
 
+    private var validatedHistoricalSnapshot: String? = null
+
     internal suspend fun snapshotHistoricalMedia(): String = withContext(Dispatchers.IO) {
         loaded.await()
-        storageMutex.withLock { preferences.getString("playlists", null).orEmpty().also { read() } }
+        storageMutex.withLock {
+            val stored = preferences.getString("playlists", null)
+            // Missing document is valid; an explicitly empty/corrupt document is not.
+            if (stored != validatedHistoricalSnapshot || stored?.isEmpty() == true) {
+                if(stored != null) decode(stored)
+                validatedHistoricalSnapshot = stored?.takeIf { it.length <= 1_048_576 }
+            }
+            stored.orEmpty()
+        }
     }
 
     internal suspend fun rebindHistoricalMedia(oldUri: String, newUri: String, downloadId: String,
@@ -182,8 +192,9 @@ class PlaylistRepository(context: Context) {
         return json.toString()
     }
 
-    private fun read(): List<MediaPlaylist> {
-        val json = JSONArray(preferences.getString("playlists", "[]") ?: "[]")
+    private fun read(): List<MediaPlaylist> = decode(preferences.getString("playlists", "[]") ?: "[]")
+    private fun decode(raw: String): List<MediaPlaylist> {
+        val json = JSONArray(raw)
         return (0 until json.length()).map { index ->
             val item = json.getJSONObject(index)
             val tracks = item.getJSONArray("trackIds")

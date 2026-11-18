@@ -397,7 +397,8 @@ internal fun MusicModeScreen(
     val browseFilter = browseAccess?.let { MusicBrowseFilter(it,tab,playlist?.id,search,sort,favoritesOnly,currentHidden,currentExcluded) }
     val needsRows=tab==0 || playlist!=null
     val browseRows=if(largeBrowse) addressedLibraryProjection(MusicBrowseRows.EMPTY,browseFilter,browse.value,playlist,
-        favoriteIds,deviceMusicFolders,publishWhen=needsRows&&browse.usable,serial=true) {
+        favoriteIds,deviceMusicFolders,publishWhen=needsRows&&browse.usable,serial=true,
+        revalidateRetained={ previous -> previous.retainAllowed(sort) { row -> browse.value.available[row.id]?.savedUri == row.savedUri && row.id in browse.value.available } }) {
         withContext(Dispatchers.Default) { MusicBrowseRows.build(browse.value,playlist,tab,search,sort,favoritesOnly,favoriteIds,currentHidden,currentExcluded,deviceMusicFolders) }
     } else BackgroundLibraryValue(remember(browse.value,playlist,browseFilter,favoriteIds,deviceMusicFolders){
         if(browseFilter==null||!needsRows)MusicBrowseRows.EMPTY else MusicBrowseRows.build(browse.value,playlist,tab,search,sort,favoritesOnly,favoriteIds,currentHidden,currentExcluded,deviceMusicFolders)
@@ -706,6 +707,11 @@ internal class MusicBrowseCatalog(val tracks:List<DownloadEntity>,val available:
     val folders:Map<String?,List<DownloadEntity>>) {
     val allRows=available.values.toList()
     val byId=tracks.associateBy{it.id}
+    fun retainAllowed(allowed: (DownloadEntity) -> Boolean): MusicBrowseCatalog {
+        if (available.values.all(allowed) && tracks.all(allowed)) return this
+        return MusicBrowseCatalog(tracks.filter(allowed),available.filterValues(allowed),
+            folders.mapValues { (_, rows) -> rows.filter(allowed) }.filterValues { it.isNotEmpty() })
+    }
     companion object {
         val EMPTY=MusicBrowseCatalog(emptyList(),emptyMap(),emptyMap())
         fun build(items:List<DownloadEntity>,all:List<DownloadEntity>,deviceFolders:Map<String,String>):MusicBrowseCatalog {
@@ -720,6 +726,19 @@ private data class MusicBrowseFilter(val access:Any,val tab:Int,val playlist:Str
 internal class MusicBrowseRows(val displayed:List<DownloadEntity>,val sections:Map<String,List<DownloadEntity>>,
     val displayedIds:List<String>,val queue:List<String>,val fastLabels:List<String>,val playlistMinutes:Long,
     val playlistMissing:Int,val ordinals:Map<String,Int>) {
+    fun retainAllowed(sort: MusicLibrarySort, allowed: (DownloadEntity) -> Boolean): MusicBrowseRows {
+        val kept = displayed.filter(allowed)
+        if (kept.size == displayed.size) return this
+        val ids = kept.map { it.id }; val idSet = ids.toHashSet()
+        val groups = sections.mapValues { (_, rows) -> rows.filter(allowed) }.filterValues { it.isNotEmpty() }
+        val labels = if (groups.isEmpty()) listOf("") + kept.map { musicGroupLetter(musicDisplayTitle(it)) }
+            else listOf("") + groups.flatMap { (label, rows) ->
+                val caption = if (sort == MusicLibrarySort.DATE || sort == MusicLibrarySort.DATE_OLDEST) label.take(7) else label
+                listOf(caption) + rows.map { caption }
+            }
+        return MusicBrowseRows(kept,groups,displayedIds.filter { it in idSet },queue.filter { it in idSet },
+            labels,kept.sumOf { (it.durationMs ?: 0) / 60_000 },playlistMissing,ordinals.filterKeys { it in idSet })
+    }
     companion object {
         val EMPTY=MusicBrowseRows(emptyList(),emptyMap(),emptyList(),emptyList(),listOf(""),0,0,emptyMap())
         fun build(catalog:MusicBrowseCatalog,playlist:MediaPlaylist?,tab:Int,search:String,sort:MusicLibrarySort,

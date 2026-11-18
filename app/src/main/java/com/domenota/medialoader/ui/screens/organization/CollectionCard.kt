@@ -23,10 +23,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.library.*
-import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.model.MediaKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 
 @Composable
 internal fun CollectionCard(collection:MediaCollection,cover:LibraryMediaRef?,onOpen:()->Unit,modifier:Modifier=Modifier,blockedIdentities:Set<String>?=emptySet(),coverAccess:CollectionCoverAccess?=null) {
@@ -41,31 +41,205 @@ internal fun CollectionCard(collection:MediaCollection,cover:LibraryMediaRef?,on
     }
 }
 @Composable
-internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaRef?,modifier:Modifier=Modifier,blockedIdentities:Set<String>?=emptySet(),coverAccess:CollectionCoverAccess?=null){
+internal fun CollectionCoverImage(collection:MediaCollection,cover:LibraryMediaRef?,modifier:Modifier=Modifier,blockedIdentities:Set<String>?=emptySet(),coverAccess:CollectionCoverAccess?=null,decoder:CollectionOriginalCoverDecoder=DefaultCollectionOriginalCoverDecoder){
     val context=LocalContext.current
     val store=remember(context){CollectionCoverStore(context)}
+    val snapshots=remember(context){LastCollectionCoverStore(context)}
     val revision by CollectionCoverStore.changes.collectAsState()
     val id=collection.record.id
-    var selection by remember(id,revision){mutableStateOf(store.cachedSelection(id)?:CollectionCoverSelection.Loading)}
-    LaunchedEffect(id,revision){
-        // Only an explicit Automatic selection may display a member thumbnail.
-        // Read failures, revoked permission and pending disk reads are placeholders.
-        if(selection==CollectionCoverSelection.Loading)selection=withContext(Dispatchers.IO){store.readSelection(id)}
-    }
-    Box(modifier,contentAlignment=Alignment.Center){
-        val access = coverAccess ?: CollectionCoverAccess(PhoneMediaLibrary.canReadMissingMetadata(com.domenota.medialoader.core.model.MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
-            androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
-        }, setOfNotNull(cover?.takeIf { it.appDownloadId!=null }?.item?.savedUri))
-        val selected=(selection as? CollectionCoverSelection.Selected)?.cover
-        when(collectionCoverPresentation(selection,selected!=null&&access.permits(selected.source,blockedIdentities),
-            cover!=null&&blockedIdentities!=null&&!collectionRefBlocked(cover,blockedIdentities))){
-            CollectionCoverPresentation.CUSTOM -> key(id,selected!!.file.absolutePath){
-                DownloadThumbnail(android.net.Uri.fromFile(selected.file).toString(),null,MediaKind.IMAGE,Modifier.fillMaxSize())
-            }
-            CollectionCoverPresentation.AUTOMATIC -> CollectionOriginalCover(requireNotNull(cover),Modifier.fillMaxSize())
-            CollectionCoverPresentation.PLACEHOLDER -> Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
+    // Revision checks never reset a rendered image to Loading.
+    var selection by remember(id){mutableStateOf(store.cachedSelection(id)?:CollectionCoverSelection.Loading)}
+    var last by remember(id){mutableStateOf(snapshots.peek(id))}
+    var diskReady by remember(id){mutableStateOf(last!=null)}
+    var removedSlot by remember(id){mutableStateOf<String?>(null)}
+    val access = coverAccess ?: CollectionCoverAccess(PhoneMediaLibrary.canReadMissingMetadata(com.domenota.medialoader.core.model.MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
+        androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
+    }, setOfNotNull(cover?.takeIf { it.appDownloadId!=null }?.item?.savedUri))
+    // ML privacy and Android source permission are separate inputs. Missing phone
+    // permission cannot revoke the display copy; unknown ML privacy always can.
+    val privacy=remember(coverAccess!=null,access.snapshotPrivacy,blockedIdentities){
+        // Explicit unknown authorization cannot fall back to a stale public set.
+        if(coverAccess==null) blockedIdentities else access.snapshotPrivacy?.let { known ->
+            if(blockedIdentities==null || blockedIdentities===known) known else known+blockedIdentities
         }
     }
+    val selected=(selection as? CollectionCoverSelection.Selected)?.cover
+    val member=collectionAutomaticCoverMember(collection.members,privacy)
+    val slot=remember(selected,selection,member?.id,member?.identityJson){when {
+        selected!=null -> "custom:"+PersistentProjectionCache.digest(selected.file.absolutePath+selected.source+selected.crop)
+        selection==CollectionCoverSelection.Automatic && member!=null && MediaOrganizationPolicy.decode(member.identityJson).isNotEmpty() ->
+            "automatic:"+PersistentProjectionCache.digest(member.id+"\u0000"+member.identityJson)
+        else -> null
+    }}
+    val audioRevisions by com.domenota.medialoader.core.storage.AudioThumbnailInvalidation.revisions.collectAsState()
+    val contentToken=remember(selected,slot,cover,audioRevisions[cover?.item?.savedUri]){if(selected!=null)slot else cover?.let {
+        PersistentProjectionCache.digest(listOf(it.key,it.item.savedUri,it.item.mediaType,it.item.previewUrl,it.item.sizeBytes,
+            it.item.createdAtEpochMillis,it.aliases.sorted(),audioRevisions[it.item.savedUri]?:0L).joinToString("\u0000"))
+    }}
+    val currentPrivacy by rememberUpdatedState(privacy)
+    val currentSlot by rememberUpdatedState(slot)
+    val currentSource by rememberUpdatedState(selected?.source?:cover?.item?.savedUri)
+    val currentAccess by rememberUpdatedState(access)
+    LaunchedEffect(id,revision){
+        val next=withContext(Dispatchers.IO){store.readSelection(id)}
+        selection=next
+    }
+    LaunchedEffect(id){
+        val observed=last
+        val observedRemoved=removedSlot
+        val loaded=withContext(Dispatchers.IO){snapshots.read(id)}
+        // A slower hydration cannot overwrite a newer accepted frame or tombstone.
+        if(last===observed && removedSlot==observedRemoved)
+            last=snapshots.peek(id)?:loaded
+        diskReady=true
+    }
+    LaunchedEffect(id,slot,contentToken,privacy,revision,access,decoder){
+        if(slot==null || contentToken==null || privacy==null)return@LaunchedEffect
+        val previous=last
+        if(access.sourceRevision==0L && previous?.metadata?.let{it.slotToken==slot && it.contentToken==contentToken && lastCollectionCoverAllowed(it,slot,privacy)}==true)
+            return@LaunchedEffect
+        var confirmedRemoval=false
+        val frame=withContext(Dispatchers.IO){
+            try {
+                val source:String
+                val identities:Set<String>
+                val ref=if(selected==null)cover else null
+                if(selected!=null){
+                    if(!collectionCoverAllowed(selected.source,privacy))return@withContext null
+                    source=selected.source
+                    identities=selected.identities+com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(source)
+                }else{
+                    if(ref==null || collectionRefBlocked(ref,privacy) || member==null ||
+                        !CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson),ref))return@withContext null
+                    val canRead=ref.appDownloadId!=null || PhoneMediaLibrary.canReadMissingMetadata(ref.item.mediaType,android.os.Build.VERSION.SDK_INT) { permission ->
+                        androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
+                    }
+                    if(!canRead)return@withContext null
+                    source=ref.item.savedUri?:return@withContext null
+                    identities=MediaOrganizationPolicy.keys(ref)+ref.aliases+ref.key+ref.item.id+
+                        listOfNotNull(ref.appDownloadId)+com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(source)+collectionCoverVolumeKeys(context,source)
+                }
+                val committed=snapshots.read(id)
+                val check=if(selected!=null)CollectionCoverSourceCheck(contentToken) else
+                    collectionCoverSourceCheck(context,source,contentToken,access,committed?.metadata)
+                if(check.confirmedAbsent){
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if(currentSlot==slot && currentSource==source && currentAccess==access &&
+                        lastCollectionCoverAllowed(requireNotNull(committed).metadata,currentSlot,currentPrivacy)){
+                        snapshots.remove(id)
+                        confirmedRemoval=true
+                    }
+                    return@withContext null
+                }
+                // A failed provider check cannot replace an already accepted
+                // frame with an unverified fallback generation.
+                if(check.token==null && committed?.metadata?.let{it.slotToken==slot && it.source==source}==true)return@withContext committed
+                val verifiedToken=check.token?:contentToken
+                val metadata=LastCollectionCover(slot,verifiedToken,source,identities,System.currentTimeMillis())
+                if(committed?.metadata?.let{it.slotToken==slot && it.contentToken==verifiedToken && it.identities==identities}==true)
+                    return@withContext committed
+                val image=if(selected!=null)android.graphics.BitmapFactory.decodeFile(selected.file.absolutePath) else {
+                    val original=requireNotNull(ref)
+                    val kind=when(original.item.mediaType){com.domenota.medialoader.core.model.MediaType.PHOTO->MediaKind.IMAGE;com.domenota.medialoader.core.model.MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO}
+                    decoder.decode(context,source,kind,original.item.previewUrl,verifiedToken)
+                }?:return@withContext null
+                try {
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if(!lastCollectionCoverAllowed(metadata,currentSlot,currentPrivacy))return@withContext null
+                    snapshots.save(id,metadata,image)
+                    snapshots.peek(id)
+                }finally{if(selected!=null)image.recycle()}
+            }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
+            catch(_:Exception){null} // An unavailable source is never a deletion.
+        }
+        if(confirmedRemoval){removedSlot=slot;last=null} else if(frame!=null){removedSlot=null;last=frame}
+    }
+    // A removed provider row may no longer resolve to a LibraryMediaRef. Probe
+    // the last known source separately; lack of a ref itself never clears it.
+    LaunchedEffect(id,slot,cover==null,access,privacy){
+        if(cover!=null || selected!=null || slot==null || privacy==null)return@LaunchedEffect
+        val removed=withContext(Dispatchers.IO){
+            val committed=snapshots.read(id)?:return@withContext false
+            if(!lastCollectionCoverAllowed(committed.metadata,slot,privacy))return@withContext false
+            val check=collectionCoverSourceCheck(context,committed.metadata.source,committed.metadata.contentToken,access,committed.metadata)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if(check.confirmedAbsent && currentSlot==slot && currentSource==null && currentAccess==access &&
+                lastCollectionCoverAllowed(committed.metadata,currentSlot,currentPrivacy) &&
+                snapshots.peek(id)?.metadata==committed.metadata){
+                snapshots.remove(id);true
+            }else false
+        }
+        if(removed){removedSlot=slot;last=null}
+    }
+    Box(modifier,contentAlignment=Alignment.Center){
+        val automaticSafe=selected!=null || cover==null || (privacy!=null && member!=null &&
+            cover.item.state==com.domenota.medialoader.core.model.DownloadState.COMPLETED &&
+            !collectionRefBlocked(cover,privacy) && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(member.identityJson),cover))
+        val frame=last?.takeIf{ cached -> slot!=removedSlot && automaticSafe && (
+            lastCollectionCoverAllowed(cached.metadata,slot,privacy) ||
+                (cached.metadata.slotToken.startsWith("custom:") &&
+                    ((selected!=null && collectionCoverAllowed(selected.source,privacy) && selected.identities.none{it in privacy.orEmpty()}) ||
+                        (selection==CollectionCoverSelection.Automatic && slot!=null)) &&
+                    lastCollectionCoverAllowed(cached.metadata,cached.metadata.slotToken,privacy)))
+        }
+        if(frame!=null)androidx.compose.foundation.Image(frame.bitmap.asImageBitmap(),null,Modifier.fillMaxSize().testTag("collection-last-cover-image"),
+            contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+        // While the private disk copy is being hydrated, don't flash a yellow
+        // placeholder. A failed refresh leaves the prior accepted frame intact.
+        else if(diskReady && privacy!=null && selection!=CollectionCoverSelection.Loading)
+            Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(42.dp),tint=MaterialTheme.colorScheme.primary)
+    }
+}
+
+private data class CollectionCoverSourceCheck(val token:String?,val confirmedAbsent:Boolean=false)
+
+private fun collectionCoverVolumeKeys(context:android.content.Context,source:String):Set<String> = try {
+    if(android.os.Build.VERSION.SDK_INT>=30 && android.net.Uri.parse(source).authority=="media")
+        android.provider.MediaStore.getExternalVolumeNames(context).map{"cover-volume:$it"}.toSet() else emptySet()
+}catch(_:Exception){emptySet()}
+
+/** A successful empty MediaStore cursor alone is insufficient under scoped/partial
+ * access or an ejected volume. Only full photo access, included pending/trash rows
+ * and the same mounted volume set captured with the old frame prove absence.
+ * Other authorities/file URIs are deliberately never classified as deleted here. */
+private fun collectionCoverSourceCheck(context:android.content.Context,source:String,fallback:String,
+    access:CollectionCoverAccess,old:LastCollectionCover?):CollectionCoverSourceCheck {
+    val uri=android.net.Uri.parse(source)
+    if(android.os.Build.VERSION.SDK_INT<30 || uri.authority!="media")return CollectionCoverSourceCheck(fallback)
+    fun fullRead()=access.fullPhotoAccess && PhoneMediaLibrary.canReadMissingMetadata(
+        com.domenota.medialoader.core.model.MediaType.PHOTO,android.os.Build.VERSION.SDK_INT) { permission ->
+        androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+    val segments=uri.pathSegments
+    val photoItem=segments.size==4 && segments[0] in setOf("external","external_primary") &&
+        segments[1]=="images" && segments[2]=="media" && segments[3].toLongOrNull()!=null
+    val initialVolumes=collectionCoverVolumeKeys(context,source)
+    fun mounted()=android.os.Environment.getExternalStorageState()==android.os.Environment.MEDIA_MOUNTED &&
+        initialVolumes.isNotEmpty() && initialVolumes==collectionCoverVolumeKeys(context,source) &&
+        old?.identities?.filter{it.startsWith("cover-volume:")}?.toSet()==initialVolumes
+    val permittedBefore=fullRead()
+    return try {
+        val args=android.os.Bundle().apply {
+            putInt(android.provider.MediaStore.QUERY_ARG_MATCH_TRASHED,android.provider.MediaStore.MATCH_INCLUDE)
+            putInt(android.provider.MediaStore.QUERY_ARG_MATCH_PENDING,android.provider.MediaStore.MATCH_INCLUDE)
+        }
+        context.contentResolver.query(uri,arrayOf(android.provider.MediaStore.MediaColumns.SIZE,
+            android.provider.MediaStore.MediaColumns.DATE_MODIFIED,android.provider.MediaStore.MediaColumns.IS_TRASHED,
+            android.provider.MediaStore.MediaColumns.IS_PENDING),args,null)?.use { cursor ->
+            val present=cursor.moveToFirst()
+            val trashed=present && cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.IS_TRASHED).let{it>=0 && cursor.getInt(it)==1}
+            if(!present || trashed){
+                CollectionCoverSourceCheck(null,photoItem && old!=null && old.source==source && permittedBefore && fullRead() && mounted())
+            }else{
+                val size=cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.SIZE)
+                val modified=cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
+                val pending=cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.IS_PENDING)
+                if(size<0 || modified<0 || cursor.isNull(size) || cursor.isNull(modified) ||
+                    (pending>=0 && cursor.getInt(pending)==1))CollectionCoverSourceCheck(null)
+                else CollectionCoverSourceCheck(PersistentProjectionCache.digest(fallback+":"+cursor.getLong(size)+":"+cursor.getLong(modified)))
+            }
+        }?:CollectionCoverSourceCheck(null)
+    }catch(_:Exception){CollectionCoverSourceCheck(null)}
 }
 
 @Composable

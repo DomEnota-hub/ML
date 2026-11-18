@@ -1,0 +1,29 @@
+[
+  {
+    "url": "https://developer.android.com/training/data-storage/shared/media?hl=en",
+    "status": 200,
+    "title": "Access media files from shared storage &nbsp;|&nbsp; App data and files &nbsp;|&nbsp; Android Developers",
+    "relevantTokens": {
+      "IS_PENDING": 8,
+      "IS_TRASHED": 1
+    }
+  },
+  {
+    "url": "https://developer.android.com/develop/ui/compose/system/insets-ui?hl=en",
+    "status": 200,
+    "title": "Set up window insets &nbsp;|&nbsp; Jetpack Compose &nbsp;|&nbsp; Android Developers",
+    "relevantTokens": {
+      "consumeWindowInsets": 8,
+      "windowInsetsPadding": 10
+    }
+  },
+  {
+    "url": "https://developer.android.com/reference/android/util/AtomicFile?hl=en",
+    "status": 200,
+    "title": "AtomicFile &nbsp;|&nbsp; API reference &nbsp;|&nbsp; Android Developers",
+    "relevantTokens": {
+      "finishWrite": 8,
+      "startWrite": 14
+    }
+  }
+]

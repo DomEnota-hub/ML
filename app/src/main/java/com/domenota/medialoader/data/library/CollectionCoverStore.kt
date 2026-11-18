@@ -16,10 +16,11 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 import java.util.UUID
 
-internal data class CollectionCover(val file:File,val source:String,val crop:CollectionCrop)
+internal data class CollectionCover(val file:File,val source:String,val crop:CollectionCrop,val identities:Set<String> = emptySet())
 internal sealed interface CollectionCoverSelection {
     data object Loading:CollectionCoverSelection
     data object Automatic:CollectionCoverSelection
@@ -35,7 +36,9 @@ internal fun collectionCoverPresentation(selection:CollectionCoverSelection,cust
 /** Covers and source locator metadata never enter MediaStore, exports, or the public index. */
 internal class CollectionCoverStore(context:Context) {
     private val root=File(context.applicationContext.filesDir,"collection-covers")
-    private val resolver=context.applicationContext.contentResolver
+    private val appContext=context.applicationContext
+    private val resolver=appContext.contentResolver
+    private val lastFrame=LastCollectionCoverStore(context)
     private fun directory(id:String):File {
         require(id.matches(Regex("[A-Za-z0-9_-]+")))
         return File(root,id)
@@ -54,9 +57,13 @@ internal class CollectionCoverStore(context:Context) {
             val name=json.getString("file")
             val source=json.getString("source")
             val crop=CollectionCrop(json.getDouble("x").toFloat(),json.getDouble("y").toFloat(),json.getDouble("zoom").toFloat())
+            val keys=json.optJSONArray("identities")?.let{array->
+                require(array.length()<=256)
+                (0 until array.length()).map{array.getString(it).also{key->require(key.length<=4096)}}.toSet()
+            }.orEmpty()
             require(name.matches(Regex("[A-Za-z0-9-]+\\.jpg")))
             val file=File(dir,name)
-            if(file.isFile && file.length()>0)CollectionCoverSelection.Selected(CollectionCover(file,source,crop))
+            if(file.isFile && file.length()>0)CollectionCoverSelection.Selected(CollectionCover(file,source,crop,keys))
             else CollectionCoverSelection.Unavailable(source,crop)
         }catch(_:Exception){CollectionCoverSelection.Unavailable()}
     }
@@ -85,6 +92,8 @@ internal class CollectionCoverStore(context:Context) {
     /** Prepare first; only a successful metadata rename makes the new image visible. */
     suspend fun save(id:String,source:String,bitmap:Bitmap,crop:CollectionCrop) {
         val job=currentCoroutineContext()
+        val sourceKeys=com.domenota.medialoader.data.playback.PublicMediaIdentity.capture(appContext,source)
+        require(sourceKeys.size<=256)
         synchronized(diskLock){
         val dir=directory(id).apply{check(mkdirs()||isDirectory)}
         val old=(diskSelection(id) as? CollectionCoverSelection.Selected)?.cover
@@ -100,10 +109,10 @@ internal class CollectionCoverStore(context:Context) {
                 RectF(0f,0f,targetWidth.toFloat(),targetHeight.toFloat()),Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
             file.outputStream().use{check(result.compress(Bitmap.CompressFormat.JPEG,88,it)){"Не удалось сохранить обложку"};it.fd.sync()}
             job.ensureActive()
-            val json=JSONObject().put("file",file.name).put("source",source).put("x",bounded.centerX).put("y",bounded.centerY).put("zoom",bounded.zoom)
+            val json=JSONObject().put("file",file.name).put("source",source).put("x",bounded.centerX).put("y",bounded.centerY).put("zoom",bounded.zoom).put("identities",JSONArray(sourceKeys.sorted()))
             val out=atomic.startWrite()
             try{out.write(json.toString().toByteArray());job.ensureActive();atomic.finishWrite(out)}catch(e:Exception){atomic.failWrite(out);throw e}
-            rememberSelection(id,CollectionCoverSelection.Selected(CollectionCover(file,source,bounded)))
+            rememberSelection(id,CollectionCoverSelection.Selected(CollectionCover(file,source,bounded,sourceKeys)))
             old?.file?.takeIf{it!=file}?.delete()
             revision.value++
         } catch(e:Exception){file.delete();throw e} finally{result.recycle()}
@@ -112,7 +121,13 @@ internal class CollectionCoverStore(context:Context) {
     fun automatic(id:String)=synchronized(diskLock){
         check(directory(id).deleteRecursively()){ "Не удалось удалить выбранную обложку" }
         rememberSelection(id,CollectionCoverSelection.Automatic)
+        // Keep the accepted display copy until the automatic replacement is
+        // prepared. An actual collection deletion uses delete() below.
         revision.value++
+    }
+    fun delete(id:String)=synchronized(diskLock){
+        automatic(id)
+        lastFrame.remove(id)
     }
     companion object {
         private val diskLock=Any()

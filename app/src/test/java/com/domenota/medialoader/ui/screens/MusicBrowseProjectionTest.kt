@@ -28,4 +28,20 @@ class MusicBrowseProjectionTest {
         assertEquals(setOf(a.id,b.id),result.queue.toSet())
         assertFalse(secret.id in catalog.available)
     }
+    @Test fun visibilityFilterKeepsQueueAndFolderCountsWithoutRevivingRemovedLocators() {
+        val rows=(0 until 2500).map(::row)
+        val folders=rows.associate { it.savedUri!! to "folder" }
+        val catalog=MusicBrowseCatalog.build(rows,rows,folders)
+        val readModel=MusicBrowseRows.build(catalog,null,0,"",MusicLibrarySort.TITLE,false,emptySet(),emptySet(),emptySet(),folders)
+        assertSame(catalog,catalog.retainAllowed { true })
+        val hidden=catalog.retainAllowed { it.id!="id0" }
+        val filtered=readModel.retainAllowed(MusicLibrarySort.TITLE) { it.id in hidden.available }
+        assertEquals(2499,hidden.tracks.size)
+        assertEquals(2499,filtered.queue.size)
+        assertFalse("id0" in hidden.byId);assertFalse("id0" in filtered.queue)
+        assertEquals(filtered.queue,filtered.sections.values.flatten().map { it.id })
+        assertTrue(hidden.folders.values.flatten().none { it.id=="id0" })
+        assertSame(hidden,hidden.retainAllowed { true })
+    }
+
 }

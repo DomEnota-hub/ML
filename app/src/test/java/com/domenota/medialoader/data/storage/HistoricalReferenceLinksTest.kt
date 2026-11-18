@@ -115,4 +115,33 @@ class HistoricalReferenceLinksTest {
             }
         } finally { vk.close(); main.close() }
     }
+    @Test fun repeatedVerificationStillDetectsNewArtworkOwnerAndChangedProofBytes() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val db = Room.inMemoryDatabaseBuilder(context, HistoryDatabase::class.java).build()
+        try {
+            val row = DownloadEntity("verify-live", "qa", "synthetic.mp4", MediaType.VIDEO,
+                DownloadState.COMPLETED, old, 100L, 123456L)
+            db.downloadDao().upsert(row)
+            context.getSharedPreferences("external_media_catalog",0).edit().clear().commit()
+            context.getSharedPreferences("media_playlists",0).edit().clear().commit()
+            context.getSharedPreferences("video_playback_positions",0).edit().clear().commit()
+            val links = HistoricalReferenceLinks(context,db)
+            val snapshot = links.snapshot(row,visibility=true)
+            db.downloadDao().rebindSavedFileWhenCurrent(row.id,old,row.originalName,100,new,row.originalName,100)
+            links.rebind(snapshot,old,new,"same","same",row.originalName,100)
+            repeat(2) { links.verify(snapshot,new,"same",addressed=true) }
+            db.downloadDao().upsert(row.copy(id="late-owner",savedUri="content://media/external/video/media/99",previewUrl=old))
+            try { links.verify(snapshot,new,"same",addressed=true); fail("A cached parse cannot authorize a newly referenced source") }
+            catch (_: IllegalStateException) { }
+            db.openHelper.writableDatabase.execSQL("DELETE FROM downloads WHERE id='late-owner'")
+            links.verify(snapshot,new,"same",addressed=true)
+            val proof=java.io.File(context.noBackupFilesDir,"historical-reference-links-v1/${snapshot.getString("key")}.json")
+            val changed=JSONObject(proof.readText()).put("newHash","changed").toString()
+            proof.writeText(changed)
+            try { links.verify(snapshot,new,"same",addressed=true); fail("Exact-text cache must reject changed live proof") }
+            catch (_: IllegalStateException) { }
+            assertEquals(new,db.downloadDao().byId(row.id)?.savedUri)
+        } finally { db.close() }
+    }
+
 }

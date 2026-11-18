@@ -210,7 +210,11 @@ internal fun GalleryModeScreen(
         LaunchedEffect(browse,gridKey,canPrepare,preparedBrowseAccess){
             if(canPrepare)retained=cached?:withContext(Dispatchers.Default){browse.prepareGrid(gridKey)}
         }
-        if(canPrepare)cached?:retained else null
+        val allowedRows=remember(browse){browse.items.associate { it.id to it.savedUri }}
+        val safeRetained=remember(retained,browse,gridKey){retained?.retainAllowed(gridKey){row ->
+            allowedRows.containsKey(row.id) && allowedRows[row.id]==row.savedUri
+        }}
+        if(canPrepare)cached?:safeRetained else null
     }
     val gridReady=grid!=null
     val shortcutAllMedia=grid?.allVisible ?: browse.media.takeIf{albumSettings.excludedFromMedia.isEmpty()}.orEmpty()

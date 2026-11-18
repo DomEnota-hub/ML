@@ -14,22 +14,32 @@ private class ProjectionInputs(private val refs: List<Any?>) {
 }
 internal data class BackgroundLibraryValue<T>(val value: T, val ready: Boolean, val usable: Boolean = ready)
 private data class PublishedLibraryValue<T>(val inputs: ProjectionInputs, val privacy: Set<String>,
-    val accessGuard: Any, val value: T)
+    val accessGuard: Any, val value: T, val retentionGuard: Any? = null)
 
 /** Retain valid public data during updates, but fail closed synchronously on a privacy change. */
 @Composable
 internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, vararg inputs: Any?,
     accessGuard: Any? = privacy, enabled: Boolean = true,
+    retentionGuard: Any? = null, revalidateRetained: ((T) -> T)? = null,
     kind: com.domenota.medialoader.core.logging.LibraryProjectionKind = com.domenota.medialoader.core.logging.LibraryProjectionKind.OTHER,
     build: () -> T): BackgroundLibraryValue<T> {
     val key = ProjectionInputs(inputs.toList())
     var published by remember { mutableStateOf<PublishedLibraryValue<T>?>(null, referentialEqualityPolicy()) }
-    LaunchedEffect(key, privacy, accessGuard, enabled) {
+    LaunchedEffect(key, privacy, accessGuard, enabled, retentionGuard) {
         if (privacy == null || accessGuard == null || !enabled) {
+            if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance())
+                com.domenota.medialoader.core.logging.AppLog.i("Perf", "READ_MODEL_GUARD kind=$kind " +
+                    "reason=${if (privacy == null) "PRIVACY" else if (accessGuard == null) "ACCESS" else "DISABLED"} " +
+                    "retained=false")
             published = null
             return@LaunchedEffect
         }
         val previous = published
+        if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance() && previous != null &&
+            (previous.accessGuard != accessGuard || previous.privacy != privacy || previous.retentionGuard != retentionGuard))
+            com.domenota.medialoader.core.logging.AppLog.i("Perf", "READ_MODEL_GUARD kind=$kind reason=GUARD_TRANSITION " +
+                "samePermissionPrivacyEpoch=${retentionGuard != null && previous.retentionGuard == retentionGuard} " +
+                "hasRemovalPolicy=${revalidateRetained != null}")
         val reason = when {
             previous == null -> com.domenota.medialoader.core.logging.LibraryProjectionReason.INITIAL
             previous.privacy != privacy || previous.accessGuard != accessGuard -> com.domenota.medialoader.core.logging.LibraryProjectionReason.ACCESS
@@ -41,13 +51,29 @@ internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, va
         val snapshot = androidx.compose.runtime.snapshots.Snapshot.takeSnapshot()
         try {
             val value = withContext(Dispatchers.Default) { snapshot.enter { build() } }
-            published = PublishedLibraryValue(key, privacy, accessGuard, value)
+            published = PublishedLibraryValue(key, privacy, accessGuard, value, retentionGuard)
             timer.complete()
         } finally { snapshot.dispose(); timer.close() }
     }
     val current = published
     val allowed = enabled && privacy != null && accessGuard != null && current != null &&
-        current.privacy == privacy && current.accessGuard == accessGuard
+        current.privacy == privacy && current.accessGuard == accessGuard && current.retentionGuard == retentionGuard
+    // A visibility receipt is narrower than a permission/privacy epoch. The caller
+    // may synchronously REMOVE denied rows from an authenticated read model while
+    // its worker rebuilds. It may never add a new locator through this bridge.
+    val bridged = remember(current, key, privacy, accessGuard, enabled, retentionGuard) {
+        if ((!allowed || current?.inputs != key) && enabled && privacy != null && accessGuard != null && current != null &&
+            retentionGuard != null && current.retentionGuard == retentionGuard && revalidateRetained != null)
+            PublishedLibraryValue(current.inputs, privacy, accessGuard,
+                revalidateRetained(current.value), retentionGuard)
+        else null
+    }
+    if (bridged != null) {
+        // Persist the removal: a later SHOW must wait for a newly verified worker
+        // generation instead of reviving a locator from before HIDE.
+        if (!allowed) SideEffect { if (published === current) published = bridged }
+        return BackgroundLibraryValue(bridged.value, false, usable = true)
+    }
     if (allowed && current != null) {
         // Counts reuse of the published generation, not a new worker invocation.
         SideEffect { com.domenota.medialoader.core.logging.LibraryProjectionCounters.reuse(kind) }
@@ -62,9 +88,10 @@ internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, va
 @Composable
 internal fun <T> addressedLibraryProjection(empty: T, guard: Any?, vararg inputs: Any?,
     publishWhen: Boolean = true, retain: (T, T) -> T = { _, next -> next },
-    seed: (suspend () -> T?)? = null, serial: Boolean = false, build: suspend () -> T): BackgroundLibraryValue<T> {
+    seed: (suspend () -> T?)? = null, serial: Boolean = false,
+    revalidateRetained: ((T) -> T)? = null, build: suspend () -> T): BackgroundLibraryValue<T> {
     val key = ProjectionInputs(inputs.toList())
-    if (serial) return serialAddressedProjection(empty, guard, key, publishWhen, retain, seed, build)
+    if (serial) return serialAddressedProjection(empty, guard, key, publishWhen, retain, seed, revalidateRetained, build)
     var published by remember { mutableStateOf<GuardedProjection<T>?>(null) }
     LaunchedEffect(key, guard, publishWhen) {
         if (guard == null) { published = null; return@LaunchedEffect }
@@ -86,7 +113,9 @@ internal fun <T> addressedLibraryProjection(empty: T, guard: Any?, vararg inputs
     }
     val current = published
     return if (guard != null && current != null && current.guard == guard)
-        BackgroundLibraryValue(current.value, current.fresh && current.inputs == key, usable = true)
+        BackgroundLibraryValue(remember(current, key) {
+            if (current.inputs != key && revalidateRetained != null) revalidateRetained(current.value) else current.value
+        }, current.fresh && current.inputs == key, usable = true)
     else BackgroundLibraryValue(empty, false)
 }
 private data class GuardedProjection<T>(val inputs: ProjectionInputs, val guard: Any, val value: T, val fresh: Boolean = true)
@@ -103,7 +132,8 @@ private class AddressedMailbox<T> {
  * cancel the whole mailbox; obsolete generations cannot publish. */
 @Composable
 private fun <T> serialAddressedProjection(empty: T, guard: Any?, key: ProjectionInputs, publishWhen: Boolean,
-    retain: (T,T)->T, seed: (suspend () -> T?)?, build: suspend () -> T): BackgroundLibraryValue<T> {
+    retain: (T,T)->T, seed: (suspend () -> T?)?, revalidateRetained: ((T) -> T)?,
+    build: suspend () -> T): BackgroundLibraryValue<T> {
     val mailbox = remember(guard) { AddressedMailbox<T>() }
     val latestKey by rememberUpdatedState(key)
     val latestPublish by rememberUpdatedState(publishWhen)
@@ -137,6 +167,8 @@ private fun <T> serialAddressedProjection(empty: T, guard: Any?, key: Projection
     }
     val current=published
     return if(guard!=null && current!=null && current.guard==guard)
-        BackgroundLibraryValue(current.value,current.fresh && current.inputs==key,usable=true)
+        BackgroundLibraryValue(remember(current,key) {
+            if(current.inputs!=key && revalidateRetained!=null) revalidateRetained(current.value) else current.value
+        },current.fresh && current.inputs==key,usable=true)
     else BackgroundLibraryValue(empty,false)
 }

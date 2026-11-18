@@ -73,24 +73,20 @@ internal class VisibilityBindingProofStore(private val directory: File) {
         if (!Files.isRegularFile(location, NOFOLLOW_LINKS)) fail("FILE_NOT_REGULAR")
         val size = try { Files.size(location) } catch (_: IOException) { fail("READ_IO") }
         if (size !in 33L..(MAX_PAYLOAD + 32).toLong()) fail("FILE_SIZE")
+        // Read one bounded envelope rather than growing/copying an output buffer
+        // and copying its entire payload again at every verification boundary.
         val all = try {
             Files.newInputStream(location).use { stream ->
-                val out = java.io.ByteArrayOutputStream()
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val n = stream.read(buffer)
-                    if (n < 0) break
-                    if (n > MAX_PAYLOAD + 32 - out.size()) fail("FILE_OVERSIZE")
-                    out.write(buffer, 0, n)
+                ByteArray(size.toInt()).also { bytes ->
+                    java.io.DataInputStream(stream).readFully(bytes)
+                    if (stream.read() != -1) fail("FILE_OVERSIZE")
                 }
-                out.toByteArray()
             }
         } catch (_: IOException) { fail("READ_IO") }
-        if (all.size < 33) fail("FILE_SIZE")
-        val payload = all.copyOfRange(0, all.size - 32)
-        if (!MessageDigest.isEqual(digest(payload), all.copyOfRange(all.size - 32, all.size)))
-            fail("CHECKSUM")
-        return payload.toString(Charsets.UTF_8)
+        val payloadSize = all.size - 32
+        val actual = MessageDigest.getInstance("SHA-256").apply { update(all,0,payloadSize) }.digest()
+        if (!MessageDigest.isEqual(actual,all.copyOfRange(payloadSize,all.size))) fail("CHECKSUM")
+        return String(all,0,payloadSize,Charsets.UTF_8)
     }
     private fun fail(code: String): Nothing {
         val location = directory.absoluteFile.toPath()

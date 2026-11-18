@@ -66,8 +66,9 @@ internal object AudioQueuePlayback {
         }
     }
     /** play() alone cannot start a stopped/failed ExoPlayer timeline in STATE_IDLE. */
-    fun toggle(player: Player) {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+    fun toggle(player: Player, permit: AudioQueueReadPermit? = null) {
+        if (permit == null) requireAudioQueueRead(emptyList(), null)
+        else requireAudioQueueRead((0 until player.mediaItemCount).map(player::getMediaItemAt), permit)
         if (player.mediaItemCount == 0) return
         if (player.playbackState == Player.STATE_IDLE || player.playerError != null) {
             player.prepare()
@@ -86,8 +87,9 @@ internal object AudioQueuePlayback {
         player.removeMediaItem(index)
         return true
     }
-    fun enqueue(player: Player, item: MediaItem, next: Boolean): Boolean {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+    fun enqueue(player: Player, item: MediaItem, next: Boolean, permit: AudioQueueReadPermit? = null): Boolean {
+        if (permit == null) requireAudioQueueRead(emptyList(), null)
+        else requireAudioQueueRead((0 until player.mediaItemCount).map(player::getMediaItemAt) + item, permit)
         if (item.mediaMetadata.extras?.getBoolean("private_media") == true ||
             player.currentMediaItem?.mediaMetadata?.extras?.getBoolean("private_media") == true) return false
         val count = player.mediaItemCount
@@ -107,8 +109,8 @@ internal object AudioQueuePlayback {
     }
     /** An explicit Play/Shuffle action starts a frozen selection, even if its
      * first track is currently playing. Ordinary preview/toggle stays unchanged. */
-    fun startSelection(player: Player, items: List<MediaItem>, shuffle: Boolean, requestedId: String? = null): Boolean {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+    fun startSelection(player: Player, items: List<MediaItem>, shuffle: Boolean, requestedId: String? = null, permit: AudioQueueReadPermit? = null): Boolean {
+        requireAudioQueueRead(items, permit)
         val public = items.filterNot { PrivatePlaybackPolicy.isPrivate(it) }.distinctBy { it.mediaId }
         if (public.isEmpty()) return false
         val start = if(requestedId!=null) public.indexOfFirst { it.mediaId==requestedId || it.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS)?.contains(requestedId)==true } else if(shuffle) kotlin.random.Random.nextInt(public.size) else 0
@@ -120,8 +122,8 @@ internal object AudioQueuePlayback {
         return true
     }
     /** A deliberate resume never toggles/replaces by a stale UI index. */
-    fun resume(player:Player,items:List<MediaItem>,index:Int,session:ResumeQueueSession,position:Long):Boolean {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+    fun resume(player:Player,items:List<MediaItem>,index:Int,session:ResumeQueueSession,position:Long,permit:AudioQueueReadPermit?=null):Boolean {
+        requireAudioQueueRead(items, permit)
         if(index !in items.indices||items.any(PrivatePlaybackPolicy::isPrivate))return false
         val sameQueue=player.mediaItemCount==items.size&&player.currentMediaItemIndex==index&&
             (0 until player.mediaItemCount).all { i -> isSameFile(items[i],player.getMediaItemAt(i)) }&&
@@ -138,24 +140,24 @@ internal object AudioQueuePlayback {
         player.prepare();player.play()
         return true
     }
-    fun open(player: Player, items: List<MediaItem>, requestedId: String): Boolean {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+    fun open(player: Player, items: List<MediaItem>, requestedId: String, permit: AudioQueueReadPermit? = null): Boolean {
+        requireAudioQueueRead(items, permit)
         val selected = items.firstOrNull { it.mediaMetadata.extras?.getBoolean("private_media") != true &&
             (it.mediaId == requestedId || it.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS)?.contains(requestedId) == true) }
             ?: return false
         return if (isSameFile(selected, player.currentMediaItem)) {
             if (player.playbackState == Player.STATE_IDLE || player.playerError != null) player.prepare()
             true
-        } else preview(player, items, requestedId)
+        } else preview(player, items, requestedId, permit)
     }
-    fun preview(player: Player, items: List<MediaItem>, requestedId: String): Boolean {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+    fun preview(player: Player, items: List<MediaItem>, requestedId: String, permit: AudioQueueReadPermit? = null): Boolean {
+        requireAudioQueueRead(items, permit)
         val public = items.filter { it.mediaMetadata.extras?.getBoolean("private_media") != true }.distinctBy { it.mediaId }
         val index = public.indexOfFirst { it.mediaId == requestedId ||
             it.mediaMetadata.extras?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS)?.contains(requestedId) == true }
         if (index < 0) return false
         if (isSameFile(public[index], player.currentMediaItem)) {
-            toggle(player)
+            toggle(player, permit)
         } else {
             nextBatches.remove(player)
             selectQueue(player,public,index)

@@ -21,7 +21,8 @@ internal data class AudioPreviewState(val currentId: String? = null, val playing
     val queue: List<androidx.media3.common.MediaItem> = emptyList(),val connected:Boolean=false,val currentItem:MediaItem?=null,val queueGeneration:Long=0L)
 
 /** One controller owned by the library ViewModel, not by the add-tracks route. */
-internal class LibraryAudioPreview(context: Context) {
+internal class LibraryAudioPreview(context: Context,
+    private val authorizeRead: (suspend (List<LibraryMediaRef>, String?) -> AudioQueueReadPermit?)? = null) {
     private val context = context.applicationContext
     private var future: ListenableFuture<MediaController>? = null
     private var connected: MediaController? = null
@@ -93,32 +94,47 @@ internal class LibraryAudioPreview(context: Context) {
         val tag=contextId?:ResumeQueuePolicy.contextId(playlistId,public.map{ListeningHistoryPolicy.keys(it.item,it.aliases)})
         return public.map{AudioPlaybackMetadata.item(it.item,it.aliases,playlistId,tag)}.also{preparedQueue=PreparedQueue(epoch,refs.toList(),playlistId,contextId,preserveOccurrences,it)}
     }
+    private suspend fun authorize(refs: List<LibraryMediaRef>, selected: String?): AudioQueueReadPermit? {
+        if (authorizeRead != null) return authorizeRead.invoke(refs, selected)
+        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        return null
+    }
+    suspend fun toggleCurrent(refs: List<LibraryMediaRef>) {
+        val active = controller()
+        val selected = active.currentMediaItem?.mediaId ?: return
+        val permit = authorize(refs, selected)
+        withContext(Dispatchers.Main.immediate) {
+            val current = controller()
+            AudioQueuePlayback.toggle(current, permit)
+            sync(current)
+        }
+    }
     suspend fun observe() { controller() }
     suspend fun observeCurrent() { controller() }
     suspend fun preview(refs: List<LibraryMediaRef>, requestedId: String, playlistId: String? = null) = update(refs, requestedId, true, playlistId)
     suspend fun open(refs: List<LibraryMediaRef>, requestedId: String, playlistId: String? = null) = update(refs, requestedId, false, playlistId)
     private suspend fun update(refs: List<LibraryMediaRef>, requestedId: String, toggleCurrent: Boolean, playlistId: String?) {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        val permit = authorize(refs, requestedId)
         val items = withContext(Dispatchers.IO) { queueItems(refs,playlistId) }
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
-            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
-            check(if (toggleCurrent) AudioQueuePlayback.preview(active, items, requestedId)
-                else AudioQueuePlayback.open(active, items, requestedId)) { "Трек недоступен" }
+            requireAudioQueueRead(items, permit)
+            check(if (toggleCurrent) AudioQueuePlayback.preview(active, items, requestedId, permit)
+                else AudioQueuePlayback.open(active, items, requestedId, permit)) { "Трек недоступен" }
             sync(active)
         }
     }
     suspend fun playSelection(refs: List<LibraryMediaRef>, shuffle: Boolean, requestedId:String?=null) {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        val permit = authorize(refs, requestedId ?: refs.firstOrNull()?.key)
         val items = withContext(Dispatchers.IO) { queueItems(refs) }
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
-            check(AudioQueuePlayback.startSelection(active,items,shuffle,requestedId)) { "Нет доступных треков" }
+            check(AudioQueuePlayback.startSelection(active,items,shuffle,requestedId,permit)) { "Нет доступных треков" }
             sync(active)
         }
     }
     suspend fun resumeSelection(refs:List<LibraryMediaRef>,resolved:ResolvedResumeQueue) {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        val permit = authorize(refs, resolved.currentId)
         val current=resolved.currentId?:error("Исходный трек недоступен")
         require(refs.map{it.key}==resolved.availableIds && refs.getOrNull(resolved.currentIndex)?.key==current){"Очередь изменилась"}
         val items=withContext(Dispatchers.IO){queueItems(refs,resolved.session.playlistId,resolved.session.id,preserveOccurrences=true)}
@@ -126,19 +142,19 @@ internal class LibraryAudioPreview(context: Context) {
         val position=ResumeQueuePolicy.clampedPosition(resolved.session,refs[resolved.currentIndex].item.durationMs)
         withContext(Dispatchers.Main.immediate){
             val active=controller()
-            check(AudioQueuePlayback.resume(active,items,resolved.currentIndex,resolved.session,position)){"Не удалось восстановить очередь"}
+            check(AudioQueuePlayback.resume(active,items,resolved.currentIndex,resolved.session,position,permit)){"Не удалось восстановить очередь"}
             sync(active)
         }
     }
     suspend fun enqueue(ref: LibraryMediaRef, next: Boolean) {
-        com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+        val permit = authorize(listOf(ref), ref.key)
         require(!ref.item.isPrivate && !ref.item.hidden && ref.item.mediaType == MediaType.AUDIO &&
             ref.item.state == DownloadState.COMPLETED && !ref.item.savedUri.isNullOrBlank())
         val item = withContext(Dispatchers.IO) { AudioPlaybackMetadata.item(ref.item, ref.aliases) }
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
-            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
-            check(AudioQueuePlayback.enqueue(active, item, next)) { "Трек недоступен" }
+            requireAudioQueueRead(listOf(item), permit)
+            check(AudioQueuePlayback.enqueue(active, item, next, permit)) { "Трек недоступен" }
             sync(active)
         }
     }
