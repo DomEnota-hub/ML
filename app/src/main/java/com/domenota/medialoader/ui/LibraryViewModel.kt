@@ -45,8 +45,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal enum class PhoneScanReason { REQUEST, MEDIASTORE_CHANGE, PRIVACY_CHANGE, ACCESS_CHANGED, RECOVERY }
+internal enum class PostTransferCatalogStatus { IDLE, UPDATING, READY, INCOMPLETE }
 internal data class PhoneLibraryState(
     val items: List<DownloadEntity> = emptyList(), val loading: Boolean = false,
     val loaded: Boolean = false, val message: String? = null, val revision: Long = 0,
@@ -108,6 +110,17 @@ internal fun guardedRetainedIndexRefs(
             !visibility.excluded(ref)
     }
 }
+
+/** Successful byte transfer precedes an independent, async MediaStore/index
+ * reconciliation. Never report the second phase as complete from 46/46 alone. */
+internal fun postTransferIndexAligned(
+    index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState,
+    guard: FolderVisibilityLibraryGuard?,
+): Boolean = index.ready && index.appComplete && guard != null &&
+    index.visibility == guard &&
+    gallery.loaded && music.loaded && !gallery.loading && !music.loading &&
+    index.galleryRevision == gallery.revision &&
+    index.musicRevision == music.revision
 
 /** Duplicate search requires the complete current visual generation, not a
  * browseable first page. Audio inventory is irrelevant to photo/video coverage. */
@@ -609,6 +622,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private var editorHoldsAutomaticIndexing = false
     private var recoveryRefreshPending = false
     private var observedRecoveryVersion = HistoricalRecoverySignals.version.value
+    private var postTransferSerial = 0L
+    private var postTransferJob: Job? = null
+    private val postTransferState = MutableStateFlow(PostTransferCatalogStatus.IDLE)
+    val postTransferCatalogStatus = postTransferState.asStateFlow()
     fun holdAutomaticMediaIndexing(held: Boolean) {
         if (editorHoldsAutomaticIndexing == held) return
         editorHoldsAutomaticIndexing = held
@@ -627,11 +644,36 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 "galleryLoaded=${galleryState.value.loaded} musicLoaded=${musicState.value.loaded}")
         }
         pendingMediaChanges.clear()
+        // A completed file batch is not yet a complete media-library refresh.
+        val serial = ++postTransferSerial
+        postTransferJob?.cancel()
+        postTransferState.value = PostTransferCatalogStatus.UPDATING
         // Folder receipts/pending members already invalidate the exact visibility
         // projection. Do not revoke the unrelated, still-authorized 11k-row
         // phone generation: reconcile from it and publish once verified.
         refresh(AppMode.GALLERY, force = true, reason = PhoneScanReason.RECOVERY)
         refresh(AppMode.MUSIC, force = true, reason = PhoneScanReason.RECOVERY)
+        val galleryJob = jobs[AppMode.GALLERY]
+        val musicJob = jobs[AppMode.MUSIC]
+        postTransferJob = viewModelScope.launch {
+            galleryJob?.join()
+            musicJob?.join()
+            // Wait for the same current visibility and phone generations to
+            // reach the canonical index. Never hold a file operation open or
+            // alter its durable journal while the UI finishes reconciling.
+            val ready = withTimeoutOrNull(90_000L) {
+                combine(index, gallery, music, visibilityGuard) { current, pictures, audio, guard ->
+                    postTransferIndexAligned(current, pictures, audio, guard)
+                }.first { it }
+                true
+            } == true
+            if (serial == postTransferSerial) {
+                postTransferState.value =
+                    if (ready) PostTransferCatalogStatus.READY else PostTransferCatalogStatus.INCOMPLETE
+                com.domenota.medialoader.core.logging.AppLog.i("Library",
+                    "RECOVERY_CATALOG_RESULT verified=$ready serial=$serial")
+            }
+        }
     }
 
     init {
@@ -640,6 +682,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 running to version
             }.collect { (running, version) ->
                 if (running) {
+                    postTransferSerial++
+                    postTransferJob?.cancel()
+                    postTransferState.value = PostTransferCatalogStatus.IDLE
                     if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
                         com.domenota.medialoader.core.logging.AppLog.i("Perf",
                             "RECOVERY_GATE state=ENTER activeScans=${jobs.values.count { it.isActive }} " +
