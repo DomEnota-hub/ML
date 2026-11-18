@@ -116,8 +116,16 @@ internal class CollectionCoverStore(context:Context) {
     }
     companion object {
         private val diskLock=Any()
-        private val cache=object:LinkedHashMap<String,CollectionCoverSelection>(128,.75f,true){
-            override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,CollectionCoverSelection>?):Boolean=size>128
+        // Metadata-only: no decoded bitmaps. Keep cover selections warm across
+        // long LazyRow/LazyGrid scrolls and mode switches. Previously the 128
+        // entry LRU evicted the first visible albums when the user browsed
+        // larger collections, forcing Loading -> Automatic on return.
+        // Do not infer Automatic on cache miss: manual/private selection must
+        // still be verified by diskSelection() and the existing access gate.
+        private const val SELECTION_CACHE_LIMIT = 1024
+        private val cache=object:LinkedHashMap<String,CollectionCoverSelection>(256,.75f,true){
+            override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,CollectionCoverSelection>?):Boolean=
+                size>SELECTION_CACHE_LIMIT
         }
         private val revision=MutableStateFlow(0L)
         val changes=revision.asStateFlow()
