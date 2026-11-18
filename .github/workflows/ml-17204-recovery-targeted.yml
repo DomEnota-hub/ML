@@ -53,6 +53,8 @@ jobs:
             --tests com.domenota.medialoader.data.catalog.visibility.VisibilityRestoreMetadataPolicyTest \
             --tests com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest \
             --tests com.domenota.medialoader.data.catalog.visibility.VisibilityMediaStoreAdapterTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.VisibilityPrivatePublicationGateTest \
+            --tests com.domenota.medialoader.data.privatevault.PrivateMediaOperationsTest \
             --stacktrace --no-daemon --console=plain
       - name: Save targeted test results
         if: always()
