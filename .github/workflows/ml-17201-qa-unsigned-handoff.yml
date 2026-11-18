@@ -1,0 +1,67 @@
+name: ML 1.7.201 exact-source unsigned device QA handoff
+
+on:
+  push:
+    branches: [qa/ml-17201-unsigned-handoff]
+
+permissions:
+  contents: read
+
+jobs:
+  exact-unsigned-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b7ab007aa5e83e7b0e9b272a20c83ae534abc57b
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Pin exact previously checked source and prepare Android SDK
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "b7ab007aa5e83e7b0e9b272a20c83ae534abc57b"
+          ! test -e .gapi-local/builtin-keys.json
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for attempt in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$attempt" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+          grep -Eq 'versionCode 261$' app/build.gradle
+          grep -Fq "versionName '1.7.201'" app/build.gradle
+      - name: Build exact ARM64 unsigned candidate
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon --console=plain
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='261' versionName='1.7.201'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = 'arm64-v8a'
+      - name: Archive pinned sources and unsigned handoff metadata (no signing secrets)
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          cp app/build/outputs/apk/release/app-release-unsigned.apk handoff/ML_1.7.201_ARM64_UNSIGNED.apk
+          git archive --format=zip --output=handoff/ML_1.7.201_SOURCES_EXACT_COMMIT.zip HEAD
+          printf '%s\n' 'b7ab007aa5e83e7b0e9b272a20c83ae534abc57b' > handoff/DELIVERY_COMMIT_SHA.txt
+          (
+            cd handoff
+            sha256sum ML_1.7.201_ARM64_UNSIGNED.apk ML_1.7.201_SOURCES_EXACT_COMMIT.zip > SHA256SUMS_UNSIGNED.txt
+          )
+          ! unzip -Z1 handoff/ML_1.7.201_SOURCES_EXACT_COMMIT.zip | grep -Ei '(^|/)(\.gapi-local|.*\.jks|.*\.keystore|.*\.env|.*password.*)' || exit 1
+          unzip -tq handoff/ML_1.7.201_SOURCES_EXACT_COMMIT.zip
+      - name: Upload temporary unsigned signing handoff (not release/prerelease)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17201-exact-unsigned-signing-handoff
+          path: handoff/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
