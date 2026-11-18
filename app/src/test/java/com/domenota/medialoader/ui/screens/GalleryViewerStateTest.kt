@@ -59,9 +59,10 @@ class GalleryViewerStateTest {
         assertNull(GalleryViewerState.addressedPublic(a.copy(hidden = true), ref, emptySet()))
     }
 
-    @Test fun videoExistsOnlyOnSettledVisiblePageAndIsReleasedAsSoonAsSwipeStarts() {
+    @Test fun tentativeSwipeRetainsExactSettledVideoUntilAnotherPageActuallySettles() {
         assertTrue(GalleryViewerState.canCreateVideo(1, 1, false))
+        assertTrue(GalleryViewerState.canCreateVideo(1, 1, true))
         assertFalse(GalleryViewerState.canCreateVideo(1, 2, false))
-        assertFalse(GalleryViewerState.canCreateVideo(1, 1, true))
+        assertFalse(GalleryViewerState.canCreateVideo(1, 2, true))
     }
 }
