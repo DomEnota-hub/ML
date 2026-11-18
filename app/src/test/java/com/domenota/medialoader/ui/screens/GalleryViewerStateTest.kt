@@ -84,6 +84,28 @@ class GalleryViewerStateTest {
         assertNull(GalleryViewerState.addressedPublic(a.copy(hidden = true), ref, emptySet()))
     }
 
+    @Test fun queueRebindKeepsOnlyTheExactStillAuthorizedPlayingVideo() {
+        val video = row("playing", MediaType.VIDEO)
+        val other = row("other", MediaType.PHOTO)
+        val existing = listOf(video, other)
+        assertTrue(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, existing))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 1, existing))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(savedUri="content://media/changed"))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(hidden=true))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(isPrivate=true))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(state=DownloadState.FAILED))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, listOf(video.copy(mediaType=MediaType.PHOTO))))
+        assertFalse(GalleryViewerState.canRetainCurrentVideoOnQueueRebind(
+            "playing", video.savedUri, false, 0, emptyList()))
+    }
+
     @Test fun tentativeSwipeRetainsExactSettledVideoUntilAnotherPageActuallySettles() {
         assertTrue(GalleryViewerState.canCreateVideo(1, 1, false))
         assertTrue(GalleryViewerState.canCreateVideo(1, 1, true))
