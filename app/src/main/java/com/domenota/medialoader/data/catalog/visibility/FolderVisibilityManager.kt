@@ -144,6 +144,18 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             // owner-root. Reject an invalid .nomedia *before* recovery enters its
             // global cache/scanner gate. No user media or durable journal changes.
             if (hasPendingJournal(context)) {
+                currentStage=VisibilityOperationStage.JOURNAL
+                // Read-only compatibility preflight, including a 1.7.203 batch
+                // that crashed after the batch-first legacy metadata upgrade.
+                // Reject orphan/corrupt/wrong-member plans BEFORE entering the
+                // expensive global media-index refresh gate.
+                val checkpoint = VisibilityRecoveryPlanner.inspect(
+                    batchJournal.read(), moveJournal.read(), allowLegacyUpgrade = true)
+                checkNotNull(checkpoint)
+                com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+                    "RECOVERY_PLAN verified=true direction=${checkpoint.direction} " +
+                        "confirmed=${checkpoint.confirmed}/${checkpoint.total} " +
+                        "phase=${checkpoint.active?.phase ?: "BETWEEN_FILES"}")
                 currentStage=VisibilityOperationStage.DESTINATION
                 val marker = withContext(Dispatchers.IO) {
                     FolderVisibilityStorageAccess.store().verifyExistingRoot()
