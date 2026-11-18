@@ -444,7 +444,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             catch(e:CancellationException){throw e}catch(_:Exception){/* derived snapshot can be rebuilt */}
         }
         com.domenota.medialoader.core.logging.AppLog.i("Library", "App identity index ready · count=${resolved.size}")
-    }.runningFold<AppReferenceBatch?>(null) { previous, update ->
+    }.runningFold<AppReferenceBatch?, AppReferenceBatch?>(null) { previous, update ->
         // The recovery signal temporarily suspends reference writes. Keep the
         // last *complete* snapshot and re-check its privacy/visibility under
         // the live guards; never retain an unvalidated partial batch.
@@ -483,7 +483,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         musicAccessEpoch) { app, audio, private, recovering, epoch -> AudioIndexInput(app, audio, private, recovering, epoch) }
         .combine(visibilityGuard) { input, visibility -> input to visibility }
         .mapLatest { (input, visibility) ->
-            val (app, audio, private, recovering, epoch) = input
+            val (app, audio, private, _, epoch) = input
             val guard = private?.takeUnless { visibility == null || visibility.policy.unknownPending }?.let { AudioCatalogGuard(it, epoch, visibility) }
             val refs = if (guard != null && app?.complete == true && audio.loaded && audio.complete && !audio.loading && audio.accessEpoch == epoch) withContext(Dispatchers.IO) {
                 val phoneRefs = phoneReferences(audioPhoneReferences, PhoneLibraryState(), audio, app.refs, guard.privacy)
@@ -501,7 +501,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         LibraryIndexInput(app, pictures, audio, private, recovering)
     }.combine(visibilityGuard) { input, visibility -> input to visibility }
     .mapLatest { (input, visibility) ->
-        val (app, pictures, audio, private, recovering) = input
+        val (app, pictures, audio, private, _) = input
         if (private == null || visibility == null || visibility.policy.unknownPending) LibraryIndex() else withContext(Dispatchers.IO) {
             // MediaStore's DATE_ADDED changes after a copied legacy download.
             // The matching app history still has the pre-migration timestamp.
