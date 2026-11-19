@@ -216,7 +216,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         val generation = journalGeneration
         snapshotFlow { snapshot() }.debounce(350L).collect { saved ->
             if (saved != null && !verifying) {
-                val savedOk = if (showingPartial) MusicDuplicateSessionStore.savePartial(context,saved)
+                val savedOk = if (showingPartial) MusicDuplicateSessionStore.savePartial(context,saved,generation)
                     else MusicDuplicateSessionStore.save(context,saved,generation)
                 if (!savedOk && generation==MusicDuplicateSessionStore.journalGeneration()) error = "Не удалось сохранить состояние"
             }
@@ -276,7 +276,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         stopPreview()
         val saved = snapshot()
         if (saved == null) onDismiss() else scope.launch {
-            if (showingPartial) MusicDuplicateSessionStore.savePartial(context,saved) else MusicDuplicateSessionStore.save(context,saved,journalGeneration)
+            if (showingPartial) MusicDuplicateSessionStore.savePartial(context,saved,journalGeneration) else MusicDuplicateSessionStore.save(context,saved,journalGeneration)
             onDismiss()
         }
     }
@@ -498,7 +498,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                     latestCurrent?.takeIf{it in verified}?.let{verified-=it;failures[it]="Текущий трек изменился"}
                     val saved = requireNotNull(snapshot()).copy(selected=choice)
-                    check(if (showingPartial) MusicDuplicateSessionStore.savePartial(context,saved)
+                    check(if (showingPartial) MusicDuplicateSessionStore.savePartial(context,saved,journalGeneration)
                         else MusicDuplicateSessionStore.save(context,saved,journalGeneration)) { "Не удалось сохранить состояние" }
                     onTrash(DuplicateTrashSelection(groups, choice, verified, failures)); onDismiss()
                 } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message ?: "Проверка не прошла" }
