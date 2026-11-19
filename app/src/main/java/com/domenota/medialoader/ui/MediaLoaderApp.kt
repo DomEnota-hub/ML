@@ -280,6 +280,9 @@ fun MediaLoaderApp(
     val visibilityGuard by libraryModel.visibilityGuard.collectAsStateWithLifecycle()
     val nomediaRegistry = remember(mediaRepository) { mediaRepository.nomediaFolders }
     val nomediaSnapshot by nomediaRegistry.snapshot.collectAsStateWithLifecycle()
+    val nomediaFolderStatuses = remember(nomediaSnapshot) {
+        nomediaSnapshot.folders.keys.associateWith { nomediaRegistry.statusText(it).orEmpty() }
+    }
     val visibilityAccess=com.domenota.medialoader.ui.components.rememberFolderVisibilityAccessHost()
     val visibilityWork=remember(mediaRepository) { mediaRepository.folderVisibilityWork }
     val visibilityWorkState by visibilityWork.state.collectAsStateWithLifecycle()
@@ -888,6 +891,12 @@ fun MediaLoaderApp(
             }
             require(found != null) { "Папка не найдена" }
         }
+        val currentFolder = if(ref.appDownloadId != null)
+            catalogAssignments.firstOrNull { it.downloadId == ref.appDownloadId }?.folderId
+        else libraryModel.externalCatalog.entries.value.singleOrNull { it.ref.key == ref.key }?.folderId
+        check(currentFolder !in nomediaSnapshot.hiddenFolderIds && folder !in nomediaSnapshot.hiddenFolderIds) {
+            "Сначала восстановите видимость папки и проверьте доступ к файлам"
+        }
         val physical=mediaRepository.folderVisibility.requiresMembershipMove(ref,folder)
         if(physical) {
             RetiredFolderVisibilityTransfer.requireActive()
@@ -913,6 +922,7 @@ fun MediaLoaderApp(
         if(mediaRepository.folderVisibility.isHidden(folder) || nomediaRegistry.snapshot.value.folders[folder]?.excludedFromMl == true) {
             error("Сначала восстановите видимость папки и проверьте доступ к файлам")
         } else {
+            nomediaRegistry.releaseShownFolder(folder)
             viewModel.deleteCatalogFolder(folder)
             libraryModel.externalCatalog.removeFolder(folder)
         }
@@ -1471,9 +1481,11 @@ fun MediaLoaderApp(
         downloads.filter { row ->
             visibilityGuard?.canOpen(row,null,emptyList()) == true ||
             (row.id in nomediaHistoryIds && !row.hidden && !row.isPrivate &&
-                visibilityGuard?.policy?.unknownPending == false &&
-                row.id !in visibilityGuard.policy.snapshot.receipts.map { it.downloadId }.toSet() &&
-                visibilityGuard.policy.pendingFolder == null) ||
+                visibilityGuard?.let { guard ->
+                    !guard.policy.unknownPending &&
+                    guard.policy.pendingFolder == null &&
+                    guard.policy.snapshot.receipts.none { it.downloadId == row.id }
+                } == true) ||
             folderRefsById[row.id]?.item?.savedUri == row.savedUri && row.savedUri != null
         }.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
     }
@@ -1771,6 +1783,10 @@ fun MediaLoaderApp(
         viewModel.catalogAssignments.value.filter { it.folderId == folderId }.map { it.downloadId }.toSet() +
             libraryModel.externalCatalog.entries.value.filter { it.folderId == folderId }.map { it.ref.key }
     val requestAlbumTrash: (String,List<String>) -> Unit = request@{ folderId, ids ->
+        if(folderId in nomediaSnapshot.hiddenFolderIds) {
+            AppNotice.post(context,"Сначала покажите папку и проверьте доступ к файлам")
+            return@request
+        }
         if(folderId in visibilityFolders) {
             fileActionScope.launch {
                 try {
@@ -2245,7 +2261,7 @@ fun MediaLoaderApp(
                     preparedBrowse = galleryBrowse,
                     preparedBrowseAccess = galleryRetentionAccess,
                     hiddenFolderIds = visibilityFolders,
-                    pendingVisibilityFolderId = visibilityProgress.folderId,
+                    pendingVisibilityFolderId = null,
                     onFolderVisibility = toggleFolderVisibility.takeIf { android.os.Build.VERSION.SDK_INT >= 21 },
                     source = librarySource, loading = !galleryBrowse.usable || !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
@@ -2603,7 +2619,21 @@ fun MediaLoaderApp(
                 DownloadsScreen(
                     items = downloadItems,
                     hiddenFolderIds = visibilityFolders,
-                    pendingVisibilityFolderId = visibilityProgress.folderId,
+                    pendingVisibilityFolderId = null,
+                    nomediaFolderStatuses = nomediaFolderStatuses,
+                    onCheckFolderAccess = { folder ->
+                        val restored = nomediaRegistry.reconcile(folder)
+                        val ids=catalogAssignments.filter { it.folderId==folder }
+                            .mapTo(mutableSetOf()) { it.downloadId }
+                        val rows=downloads.filter { it.id in ids && !it.isPrivate && !it.hidden }
+                        var available=0
+                        for (row in rows) if(nomediaRegistry.checkOldMediaLink(row.savedUri)) available++
+                        val markerResult=if(restored.markerState==NomediaMarkerState.FOREIGN_MARKER)
+                            "Чужой .nomedia сохранён" else "Проверка маркера выполнена"
+                        AppNotice.post(context,
+                            "Доступ по прежнему URI: $available из ${rows.size}. " +
+                            "Неподтверждённые файлы не перепривязаны. $markerResult")
+                    },
                     onFolderVisibility = toggleFolderVisibility.takeIf { android.os.Build.VERSION.SDK_INT >= 21 },
                     onOpenFromFolder = { id,queue,folder -> openingAlbumKey = folder?.let { "folder:$it" }; openDownloadWithQueue(id,queue) },
                     onShareFromFolder = { id,folder -> shareScopedFile(id,folder) },
