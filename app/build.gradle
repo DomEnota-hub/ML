@@ -96,9 +96,7 @@ android {
             // fetches Android framework jars. Use an independent Maven mirror in CI.
             // Local development keeps the established repository. Override explicitly
             // if the mirror is unreachable; no change to app dependencies or APK.
-            def defaultRobolectricRepo = System.getenv('GITHUB_ACTIONS') == 'true'
-                    ? 'https://maven.aliyun.com/repository/central'
-                    : 'https://repo.maven.apache.org/maven2'
+            def defaultRobolectricRepo = (System.getenv('GITHUB_ACTIONS') == 'true') ? 'https://maven.aliyun.com/repository/central' : 'https://repo.maven.apache.org/maven2'
             testTask.systemProperty 'robolectric.dependency.repo.url',
                     (System.getenv('ML_ROBOLECTRIC_MAVEN_URL') ?: defaultRobolectricRepo)
             // CI isolates the affected Robolectric Compose classes, one method
