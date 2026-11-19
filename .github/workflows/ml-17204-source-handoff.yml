@@ -16,13 +16,13 @@ jobs:
       - name: Checkout exact accepted candidate, never temporary workflow HEAD
         uses: actions/checkout@v4
         with:
-          ref: 0c600a1b97d78bc13f9446e5b9c97754e4913704
+          ref: 146c88245266c73828af52a09fb7ccdc5a730bb3
           persist-credentials: false
       - name: Verify and package only Git-tracked source at the accepted SHA
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '0c600a1b97d78bc13f9446e5b9c97754e4913704'
+          test "$(git rev-parse HEAD)" = '146c88245266c73828af52a09fb7ccdc5a730bb3'
           mkdir -p handoff
           git archive --format=zip -o handoff/ML_1.7.204_SOURCES_EXACT_COMMIT.zip HEAD
           unzip -t handoff/ML_1.7.204_SOURCES_EXACT_COMMIT.zip >/dev/null
