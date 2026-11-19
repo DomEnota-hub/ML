@@ -10,6 +10,9 @@ on:
       - 'app/src/test/**'
       - 'app/build.gradle'
       - 'docs/qa/ML-17206-block1-retirement-map.md'
+  pull_request:
+    branches:
+      - feature/ml-17205-hidden-v2
   workflow_dispatch:
 
 permissions:
