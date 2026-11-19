@@ -213,4 +213,39 @@ class BackgroundLibraryProjectionTest {
         } finally { release.set(true) }
     }
 
+    @Test fun identicalGalleryGenerationsKeepPreviousObjectButRevokeOnAccessChange() {
+        data class PreparedGrid(val ids:List<String>,val sourceGeneration:Int)
+        var generation by mutableIntStateOf(1)
+        var access by mutableStateOf<String?>("permission-epoch-1")
+        val builds=java.util.concurrent.atomic.AtomicInteger()
+        var published=PreparedGrid(emptyList(),-1)
+        var ready=false
+        val frames=mutableListOf<Pair<String?,List<String>>>()
+        compose.setContent {
+            val projected=backgroundLibraryProjection(
+                PreparedGrid(emptyList(),-1),emptySet(),generation,
+                accessGuard=access, retentionGuard=access,
+                equivalentContent={old,next->old.ids==next.ids}) {
+                builds.incrementAndGet()
+                PreparedGrid(listOf("photo-a","photo-b"),generation)
+            }
+            SideEffect { published=projected.value;ready=projected.ready;frames+=access to published.ids }
+            Text(published.ids.joinToString())
+        }
+        compose.waitUntil(5_000) {ready && published.ids.size==2}
+        val warm=published
+        repeat(5) { index ->
+            compose.runOnIdle { generation++ }
+            compose.waitUntil(5_000) { ready && builds.get()>=index+2 }
+            compose.runOnIdle {assertSame(warm,published)}
+        }
+        assertFalse(frames.any { it.first=="permission-epoch-1" && it.second.isEmpty() })
+        compose.runOnIdle {access=null}
+        compose.waitForIdle()
+        assertTrue(published.ids.isEmpty()) // fail closed on permission revoke
+        compose.runOnIdle {access="permission-epoch-2"}
+        compose.waitUntil(5_000) { ready && published.ids.size==2 }
+        assertNotSame(warm,published)
+    }
+
 }
