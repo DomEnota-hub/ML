@@ -81,6 +81,16 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
         AndroidNomediaMarkerPort(context).listMedia(record.treeUri)
     }
 
+    /** A temporary playback/view URI under the same already-approved SAF grant.
+     * It never replaces DownloadEntity.savedUri or an existing MediaStore locator. */
+    suspend fun openSafMedia(folderId:String,documentId:String):Uri = gate.withLock {
+        val record=checkNotNull(current.value.takeUnless { it.unknown }?.folders?.get(folderId)) {
+            "Состояние доступа неизвестно"
+        }
+        check(record.excludedFromMl) { "Папка не скрыта в ML" }
+        AndroidNomediaMarkerPort(context).readableMediaUri(record.treeUri,documentId)
+    }
+
     suspend fun verifySafDocumentRead(folderId:String,documentId:String):Boolean = gate.withLock {
         val record=checkNotNull(current.value.takeUnless { it.unknown }?.folders?.get(folderId)) {
             "Состояние доступа неизвестно"
@@ -276,6 +286,24 @@ internal class AndroidNomediaMarkerPort(context:Context):NomediaMarkerPort {
             }
         }
         entries
+    }
+
+    /** URI is derived only from a currently listed document in the same granted tree. */
+    suspend fun readableMediaUri(treeUri:String,documentId:String):Uri = withContext(Dispatchers.IO) {
+        check(documentId.isNotBlank())
+        val entry=checkNotNull(listMedia(treeUri).singleOrNull { it.documentId==documentId }) {
+            "Документ SAF не найден"
+        }
+        check(entry.mimeType.startsWith("image/") || entry.mimeType.startsWith("video/") ||
+            entry.mimeType.startsWith("audio/"))
+        val tree=authorizedTree(treeUri)
+        val uri=DocumentsContract.buildDocumentUriUsingTree(tree,entry.documentId)
+        val readable=try {
+            resolver.openFileDescriptor(uri,"r")?.use { fd -> fd.fileDescriptor.valid() }==true
+        } catch(cancelled:CancellationException){throw cancelled}
+        catch(_:Exception){false}
+        check(readable) { "Документ SAF недоступен для чтения" }
+        uri
     }
 
     /** Exactly one allowed scoped media read; ID must occur in the current SAF inventory. */
