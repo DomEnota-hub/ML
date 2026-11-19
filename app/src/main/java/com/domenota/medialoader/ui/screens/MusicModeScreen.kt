@@ -197,7 +197,20 @@ internal fun MusicModeScreen(
     // System calendar changes and one exact rolling boundary, rather than a
     // permanent Compose polling loop. No timer when analytics is disabled or
     // there is no finite boundary; disposing the screen cancels its wait.
-    var rankingBoundary by remember { mutableLongStateOf(Long.MAX_VALUE) }
+    // Returning to this screen must not flash a loader while the durable SQL
+    // projection is revalidated. A warm result is keyed by the exact current
+    // public/privacy guard, membership digest, period, exclusion revision and zone.
+    val warmRankKey = remember(analyticsGuard, rankDigest, listeningPeriod,historyGeneration,smartZone,listeningEnabled,analyticsUsable) {
+        analyticsGuard?.takeIf { listeningEnabled && analyticsUsable }?.let { guard ->
+            ListeningWarmRankKey(guard,rankDigest,listeningPeriod,historyGeneration,smartZone.id)
+        }
+    }
+    val warmRank = remember(warmRankKey) {
+        listeningStore.warmRanks.get(warmRankKey,System.currentTimeMillis())
+    }
+    var rankingBoundary by remember(warmRankKey) {
+        mutableLongStateOf(warmRank?.validUntil ?: Long.MAX_VALUE)
+    }
     var rankTimeRevision by remember { mutableLongStateOf(0L) }
     DisposableEffect(context,listeningEnabled) {
         if(!listeningEnabled) onDispose { }
@@ -316,10 +329,12 @@ internal fun MusicModeScreen(
         catch(_:Exception){if(!smartHasData)smartError="Не удалось загрузить подборку"}
         finally{smartLoading=false}
     }
-    var listeningSelection by remember(analyticsGuard,historyGeneration,displayEpoch,listeningPeriod) { mutableStateOf(ListeningSelection()) }
-    var listeningHasData by remember(analyticsGuard,historyGeneration,displayEpoch,listeningPeriod) { mutableStateOf(false) }
+    // Store already has a persistent SQLite rank cache; seed the first Compose
+    // frame from the last *validated* in-process result before background IO.
+    var listeningSelection by remember(warmRankKey) { mutableStateOf(warmRank ?: ListeningSelection()) }
+    var listeningHasData by remember(warmRankKey) { mutableStateOf(warmRank != null) }
     var listeningLoading by remember { mutableStateOf(false) }
-    var listeningError by remember(analyticsGuard,historyGeneration,displayEpoch,listeningPeriod) { mutableStateOf<String?>(null) }
+    var listeningError by remember(warmRankKey) { mutableStateOf<String?>(null) }
     LaunchedEffect(listeningEnabled,listeningRevision,listeningPeriod,rankDigest,analyticsGuard,analyticsUsable,historyGeneration,rankTimeRevision,smartZone) {
         if (!listeningEnabled || !analyticsUsable) return@LaunchedEffect
         listeningLoading = !listeningHasData; listeningError = null
@@ -342,6 +357,7 @@ internal fun MusicModeScreen(
             }
             if(listeningStore.visibilityRevision.value!=historyGeneration || listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RANK)!=revision)return@LaunchedEffect
             listeningSelection = result;rankingBoundary=result.validUntil;listeningHasData=true;listeningLoading=false
+            warmRankKey?.let { key -> listeningStore.warmRanks.put(key,result,now) }
             if(!reusable && eligible==frequentKeys) try {
                 listeningStore.writeProjection(cacheKey,ListeningProjectionDomain.RANK,revision,now,withContext(Dispatchers.Default){ListeningProjectionCodec.encode(result)})
             } catch(e:CancellationException){throw e} catch(_:Exception){/* derived cache can be rebuilt */}
