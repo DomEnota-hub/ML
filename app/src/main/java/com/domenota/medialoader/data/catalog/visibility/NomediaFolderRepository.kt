@@ -19,7 +19,7 @@ import org.json.JSONObject
  * The only permitted physical mutation is create/delete of the exact .nomedia document
  * in a user-authorized external-storage SAF tree.
  */
-internal data class NomediaSafEntry(
+data class NomediaSafEntry(
     val documentId:String,
     val displayName:String,
     val mimeType:String,
