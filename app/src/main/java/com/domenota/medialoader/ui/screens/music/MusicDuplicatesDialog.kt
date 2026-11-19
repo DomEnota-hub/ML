@@ -74,6 +74,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     val latestCurrent by rememberUpdatedState(currentId)
     val scope = rememberCoroutineScope()
     var result by remember { mutableStateOf<DuplicateScanResult?>(null) }
+    // A recovered checkpoint is not a completed scan. Never promote it into the
+    // completed report: both the checkpoint and acoustic cache must survive.
+    var showingPartial by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val preliminaryListState=rememberLazyListState()
     val previewGeneration=remember(rows){Any()}
@@ -106,7 +109,6 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         showTrashReport=false
         trashReport=MusicDuplicateSessionStore.trashReport(context)
     }
-    var showPartial by remember{mutableStateOf(false)}
     var history by remember{mutableStateOf(emptyList<DuplicateSession>())}
     var storedPartial by remember{mutableStateOf<DuplicateSession?>(null)}
     var filter by remember{mutableStateOf<DuplicateKind?>(null)}
@@ -183,7 +185,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }
     LaunchedEffect(scanRevision) {
         journalGeneration = MusicDuplicateSessionStore.journalGeneration()
-        scanning = true; result = null; previous = null; error = null; selected = emptySet(); kept = emptyMap()
+        scanning = true; showingPartial = false; result = null; previous = null; error = null; selected = emptySet(); kept = emptyMap()
         try {
             if (!DuplicateBackgroundScan.state.value.running) {
                 if (scanRevision == 0) {
@@ -209,14 +211,18 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         finally { scanning = false }
     }
     fun snapshot(): DuplicateSession? = result?.takeIf(::admissible)?.let { DuplicateSession(it,selected,kept,listState.firstVisibleItemIndex,listState.firstVisibleItemScrollOffset,scannedAt) }
-    LaunchedEffect(result,journalGeneration) {
+    LaunchedEffect(result,journalGeneration,showingPartial) {
         if (result == null) return@LaunchedEffect
         val generation = journalGeneration
         snapshotFlow { snapshot() }.debounce(350L).collect { saved ->
-            if (saved != null && !verifying && !MusicDuplicateSessionStore.save(context,saved,generation) && generation==MusicDuplicateSessionStore.journalGeneration()) error = "Не удалось сохранить состояние"
+            if (saved != null && !verifying) {
+                val savedOk = if (showingPartial) MusicDuplicateSessionStore.savePartial(context,saved)
+                    else MusicDuplicateSessionStore.save(context,saved,generation)
+                if (!savedOk && generation==MusicDuplicateSessionStore.journalGeneration()) error = "Не удалось сохранить состояние"
+            }
         }
     }
-    fun restorePrevious(saved: DuplicateSession) {
+    fun restorePrevious(saved: DuplicateSession, fromPartial: Boolean = false) {
         if (scanning||clearingJournal) return
         journalGeneration = MusicDuplicateSessionStore.journalGeneration()
         scanning = true; error = null
@@ -230,7 +236,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     ?: MusicDuplicatePolicy.recommended(g)) }
                 val safe = r.groups.filter { it.key in oldKeys }.flatMap { g -> g.tracks.filter { it.id != recommendations[g.key] && it.id != latestCurrent }.map { it.id } }.toSet()
                 selected = saved.selected.intersect(safe); kept = recommendations; scannedAt = saved.scannedAt
-                previous = null; result = r
+                showingPartial = fromPartial; previous = null; result = r
                 if (r.groups.isNotEmpty()) listState.requestScrollToItem(saved.index.coerceIn(0,r.groups.lastIndex),saved.offset)
                 if (r.skipped > saved.result.skipped) error = "Некоторые файлы изменились. Проверьте результаты или запустите новый поиск."
             } catch (e: CancellationException) { throw e }
@@ -270,7 +276,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         stopPreview()
         val saved = snapshot()
         if (saved == null) onDismiss() else scope.launch {
-            MusicDuplicateSessionStore.save(context,saved,journalGeneration); onDismiss()
+            if (showingPartial) MusicDuplicateSessionStore.savePartial(context,saved) else MusicDuplicateSessionStore.save(context,saved,journalGeneration)
+            onDismiss()
         }
     }
     BackHandler(enabled = true) { if (!verifying&&!clearingJournal) close() }
@@ -319,7 +326,18 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     Text("Групп: ${groups.size} · файлов: ${groups.sumOf { it.tracks.size }}", style = MaterialTheme.typography.bodyMedium)
                     MusicScanModeControls(expandedScan,{expandedScan=it},unfinished,unfinishedExpanded,::startSelected,!verifying&&!clearingJournal)
-                    if(result==null&&partial!=null)Text("Предварительные результаты: ${partial.groups.size} групп. Удаление доступно после завершения.")
+                    if(result==null&&partial!=null) {
+                        Text("Сохранено групп: ${partial.groups.size}. Поиск можно продолжить отдельно.")
+                        if (!background.running && storedPartial != null) Button(
+                            { restorePrevious(requireNotNull(storedPartial), fromPartial = true) },
+                            Modifier.fillMaxWidth().testTag("duplicate-open-partial"),
+                            enabled = !clearingJournal
+                        ) { Text("Открыть сохранённые результаты") }
+                    }
+                    if (showingPartial) Text(
+                        "Предварительный отчёт · ${groups.size} групп. Акустическая проверка не завершена; перед корзиной проверяется каждый файл и сохраняемый экземпляр.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
                     Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
                         FilterChip(filter==null,{filter=null},{Text("Все")})
@@ -414,7 +432,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     if(journal)DuplicateJournalDialog("Журнал музыки",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size},mode=musicScanModeName(it.result.expanded))},
         storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size} ,DuplicateBackgroundScan.journalStatus(context),musicScanModeName(it.result.expanded))},
         onOpen={at->journal=false;history.firstOrNull{it.scannedAt==at}?.let{if(!scanning&&!clearingJournal){stopPreview();restorePrevious(it)}}},
-        onResume={journal=false;if(!scanning&&!clearingJournal)resume()},onDismiss={journal=false},onPartial={journal=false;showPartial=true},resumeEnabled=!scanning&&!clearingJournal,
+        onResume={journal=false;if(!scanning&&!clearingJournal)resume()},onDismiss={journal=false},onPartial={journal=false;storedPartial?.let { if(!scanning&&!clearingJournal) restorePrevious(it,fromPartial=true) }},resumeEnabled=!scanning&&!clearingJournal,
         onClear={clearPartialToo=false;clearJournalConfirm=true},clearEnabled=!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal)
     if(replaceScan)AlertDialog(onDismissRequest={replaceScan=false},title={Text("Заменить незавершённый поиск?")},
         text={Text("Сохранённый предварительный отчёт будет удалён. Акустические отпечатки сохранятся. Запустить ${musicScanModeName(expandedScan).lowercase()}?")},
@@ -435,7 +453,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         if(!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal){
             clearingJournal=true
             val includePartial=clearPartialToo
-            stopPreview();comparing=null;showPartial=false
+            stopPreview();comparing=null
             scope.launch{
                 try{
                     val ok=withContext(Dispatchers.IO){DuplicateBackgroundScan.clearJournal(context,includePartial)}
@@ -449,9 +467,6 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             }
         }
     }){Text("Очистить",color=MaterialTheme.colorScheme.error)}})
-    if(showPartial&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
-        text={PreliminaryMusicGroups(partial.groups,exactBytes(partial.groups),previewRows,Modifier.heightIn(max=400.dp),rememberLazyListState())},
-        confirmButton={TextButton({showPartial=false}){Text("Закрыть")}})
     comparing?.takeIf{g->g.tracks.all{DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id)}}?.let{g->
         DuplicateMusicComparison(g,kept[g.key]?:MusicDuplicatePolicy.recommended(g),previewId,previewPlaying,player,
             onPlay={t,at->play(t,at)},onKeep={id->
@@ -483,7 +498,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                     latestCurrent?.takeIf{it in verified}?.let{verified-=it;failures[it]="Текущий трек изменился"}
                     val saved = requireNotNull(snapshot()).copy(selected=choice)
-                    check(MusicDuplicateSessionStore.save(context,saved,journalGeneration)) { "Не удалось сохранить состояние" }
+                    check(if (showingPartial) MusicDuplicateSessionStore.savePartial(context,saved)
+                        else MusicDuplicateSessionStore.save(context,saved,journalGeneration)) { "Не удалось сохранить состояние" }
                     onTrash(DuplicateTrashSelection(groups, choice, verified, failures)); onDismiss()
                 } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message ?: "Проверка не прошла" }
                 finally { verifying = false }
