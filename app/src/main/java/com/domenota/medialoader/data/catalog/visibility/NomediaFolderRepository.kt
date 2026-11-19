@@ -46,6 +46,9 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
     suspend fun show(folderId:String):NomediaFolderRecord = gate.withLock {
         withContext(Dispatchers.IO) { engine.show(folderId) }
     }
+    suspend fun reconcile(folderId:String):NomediaFolderRecord = gate.withLock {
+        withContext(Dispatchers.IO) { engine.reconcile(folderId) }
+    }
     /** No URI is inferred from a stale MediaStore ID. This checks only the old link. */
     suspend fun checkOldMediaLink(savedUri:String?):Boolean = withContext(Dispatchers.IO) {
         val uri = savedUri?.takeIf { it.startsWith("content://") } ?: return@withContext false
