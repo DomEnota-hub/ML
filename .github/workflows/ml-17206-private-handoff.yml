@@ -1,0 +1,105 @@
+name: ML 1.7.206 exact source and unsigned delivery handoff
+on:
+  push:
+    branches: [qa/ml-17206-private-handoff]
+    paths: ['.github/workflows/ml-17206-private-handoff.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ml17206-private-handoff
+  cancel-in-progress: true
+jobs:
+  source-and-sdk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 18382c54a3efbea153e7c7cc219f66dd784bc734
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Require four successful complete prior QA runs on exact accepted SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "18382c54a3efbea153e7c7cc219f66dd784bc734"
+          for run in 44590637981 44590638007 44590637996 44590637988; do
+            observed=$(gh api "repos/DomEnota-hub/ML/actions/runs/$run" --jq '[.status,.conclusion,.head_sha] | join(" ")')
+            test "$observed" = "completed success 18382c54a3efbea153e7c7cc219f66dd784bc734" || {
+              echo "Original exact SHA QA gate failed for run $run"; exit 1;
+            }
+          done
+          grep -Eq 'versionCode 266$' app/build.gradle
+          grep -Fq "versionName '1.7.206'" app/build.gradle
+      - name: Android Gradle and SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Repeat lint and build unsigned ARM64 from accepted code
+        run: ./gradlew :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon
+      - name: Exact identity + source/toolchain packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "18382c54a3efbea153e7c7cc219f66dd784bc734"
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='266' versionName='1.7.206'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          unzip -t "$apk" | tail -1
+          test -x "$bt/zipalign" && test -s "$bt/lib/apksigner.jar"
+          mkdir -p handoff/unsigned handoff/tools handoff/source
+          cp "$apk" handoff/unsigned/ML_1.7.206_ARM64_UNSIGNED.apk
+          git rev-parse HEAD > handoff/unsigned/EXACT_SOURCE_SHA.txt
+          (cd handoff/unsigned && sha256sum ML_1.7.206_ARM64_UNSIGNED.apk EXACT_SOURCE_SHA.txt > SHA256SUMS.txt)
+          cp "$bt/lib/apksigner.jar" handoff/tools/apksigner.jar
+          cp "$bt/zipalign" handoff/tools/zipalign
+          if test -d "$bt/lib64"; then cp -r "$bt/lib64" handoff/tools/lib64; fi
+          git rev-parse HEAD > handoff/tools/EXACT_SOURCE_SHA.txt
+          (cd handoff/tools && sha256sum apksigner.jar zipalign > TOOLS_SHA256SUMS.txt)
+          git archive --format=zip -o handoff/source/ML_1.7.206_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/source/EXACT_SOURCE_SHA.txt
+          (cd handoff/source && sha256sum ML_1.7.206_SOURCES_EXACT_COMMIT.zip EXACT_SOURCE_SHA.txt > SOURCE_SHA256SUMS.txt)
+          echo "Exact source archived; no protected key or GAPI input was introduced."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ml17206-private-unsigned-exact
+          path: handoff/unsigned/
+          compression-level: 0
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ml17206-private-sdk35-signing-tools
+          path: handoff/tools/
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ml17206-private-source-exact
+          path: handoff/source/
+          compression-level: 0
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ml17206-private-lint-diagnostics
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 3
