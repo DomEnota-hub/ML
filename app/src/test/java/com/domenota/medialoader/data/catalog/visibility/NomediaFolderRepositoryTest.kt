@@ -58,6 +58,18 @@ class NomediaFolderRepositoryTest {
         assertEquals("marker-id",reopened.folders["safe-folder"]?.ownedDocumentId)
     }
 
+
+    @Test fun broadOrLegacyTreesAreRejectedBeforeSAFMutation() {
+        val rejected=listOf("primary:","primary:Pictures","primary:DCIM","primary:Music",
+            "primary:Documents","primary:Documents/MediaLoaderHidden",
+            "primary:Documents/MediaLoaderHidden/subfolder",
+            "primary:Android/data","primary:Pictures/../DCIM","primary:/Pictures",
+            "9A2B:DCIM","9A2B:Android/media")
+        rejected.forEach { assertFalse("Accepted forbidden tree $it",nomediaSafTreeEligible(it)) }
+        assertTrue(nomediaSafTreeEligible("primary:Pictures/MLSamples"))
+        assertTrue(nomediaSafTreeEligible("primary:Music/TestAlbum"))
+    }
+
     @Test fun unknownForeignOrPendingDoesNotDeleteMarkerWhenDeletingFolderMetadata() {
         reset()
         val store=NomediaFolderRepository(context)
