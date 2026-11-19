@@ -2650,6 +2650,7 @@ fun MediaLoaderApp(
                     onFolderVisibility = toggleFolderVisibility.takeIf { android.os.Build.VERSION.SDK_INT >= 21 },
                     onBrowseSafFiles = { folder -> nomediaRegistry.listHiddenDocuments(folder) },
                     onVerifySafFile = { folder,document -> nomediaRegistry.verifySafDocumentRead(folder,document) },
+                    onOpenSafFile = { folder,document -> nomediaRegistry.openSafMedia(folder,document) },
                     onOpenFromFolder = { id,queue,folder -> openingAlbumKey = folder?.let { "folder:$it" }; openDownloadWithQueue(id,queue) },
                     onShareFromFolder = { id,folder -> shareScopedFile(id,folder) },
                     onAddCollection=::addToCollection,onPassport=::openPassport,
