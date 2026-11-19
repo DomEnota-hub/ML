@@ -164,6 +164,23 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
     companion object { private const val KEY="registry" }
 }
 
+/** Prevent accidentally excluding an entire top-level phone gallery or old physical archive.
+ * This is intentionally conservative: subfolders are selected explicitly in Android SAF. */
+internal fun nomediaSafTreeEligible(documentId:String):Boolean {
+    if(documentId.length !in 3..512) return false
+    val volume=documentId.substringBefore(':',"")
+    val path=documentId.substringAfter(':',"")
+    if(volume.isBlank() || path.isBlank() || path.contains('\\')) return false
+    val parts=path.split('/')
+    if(parts.any { it.isBlank() || it=="." || it==".." }) return false
+    val normalized=parts.map { it.lowercase(java.util.Locale.ROOT) }
+    if(normalized.size==1 && normalized[0] in setOf(
+            "pictures","dcim","music","movies","download","downloads","documents","android")) return false
+    if(normalized.first()=="android") return false
+    if(normalized.size>=2 && normalized[0]=="documents" && normalized[1]=="medialoaderhidden") return false
+    return true
+}
+
 /** Restricted to Android's physical external-storage documents provider.
  * Cloud/third-party providers cannot claim system-gallery exclusion. */
 internal class AndroidNomediaMarkerPort(context:Context):NomediaMarkerPort {
@@ -176,8 +193,8 @@ internal class AndroidNomediaMarkerPort(context:Context):NomediaMarkerPort {
             "Требуется папка локального хранилища Android"
         }
         val documentId=DocumentsContract.getTreeDocumentId(tree)
-        check(documentId.isNotBlank() && documentId != "primary:") {
-            "Корневой каталог выбрать нельзя"
+        check(nomediaSafTreeEligible(documentId)) {
+            "Корневой, системный или прежний архивный каталог выбрать нельзя"
         }
         check(resolver.persistedUriPermissions.any { p ->
             p.uri==tree && p.isReadPermission && p.isWritePermission
