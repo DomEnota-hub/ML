@@ -1,0 +1,91 @@
+name: ML 1.7.206 block 2 SAF nomedia and history QA
+
+on:
+  push:
+    branches: [feature/ml-17206-visibility-nomedia]
+    paths:
+      - '.github/workflows/ml-17206-block2-qa.yml'
+      - 'app/src/main/**'
+      - 'app/src/test/**'
+      - 'app/build.gradle'
+      - 'docs/qa/ML-17206-block2-saf-history.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml17206-block2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  saf-nomedia-history:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Android and Gradle setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Scope, markers and exact version
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 266$' app/build.gradle
+          grep -Fq "versionName '1.7.206'" app/build.gradle
+          grep -Fq 'RetiredFolderVisibilityTransfer.requireActive()' app/src/main/java/com/domenota/medialoader/data/catalog/visibility/FolderVisibilityWorkCoordinator.kt
+          grep -Fq 'DocumentsContract.createDocument' app/src/main/java/com/domenota/medialoader/data/catalog/visibility/NomediaFolderRepository.kt
+          grep -Fq 'DocumentsContract.deleteDocument' app/src/main/java/com/domenota/medialoader/data/catalog/visibility/NomediaFolderRepository.kt
+          test -s docs/qa/ML-17206-block2-saf-history.md
+          python3 scripts/audit_ui_palette.py
+          python3 scripts/check-round-sliders.py
+          python3 scripts/check-in-app-notices.py
+      - name: Focused SAF ownership, interrupted state, private/legacy
+        run: |
+          ./gradlew :app:testDebugUnitTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.NomediaFolderEngineTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.NomediaFolderReadPolicyTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.RetiredFolderVisibilityTransferTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.VisibilityV2JournalStoreTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.VisibilityPrivatePublicationGateTest \
+            --tests com.domenota.medialoader.data.privatevault.PrivateMediaOperationsTest \
+            --stacktrace --no-daemon --console=plain
+      - name: Full isolated JVM and Compose
+        run: python3 scripts/run-jvm-isolated-compose.py full
+      - name: Android lint and ARM64 unsigned compilation
+        run: ./gradlew :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon
+      - name: Verify exact unsigned identity, not a release
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='266' versionName='1.7.206'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          git rev-parse HEAD
+          sha256sum "$apk"
+      - name: Upload diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17206-block2-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/ml-jvm-shards/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 5
