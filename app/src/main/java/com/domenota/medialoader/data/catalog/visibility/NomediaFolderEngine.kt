@@ -92,6 +92,31 @@ internal class NomediaFolderEngine(
         }
     }
 
+    /** Explicit read-only reconciliation for a crashed/failed marker operation.
+     * Unknown ownership is always treated as foreign and never deleted. */
+    suspend fun reconcile(folderId:String):NomediaFolderRecord {
+        val snapshot=store.snapshot()
+        check(!snapshot.unknown) { "Реестр скрытия повреждён" }
+        val current=checkNotNull(snapshot.folders[folderId]) { "Папка не найдена" }
+        val observed=port.inspect(current.treeUri)
+        val owned=current.ownedDocumentId
+        check(owned==null || observed==null || (observed.documentId==owned && observed.bytes==0L)) {
+            "Контрольная точка не совпадает с маркером"
+        }
+        val result = when {
+            owned!=null && observed!=null -> current.copy(mlHidden=true,
+                markerState=NomediaMarkerState.OWN_MARKER,errorCode=null,updatedAt=clock())
+            owned!=null -> current.copy(mlHidden=false,ownedDocumentId=null,
+                markerState=NomediaMarkerState.NO_MARKER,errorCode=null,updatedAt=clock())
+            observed!=null -> current.copy(mlHidden=current.mlHidden,
+                markerState=NomediaMarkerState.FOREIGN_MARKER,errorCode=null,updatedAt=clock())
+            else -> current.copy(mlHidden=current.mlHidden,
+                markerState=NomediaMarkerState.NO_MARKER,errorCode=null,updatedAt=clock())
+        }
+        store.write(result)
+        return result
+    }
+
     suspend fun show(folderId: String): NomediaFolderRecord {
         val snapshot = store.snapshot()
         check(!snapshot.unknown) { "Реестр скрытия повреждён" }
