@@ -394,7 +394,7 @@ fun MediaLoaderApp(
                     } catch(cancelled:CancellationException) { throw cancelled }
                     catch(error:Exception) { AppNotice.post(context,error.message ?: "Показ папки не завершён") }
                 }
-            }){Text(if(hide) "Выбрать каталог" else "Показать")},
+            }){Text(if(hide) "Выбрать каталог" else "Показать")}},
             dismissButton={TextButton(onClick={nomediaRequest=null}){Text("Отмена")}})
     }
 
