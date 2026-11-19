@@ -48,6 +48,20 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
         current.value = updated
     }
 
+    /** Verify complete real SAF media inventory before writing a directory-wide marker.
+     * Never hide unrelated images/audio/video, even if the UI folder is virtual.
+     * This does not move files or rewrite any existing MediaStore links.
+     */
+    suspend fun hideVerified(plan:NomediaAutoFolderPlan):NomediaFolderRecord = gate.withLock {
+        withContext(Dispatchers.IO) {
+            val found=AndroidNomediaMarkerPort(context).listMedia(plan.treeUri.toString())
+                .map { NomediaMediaSignature(it.displayName,it.sizeBytes ?: -1L) }
+            check(nomediaInventoryMatches(plan.expected,found)) {
+                "В каталоге есть другие медиа или файлы изменились. Ничего не скрыто"
+            }
+            engine.hide(plan.folderId,plan.treeUri.toString())
+        }
+    }
     suspend fun hide(folderId:String,treeUri:Uri):NomediaFolderRecord = gate.withLock {
         withContext(Dispatchers.IO) { engine.hide(folderId,treeUri.toString()) }
     }
