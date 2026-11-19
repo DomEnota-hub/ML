@@ -97,6 +97,8 @@ internal fun DownloadFolderSheet(
     hiddenFolderIds: Set<String> = emptySet(),
     onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
     pendingVisibilityFolderId: String? = null,
+    nomediaFolderStatuses: Map<String,String> = emptyMap(),
+    onCheckFolderAccess: (suspend (String) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -186,7 +188,8 @@ internal fun DownloadFolderSheet(
                         folder.name, count,
                         if (targetDownloadId == null) selectedKey == folderKey(folder.id)
                             else currentFolderId == folder.id,
-                        !busy, Modifier.weight(1f), pendingVisibility = visibilityPending) { choose(folderKey(folder.id), folder.id) }
+                        !busy, Modifier.weight(1f), pendingVisibility = visibilityPending,
+                         statusDetail = nomediaFolderStatuses[folder.id]) { choose(folderKey(folder.id), folder.id) }
                     if (targetDownloadId == null) {
                         var menuOpen by remember { mutableStateOf(false) }
                         androidx.compose.foundation.layout.Box {
@@ -198,7 +201,7 @@ internal fun DownloadFolderSheet(
                                     menuOpen = false; editTarget = folder; name = folder.name; error = null
                                 })
                                 if (onFolderVisibility != null) DropdownMenuItem(
-                                    text = { Text(if (visibilityPending) "Продолжить перенос" else if (folderHidden) "Показывать в медиатеке" else "Скрыть из медиатеки") },
+                                    text = { Text(if (visibilityPending) "Старый журнал: диагностика" else if (folderHidden) "Показать в ML" else "Скрыть в ML и Android") },
                                     leadingIcon = { Icon(if (folderHidden) Icons.Rounded.RemoveRedEye else Icons.Rounded.VisibilityOff,null) },
                                     enabled = !busy && (pendingVisibilityFolderId == null || visibilityPending),
                                     onClick = {
@@ -208,6 +211,16 @@ internal fun DownloadFolderSheet(
                                             catch (cancelled: CancellationException) { throw cancelled }
                                             catch (e: Exception) { AppNotice.post(context,e.message ?: "Не удалось изменить видимость папки") }
                                             finally { busy = false }
+                                        }
+                                    })
+                                if (folder.id in nomediaFolderStatuses && onCheckFolderAccess != null)
+                                    DropdownMenuItem(text={Text("Проверить доступ")},enabled=!busy,onClick={
+                                        menuOpen=false;busy=true
+                                        scope.launch {
+                                            try { onCheckFolderAccess(folder.id) }
+                                            catch(cancelled:CancellationException){throw cancelled}
+                                            catch(error:Exception){AppNotice.post(context,error.message ?: "Доступ не подтверждён")}
+                                            finally { busy=false }
                                         }
                                     })
                                 DropdownMenuItem(text = { Text("Удалить папку") }, enabled = !busy && pendingVisibilityFolderId == null, onClick = {
@@ -288,6 +301,7 @@ private fun CatalogSheetRow(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     pendingVisibility: Boolean = false,
+    statusDetail: String? = null,
     onClick: () -> Unit,
 ) {
     Row(modifier.fillMaxWidth().background(
@@ -300,6 +314,10 @@ private fun CatalogSheetRow(
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, style = MaterialTheme.typography.titleMedium)
+            if (statusDetail != null) {
+                Text(statusDetail,style=MaterialTheme.typography.bodySmall,
+                    color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (pendingVisibility) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Rounded.WarningAmber, contentDescription = null,
