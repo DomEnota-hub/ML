@@ -747,7 +747,9 @@ fun MediaLoaderApp(
         val restored=mutableMapOf<String,com.domenota.medialoader.core.database.DownloadEntity>()
         visibilityOperation {
             for(ref in selected) {
-                check(mediaRepository.changeFolderMembership(ref,null,visibilityAccess.approve))
+                if(android.os.Build.VERSION.SDK_INT >= 30) {
+                    check(mediaRepository.changeFolderMembership(ref,null,visibilityAccess.approve))
+                } else error("Старый перенос недоступен на этой версии Android")
                 val current=if(ref.appDownloadId!=null) mediaRepository.downloadById(ref.appDownloadId)
                     else libraryModel.externalCatalog.visibilityEntries().singleOrNull{it.ref.key==ref.key}?.ref?.item
                 restored[ref.key]=checkNotNull(current).also { check(it.savedUri!=ref.item.savedUri && !it.hidden && !it.isPrivate) }
