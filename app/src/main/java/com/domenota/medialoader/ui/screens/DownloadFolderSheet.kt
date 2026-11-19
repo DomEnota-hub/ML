@@ -103,6 +103,7 @@ internal fun DownloadFolderSheet(
     onCheckFolderAccess: (suspend (String) -> Unit)? = null,
     onBrowseSafFiles: (suspend (String) -> List<NomediaSafEntry>)? = null,
     onVerifySafFile: (suspend (String,String) -> Boolean)? = null,
+    onOpenSafFile: (suspend (String,String) -> android.net.Uri)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -113,6 +114,7 @@ internal fun DownloadFolderSheet(
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var safPreview by remember { mutableStateOf<Pair<String,List<NomediaSafEntry>>?>(null) }
+    var safPlaying by remember { mutableStateOf<Pair<NomediaSafEntry,android.net.Uri>?>(null) }
     val completed = items.filter { it.state == DownloadUiState.COMPLETED }
     val shownFolders = visibleDownloadFolders(
         folders, items, assignments, galleryOnlyFolderIds, assigning = targetDownloadId != null)
@@ -260,6 +262,16 @@ internal fun DownloadFolderSheet(
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text(entry.displayName.take(100),modifier=Modifier.weight(1f),
                             style=MaterialTheme.typography.bodySmall)
+                        if(onOpenSafFile!=null) TextButton(onClick={
+                            scope.launch {
+                                try {
+                                    val uri=onOpenSafFile(folder,entry.documentId)
+                                    safPreview=null
+                                    safPlaying=entry to uri
+                                } catch(cancelled:CancellationException){throw cancelled}
+                                catch(error:Exception){AppNotice.post(context,error.message ?: "Файл SAF недоступен")}
+                            }
+                        }){Text("Открыть")}
                         if(onVerifySafFile!=null) TextButton(onClick={
                             scope.launch {
                                 try {
@@ -277,6 +289,10 @@ internal fun DownloadFolderSheet(
             }},
             confirmButton={TextButton(onClick={safPreview=null}){Text("Закрыть")}},
         )
+    }
+
+    safPlaying?.let { (entry,uri) ->
+        SafHiddenMediaPreview(entry,uri,onClose={safPlaying=null})
     }
 
     if (creating || editTarget != null) AlertDialog(
