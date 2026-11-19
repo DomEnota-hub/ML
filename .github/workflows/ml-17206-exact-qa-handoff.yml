@@ -1,0 +1,116 @@
+name: ML 1.7.206 exact-SHA QA handoff (no secrets)
+on:
+  push:
+    branches:
+      - qa/ml-17206-exact-handoff
+    paths:
+      - .github/workflows/ml-17206-exact-qa-handoff.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: ml17206-exact-qa-handoff
+  cancel-in-progress: true
+
+jobs:
+  qa-source-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 115
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 18382c54a3efbea153e7c7cc219f66dd784bc734
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Prepare Android and Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "18382c54a3efbea153e7c7cc219f66dd784bc734"
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Confirm exact version and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "18382c54a3efbea153e7c7cc219f66dd784bc734"
+          grep -Eq 'versionCode 266$' app/build.gradle
+          grep -Fq "versionName '1.7.206'" app/build.gradle
+          test -s docs/qa/ML-17206-block1-retirement-map.md
+          test -s docs/qa/ML-17206-block2-saf-history.md
+          test -s docs/qa/ML-17206-block3-display-stability.md
+          python3 scripts/audit_ui_palette.py
+          python3 scripts/check-round-sliders.py
+          python3 scripts/check-in-app-notices.py
+      - name: Repeat full exact-SHA JVM and Compose QA
+        run: python3 scripts/run-jvm-isolated-compose.py full
+      - name: Final Android lint and ARM64 unsigned
+        run: ./gradlew :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon
+      - name: Verify and package APK, official tools, and exact original sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          test -x "$bt/apksigner" && test -x "$bt/zipalign"
+          test -s "$bt/lib/apksigner.jar"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='266' versionName='1.7.206'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = "arm64-v8a"
+          unzip -t "$apk" | tail -1
+          mkdir -p handoff/unsigned handoff/tools handoff/source
+          cp "$apk" handoff/unsigned/ML_1.7.206_ARM64_UNSIGNED.apk
+          git rev-parse HEAD > handoff/unsigned/EXACT_SOURCE_SHA.txt
+          (cd handoff/unsigned && sha256sum ML_1.7.206_ARM64_UNSIGNED.apk EXACT_SOURCE_SHA.txt > SHA256SUMS.txt)
+          cp "$bt/lib/apksigner.jar" handoff/tools/apksigner.jar
+          cp "$bt/zipalign" handoff/tools/zipalign
+          if test -d "$bt/lib64"; then cp -r "$bt/lib64" handoff/tools/lib64; fi
+          git rev-parse HEAD > handoff/tools/EXACT_SOURCE_SHA.txt
+          (cd handoff/tools && sha256sum apksigner.jar zipalign > TOOLS_SHA256SUMS.txt)
+          git archive --format=zip -o handoff/source/ML_1.7.206_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/source/EXACT_SOURCE_SHA.txt
+          (cd handoff/source && sha256sum ML_1.7.206_SOURCES_EXACT_COMMIT.zip EXACT_SOURCE_SHA.txt > SOURCE_SHA256SUMS.txt)
+          echo "No signing key, passwords, or GAPI data in handoff."
+      - name: Private exact-source unsigned inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17206-exact-unsigned-input
+          path: handoff/unsigned/
+          compression-level: 0
+          retention-days: 3
+      - name: Private official Android signing tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17206-signing-tools-public-sdk
+          path: handoff/tools/
+          retention-days: 3
+      - name: Private exact git archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17206-exact-source-archive
+          path: handoff/source/
+          compression-level: 0
+          retention-days: 3
+      - name: Canonical JVM and lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17206-final-ci-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/ml-jvm-shards/
+            app/build/reports/lint-results-debug.html
+          retention-days: 3
+          if-no-files-found: ignore
