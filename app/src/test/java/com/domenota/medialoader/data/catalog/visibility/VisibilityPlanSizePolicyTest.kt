@@ -11,6 +11,7 @@ class VisibilityPlanSizePolicyTest {
         assertEquals(VisibilityPlanSizeMismatch.STREAM_ONLY, classifyVisibilityPlanSize(42L,42L,40L))
         assertEquals(VisibilityPlanSizeMismatch.ALL_DIFFERENT, classifyVisibilityPlanSize(1L,2L,3L))
         assertEquals(VisibilityPlanSizeMismatch.CATALOG_ONLY, classifyVisibilityPlanSize(-1L,42L,42L))
+        assertEquals(VisibilityPlanSizeMismatch.CATALOG_ONLY, classifyVisibilityPlanSize(null,42L,42L))
     }
     @Test fun failedPlanUsesSafeTypedErrorCode() {
         for (kind in VisibilityPlanSizeMismatch.entries) {

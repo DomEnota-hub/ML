@@ -7,7 +7,7 @@ internal enum class VisibilityPlanSizeMismatch {
 }
 
 internal fun classifyVisibilityPlanSize(
-    catalogBytes: Long, mediaStoreBytes: Long, streamedBytes: Long,
+    catalogBytes: Long?, mediaStoreBytes: Long, streamedBytes: Long,
 ): VisibilityPlanSizeMismatch? {
     if (catalogBytes == mediaStoreBytes && mediaStoreBytes == streamedBytes) return null
     return when {
