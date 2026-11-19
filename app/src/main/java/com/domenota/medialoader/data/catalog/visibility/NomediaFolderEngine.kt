@@ -60,6 +60,10 @@ internal class NomediaFolderEngine(
         val previous = store.snapshot()
         check(!previous.unknown) { "Реестр скрытия повреждён. Действие заблокировано" }
         val old = previous.folders[folderId]
+        check(previous.folders.values.none { other ->
+            other.folderId != folderId && other.treeUri == treeUri &&
+                (other.excludedFromMl || other.markerState == NomediaMarkerState.OWN_MARKER)
+        }) { "Физический SAF-каталог уже связан с другой скрытой папкой" }
         check(old == null || !old.excludedFromMl && old.markerState !in
             setOf(NomediaMarkerState.FAILED, NomediaMarkerState.PENDING_HIDE, NomediaMarkerState.PENDING_SHOW)) {
             "Состояние скрытия требует проверки"
