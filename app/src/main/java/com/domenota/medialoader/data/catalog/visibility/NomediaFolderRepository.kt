@@ -19,6 +19,14 @@ import org.json.JSONObject
  * The only permitted physical mutation is create/delete of the exact .nomedia document
  * in a user-authorized external-storage SAF tree.
  */
+internal data class NomediaSafEntry(
+    val documentId:String,
+    val displayName:String,
+    val mimeType:String,
+    val byteCount:Long?,
+)
+
+/** A scoped, read-only SAF scan; never imports the document into MediaStore or history. */
 internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
     private val context = context.applicationContext
     private val preferences = this.context.getSharedPreferences("folder_nomedia_v1",Context.MODE_PRIVATE)
@@ -62,6 +70,23 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
             "Не удалось сохранить удаление записи реестра"
         }
         current.value=newer
+    }
+
+    /** Explicit SAF browse works even after Android removes the old MediaStore row. */
+    suspend fun listHiddenDocuments(folderId:String):List<NomediaSafEntry> = gate.withLock {
+        val snapshot=current.value
+        check(!snapshot.unknown) { "Реестр скрытия повреждён" }
+        val record=checkNotNull(snapshot.folders[folderId]) { "Нет SAF-привязки папки" }
+        check(record.excludedFromMl) { "Просмотр SAF доступен только для скрытой папки" }
+        AndroidNomediaMarkerPort(context).listMedia(record.treeUri)
+    }
+
+    suspend fun verifySafDocumentRead(folderId:String,documentId:String):Boolean = gate.withLock {
+        val record=checkNotNull(current.value.takeUnless { it.unknown }?.folders?.get(folderId)) {
+            "Состояние доступа неизвестно"
+        }
+        check(record.excludedFromMl)
+        AndroidNomediaMarkerPort(context).verifyMediaRead(record.treeUri,documentId)
     }
 
     /** Returns display-only status; never claims that Xiaomi has rescanned. */
@@ -190,6 +215,62 @@ internal class AndroidNomediaMarkerPort(context:Context):NomediaMarkerPort {
             }
         }
         return matching.singleOrNull()
+    }
+
+    /** Bounded tree enumeration; no copies or guessed download-id associations. */
+    suspend fun listMedia(treeUri:String):List<NomediaSafEntry> = withContext(Dispatchers.IO) {
+        val tree=authorizedTree(treeUri)
+        val queue=java.util.ArrayDeque<Pair<String,Int>>()
+        queue.add(DocumentsContract.getTreeDocumentId(tree) to 0)
+        val visited=mutableSetOf<String>()
+        val entries=mutableListOf<NomediaSafEntry>()
+        var scanned=0
+        val columns=arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE)
+        while(queue.isNotEmpty()) {
+            val (parent,depth)=queue.removeFirst()
+            check(visited.add(parent)) { "SAF содержит повторную ссылку" }
+            val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,parent)
+            val cursor=checkNotNull(resolver.query(children,columns,null,null,null)) {
+                "Дерево SAF недоступно"
+            }
+            cursor.use {
+                while(it.moveToNext()) {
+                    check(++scanned <= 10_000) { "Каталог слишком велик для просмотра" }
+                    val id=it.getString(0)
+                    val name=it.getString(1)
+                    val mime=it.getString(2)
+                    check(!id.isNullOrBlank() && !name.isNullOrBlank() && !mime.isNullOrBlank()) {
+                        "Неполная запись SAF"
+                    }
+                    if(name==".nomedia") continue
+                    if(mime==DocumentsContract.Document.MIME_TYPE_DIR) {
+                        check(depth<12) { "Дерево SAF слишком глубокое" }
+                        queue.add(id to (depth+1))
+                    } else if(mime.startsWith("image/") || mime.startsWith("video/") ||
+                        mime.startsWith("audio/")) {
+                        check(entries.size<2048) { "Слишком много медиа в выбранном каталоге" }
+                        entries+=NomediaSafEntry(id,name,mime,
+                            if(it.isNull(3)) null else it.getLong(3).takeIf { v -> v>=0 })
+                    }
+                }
+            }
+        }
+        entries
+    }
+
+    /** Exactly one allowed scoped media read; ID must occur in the current SAF inventory. */
+    suspend fun verifyMediaRead(treeUri:String,documentId:String):Boolean = withContext(Dispatchers.IO) {
+        val entry=listMedia(treeUri).singleOrNull { it.documentId==documentId }
+            ?: return@withContext false
+        val tree=authorizedTree(treeUri)
+        val document=DocumentsContract.buildDocumentUriUsingTree(tree,entry.documentId)
+        try {
+            resolver.openInputStream(document)?.use { it.read();true }==true
+        } catch(cancelled:CancellationException) { throw cancelled }
+        catch(_:Exception) { false }
     }
 
     override suspend fun inspect(treeUri:String):NomediaMarkerProof? =
