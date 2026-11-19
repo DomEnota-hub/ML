@@ -172,6 +172,8 @@ fun DownloadsScreen(
     pendingVisibilityFolderId: String? = null,
     nomediaFolderStatuses: Map<String,String> = emptyMap(),
     onCheckFolderAccess: (suspend (String)->Unit)? = null,
+    onBrowseSafFiles: (suspend (String)->List<com.domenota.medialoader.data.catalog.visibility.NomediaSafEntry>)? = null,
+    onVerifySafFile: (suspend (String,String)->Boolean)? = null,
     onOpenFromFolder: ((String,List<String>,String?) -> Unit)? = null,
     onShareFromFolder: ((String,String?) -> Unit)? = null,
 ) {
@@ -293,6 +295,8 @@ fun DownloadsScreen(
         pendingVisibilityFolderId = pendingVisibilityFolderId,
         nomediaFolderStatuses = nomediaFolderStatuses,
         onCheckFolderAccess = onCheckFolderAccess,
+        onBrowseSafFiles = onBrowseSafFiles,
+        onVerifySafFile = onVerifySafFile,
         selectedKey = selectedCatalog,
         targetDownloadId = folderTargetId,
         onDismiss = { folderSheetOpen = false; folderTargetId = null; folderGroupTargets = emptyList() },
