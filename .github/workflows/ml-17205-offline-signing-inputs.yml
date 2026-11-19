@@ -1,0 +1,104 @@
+name: ML 1.7.205 private offline signing inputs (no secrets)
+on:
+  push:
+    branches:
+      - feature/ml-17205-hidden-v2
+    paths:
+      - .github/workflows/ml-17205-offline-signing-inputs.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ml-17205-offline-signing-inputs
+  cancel-in-progress: true
+jobs:
+  source-verified-unsigned:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Android and Gradle toolchain
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Validate exact source and compatibility scope
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 265$' app/build.gradle
+          grep -Fq "versionName '1.7.205'" app/build.gradle
+          grep -Fq '"ds2.mzmdl.com"' app/src/main/java/com/domenota/medialoader/data/download/MuzmoDownloadUrls.kt
+          grep -q 'visibilityJournalFamily' app/src/main/java/com/domenota/medialoader/data/catalog/visibility/FolderVisibilityManager.kt
+          test -s docs/qa/ML-17205-stage7-xiaomi-hardware-qa.md
+      - name: Full JVM including isolated Compose without method exclusions
+        run: python3 scripts/run-jvm-isolated-compose.py full
+      - name: Android lint and ARM64 unsigned compilation
+        run: ./gradlew :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon
+      - name: Verify source, package, ABI, unsigned integrity and official Android signing tools
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk" && test -s "$bt/lib/apksigner.jar" && test -x "$bt/apksigner" && test -x "$bt/zipalign"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='265' versionName='1.7.205'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          "$bt/apksigner" version
+          unzip -t "$apk" | tail -1
+          mkdir -p inputs tools source
+          cp "$apk" inputs/ML_1.7.205_ARM64_UNSIGNED.apk
+          git rev-parse HEAD > inputs/EXACT_SOURCE_SHA.txt
+          (cd inputs && sha256sum ML_1.7.205_ARM64_UNSIGNED.apk EXACT_SOURCE_SHA.txt > SHA256SUMS.txt)
+          cp "$bt/lib/apksigner.jar" tools/apksigner.jar
+          cp "$bt/zipalign" tools/zipalign
+          if test -d "$bt/lib64"; then cp -r "$bt/lib64" tools/lib64; fi
+          git rev-parse HEAD > tools/EXACT_SOURCE_SHA.txt
+          (cd tools && sha256sum apksigner.jar zipalign > TOOLS_SHA256SUMS.txt)
+          git archive --format=zip -o source/ML_1.7.205_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > source/EXACT_SOURCE_SHA.txt
+          (cd source && sha256sum ML_1.7.205_SOURCES_EXACT_COMMIT.zip > SOURCE_SHA256SUMS.txt)
+          echo 'Unsigned source-verified candidate prepared. Secrets NOT present. Offline restore original GAPI asset and sign with the protected original DomEnota keystore before delivery.'
+      - name: Private exact-SHA unsigned input (not installable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17205-offline-unsigned
+          path: inputs/
+          compression-level: 0
+          retention-days: 2
+      - name: Private official APK signing toolchain (no secrets)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17205-offline-signing-tools
+          path: tools/
+          retention-days: 2
+      - name: Private exact source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17205-offline-exact-source
+          path: source/
+          compression-level: 0
+          retention-days: 2
+      - name: Preserve canonical diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17205-offline-jvm-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/ml-jvm-shards/
+            app/build/reports/lint-results-debug.html
+          retention-days: 2
+          if-no-files-found: ignore

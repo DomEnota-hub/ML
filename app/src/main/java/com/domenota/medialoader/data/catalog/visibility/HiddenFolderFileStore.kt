@@ -134,6 +134,14 @@ internal class HiddenFolderFileStore(root: File) {
         } finally { Files.deleteIfExists(stage.toPath()) }
     }
 
+    /** Used by read-only v2 preflight. Never repairs a missing root/owner
+     * or .nomedia marker; uncertain hidden state blocks execution. */
+    fun verifyExistingLocation(file: File, modifiedMillis: Long?) {
+        verifyExistingRoot()
+        check(owns(file) && Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS))
+        check(modifiedMillis == null || file.lastModified() == modifiedMillis) { "Дата скрытого файла изменилась" }
+    }
+
     fun verifyLocation(file: File, modifiedMillis: Long?) {
         check(owns(file) && Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS))
         root()

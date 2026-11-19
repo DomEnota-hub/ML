@@ -5,8 +5,12 @@ package com.domenota.medialoader.data.catalog.visibility
  * A restarted Service after process death finds no in-memory command and stops.
  * Durable batch journals are never auto-replayed from Service.onStartCommand. */
 internal sealed interface VisibilityWorkCommand {
-    data class SetHidden(val folderId: String, val hidden: Boolean) : VisibilityWorkCommand {
-        init { require(folderId.isNotBlank() && folderId.length <= 256) }
+    data class SetHidden(val folderId: String, val hidden: Boolean,
+        val previewToken: String? = null) : VisibilityWorkCommand {
+        init {
+            require(folderId.isNotBlank() && folderId.length <= 256)
+            require(previewToken == null || previewToken.length in 1..128)
+        }
     }
     data object ExplicitResume : VisibilityWorkCommand
 }

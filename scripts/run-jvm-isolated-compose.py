@@ -20,7 +20,10 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 MUSIC = ('com.domenota.medialoader.ui.screens.music.RecentMusicScreenTest',
          'com.domenota.medialoader.ui.screens.music.SmartMusicScreenTest')
-COLLECTION = ('com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest',)
+COLLECTION = (
+    'com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest',
+    'com.domenota.medialoader.ui.screens.organization.LastCollectionCoverPresentationTest',
+)
 # Robolectric paused-looper popup state can inherit idle/view state when run
 # among ~2000 UI methods. Preserve both checks, each in a fresh worker.
 VIDEO_SONG_MENU = ('com.domenota.medialoader.ui.components.DownloadVideoSongMenuUiTest',)

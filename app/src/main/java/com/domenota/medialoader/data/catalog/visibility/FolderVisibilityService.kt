@@ -22,6 +22,23 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+/** Notification words must not infer a verified physical result from the
+ * absence of a journal. This is a pure, privacy-preserving projection of the
+ * same state displayed by the foreground coordinator. */
+internal fun visibilityForegroundMessage(state: VisibilityExecutionSnapshot): String = when(state.phase) {
+    VisibilityExecutionPhase.WAITING_FOR_ANDROID -> "Нужно подтвердить действие в приложении"
+    VisibilityExecutionPhase.PAUSE_REQUESTED -> "Сохраняем безопасную контрольную точку"
+    VisibilityExecutionPhase.PAUSED -> "Перенос приостановлен"
+    VisibilityExecutionPhase.RECOVERABLE_PENDING -> "Перенос ожидает проверки"
+    VisibilityExecutionPhase.FAILED -> if(state.hasPendingJournal)
+        "Перенос остановлен; требуется проверка журнала"
+        else "Операция остановлена; подробности в журнале"
+    VisibilityExecutionPhase.VERIFYING -> "Проверка результатов переноса"
+    VisibilityExecutionPhase.COMPLETED -> "Файлы перенесены; медиатека проверяется"
+    VisibilityExecutionPhase.RUNNING -> "Подтверждено: ${state.confirmed} из ${state.total}"
+    else -> "Подготовка переноса файлов"
+}
+
 /** A separate foreground owner, not part of ActiveDownloadService. The
  * in-memory command nonce must come from an explicit visible-Activity action.
  * START_NOT_STICKY: after process death, pending data is preserved in the
@@ -127,17 +144,7 @@ class FolderVisibilityService : Service() {
             Intent(this,MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             },PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val text=when(state.phase) {
-            VisibilityExecutionPhase.WAITING_FOR_ANDROID -> "Нужно подтвердить действие в приложении"
-            VisibilityExecutionPhase.PAUSE_REQUESTED -> "Сохраняем безопасную контрольную точку"
-            VisibilityExecutionPhase.PAUSED -> "Перенос приостановлен"
-            VisibilityExecutionPhase.RECOVERABLE_PENDING -> "Перенос ожидает проверки"
-            VisibilityExecutionPhase.FAILED -> "Перенос остановлен, данные сохранены"
-            VisibilityExecutionPhase.VERIFYING -> "Проверка результатов переноса"
-            VisibilityExecutionPhase.COMPLETED -> "Перенос завершён"
-            VisibilityExecutionPhase.RUNNING -> "Подтверждено: ${state.confirmed} из ${state.total}"
-            else -> "Подготовка переноса файлов"
-        }
+        val text=visibilityForegroundMessage(state)
         val builder = NotificationCompat.Builder(this,CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("ML • Перенос файлов")

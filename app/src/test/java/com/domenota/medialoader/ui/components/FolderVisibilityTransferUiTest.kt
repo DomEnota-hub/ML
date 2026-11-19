@@ -9,6 +9,20 @@ import org.junit.Test
 class FolderVisibilityTransferUiTest {
     private fun model(phase:VisibilityExecutionPhase,pending:Boolean=false) =
         VisibilityExecutionSnapshot(phase=phase,confirmed=11,total=46,hasPendingJournal=pending)
+    @Test fun previouslyDismissedTerminalNeverHidesActiveOrDurableTransfer() {
+        assertFalse(visibilityWorkPanelVisible(model(VisibilityExecutionPhase.IDLE),false))
+        assertFalse(visibilityWorkPanelVisible(model(VisibilityExecutionPhase.FAILED),true))
+        assertFalse(visibilityWorkPanelVisible(model(VisibilityExecutionPhase.COMPLETED),true))
+        assertTrue(visibilityWorkPanelVisible(model(VisibilityExecutionPhase.FAILED,true),true))
+        assertTrue(visibilityWorkPanelVisible(model(VisibilityExecutionPhase.RECOVERABLE_PENDING,true),true))
+        assertTrue(visibilityWorkPanelVisible(model(VisibilityExecutionPhase.RUNNING,true),true))
+        assertTrue(visibilityWorkPanelVisible(model(VisibilityExecutionPhase.PREPARING),true))
+        val ambiguous = visibilityTransferPresentation(model(VisibilityExecutionPhase.FAILED))
+        assertTrue(ambiguous.canDismiss)
+        assertFalse(ambiguous.explanation.contains("не изменены"))
+        assertFalse(ambiguous.explanation.contains("не началась"))
+    }
+
     @Test fun runningShowsPauseWhileFinalVerificationNeverClaimsCompletion() {
         val run=visibilityTransferPresentation(model(VisibilityExecutionPhase.RUNNING,true))
         assertTrue(run.canPause)

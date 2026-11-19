@@ -22,13 +22,50 @@ class ExternalMediaCatalogRepository(context: Context) {
     val entries = state.asStateFlow()
     private val loaded = CoroutineScope(SupervisorJob() + Dispatchers.IO).async { storageMutex.withLock { state.value = read() } }
 
-    /** Exact document snapshots make recovery fail closed on concurrent catalog edits. */
-    internal suspend fun visibilityEntries(): List<ExternalMediaEntry> = withContext(Dispatchers.IO) {
-        loaded.await()
-        storageMutex.withLock { read() }
+    /** Repeated HIDE/SHOW read gates inspect the exact current SharedPreferences
+     * document each time. Only decoding and indexing of an unchanged bounded
+     * document are reused, never authorization, file proof or MediaStore state.
+     *
+     * The raw string is compared for FULL equality under the global storage
+     * mutex: another repository instance and external preference writes cannot
+     * leave a stale decoded snapshot. Unknown/corrupt documents always throw. */
+    private data class VisibilitySnapshot(
+        val raw: String?, val rows: List<ExternalMediaEntry>,
+        val byKey: Map<String, List<ExternalMediaEntry>>,
+    )
+    private var visibilitySnapshot: VisibilitySnapshot? = null
+    internal var visibilitySnapshotRebuilds = 0
+        private set
+
+    private fun visibilitySnapshotLocked(): VisibilitySnapshot {
+        val current = preferences.getString("catalog", null)
+        visibilitySnapshot?.takeIf { it.raw == current }?.let { return it }
+        val rows = current?.let(::decode).orEmpty()
+        val decoded = VisibilitySnapshot(current,rows,rows.groupBy { it.ref.key })
+        visibilitySnapshotRebuilds++
+        // Retain no large raw JSON/row list indefinitely; large catalogues
+        // still use the original strict fresh read path on every call.
+        visibilitySnapshot = if (current == null || current.length <= MAX_VISIBILITY_SNAPSHOT_CHARS)
+            decoded else null
+        return decoded
     }
 
+    internal suspend fun visibilityEntries(): List<ExternalMediaEntry> = withContext(Dispatchers.IO) {
+        loaded.await()
+        storageMutex.withLock { visibilitySnapshotLocked().rows }
+    }
+
+    /** Same fail-closed exact snapshot, indexed by stable key. A duplicate key
+     * is intentionally returned as multiple candidates so the caller rejects
+     * ambiguity rather than silently choosing an entry. */
+    internal suspend fun visibilityMembersByKey(id: String): List<ExternalMediaEntry> =
+        withContext(Dispatchers.IO) {
+            loaded.await()
+            storageMutex.withLock { visibilitySnapshotLocked().byKey[id].orEmpty() }
+        }
+
     private var validatedHistoricalSnapshot: String? = null
+    private val MAX_VISIBILITY_SNAPSHOT_CHARS = 4 * 1024 * 1024
 
     internal suspend fun snapshotHistoricalMedia(): String = withContext(Dispatchers.IO) {
         loaded.await()
@@ -105,7 +142,9 @@ class ExternalMediaCatalogRepository(context: Context) {
     }
     internal suspend fun albumMemberIds(folderId: String): Set<String> = withContext(Dispatchers.IO) {
         loaded.await()
-        storageMutex.withLock { read().filter { it.folderId == folderId }.map { it.ref.key }.toSet() }
+        storageMutex.withLock {
+            visibilitySnapshotLocked().rows.filter { it.folderId == folderId }.map { it.ref.key }.toSet()
+        }
     }
 
     /** Keep external assignments stable while the database verifies and removes its empty album. */

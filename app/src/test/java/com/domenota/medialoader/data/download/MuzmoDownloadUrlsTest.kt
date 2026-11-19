@@ -31,6 +31,29 @@ class MuzmoDownloadUrlsTest {
         assertFalse(MuzmoDownloadUrls.isSearchPage("https://ru.hitmoz.org/search?q=Eva"))
     }
 
+    @Test fun observed302ToDs2IsAcceptedButCannotStartDirectDownload() {
+        val original=java.net.URL("https://rmr.muzmo.cc/get/music/20261119/MUKKA_-_Vselennaya_111.mp3")
+        val redirected=java.net.URL(original,"https://ds2.mzmdl.com/get/music/20261119/MUKKA_-_Vselennaya_111.mp3")
+        assertTrue(MuzmoDownloadUrls.isMp3(original.toString()))
+        assertTrue(MuzmoDownloadUrls.isTrustedRedirect(redirected.toString()))
+        assertFalse(MuzmoDownloadUrls.isMp3(redirected.toString()))
+    }
+
+    @Test fun ds2HostIsExactHttpsOnlyAndCannotBeUsedForOpenRedirects() {
+        for(url in listOf(
+            "https://ds3.mzmdl.com/get/music/20261119/song.mp3",
+            "https://ds2.mzmdl.com.evil.test/get/music/20261119/song.mp3",
+            "https://evil@ds2.mzmdl.com/get/music/20261119/song.mp3",
+            "http://ds2.mzmdl.com/get/music/20261119/song.mp3",
+            "https://ds2.mzmdl.com:444/get/music/20261119/song.mp3",
+            "https://ds2.mzmdl.com/search?q=MUKKA",
+            "https://ds2.mzmdl.com/get/music/20261119/../song.mp3",
+            "https://ds2.mzmdl.com/get/music/unknown/song.mp3",
+            "https://ds2.mzmdl.com/get/music/20261119/song.html",
+            "https://hitmoz.org/get/music/20261119/song.mp3",
+        )) assertFalse(url,MuzmoDownloadUrls.isTrustedRedirect(url))
+    }
+
     @Test fun acceptObservedMuzmoAudioRedirectOnly() {
         assertTrue(MuzmoDownloadUrls.isTrustedRedirect("https://mzmdl.com/get/music/20261006/Eva_Vlasova_-_Vchera_82447323.mp3"))
         assertFalse(MuzmoDownloadUrls.isTrustedRedirect("https://mzmdl.com/search?q=Eva"))

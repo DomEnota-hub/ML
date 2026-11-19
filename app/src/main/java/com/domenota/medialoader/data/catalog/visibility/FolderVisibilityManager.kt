@@ -20,6 +20,19 @@ internal data class FolderVisibilityProgress(val folderId: String?, val directio
     val preparing: Boolean = false, val prepared: Int = 0, val failure: VisibilityFailureInfo? = null,
     val pausedAtCheckpoint: Boolean = false)
 
+/** Preserve terminal NUMBERS, not private member identities, across the final
+ * non-pending journal scan. A failed or incomplete operation never acquires a
+ * synthetic 100% counter merely because a journal file disappeared. */
+internal fun visibilityTerminalProgress(
+    previous: FolderVisibilityProgress, failure: VisibilityFailureInfo?,
+): FolderVisibilityProgress {
+    val verified = failure == null && previous.total > 0 && previous.completed == previous.total &&
+        (previous.pending || previous.members.isEmpty())
+    return if (verified) FolderVisibilityProgress(
+        null,previous.direction,previous.total,previous.total,false)
+    else FolderVisibilityProgress(null,null,0,0,false,failure=failure)
+}
+
 /** One explicit operation owner. No background deletion or implicit consent.
  * Keep this separate from the vault and from historical-date recovery. */
 internal class FolderVisibilityManager(context: Context, private val database: HistoryDatabase) {
@@ -27,12 +40,14 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     private val root = File(this.context.noBackupFilesDir,DIRECTORY)
     private val moveJournal = FileVisibilityMoveJournal(File(root,MOVE))
     private val batchJournal = FileVisibilityBatchJournal(File(root,BATCH))
+    private val v2Journals = VisibilityV2JournalStore(File(root,V2_JOURNAL))
     private val state = CatalogVisibilityState(database)
     private val bindings = FolderVisibilityCatalogBindings(this.context,database)
     private val gate = Mutex()
     private val pauseGate = VisibilityCheckpointPauseGate()
     private val operationActive = java.util.concurrent.atomic.AtomicBoolean(false)
     private var pausedByUser = false
+    private var preparedPreview: VisibilityPreflightSnapshot? = null
     /** Cooperative request; processing stops only after a durable member cursor.
      * False means no operation is in progress, not that existing journals are gone. */
     fun requestPauseAtCheckpoint(): Boolean = operationActive.get() && pauseGate.request()
@@ -51,10 +66,19 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     }
     private suspend fun refreshPending() {
         try {
-            val batch = batchJournal.read()
-            if (batch != null) publish(batch,moveJournal.read())
-            else if (moveJournal.read() != null) unknownPending()
-            else publish(null)
+            val v1Pending=legacyPending(context)
+            val v2Pending=VisibilityV2JournalStore.pending(File(root,V2_JOURNAL))
+            check(!(v1Pending && v2Pending)) { "Конфликт журналов v1 и v2" }
+            if(v2Pending) {
+                val state=v2Journals.snapshot()
+                VisibilityRecoveryPlanner.inspect(state.batch,state.move)
+                if(state.batch != null) publish(state.batch,state.move) else unknownPending()
+            } else {
+                val batch = batchJournal.read()
+                if (batch != null) publish(batch,moveJournal.read())
+                else if (moveJournal.read() != null) unknownPending()
+                else publish(null)
+            }
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (_: Exception) { unknownPending() }
     }
@@ -64,8 +88,13 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         HistoricalRecoverySignals.markFolderVisibilityPending(true)
     }
     private fun publish(batch: VisibilityBatchRecord?, pendingMove:VisibilityMoveRecord?=null) {
-        progress.value = if (batch == null) FolderVisibilityProgress(null,null,0,0,false,failure=lastFailure?.info)
-            else FolderVisibilityProgress(batch.folderId,batch.direction,batch.next,batch.members.size,true,
+        progress.value = if (batch == null) {
+            // Keep only the last confirmed count after the durable batch has
+            // been committed and cleared. StateFlow is conflated: a fast 1/1
+            // transfer can otherwise publish the terminal 0/0 before the
+            // foreground observer ever receives the last 1/1 checkpoint.
+            visibilityTerminalProgress(progress.value,lastFailure?.info)
+        } else FolderVisibilityProgress(batch.folderId,batch.direction,batch.next,batch.members.size,true,
                 batch.members + listOfNotNull(pendingMove),failure=lastFailure?.info,
                 pausedAtCheckpoint=pausedByUser)
         HistoricalRecoverySignals.markFolderVisibilityPending(batch != null)
@@ -78,16 +107,40 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     suspend fun requireVisibleMember(id:String) {
         check(state.receipt(id)?.direction!=VisibilityDirection.HIDE) { "Сначала верните видимость файла" }
     }
+    /** Preflight runs entirely before a foreground service or recovery gate.
+     * The exact source snapshot remains process-local until explicit consent. */
     @RequiresApi(30)
-    suspend fun setHidden(folder: String, hidden: Boolean, approve: suspend (PendingIntent) -> Boolean) = gate.withLock {
+    suspend fun preview(folder: String, hidden: Boolean): VisibilityPreflightSummary = gate.withLock {
+        check(!operationActive.get() && !hasPendingJournal(context)) { "Сначала завершите предыдущий перенос" }
+        check(state.isHidden(folder) != hidden) { "Видимость папки уже изменена" }
+        preparedPreview = null
+        val direction = if (hidden) VisibilityDirection.HIDE else VisibilityDirection.SHOW
+        val snapshot = bindings.preview(folder,direction,state,VisibilityMediaStore(context))
+        preparedPreview = snapshot.takeIf { it.summary.canStart }
+        com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+            "PREFLIGHT_V2 ready=${snapshot.summary.ready} total=${snapshot.summary.total} " +
+                "problems=${snapshot.summary.problems} journalCreated=false")
+        snapshot.summary
+    }
+
+    @RequiresApi(30)
+    suspend fun setHidden(folder: String, hidden: Boolean, approve: suspend (PendingIntent) -> Boolean,
+        previewToken: String? = null) = gate.withLock {
         check(!hasPendingJournal(context)) { "Сначала завершите предыдущий перенос" }
-        if (state.isHidden(folder) == hidden) return@withLock
-        runOperation(approve) { batch ->
-            val direction = if (hidden) VisibilityDirection.HIDE else VisibilityDirection.SHOW
-            currentStage=VisibilityOperationStage.PLAN
-            val plan = bindings.plan(folder,direction,state,VisibilityMediaStore(context)) { prepared,total ->
-                progress.value=FolderVisibilityProgress(folder,direction,0,total,false,preparing=true,prepared=prepared)
-            }
+        val frozen = preparedPreview
+        preparedPreview = null // one-shot, including invalid attempts
+        check(frozen != null && frozen.summary.token == previewToken &&
+            frozen.summary.folderId == folder && frozen.summary.hidden == hidden &&
+            frozen.summary.canStart) { "Предварительная проверка устарела. Повторите проверку папки" }
+        check(state.isHidden(folder) != hidden) { "Видимость папки уже изменена" }
+        val direction = if (hidden) VisibilityDirection.HIDE else VisibilityDirection.SHOW
+        // A second complete read-only plan must still match the approved
+        // immutable source evidence; no journal/global refresh before this.
+        val plan = bindings.plan(folder,direction,state,VisibilityMediaStore(context))
+        check(visibilityPreflightMatches(frozen.verifiedBatch,plan)) {
+            "Состав или содержимое папки изменилось. Повторите проверку"
+        }
+        runOperation(approve,newV2=true) { batch ->
             currentStage=VisibilityOperationStage.PREFLIGHT
             HistoricalRecoverySignals.markFolderMediaTypes(
                 plan.members.mapNotNull { it.publicOrigin?.mime }
@@ -106,7 +159,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         val from=bindings.memberFolder(ref)
         if(from==target || from?.let { state.isHidden(it) }!=true && target?.let { state.isHidden(it) }!=true) return@withLock false
         var changed=false
-        runOperation(approve) { batch ->
+        runOperation(approve,newV2=true) { batch ->
             currentStage=VisibilityOperationStage.PLAN
             val plan=checkNotNull(bindings.planMembership(ref,target,state,VisibilityMediaStore(context)))
             currentStage=VisibilityOperationStage.PREFLIGHT
@@ -123,7 +176,10 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         check(hasPendingJournal(context)) { "Нет незавершённого переноса" }
         runOperation(approve) { batch ->
             currentStage=VisibilityOperationStage.PREFLIGHT
-            val plan=checkNotNull(batchJournal.read()) { "Нет точного плана переноса" }
+            val v2Pending=VisibilityV2JournalStore.pending(File(root,V2_JOURNAL))
+            val plan=checkNotNull((if(v2Pending) v2Journals.batches else batchJournal).read()) {
+                "Нет точного плана переноса"
+            }
             HistoricalRecoverySignals.markFolderMediaTypes(
                 plan.members.mapNotNull { it.publicOrigin?.mime }
                     .takeIf { it.size == plan.members.size } ?: emptyList())
@@ -132,16 +188,27 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         }
     }
     @RequiresApi(30)
-    private suspend fun runOperation(approve: suspend (PendingIntent) -> Boolean, action: suspend (FolderVisibilityBatch) -> Unit) {
+    private suspend fun runOperation(approve: suspend (PendingIntent) -> Boolean,
+        newV2:Boolean=false, action: suspend (FolderVisibilityBatch) -> Unit) {
         lastFailure=null
         pausedByUser=false
         pauseGate.reset()
-        check(operationActive.compareAndSet(false,true)) { "Перенос уже выполняется" }
         var running=false
         var skipUnchangedProofInvalidation = false
+        var noInvalidationReason: String? = null
+        val hadPendingJournalAtStart = hasPendingJournal(context)
+        val v1PendingAtStart = legacyPending(context)
+        val v2PendingAtStart = VisibilityV2JournalStore.pending(File(root,V2_JOURNAL))
+        val family=visibilityJournalFamily(newV2,v1PendingAtStart,v2PendingAtStart)
+        val useV2=family==VisibilityJournalFamily.VERSIONED_V2
+        val activeBatch:VisibilityBatchJournal=if(useV2) v2Journals.batches else batchJournal
+        val activeMove:VisibilityMoveJournal=if(useV2) v2Journals.moves else moveJournal
+        // Family conflict/unknown journals must fail before claiming the in-process
+        // operation flag. Otherwise a rejected run could leave it stuck as active.
+        check(operationActive.compareAndSet(false,true)) { "Перенос уже выполняется" }
         val attempt = com.domenota.medialoader.core.logging.AppLog.newOperationId("visibility")
         com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
-            "ATTEMPT_BEGIN id=$attempt pending=${hasPendingJournal(context)}")
+            "ATTEMPT_BEGIN id=$attempt pending=${hasPendingJournal(context)} journal=${family.name}")
         try {
             currentStage=VisibilityOperationStage.ACCESS
             check(FolderVisibilityStorageAccess.granted()) { "Разрешите управление всеми файлами" }
@@ -159,7 +226,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
                 // Reject orphan/corrupt/wrong-member plans BEFORE entering the
                 // expensive global media-index refresh gate.
                 val checkpoint = VisibilityRecoveryPlanner.inspect(
-                    batchJournal.read(), moveJournal.read(), allowLegacyUpgrade = true)
+                    activeBatch.read(), activeMove.read(), allowLegacyUpgrade = !useV2)
                 checkNotNull(checkpoint)
                 com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
                     "RECOVERY_PLAN verified=true direction=${checkpoint.direction} " +
@@ -175,14 +242,14 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             HistoricalRecoverySignals.beginFolderVisibility(); running=true
             com.domenota.medialoader.data.storage.HistoricalReferenceLinks(context,database).ensureIdle()
             currentStage=VisibilityOperationStage.LEGACY
-            VisibilityLegacyUpgrade(batchJournal,moveJournal) {
+            if(!useV2) VisibilityLegacyUpgrade(batchJournal,moveJournal) {
                 bindings.enrichLegacy(it,VisibilityMediaStore(context))
             }.run()
             val androidPorts = AndroidFolderVisibilityPorts(context,state,bindings,approve)
             val ports = ReportingVisibilityPorts(androidPorts,androidPorts) { currentStage=it }
-            val move = FolderVisibilityMove(moveJournal,ports)
+            val move = FolderVisibilityMove(activeMove,ports)
             currentStage=VisibilityOperationStage.JOURNAL
-            action(FolderVisibilityBatch(batchJournal,moveJournal,move,ports,{ publish(it) },
+            action(FolderVisibilityBatch(activeBatch,activeMove,move,ports,{ publish(it) },
                 { pauseGate.checkpoint() }))
         } catch(paused: VisibilityPausedAtCheckpoint) {
             pausedByUser = true
@@ -198,13 +265,26 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             // conservatively refresh, including any possible partial rebind.
             if (failure.proofFailedBeforeCatalogMutation && progress.value.completed == 0) {
                 skipUnchangedProofInvalidation = try {
-                    batchJournal.read()?.next == 0 &&
-                        moveJournal.read()?.phase == VisibilityMovePhase.VERIFIED
+                    activeBatch.read()?.next == 0 &&
+                        activeMove.read()?.phase == VisibilityMovePhase.VERIFIED
                 } catch (_: Exception) { false }
+                if (skipUnchangedProofInvalidation) noInvalidationReason = "PROOF_PRE_CAS_UNCHANGED"
+            }
+            // A failed read-only plan with zero durable journals has not
+            // changed the catalog; do not advance Gallery/Music generation.
+            if (failure.info.stage == VisibilityOperationStage.PLAN && !hadPendingJournalAtStart) {
+                val journalsEmpty = try {
+                    !hasPendingJournal(context) && activeBatch.read() == null && activeMove.read() == null
+                } catch (_: Exception) { false }
+                if (canSkipVisibilityPlanFailureRefresh(failure.info.stage,
+                        hadPendingJournalAtStart, journalsEmpty)) {
+                    skipUnchangedProofInvalidation = true
+                    noInvalidationReason = "PLAN_FAILED_NO_MUTATION"
+                }
             }
             val trace=failure.stackTrace.take(8).joinToString(" > ") { "${it.className}.${it.methodName}:${it.lineNumber}" }
             com.domenota.medialoader.core.logging.AppLog.w("FolderVisibility",
-                "STOP id=$attempt code=${failure.info.code} stage=${failure.info.stage.name} type=${failure.originalType} confirmed=${progress.value.completed} total=${progress.value.total} catalogUnchanged=$skipUnchangedProofInvalidation trace=$trace")
+                "STOP id=$attempt code=${failure.info.code} stage=${failure.info.stage.name} type=${failure.originalType} confirmed=${progress.value.completed} total=${progress.value.total} catalogUnchanged=$skipUnchangedProofInvalidation reason=${noInvalidationReason ?: "CONSERVATIVE"} trace=$trace")
             throw failure
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
@@ -213,7 +293,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
                         bindings.batchContext(null)
                         if (running) {
                             if (skipUnchangedProofInvalidation) com.domenota.medialoader.core.logging.AppLog.i(
-                                "FolderVisibility", "RECOVERY_SCAN_DECISION force=false reason=PROOF_PRE_CAS_UNCHANGED invalidates=NONE")
+                                "FolderVisibility", "RECOVERY_SCAN_DECISION force=false reason=${noInvalidationReason ?: "NO_MUTATION"} invalidates=NONE")
                             HistoricalRecoverySignals.end(changed = !skipUnchangedProofInvalidation)
                         }
                     } finally {
@@ -231,12 +311,17 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         private const val DIRECTORY = "folder-visibility-v1"
         private const val MOVE = "move.bin"
         private const val BATCH = "batch.bin"
+        private const val V2_JOURNAL = "checkpoint-v2.bin"
+        private fun legacyPending(context:Context):Boolean {
+            val root=File(context.noBackupFilesDir,DIRECTORY)
+            return VisibilityPendingJournal.pending(File(root,MOVE)) {VisibilityJournalCodec.decode(it)==null} ||
+                VisibilityPendingJournal.pending(File(root,BATCH)) {VisibilityBatchCodec.decode(it)==null}
+        }
         /** Cheap fail-closed check used before automatic catalog alias updates.
          * A nonempty/corrupt journal is pending even after process death. */
         fun hasPendingJournal(context: Context): Boolean {
             val root = File(context.noBackupFilesDir,DIRECTORY)
-            return VisibilityPendingJournal.pending(File(root,MOVE)) { VisibilityJournalCodec.decode(it) == null } ||
-                VisibilityPendingJournal.pending(File(root,BATCH)) { VisibilityBatchCodec.decode(it) == null }
+            return legacyPending(context) || VisibilityV2JournalStore.pending(File(root,V2_JOURNAL))
         }
 
         /** Read-only exact reserved-name proof for independent Private exports.
@@ -247,7 +332,13 @@ internal class FolderVisibilityManager(context: Context, private val database: H
             if (!hasPendingJournal(context)) return emptySet()
             check(relativePath.endsWith('/') && !relativePath.contains(".."))
             val root = File(context.noBackupFilesDir,DIRECTORY)
-            val plan = checkNotNull(FileVisibilityBatchJournal(File(root,BATCH)).read()) {
+            val v1Pending=legacyPending(context)
+            val v2Pending=VisibilityV2JournalStore.pending(File(root,V2_JOURNAL))
+            check(!(v1Pending && v2Pending)) { "Конфликт журналов v1 и v2" }
+            val journal:VisibilityBatchJournal=if(v2Pending)
+                VisibilityV2JournalStore(File(root,V2_JOURNAL)).batches
+                else FileVisibilityBatchJournal(File(root,BATCH))
+            val plan = checkNotNull(journal.read()) {
                 "Незавершённый перенос без проверенного плана"
             }
             check(plan.members.all { it.publicOrigin != null }) {
@@ -259,3 +350,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         }
     }
 }
+
+/** Only a failed read-only PLAN with *two freshly verified empty* durable
+ * journals may skip rescans; unknown or legacy state stays conservative. */
+internal fun canSkipVisibilityPlanFailureRefresh(
+    stage: VisibilityOperationStage, hadPendingJournalAtStart: Boolean, bothJournalsEmpty: Boolean,
+): Boolean = stage == VisibilityOperationStage.PLAN && !hadPendingJournalAtStart && bothJournalsEmpty

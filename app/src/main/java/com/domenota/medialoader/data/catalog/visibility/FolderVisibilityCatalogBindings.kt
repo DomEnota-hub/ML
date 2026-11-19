@@ -43,7 +43,7 @@ internal class FolderVisibilityCatalogBindings(
 
     private suspend fun currentMember(id:String):Member? {
         val app=dao.byId(id)
-        val ext=external.visibilityEntries().filter { it.ref.key==id }
+        val ext=external.visibilityMembersByKey(id)
         check(ext.size<=1 && (app==null || ext.isEmpty())) { "Неоднозначная запись каталога" }
         return if(app!=null) {
             val assignment=catalog.assignmentById(id)
@@ -91,7 +91,13 @@ internal class FolderVisibilityCatalogBindings(
             val mime=when(current.mediaType) { MediaType.PHOTO->"image/*"; MediaType.VIDEO->"video/*"; MediaType.AUDIO->"audio/*" }
             val origin=media.captureCatalog(uri,mime)
             val fingerprint=HiddenFolderFileStore.fingerprint(media.openOriginal(origin))
-            check(fingerprint.bytes==origin.bytes && current.sizeBytes==origin.bytes) { "Размер файла изменился" }
+            val mismatch = classifyVisibilityPlanSize(current.sizeBytes, origin.bytes, fingerprint.bytes)
+            if (mismatch != null) {
+                // No user filename, URI, hash or even per-file size in diagnostics.
+                com.domenota.medialoader.core.logging.AppLog.w("FolderVisibility",
+                    "PLAN_SIZE_MISMATCH kind=${mismatch.name} journalCreated=false")
+                throw VisibilityPlanSizeFailure(mismatch)
+            }
             VisibilityMoveRecord(operation,folder,id,direction,origin.uri,origin.name,origin.modifiedMillis,
                 fingerprint,token,publicOrigin=origin,catalogSourceUri=uri.takeUnless { it==origin.uri })
         } else {
@@ -101,11 +107,43 @@ internal class FolderVisibilityCatalogBindings(
             val parsed=android.net.Uri.parse(uri)
             check(parsed.scheme=="file" && parsed.authority.isNullOrEmpty() && parsed.query==null && parsed.fragment==null)
             val file=java.io.File(requireNotNull(parsed.path)); val store=FolderVisibilityStorageAccess.store()
-            store.verifyLocation(file,origin.modifiedMillis)
+            store.verifyExistingLocation(file,origin.modifiedMillis)
             val fingerprint=HiddenFolderFileStore.fingerprint(file.inputStream())
             check(fingerprint==previous.fingerprint && current.sizeBytes==fingerprint.bytes) { "Содержимое скрытого файла изменилось" }
             VisibilityMoveRecord(operation,folder,id,direction,uri,origin.name,origin.modifiedMillis,fingerprint,token,publicOrigin=origin)
         }
+    }
+
+    /** Read-only independent preview; all selected members are inspected.
+     * Does not create the hidden root, change a catalog, journal, or playback. */
+    @androidx.annotation.RequiresApi(30)
+    suspend fun preview(folderId: String, direction: VisibilityDirection,
+        state: CatalogVisibilityState, media: VisibilityMediaStore): VisibilityPreflightSnapshot = withContext(Dispatchers.IO) {
+        check(catalog.folderById(folderId) != null) { "Папка не найдена" }
+        val app = catalog.memberIds(folderId).toSet()
+        val phone = externalMemberIds(folderId)
+        check(app.intersect(phone).isEmpty()) { "Неоднозначный состав папки" }
+        val ids = (app + phone).sorted()
+        check(ids.size <= VisibilityBatchRecord.MAX_MEMBERS)
+        val ready = ArrayList<VisibilityMoveRecord>(ids.size)
+        val failures = ArrayList<VisibilityPreflightIssue>()
+        for (id in ids) {
+            try {
+                ready.add(planRecord(id,folderId,direction,member(id,folderId).ref.item,state,media))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                failures.add(visibilityPreflightIssue(error))
+            }
+        }
+        // Exact second membership read prevents silently accepting mid-plan changes.
+        val againApp = catalog.memberIds(folderId).toSet()
+        val againPhone = externalMemberIds(folderId)
+        check(againApp.intersect(againPhone).isEmpty() && againApp + againPhone == ids.toSet()) {
+            "Состав папки изменился во время предварительной проверки"
+        }
+        visibilityPreflightSummarize(java.util.UUID.randomUUID().toString(),
+            folderId,direction == VisibilityDirection.HIDE,ids.size,ready,failures)
     }
 
     /** Legacy v1 omitted placement metadata. Recover it only while this exact
