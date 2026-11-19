@@ -426,7 +426,7 @@ fun MediaLoaderApp(
                     catch(error:Exception){AppNotice.post(context,error.message ?: "Изменение видимости не завершено")}
                     finally{nomediaBusy=false}
                 }
-            },enabled=!nomediaBusy){Text(if(hide)"Скрыть" else "Показать")},
+            },enabled=!nomediaBusy){Text(if(hide)"Скрыть" else "Показать")}},
             dismissButton={TextButton(onClick={nomediaRequest=null},enabled=!nomediaBusy){Text("Отмена")}})
     }
 
