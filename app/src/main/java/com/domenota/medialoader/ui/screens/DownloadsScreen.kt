@@ -174,6 +174,7 @@ fun DownloadsScreen(
     onCheckFolderAccess: (suspend (String)->Unit)? = null,
     onBrowseSafFiles: (suspend (String)->List<com.domenota.medialoader.data.catalog.visibility.NomediaSafEntry>)? = null,
     onVerifySafFile: (suspend (String,String)->Boolean)? = null,
+    onOpenSafFile: (suspend (String,String)->android.net.Uri)? = null,
     onOpenFromFolder: ((String,List<String>,String?) -> Unit)? = null,
     onShareFromFolder: ((String,String?) -> Unit)? = null,
 ) {
@@ -297,6 +298,7 @@ fun DownloadsScreen(
         onCheckFolderAccess = onCheckFolderAccess,
         onBrowseSafFiles = onBrowseSafFiles,
         onVerifySafFile = onVerifySafFile,
+        onOpenSafFile = onOpenSafFile,
         selectedKey = selectedCatalog,
         targetDownloadId = folderTargetId,
         onDismiss = { folderSheetOpen = false; folderTargetId = null; folderGroupTargets = emptyList() },
