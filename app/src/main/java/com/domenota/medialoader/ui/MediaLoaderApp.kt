@@ -865,7 +865,9 @@ fun MediaLoaderApp(
         retentionGuard = galleryRetentionAccess,
         revalidateRetained = { previous -> previous.retainAllowed { row ->
             currentGalleryRows.containsKey(row.id) && currentGalleryRows[row.id] == row.savedUri
-        } }, kind = LibraryProjectionKind.GALLERY_BROWSE) {
+        } },
+        equivalentContent = { old, next -> old.equivalentContent(next) },
+        kind = LibraryProjectionKind.GALLERY_BROWSE) {
         val items = GalleryBrowseInventory.withScopedItems(galleryPublicItems, folderRefs,
             libraryCatalogAssignments, visibilityFolders) { publicProjectionAccess?.explicitFolder(it) }
         GalleryBrowseInventory.build(items, catalogFolders, libraryCatalogAssignments,
