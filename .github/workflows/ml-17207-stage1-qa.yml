@@ -54,6 +54,11 @@ jobs:
           grep -Eq 'versionCode 267$' app/build.gradle
           grep -Fq "versionName '1.7.207'" app/build.gradle
           grep -Fq 'showingPartial' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
+          grep -Fq 'android:largeHeap="true"' app/src/main/AndroidManifest.xml
+          grep -Fq 'mutableIntStateOf(0)' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
+          test -s app/src/main/res/drawable-nodpi/ml_launcher_artwork.png
+          test -s app/src/main/res/drawable-nodpi/ml_shortcut_gallery.png
+          test -s app/src/main/res/drawable-nodpi/ml_shortcut_music.png
           grep -Fq 'MusicDuplicateSessionStore.savePartial(context,saved' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
           grep -Fq 'MusicDuplicateScanner.verifyMember' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
           python3 scripts/audit_ui_palette.py
@@ -65,6 +70,7 @@ jobs:
             --tests com.domenota.medialoader.data.library.MusicDuplicateJournalClearTest \
             --tests com.domenota.medialoader.data.library.MusicDuplicateSessionTest \
             --tests com.domenota.medialoader.data.library.MusicDuplicatePolicyTest \
+            --tests com.domenota.medialoader.data.library.AcousticCandidatePairsMemoryTest \
             --tests com.domenota.medialoader.ui.screens.music.MusicDuplicatePreliminaryTest \
             --tests com.domenota.medialoader.ui.screens.music.DuplicateTrashHostRegressionTest \
             --stacktrace --no-daemon --console=plain
