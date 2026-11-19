@@ -455,9 +455,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     // Await the durable settings generation. Corrupt metadata must not publish a
     // speculative public library; an interrupted batch publishes exact members.
     val visibilityGuard = combine(folderVisibility.snapshot, folderVisibility.status,
-        mediaRepository.catalogAssignments, externalCatalog.entries) { snapshot, progress, assignments, external ->
+        mediaRepository.catalogAssignments, externalCatalog.entries,
+        mediaRepository.nomediaFolders.snapshot) { snapshot, progress, assignments, external, nomedia ->
         FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(snapshot,progress.folderId,
-            progress.pending && progress.folderId == null,progress.members),assignments,external)
+            (progress.pending && progress.folderId == null) || nomedia.unknown,progress.members,
+            nomedia.hiddenFolderIds),assignments,external)
     }.catch { emit(FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot(),unknownPending=true),emptyList(),emptyList())) }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.Eagerly,null)
     init { viewModelScope.launch(Dispatchers.IO) { folderVisibility.pending() } }
