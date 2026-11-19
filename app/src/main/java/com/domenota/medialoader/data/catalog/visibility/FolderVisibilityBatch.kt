@@ -104,6 +104,10 @@ internal class FolderVisibilityBatch(
             return
         }
         onCheckpoint(batch)
+        // Only the uninterrupted segment is sampled; recovered earlier files
+        // must never be reported as newly timed.
+        val latencySamples = if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance())
+            ArrayList<Long>() else null
         val pendingAtResume = moves.read()
         VisibilityRecoveryPlanner.inspect(batch,pendingAtResume)
         // Membership preparation must not mutate a catalog before validating
@@ -128,10 +132,12 @@ internal class FolderVisibilityBatch(
             batches.replace(batch, advanced)
             batch = advanced
             onCheckpoint(batch)
-            if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
+            if (latencySamples != null) {
+                val measuredMs = visibilityDurationMs(workStartedAt,System.nanoTime())
+                latencySamples.add(measuredMs)
                 com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
                     "MOVE_FILE checkpoint=${batch.next}/${batch.members.size} direction=${batch.direction.name} " +
-                    "bytes=${member.fingerprint.bytes} elapsedMs=${visibilityDurationMs(workStartedAt,System.nanoTime())} confirmed=true")
+                    "bytes=${member.fingerprint.bytes} elapsedMs=$measuredMs confirmed=true")
             }
             // At this exact point the move journal is empty and the batch cursor
             // was durably committed. An exception here cannot interrupt deletion.
@@ -142,6 +148,14 @@ internal class FolderVisibilityBatch(
         ports.commitVisibility(batch)
         batches.replace(batch, null)
         onCheckpoint(null)
+        if (latencySamples != null && latencySamples.isNotEmpty()) {
+            val summary = visibilityBatchTimingSummary(latencySamples)
+            com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+                "MOVE_BATCH_LATENCY direction=${batch.direction.name} " +
+                    "samples=${summary.samples} batchTotal=${batch.members.size} " +
+                    "p50Ms=${summary.p50Ms} p90Ms=${summary.p90Ms} p95Ms=${summary.p95Ms} " +
+                    "source=UNINTERRUPTED_SEGMENT")
+        }
     }
     companion object { private val gate = Mutex() }
 }
