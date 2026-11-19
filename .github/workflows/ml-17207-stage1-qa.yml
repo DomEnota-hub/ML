@@ -71,6 +71,7 @@ jobs:
             --tests com.domenota.medialoader.data.library.MusicDuplicateSessionTest \
             --tests com.domenota.medialoader.data.library.MusicDuplicatePolicyTest \
             --tests com.domenota.medialoader.data.library.AcousticCandidatePairsMemoryTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.NomediaAutoFolderPlanTest \
             --tests com.domenota.medialoader.ui.screens.music.MusicDuplicatePreliminaryTest \
             --tests com.domenota.medialoader.ui.screens.music.DuplicateTrashHostRegressionTest \
             --stacktrace --no-daemon --console=plain
