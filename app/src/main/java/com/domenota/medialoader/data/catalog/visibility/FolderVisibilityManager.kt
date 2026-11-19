@@ -33,6 +33,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     private val pauseGate = VisibilityCheckpointPauseGate()
     private val operationActive = java.util.concurrent.atomic.AtomicBoolean(false)
     private var pausedByUser = false
+    private var preparedPreview: VisibilityPreflightSnapshot? = null
     /** Cooperative request; processing stops only after a durable member cursor.
      * False means no operation is in progress, not that existing journals are gone. */
     fun requestPauseAtCheckpoint(): Boolean = operationActive.get() && pauseGate.request()
@@ -78,16 +79,40 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     suspend fun requireVisibleMember(id:String) {
         check(state.receipt(id)?.direction!=VisibilityDirection.HIDE) { "Сначала верните видимость файла" }
     }
+    /** Preflight runs entirely before a foreground service or recovery gate.
+     * The exact source snapshot remains process-local until explicit consent. */
     @RequiresApi(30)
-    suspend fun setHidden(folder: String, hidden: Boolean, approve: suspend (PendingIntent) -> Boolean) = gate.withLock {
+    suspend fun preview(folder: String, hidden: Boolean): VisibilityPreflightSummary = gate.withLock {
+        check(!operationActive.get() && !hasPendingJournal(context)) { "Сначала завершите предыдущий перенос" }
+        check(state.isHidden(folder) != hidden) { "Видимость папки уже изменена" }
+        preparedPreview = null
+        val direction = if (hidden) VisibilityDirection.HIDE else VisibilityDirection.SHOW
+        val snapshot = bindings.preview(folder,direction,state,VisibilityMediaStore(context))
+        preparedPreview = snapshot.takeIf { it.summary.canStart }
+        com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
+            "PREFLIGHT_V2 ready=${snapshot.summary.ready} total=${snapshot.summary.total} " +
+                "problems=${snapshot.summary.problems} journalCreated=false")
+        snapshot.summary
+    }
+
+    @RequiresApi(30)
+    suspend fun setHidden(folder: String, hidden: Boolean, approve: suspend (PendingIntent) -> Boolean,
+        previewToken: String? = null) = gate.withLock {
         check(!hasPendingJournal(context)) { "Сначала завершите предыдущий перенос" }
-        if (state.isHidden(folder) == hidden) return@withLock
+        val frozen = preparedPreview
+        preparedPreview = null // one-shot, including invalid attempts
+        check(frozen != null && frozen.summary.token == previewToken &&
+            frozen.summary.folderId == folder && frozen.summary.hidden == hidden &&
+            frozen.summary.canStart) { "Предварительная проверка устарела. Повторите проверку папки" }
+        check(state.isHidden(folder) != hidden) { "Видимость папки уже изменена" }
+        val direction = if (hidden) VisibilityDirection.HIDE else VisibilityDirection.SHOW
+        // A second complete read-only plan must still match the approved
+        // immutable source evidence; no journal/global refresh before this.
+        val plan = bindings.plan(folder,direction,state,VisibilityMediaStore(context))
+        check(visibilityPreflightMatches(frozen.verifiedBatch,plan)) {
+            "Состав или содержимое папки изменилось. Повторите проверку"
+        }
         runOperation(approve) { batch ->
-            val direction = if (hidden) VisibilityDirection.HIDE else VisibilityDirection.SHOW
-            currentStage=VisibilityOperationStage.PLAN
-            val plan = bindings.plan(folder,direction,state,VisibilityMediaStore(context)) { prepared,total ->
-                progress.value=FolderVisibilityProgress(folder,direction,0,total,false,preparing=true,prepared=prepared)
-            }
             currentStage=VisibilityOperationStage.PREFLIGHT
             HistoricalRecoverySignals.markFolderMediaTypes(
                 plan.members.mapNotNull { it.publicOrigin?.mime }

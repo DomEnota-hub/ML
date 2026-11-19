@@ -114,6 +114,38 @@ internal class FolderVisibilityCatalogBindings(
         }
     }
 
+    /** Read-only independent preview; all selected members are inspected.
+     * Does not create the hidden root, change a catalog, journal, or playback. */
+    @androidx.annotation.RequiresApi(30)
+    suspend fun preview(folderId: String, direction: VisibilityDirection,
+        state: CatalogVisibilityState, media: VisibilityMediaStore): VisibilityPreflightSnapshot = withContext(Dispatchers.IO) {
+        check(catalog.folderById(folderId) != null) { "Папка не найдена" }
+        val app = catalog.memberIds(folderId).toSet()
+        val phone = externalMemberIds(folderId)
+        check(app.intersect(phone).isEmpty()) { "Неоднозначный состав папки" }
+        val ids = (app + phone).sorted()
+        check(ids.size <= VisibilityBatchRecord.MAX_MEMBERS)
+        val ready = ArrayList<VisibilityMoveRecord>(ids.size)
+        val failures = ArrayList<VisibilityPreflightIssue>()
+        for (id in ids) {
+            try {
+                ready.add(planRecord(id,folderId,direction,member(id,folderId).ref.item,state,media))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                failures.add(visibilityPreflightIssue(error))
+            }
+        }
+        // Exact second membership read prevents silently accepting mid-plan changes.
+        val againApp = catalog.memberIds(folderId).toSet()
+        val againPhone = externalMemberIds(folderId)
+        check(againApp.intersect(againPhone).isEmpty() && againApp + againPhone == ids.toSet()) {
+            "Состав папки изменился во время предварительной проверки"
+        }
+        visibilityPreflightSummarize(java.util.UUID.randomUUID().toString(),
+            folderId,direction == VisibilityDirection.HIDE,ids.size,ready,failures)
+    }
+
     /** Legacy v1 omitted placement metadata. Recover it only while this exact
      * journaled public source still exists and matches its immutable full hash. */
     @androidx.annotation.RequiresApi(30)

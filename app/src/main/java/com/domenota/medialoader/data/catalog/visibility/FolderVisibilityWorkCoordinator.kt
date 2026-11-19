@@ -37,8 +37,8 @@ internal class FolderVisibilityWorkCoordinator(
     val pendingAndroidApproval = approval.pending
 
     @RequiresApi(30)
-    fun startFromVisibleActivity(folderId: String, hidden: Boolean) =
-        enqueue(VisibilityWorkCommand.SetHidden(folderId, hidden))
+    fun startFromVisibleActivity(folderId: String, hidden: Boolean, previewToken: String) =
+        enqueue(VisibilityWorkCommand.SetHidden(folderId, hidden, previewToken))
 
     @RequiresApi(30)
     fun resumeFromVisibleActivity() = enqueue(VisibilityWorkCommand.ExplicitResume)
@@ -128,7 +128,7 @@ internal class FolderVisibilityWorkCoordinator(
         try {
             when (val cmd = request.command) {
                 is VisibilityWorkCommand.SetHidden ->
-                    repository.setFolderVisibility(cmd.folderId,cmd.hidden,::userApproval)
+                    repository.setFolderVisibility(cmd.folderId,cmd.hidden,::userApproval,cmd.previewToken)
                 VisibilityWorkCommand.ExplicitResume ->
                     repository.resumeFolderVisibility(::userApproval)
             }

@@ -223,8 +223,9 @@ class MediaRepository private constructor(context: Context) {
     }
     @androidx.annotation.RequiresApi(30)
     internal suspend fun setFolderVisibility(folderId: String, hidden: Boolean,
-        approve: suspend (android.app.PendingIntent) -> Boolean) = musicPostProcessGate.withPermit {
-        folderVisibility.setHidden(folderId,hidden,approve)
+        approve: suspend (android.app.PendingIntent) -> Boolean,
+        previewToken: String? = null) = musicPostProcessGate.withPermit {
+        folderVisibility.setHidden(folderId,hidden,approve,previewToken)
     }
     @androidx.annotation.RequiresApi(30)
     internal suspend fun resumeFolderVisibility(approve: suspend (android.app.PendingIntent) -> Boolean) = musicPostProcessGate.withPermit {

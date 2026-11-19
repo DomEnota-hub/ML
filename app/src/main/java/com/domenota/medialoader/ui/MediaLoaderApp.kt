@@ -312,6 +312,7 @@ fun MediaLoaderApp(
         }
     }
     var visibilityBusy by remember { mutableStateOf(false) }
+    var visibilityPreflight by remember { mutableStateOf<VisibilityPreflightSummary?>(null) }
     // The legacy blocking dialog is only for membership moves that still
     // execute from the screen. An ordinary folder hide/show transitions to
     // the new service dialog rather than flashing the legacy placeholder.
@@ -329,9 +330,43 @@ fun MediaLoaderApp(
             if(pending.pending) {
                 check(pending.folderId==folder) { "Сначала завершите предыдущий перенос" }
                 visibilityWork.resumeFromVisibleActivity()
-            } else visibilityWork.startFromVisibleActivity(folder,hidden)
+            } else {
+                visibilityPreflight=mediaRepository.folderVisibility.preview(folder,hidden)
+            }
             visibilityResumeDismissed=true
         } else error("Скрытие папок доступно с Android 11")
+    }
+
+    visibilityPreflight?.let { preview ->
+        AlertDialog(
+            onDismissRequest={visibilityPreflight=null},
+            title={Text("Проверка перед переносом")},
+            text={Column {
+                Text("Готово к переносу ${preview.ready} из ${preview.total}; проблемных ${preview.problems}.")
+                if(preview.problems>0) {
+                    Text("Перенос не начнётся. Исходные файлы не изменены.")
+                    preview.issueCounts.forEach { (issue,count) -> Text("${issue.label}: $count") }
+                } else Text("После подтверждения исходные файлы будут повторно проверены. При изменениях перенос не начнётся.")
+            }},
+            confirmButton={
+                if(preview.canStart) TextButton(onClick={
+                    visibilityPreflight=null
+                    fileActionScope.launch {
+                        try { if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation {
+                            check(!mediaRepository.folderVisibility.pending().pending) {
+                                "Сначала завершите предыдущий перенос"
+                            }
+                            visibilityWork.startFromVisibleActivity(preview.folderId,preview.hidden,preview.token)
+                        }}
+                        catch(cancelled:CancellationException){throw cancelled}
+                        catch(error:Exception){AppNotice.post(context,error.message ?: "Предварительная проверка устарела")}
+                    }
+                }){Text("Начать перенос")}
+            },
+            dismissButton={TextButton(onClick={visibilityPreflight=null}){
+                Text(if(preview.canStart) "Отмена" else "Закрыть")
+            }},
+        )
     }
 
     val visibilityProgress by mediaRepository.folderVisibility.status.collectAsStateWithLifecycle()
