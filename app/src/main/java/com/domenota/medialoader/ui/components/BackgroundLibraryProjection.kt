@@ -21,6 +21,8 @@ private data class PublishedLibraryValue<T>(val inputs: ProjectionInputs, val pr
 internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, vararg inputs: Any?,
     accessGuard: Any? = privacy, enabled: Boolean = true,
     retentionGuard: Any? = null, revalidateRetained: ((T) -> T)? = null,
+    /** Runs on Default, never on the Compose/UI thread. Only for an identical access/privacy epoch. */
+    equivalentContent: ((T, T) -> Boolean)? = null,
     kind: com.domenota.medialoader.core.logging.LibraryProjectionKind = com.domenota.medialoader.core.logging.LibraryProjectionKind.OTHER,
     build: () -> T): BackgroundLibraryValue<T> {
     val key = ProjectionInputs(inputs.toList())
@@ -50,7 +52,17 @@ internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, va
         val timer = com.domenota.medialoader.core.logging.LibraryProjectionCounters.start(kind, reason)
         val snapshot = androidx.compose.runtime.snapshots.Snapshot.takeSnapshot()
         try {
-            val value = withContext(Dispatchers.Default) { snapshot.enter { build() } }
+            val value = withContext(Dispatchers.Default) {
+                val next = snapshot.enter { build() }
+                // Duplicate MediaStore/catalog notifications can produce an
+                // identical 11k-row catalog. Retain its prepared grid/cache.
+                // Never reuse content across an access/privacy change.
+                if (previous != null && previous.privacy == privacy &&
+                    previous.accessGuard == accessGuard &&
+                    previous.retentionGuard == retentionGuard &&
+                    equivalentContent?.invoke(previous.value, next) == true
+                ) previous.value else next
+            }
             published = PublishedLibraryValue(key, privacy, accessGuard, value, retentionGuard)
             timer.complete()
         } finally { snapshot.dispose(); timer.close() }
