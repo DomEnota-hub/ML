@@ -1,0 +1,98 @@
+name: ML 1.7.207 exact-SHA unsigned and source handoff (no secrets)
+on:
+  push:
+    branches:
+      - feature/ml-17207-duplicate-recovery
+    paths:
+      - '.github/workflows/ml-17207-offline-unsigned-handoff.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-unsigned-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Android and Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for attempt in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$attempt" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Exact source version and privacy guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 267$' app/build.gradle
+          grep -Fq "versionName '1.7.207'" app/build.gradle
+          test -s app/src/main/res/drawable-nodpi/ml_launcher_artwork.jpg
+          test -s app/src/main/res/drawable-nodpi/ml_shortcut_gallery.jpg
+          test -s app/src/main/res/drawable-nodpi/ml_shortcut_music.jpg
+          test -s app/src/main/java/com/domenota/medialoader/data/catalog/visibility/NomediaAutoFolderPlan.kt
+          test -s app/src/test/java/com/domenota/medialoader/data/catalog/visibility/NomediaAutoFolderPlanTest.kt
+          test -s docs/qa/ML-17207-xiaomi-device-qa.md
+      - name: Kotlin and focused safety regressions
+        run: |
+          ./gradlew :app:testDebugUnitTest             --tests com.domenota.medialoader.data.library.MusicDuplicateJournalClearTest             --tests com.domenota.medialoader.data.library.AcousticCandidatePairsMemoryTest             --tests com.domenota.medialoader.data.catalog.visibility.NomediaAutoFolderPlanTest             --tests com.domenota.medialoader.data.catalog.visibility.NomediaFolderEngineTest             --stacktrace --no-daemon --console=plain
+      - name: Lint and ARM64 unsigned compilation
+        run: ./gradlew :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon --console=plain
+      - name: Prove exact source package and create private offline inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk" && test -s "$bt/lib/apksigner.jar" && test -x "$bt/zipalign"
+          "$bt/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='267' versionName='1.7.207'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          unzip -tq "$apk"
+          mkdir -p handoff/unsigned handoff/source
+          cp "$apk" handoff/unsigned/ML_1.7.207_ARM64_UNSIGNED.apk
+          git rev-parse HEAD > handoff/unsigned/EXACT_SOURCE_SHA.txt
+          (cd handoff/unsigned && sha256sum ML_1.7.207_ARM64_UNSIGNED.apk EXACT_SOURCE_SHA.txt > SHA256SUMS.txt)
+          git archive --format=zip -o handoff/source/ML_1.7.207_SOURCES_EXACT_COMMIT.zip HEAD
+          git rev-parse HEAD > handoff/source/EXACT_SOURCE_SHA.txt
+          (cd handoff/source && sha256sum ML_1.7.207_SOURCES_EXACT_COMMIT.zip EXACT_SOURCE_SHA.txt > SHA256SUMS.txt)
+          echo 'Only unsigned exact source and archive; NEVER an installable APK.'
+      - name: Private exact unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17207-exact-unsigned-no-secrets
+          path: handoff/unsigned/
+          compression-level: 0
+          retention-days: 2
+      - name: Private exact source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17207-exact-source-no-secrets
+          path: handoff/source/
+          compression-level: 0
+          retention-days: 2
+      - name: Failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17207-offline-failure-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 2

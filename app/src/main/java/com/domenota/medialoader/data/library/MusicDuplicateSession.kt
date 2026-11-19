@@ -33,7 +33,12 @@ internal object MusicDuplicateSessionStore {
             if(includePartial)DuplicateReportJournal.clearPartial(context,"music")
         }.isSuccess
     }
-    fun discardPartial(context:Context):Boolean = synchronized(lock){runCatching{DuplicateReportJournal.clearPartial(context,"music")}.isSuccess}
+    fun discardPartial(context:Context):Boolean = synchronized(lock){
+        // Invalidate any pending debounced UI snapshot before clearing this
+        // checkpoint. Otherwise a late save can resurrect a discarded scan.
+        journalRevision++
+        runCatching{DuplicateReportJournal.clearPartial(context,"music")}.isSuccess
+    }
     private fun trashReportFile(context:Context)=AtomicFile(File(context.noBackupFilesDir,"music-duplicate-trash-v1.json"))
     fun clearForPrivacy(context: Context) {
         journalRevision++
@@ -79,7 +84,12 @@ internal object MusicDuplicateSessionStore {
         val current=runCatching{decode(file(context).openRead().bufferedReader().use{it.readText()})}.getOrNull()
         (listOfNotNull(current)+DuplicateReportJournal.history(context,"music").mapNotNull{runCatching{decode(it)}.getOrNull()}).filter{permitted(context,it)}.distinctBy{it.scannedAt}.sortedByDescending{it.scannedAt}
     }}
-    fun savePartial(context:Context,session:DuplicateSession){synchronized(lock){if(permitted(context,session))runCatching{DuplicateReportJournal.savePartial(context,"music",encode(session))}}}
+    /** Checkpoints are independent of successful reports and are never promoted implicitly. */
+    fun savePartial(context:Context,session:DuplicateSession,expectedJournalGeneration:Long?=null):Boolean=synchronized(lock){
+        if(expectedJournalGeneration!=null && expectedJournalGeneration!=journalRevision)return@synchronized false
+        if(!permitted(context,session))return@synchronized false
+        runCatching{DuplicateReportJournal.savePartial(context,"music",encode(session))}.isSuccess
+    }
     suspend fun partial(context:Context):DuplicateSession?=withContext(Dispatchers.IO){synchronized(lock){runCatching{DuplicateReportJournal.partial(context,"music")?.let(::decode)?.takeIf{permitted(context,it)}}.getOrNull()}}
     suspend fun save(context: Context, session: DuplicateSession, expectedJournalGeneration:Long?=null): Boolean = withContext(Dispatchers.IO + NonCancellable) {
         synchronized(lock) {

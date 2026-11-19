@@ -258,7 +258,7 @@ fun MediaLoaderApp(
     var galleryAlbumRequest by remember { mutableStateOf<GalleryAlbumRequest?>(null) }
     var openingAlbumKey by remember { mutableStateOf<String?>(null) }
     var openingPlaylistId by remember { mutableStateOf<String?>(null) }
-    var musicTab by rememberSaveable { mutableIntStateOf(1) }
+    var musicTab by rememberSaveable { mutableIntStateOf(0) }
     var musicTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var musicDetailOpen by remember { mutableStateOf(false) }
     var libraryPreviewJob by remember { mutableStateOf<Job?>(null) }
@@ -329,86 +329,105 @@ fun MediaLoaderApp(
         try { visibilityAccess.ensure(); action() }
         finally { visibilityBusy=false }
     }
-    // One explicit Android tree grant per physical directory. The virtual ML
-    // folder may contain files elsewhere: .nomedia affects ALL physical children
-    // of the chosen tree; never imply that only this virtual album is affected.
+    // The virtual ML album does not imply a physical directory. Resolve the
+    // actual files first. A .nomedia marker excludes every real media file
+    // inside a tree, so a mismatched inventory must fail without mutation.
     var nomediaRequest by remember { mutableStateOf<Pair<String,Boolean>?>(null) }
-    var nomediaPickerRequest by remember { mutableStateOf<Pair<String,Boolean>?>(null) }
+    var nomediaPickerPlan by remember { mutableStateOf<NomediaAutoFolderPlan?>(null) }
+    var nomediaPickerShowFolder by remember { mutableStateOf<String?>(null) }
+    var nomediaBusy by remember { mutableStateOf(false) }
+    suspend fun hideNomediaPlan(plan:NomediaAutoFolderPlan) {
+        val fresh=resolveNomediaAutoPlan(context,plan.folderId,
+            viewModel.downloads.value,viewModel.catalogAssignments.value)
+        check(fresh==plan) { "Состав или расположение папки изменились. Попробуйте ещё раз" }
+        val result=nomediaRegistry.hideVerified(fresh)
+        check(result.excludedFromMl) { "Скрытие не подтверждено" }
+        AppNotice.post(context,"Медиа скрыты. Галерея Android может обновиться позже")
+    }
     val nomediaTreePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        val request=nomediaPickerRequest
-        nomediaPickerRequest=null
-        if (uri==null || request==null) {
-            AppNotice.post(context,"Выбор папки отменён. Состояние не изменено")
-        } else try {
-            val (folder,hide)=request
-            if (!hide) check(nomediaRegistry.snapshot.value.folders[folder]?.treeUri==uri.toString()) {
-                "Выбран другой каталог. Разрешение не применено"
-            }
-            context.contentResolver.takePersistableUriPermission(uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            fileActionScope.launch {
-                try {
-                    val result=if(hide) nomediaRegistry.hide(folder,uri) else nomediaRegistry.show(folder)
-                    AppNotice.post(context,if(result.excludedFromMl)
-                        "Скрыто в ML. Статус индекса Android не подтверждён"
-                    else if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
+        val plan=nomediaPickerPlan
+        val showFolder=nomediaPickerShowFolder
+        nomediaPickerPlan=null
+        nomediaPickerShowFolder=null
+        if(uri==null) AppNotice.post(context,"Разрешение не предоставлено. Файлы не изменены")
+        else fileActionScope.launch {
+            nomediaBusy=true
+            try {
+                val expectedTree=plan?.treeUri ?: showFolder?.let{key->
+                    android.net.Uri.parse(checkNotNull(nomediaRegistry.snapshot.value.folders[key]).treeUri)
+                }
+                check(uri==expectedTree) { "Android открыл другой каталог. Файлы не изменены" }
+                context.contentResolver.takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                if(plan!=null) hideNomediaPlan(plan)
+                else if(showFolder!=null) {
+                    val result=nomediaRegistry.show(showFolder)
+                    AppNotice.post(context,if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
                         "Показано в ML. Чужой .nomedia сохранён"
-                    else "Показано в ML. Медиаиндекс Android обновляется отдельно")
-                } catch(cancelled:CancellationException) { throw cancelled }
-                catch(error:Exception) { AppNotice.post(context,error.message ?: "Операция .nomedia не завершена") }
-            }
-        } catch(error:Exception) {
-            AppNotice.post(context,error.message ?: "Доступ SAF не предоставлен")
+                    else "Медиа показаны в ML. Android обновляется отдельно")
+                }
+            }catch(cancelled:CancellationException){throw cancelled}
+            catch(error:Exception){AppNotice.post(context,error.message ?: "Изменение видимости не завершено")}
+            finally{nomediaBusy=false}
         }
     }
     val toggleFolderVisibility:suspend (String,Boolean)->Unit={ folder,hidden ->
-        check(!nomediaSnapshot.unknown) { "Реестр скрытия требует проверки" }
+        check(!nomediaBusy && !nomediaSnapshot.unknown) { "Скрытие уже выполняется или реестр требует проверки" }
         check(folder !in (visibilityGuard?.policy?.snapshot?.hiddenFolders.orEmpty()) &&
-            (visibilityGuard?.policy?.pendingFolder != folder)) { "Для старого физического архива сохранена только диагностика" }
+            visibilityGuard?.policy?.pendingFolder != folder) {
+            "Для старого физического архива сохранена только диагностика"
+        }
         val current=nomediaSnapshot.folders[folder]
         check(if(hidden) current?.excludedFromMl != true else current?.excludedFromMl == true) {
             "Состояние папки изменилось. Повторите проверку"
         }
-        nomediaRequest = folder to hidden
+        nomediaRequest=folder to hidden
     }
     nomediaRequest?.let { (folder,hide) ->
-        AlertDialog(onDismissRequest={nomediaRequest=null},
-            title={Text(if(hide) "Скрытие папки без переноса" else "Показать папку")},
-            text={Column {
-                Text(if(hide)
-                    "Скрытие внутри ML и .nomedia для выбранного каталога Android. Все исходные файлы остаются на месте."
-                else "Папка снова появится в ML. Удаляется только созданный ML служебный .nomedia; чужой файл сохраняется.")
-                Text(if(hide)
-                    "Выбранный каталог и вложенные папки могут содержать и другие медиа. Xiaomi Gallery может обновиться не сразу."
-                else "Прежние даты, имена и история загрузок не изменяются. Доступность старого MediaStore URI проверяется отдельно.")
-            }},
+        AlertDialog(onDismissRequest={if(!nomediaBusy)nomediaRequest=null},
+            title={Text(if(hide)"Скрыть медиа?" else "Показать медиа?")},
+            text={Text(if(hide)
+                "Файлы останутся на своих местах. Они исчезнут из медиатеки ML, а галерея Android обновится позже."
+                else "Файлы снова появятся в ML. Обновление галереи Android может занять время.")},
             confirmButton={TextButton(onClick={
+                if(nomediaBusy)return@TextButton
                 nomediaRequest=null
-                if(hide) {
-                    nomediaPickerRequest=folder to true
-                    try { nomediaTreePicker.launch(null) }
-                    catch(error:Exception) {
-                        nomediaPickerRequest=null
-                        AppNotice.post(context,error.message ?: "Не удалось выбрать каталог")
-                    }
-                } else fileActionScope.launch {
+                fileActionScope.launch {
+                    nomediaBusy=true
                     try {
-                        val result=nomediaRegistry.show(folder)
-                        AppNotice.post(context,if(result.markerState == NomediaMarkerState.FOREIGN_MARKER)
-                            "Показано в ML. Чужой .nomedia сохранён; Android может скрывать папку"
-                        else "Показано в ML. Переиндексация Android может занять время")
-                    } catch(cancelled:CancellationException) { throw cancelled }
-                    catch(error:Exception) {
-                        AppNotice.post(context,error.message ?: "Показ папки не завершён")
-                        if(error.message?.contains("Доступ к папке отозван")==true) {
-                            nomediaPickerRequest=folder to false
-                            try { nomediaTreePicker.launch(null) }
-                            catch(_:Exception) { nomediaPickerRequest=null }
+                        if(hide) {
+                            val plan=resolveNomediaAutoPlan(context,folder,
+                                viewModel.downloads.value,viewModel.catalogAssignments.value)
+                            val alreadyGranted=context.contentResolver.persistedUriPermissions.any { grant ->
+                                grant.uri==plan.treeUri && grant.isReadPermission && grant.isWritePermission
+                            }
+                            if(alreadyGranted) hideNomediaPlan(plan)
+                            else {
+                                // The system opens at the exact physical folder. No hunting
+                                // through Pictures/Music or relocation into app storage.
+                                nomediaPickerPlan=plan
+                                nomediaTreePicker.launch(plan.treeUri)
+                            }
+                        } else {
+                            try {
+                                val result=nomediaRegistry.show(folder)
+                                AppNotice.post(context,if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
+                                    "Показано в ML. Чужой .nomedia сохранён"
+                                else "Медиа показаны. Android может обновиться позже")
+                            } catch(error:Exception) {
+                                if(error.message?.contains("Доступ к папке отозван")==true) {
+                                    nomediaPickerShowFolder=folder
+                                    val old=checkNotNull(nomediaSnapshot.folders[folder])
+                                    nomediaTreePicker.launch(android.net.Uri.parse(old.treeUri))
+                                }else throw error
+                            }
                         }
-                    }
+                    }catch(cancelled:CancellationException){throw cancelled}
+                    catch(error:Exception){AppNotice.post(context,error.message ?: "Изменение видимости не завершено")}
+                    finally{nomediaBusy=false}
                 }
-            }){Text(if(hide) "Выбрать каталог" else "Показать")}},
-            dismissButton={TextButton(onClick={nomediaRequest=null}){Text("Отмена")}})
+            },enabled=!nomediaBusy){Text(if(hide)"Скрыть" else "Показать")}},
+            dismissButton={TextButton(onClick={nomediaRequest=null},enabled=!nomediaBusy){Text("Отмена")}})
     }
 
     val visibilityProgress by mediaRepository.folderVisibility.status.collectAsStateWithLifecycle()
@@ -570,7 +589,7 @@ fun MediaLoaderApp(
         // Check access synchronously before a cached phone-backed screen can be rendered.
         if (next == AppMode.MUSIC || (next == AppMode.GALLERY &&
                 (gallerySource == LibrarySource.PHONE || phoneGallery.loaded))) libraryModel.refresh(next)
-        if (next == AppMode.MUSIC && appMode != AppMode.MUSIC) { musicTab = 1; musicTopRequest++ }
+        if (next == AppMode.MUSIC && appMode != AppMode.MUSIC) { musicTab = 0; musicTopRequest++ }
         libraryPreferences.mode = next
         appMode = next
         com.domenota.medialoader.core.logging.PerformanceLog.end("mode_switch_dispatch:$next", dispatchedAt)
@@ -2037,7 +2056,7 @@ fun MediaLoaderApp(
         hiddenMusicTracksOpen = false
         galleryAlbumRequest = null
         galleryTab = 0
-        if (mode == AppMode.MUSIC && !shortcutDuplicates) { musicTab = 1; musicTopRequest++ }
+        if (mode == AppMode.MUSIC && !shortcutDuplicates) { musicTab = 0; musicTopRequest++ }
         changeAppMode(mode)
         navController.navigate(AppDestination.Home.route) {
             popUpTo(AppDestination.Home.route) { inclusive = false }

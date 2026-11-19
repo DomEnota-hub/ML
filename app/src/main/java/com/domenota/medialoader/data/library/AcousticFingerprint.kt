@@ -163,15 +163,37 @@ internal object AcousticFingerprints {
             checkActive()
             input.getValue(id).landmarks.forEach{mark->index.getOrPut(mark.hash){Posting()}.add(track)}
         }
-        val counts=HashMap<Long,Int>()
-        for(posting in index.values){
+        // A global HashMap<Long,Int> used one boxed entry for every candidate
+        // pair, including pairs with too little evidence. In a 3k-track library
+        // that could exhaust a 256-MiB heap during the final grouping stage.
+        // Count one bounded tile of source tracks at a time. Voting saturates
+        // at the unchanged 90 distinct-hash admission threshold.
+        val result=HashSet<Pair<String,String>>()
+        if(ids.size<2)return result
+        val size=ids.size
+        val tileRows=(2_000_000/size).coerceIn(1,256)
+        for(start in 0 until size step tileRows){
             checkActive()
-            if(posting.size !in 2..40)continue
-            for(i in 0 until posting.size)for(j in i+1 until posting.size){
-                val key=(posting[i].toLong() shl 32) or (posting[j].toLong() and 0xffffffffL)
-                counts[key]=(counts[key]?:0)+1
+            val end=minOf(start+tileRows,size)
+            val votes=ByteArray((end-start)*size)
+            for(posting in index.values){
+                checkActive()
+                if(posting.size !in 2..40)continue
+                for(i in 0 until posting.size)for(j in i+1 until posting.size){
+                    val first=posting[i]
+                    if(first<start||first>=end)continue
+                    val offset=(first-start)*size+posting[j]
+                    val count=votes[offset].toInt()
+                    if(count<90)votes[offset]=(count+1).toByte()
+                }
+            }
+            for(first in start until end){
+                checkActive()
+                val offset=(first-start)*size
+                for(second in first+1 until size)
+                    if(votes[offset+second].toInt()>=90)result.add(ids[first] to ids[second])
             }
         }
-        return counts.filterValues{it>=90}.keys.mapTo(HashSet()){key->ids[(key ushr 32).toInt()] to ids[key.toInt()]}
+        return result
     }
 }

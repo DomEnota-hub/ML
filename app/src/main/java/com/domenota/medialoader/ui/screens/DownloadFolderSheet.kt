@@ -208,7 +208,7 @@ internal fun DownloadFolderSheet(
                                     menuOpen = false; editTarget = folder; name = folder.name; error = null
                                 })
                                 if (onFolderVisibility != null) DropdownMenuItem(
-                                    text = { Text(if (visibilityPending) "Старый журнал: диагностика" else if (folderHidden) "Показать в ML" else "Скрыть в ML и Android") },
+                                    text = { Text(if (visibilityPending) "Старый журнал: диагностика" else if (folderHidden) "Показать медиа" else "Скрыть медиа") },
                                     leadingIcon = { Icon(if (folderHidden) Icons.Rounded.RemoveRedEye else Icons.Rounded.VisibilityOff,null) },
                                     enabled = !busy && (pendingVisibilityFolderId == null || visibilityPending),
                                     onClick = {

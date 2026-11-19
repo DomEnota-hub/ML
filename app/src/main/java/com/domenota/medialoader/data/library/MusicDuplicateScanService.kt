@@ -124,7 +124,15 @@ class MusicDuplicateScanService : Service() {
     private var explicitCancel = false
     private var token = 0L
     private var wake: PowerManager.WakeLock? = null
+    private var nextWakeRefreshAt = 0L
     private var lastNotice = 0L
+    private fun renewWakeLock() {
+        val now=android.os.SystemClock.elapsedRealtime()
+        if(now>=nextWakeRefreshAt) {
+            wake?.acquire(45L*60*1000)
+            nextWakeRefreshAt=now+15L*60*1000
+        }
+    }
     private val manager get() = getSystemService(NotificationManager::class.java)
     override fun onCreate() {
         super.onCreate()
@@ -149,16 +157,22 @@ class MusicDuplicateScanService : Service() {
         val scanToken = request.token
         val scanAt=System.currentTimeMillis()
         wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"MediaLoader:duplicate-scan").apply {
-            setReferenceCounted(false); acquire(6L*60*60*1000)
+            setReferenceCounted(false); acquire(45L*60*1000)
         }
+        nextWakeRefreshAt=android.os.SystemClock.elapsedRealtime()+15L*60*1000
+        val memory=getSystemService(ActivityManager::class.java)
+        com.domenota.medialoader.core.logging.AppLog.i("MusicDuplicates",
+            "SCAN_HEAP heapMiB=${Runtime.getRuntime().maxMemory()/1048576L} " +
+                "regularMiB=${memory.memoryClass} largeMiB=${memory.largeMemoryClass}")
         job = scope.launch {
             try {
                 val result = MusicDuplicateScanner.scan(this@MusicDuplicateScanService,request.rows,request.linked,request.current,request.expanded,
-                    onPhase={DuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
+                    onPhase={renewWakeLock();DuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
                         DuplicateBackgroundScan.partial(scanToken,partial)
                         MusicDuplicateSessionStore.savePartial(this@MusicDuplicateScanService,DuplicateSession(partial,emptySet(),emptyMap(),0,0,scanAt))
                     }) { done,total ->
                     DuplicateBackgroundScan.progress(scanToken,done,total)
+                    renewWakeLock()
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (DuplicateBackgroundScan.state.value.token == scanToken && DuplicateBackgroundScan.state.value.running && (now - lastNotice >= 1000 || done == total)) {
                         lastNotice = now

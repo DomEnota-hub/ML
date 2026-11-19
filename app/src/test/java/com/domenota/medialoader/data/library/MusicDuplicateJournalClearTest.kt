@@ -36,4 +36,40 @@ class MusicDuplicateJournalClearTest {
         assertEquals(trash,MusicDuplicateSessionStore.trashReport(context))
         DuplicateReportJournal.clear(context,"visual")
     }
+
+    @Test fun provisionalGroupsRetainSelectionsWithoutBecomingCompletedReport()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val first=DuplicateTrack("a","Песня",null,"a.mp3","content://media/audio/1",123,456,"sha-a",null,1000,null,null,privacyEpoch=epoch)
+        val second=first.copy(id="b",filename="b.mp3",uri="content://media/audio/2")
+        val group=DuplicateGroup(listOf(first,second),"Песня","Точное совпадение",DuplicateKind.EXACT)
+        val session=DuplicateSession(
+            DuplicateScanResult(listOf(group),0,expanded=false,privacyEpoch=epoch),
+            setOf("b"),mapOf(group.key to "a"),0,0,1700000000000L
+        )
+        val generation=MusicDuplicateSessionStore.journalGeneration()
+        assertTrue(MusicDuplicateSessionStore.savePartial(context,session,generation))
+        assertEquals(session,MusicDuplicateSessionStore.partial(context))
+        assertNull("Незавершённый поиск не должен превращаться в завершённый",MusicDuplicateSessionStore.load(context))
+        assertTrue(MusicDuplicateSessionStore.history(context).isEmpty())
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+        assertFalse(MusicDuplicateSessionStore.savePartial(context,session,generation))
+        assertNull(MusicDuplicateSessionStore.partial(context))
+    }
+
+    @Test fun discardingCheckpointRejectsPendingSnapshotWrite()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val session=DuplicateSession(DuplicateScanResult(emptyList(),0,privacyEpoch=epoch),
+            emptySet(),emptyMap(),0,0,900L)
+        val pendingGeneration=MusicDuplicateSessionStore.journalGeneration()
+        assertTrue(MusicDuplicateSessionStore.savePartial(context,session,pendingGeneration))
+        assertTrue(MusicDuplicateSessionStore.discardPartial(context))
+        assertNull(MusicDuplicateSessionStore.partial(context))
+        assertFalse("A delayed UI save must not recreate a discarded checkpoint",
+            MusicDuplicateSessionStore.savePartial(context,session,pendingGeneration))
+        assertNull(MusicDuplicateSessionStore.partial(context))
+    }
 }
