@@ -49,6 +49,35 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
     suspend fun reconcile(folderId:String):NomediaFolderRecord = gate.withLock {
         withContext(Dispatchers.IO) { engine.reconcile(folderId) }
     }
+    suspend fun releaseShownFolder(folderId:String) = gate.withLock {
+        val old=current.value
+        check(!old.unknown) { "Реестр скрытия повреждён" }
+        val record=old.folders[folderId] ?: return@withLock
+        check(!record.excludedFromMl && record.ownedDocumentId==null &&
+            record.markerState in setOf(NomediaMarkerState.NO_MARKER,NomediaMarkerState.FOREIGN_MARKER)) {
+            "Сначала верните видимость и проверьте служебный маркер"
+        }
+        val newer=NomediaFolderSnapshot(old.folders-folderId)
+        check(preferences.edit().putString(KEY,encode(newer)).commit()) {
+            "Не удалось сохранить удаление записи реестра"
+        }
+        current.value=newer
+    }
+
+    /** Returns display-only status; never claims that Xiaomi has rescanned. */
+    fun statusText(folderId:String):String? {
+        val record=current.value.folders[folderId] ?: return null
+        val ml=if(record.excludedFromMl) "ML: скрыто" else "ML: видно"
+        val android=when(record.markerState) {
+            NomediaMarkerState.OWN_MARKER -> ".nomedia создан; Android не проверен"
+            NomediaMarkerState.FOREIGN_MARKER -> "чужой .nomedia сохранён"
+            NomediaMarkerState.NO_MARKER -> ".nomedia отсутствует"
+            NomediaMarkerState.PENDING_HIDE,NomediaMarkerState.PENDING_SHOW -> "проверка не завершена"
+            NomediaMarkerState.FAILED -> "ошибка; требуется проверка"
+        }
+        return "$ml · $android"
+    }
+
     /** No URI is inferred from a stale MediaStore ID. This checks only the old link. */
     suspend fun checkOldMediaLink(savedUri:String?):Boolean = withContext(Dispatchers.IO) {
         val uri = savedUri?.takeIf { it.startsWith("content://") } ?: return@withContext false
