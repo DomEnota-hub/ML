@@ -111,6 +111,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
      * The exact source snapshot remains process-local until explicit consent. */
     @RequiresApi(30)
     suspend fun preview(folder: String, hidden: Boolean): VisibilityPreflightSummary = gate.withLock {
+        RetiredFolderVisibilityTransfer.requireActive()
         check(!operationActive.get() && !hasPendingJournal(context)) { "Сначала завершите предыдущий перенос" }
         check(state.isHidden(folder) != hidden) { "Видимость папки уже изменена" }
         preparedPreview = null
@@ -126,6 +127,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     @RequiresApi(30)
     suspend fun setHidden(folder: String, hidden: Boolean, approve: suspend (PendingIntent) -> Boolean,
         previewToken: String? = null) = gate.withLock {
+        RetiredFolderVisibilityTransfer.requireActive()
         check(!hasPendingJournal(context)) { "Сначала завершите предыдущий перенос" }
         val frozen = preparedPreview
         preparedPreview = null // one-shot, including invalid attempts
@@ -154,6 +156,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     @RequiresApi(30)
     suspend fun changeMember(ref:com.domenota.medialoader.data.library.LibraryMediaRef,target:String?,
         approve:suspend(PendingIntent)->Boolean):Boolean = gate.withLock {
+        RetiredFolderVisibilityTransfer.requireActive()
         check(!hasPendingJournal(context)) { "Сначала завершите предыдущий перенос" }
         // Determine the actual mode under the operation gate, not from Compose.
         val from=bindings.memberFolder(ref)
@@ -173,6 +176,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
     }
     @RequiresApi(30)
     suspend fun resume(approve: suspend (PendingIntent) -> Boolean) = gate.withLock {
+        RetiredFolderVisibilityTransfer.requireActive()
         check(hasPendingJournal(context)) { "Нет незавершённого переноса" }
         runOperation(approve) { batch ->
             currentStage=VisibilityOperationStage.PREFLIGHT
