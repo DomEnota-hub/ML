@@ -234,12 +234,18 @@ class BackgroundLibraryProjectionTest {
         }
         compose.waitUntil(5_000) {ready && published.ids.size==2}
         val warm=published
+        // An initial cold first frame may be empty. Only re-emitted
+        // generations AFTER the first validated grid must never blank it.
+        val firstWarmFrame=frames.indexOfFirst { it.first=="permission-epoch-1" && it.second.size==2 }
+        assertTrue(firstWarmFrame>=0)
         repeat(5) { index ->
             compose.runOnIdle { generation++ }
             compose.waitUntil(5_000) { ready && builds.get()>=index+2 }
             compose.runOnIdle {assertSame(warm,published)}
         }
-        assertFalse(frames.any { it.first=="permission-epoch-1" && it.second.isEmpty() })
+        assertFalse(frames.drop(firstWarmFrame).any {
+            it.first=="permission-epoch-1" && it.second.isEmpty()
+        })
         compose.runOnIdle {access=null}
         compose.waitForIdle()
         assertTrue(published.ids.isEmpty()) // fail closed on permission revoke
