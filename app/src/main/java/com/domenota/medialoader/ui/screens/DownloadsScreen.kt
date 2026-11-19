@@ -170,6 +170,8 @@ fun DownloadsScreen(
     hiddenFolderIds: Set<String> = emptySet(),
     onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
     pendingVisibilityFolderId: String? = null,
+    nomediaFolderStatuses: Map<String,String> = emptyMap(),
+    onCheckFolderAccess: (suspend (String)->Unit)? = null,
     onOpenFromFolder: ((String,List<String>,String?) -> Unit)? = null,
     onShareFromFolder: ((String,String?) -> Unit)? = null,
 ) {
@@ -289,6 +291,8 @@ fun DownloadsScreen(
         hiddenFolderIds = hiddenFolderIds,
         onFolderVisibility = onFolderVisibility,
         pendingVisibilityFolderId = pendingVisibilityFolderId,
+        nomediaFolderStatuses = nomediaFolderStatuses,
+        onCheckFolderAccess = onCheckFolderAccess,
         selectedKey = selectedCatalog,
         targetDownloadId = folderTargetId,
         onDismiss = { folderSheetOpen = false; folderTargetId = null; folderGroupTargets = emptyList() },
