@@ -94,6 +94,27 @@ class NomediaFolderEngineTest {
         assertEquals(0,port.deletes)
         assertTrue(store.state.folders["album"]!!.excludedFromMl)
     }
+    @Test fun samePhysicalTreeCannotBeOwnedByTwoHiddenCatalogFolders()=runBlocking {
+        val store=MemoryStore()
+        val port=MarkerPort()
+        engine(store,port).hide("folder-first",tree)
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking { engine(store,port).hide("folder-second",tree) }
+        }
+        assertEquals(1,port.creates)
+        assertTrue(store.state.folders["folder-first"]!!.excludedFromMl)
+        assertFalse(store.state.folders.containsKey("folder-second"))
+    }
+    @Test fun reconcileCrashNeverDeletesOrRecreatesMarker()=runBlocking {
+        val store=MemoryStore(NomediaFolderSnapshot(mapOf("folder" to
+            NomediaFolderRecord("folder",tree,true,NomediaMarkerState.PENDING_HIDE))))
+        val port=MarkerPort().apply { marker=NomediaMarkerProof("foreign-created-after-crash",0) }
+        val record=engine(store,port).reconcile("folder")
+        assertEquals(NomediaMarkerState.FOREIGN_MARKER,record.markerState)
+        assertTrue(record.excludedFromMl)
+        assertEquals(0,port.creates)
+        assertEquals(0,port.deletes)
+    }
     @Test fun unknownOrPendingRegistryNeverOpensFiles()=runBlocking {
         val store=MemoryStore(NomediaFolderSnapshot(unknown=true));val port=MarkerPort()
         assertThrows(IllegalStateException::class.java) { runBlocking { engine(store,port).hide("x",tree) } }
