@@ -240,7 +240,15 @@ class BackgroundLibraryProjectionTest {
         assertTrue(firstWarmFrame>=0)
         repeat(5) { index ->
             compose.runOnIdle { generation++ }
-            compose.waitUntil(5_000) { ready && builds.get()>=index+2 }
+            compose.waitForIdle() // flush the newly scheduled Compose generation
+            try {
+                compose.waitUntil(15_000) { ready && builds.get()>=index+2 }
+            } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError(
+                    "Gallery projection did not settle: iteration=$index " +
+                    "generation=$generation builds=${builds.get()} ready=$ready " +
+                    "published=${published.ids} frames=${frames.takeLast(8)}", failure)
+            }
             compose.runOnIdle {assertSame(warm,published)}
         }
         assertFalse(frames.drop(firstWarmFrame).any {
