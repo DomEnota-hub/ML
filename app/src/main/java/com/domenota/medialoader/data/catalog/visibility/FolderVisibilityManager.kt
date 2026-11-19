@@ -175,7 +175,6 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         lastFailure=null
         pausedByUser=false
         pauseGate.reset()
-        check(operationActive.compareAndSet(false,true)) { "Перенос уже выполняется" }
         var running=false
         var skipUnchangedProofInvalidation = false
         var noInvalidationReason: String? = null
@@ -186,6 +185,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         val useV2=family==VisibilityJournalFamily.VERSIONED_V2
         val activeBatch:VisibilityBatchJournal=if(useV2) v2Journals.batches else batchJournal
         val activeMove:VisibilityMoveJournal=if(useV2) v2Journals.moves else moveJournal
+        // Family conflict/unknown journals must fail before claiming the in-process
+        // operation flag. Otherwise a rejected run could leave it stuck as active.
+        check(operationActive.compareAndSet(false,true)) { "Перенос уже выполняется" }
         val attempt = com.domenota.medialoader.core.logging.AppLog.newOperationId("visibility")
         com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
             "ATTEMPT_BEGIN id=$attempt pending=${hasPendingJournal(context)} journal=${family.name}")

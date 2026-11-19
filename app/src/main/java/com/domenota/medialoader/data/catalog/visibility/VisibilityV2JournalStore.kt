@@ -178,8 +178,14 @@ internal class VisibilityV2JournalStore(
                 Files.size(path)!=VisibilityV2CheckpointCodec.EMPTY_BYTES.toLong()) true
             else {
                 Files.newInputStream(path,StandardOpenOption.READ,NOFOLLOW_LINKS).use { stream ->
-                    val bytes=stream.readBytes()
-                    bytes.size != VisibilityV2CheckpointCodec.EMPTY_BYTES ||
+                    val bytes=ByteArray(VisibilityV2CheckpointCodec.EMPTY_BYTES)
+                    var offset=0
+                    while(offset<bytes.size) {
+                        val n=stream.read(bytes,offset,bytes.size-offset)
+                        if(n<=0) break
+                        offset+=n
+                    }
+                    offset!=bytes.size || stream.read()!=-1 ||
                         VisibilityV2CheckpointCodec.decode(bytes).let {it.batch!=null || it.move!=null}
                 }
             }

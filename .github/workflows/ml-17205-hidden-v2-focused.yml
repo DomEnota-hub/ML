@@ -53,6 +53,7 @@ jobs:
             --tests com.domenota.medialoader.data.catalog.visibility.VisibilityPlanSizePolicyTest \
             --tests com.domenota.medialoader.data.catalog.visibility.VisibilityPreflightV2Test \
             --tests com.domenota.medialoader.data.catalog.visibility.VisibilityV2JournalStoreTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.VisibilityV2CrashReplayTest \
             --tests com.domenota.medialoader.data.catalog.visibility.VisibilityRestoreMetadataPolicyTest \
             --tests com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest \
             --tests com.domenota.medialoader.data.catalog.visibility.VisibilityMediaStoreAdapterTest \
