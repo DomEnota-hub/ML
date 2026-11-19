@@ -9,6 +9,9 @@ on:
       - 'app/src/test/**'
       - 'app/build.gradle'
       - 'docs/qa/ML-17206-block2-saf-history.md'
+  pull_request:
+    branches:
+      - feature/ml-17205-hidden-v2
   workflow_dispatch:
 
 permissions:
@@ -60,6 +63,7 @@ jobs:
           ./gradlew :app:testDebugUnitTest \
             --tests com.domenota.medialoader.data.catalog.visibility.NomediaFolderEngineTest \
             --tests com.domenota.medialoader.data.catalog.visibility.NomediaFolderReadPolicyTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.NomediaFolderRepositoryTest \
             --tests com.domenota.medialoader.data.catalog.visibility.RetiredFolderVisibilityTransferTest \
             --tests com.domenota.medialoader.data.catalog.visibility.VisibilityV2JournalStoreTest \
             --tests com.domenota.medialoader.data.catalog.visibility.VisibilityPrivatePublicationGateTest \
