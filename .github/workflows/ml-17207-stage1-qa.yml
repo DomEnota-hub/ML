@@ -56,9 +56,9 @@ jobs:
           grep -Fq 'showingPartial' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
           grep -Fq 'android:largeHeap="true"' app/src/main/AndroidManifest.xml
           grep -Fq 'mutableIntStateOf(0)' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
-          test -s app/src/main/res/drawable-nodpi/ml_launcher_artwork.png
-          test -s app/src/main/res/drawable-nodpi/ml_shortcut_gallery.png
-          test -s app/src/main/res/drawable-nodpi/ml_shortcut_music.png
+          test -s app/src/main/res/drawable-nodpi/ml_launcher_artwork.jpg
+          test -s app/src/main/res/drawable-nodpi/ml_shortcut_gallery.jpg
+          test -s app/src/main/res/drawable-nodpi/ml_shortcut_music.jpg
           grep -Fq 'MusicDuplicateSessionStore.savePartial(context,saved' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
           grep -Fq 'MusicDuplicateScanner.verifyMember' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
           python3 scripts/audit_ui_palette.py
