@@ -17,6 +17,16 @@ internal class GalleryBrowseInventory private constructor(
     val favorites: List<DownloadEntity>,
     private val hiddenFolders: Set<String>,
 ) {
+    /** Content equivalence across routine MediaStore/catalog re-emissions.
+     * Preserve the previously verified grid and date-group cache if the actual
+     * public album/media identity has not changed. Checked on Default, off UI. */
+    fun equivalentContent(other: GalleryBrowseInventory): Boolean =
+        items == other.items && assignments == other.assignments &&
+        catalog == other.catalog && buckets == other.buckets &&
+        media == other.media && albums == other.albums &&
+        videos == other.videos && favorites == other.favorites &&
+        hiddenFolders == other.hiddenFolders
+
     // Bounded per-generation cache: returning to Gallery does not reconstruct
     // dates/labels/queue. New browse/visibility generations own a separate cache.
     private val gridCache=object:LinkedHashMap<GalleryGridKey,GalleryGridInventory>(2,.75f,true){

@@ -217,6 +217,9 @@ class MediaRepository private constructor(context: Context) {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.markFolderVisibilityPending(
             com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager.hasPendingJournal(appContext))
     }
+    internal val nomediaFolders by lazy {
+        com.domenota.medialoader.data.catalog.visibility.NomediaFolderRepository(appContext)
+    }
     internal val folderVisibility by lazy { com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager(appContext,historyDb) }
     internal val folderVisibilityWork by lazy {
         com.domenota.medialoader.data.catalog.visibility.FolderVisibilityWorkCoordinator(appContext,this)

@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import com.domenota.medialoader.data.catalog.visibility.NomediaSafEntry
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -97,6 +99,11 @@ internal fun DownloadFolderSheet(
     hiddenFolderIds: Set<String> = emptySet(),
     onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
     pendingVisibilityFolderId: String? = null,
+    nomediaFolderStatuses: Map<String,String> = emptyMap(),
+    onCheckFolderAccess: (suspend (String) -> Unit)? = null,
+    onBrowseSafFiles: (suspend (String) -> List<NomediaSafEntry>)? = null,
+    onVerifySafFile: (suspend (String,String) -> Boolean)? = null,
+    onOpenSafFile: (suspend (String,String) -> android.net.Uri)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -106,6 +113,8 @@ internal fun DownloadFolderSheet(
     var name by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var safPreview by remember { mutableStateOf<Pair<String,List<NomediaSafEntry>>?>(null) }
+    var safPlaying by remember { mutableStateOf<Pair<NomediaSafEntry,android.net.Uri>?>(null) }
     val completed = items.filter { it.state == DownloadUiState.COMPLETED }
     val shownFolders = visibleDownloadFolders(
         folders, items, assignments, galleryOnlyFolderIds, assigning = targetDownloadId != null)
@@ -186,7 +195,8 @@ internal fun DownloadFolderSheet(
                         folder.name, count,
                         if (targetDownloadId == null) selectedKey == folderKey(folder.id)
                             else currentFolderId == folder.id,
-                        !busy, Modifier.weight(1f), pendingVisibility = visibilityPending) { choose(folderKey(folder.id), folder.id) }
+                        !busy, Modifier.weight(1f), pendingVisibility = visibilityPending,
+                         statusDetail = nomediaFolderStatuses[folder.id]) { choose(folderKey(folder.id), folder.id) }
                     if (targetDownloadId == null) {
                         var menuOpen by remember { mutableStateOf(false) }
                         androidx.compose.foundation.layout.Box {
@@ -198,7 +208,7 @@ internal fun DownloadFolderSheet(
                                     menuOpen = false; editTarget = folder; name = folder.name; error = null
                                 })
                                 if (onFolderVisibility != null) DropdownMenuItem(
-                                    text = { Text(if (visibilityPending) "Продолжить перенос" else if (folderHidden) "Показывать в медиатеке" else "Скрыть из медиатеки") },
+                                    text = { Text(if (visibilityPending) "Старый журнал: диагностика" else if (folderHidden) "Показать в ML" else "Скрыть в ML и Android") },
                                     leadingIcon = { Icon(if (folderHidden) Icons.Rounded.RemoveRedEye else Icons.Rounded.VisibilityOff,null) },
                                     enabled = !busy && (pendingVisibilityFolderId == null || visibilityPending),
                                     onClick = {
@@ -210,6 +220,26 @@ internal fun DownloadFolderSheet(
                                             finally { busy = false }
                                         }
                                     })
+                                if (folder.id in nomediaFolderStatuses && onCheckFolderAccess != null)
+                                    DropdownMenuItem(text={Text("Проверить доступ")},enabled=!busy,onClick={
+                                        menuOpen=false;busy=true
+                                        scope.launch {
+                                            try { onCheckFolderAccess(folder.id) }
+                                            catch(cancelled:CancellationException){throw cancelled}
+                                            catch(error:Exception){AppNotice.post(context,error.message ?: "Доступ не подтверждён")}
+                                            finally { busy=false }
+                                        }
+                                    })
+                                if (folder.id in hiddenFolderIds && folder.id in nomediaFolderStatuses && onBrowseSafFiles != null)
+                                    DropdownMenuItem(text={Text("Содержимое SAF")},enabled=!busy,onClick={
+                                        menuOpen=false;busy=true
+                                        scope.launch {
+                                            try { safPreview=folder.id to onBrowseSafFiles(folder.id) }
+                                            catch(cancelled:CancellationException){throw cancelled}
+                                            catch(error:Exception){AppNotice.post(context,error.message ?: "SAF-каталог недоступен")}
+                                            finally { busy=false }
+                                        }
+                                    })
                                 DropdownMenuItem(text = { Text("Удалить папку") }, enabled = !busy && pendingVisibilityFolderId == null, onClick = {
                                     menuOpen = false; deleteTarget = folder; error = null
                                 })
@@ -219,6 +249,50 @@ internal fun DownloadFolderSheet(
                 }
             }
         }
+    }
+
+    safPreview?.let { (folder,files) ->
+        AlertDialog(
+            onDismissRequest={safPreview=null},
+            title={Text("Содержимое выбранной папки")},
+            text={Column(Modifier.heightIn(max=410.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text("Через SAF найдено медиа: ${files.size}. Данные не перепривязаны к истории.")
+                files.take(100).forEach { entry ->
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        Text(entry.displayName.take(100),modifier=Modifier.weight(1f),
+                            style=MaterialTheme.typography.bodySmall)
+                        if(onOpenSafFile!=null) TextButton(onClick={
+                            scope.launch {
+                                try {
+                                    val uri=onOpenSafFile(folder,entry.documentId)
+                                    safPreview=null
+                                    safPlaying=entry to uri
+                                } catch(cancelled:CancellationException){throw cancelled}
+                                catch(error:Exception){AppNotice.post(context,error.message ?: "Файл SAF недоступен")}
+                            }
+                        }){Text("Открыть")}
+                        if(onVerifySafFile!=null) TextButton(onClick={
+                            scope.launch {
+                                try {
+                                    val readable=onVerifySafFile(folder,entry.documentId)
+                                    AppNotice.post(context,if(readable)
+                                        "Чтение SAF подтверждено; история не менялась"
+                                    else "Документ SAF недоступен")
+                                } catch(cancelled:CancellationException){throw cancelled}
+                                catch(error:Exception){AppNotice.post(context,error.message ?: "Проверка SAF не завершена")}
+                            }
+                        }){Text("Проверить")}
+                    }
+                }
+                if(files.size>100) Text("Показаны первые 100 записей. Всего: ${files.size}.")
+            }},
+            confirmButton={TextButton(onClick={safPreview=null}){Text("Закрыть")}},
+        )
+    }
+
+    safPlaying?.let { (entry,uri) ->
+        SafHiddenMediaPreview(entry,uri,onClose={safPlaying=null})
     }
 
     if (creating || editTarget != null) AlertDialog(
@@ -288,6 +362,7 @@ private fun CatalogSheetRow(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     pendingVisibility: Boolean = false,
+    statusDetail: String? = null,
     onClick: () -> Unit,
 ) {
     Row(modifier.fillMaxWidth().background(
@@ -300,6 +375,10 @@ private fun CatalogSheetRow(
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, style = MaterialTheme.typography.titleMedium)
+            if (statusDetail != null) {
+                Text(statusDetail,style=MaterialTheme.typography.bodySmall,
+                    color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (pendingVisibility) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Rounded.WarningAmber, contentDescription = null,

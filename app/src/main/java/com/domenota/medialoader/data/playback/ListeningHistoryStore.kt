@@ -70,6 +70,8 @@ internal class ListeningHistoryStore private constructor(context: Context) {
     private val visibilityChanges = MutableStateFlow(0L)
     /** In-memory display snapshots must be discarded on exclusion, alias change or clear. */
     val visibilityRevision = visibilityChanges.asStateFlow()
+    /** UI-only last validated rank; disk projection_cache remains the durable source. */
+    internal val warmRanks = ListeningWarmRankCache()
     private fun changed() { changes.value++; smartChanges.value++ }
     private fun invalidateVisibility(db: SQLiteDatabase) {
         db.delete("projection_cache",null,null)

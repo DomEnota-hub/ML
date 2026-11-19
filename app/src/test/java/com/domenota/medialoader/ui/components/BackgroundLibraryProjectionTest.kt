@@ -213,4 +213,60 @@ class BackgroundLibraryProjectionTest {
         } finally { release.set(true) }
     }
 
+    @Test fun identicalGalleryGenerationsKeepPreviousObjectButRevokeOnAccessChange() {
+        data class PreparedGrid(val ids:List<String>,val sourceGeneration:Int)
+        var generation by mutableIntStateOf(1)
+        var access by mutableStateOf<String?>("permission-epoch-1")
+        val builds=java.util.concurrent.atomic.AtomicInteger()
+        var published=PreparedGrid(emptyList(),-1)
+        var ready=false
+        val frames=mutableListOf<Pair<String?,List<String>>>()
+        compose.setContent {
+            val projected=backgroundLibraryProjection(
+                PreparedGrid(emptyList(),-1),emptySet(),generation,
+                accessGuard=access, retentionGuard=access,
+                equivalentContent={old,next->old.ids==next.ids}) {
+                builds.incrementAndGet()
+                PreparedGrid(listOf("photo-a","photo-b"),generation)
+            }
+            SideEffect { published=projected.value;ready=projected.ready;frames+=access to published.ids }
+            Text(published.ids.joinToString())
+        }
+        compose.waitUntil(5_000) {ready && published.ids.size==2}
+        val warm=published
+        // An initial cold first frame may be empty. Only re-emitted
+        // generations AFTER the first validated grid must never blank it.
+        val firstWarmFrame=frames.indexOfFirst { it.first=="permission-epoch-1" && it.second.size==2 }
+        assertTrue(firstWarmFrame>=0)
+        repeat(5) { index ->
+            compose.runOnIdle { generation++ }
+            compose.waitForIdle() // flush the newly scheduled Compose generation
+            try {
+                compose.waitUntil(15_000) { ready && builds.get()>=index+2 }
+            } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError(
+                    "Gallery projection did not settle: iteration=$index " +
+                    "generation=$generation builds=${builds.get()} ready=$ready " +
+                    "published=${published.ids} frames=${frames.takeLast(8)}", failure)
+            }
+            compose.runOnIdle {assertSame(warm,published)}
+        }
+        assertFalse(frames.drop(firstWarmFrame).any {
+            it.first=="permission-epoch-1" && it.second.isEmpty()
+        })
+        compose.runOnIdle {access=null}
+        compose.waitForIdle()
+        assertTrue(published.ids.isEmpty()) // fail closed on permission revoke
+        compose.runOnIdle {access="permission-epoch-2"}
+        compose.waitForIdle()
+        try {
+            compose.waitUntil(15_000) { ready && published.ids.size==2 }
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError("Gallery access revalidation did not settle: " +
+                "builds=${builds.get()} ready=$ready ids=${published.ids} " +
+                "frames=${frames.takeLast(8)}",failure)
+        }
+        assertNotSame(warm,published)
+    }
+
 }

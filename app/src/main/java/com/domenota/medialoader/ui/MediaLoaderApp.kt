@@ -278,6 +278,11 @@ fun MediaLoaderApp(
 
     val libraryIndex by libraryModel.index.collectAsStateWithLifecycle()
     val visibilityGuard by libraryModel.visibilityGuard.collectAsStateWithLifecycle()
+    val nomediaRegistry = remember(mediaRepository) { mediaRepository.nomediaFolders }
+    val nomediaSnapshot by nomediaRegistry.snapshot.collectAsStateWithLifecycle()
+    val nomediaFolderStatuses = remember(nomediaSnapshot) {
+        nomediaSnapshot.folders.keys.associateWith { nomediaRegistry.statusText(it).orEmpty() }
+    }
     val visibilityAccess=com.domenota.medialoader.ui.components.rememberFolderVisibilityAccessHost()
     val visibilityWork=remember(mediaRepository) { mediaRepository.folderVisibilityWork }
     val visibilityWorkState by visibilityWork.state.collectAsStateWithLifecycle()
@@ -324,49 +329,86 @@ fun MediaLoaderApp(
         try { visibilityAccess.ensure(); action() }
         finally { visibilityBusy=false }
     }
-    val toggleFolderVisibility:suspend (String,Boolean)->Unit={ folder,hidden ->
-        if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation {
-            val pending=mediaRepository.folderVisibility.pending()
-            if(pending.pending) {
-                check(pending.folderId==folder) { "Сначала завершите предыдущий перенос" }
-                visibilityWork.resumeFromVisibleActivity()
-            } else {
-                visibilityPreflight=mediaRepository.folderVisibility.preview(folder,hidden)
+    // One explicit Android tree grant per physical directory. The virtual ML
+    // folder may contain files elsewhere: .nomedia affects ALL physical children
+    // of the chosen tree; never imply that only this virtual album is affected.
+    var nomediaRequest by remember { mutableStateOf<Pair<String,Boolean>?>(null) }
+    var nomediaPickerRequest by remember { mutableStateOf<Pair<String,Boolean>?>(null) }
+    val nomediaTreePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        val request=nomediaPickerRequest
+        nomediaPickerRequest=null
+        if (uri==null || request==null) {
+            AppNotice.post(context,"Выбор папки отменён. Состояние не изменено")
+        } else try {
+            val (folder,hide)=request
+            if (!hide) check(nomediaRegistry.snapshot.value.folders[folder]?.treeUri==uri.toString()) {
+                "Выбран другой каталог. Разрешение не применено"
             }
-            visibilityResumeDismissed=true
-        } else error("Скрытие папок доступно с Android 11")
+            context.contentResolver.takePersistableUriPermission(uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            fileActionScope.launch {
+                try {
+                    val result=if(hide) nomediaRegistry.hide(folder,uri) else nomediaRegistry.show(folder)
+                    AppNotice.post(context,if(result.excludedFromMl)
+                        "Скрыто в ML. Статус индекса Android не подтверждён"
+                    else if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
+                        "Показано в ML. Чужой .nomedia сохранён"
+                    else "Показано в ML. Медиаиндекс Android обновляется отдельно")
+                } catch(cancelled:CancellationException) { throw cancelled }
+                catch(error:Exception) { AppNotice.post(context,error.message ?: "Операция .nomedia не завершена") }
+            }
+        } catch(error:Exception) {
+            AppNotice.post(context,error.message ?: "Доступ SAF не предоставлен")
+        }
     }
-
-    visibilityPreflight?.let { preview ->
-        AlertDialog(
-            onDismissRequest={visibilityPreflight=null},
-            title={Text("Проверка перед переносом")},
+    val toggleFolderVisibility:suspend (String,Boolean)->Unit={ folder,hidden ->
+        check(!nomediaSnapshot.unknown) { "Реестр скрытия требует проверки" }
+        check(folder !in (visibilityGuard?.policy?.snapshot?.hiddenFolders.orEmpty()) &&
+            (visibilityGuard?.policy?.pendingFolder != folder)) { "Для старого физического архива сохранена только диагностика" }
+        val current=nomediaSnapshot.folders[folder]
+        check(if(hidden) current?.excludedFromMl != true else current?.excludedFromMl == true) {
+            "Состояние папки изменилось. Повторите проверку"
+        }
+        nomediaRequest = folder to hidden
+    }
+    nomediaRequest?.let { (folder,hide) ->
+        AlertDialog(onDismissRequest={nomediaRequest=null},
+            title={Text(if(hide) "Скрытие папки без переноса" else "Показать папку")},
             text={Column {
-                Text("Готово к переносу ${preview.ready} из ${preview.total}; проблемных ${preview.problems}.")
-                if(preview.problems>0) {
-                    Text("Перенос не начнётся. Исходные файлы не изменены.")
-                    preview.issueCounts.forEach { (issue,count) -> Text("${issue.label}: $count") }
-                } else Text("После подтверждения исходные файлы будут повторно проверены. При изменениях перенос не начнётся.")
+                Text(if(hide)
+                    "Скрытие внутри ML и .nomedia для выбранного каталога Android. Все исходные файлы остаются на месте."
+                else "Папка снова появится в ML. Удаляется только созданный ML служебный .nomedia; чужой файл сохраняется.")
+                Text(if(hide)
+                    "Выбранный каталог и вложенные папки могут содержать и другие медиа. Xiaomi Gallery может обновиться не сразу."
+                else "Прежние даты, имена и история загрузок не изменяются. Доступность старого MediaStore URI проверяется отдельно.")
             }},
-            confirmButton={
-                if(preview.canStart) TextButton(onClick={
-                    visibilityPreflight=null
-                    fileActionScope.launch {
-                        try { if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation {
-                            check(!mediaRepository.folderVisibility.pending().pending) {
-                                "Сначала завершите предыдущий перенос"
-                            }
-                            visibilityWork.startFromVisibleActivity(preview.folderId,preview.hidden,preview.token)
-                        }}
-                        catch(cancelled:CancellationException){throw cancelled}
-                        catch(error:Exception){AppNotice.post(context,error.message ?: "Предварительная проверка устарела")}
+            confirmButton={TextButton(onClick={
+                nomediaRequest=null
+                if(hide) {
+                    nomediaPickerRequest=folder to true
+                    try { nomediaTreePicker.launch(null) }
+                    catch(error:Exception) {
+                        nomediaPickerRequest=null
+                        AppNotice.post(context,error.message ?: "Не удалось выбрать каталог")
                     }
-                }){Text("Начать перенос")}
-            },
-            dismissButton={TextButton(onClick={visibilityPreflight=null}){
-                Text(if(preview.canStart) "Отмена" else "Закрыть")
-            }},
-        )
+                } else fileActionScope.launch {
+                    try {
+                        val result=nomediaRegistry.show(folder)
+                        AppNotice.post(context,if(result.markerState == NomediaMarkerState.FOREIGN_MARKER)
+                            "Показано в ML. Чужой .nomedia сохранён; Android может скрывать папку"
+                        else "Показано в ML. Переиндексация Android может занять время")
+                    } catch(cancelled:CancellationException) { throw cancelled }
+                    catch(error:Exception) {
+                        AppNotice.post(context,error.message ?: "Показ папки не завершён")
+                        if(error.message?.contains("Доступ к папке отозван")==true) {
+                            nomediaPickerRequest=folder to false
+                            try { nomediaTreePicker.launch(null) }
+                            catch(_:Exception) { nomediaPickerRequest=null }
+                        }
+                    }
+                }
+            }){Text(if(hide) "Выбрать каталог" else "Показать")}},
+            dismissButton={TextButton(onClick={nomediaRequest=null}){Text("Отмена")}})
     }
 
     val visibilityProgress by mediaRepository.folderVisibility.status.collectAsStateWithLifecycle()
@@ -377,24 +419,17 @@ fun MediaLoaderApp(
             else -> "Чтение и проверка плана переноса…"
         })
     })
+    // Legacy journal remains physically intact. No old resume action is available.
     if(visibilityProgress.pending && !visibilityBusy && !visibilityResumeDismissed &&
         visibilityWorkState.phase == VisibilityExecutionPhase.IDLE) AlertDialog(
-        onDismissRequest={visibilityResumeDismissed=true}, title={Text("Незавершённый перенос")},
-        text={Text(visibilityProgress.failure?.let { failure ->
-            (if(visibilityProgress.total>0) "Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. " else "") + failure.message
-        } ?: if(visibilityProgress.total>0)
-            "Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. План и проверенные копии сохранены."
-            else "Сохранённый план требует проверки. Исходные файлы не удаляются автоматически.")},
-        confirmButton={TextButton(onClick={fileActionScope.launch {
-            try { if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation {
-                visibilityWork.resumeFromVisibleActivity()
-                visibilityResumeDismissed=true
-            } }
-            catch(e:CancellationException){throw e}catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось продолжить перенос");visibilityResumeDismissed=true}
-        }}){Text("Продолжить")}}, dismissButton={TextButton(onClick={visibilityResumeDismissed=true}){Text("Позже")}})
+        onDismissRequest={visibilityResumeDismissed=true},
+        title={Text("Сохранённый журнал переноса")},
+        text={Text("Прежний перенос отключён. Данные и контрольные точки сохранены для диагностики. Автоматический возврат не запускается.")},
+        confirmButton={TextButton(onClick={visibilityResumeDismissed=true}){Text("Закрыть")}},
+    )
 
     val visibilityReady = visibilityGuard != null && visibilityGuard?.policy?.unknownPending == false
-    val visibilityFolders = visibilityGuard?.policy?.snapshot?.hiddenFolders.orEmpty()
+    val visibilityFolders = visibilityGuard?.policy?.excludedFolders.orEmpty()
     val folderRefs = if (visibilityReady && libraryIndex.visibility == visibilityGuard && FolderVisibilityStorageAccess.granted())
         libraryIndex.hiddenRefs else emptyList()
     val folderRefsById = remember(folderRefs) { folderRefs.associateBy { it.key } }
@@ -712,7 +747,9 @@ fun MediaLoaderApp(
         val restored=mutableMapOf<String,com.domenota.medialoader.core.database.DownloadEntity>()
         visibilityOperation {
             for(ref in selected) {
-                check(mediaRepository.changeFolderMembership(ref,null,visibilityAccess.approve))
+                if(android.os.Build.VERSION.SDK_INT >= 30) {
+                    check(mediaRepository.changeFolderMembership(ref,null,visibilityAccess.approve))
+                } else error("Старый перенос недоступен на этой версии Android")
                 val current=if(ref.appDownloadId!=null) mediaRepository.downloadById(ref.appDownloadId)
                     else libraryModel.externalCatalog.visibilityEntries().singleOrNull{it.ref.key==ref.key}?.ref?.item
                 restored[ref.key]=checkNotNull(current).also { check(it.savedUri!=ref.item.savedUri && !it.hidden && !it.isPrivate) }
@@ -828,7 +865,9 @@ fun MediaLoaderApp(
         retentionGuard = galleryRetentionAccess,
         revalidateRetained = { previous -> previous.retainAllowed { row ->
             currentGalleryRows.containsKey(row.id) && currentGalleryRows[row.id] == row.savedUri
-        } }, kind = LibraryProjectionKind.GALLERY_BROWSE) {
+        } },
+        equivalentContent = { old, next -> old.equivalentContent(next) },
+        kind = LibraryProjectionKind.GALLERY_BROWSE) {
         val items = GalleryBrowseInventory.withScopedItems(galleryPublicItems, folderRefs,
             libraryCatalogAssignments, visibilityFolders) { publicProjectionAccess?.explicitFolder(it) }
         GalleryBrowseInventory.build(items, catalogFolders, libraryCatalogAssignments,
@@ -869,8 +908,15 @@ fun MediaLoaderApp(
             }
             require(found != null) { "Папка не найдена" }
         }
+        val currentFolder = if(ref.appDownloadId != null)
+            catalogAssignments.firstOrNull { it.downloadId == ref.appDownloadId }?.folderId
+        else libraryModel.externalCatalog.entries.value.singleOrNull { it.ref.key == ref.key }?.folderId
+        check(currentFolder !in nomediaSnapshot.hiddenFolderIds && folder !in nomediaSnapshot.hiddenFolderIds) {
+            "Сначала восстановите видимость папки и проверьте доступ к файлам"
+        }
         val physical=mediaRepository.folderVisibility.requiresMembershipMove(ref,folder)
         if(physical) {
+            RetiredFolderVisibilityTransfer.requireActive()
             check(android.os.Build.VERSION.SDK_INT>=30)
             visibilityMembershipBusy=true
             try {
@@ -890,12 +936,10 @@ fun MediaLoaderApp(
             !FolderVisibilityManager.hasPendingJournal(context)) {
             "Сначала завершите или проверьте незаконченный перенос папки"
         }
-        if(mediaRepository.folderVisibility.isHidden(folder)) {
-            // The service is asynchronous: keep the folder and all its metadata
-            // until every member has been returned and the final CAS succeeds.
-            toggleFolderVisibility(folder,false)
-            AppNotice.post(context,"Возврат файлов запущен. После завершения повторите удаление папки")
+        if(mediaRepository.folderVisibility.isHidden(folder) || nomediaRegistry.snapshot.value.folders[folder]?.excludedFromMl == true) {
+            error("Сначала восстановите видимость папки и проверьте доступ к файлам")
         } else {
+            nomediaRegistry.releaseShownFolder(folder)
             viewModel.deleteCatalogFolder(folder)
             libraryModel.externalCatalog.removeFolder(folder)
         }
@@ -1444,10 +1488,23 @@ fun MediaLoaderApp(
         }
     }
 
-    val downloadItems = remember(downloads, fileStatuses, visibilityGuard, folderRefs) {
-        downloads.filter { row -> visibilityGuard?.canOpen(row,null,emptyList()) == true ||
-            folderRefsById[row.id]?.item?.savedUri == row.savedUri && row.savedUri != null }
-            .map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
+    // Hide from public Gallery/Music, not from the original Downloads history.
+    // No stale MediaStore URI is considered a confirmed readable SAF binding.
+    val nomediaHistoryIds = remember(catalogAssignments,nomediaSnapshot) {
+        catalogAssignments.filter { it.folderId in nomediaSnapshot.hiddenFolderIds }
+            .mapTo(mutableSetOf()) { it.downloadId }
+    }
+    val downloadItems = remember(downloads, fileStatuses, visibilityGuard, folderRefs,nomediaHistoryIds) {
+        downloads.filter { row ->
+            visibilityGuard?.canOpen(row,null,emptyList()) == true ||
+            (row.id in nomediaHistoryIds && !row.hidden && !row.isPrivate &&
+                visibilityGuard?.let { guard ->
+                    !guard.policy.unknownPending &&
+                    guard.policy.pendingFolder == null &&
+                    guard.policy.snapshot.receipts.none { it.downloadId == row.id }
+                } == true) ||
+            folderRefsById[row.id]?.item?.savedUri == row.savedUri && row.savedUri != null
+        }.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
     }
     val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
 
@@ -1743,6 +1800,10 @@ fun MediaLoaderApp(
         viewModel.catalogAssignments.value.filter { it.folderId == folderId }.map { it.downloadId }.toSet() +
             libraryModel.externalCatalog.entries.value.filter { it.folderId == folderId }.map { it.ref.key }
     val requestAlbumTrash: (String,List<String>) -> Unit = request@{ folderId, ids ->
+        if(folderId in nomediaSnapshot.hiddenFolderIds) {
+            AppNotice.post(context,"Сначала покажите папку и проверьте доступ к файлам")
+            return@request
+        }
         if(folderId in visibilityFolders) {
             fileActionScope.launch {
                 try {
@@ -2217,8 +2278,8 @@ fun MediaLoaderApp(
                     preparedBrowse = galleryBrowse,
                     preparedBrowseAccess = galleryRetentionAccess,
                     hiddenFolderIds = visibilityFolders,
-                    pendingVisibilityFolderId = visibilityProgress.folderId,
-                    onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() },
+                    pendingVisibilityFolderId = null,
+                    onFolderVisibility = toggleFolderVisibility.takeIf { android.os.Build.VERSION.SDK_INT >= 21 },
                     source = librarySource, loading = !galleryBrowse.usable || !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
                     folders = catalogFolders, assignments = libraryCatalogAssignments, header = libraryHeader,
@@ -2575,8 +2636,25 @@ fun MediaLoaderApp(
                 DownloadsScreen(
                     items = downloadItems,
                     hiddenFolderIds = visibilityFolders,
-                    pendingVisibilityFolderId = visibilityProgress.folderId,
-                    onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() },
+                    pendingVisibilityFolderId = null,
+                    nomediaFolderStatuses = nomediaFolderStatuses,
+                    onCheckFolderAccess = { folder ->
+                        val restored = nomediaRegistry.reconcile(folder)
+                        val ids=catalogAssignments.filter { it.folderId==folder }
+                            .mapTo(mutableSetOf()) { it.downloadId }
+                        val rows=downloads.filter { it.id in ids && !it.isPrivate && !it.hidden }
+                        var available=0
+                        for (row in rows) if(nomediaRegistry.checkOldMediaLink(row.savedUri)) available++
+                        val markerResult=if(restored.markerState==NomediaMarkerState.FOREIGN_MARKER)
+                            "Чужой .nomedia сохранён" else "Проверка маркера выполнена"
+                        AppNotice.post(context,
+                            "Доступ по прежнему URI: $available из ${rows.size}. " +
+                            "Неподтверждённые файлы не перепривязаны. $markerResult")
+                    },
+                    onFolderVisibility = toggleFolderVisibility.takeIf { android.os.Build.VERSION.SDK_INT >= 21 },
+                    onBrowseSafFiles = { folder -> nomediaRegistry.listHiddenDocuments(folder) },
+                    onVerifySafFile = { folder,document -> nomediaRegistry.verifySafDocumentRead(folder,document) },
+                    onOpenSafFile = { folder,document -> nomediaRegistry.openSafMedia(folder,document) },
                     onOpenFromFolder = { id,queue,folder -> openingAlbumKey = folder?.let { "folder:$it" }; openDownloadWithQueue(id,queue) },
                     onShareFromFolder = { id,folder -> shareScopedFile(id,folder) },
                     onAddCollection=::addToCollection,onPassport=::openPassport,
@@ -3253,6 +3331,7 @@ fun MediaLoaderApp(
                 },
                 onResume = { fileActionScope.launch {
                     try {
+                        RetiredFolderVisibilityTransfer.requireActive()
                         visibilityAccess.ensure()
                         visibilityWork.resumeFromVisibleActivity()
                     } catch(cancelled:CancellationException){throw cancelled}

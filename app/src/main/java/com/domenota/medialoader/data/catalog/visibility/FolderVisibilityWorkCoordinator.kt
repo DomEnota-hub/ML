@@ -46,6 +46,8 @@ internal class FolderVisibilityWorkCoordinator(
     /** This API is called only after the Activity has verified its permissions. */
     @RequiresApi(30)
     private fun enqueue(command: VisibilityWorkCommand): Boolean {
+        // Guard before any reservation, all-files permission, foreground launch or journal replay.
+        RetiredFolderVisibilityTransfer.requireActive()
         val journalPending = FolderVisibilityManager.hasPendingJournal(context)
         if (command is VisibilityWorkCommand.SetHidden) check(!journalPending) {
             "Сначала завершите предыдущий перенос"
@@ -77,7 +79,8 @@ internal class FolderVisibilityWorkCoordinator(
     }
 
     /** Called only from the already-foreground Service. */
-    fun claimServiceRequest(id: Long): VisibilityWorkReservation? = commands.claim(id)
+    fun claimServiceRequest(id: Long): VisibilityWorkReservation? =
+        if (RetiredFolderVisibilityTransfer.ACTIVE) commands.claim(id) else null
 
     /** Request the existing manager to pause only at a durable batch cursor. */
     fun pauseAtNextCheckpoint(): Boolean {
@@ -115,6 +118,8 @@ internal class FolderVisibilityWorkCoordinator(
      * auto-resumes an interrupted journal on service restart. */
     @RequiresApi(30)
     suspend fun executeReserved(request: VisibilityWorkReservation) = coroutineScope {
+        // A stale in-process reservation cannot bypass the retired transport gate.
+        RetiredFolderVisibilityTransfer.requireActive()
         val manager = repository.folderVisibility
         val collector = launch {
             manager.status.collect { progress ->

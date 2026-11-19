@@ -363,11 +363,9 @@ fun MuzmoSearchDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Поиск музыки", style = MaterialTheme.typography.titleMedium)
-                            Text(recognitionMessage ?: "Резервный источник",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (recognitionMessage?.startsWith("Трек распознан") == true)
-                                    MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                            // Do not show redundant recognition-origin text or color it as an error.
+                            Text("Резервный источник", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TextButton(onClick = onDismiss) { Text("Закрыть") }
                     }

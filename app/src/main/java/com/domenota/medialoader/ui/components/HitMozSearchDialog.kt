@@ -750,16 +750,10 @@ fun HitMozSearchDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Поиск музыки", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                recognitionMessage ?: "Основной источник",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = when {
-                                    recognitionMessage?.startsWith("Трек распознан") == true ->
-                                        MaterialTheme.colorScheme.primary
-                                    recognitionMessage != null -> MaterialTheme.colorScheme.error
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
+                            // Recognition origin is informational, not a search failure.
+                            // Actual errors are displayed separately below from loadError.
+                            Text("Основной источник", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TextButton(onClick = onDismiss) { Text("Закрыть") }
                     }
