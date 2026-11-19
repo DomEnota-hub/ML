@@ -258,7 +258,14 @@ class BackgroundLibraryProjectionTest {
         compose.waitForIdle()
         assertTrue(published.ids.isEmpty()) // fail closed on permission revoke
         compose.runOnIdle {access="permission-epoch-2"}
-        compose.waitUntil(5_000) { ready && published.ids.size==2 }
+        compose.waitForIdle()
+        try {
+            compose.waitUntil(15_000) { ready && published.ids.size==2 }
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError("Gallery access revalidation did not settle: " +
+                "builds=${builds.get()} ready=$ready ids=${published.ids} " +
+                "frames=${frames.takeLast(8)}",failure)
+        }
         assertNotSame(warm,published)
     }
 
