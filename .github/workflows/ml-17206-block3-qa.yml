@@ -1,0 +1,99 @@
+name: ML 1.7.206 block 3 gallery music and error UI QA
+
+on:
+  push:
+    branches:
+      - feature/ml-17206-visibility-nomedia
+    paths:
+      - '.github/workflows/ml-17206-block3-qa.yml'
+      - 'app/src/main/**'
+      - 'app/src/test/**'
+      - 'docs/qa/ML-17206-block3-display-stability.md'
+      - 'app/build.gradle'
+  pull_request:
+    branches:
+      - feature/ml-17205-hidden-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml17206-block3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gallery-music-error-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Android and Gradle setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Scope and UI red text policy
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 266$' app/build.gradle
+          grep -Fq "versionName '1.7.206'" app/build.gradle
+          grep -Fq 'equivalentContent = { old, next -> old.equivalentContent(next) }' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
+          grep -Fq 'ListeningWarmRankKey(' app/src/main/java/com/domenota/medialoader/ui/screens/MusicModeScreen.kt
+          grep -Fq 'Показать ошибку полностью' app/src/main/java/com/domenota/medialoader/ui/components/DownloadRow.kt
+          ! grep -Fq 'recognitionMessage != null -> MaterialTheme.colorScheme.error' app/src/main/java/com/domenota/medialoader/ui/components/HitMozSearchDialog.kt
+          test -s docs/qa/ML-17206-block3-display-stability.md
+          python3 scripts/audit_ui_palette.py
+          python3 scripts/check-round-sliders.py
+          python3 scripts/check-in-app-notices.py
+      - name: Focused gallery privacy, playback and failure detail tests
+        run: |
+          ./gradlew :app:testDebugUnitTest \
+            --tests com.domenota.medialoader.ui.components.BackgroundLibraryProjectionTest \
+            --tests com.domenota.medialoader.ui.components.LibraryRefreshShieldTest \
+            --tests com.domenota.medialoader.ui.components.DownloadFailureDetailsTest \
+            --tests com.domenota.medialoader.ui.LibraryValidationGateTest \
+            --tests com.domenota.medialoader.ui.screens.GalleryBrowseInventoryTest \
+            --tests com.domenota.medialoader.ui.screens.music.MusicOverviewUiTest \
+            --tests com.domenota.medialoader.data.playback.ListeningWarmRankCacheTest \
+            --tests com.domenota.medialoader.data.playback.ListeningHistoryStoreTest \
+            --stacktrace --no-daemon --console=plain
+      - name: Full isolated JVM and Compose
+        run: python3 scripts/run-jvm-isolated-compose.py full
+      - name: Android lint and ARM64 unsigned compilation
+        run: ./gradlew :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon
+      - name: Verify exact 1.7.206 source identity
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='266' versionName='1.7.206'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          git rev-parse HEAD
+          sha256sum "$apk"
+      - name: Diagnostics only, no installable QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17206-block3-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/ml-jvm-shards/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 5
