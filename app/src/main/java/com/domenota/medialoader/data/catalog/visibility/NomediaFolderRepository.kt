@@ -55,7 +55,7 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
     suspend fun hideVerified(plan:NomediaAutoFolderPlan):NomediaFolderRecord = gate.withLock {
         withContext(Dispatchers.IO) {
             val found=AndroidNomediaMarkerPort(context).listMedia(plan.treeUri.toString())
-                .map { NomediaMediaSignature(it.displayName,it.sizeBytes ?: -1L) }
+                .map { NomediaMediaSignature(it.displayName,it.byteCount ?: -1L) }
             check(nomediaInventoryMatches(plan.expected,found)) {
                 "В каталоге есть другие медиа или файлы изменились. Ничего не скрыто"
             }
