@@ -258,7 +258,7 @@ fun MediaLoaderApp(
     var galleryAlbumRequest by remember { mutableStateOf<GalleryAlbumRequest?>(null) }
     var openingAlbumKey by remember { mutableStateOf<String?>(null) }
     var openingPlaylistId by remember { mutableStateOf<String?>(null) }
-    var musicTab by rememberSaveable { mutableIntStateOf(1) }
+    var musicTab by rememberSaveable { mutableIntStateOf(0) }
     var musicTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var musicDetailOpen by remember { mutableStateOf(false) }
     var libraryPreviewJob by remember { mutableStateOf<Job?>(null) }
@@ -570,7 +570,7 @@ fun MediaLoaderApp(
         // Check access synchronously before a cached phone-backed screen can be rendered.
         if (next == AppMode.MUSIC || (next == AppMode.GALLERY &&
                 (gallerySource == LibrarySource.PHONE || phoneGallery.loaded))) libraryModel.refresh(next)
-        if (next == AppMode.MUSIC && appMode != AppMode.MUSIC) { musicTab = 1; musicTopRequest++ }
+        if (next == AppMode.MUSIC && appMode != AppMode.MUSIC) { musicTab = 0; musicTopRequest++ }
         libraryPreferences.mode = next
         appMode = next
         com.domenota.medialoader.core.logging.PerformanceLog.end("mode_switch_dispatch:$next", dispatchedAt)
@@ -2037,7 +2037,7 @@ fun MediaLoaderApp(
         hiddenMusicTracksOpen = false
         galleryAlbumRequest = null
         galleryTab = 0
-        if (mode == AppMode.MUSIC && !shortcutDuplicates) { musicTab = 1; musicTopRequest++ }
+        if (mode == AppMode.MUSIC && !shortcutDuplicates) { musicTab = 0; musicTopRequest++ }
         changeAppMode(mode)
         navController.navigate(AppDestination.Home.route) {
             popUpTo(AppDestination.Home.route) { inclusive = false }
