@@ -9,6 +9,9 @@ on:
       - 'app/src/main/**'
       - 'app/src/test/**'
       - 'app/build.gradle'
+  pull_request:
+    branches:
+      - feature/ml-17206-visibility-nomedia
   workflow_dispatch:
 
 permissions:
