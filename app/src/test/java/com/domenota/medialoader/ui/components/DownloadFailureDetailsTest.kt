@@ -37,9 +37,9 @@ class DownloadFailureDetailsTest {
         compose.onNodeWithText("Подробности ошибки загрузки").assertExists()
         // One full-text semantics node belongs to the underlying failed row;
         // the second is inside the open details dialog. No text was truncated.
-        compose.onAllNodesWithText(reason).assertCountEquals(2)
+        org.junit.Assert.assertEquals(2, compose.onAllNodesWithText(reason).fetchSemanticsNodes().size)
         compose.onNodeWithText("Закрыть").performClick()
         compose.onNodeWithText("Подробности ошибки загрузки").assertDoesNotExist()
-        compose.onAllNodesWithText(reason).assertCountEquals(1)
+        org.junit.Assert.assertEquals(1, compose.onAllNodesWithText(reason).fetchSemanticsNodes().size)
     }
 }
