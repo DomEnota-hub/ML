@@ -26,13 +26,19 @@ internal class VisibilityOperationFailure(val info: VisibilityFailureInfo, val o
             val noSpace = error.message == "Недостаточно свободного места"
             val kind = if(permission) "ACCESS" else if(noSpace) "SPACE" else if(error is java.io.IOException) "IO" else "STATE"
             val proofReason = (error as? VisibilityProofStoreFailure)?.reason
+            val sizeIssue = (error as? VisibilityPlanSizeFailure)?.kind
             val message = when {
                 permission -> "Доступ к исходным файлам не подтверждён. План и проверенные копии сохранены."
                 noSpace -> "Недостаточно свободного места. План и исходные файлы сохранены."
+                stage == VisibilityOperationStage.PLAN && sizeIssue != null ->
+                    "Размер файла в каталоге, MediaStore и прочитанном содержимом не совпадает. Исходник не изменён."
                 else -> "${stage.label}: перенос остановлен. План и проверенные копии сохранены."
             }
-            val code = if (stage == VisibilityOperationStage.REBIND && proofReason != null)
-                "FV_REBIND_PROOF_$proofReason" else "FV_${stage.name}_$kind"
+            val code = when {
+                stage == VisibilityOperationStage.PLAN && sizeIssue != null -> "FV_PLAN_SIZE_${sizeIssue.name}"
+                stage == VisibilityOperationStage.REBIND && proofReason != null -> "FV_REBIND_PROOF_$proofReason"
+                else -> "FV_${stage.name}_$kind"
+            }
             return VisibilityOperationFailure(VisibilityFailureInfo(stage,code,message),
                 error.javaClass.simpleName,error.stackTrace,
                 proofFailedBeforeCatalogMutation = stage == VisibilityOperationStage.REBIND && proofReason != null)

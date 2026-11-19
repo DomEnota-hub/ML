@@ -91,7 +91,13 @@ internal class FolderVisibilityCatalogBindings(
             val mime=when(current.mediaType) { MediaType.PHOTO->"image/*"; MediaType.VIDEO->"video/*"; MediaType.AUDIO->"audio/*" }
             val origin=media.captureCatalog(uri,mime)
             val fingerprint=HiddenFolderFileStore.fingerprint(media.openOriginal(origin))
-            check(fingerprint.bytes==origin.bytes && current.sizeBytes==origin.bytes) { "Размер файла изменился" }
+            val mismatch = classifyVisibilityPlanSize(current.sizeBytes, origin.bytes, fingerprint.bytes)
+            if (mismatch != null) {
+                // No user filename, URI, hash or even per-file size in diagnostics.
+                com.domenota.medialoader.core.logging.AppLog.w("FolderVisibility",
+                    "PLAN_SIZE_MISMATCH kind=${mismatch.name} journalCreated=false")
+                throw VisibilityPlanSizeFailure(mismatch)
+            }
             VisibilityMoveRecord(operation,folder,id,direction,origin.uri,origin.name,origin.modifiedMillis,
                 fingerprint,token,publicOrigin=origin,catalogSourceUri=uri.takeUnless { it==origin.uri })
         } else {

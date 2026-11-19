@@ -139,6 +139,8 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         check(operationActive.compareAndSet(false,true)) { "Перенос уже выполняется" }
         var running=false
         var skipUnchangedProofInvalidation = false
+        var noInvalidationReason: String? = null
+        val hadPendingJournalAtStart = hasPendingJournal(context)
         val attempt = com.domenota.medialoader.core.logging.AppLog.newOperationId("visibility")
         com.domenota.medialoader.core.logging.AppLog.i("FolderVisibility",
             "ATTEMPT_BEGIN id=$attempt pending=${hasPendingJournal(context)}")
@@ -201,10 +203,23 @@ internal class FolderVisibilityManager(context: Context, private val database: H
                     batchJournal.read()?.next == 0 &&
                         moveJournal.read()?.phase == VisibilityMovePhase.VERIFIED
                 } catch (_: Exception) { false }
+                if (skipUnchangedProofInvalidation) noInvalidationReason = "PROOF_PRE_CAS_UNCHANGED"
+            }
+            // A failed read-only plan with zero durable journals has not
+            // changed the catalog; do not advance Gallery/Music generation.
+            if (failure.info.stage == VisibilityOperationStage.PLAN && !hadPendingJournalAtStart) {
+                val journalsEmpty = try {
+                    batchJournal.read() == null && moveJournal.read() == null
+                } catch (_: Exception) { false }
+                if (canSkipVisibilityPlanFailureRefresh(failure.info.stage,
+                        hadPendingJournalAtStart, journalsEmpty)) {
+                    skipUnchangedProofInvalidation = true
+                    noInvalidationReason = "PLAN_FAILED_NO_MUTATION"
+                }
             }
             val trace=failure.stackTrace.take(8).joinToString(" > ") { "${it.className}.${it.methodName}:${it.lineNumber}" }
             com.domenota.medialoader.core.logging.AppLog.w("FolderVisibility",
-                "STOP id=$attempt code=${failure.info.code} stage=${failure.info.stage.name} type=${failure.originalType} confirmed=${progress.value.completed} total=${progress.value.total} catalogUnchanged=$skipUnchangedProofInvalidation trace=$trace")
+                "STOP id=$attempt code=${failure.info.code} stage=${failure.info.stage.name} type=${failure.originalType} confirmed=${progress.value.completed} total=${progress.value.total} catalogUnchanged=$skipUnchangedProofInvalidation reason=${noInvalidationReason ?: "CONSERVATIVE"} trace=$trace")
             throw failure
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
@@ -213,7 +228,7 @@ internal class FolderVisibilityManager(context: Context, private val database: H
                         bindings.batchContext(null)
                         if (running) {
                             if (skipUnchangedProofInvalidation) com.domenota.medialoader.core.logging.AppLog.i(
-                                "FolderVisibility", "RECOVERY_SCAN_DECISION force=false reason=PROOF_PRE_CAS_UNCHANGED invalidates=NONE")
+                                "FolderVisibility", "RECOVERY_SCAN_DECISION force=false reason=${noInvalidationReason ?: "NO_MUTATION"} invalidates=NONE")
                             HistoricalRecoverySignals.end(changed = !skipUnchangedProofInvalidation)
                         }
                     } finally {
@@ -259,3 +274,9 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         }
     }
 }
+
+/** Only a failed read-only PLAN with *two freshly verified empty* durable
+ * journals may skip rescans; unknown or legacy state stays conservative. */
+internal fun canSkipVisibilityPlanFailureRefresh(
+    stage: VisibilityOperationStage, hadPendingJournalAtStart: Boolean, bothJournalsEmpty: Boolean,
+): Boolean = stage == VisibilityOperationStage.PLAN && !hadPendingJournalAtStart && bothJournalsEmpty
