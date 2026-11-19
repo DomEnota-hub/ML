@@ -24,6 +24,50 @@ class ExternalMediaCatalogRepositoryTest {
 
     @Before fun clear() { context.getSharedPreferences("external_media_catalog", 0).edit().clear().commit() }
 
+    @Test fun identicalVisibilityDocumentsAreDecodedOnceAcross46FreshAccessChecks() = runBlocking {
+        val first = ExternalMediaCatalogRepository(context)
+        first.setFolder(track,"folder-one")
+        val baseline = first.visibilitySnapshotRebuilds
+        repeat(46) {
+            val candidate = first.visibilityMembersByKey(track.key).single()
+            assertEquals("folder-one",candidate.folderId)
+            assertEquals(track.item.savedUri,candidate.ref.item.savedUri)
+        }
+        assertEquals(baseline+1,first.visibilitySnapshotRebuilds)
+        assertEquals(setOf(track.key),first.albumMemberIds("folder-one"))
+        assertEquals(baseline+1,first.visibilitySnapshotRebuilds)
+        val other=ExternalMediaCatalogRepository(context)
+        other.setFolder(track,"folder-two")
+        assertEquals("folder-two",first.visibilityMembersByKey(track.key).single().folderId)
+        assertEquals(baseline+2,first.visibilitySnapshotRebuilds)
+        assertTrue(first.albumMemberIds("folder-one").isEmpty())
+    }
+
+    @Test fun corruptionAfterCachedReadFailsClosedAndRestoredSnapshotRemainsExact() = runBlocking {
+        val repo = ExternalMediaCatalogRepository(context)
+        repo.setFolder(track,"folder")
+        assertEquals("folder",repo.visibilityMembersByKey(track.key).single().folderId)
+        val prefs=context.getSharedPreferences("external_media_catalog",0)
+        val saved=checkNotNull(prefs.getString("catalog",null))
+        assertTrue(prefs.edit().putString("catalog","{not valid json").commit())
+        assertTrue(runCatching {repo.visibilityMembersByKey(track.key)}.isFailure)
+        assertTrue(prefs.edit().putString("catalog",saved).commit())
+        assertEquals(saved,prefs.getString("catalog",null))
+        assertEquals("folder",repo.visibilityMembersByKey(track.key).single().folderId)
+    }
+
+    @Test fun duplicateKeysRemainAmbiguousUnderIndexedLookup() = runBlocking {
+        val repo=ExternalMediaCatalogRepository(context)
+        repo.setFolder(track,"folder")
+        val prefs=context.getSharedPreferences("external_media_catalog",0)
+        val json=org.json.JSONObject(checkNotNull(prefs.getString("catalog",null)))
+        val entries=json.getJSONArray("entries")
+        entries.put(org.json.JSONObject(entries.getJSONObject(0).toString()).put("uri","content://media/external/audio/media/43"))
+        assertTrue(prefs.edit().putString("catalog",json.toString()).commit())
+        assertEquals(2,repo.visibilityMembersByKey(track.key).size)
+        assertEquals(2,repo.visibilityEntries().size)
+    }
+
     @Test fun favoriteAndFolderSurviveRestartWithoutImportingOrTouchingOriginal() = runBlocking {
         val repository = ExternalMediaCatalogRepository(context)
         repository.setFavorite(track, true)

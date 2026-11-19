@@ -43,7 +43,7 @@ internal class FolderVisibilityCatalogBindings(
 
     private suspend fun currentMember(id:String):Member? {
         val app=dao.byId(id)
-        val ext=external.visibilityEntries().filter { it.ref.key==id }
+        val ext=external.visibilityMembersByKey(id)
         check(ext.size<=1 && (app==null || ext.isEmpty())) { "Неоднозначная запись каталога" }
         return if(app!=null) {
             val assignment=catalog.assignmentById(id)
