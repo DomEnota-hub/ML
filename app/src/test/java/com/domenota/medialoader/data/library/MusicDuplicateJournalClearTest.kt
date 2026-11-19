@@ -57,4 +57,19 @@ class MusicDuplicateJournalClearTest {
         assertFalse(MusicDuplicateSessionStore.savePartial(context,session,generation))
         assertNull(MusicDuplicateSessionStore.partial(context))
     }
+
+    @Test fun discardingCheckpointRejectsPendingSnapshotWrite()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val session=DuplicateSession(DuplicateScanResult(emptyList(),0,privacyEpoch=epoch),
+            emptySet(),emptyMap(),0,0,900L)
+        val pendingGeneration=MusicDuplicateSessionStore.journalGeneration()
+        assertTrue(MusicDuplicateSessionStore.savePartial(context,session,pendingGeneration))
+        assertTrue(MusicDuplicateSessionStore.discardPartial(context))
+        assertNull(MusicDuplicateSessionStore.partial(context))
+        assertFalse("A delayed UI save must not recreate a discarded checkpoint",
+            MusicDuplicateSessionStore.savePartial(context,session,pendingGeneration))
+        assertNull(MusicDuplicateSessionStore.partial(context))
+    }
 }
