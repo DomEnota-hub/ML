@@ -333,23 +333,29 @@ fun MediaLoaderApp(
     // folder may contain files elsewhere: .nomedia affects ALL physical children
     // of the chosen tree; never imply that only this virtual album is affected.
     var nomediaRequest by remember { mutableStateOf<Pair<String,Boolean>?>(null) }
-    var nomediaPickerFolder by remember { mutableStateOf<String?>(null) }
+    var nomediaPickerRequest by remember { mutableStateOf<Pair<String,Boolean>?>(null) }
     val nomediaTreePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        val folder = nomediaPickerFolder
-        nomediaPickerFolder = null
-        if (uri == null || folder == null) {
-            AppNotice.post(context,"Выбор папки отменён. Файлы не изменены")
+        val request=nomediaPickerRequest
+        nomediaPickerRequest=null
+        if (uri==null || request==null) {
+            AppNotice.post(context,"Выбор папки отменён. Состояние не изменено")
         } else try {
+            val (folder,hide)=request
+            if (!hide) check(nomediaRegistry.snapshot.value.folders[folder]?.treeUri==uri.toString()) {
+                "Выбран другой каталог. Разрешение не применено"
+            }
             context.contentResolver.takePersistableUriPermission(uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             fileActionScope.launch {
                 try {
-                    val result=nomediaRegistry.hide(folder,uri)
-                    AppNotice.post(context,if(result.markerState == NomediaMarkerState.OWN_MARKER)
-                        "Скрыто в ML. .nomedia создан; индекс Android требует проверки"
-                    else "Скрыто в ML. Чужой .nomedia сохранён; статус Android не подтверждён")
+                    val result=if(hide) nomediaRegistry.hide(folder,uri) else nomediaRegistry.show(folder)
+                    AppNotice.post(context,if(result.excludedFromMl)
+                        "Скрыто в ML. Статус индекса Android не подтверждён"
+                    else if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
+                        "Показано в ML. Чужой .nomedia сохранён"
+                    else "Показано в ML. Медиаиндекс Android обновляется отдельно")
                 } catch(cancelled:CancellationException) { throw cancelled }
-                catch(error:Exception) { AppNotice.post(context,error.message ?: "Скрытие не завершено. Состояние сохранено") }
+                catch(error:Exception) { AppNotice.post(context,error.message ?: "Операция .nomedia не завершена") }
             }
         } catch(error:Exception) {
             AppNotice.post(context,error.message ?: "Доступ SAF не предоставлен")
@@ -379,10 +385,10 @@ fun MediaLoaderApp(
             confirmButton={TextButton(onClick={
                 nomediaRequest=null
                 if(hide) {
-                    nomediaPickerFolder=folder
+                    nomediaPickerRequest=folder to true
                     try { nomediaTreePicker.launch(null) }
                     catch(error:Exception) {
-                        nomediaPickerFolder=null
+                        nomediaPickerRequest=null
                         AppNotice.post(context,error.message ?: "Не удалось выбрать каталог")
                     }
                 } else fileActionScope.launch {
@@ -392,7 +398,14 @@ fun MediaLoaderApp(
                             "Показано в ML. Чужой .nomedia сохранён; Android может скрывать папку"
                         else "Показано в ML. Переиндексация Android может занять время")
                     } catch(cancelled:CancellationException) { throw cancelled }
-                    catch(error:Exception) { AppNotice.post(context,error.message ?: "Показ папки не завершён") }
+                    catch(error:Exception) {
+                        AppNotice.post(context,error.message ?: "Показ папки не завершён")
+                        if(error.message?.contains("Доступ к папке отозван")==true) {
+                            nomediaPickerRequest=folder to false
+                            try { nomediaTreePicker.launch(null) }
+                            catch(_:Exception) { nomediaPickerRequest=null }
+                        }
+                    }
                 }
             }){Text(if(hide) "Выбрать каталог" else "Показать")}},
             dismissButton={TextButton(onClick={nomediaRequest=null}){Text("Отмена")}})
@@ -2635,6 +2648,8 @@ fun MediaLoaderApp(
                             "Неподтверждённые файлы не перепривязаны. $markerResult")
                     },
                     onFolderVisibility = toggleFolderVisibility.takeIf { android.os.Build.VERSION.SDK_INT >= 21 },
+                    onBrowseSafFiles = { folder -> nomediaRegistry.listHiddenDocuments(folder) },
+                    onVerifySafFile = { folder,document -> nomediaRegistry.verifySafDocumentRead(folder,document) },
                     onOpenFromFolder = { id,queue,folder -> openingAlbumKey = folder?.let { "folder:$it" }; openDownloadWithQueue(id,queue) },
                     onShareFromFolder = { id,folder -> shareScopedFile(id,folder) },
                     onAddCollection=::addToCollection,onPassport=::openPassport,
