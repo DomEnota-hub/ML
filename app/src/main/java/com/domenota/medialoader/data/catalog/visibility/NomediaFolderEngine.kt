@@ -73,7 +73,7 @@ internal class NomediaFolderEngine(
             val appeared = if (existing == null) port.inspect(treeUri) else existing
             val created = if (appeared == null) port.createEmpty(treeUri) else null
             val verified = existing ?: appeared ?: checkNotNull(created)
-            check(verified.bytes == 0L) { "Маркер не является пустым файлом" }
+            if (created != null) check(verified.bytes == 0L) { "Созданный маркер не является пустым" }
             // If it appeared during inspection it is foreign, not ours.
             val createdByUs = created != null
             val result = pending.copy(
