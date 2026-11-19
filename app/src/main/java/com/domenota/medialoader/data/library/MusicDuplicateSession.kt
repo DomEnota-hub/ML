@@ -80,7 +80,8 @@ internal object MusicDuplicateSessionStore {
         (listOfNotNull(current)+DuplicateReportJournal.history(context,"music").mapNotNull{runCatching{decode(it)}.getOrNull()}).filter{permitted(context,it)}.distinctBy{it.scannedAt}.sortedByDescending{it.scannedAt}
     }}
     /** Checkpoints are independent of successful reports and are never promoted implicitly. */
-    fun savePartial(context:Context,session:DuplicateSession):Boolean=synchronized(lock){
+    fun savePartial(context:Context,session:DuplicateSession,expectedJournalGeneration:Long?=null):Boolean=synchronized(lock){
+        if(expectedJournalGeneration!=null && expectedJournalGeneration!=journalRevision)return@synchronized false
         if(!permitted(context,session))return@synchronized false
         runCatching{DuplicateReportJournal.savePartial(context,"music",encode(session))}.isSuccess
     }
