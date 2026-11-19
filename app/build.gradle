@@ -107,6 +107,9 @@ android {
                 }
                 if (isolation in ['collection', 'full']) {
                     testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest')
+                    // Same strict isolation for cover-frame Compose idling checks.
+                    // Every method still runs and is required by the XML merger.
+                    testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.organization.LastCollectionCoverPresentationTest')
                 }
                 if (isolation == 'full') {
                     testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.components.DownloadVideoSongMenuUiTest')
