@@ -24,7 +24,7 @@ class VisibilityTerminalProgressTest {
         assertEquals(0,missing.completed)
         assertEquals(0,missing.total)
         assertFalse(missing.pending)
-        val failed=VisibilityFailureInfo("FV_PLAN_STATE",VisibilityOperationStage.PLAN,"plan")
+        val failed=VisibilityFailureInfo(VisibilityOperationStage.PLAN,"FV_PLAN_STATE","plan")
         val clear=visibilityTerminalProgress(FolderVisibilityProgress("folder",VisibilityDirection.HIDE,
             8,8,true),failed)
         assertEquals(0,clear.completed)

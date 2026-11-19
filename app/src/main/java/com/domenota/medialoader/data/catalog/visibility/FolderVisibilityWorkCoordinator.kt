@@ -147,7 +147,8 @@ internal class FolderVisibilityWorkCoordinator(
                 // Do not infer successful 46/46 from the disappearance of a
                 // journal. Use the final confirmed manager cursor even when
                 // StateFlow coalesced intermediate 1/46..46/46 events.
-                if (after.completed != after.total) {
+                if (after.completed != after.total || now.confirmed > after.completed ||
+                    now.total > after.total) {
                     if (now.active) execution.failed("FV_PROGRESS_UNVERIFIED",false)
                 } else {
                     if (now.phase == VisibilityExecutionPhase.PREPARING)
@@ -171,7 +172,7 @@ internal class FolderVisibilityWorkCoordinator(
         } catch (error: Exception) {
             val pending = FolderVisibilityManager.hasPendingJournal(context)
             if (execution.state.value.active)
-                execution.failed("FV_WORK_ERROR",pending)
+                execution.failed((error as? VisibilityOperationFailure)?.info?.code ?: "FV_WORK_ERROR",pending)
             AppLog.w("FolderVisibility","FOREGROUND_STOP kind=${error.javaClass.simpleName} journalPending=$pending")
             // Manager has already logged the precise failure reason without paths.
         } finally {
