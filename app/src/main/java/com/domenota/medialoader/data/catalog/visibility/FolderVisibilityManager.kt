@@ -20,6 +20,19 @@ internal data class FolderVisibilityProgress(val folderId: String?, val directio
     val preparing: Boolean = false, val prepared: Int = 0, val failure: VisibilityFailureInfo? = null,
     val pausedAtCheckpoint: Boolean = false)
 
+/** Preserve terminal NUMBERS, not private member identities, across the final
+ * non-pending journal scan. A failed or incomplete operation never acquires a
+ * synthetic 100% counter merely because a journal file disappeared. */
+internal fun visibilityTerminalProgress(
+    previous: FolderVisibilityProgress, failure: VisibilityFailureInfo?,
+): FolderVisibilityProgress {
+    val verified = failure == null && previous.total > 0 && previous.completed == previous.total &&
+        (previous.pending || previous.members.isEmpty())
+    return if (verified) FolderVisibilityProgress(
+        null,previous.direction,previous.total,previous.total,false)
+    else FolderVisibilityProgress(null,null,0,0,false,failure=failure)
+}
+
 /** One explicit operation owner. No background deletion or implicit consent.
  * Keep this separate from the vault and from historical-date recovery. */
 internal class FolderVisibilityManager(context: Context, private val database: HistoryDatabase) {
@@ -75,8 +88,13 @@ internal class FolderVisibilityManager(context: Context, private val database: H
         HistoricalRecoverySignals.markFolderVisibilityPending(true)
     }
     private fun publish(batch: VisibilityBatchRecord?, pendingMove:VisibilityMoveRecord?=null) {
-        progress.value = if (batch == null) FolderVisibilityProgress(null,null,0,0,false,failure=lastFailure?.info)
-            else FolderVisibilityProgress(batch.folderId,batch.direction,batch.next,batch.members.size,true,
+        progress.value = if (batch == null) {
+            // Keep only the last confirmed count after the durable batch has
+            // been committed and cleared. StateFlow is conflated: a fast 1/1
+            // transfer can otherwise publish the terminal 0/0 before the
+            // foreground observer ever receives the last 1/1 checkpoint.
+            visibilityTerminalProgress(progress.value,lastFailure?.info)
+        } else FolderVisibilityProgress(batch.folderId,batch.direction,batch.next,batch.members.size,true,
                 batch.members + listOfNotNull(pendingMove),failure=lastFailure?.info,
                 pausedAtCheckpoint=pausedByUser)
         HistoricalRecoverySignals.markFolderVisibilityPending(batch != null)

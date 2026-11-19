@@ -6,6 +6,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RecoveryRefreshModesTest {
+    @Test fun cleanPlanFailureRestartsOnlyInterruptedUnvalidatedScans() {
+        val complete=PhoneLibraryState(loaded=true,complete=true,requiresValidation=false)
+        assertFalse(restartScanAfterUnchangedRecovery(false,PhoneLibraryState()))
+        assertFalse(restartScanAfterUnchangedRecovery(true,complete))
+        assertTrue(restartScanAfterUnchangedRecovery(true,PhoneLibraryState(loading=true)))
+        assertTrue(restartScanAfterUnchangedRecovery(true,
+            PhoneLibraryState(loaded=true,complete=false,requiresValidation=true)))
+        assertTrue(restartScanAfterUnchangedRecovery(true,
+            PhoneLibraryState(loaded=true,complete=true,loading=true)))
+        assertFalse(restartScanAfterUnchangedRecovery(false,
+            PhoneLibraryState(loaded=true,complete=false,requiresValidation=true)))
+    }
+
     @Test fun completedVersionWhileStillRunningDoesNotEnterRecoveryTwice() {
         assertFalse(enteringRecoveryGate(false,false))
         assertTrue(enteringRecoveryGate(true,false))

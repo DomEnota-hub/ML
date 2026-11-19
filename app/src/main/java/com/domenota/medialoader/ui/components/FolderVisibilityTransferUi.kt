@@ -94,9 +94,15 @@ internal fun visibilityTransferPresentation(
         VisibilityExecutionPhase.FAILED -> VisibilityTransferPresentation(
             "Перенос остановлен",
             if(state.hasPendingJournal) "Сохранённое состояние можно проверить и продолжить"
-            else "Операция не началась. Исходные файлы не изменены",
+            else "Незавершённого журнала нет. Подробности сохранены в диагностике; при сомнениях проверьте файлы",
             canResume=state.hasPendingJournal,canDismiss=!state.hasPendingJournal)
     }
+
+/** Dismissal is a UI-only operation. An active or recoverable transfer is
+ * always visible regardless of a previously dismissed terminal result. */
+internal fun visibilityWorkPanelVisible(state: VisibilityExecutionSnapshot,dismissed:Boolean):Boolean =
+    state.phase != VisibilityExecutionPhase.IDLE &&
+        (state.active || state.hasPendingJournal || !dismissed)
 
 @Composable
 private fun transferAccent(): Color = MaterialTheme.colorScheme.primary

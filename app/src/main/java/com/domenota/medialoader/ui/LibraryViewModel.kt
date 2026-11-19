@@ -85,6 +85,13 @@ internal fun retainPhoneSnapshotAtTransferBoundary(
         (!previous.requiresValidation || (indexReady && previous.revision == indexedRevision))) previous
     else PhoneLibraryState(revision = previous.revision + 1, accessEpoch = previous.accessEpoch)
 
+/** If an unchanged recovery attempt interrupted a cold/partial phone scan,
+ * its own ENTER must not strand the UI with an empty or incomplete catalogue.
+ * A complete permission-validated generation is retained without a re-scan. */
+internal fun restartScanAfterUnchangedRecovery(interrupted:Boolean,state:PhoneLibraryState):Boolean =
+    interrupted && (!state.loaded || !state.complete || state.loading ||
+        state.requiresValidation || state.message != null)
+
 /** Equal complete snapshots do not invalidate downstream catalogs. Compare on a worker. */
 internal fun samePhoneContent(previous: PhoneLibraryState, next: PhoneMediaSnapshot): Boolean =
     previous.loaded && previous.complete && previous.items == next.items &&
@@ -746,6 +753,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private var recoveryRefreshPending = false
     private var observedRecoveryVersion = HistoricalRecoverySignals.version.value
     private var recoveryGateObservedRunning = false
+    private var interruptedUnchangedRecoveryScans: Set<AppMode> = emptySet()
     private var recoveryAffectedModes: Set<AppMode> = setOf(AppMode.GALLERY,AppMode.MUSIC)
     private var postTransferSerial = 0L
     private var postTransferJob: Job? = null
@@ -812,8 +820,13 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 running to version
             }.collect { (running, version) ->
                 val entered = enteringRecoveryGate(running,recoveryGateObservedRunning)
+                val exited = !running && recoveryGateObservedRunning
                 recoveryGateObservedRunning = running
                 if (entered) {
+                    interruptedUnchangedRecoveryScans = listOf(AppMode.GALLERY,AppMode.MUSIC).filter { mode ->
+                        val phoneState = if(mode==AppMode.GALLERY) galleryState.value else musicState.value
+                        restartScanAfterUnchangedRecovery(jobs[mode]?.isActive == true,phoneState)
+                    }.toSet()
                     transferBootstrapEpochs.clear()
                     postTransferSerial++
                     postTransferJob?.cancel()
@@ -835,6 +848,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     // refresh(); historical file operations must not masquerade
                     // as revoked READ_MEDIA_* grants.
                 } else if (!running && version != observedRecoveryVersion) {
+                    interruptedUnchangedRecoveryScans = emptySet()
                     if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance()) {
                         com.domenota.medialoader.core.logging.AppLog.i("Perf",
                             "RECOVERY_GATE state=EXIT changedVersion=true " +
@@ -858,6 +872,19 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     externalCatalog.reloadHistoricalMedia()
                     playlistRepository.reloadHistoricalMedia()
                     refreshAfterHistoricalRecovery()
+                } else if (exited) {
+                    // No durable media mutation: don't invalidate a completed
+                    // catalogue or clear caches. Only restart scans actually
+                    // interrupted before they could validate a usable snapshot.
+                    val interrupted=interruptedUnchangedRecoveryScans
+                    interruptedUnchangedRecoveryScans=emptySet()
+                    for(mode in interrupted) {
+                        val snapshot=if(mode==AppMode.GALLERY) galleryState.value else musicState.value
+                        if(restartScanAfterUnchangedRecovery(true,snapshot))
+                            refresh(mode,force=true,reason=PhoneScanReason.REQUEST)
+                    }
+                    if(interrupted.isNotEmpty()) com.domenota.medialoader.core.logging.AppLog.i(
+                        "Library","RECOVERY_UNCHANGED restoredInterruptedScans=${interrupted.size} invalidates=NONE")
                 }
             }
         }

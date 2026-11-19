@@ -3220,8 +3220,8 @@ fun MediaLoaderApp(
             currentRoute in setOf(MEDIA_VIEWER_ROUTE, VIDEO_EDITOR_ROUTE, AUDIO_EDITOR_ROUTE, PHOTO_EDITOR_ROUTE, "batch-photo-editor", "trash-viewer/{downloadId}") -> 100.dp
             else -> 0.dp
         }
-        val showWorkPanel = !visibilityWorkDismissed &&
-            visibilityWorkState.phase != VisibilityExecutionPhase.IDLE
+        val showWorkPanel = com.domenota.medialoader.ui.components.visibilityWorkPanelVisible(
+            visibilityWorkState,visibilityWorkDismissed)
         val showCompactWorkPanel = showWorkPanel && !visibilityWorkExpanded &&
             visibilityMiniPanelHostAllowed(appMode,currentRoute)
         if (showCompactWorkPanel) {

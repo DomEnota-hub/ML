@@ -144,15 +144,24 @@ internal class FolderVisibilityWorkCoordinator(
                 if (execution.state.value.active) execution.failed("FV_PENDING_RECHECK",true)
             } else {
                 val now = execution.state.value
-                if (now.phase == VisibilityExecutionPhase.PREPARING) execution.running(0,0)
-                if (execution.state.value.phase == VisibilityExecutionPhase.RUNNING ||
-                    execution.state.value.phase == VisibilityExecutionPhase.PAUSE_REQUESTED) {
-                    val ready = execution.state.value
-                    // The manager completed its final durable CAS and confirmed
-                    // that there is no pending journal. A late pause must not
-                    // strand a completed transfer at PAUSE_REQUESTED.
-                    execution.verifying(ready.total,ready.total)
-                    execution.completeAfterFinalCheck()
+                // Do not infer successful 46/46 from the disappearance of a
+                // journal. Use the final confirmed manager cursor even when
+                // StateFlow coalesced intermediate 1/46..46/46 events.
+                if (after.completed != after.total) {
+                    if (now.active) execution.failed("FV_PROGRESS_UNVERIFIED",false)
+                } else {
+                    if (now.phase == VisibilityExecutionPhase.PREPARING)
+                        execution.running(after.completed,after.total)
+                    else if (now.phase == VisibilityExecutionPhase.RUNNING &&
+                        (now.confirmed != after.completed || now.total != after.total))
+                        execution.checkpoint(after.completed,after.total)
+                    if (execution.state.value.phase == VisibilityExecutionPhase.RUNNING ||
+                        execution.state.value.phase == VisibilityExecutionPhase.PAUSE_REQUESTED) {
+                        // Final durable CAS and no pending journal are verified.
+                        // A late pause cannot strand a completed transfer.
+                        execution.verifying(after.completed,after.total)
+                        execution.completeAfterFinalCheck()
+                    }
                 }
             }
         } catch (cancelled: CancellationException) {
