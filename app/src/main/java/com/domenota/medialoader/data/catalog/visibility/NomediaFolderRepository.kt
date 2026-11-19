@@ -57,7 +57,7 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
         catch(_:Exception) { false }
     }
 
-    private fun load():NomediaFolderSnapshot = try {
+    private fun load():NomediaFolderSnapshot { return try {
         val payload=preferences.getString(KEY,null) ?: return NomediaFolderSnapshot()
         check(payload.length <= 1024*1024) { "Реестр превышает лимит" }
         val root=JSONObject(payload)
@@ -76,8 +76,9 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
                 updatedAt=e.getLong("updatedAt"))
             check(result.put(folderId,record)==null) { "Повторный folderId" }
             check(record.treeUri.startsWith("content://"))
-            check((marker==NomediaMarkerState.OWN_MARKER)==(record.ownedDocumentId!=null) ||
-                (marker==NomediaMarkerState.PENDING_SHOW && record.ownedDocumentId!=null))
+            check(marker!=NomediaMarkerState.OWN_MARKER || record.ownedDocumentId!=null)
+            check(record.ownedDocumentId==null || marker in setOf(NomediaMarkerState.OWN_MARKER,
+                NomediaMarkerState.PENDING_SHOW,NomediaMarkerState.FAILED))
             check(record.mlHidden || marker !in setOf(NomediaMarkerState.PENDING_HIDE,
                 NomediaMarkerState.OWN_MARKER))
         }
@@ -85,7 +86,7 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
     } catch(_:Exception) {
         // Never turn a damaged persisted hidden-folder record into an empty public list.
         NomediaFolderSnapshot(unknown=true)
-    }
+    } }
 
     private fun encode(snapshot:NomediaFolderSnapshot):String {
         check(!snapshot.unknown && snapshot.folders.size<=1024)
