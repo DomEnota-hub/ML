@@ -325,6 +325,9 @@ fun MediaLoaderApp(
         finally { visibilityBusy=false }
     }
     val toggleFolderVisibility:suspend (String,Boolean)->Unit={ folder,hidden ->
+        // Replaced by the independent .nomedia/SAF engine in the next block.
+        // Do not open the legacy all-files permission dialog or start a copy.
+        RetiredFolderVisibilityTransfer.requireActive()
         if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation {
             val pending=mediaRepository.folderVisibility.pending()
             if(pending.pending) {
@@ -377,21 +380,14 @@ fun MediaLoaderApp(
             else -> "Чтение и проверка плана переноса…"
         })
     })
+    // Legacy journal remains physically intact. No old resume action is available.
     if(visibilityProgress.pending && !visibilityBusy && !visibilityResumeDismissed &&
         visibilityWorkState.phase == VisibilityExecutionPhase.IDLE) AlertDialog(
-        onDismissRequest={visibilityResumeDismissed=true}, title={Text("Незавершённый перенос")},
-        text={Text(visibilityProgress.failure?.let { failure ->
-            (if(visibilityProgress.total>0) "Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. " else "") + failure.message
-        } ?: if(visibilityProgress.total>0)
-            "Подтверждено: ${visibilityProgress.completed} из ${visibilityProgress.total}. План и проверенные копии сохранены."
-            else "Сохранённый план требует проверки. Исходные файлы не удаляются автоматически.")},
-        confirmButton={TextButton(onClick={fileActionScope.launch {
-            try { if(android.os.Build.VERSION.SDK_INT>=30) visibilityOperation {
-                visibilityWork.resumeFromVisibleActivity()
-                visibilityResumeDismissed=true
-            } }
-            catch(e:CancellationException){throw e}catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось продолжить перенос");visibilityResumeDismissed=true}
-        }}){Text("Продолжить")}}, dismissButton={TextButton(onClick={visibilityResumeDismissed=true}){Text("Позже")}})
+        onDismissRequest={visibilityResumeDismissed=true},
+        title={Text("Сохранённый журнал переноса")},
+        text={Text("Прежний перенос отключён. Данные и контрольные точки сохранены для диагностики. Автоматический возврат не запускается.")},
+        confirmButton={TextButton(onClick={visibilityResumeDismissed=true}){Text("Закрыть")}},
+    )
 
     val visibilityReady = visibilityGuard != null && visibilityGuard?.policy?.unknownPending == false
     val visibilityFolders = visibilityGuard?.policy?.snapshot?.hiddenFolders.orEmpty()
@@ -871,6 +867,7 @@ fun MediaLoaderApp(
         }
         val physical=mediaRepository.folderVisibility.requiresMembershipMove(ref,folder)
         if(physical) {
+            RetiredFolderVisibilityTransfer.requireActive()
             check(android.os.Build.VERSION.SDK_INT>=30)
             visibilityMembershipBusy=true
             try {
@@ -891,6 +888,7 @@ fun MediaLoaderApp(
             "Сначала завершите или проверьте незаконченный перенос папки"
         }
         if(mediaRepository.folderVisibility.isHidden(folder)) {
+            RetiredFolderVisibilityTransfer.requireActive()
             // The service is asynchronous: keep the folder and all its metadata
             // until every member has been returned and the final CAS succeeds.
             toggleFolderVisibility(folder,false)
@@ -2218,7 +2216,7 @@ fun MediaLoaderApp(
                     preparedBrowseAccess = galleryRetentionAccess,
                     hiddenFolderIds = visibilityFolders,
                     pendingVisibilityFolderId = visibilityProgress.folderId,
-                    onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() },
+                    onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() && RetiredFolderVisibilityTransfer.ACTIVE },
                     source = librarySource, loading = !galleryBrowse.usable || !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
                     folders = catalogFolders, assignments = libraryCatalogAssignments, header = libraryHeader,
@@ -2576,7 +2574,7 @@ fun MediaLoaderApp(
                     items = downloadItems,
                     hiddenFolderIds = visibilityFolders,
                     pendingVisibilityFolderId = visibilityProgress.folderId,
-                    onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() },
+                    onFolderVisibility = toggleFolderVisibility.takeIf { FolderVisibilityStorageAccess.supported() && RetiredFolderVisibilityTransfer.ACTIVE },
                     onOpenFromFolder = { id,queue,folder -> openingAlbumKey = folder?.let { "folder:$it" }; openDownloadWithQueue(id,queue) },
                     onShareFromFolder = { id,folder -> shareScopedFile(id,folder) },
                     onAddCollection=::addToCollection,onPassport=::openPassport,
@@ -3253,6 +3251,7 @@ fun MediaLoaderApp(
                 },
                 onResume = { fileActionScope.launch {
                     try {
+                        RetiredFolderVisibilityTransfer.requireActive()
                         visibilityAccess.ensure()
                         visibilityWork.resumeFromVisibleActivity()
                     } catch(cancelled:CancellationException){throw cancelled}
