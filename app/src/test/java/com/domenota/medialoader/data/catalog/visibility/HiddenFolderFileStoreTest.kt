@@ -114,6 +114,22 @@ class HiddenFolderFileStoreTest {
         }
     }
 
+    @Test fun readOnlyShowCheckNeverRecreatesMissingNomedia() = runBlocking {
+        withStore { root, store ->
+            val file = store.target(token,"visible-check.jpg")
+            file.writeBytes(bytes)
+            assertTrue(store.verifyExistingRoot() == HiddenNomediaKind.EMPTY ||
+                store.verifyExistingRoot() == HiddenNomediaKind.ANDROID_PATH)
+            store.verifyExistingLocation(file,null)
+            val marker = File(root,"hidden/.nomedia")
+            assertTrue(marker.delete())
+            try { store.verifyExistingLocation(file,null); fail("Missing .nomedia must fail read-only") }
+            catch (_: IllegalStateException) { }
+            assertFalse(marker.exists())
+            assertArrayEquals(bytes,file.readBytes())
+        }
+    }
+
     @Test fun readOnlyPreflightDoesNotCreateHiddenRootOrMissingMarker() = runBlocking {
         withStore { root, store ->
             val marker=File(root,"hidden/.nomedia")

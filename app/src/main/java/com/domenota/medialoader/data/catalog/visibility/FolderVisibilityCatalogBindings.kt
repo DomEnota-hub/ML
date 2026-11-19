@@ -107,7 +107,7 @@ internal class FolderVisibilityCatalogBindings(
             val parsed=android.net.Uri.parse(uri)
             check(parsed.scheme=="file" && parsed.authority.isNullOrEmpty() && parsed.query==null && parsed.fragment==null)
             val file=java.io.File(requireNotNull(parsed.path)); val store=FolderVisibilityStorageAccess.store()
-            store.verifyLocation(file,origin.modifiedMillis)
+            store.verifyExistingLocation(file,origin.modifiedMillis)
             val fingerprint=HiddenFolderFileStore.fingerprint(file.inputStream())
             check(fingerprint==previous.fingerprint && current.sizeBytes==fingerprint.bytes) { "Содержимое скрытого файла изменилось" }
             VisibilityMoveRecord(operation,folder,id,direction,uri,origin.name,origin.modifiedMillis,fingerprint,token,publicOrigin=origin)
