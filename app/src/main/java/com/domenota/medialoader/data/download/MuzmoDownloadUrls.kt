@@ -31,9 +31,13 @@ object MuzmoDownloadUrls {
         it.host.equals(HOST, true) && MUSIC_PATH.matches(it.path)
     } ?: false
 
-    /** Muzmo redirects MP3 requests to its observed audio host, mzmdl.com. */
+    /** Android 16 log 19.11.2026: rmr.muzmo.cc -> 302 -> ds2.mzmdl.com.
+     * Trust only the exact observed host and dated MP3 routes; never
+     * arbitrary CDN subdomains, malformed URLs, HTTP or login redirects. */
     fun isTrustedRedirect(url: String): Boolean = safe(url)?.let {
-        (it.host.equals(HOST, true) || it.host.equals("mzmdl.com", true)) &&
+        (it.host.equals(HOST, true) ||
+            it.host.equals("mzmdl.com", true) ||
+            it.host.equals("ds2.mzmdl.com", true)) &&
             MUSIC_PATH.matches(it.path)
     } ?: false
 

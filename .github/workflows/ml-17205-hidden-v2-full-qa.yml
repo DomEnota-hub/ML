@@ -9,6 +9,9 @@ on:
       - app/src/main/java/com/domenota/medialoader/data/catalog/visibility/**
       - app/src/test/java/com/domenota/medialoader/data/catalog/visibility/**
       - app/build.gradle
+      - app/src/main/java/com/domenota/medialoader/data/download/MuzmoDownloadUrls.kt
+      - app/src/main/java/com/domenota/medialoader/data/download/MuzmoDownloadEngine.kt
+      - app/src/test/java/com/domenota/medialoader/data/download/MuzmoDownloadUrlsTest.kt
       - app/src/main/java/com/domenota/medialoader/ui/components/FolderVisibilityTransferUi.kt
       - app/src/main/java/com/domenota/medialoader/ui/screens/organization/CollectionCard.kt
       - app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt

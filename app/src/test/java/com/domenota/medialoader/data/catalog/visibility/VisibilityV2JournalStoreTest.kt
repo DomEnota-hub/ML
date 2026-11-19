@@ -123,6 +123,42 @@ class VisibilityV2JournalStoreTest {
         assertEquals(plan,old.read())
     }
 
+    @Test fun legacyV1PendingAfterUpgradeDoesNotCreateOrMigrateV2() = withFile { file ->
+        val legacy=File(file.parentFile,"batch.bin")
+        val plan=batch(8)
+        FileVisibilityBatchJournal(legacy).replace(null,plan)
+        val before=legacy.readBytes()
+        assertFalse(file.exists())
+        assertEquals(VisibilityJournalFamily.LEGACY_V1,visibilityJournalFamily(false,true,false))
+        assertTrue(runCatching {visibilityJournalFamily(true,true,false)}.isFailure)
+        assertFalse(file.exists())
+        assertArrayEquals(before,legacy.readBytes())
+        assertEquals(plan,FileVisibilityBatchJournal(legacy).read())
+        // Corrupt new journal plus old v1 is an ambiguous state and must
+        // block resume without rewriting either old source of truth.
+        file.writeBytes(byteArrayOf(1,2,3))
+        val corrupt=file.readBytes()
+        assertTrue(VisibilityV2JournalStore.pending(file))
+        assertTrue(runCatching { visibilityJournalFamily(false,true,true) }.isFailure)
+        assertTrue(runCatching { VisibilityV2JournalStore(file).snapshot() }.isFailure)
+        assertArrayEquals(before,legacy.readBytes())
+        assertArrayEquals(corrupt,file.readBytes())
+    }
+
+    @Test fun intactLegacyShowIsSeparateFromNewV2AndStillReadOnlyAtSelection() = withFile { file ->
+        val member=member(1).copy(direction=VisibilityDirection.SHOW)
+        val plan=VisibilityBatchRecord("legacy-show","folder",VisibilityDirection.SHOW,listOf(member))
+        val legacy=File(file.parentFile,"batch.bin")
+        FileVisibilityBatchJournal(legacy).replace(null,plan)
+        val before=legacy.readBytes()
+        assertEquals(VisibilityJournalFamily.LEGACY_V1,visibilityJournalFamily(false,true,false))
+        assertTrue(runCatching {visibilityJournalFamily(true,true,false)}.isFailure)
+        assertFalse(VisibilityV2JournalStore.pending(file))
+        assertArrayEquals(before,legacy.readBytes())
+        assertNull(VisibilityV2JournalStore(file).batches.read())
+        assertEquals(plan,FileVisibilityBatchJournal(legacy).read())
+    }
+
     @Test fun staleCasNeverOverwritesCommittedCheckpoint() = withFile { file ->
         val plan=batch(1)
         val store=VisibilityV2JournalStore(file)
