@@ -8,8 +8,10 @@ import android.webkit.MimeTypeMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.nio.file.Files
+import java.nio.file.StandardOpenOption
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.util.UUID
 
@@ -120,12 +122,14 @@ internal class ManagedLocalNomediaPort(
         val target = File(folder(treeUri), ".nomedia").toPath()
         val token = UUID.randomUUID().toString()
         val bytes = (prefix + token).toByteArray(Charsets.US_ASCII)
-        // CREATE_NEW cannot replace a foreign marker. No rename/delete/media mutation.
-        Files.createFile(target)
-        FileOutputStream(target.toFile()).use { stream ->
-            stream.write(bytes)
-            stream.fd.sync()
-        }
+        // Keep CREATE_NEW and the write on one no-follow file descriptor.
+        // Reopening a just-created pathname could follow a concurrently replaced symlink.
+        FileChannel.open(target,StandardOpenOption.CREATE_NEW,StandardOpenOption.WRITE,NOFOLLOW_LINKS)
+            .use { channel ->
+                val buffer=ByteBuffer.wrap(bytes)
+                while(buffer.hasRemaining()) check(channel.write(buffer)>0)
+                channel.force(true)
+            }
         val proof = checkNotNull(inspect(treeUri)) { "Служебный маркер не обнаружен" }
         check(proof.documentId == idPrefix + token && proof.bytes == bytes.size.toLong()) {
             "Созданный маркер не подтверждён"
