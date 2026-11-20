@@ -61,7 +61,7 @@ jobs:
           test -s app/src/main/res/drawable-nodpi/ml_shortcut_music.jpg
           grep -Fq 'MusicDuplicateSessionStore.saveInteraction(context,saved' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
           grep -Fq 'MusicDuplicateShardStore.commit(context,session)' app/src/main/java/com/domenota/medialoader/data/library/MusicDuplicateSession.kt
-          grep -Fq 'duplicate-restore-progress' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
+          grep -Fq 'duplicate-restore-progress' app/src/main/java/com/domenota/medialoader/ui/screens/music/DuplicateResultPresentation.kt
           grep -Fq 'MusicDuplicateScanner.verifyMember' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
           grep -Fq 'NomediaSafPickerPolicy.suggestedInitialDocument' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
           grep -Fq 'NomediaSafPickerPolicy.isExactlyRequestedTree' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
