@@ -126,8 +126,15 @@ internal fun VaultScreen(access:PrivateAccessManager,onBack:()->Unit) {
         exportResultId=null;exportResultUri=null
         runAction {
             val ok=try { operations.export(id,uri,move) }
+            catch(error:VaultExportCleanupPendingException) {
+                // NEVER delete this document. Its bytes were verified and the
+                // private copy may already have been removed before index cleanup.
+                message=error.message
+                return@runAction
+            }
             catch(error:Exception) {
-                // This URI was created *specifically* for this export, not an existing document.
+                // Before verified export, the destination is solely a fresh SAF
+                // document created for this request, safe to try cleaning up.
                 val cleaned=runCatching{DocumentsContract.deleteDocument(context.contentResolver,uri)}.getOrDefault(false)
                 throw IllegalStateException(
                     (error.message?:"Не удалось подтвердить экспорт")+
