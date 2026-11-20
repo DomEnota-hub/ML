@@ -11,3 +11,5 @@ Final review: independent fresh reviewer reported cached test-result reuse, stal
 Ruling: publish only a tiny qualified receipt; candidate remains explicitly unsigned/unqualified until successful-run+live-HEAD+byte validation at consumption. A live branch update can occur after any upload, so an artifact name alone is never authority to sign.
 Ruling: retain manual historical workflow for rollback; remove its automatic hooks and only exclude proven managed storage duplicate branches. No blanket deletion of153historical workflows.
 Source implementation complete; exact-SHA cold/warm and negative CI acceptance pending. CI results are recorded externally in PR/current Drive Summary so result documentation does not change the measured sourceSHA.
+
+Observed GitHub limitation: dispatch by new filename returned404 outside default branch; discovered workflowID425172502 from PR run and dispatch byID succeeded. Documentation corrected before qualification to avoid an unusable command. First PR quick run44768099453 is superseded by qualification44768183861/source update; do not claim it passed.

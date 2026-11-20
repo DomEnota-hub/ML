@@ -18,13 +18,13 @@ The final pair consumed42m30s runner time; wall time was about26m38s, not their 
 
 ## Commands
 
-All commands below target an explicitly reviewed branch, never implicit main:
+All commands below target an explicitly reviewed branch, never implicit main. Workflow ID425172502 is used because GitHub filename lookup returns404 while this new workflow exists only on a non-default branch; dispatch by the observed workflow ID works without a production merge:
 
 ```sh
 # Normal PR open/synchronize: guards, CI-helper tests, all test-source compilation,
 # then the same18-class focused suite. No qualification receipt or installable QA.
 
-gh workflow run ml-ci.yml --repo DomEnota-hub/ML --ref ci/ml-pipeline-optimization \
+gh workflow run 425172502 --repo DomEnota-hub/ML --ref ci/ml-pipeline-optimization \
   -f mode=qualify -f fault=none -f cache_epoch=ci-audit-v1
 ```
 
@@ -57,7 +57,7 @@ This reads GitHub metadata (read-only `gh` auth or CI's read-only token), compar
 ## Negative validation and measurement
 
 ```sh
-gh workflow run ml-ci.yml --repo DomEnota-hub/ML --ref ci/ml-pipeline-optimization \
+gh workflow run 425172502 --repo DomEnota-hub/ML --ref ci/ml-pipeline-optimization \
   -f mode=qualify -f fault=compile -f cache_epoch=ci-audit-v1
 # Repeat with fault=lint and fault=test. quick+fault is invalid and fails preflight.
 ```
