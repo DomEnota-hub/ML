@@ -318,7 +318,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().testTag("duplicates-route")) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ close() }, enabled = !verifying&&!clearingJournal) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
                     Text("Дубликаты треков", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge,maxLines=1,overflow=TextOverflow.Ellipsis)
                     if(trashReport!=null)IconButton({showTrashReport=true},enabled=!verifying){
@@ -339,7 +339,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         } else LinearProgressIndicator(Modifier.fillMaxWidth())
                     } else DuplicateScanPanel(background.phase,background.done,background.total,
                         background.startedAt,background.phaseStartedAt,true,partial?.groups?.size?:0,
-                        exactBytes(partial?.groups.orEmpty()),showSummary=partial==null)
+                        exactBytes(partial?.groups.orEmpty()),showSummary=partial==null,
+                        completedMetadata=background.completedMetadata)
                     if (background.running) {
                         Button({ close() }, Modifier.fillMaxWidth()) { Text("Продолжить в фоне") }
                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){

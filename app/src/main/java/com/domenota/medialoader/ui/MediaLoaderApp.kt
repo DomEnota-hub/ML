@@ -2325,10 +2325,7 @@ fun MediaLoaderApp(
                     onShareFromAlbum = { id, album -> shareScopedFile(id,album?.takeIf { it.startsWith("folder:") }?.removePrefix("folder:")) },
                     onTrashFolderContents = requestAlbumTrash,
                     collectionContent={
-                        Column {
-                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)},blockedIdentities=collectionBlocked.takeIf{collectionReadAccess!=null},cachedCovers=if(organizationProjection.ready && organizationUsable) emptyMap() else cachedCollectionCovers, coverAccess=collectionCoverAccess, collectionsReady=collectionsLoaded)
-                            TextButton({navController.navigate("visual-duplicates"){launchSingleTop=true}}){Text("Дубликаты фото и видео")}
-                        }
+                        CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)},blockedIdentities=collectionBlocked.takeIf{collectionReadAccess!=null},cachedCovers=if(organizationProjection.ready && organizationUsable) emptyMap() else cachedCollectionCovers, coverAccess=collectionCoverAccess, collectionsReady=collectionsLoaded)
                     },
                     onAddCollection=::addToCollection,
                     onBatchPhotoEdit={ids->runRestoredAction(ids) {
@@ -2341,7 +2338,9 @@ fun MediaLoaderApp(
                     onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY, force = true) },
                     onRename = renameVisibilityFile,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
-                    searchVisible = librarySearchVisible, tabOverride = galleryTab, datePickerRequest = galleryDateRequest,
+                    searchVisible = librarySearchVisible,
+                    onOpenDuplicates = { navController.navigate("visual-duplicates") { launchSingleTop = true } },
+                    tabOverride = galleryTab, datePickerRequest = galleryDateRequest,
                      scrollToTopRequest = galleryTopRequest, onTabChange = {
                          if (galleryTab == 0 && it == 0) galleryTopRequest++
                          galleryTab = it

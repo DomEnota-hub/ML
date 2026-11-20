@@ -144,14 +144,16 @@ internal fun GalleryVideoHeader(
                     GalleryV10Icon("more", Modifier.size(28.dp))
                 }
             }
+            // Keep both actions available in portrait and landscape, changing placement only.
+            IconButton(onClick = onFloating, modifier = Modifier.size(43.dp)
+                .semantics { contentDescription = "В оконный режим" }) {
+                Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = null,
+                    tint = Color.White, modifier = Modifier.size(27.dp))
+            }
+            // Rotate is the outer-right action in BOTH orientations.
             IconButton(onClick = onRotate, modifier = Modifier.size(43.dp)
                 .semantics { contentDescription = "Повернуть экран" }) {
                 GalleryV10Icon("rotate", Modifier.size(27.dp))
-            }
-            // PiP stays visible at the outer right edge in BOTH orientations.
-            IconButton(onClick = onFloating, modifier = Modifier.size(43.dp)) {
-                Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = "В оконный режим",
-                    tint = Color.White, modifier = Modifier.size(27.dp))
             }
         }
     }

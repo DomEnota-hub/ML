@@ -25,7 +25,7 @@ internal object DuplicateBackgroundScan {
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
         val session: DuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false,
         val phase:DuplicateScanPhase=DuplicateScanPhase.METADATA,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:DuplicateScanResult?=null,
-        val outcome:Outcome=Outcome.IDLE,val expanded:Boolean=false)
+        val outcome:Outcome=Outcome.IDLE,val expanded:Boolean=false,val completedMetadata:Int=0)
     private val mutable = MutableStateFlow(Status())
     val state = mutable.asStateFlow()
     private var pending: Request? = null
@@ -87,7 +87,12 @@ internal object DuplicateBackgroundScan {
             mutable.value = mutable.value.copy(done=done,total=total)
     }
     @Synchronized fun phase(token:Long,phase:DuplicateScanPhase){
-        val s=mutable.value;if(s.token==token&&s.running)mutable.value=s.copy(phase=phase,done=0,total=0,phaseStartedAt=android.os.SystemClock.elapsedRealtime())
+        val s=mutable.value
+        if(s.token==token&&s.running) {
+            val metadataCount=if(s.phase==DuplicateScanPhase.METADATA&&phase!=DuplicateScanPhase.METADATA&&s.total>0&&s.done>=s.total) s.total else s.completedMetadata
+            mutable.value=s.copy(phase=phase,done=0,total=0,completedMetadata=metadataCount,
+                phaseStartedAt=android.os.SystemClock.elapsedRealtime())
+        }
     }
     @Synchronized fun partial(token:Long,result:DuplicateScanResult){
         val s=mutable.value;if(s.token==token&&s.running)mutable.value=s.copy(partial=result)

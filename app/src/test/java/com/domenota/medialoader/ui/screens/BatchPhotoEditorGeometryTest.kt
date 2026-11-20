@@ -134,4 +134,29 @@ class BatchPhotoEditorGeometryTest {
             compose.runOnIdle{assertFalse(requireNotNull(exported?.editSpec).geometry.isNeutral())}
         }finally{first.delete();second.delete()}
     }
+    @Test fun batchSaveIsInHeaderAndLastPreviewSurvivesToolSwitch() {
+        val (file,row)=photo("header-and-preview",240,400)
+        try {
+            compose.setContent { MaterialTheme {
+                BatchPhotoEditorScreen(listOf(row),BatchPhotoState(),false,true,{},{_,_->},{})
+            } }
+            waitForPhoto()
+            compose.onNodeWithText("1 фото").assertIsDisplayed()
+            compose.onNodeWithText("Сохранить").assertIsDisplayed()
+            compose.onNodeWithTag("batch-export").assertIsDisplayed()
+            compose.onNodeWithText("Обработать 1 фото").assertDoesNotExist()
+            compose.onNodeWithText("Уровни").performClick()
+            compose.waitUntil(15_000) {
+                compose.onAllNodes(hasTestTag("batch-edited-preview"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("Эффекты").performClick()
+            // A changed tool tab should not clear the last valid rendered bitmap.
+            compose.onNodeWithTag("batch-edited-preview").assertIsDisplayed()
+            compose.onNodeWithText("Обновляем предпросмотр…").assertDoesNotExist()
+            compose.onNodeWithTag("batch-export").performClick()
+            compose.onNodeWithTag("batch-confirm-export").assertExists()
+        } finally { file.delete() }
+    }
+
 }
