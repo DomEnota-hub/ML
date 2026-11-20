@@ -79,4 +79,22 @@ class NomediaFolderRepositoryTest {
         }
         assertTrue(store.snapshot().hiddenFolderIds.contains("folder"))
     }
+    @Test fun oldSafRegistryRemainsSafAndDirectProvenanceRoundTrips() {
+        reset()
+        val store=NomediaFolderRepository(context)
+        val localTree="content://com.android.externalstorage.documents/tree/primary%3APictures%2FAlbum"
+        val record=NomediaFolderRecord("direct-photo",localTree,true,
+            NomediaMarkerState.OWN_MARKER,
+            ownedDocumentId="ml-archive-v1:11111111-1111-1111-1111-111111111111",
+            accessMode=NomediaAccessMode.MANAGED_LOCAL,ownedMarkerBytes=53L)
+        store.write(record)
+        store.write(NomediaFolderRecord("old-saf",tree,true,NomediaMarkerState.FOREIGN_MARKER))
+        val reopened=NomediaFolderRepository(context).snapshot()
+        assertFalse(reopened.unknown)
+        assertEquals(record,reopened.folders["direct-photo"])
+        assertEquals(NomediaAccessMode.SAF,reopened.folders["old-saf"]?.accessMode)
+        assertEquals(0L,reopened.folders["old-saf"]?.ownedMarkerBytes)
+        reset()
+    }
+
 }
