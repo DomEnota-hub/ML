@@ -67,7 +67,7 @@ internal fun GalleryModeScreen(
     onFavorite: suspend (String, Boolean) -> Unit, onSetFolder: suspend (String, String?) -> Unit,
     onCreateFolder: suspend (String) -> String, onShare: (String) -> Unit, onDelete: (String) -> Unit,
     onRename: (String, String) -> Unit, onMoveToPrivate: (String) -> Unit,
-    searchVisible: Boolean? = null, tabOverride: Int? = null, scrollToTopRequest: Int = 0, onTabChange: (Int) -> Unit = {},
+    searchVisible: Boolean? = null, onOpenDuplicates: (() -> Unit)? = null, tabOverride: Int? = null, scrollToTopRequest: Int = 0, onTabChange: (Int) -> Unit = {},
     deviceAlbums: Map<String, DeviceAlbum> = emptyMap(),
     onDetailChange: (Boolean) -> Unit = {}, onTrash: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
@@ -486,6 +486,8 @@ internal fun GalleryModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
                         leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                    if (searchVisible == true && !detailOpen && onOpenDuplicates != null)
+                        DuplicateSearchShortcut(onOpenDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading || (tab==0 && !gridReady), message, settingsError ?: error,
                         tab == 0 && gridReady && visibleDisplayed.isEmpty(), "Нет фото и видео") }
                 }
