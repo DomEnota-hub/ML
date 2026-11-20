@@ -27,6 +27,8 @@ class HistoryRepository(private val dao: DownloadDao, private val catalogDao: Ca
         dao.setMuzmoArtworkIfMissing(id, artworkUrl)
 
     suspend fun setDuration(id: String, duration: Long) = dao.setDuration(id, duration)
+    suspend fun fillMissingDurationWhenCurrent(id: String, uri: String, duration: Long): Int =
+        dao.fillMissingDurationWhenCurrent(id, uri, duration)
     suspend fun save(entity: DownloadEntity) = dao.upsert(entity)
     /** Only the real download completion path enqueues review. Existing history,
      * metadata rewrites, imports and editor exports cannot create new inbox entries. */
