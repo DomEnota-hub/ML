@@ -241,13 +241,24 @@ class SelectiveArchiveMediaStoreInstrumentedTest {
             removeOwnedUri(keeper,keeperName)
             // The same rule applies to direct files: never follow a symlink,
             // never delete an unknown file, and never recurse a directory.
-            val canonicalRoot=runCatching { root.canonicalFile==root.absoluteFile }
-                .getOrDefault(false)
-            if(canonicalRoot) {
+            // Android may legitimately canonicalize system-managed /sdcard
+            // ancestors differently. Check the newly created LEAF itself
+            // with NOFOLLOW_LINKS rather than rejecting those platform aliases.
+            val ownedRoot=root.name=="MLSelectiveArchiveProbe_$id" &&
+                root.parentFile==File(Environment.getExternalStorageDirectory(),"Pictures") &&
+                java.nio.file.Files.isDirectory(root.toPath(),
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+                !java.nio.file.Files.isSymbolicLink(root.toPath()) &&
+                source.parentFile==root && target.parentFile==root &&
+                java.nio.file.Files.isDirectory(source.toPath(),
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+                java.nio.file.Files.isDirectory(target.toPath(),
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS)
+            if(ownedRoot) {
                 for(file in listOf(selectedSource,selectedTarget,keeperSource)) {
                     if(java.nio.file.Files.isRegularFile(file.toPath(),
                             java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
-                        file.canonicalFile==file.absoluteFile &&
+                        !java.nio.file.Files.isSymbolicLink(file.toPath()) &&
                         file.parentFile in listOf(source,target) &&
                         file.length()==expected.size.toLong() &&
                         runCatching { file.readBytes().contentEquals(expected) }.getOrDefault(false)) {
