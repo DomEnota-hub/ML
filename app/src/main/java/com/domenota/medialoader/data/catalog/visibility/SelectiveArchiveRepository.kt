@@ -142,7 +142,10 @@ internal class SelectiveArchiveRepository(
             SelectiveArchiveCatalogMember(row.id,uri,ref)
         }
         val originals=inspector.inspect(members,plan.expected,physical)
-        check(originals.map { it.catalogId }.toSet()==ids)
+        check(originals.map { it.catalogId }.toSet()==ids &&
+            originals.all { nomediaSuggestedTree(it.volume,it.relativePath)==plan.treeUri }) {
+            "Выбранный файл находится вне подтверждённого физического каталога"
+        }
         return checkpoints.prepare(plan.folderId,originals,plan.expected,physical)
     }
 }
