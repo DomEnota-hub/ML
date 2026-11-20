@@ -166,6 +166,13 @@ class MusicDuplicateScanService : Service() {
                 "regularMiB=${memory.memoryClass} largeMiB=${memory.largeMemoryClass}")
         job = scope.launch {
             try {
+                // Preserve the previous interrupted report before the new attempt
+                // starts publishing its first (empty) progress snapshot.
+                withContext(Dispatchers.IO) {
+                    synchronized(DuplicatePrivacyGuard.lock) {
+                        DuplicateReportJournal.preserveMusicPartial(this@MusicDuplicateScanService)
+                    }
+                }
                 val result = MusicDuplicateScanner.scan(this@MusicDuplicateScanService,request.rows,request.linked,request.current,request.expanded,
                     onPhase={renewWakeLock();DuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
                         DuplicateBackgroundScan.partial(scanToken,partial)
