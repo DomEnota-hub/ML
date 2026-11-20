@@ -1,18 +1,7 @@
 name: ML 1.7.209 batch 2 - vault, private selection, music duration and ARM64 QA
 
+# Historical sequential pipeline retained for explicit comparison/rollback only.
 on:
-  push:
-    branches:
-      - feature/ml-17209-batch2-vault-private-qa
-    paths:
-      - '.github/workflows/ml-17209-batch2-qa.yml'
-      - 'app/src/main/**'
-      - 'app/src/test/**'
-      - 'app/build.gradle'
-      - 'scripts/**'
-  pull_request:
-    branches:
-      - feature/ml-17209-batch1-stability-ui-vault
   workflow_dispatch:
 
 permissions:

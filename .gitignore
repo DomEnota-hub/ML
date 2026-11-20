@@ -24,3 +24,10 @@ signing.properties
 
 # Local GAPI credentials embedded only by local builds
 /.gapi-local
+
+# Temporary CI reports and handoffs
+ci-output/
+arm64-candidate/
+received/
+qualified/
+__pycache__/

@@ -11,6 +11,8 @@ from collections import defaultdict
 from pathlib import Path
 import copy
 import json
+import os
+import time
 import re
 import shutil
 import subprocess
@@ -66,10 +68,13 @@ def run_shard(label, extra, shard_root):
     shutil.rmtree(HTML, ignore_errors=True)
     dest = shard_root / label
     dest.mkdir(parents=True)
-    cmd = [str(ROOT / 'gradlew'), ':app:testDebugUnitTest', '-Parm64Release=true',
+    cmd = [os.environ.get('ML_GRADLE', str(ROOT / 'gradlew')), ':app:testDebugUnitTest', '-Parm64Release=true',
            '--stacktrace', *extra]
+    if os.environ.get('ML_CI_PROFILE') == 'true': cmd.extend(['--profile','--init-script',str(ROOT/'scripts/ci/test-execution.init.gradle')])
     print(f'=== JVM shard {label} ===', flush=True)
+    started = time.monotonic()
     code = subprocess.run(cmd, cwd=ROOT).returncode
+    print(json.dumps({"shard": label, "seconds": round(time.monotonic()-started,3), "exit": code}), flush=True)
     if RESULTS.is_dir():
         shutil.copytree(RESULTS, dest / 'xml')
     if HTML.is_dir():
@@ -156,6 +161,11 @@ def main():
 
     # A failed test is never retried or replaced with a successful attempt.
     collect('bulk', [f'-PmlIsolatedComposeBulk={mode}', *extra])
+    if errors:
+        report = {'mode': mode, 'total': len(all_cases), 'isolated_methods': 0, 'shards': records, 'errors': errors, 'incomplete': True}
+        (shard_root / 'manifest.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
+        print(json.dumps(report), flush=True)
+        return 1
     for cls, method in expected:
         collect(f'{cls.rsplit(".", 1)[-1]}-{method}', ['--tests', f'{cls}.{method}'], {(cls, method)})
     if isolated - all_cases.keys():

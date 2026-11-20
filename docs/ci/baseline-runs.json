@@ -1,0 +1,437 @@
+[
+  {
+    "run": 44753902352,
+    "sha": "8f83894082b20eacf63727257617bc1674f1ffef",
+    "event": "pull_request",
+    "attempt": 1,
+    "conclusion": "success",
+    "queue_seconds": 19.0,
+    "runner_seconds": 953.0,
+    "steps": [
+      {
+        "name": "Set up job",
+        "seconds": 2.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "seconds": 3.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/setup-java@v4",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Bootstrap verified Gradle wrapper",
+        "seconds": 19.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "SDK 35",
+        "seconds": 5.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Pictures destination, history and OCR regression tests",
+        "seconds": 282.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Shared UI regression guard",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Android lint",
+        "seconds": 431.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Unsigned ARM64 Release compilation",
+        "seconds": 207.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify resulting APK and destination source checks",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Save diagnostics only",
+        "seconds": 1.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/setup-java@v4",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Complete job",
+        "seconds": 1.0,
+        "conclusion": "success"
+      }
+    ]
+  },
+  {
+    "run": 44745437669,
+    "sha": "cce55ee5a2a6b888462ba269e0c913cfff06de2f",
+    "event": "pull_request",
+    "attempt": 2,
+    "conclusion": "success",
+    "queue_seconds": 130.0,
+    "runner_seconds": 1352.0,
+    "steps": [
+      {
+        "name": "Set up job",
+        "seconds": 1.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "seconds": 4.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/setup-java@v4",
+        "seconds": 1.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Gradle and Android SDK",
+        "seconds": 22.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify requested version and source guards",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Focused duplicate session, preview, policy and trash tests",
+        "seconds": 313.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full isolated JVM and Compose",
+        "seconds": 410.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Android lint and ARM64 unsigned compile",
+        "seconds": 574.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Source and package check",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Exact source archive and local-signing handoff",
+        "seconds": 2.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Upload exact SHA unsigned handoff, never a GitHub release",
+        "seconds": 6.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Exact SHA QA candidate and diagnostics",
+        "seconds": 4.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/setup-java@v4",
+        "seconds": 12.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Complete job",
+        "seconds": 0.0,
+        "conclusion": "success"
+      }
+    ]
+  },
+  {
+    "run": 44742075785,
+    "sha": "5cb8d0865554acdfaa46fafd4a50a1061f52598e",
+    "event": "pull_request",
+    "attempt": 1,
+    "conclusion": "failure",
+    "queue_seconds": 3.0,
+    "runner_seconds": 1328.0,
+    "steps": [
+      {
+        "name": "Set up job",
+        "seconds": 4.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "seconds": 6.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/setup-java@v4",
+        "seconds": 1.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Gradle and Android SDK",
+        "seconds": 30.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify requested version and source guards",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Focused duplicate session, preview, policy and trash tests",
+        "seconds": 319.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full isolated JVM and Compose",
+        "seconds": 382.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Android lint and ARM64 unsigned compile",
+        "seconds": 575.0,
+        "conclusion": "failure"
+      },
+      {
+        "name": "Source and package check",
+        "seconds": 0.0,
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Exact source archive and local-signing handoff",
+        "seconds": 0.0,
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Upload exact SHA unsigned handoff, never a GitHub release",
+        "seconds": 0.0,
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Exact SHA QA candidate and diagnostics",
+        "seconds": 6.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/setup-java@v4",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Complete job",
+        "seconds": 1.0,
+        "conclusion": "success"
+      }
+    ]
+  },
+  {
+    "run": 44752625791,
+    "sha": "ce4ed7be7ed3e8e73a4b3d190cb51d82a1732257",
+    "event": "pull_request",
+    "attempt": 1,
+    "conclusion": "cancelled",
+    "queue_seconds": 6.0,
+    "runner_seconds": 491.0,
+    "steps": [
+      {
+        "name": "Set up job",
+        "seconds": 1.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "seconds": 2.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify checkout matches reviewed source",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/setup-java@v4",
+        "seconds": 20.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Gradle and Android SDK",
+        "seconds": 15.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify requested version and source guards",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Focused duplicate session, preview, policy and trash tests",
+        "seconds": 203.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full isolated JVM and Compose",
+        "seconds": 244.0,
+        "conclusion": "cancelled"
+      },
+      {
+        "name": "Android lint and ARM64 unsigned compile",
+        "seconds": 0.0,
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Source and package check",
+        "seconds": 0.0,
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Exact source archive and local-signing handoff",
+        "seconds": 0.0,
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Upload exact SHA unsigned handoff, never a GitHub release",
+        "seconds": 0.0,
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Exact SHA QA candidate and diagnostics",
+        "seconds": 2.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/setup-java@v4",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "seconds": 1.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Complete job",
+        "seconds": 0.0,
+        "conclusion": "success"
+      }
+    ]
+  },
+  {
+    "run": 44753902351,
+    "sha": "8f83894082b20eacf63727257617bc1674f1ffef",
+    "event": "pull_request",
+    "attempt": 1,
+    "conclusion": "success",
+    "queue_seconds": 20.0,
+    "runner_seconds": 1597.0,
+    "steps": [
+      {
+        "name": "Set up job",
+        "seconds": 1.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "seconds": 1.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify checkout matches reviewed source",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/setup-java@v4",
+        "seconds": 13.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Gradle and Android SDK",
+        "seconds": 9.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify requested version and source guards",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Focused duplicate session, preview, policy and trash tests",
+        "seconds": 301.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full isolated JVM and Compose",
+        "seconds": 550.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Android lint and ARM64 unsigned compile",
+        "seconds": 704.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Source and package check",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Exact source archive and local-signing handoff",
+        "seconds": 3.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Upload exact SHA unsigned handoff, never a GitHub release",
+        "seconds": 7.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Exact SHA QA candidate and diagnostics",
+        "seconds": 6.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/setup-java@v4",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "seconds": 0.0,
+        "conclusion": "success"
+      },
+      {
+        "name": "Complete job",
+        "seconds": 0.0,
+        "conclusion": "success"
+      }
+    ]
+  }
+]
