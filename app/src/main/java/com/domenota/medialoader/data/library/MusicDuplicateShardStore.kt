@@ -135,7 +135,6 @@ internal object MusicDuplicateShardStore {
             endChunk()
             check(written==session.result.groups.size){"GROUP_COUNT_MISMATCH"}
             // Keep only small mutable UI values in a separate atomic file.
-            writeAtomic(File(generation,"manifest.json")){it.write(manifest("completed").toString())}
             // Verify each persisted chunk with bounded memory before publish.
             // Never decode the entire scan while the original full scan is in heap.
             for(i in 0 until headers.length()){
@@ -148,6 +147,7 @@ internal object MusicDuplicateShardStore {
                 }}
                 check(lineCount==info.getInt("groups")){"SHARD_READBACK_FAILED"}
             }
+            writeAtomic(File(generation,"manifest.json")){it.write(manifest("completed").toString())}
             updateSelection(context,session,false)
             writeAtomic(active(context).baseFile){it.write(JSONObject().put("id",id).toString())}
         } catch(t:Throwable){
@@ -162,7 +162,7 @@ internal object MusicDuplicateShardStore {
         require(id.matches(Regex("scan_[0-9]+_[a-f0-9]{32}"))){"INVALID_ID"}
         val dir=File(root(context),id)
         val doc=JSONObject(atomicText(File(dir,if(recovery)"recovery.json" else "manifest.json")))
-        require(doc.optString("stage")==if(recovery)"provisional" else "completed")
+        require(doc.optString("stage") == (if(recovery)"provisional" else "completed"))
         require(doc.getInt("schema")==SCHEMA && doc.getString("id")==id)
         val epoch=doc.getLong("epoch")
         if(requireCurrentPrivacy && epoch!=DuplicatePrivacyGuard.generation(context))return null
