@@ -29,6 +29,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -1091,7 +1092,48 @@ internal fun LocalVideoPlayer(
                         onHoldStart = { beginHoldSpeed() },
                         onHoldEnd = { endHoldSpeed() },
                     )
-                })
+                }) {
+                // Inline Gallery reserves top-half horizontal swipes for paging
+                // between media. Bottom-half drags scrub the video instead.
+                // Parent vertical edge gestures and tap/hold still work normally.
+                if (galleryPagingEnabled && !fullscreen) Box(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.5f)
+                        .pointerInput(player, playableDurationMs) {
+                            var startPosition = 0L
+                            var distanceX = 0f
+                            var seeking = false
+                            detectHorizontalDragGestures(
+                                onDragStart = {
+                                    seeking = !holdSpeed.active && playableDurationMs > 0L
+                                    distanceX = 0f
+                                    if (seeking) {
+                                        startPosition = player.currentPosition.coerceAtLeast(0L)
+                                        scrubPositionMs = startPosition
+                                        chromeVisible = true
+                                    }
+                                },
+                                onHorizontalDrag = { change, amount ->
+                                    if (seeking && !holdSpeed.active) {
+                                        distanceX += amount
+                                        scrubPositionMs = VideoScrubPolicy.target(
+                                            startPosition,distanceX,size.width,playableDurationMs)
+                                        change.consume()
+                                    }
+                                },
+                                onDragEnd = {
+                                    if (seeking && !holdSpeed.active)
+                                        scrubPositionMs?.let(player::seekTo)
+                                    seeking = false
+                                    scrubPositionMs = null
+                                },
+                                onDragCancel = {
+                                    seeking = false
+                                    scrubPositionMs = null
+                                },
+                            )
+                        },
+                )
+            }
         }
         if (galleryPagingEnabled && controlsLocked) {
             // Each ordinary tap toggles visibility only. Locked playback stays
