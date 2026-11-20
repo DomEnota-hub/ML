@@ -34,7 +34,7 @@ internal class SelectiveArchiveReferenceGuard(
             database.downloadDao().countSavedUriReferences(uri)!=1
         ) return@withContext null
         // A folder member must retain its original assignment and favorite flag.
-        val assignment=database.catalogDao().assignmentById(original.catalogId)
+        val assignment=database.catalogDao().assignmentById(catalogId)
             ?: return@withContext null
         val members=database.organizationDao().identityMembers().sortedBy { it.id }
         // Read the raw persisted playlist snapshot under its own storage mutex;
