@@ -114,7 +114,7 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
         val record=checkNotNull(snapshot.folders[folderId]) { "Нет SAF-привязки папки" }
         check(record.excludedFromMl) { "Просмотр SAF доступен только для скрытой папки" }
         if(record.accessMode==NomediaAccessMode.MANAGED_LOCAL)
-            ManagedLocalNomediaPort().listMedia(record.treeUri)
+            withContext(Dispatchers.IO) { ManagedLocalNomediaPort().listMedia(record.treeUri) }
         else safPort.listMedia(record.treeUri)
     }
 
@@ -126,7 +126,9 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
         }
         check(record.excludedFromMl) { "Папка не скрыта в ML" }
         if(record.accessMode==NomediaAccessMode.MANAGED_LOCAL)
-            ManagedLocalNomediaPort().localMediaUri(record.treeUri,documentId)
+            withContext(Dispatchers.IO) {
+                ManagedLocalNomediaPort().localMediaUri(record.treeUri,documentId)
+            }
         else safPort.readableMediaUri(record.treeUri,documentId)
     }
 
@@ -135,7 +137,7 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
             "Состояние доступа неизвестно"
         }
         check(record.excludedFromMl)
-        if(record.accessMode==NomediaAccessMode.MANAGED_LOCAL) {
+        if(record.accessMode==NomediaAccessMode.MANAGED_LOCAL) withContext(Dispatchers.IO) {
             val uri=ManagedLocalNomediaPort().localMediaUri(record.treeUri,documentId)
             runCatching { java.io.FileInputStream(checkNotNull(uri.path)).use { it.read();true } }
                 .getOrDefault(false)
