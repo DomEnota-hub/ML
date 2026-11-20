@@ -256,6 +256,23 @@ internal fun nomediaSafTreeEligible(documentId:String):Boolean {
     return true
 }
 
+/** SAF must describe one flat physical directory. A parent .nomedia also affects
+ * every descendant; even an empty nested folder would create an unverified scope.
+ * Unknown MIME/sidecar items are never silently omitted from a pre-write scan.
+ * Returns false only for the special top-level marker itself.
+ */
+internal fun nomediaSafPhysicalFileAccepted(name:String,mime:String,depth:Int):Boolean {
+    check(depth==0) { "Вложенный каталог не подтверждён. Скрытие отменено" }
+    if(name==".nomedia") {
+        check(mime!=DocumentsContract.Document.MIME_TYPE_DIR) { "Маркер .nomedia не является файлом" }
+        return false
+    }
+    check(mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/")) {
+        "В каталоге есть неподтверждённые или посторонние файлы"
+    }
+    return true
+}
+
 /** Restricted to Android's physical external-storage documents provider.
  * Cloud/third-party providers cannot claim system-gallery exclusion. */
 internal class AndroidNomediaMarkerPort(context:Context):NomediaMarkerPort {
@@ -337,16 +354,10 @@ internal class AndroidNomediaMarkerPort(context:Context):NomediaMarkerPort {
                     check(!id.isNullOrBlank() && !name.isNullOrBlank() && !mime.isNullOrBlank()) {
                         "Неполная запись SAF"
                     }
-                    if(name==".nomedia") continue
-                    if(mime==DocumentsContract.Document.MIME_TYPE_DIR) {
-                        check(depth<12) { "Дерево SAF слишком глубокое" }
-                        queue.add(id to (depth+1))
-                    } else if(mime.startsWith("image/") || mime.startsWith("video/") ||
-                        mime.startsWith("audio/")) {
-                        check(entries.size<2048) { "Слишком много медиа в выбранном каталоге" }
-                        entries+=NomediaSafEntry(id,name,mime,
-                            if(it.isNull(3)) null else it.getLong(3).takeIf { v -> v>=0 })
-                    }
+                    if(!nomediaSafPhysicalFileAccepted(name,mime,depth)) continue
+                    check(entries.size<2048) { "Слишком много медиа в выбранном каталоге" }
+                    entries+=NomediaSafEntry(id,name,mime,
+                        if(it.isNull(3)) null else it.getLong(3).takeIf { v -> v>=0 })
                 }
             }
         }
