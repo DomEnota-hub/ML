@@ -41,12 +41,12 @@ internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,star
                 }
                 Column(Modifier.weight(1f)){
                     Text(phase.caption,style=MaterialTheme.typography.titleMedium)
-                    if(total>0)Text("Проверено: $done из $total")
+                    if(total>0)Text("Текущий этап: $done из $total")
                     Text("Прошло: ${duration(elapsed)}",style=MaterialTheme.typography.bodySmall)
                     if(eta!=null)Text("До конца этапа ≈ ${duration(eta)}",style=MaterialTheme.typography.bodySmall)
                 }
             }
-            phases.forEachIndexed{i,p->Text((if(i<index)"✓ " else if(i==index)"● " else "○ ")+p.caption,
+            phases.forEachIndexed{i,p->Text((if(i<index)"✓ " else if(i==index)"● " else "○ ")+p.caption+(if(i<index)" · готово" else ""),
                 color=if(i==index)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
             if(showSummary)Text("Найдено групп: $groups · точные копии: ${android.text.format.Formatter.formatFileSize(context,bytes)}",
                 style=MaterialTheme.typography.bodyMedium)
