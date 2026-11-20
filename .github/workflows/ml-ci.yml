@@ -58,8 +58,8 @@ jobs:
           lane: jvm
           epoch: ${{ inputs.cache_epoch || 'v1' }}
       - run: python3 scripts/ci/fault.py
-      - name: Compile all JVM test sources first
-        run: python3 scripts/ci/gate.py stage test-compile "$ML_GRADLE" :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac -Parm64Release=true --stacktrace --console=plain
+      - name: Compile JVM and Android device-test sources (without running device tests)
+        run: python3 scripts/ci/gate.py stage test-compile "$ML_GRADLE" :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac :app:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestJavaWithJavac -Parm64Release=true --stacktrace --console=plain
       - name: Focused PR feedback
         if: inputs.mode != 'qualify' && !contains(github.event.pull_request.labels.*.name, 'ci:qualify')
         run: |
