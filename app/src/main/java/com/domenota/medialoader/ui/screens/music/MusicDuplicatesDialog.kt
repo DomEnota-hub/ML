@@ -65,7 +65,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** A Compose key with reference semantics; acoustic payloads must never participate in UI equality. */
-private class DuplicateReferenceKey(private val target: Any?) {
+internal class DuplicateReferenceKey(private val target: Any?) {
     override fun equals(other: Any?): Boolean = other is DuplicateReferenceKey && target === other.target
     override fun hashCode(): Int = System.identityHashCode(target)
 }
