@@ -65,8 +65,15 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
                 else safPort.listMedia(plan.treeUri.toString())
             val actual=found.map { NomediaMediaSignature(it.displayName,it.byteCount ?: -1L) }
             NomediaSafTrace.event("INVENTORY_READ",actual.size)
-            check(nomediaInventoryMatches(plan.expected,actual)) {
-                "Каталог содержит другие файлы или состав изменился. Скрытие всей папки отменено"
+            when(val verdict=archiveInventoryVerdict(plan.expected,actual)) {
+                ArchiveInventoryVerdict.ExactPhysicalFolder -> Unit
+                is ArchiveInventoryVerdict.RequiresSelectiveArchive -> error(
+                    "В коллекции ${verdict.selected} из ${verdict.physical} медиа физической папки. " +
+                        "Нельзя скрыть весь каталог; нужен отдельный безопасный перенос выбранных файлов"
+                )
+                ArchiveInventoryVerdict.Unverified -> error(
+                    "Состав физической папки или файлы изменились. Скрытие отменено"
+                )
             }
             NomediaSafTrace.event("INVENTORY_EXACT_MATCH",actual.size)
             val record=if(local!=null)
