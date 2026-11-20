@@ -67,7 +67,7 @@ internal fun GalleryModeScreen(
     onFavorite: suspend (String, Boolean) -> Unit, onSetFolder: suspend (String, String?) -> Unit,
     onCreateFolder: suspend (String) -> String, onShare: (String) -> Unit, onDelete: (String) -> Unit,
     onRename: (String, String) -> Unit, onMoveToPrivate: (String) -> Unit,
-    searchVisible: Boolean? = null, onOpenDuplicates: (() -> Unit)? = null, tabOverride: Int? = null, scrollToTopRequest: Int = 0, onTabChange: (Int) -> Unit = {},
+    searchVisible: Boolean? = null, tabOverride: Int? = null, scrollToTopRequest: Int = 0, onTabChange: (Int) -> Unit = {},
     deviceAlbums: Map<String, DeviceAlbum> = emptyMap(),
     onDetailChange: (Boolean) -> Unit = {}, onTrash: (() -> Unit)? = null,
     onDeleteSelected: ((List<String>) -> Unit)? = null,
@@ -88,6 +88,7 @@ internal fun GalleryModeScreen(
     onShareFromAlbum: ((String,String?) -> Unit)? = null,
     preparedBrowse: BackgroundLibraryValue<GalleryBrowseInventory>? = null,
     preparedBrowseAccess: Any? = null,
+    onOpenDuplicates: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
