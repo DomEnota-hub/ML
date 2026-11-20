@@ -190,7 +190,10 @@ class MusicDuplicateScanService : Service() {
                 if (!DuplicateBackgroundScan.beginCommit(scanToken)) return@launch
                 val session = DuplicateSession(result,emptySet(),result.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) },0,0,scanAt)
                 check(MusicDuplicateSessionStore.save(this@MusicDuplicateScanService,session)) { "Не удалось сохранить поиск" }
-                synchronized(DuplicatePrivacyGuard.lock){DuplicateReportJournal.clearPartial(this@MusicDuplicateScanService,"music")}
+                synchronized(DuplicatePrivacyGuard.lock){
+                    DuplicateReportJournal.clearPartial(this@MusicDuplicateScanService,"music")
+                    MusicDuplicateShardStore.clearPartialSelection(this@MusicDuplicateScanService)
+                }
                 terminal = true
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 notifyAllowed(DONE_ID,notificationBase().setContentTitle("Поиск дубликатов завершён")
