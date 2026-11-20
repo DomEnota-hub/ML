@@ -74,6 +74,7 @@ internal class ManagedLocalNomediaPort(
                 when {
                     Files.isDirectory(path, NOFOLLOW_LINKS) -> visit(child, depth + 1)
                     Files.isRegularFile(path, NOFOLLOW_LINKS) -> {
+                        check(depth == 0) { "Вложенные медиа требуют отдельной проверки" }
                         val extension = child.extension.lowercase(java.util.Locale.ROOT)
                         val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
                         check(mime != null && (mime.startsWith("image/") ||
