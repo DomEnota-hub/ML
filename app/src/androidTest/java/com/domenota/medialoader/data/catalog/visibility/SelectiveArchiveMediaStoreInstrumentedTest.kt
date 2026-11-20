@@ -224,12 +224,41 @@ class SelectiveArchiveMediaStoreInstrumentedTest {
         } finally {
             // CLEANUP IS SCOPED to our random synthetic names/URIs ONLY.
             // Never recursively delete user directories or unknown contents.
-            selected?.let { runCatching { resolver.delete(it,null,null) } }
-            keeper?.let { runCatching { resolver.delete(it,null,null) } }
-            for(file in listOf(selectedSource,selectedTarget,keeperSource,marker)) {
-                if(file.exists() && file.isFile) runCatching { file.delete() }
+            // MediaStore may recycle a deleted _ID: NEVER delete through an old
+            // URI unless the current row is still provably OUR own synthetic.
+            fun removeOwnedUri(uri:Uri?,name:String) {
+                if(uri==null)return
+                val live=runCatching { row(uri) }.getOrNull()
+                if(live!=null && live.name==name && live.size==expected.size.toLong() &&
+                    live.relative in setOf(inputRelative,targetRelative) && !live.trashed) {
+                    runCatching {
+                        val samePayload=payload(uri).contentEquals(expected)
+                        if(samePayload) resolver.delete(uri,null,null)
+                    }
+                }
             }
-            source.delete();target.delete();root.delete()
+            removeOwnedUri(selected,selectedName)
+            removeOwnedUri(keeper,keeperName)
+            // The same rule applies to direct files: never follow a symlink,
+            // never delete an unknown file, and never recurse a directory.
+            val canonicalRoot=runCatching { root.canonicalFile==root.absoluteFile }
+                .getOrDefault(false)
+            if(canonicalRoot) {
+                for(file in listOf(selectedSource,selectedTarget,keeperSource)) {
+                    if(java.nio.file.Files.isRegularFile(file.toPath(),
+                            java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+                        file.canonicalFile==file.absoluteFile &&
+                        file.parentFile in listOf(source,target) &&
+                        file.length()==expected.size.toLong() &&
+                        runCatching { file.readBytes().contentEquals(expected) }.getOrDefault(false)) {
+                        runCatching { file.delete() }
+                    }
+                }
+                if(java.nio.file.Files.isRegularFile(marker.toPath(),
+                        java.nio.file.LinkOption.NOFOLLOW_LINKS) && marker.length()==0L)
+                    runCatching { marker.delete() }
+                source.delete();target.delete();root.delete()
+            }
             if(root.exists()) {
                 Log.w("MLSelectiveArchiveProbe","Disposable probe root requires manual inspection; no recursive deletion")
             }
