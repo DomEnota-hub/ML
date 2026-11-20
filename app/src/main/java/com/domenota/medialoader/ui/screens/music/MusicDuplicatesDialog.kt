@@ -64,6 +64,12 @@ import com.domenota.medialoader.ui.theme.musicPlaybackAccent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
+/** A Compose key with reference semantics; acoustic payloads must never participate in UI equality. */
+private class DuplicateReferenceKey(private val target: Any?) {
+    override fun equals(other: Any?): Boolean = other is DuplicateReferenceKey && target === other.target
+    override fun hashCode(): Int = System.identityHashCode(target)
+}
+
 /** Read-only scan, comparison playback, then explicit recoverable deletion. */
 @OptIn(androidx.media3.common.util.UnstableApi::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
@@ -73,7 +79,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     val latestRows by rememberUpdatedState(rows)
     val latestCurrent by rememberUpdatedState(currentId)
     val scope = rememberCoroutineScope()
-    var result by remember { mutableStateOf<DuplicateScanResult?>(null) }
+    var result by remember { mutableStateOf<DuplicateScanResult?>(null, referentialEqualityPolicy()) }
     // A recovered checkpoint is not a completed scan. Never promote it into the
     // completed report: both the checkpoint and acoustic cache must survive.
     var showingPartial by remember { mutableStateOf(false) }
@@ -87,7 +93,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         previewIndex=indexed
     }
     val previewRows=previewIndex?.takeIf{it.first===previewGeneration}?.second.orEmpty()
-    var previous by remember { mutableStateOf<DuplicateSession?>(null) }
+    var previous by remember { mutableStateOf<DuplicateSession?>(null, referentialEqualityPolicy()) }
     var scannedAt by remember { mutableLongStateOf(0L) }
     val background by DuplicateBackgroundScan.state.collectAsState()
     val privacyRevision by DuplicatePrivacyGuard.changes.collectAsState()
@@ -113,8 +119,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         showTrashReport=false
         trashReport=MusicDuplicateSessionStore.trashReport(context)
     }
-    var history by remember{mutableStateOf(emptyList<DuplicateSession>())}
-    var storedPartial by remember{mutableStateOf<DuplicateSession?>(null)}
+    var history by remember{mutableStateOf(emptyList<DuplicateSession>(),referentialEqualityPolicy())}
+    var storedPartial by remember{mutableStateOf<DuplicateSession?>(null,referentialEqualityPolicy())}
     var filter by remember{mutableStateOf<DuplicateKind?>(null)}
     var comparing by remember{mutableStateOf<DuplicateGroup?>(null)}
     LaunchedEffect(journal,background.running,privacyRevision){history=MusicDuplicateSessionStore.history(context);storedPartial=MusicDuplicateSessionStore.partial(context)}
@@ -151,7 +157,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     fun admissible(value: DuplicateScanResult?): Boolean = value != null && value.privacyEpoch==DuplicatePrivacyGuard.generation(context) && value.groups.all { group ->
         group.tracks.all { DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) }
     }
-    LaunchedEffect(privacyRevision,result,previous) {
+    LaunchedEffect(privacyRevision,DuplicateReferenceKey(result),DuplicateReferenceKey(previous)) {
         if (result?.groups?.any { g -> g.tracks.any { !DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) } } == true ||
             previous?.result?.groups?.any { g -> g.tracks.any { !DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) } } == true) {
             stopPreview(); comparing=null;journal=false;result = null; previous = null; selected = emptySet(); kept = emptyMap()
@@ -215,7 +221,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         finally { scanning = false }
     }
     fun snapshot(): DuplicateSession? = result?.takeIf(::admissible)?.let { DuplicateSession(it,selected,kept,listState.firstVisibleItemIndex,listState.firstVisibleItemScrollOffset,scannedAt) }
-    LaunchedEffect(result,journalGeneration,showingPartial) {
+    LaunchedEffect(DuplicateReferenceKey(result),journalGeneration,showingPartial) {
         val report=result ?: return@LaunchedEffect
         val generation=journalGeneration
         val partialReport=showingPartial
@@ -258,8 +264,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         }
     }
     // Filter during composition as well as async admission; effects may run before a suspended restore returns.
-    val groups=remember(result,privacyRevision){result?.takeIf(::admissible)?.groups.orEmpty()}
-    val displayPrevious=remember(previous,privacyRevision){previous?.takeIf{admissible(it.result)}}
+    val groups=remember(DuplicateReferenceKey(result),privacyRevision){result?.takeIf(::admissible)?.groups.orEmpty()}
+    val displayPrevious=remember(DuplicateReferenceKey(previous),privacyRevision){previous?.takeIf{admissible(it.result)}}
     val partial=remember(background.running,background.partial,storedPartial,privacyRevision){
         (if(background.running)background.partial else background.partial?:storedPartial?.result)?.takeIf(::admissible)
     }
