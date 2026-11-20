@@ -21,11 +21,12 @@ internal data class DuplicateTrashReport(val at:Long,val epoch:Long,val rows:Lis
 internal object MusicDuplicateSessionStore {
     private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "music-duplicates-v1.json"))
     private val lock = DuplicatePrivacyGuard.lock
-    private var journalRevision = 0L
-    fun journalGeneration():Long = synchronized(lock){journalRevision}
+    private val journalRevision = java.util.concurrent.atomic.AtomicLong(0L)
+    // Reading this token must never wait for a long-running report decode/commit under the privacy lock.
+    fun journalGeneration():Long = journalRevision.get()
     /** Clear reports only; an old debounced UI save must not recreate them. */
     fun clearJournal(context:Context,includePartial:Boolean):Boolean = synchronized(lock){
-        journalRevision++
+        journalRevision.incrementAndGet()
         runCatching{
             val target=file(context);target.delete()
             check(listOf(target.baseFile,File(target.baseFile.path+".bak"),File(target.baseFile.path+".new")).none{it.exists()})
@@ -37,12 +38,12 @@ internal object MusicDuplicateSessionStore {
     fun discardPartial(context:Context):Boolean = synchronized(lock){
         // Invalidate any pending debounced UI snapshot before clearing this
         // checkpoint. Otherwise a late save can resurrect a discarded scan.
-        journalRevision++
+        journalRevision.incrementAndGet()
         runCatching{DuplicateReportJournal.clearPartial(context,"music");MusicDuplicateShardStore.clearPartialSelection(context)}.isSuccess
     }
     private fun trashReportFile(context:Context)=AtomicFile(File(context.noBackupFilesDir,"music-duplicate-trash-v1.json"))
     fun clearForPrivacy(context: Context) {
-        journalRevision++
+        journalRevision.incrementAndGet()
         DuplicateReportJournal.clear(context,"music")
         MusicDuplicateShardStore.clear(context)
         val target=file(context);target.delete()
@@ -92,7 +93,7 @@ internal object MusicDuplicateSessionStore {
     }}
     /** Checkpoints are independent of successful reports and are never promoted implicitly. */
     fun savePartial(context:Context,session:DuplicateSession,expectedJournalGeneration:Long?=null):Boolean=synchronized(lock){
-        if(expectedJournalGeneration!=null && expectedJournalGeneration!=journalRevision)return@synchronized false
+        if(expectedJournalGeneration!=null && expectedJournalGeneration!=journalRevision.get())return@synchronized false
         if(!permitted(context,session))return@synchronized false
         runCatching{DuplicateReportJournal.savePartial(context,"music",encode(session))}.isSuccess
     }
@@ -109,14 +110,14 @@ internal object MusicDuplicateSessionStore {
     suspend fun saveInteraction(context:Context,session:DuplicateSession,partial:Boolean,
                                 expectedJournalGeneration:Long?=null):Boolean=withContext(Dispatchers.IO){
         synchronized(lock) {
-            if(expectedJournalGeneration!=null&&expectedJournalGeneration!=journalRevision)return@synchronized false
+            if(expectedJournalGeneration!=null&&expectedJournalGeneration!=journalRevision.get())return@synchronized false
             if(!permitted(context,session))return@synchronized false
             runCatching{MusicDuplicateShardStore.updateSelection(context,session,partial)}.isSuccess
         }
     }
     suspend fun save(context: Context, session: DuplicateSession, expectedJournalGeneration:Long?=null): Boolean = withContext(Dispatchers.IO + NonCancellable) {
         synchronized(lock) {
-            if(expectedJournalGeneration!=null&&expectedJournalGeneration!=journalRevision) {
+            if(expectedJournalGeneration!=null&&expectedJournalGeneration!=journalRevision.get()) {
                 DuplicateSaveDiagnostic.record(context,"GENERATION_MISMATCH",null)
                 return@synchronized false
             }
