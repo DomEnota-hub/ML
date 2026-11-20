@@ -29,7 +29,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # PR events otherwise build GitHub's synthetic merge commit. QA must be
+          # produced from the exact reviewed branch HEAD, not an undisclosed merge SHA.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Verify checkout matches reviewed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "Exact reviewed SHA: $(git rev-parse HEAD)"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
