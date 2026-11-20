@@ -173,7 +173,9 @@ internal class VaultOperations(context:Context) {
 
     fun mediaDeleteIntent(id:String):android.content.IntentSender {
         access.requireUnlocked()
-        require(Build.VERSION.SDK_INT>=30)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            throw UnsupportedOperationException("Удаление MediaStore с подтверждением доступно с Android 11")
+        }
         val record=index.read(id)
         check(record.phase==VaultImportPhase.AWAITING_PUBLIC_REMOVAL)
         val uri=Uri.parse(record.originalUri)
