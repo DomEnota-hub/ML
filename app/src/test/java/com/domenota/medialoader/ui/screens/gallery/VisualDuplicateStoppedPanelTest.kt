@@ -25,7 +25,7 @@ class VisualDuplicateStoppedPanelTest {
         val scheme=if(dark)MediaLoaderColors else LightColors
         compose.setContent{MaterialTheme(colorScheme=scheme){VisualDuplicateStoppedPanel(true,true,{resumes++},{results++})}}
         compose.onNodeWithText("Поиск остановлен").assertIsDisplayed()
-        compose.onNodeWithText("Проверенные файлы и результаты сохранены.").assertIsDisplayed()
+        compose.onNodeWithText("Проверенные файлы и результаты сохранены.").assertDoesNotExist()
         val resume=compose.onNodeWithText("Продолжить")
         val result=compose.onNodeWithText("Результаты")
         resume.assertIsDisplayed().performClick();result.assertIsDisplayed().performClick()
@@ -67,5 +67,22 @@ class VisualDuplicateStoppedPanelTest {
         compose.setContent{MaterialTheme{VisualDuplicateStoppedPanel(false,false,{error("No access")},{error("No access")})}}
         compose.onNodeWithText("Продолжить").assertIsNotEnabled()
         compose.onNodeWithText("Результаты").assertIsNotEnabled()
+    }
+    @Test fun readyStateIsCompactAndDoesNotStartScanningBeforeExplicitTap(){
+        var started=0;var opened=0
+        compose.setContent{MaterialTheme{VisualDuplicateReadyPanel(true,false,{started++},{opened++})}}
+        compose.onNodeWithText("Поиск дубликатов").assertIsDisplayed()
+        compose.onNodeWithText("Точные и похожие фото и видео").assertIsDisplayed()
+        compose.onNodeWithText("Начать поиск").assertIsDisplayed()
+        compose.onNodeWithText("Поиск выполняется поэтапно",substring=true).assertDoesNotExist()
+        assertEquals(0,started);assertEquals(0,opened)
+        compose.onNodeWithText("Начать поиск").performClick()
+        assertEquals(1,started)
+    }
+    @Test fun stoppedStateShowsActualSavedCountWhenAvailable(){
+        val coverage=com.domenota.medialoader.data.library.VisualScanCoverage(
+            com.domenota.medialoader.data.library.LibrarySource.PHONE,100,computed=33)
+        compose.setContent{MaterialTheme{VisualDuplicateStoppedPanel(true,true,{},{},coverage)}}
+        compose.onNodeWithText("Проверено: 33 из 100").assertIsDisplayed()
     }
 }
