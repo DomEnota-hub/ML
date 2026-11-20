@@ -98,14 +98,18 @@ internal class SelectiveArchiveMoveJournal(directory:File) {
     ):SelectiveArchiveMoveReceipt {
         val permitted=when(expected.phase) {
             SelectiveArchiveMovePhase.PREPARED ->
-                setOf(SelectiveArchiveMovePhase.HIDE_INTENT,SelectiveArchiveMovePhase.NEEDS_REVIEW)
+                setOf(SelectiveArchiveMovePhase.HIDE_INTENT,
+                    SelectiveArchiveMovePhase.RESTORED_VERIFIED,SelectiveArchiveMovePhase.NEEDS_REVIEW)
             SelectiveArchiveMovePhase.HIDE_INTENT ->
-                setOf(SelectiveArchiveMovePhase.HIDDEN_VERIFIED,SelectiveArchiveMovePhase.NEEDS_REVIEW)
+                setOf(SelectiveArchiveMovePhase.HIDDEN_VERIFIED,
+                    SelectiveArchiveMovePhase.RESTORE_INTENT,
+                    SelectiveArchiveMovePhase.RESTORED_VERIFIED,SelectiveArchiveMovePhase.NEEDS_REVIEW)
             SelectiveArchiveMovePhase.HIDDEN_VERIFIED ->
                 setOf(SelectiveArchiveMovePhase.RESTORE_INTENT,SelectiveArchiveMovePhase.NEEDS_REVIEW)
             SelectiveArchiveMovePhase.RESTORE_INTENT ->
                 setOf(SelectiveArchiveMovePhase.RESTORED_VERIFIED,SelectiveArchiveMovePhase.NEEDS_REVIEW)
-            SelectiveArchiveMovePhase.RESTORED_VERIFIED -> emptySet()
+            SelectiveArchiveMovePhase.RESTORED_VERIFIED ->
+                setOf(SelectiveArchiveMovePhase.HIDE_INTENT)
             SelectiveArchiveMovePhase.NEEDS_REVIEW -> emptySet()
         }
         check(nextPhase in permitted) { "Некорректный переход выборочного архива" }
