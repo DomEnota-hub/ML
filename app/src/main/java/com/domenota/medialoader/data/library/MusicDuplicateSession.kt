@@ -96,10 +96,14 @@ internal object MusicDuplicateSessionStore {
         if(!permitted(context,session))return@synchronized false
         runCatching{DuplicateReportJournal.savePartial(context,"music",encode(session))}.isSuccess
     }
-    suspend fun partial(context:Context):DuplicateSession?=withContext(Dispatchers.IO){synchronized(lock){runCatching{
-        DuplicateReportJournal.partial(context,"music")?.let(::decode)?.takeIf{permitted(context,it)}
-            ?.let{MusicDuplicateShardStore.applySelection(context,it,true)}
-    }.getOrNull()}}
+    suspend fun partial(context:Context):DuplicateSession?=withContext(Dispatchers.IO){synchronized(lock){
+        val legacy=runCatching{
+            DuplicateReportJournal.partial(context,"music")?.let(::decode)?.takeIf{permitted(context,it)}
+                ?.let{MusicDuplicateShardStore.applySelection(context,it,true)}
+        }.getOrNull()
+        val recovered=runCatching{MusicDuplicateShardStore.recovery(context)?.takeIf{permitted(context,it)}}.getOrNull()
+        listOfNotNull(legacy,recovered).maxByOrNull{it.result.groups.size}
+    }}
     /** Store only lightweight UI choices. Moving the list must not reserialize thousands
      * of acoustic landmarks or overwrite a completed/partial scan payload. */
     suspend fun saveInteraction(context:Context,session:DuplicateSession,partial:Boolean,
