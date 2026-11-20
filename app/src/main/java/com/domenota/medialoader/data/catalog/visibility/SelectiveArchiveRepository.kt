@@ -59,8 +59,11 @@ internal class SelectiveArchiveRepository(
                     // stay durable for a later explicit recovery.
                     var incomplete=false
                     for(original in cp.originals.asReversed()) {
-                        val record=runCatching { journal.read(cp.folderId,original.catalogId) }
-                            .getOrNull() ?: continue
+                        val record=try { journal.read(cp.folderId,original.catalogId) }
+                            catch(_:Exception) {
+                                incomplete=true // Unknown receipt is not a confirmed rollback.
+                                continue
+                            } ?: continue
                         if(record.phase in setOf(SelectiveArchiveMovePhase.PREPARED,
                             SelectiveArchiveMovePhase.HIDE_INTENT,
                             SelectiveArchiveMovePhase.HIDDEN_VERIFIED,
