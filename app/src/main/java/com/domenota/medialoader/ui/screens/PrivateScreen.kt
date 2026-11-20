@@ -5,7 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Close
@@ -45,6 +44,7 @@ fun PrivateScreen(
     items: List<DownloadEntity>,
     onBack: () -> Unit,
     onOpen: (String) -> Unit,
+    onOpenVault: () -> Unit = {},
     onRestore: suspend (String) -> Unit,
     onFinishMove: suspend (String) -> Unit,
     onDelete: suspend (String) -> Unit,
@@ -124,6 +124,7 @@ fun PrivateScreen(
                 }
             }
             if (state.unlocked && !settings && !selecting) {
+                TextButton(onClick=onOpenVault,enabled=!busy && !externalBusy) { Text("Сейф") }
                 IconButton(onClick = {
                     gridMode = !gridMode
                     prefs.edit().putBoolean("private_grid", gridMode).apply()
