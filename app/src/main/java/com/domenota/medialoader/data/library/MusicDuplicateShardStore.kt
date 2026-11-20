@@ -132,8 +132,18 @@ internal object MusicDuplicateShardStore {
                 .put("skipped",session.result.skipped).put("acousticUnavailable",session.result.acousticUnavailable)
                 .put("groupCount",written).put("chunks",headers)
             writeAtomic(File(generation,"manifest.json")){it.write(manifest.toString())}
-            // Round-trip each chunk and validate SHA/group count BEFORE publish.
-            requireNotNull(readGeneration(context,id,requireCurrentPrivacy=true))
+            // Verify each persisted chunk with bounded memory before publish.
+            // Never decode the entire scan while the original full scan is in heap.
+            for(i in 0 until headers.length()){
+                val info=headers.getJSONObject(i)
+                val chunk=File(generation,info.getString("name"))
+                check(chunk.length()==info.getLong("bytes") && sha(chunk)==info.getString("sha"))
+                var lineCount=0
+                chunk.bufferedReader().useLines{lines->lines.forEach{line->
+                    check(line.isNotBlank());lineCount++
+                }}
+                check(lineCount==info.getInt("groups")){"SHARD_READBACK_FAILED"}
+            }
             updateSelection(context,session,false)
             writeAtomic(active(context).baseFile){it.write(JSONObject().put("id",id).toString())}
         } catch(t:Throwable){
