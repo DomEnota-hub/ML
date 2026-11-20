@@ -79,7 +79,9 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
             val record=if(local!=null)
                 NomediaFolderEngine(this@NomediaFolderRepository,local).hide(
                     plan.folderId,plan.treeUri.toString(),NomediaAccessMode.MANAGED_LOCAL)
-            else safEngine.hide(plan.folderId,plan.treeUri.toString(),NomediaAccessMode.SAF)
+            else NomediaFolderEngine(this@NomediaFolderRepository,
+                InventoryGuardedNomediaMarkerPort(safPort,plan.expected,safPort::listMedia)
+            ).hide(plan.folderId,plan.treeUri.toString(),NomediaAccessMode.SAF)
             NomediaSafTrace.event("MARKER_STATE_"+record.markerState.name,found.size)
             record
         }
