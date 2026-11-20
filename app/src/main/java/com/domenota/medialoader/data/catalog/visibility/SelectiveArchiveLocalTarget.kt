@@ -122,6 +122,17 @@ internal class SelectiveArchiveLocalTarget(
         check(inspect(original,r)) { "Не подтверждён собственный .nomedia" }
     }
 
+    /** Validate a destination's parent without requiring or creating a file.
+     * Used for collision preflight before MediaStore's atomic row path update. */
+    fun sourceFileIfAbsent(original:SelectiveArchiveIdentity):File =
+        File(directory(original.relativePath,false),original.displayName)
+
+    fun hiddenFileIfAbsent(original:SelectiveArchiveIdentity,
+        receipt:SelectiveArchiveMoveReceipt):File {
+        check(inspect(original,receipt)) { "Не подтверждено собственное скрытое хранилище" }
+        return File(checkedFolder(original,receipt,false),original.displayName)
+    }
+
     fun sourceFile(original:SelectiveArchiveIdentity):File {
         val path=directory(original.relativePath,false)
         val file=File(path,original.displayName)
