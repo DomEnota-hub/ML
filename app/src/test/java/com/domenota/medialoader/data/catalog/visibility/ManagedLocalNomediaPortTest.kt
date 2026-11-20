@@ -23,7 +23,15 @@ class ManagedLocalNomediaPortTest {
         finally { root.walkBottomUp().forEach { it.delete() } }
     }
     private fun port(root:File,expected:List<NomediaMediaSignature>?=null)=
-        ManagedLocalNomediaPort(expected,{root},{true})
+        ManagedLocalNomediaPort(expected,{root},{true}) { extension ->
+            when(extension) {
+                "jpg","jpeg" -> "image/jpeg"
+                "png" -> "image/png"
+                "mp3" -> "audio/mpeg"
+                "mp4" -> "video/mp4"
+                else -> null
+            }
+        }
 
     @Test fun exactPhysicalAlbumCreatesOnlyOwnedMarkerAndRestoresWithoutTouchingMedia()=fixture { root,folder,tree ->
         val first=File(folder,"a.jpg").apply { writeBytes(byteArrayOf(1,2,3));setLastModified(1_600_000_000_000) }
