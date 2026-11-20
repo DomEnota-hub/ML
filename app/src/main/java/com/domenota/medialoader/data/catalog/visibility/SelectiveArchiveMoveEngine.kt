@@ -86,7 +86,8 @@ internal class SelectiveArchiveMoveEngine(
         require(original in checkpoint.originals && checkpoint.folderId.isNotBlank())
         val existing=journal.begin(checkpoint,original,token,targetRelativePath)
         check(existing.phase in setOf(SelectiveArchiveMovePhase.PREPARED,
-            SelectiveArchiveMovePhase.HIDE_INTENT,SelectiveArchiveMovePhase.HIDDEN_VERIFIED)) {
+            SelectiveArchiveMovePhase.HIDE_INTENT,SelectiveArchiveMovePhase.HIDDEN_VERIFIED,
+            SelectiveArchiveMovePhase.RESTORED_VERIFIED)) {
             "Операция уже восстанавливается или требует ручной проверки"
         }
         if(existing.phase==SelectiveArchiveMovePhase.HIDDEN_VERIFIED) {
@@ -99,7 +100,8 @@ internal class SelectiveArchiveMoveEngine(
         }
         // Before committing any intent, verify original public state and
         // reference snapshots. After the intent, a crash may have moved it.
-        val intent=if(existing.phase==SelectiveArchiveMovePhase.PREPARED) {
+        val intent=if(existing.phase in setOf(
+                SelectiveArchiveMovePhase.PREPARED,SelectiveArchiveMovePhase.RESTORED_VERIFIED)) {
             val before=port.observe(original,existing)
             check(locationIsExact(before,original,SelectiveArchiveLocation.SOURCE,targetRelativePath) &&
                 before.visibleInAndroid==true) { "Публичный оригинал изменился" }
@@ -137,9 +139,11 @@ internal class SelectiveArchiveMoveEngine(
             "Не найдена контрольная точка скрытого файла"
         }
         check(initial.originalUri==original.originalUri && initial.originalSha256==original.sha256)
-        check(initial.phase in setOf(SelectiveArchiveMovePhase.HIDDEN_VERIFIED,
+        check(initial.phase in setOf(SelectiveArchiveMovePhase.PREPARED,
+            SelectiveArchiveMovePhase.HIDE_INTENT,
+            SelectiveArchiveMovePhase.HIDDEN_VERIFIED,
             SelectiveArchiveMovePhase.RESTORE_INTENT,SelectiveArchiveMovePhase.RESTORED_VERIFIED)) {
-            "Нет проверенного скрытого файла или операция требует диагностики"
+            "Нет допустимой контрольной точки или операция требует диагностики"
         }
         if(initial.phase==SelectiveArchiveMovePhase.RESTORED_VERIFIED) {
             val observed=port.observe(original,initial)
@@ -150,7 +154,25 @@ internal class SelectiveArchiveMoveEngine(
             }
             return@withLock initial
         }
-        val intent=if(initial.phase==SelectiveArchiveMovePhase.HIDDEN_VERIFIED)
+        // Abort a prepared/unmoved file without ever hiding it. A crash after
+        // actual movement is different: recover the same hidden ID instead.
+        if(initial.phase in setOf(SelectiveArchiveMovePhase.PREPARED,
+                SelectiveArchiveMovePhase.HIDE_INTENT)) {
+            val present=port.observe(original,initial)
+            if(locationIsExact(present,original,SelectiveArchiveLocation.SOURCE,
+                    initial.targetRelativePath) && present.visibleInAndroid==true) {
+                return@withLock journal.transition(initial,
+                    SelectiveArchiveMovePhase.RESTORED_VERIFIED)
+            }
+            check(initial.phase==SelectiveArchiveMovePhase.HIDE_INTENT &&
+                locationIsExact(present,original,SelectiveArchiveLocation.HIDDEN,
+                    initial.targetRelativePath) && present.targetOwned==true &&
+                present.visibleInAndroid==false) {
+                "Прерванная операция не подтверждена; автоматическое восстановление запрещено"
+            }
+        }
+        val intent=if(initial.phase in setOf(SelectiveArchiveMovePhase.HIDDEN_VERIFIED,
+                SelectiveArchiveMovePhase.HIDE_INTENT))
             journal.transition(initial,SelectiveArchiveMovePhase.RESTORE_INTENT)
         else initial
         val state=port.observe(original,intent)
