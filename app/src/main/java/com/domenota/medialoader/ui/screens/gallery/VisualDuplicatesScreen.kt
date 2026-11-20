@@ -164,10 +164,12 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             catalogReady=ready && phonePermission && currentGeneration())
     }
     Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        Row(verticalAlignment=Alignment.CenterVertically){
+        Row(Modifier.fillMaxWidth().heightIn(min=56.dp),verticalAlignment=Alignment.CenterVertically){
             IconButton(onBack,enabled=trash==null){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
             Text("Дубликаты фото и видео",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,maxLines=2)
-            IconButton({journal=true},enabled=trash==null){Icon(Icons.Rounded.History,"Журнал Галереи")}
+            OutlinedIconButton({journal=true},Modifier.size(44.dp),enabled=trash==null){
+                Icon(Icons.Rounded.History,"Журнал Галереи")
+            }
         }
         if(!status.running && (!reportReady||!loaded) && !stopped) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(!status.running && !phonePermission) Text("Нет доступа к фото и видео телефона",color=MaterialTheme.colorScheme.error)
@@ -201,11 +203,12 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                     }
                 }
             }
-            if(stopped)VisualDuplicateStoppedPanel(canStart,canShow,::startScan,openResults)
-            else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button(::startScan,enabled=canStart){Text(if(sameScope&&VisualDuplicateBackgroundScan.interrupted(context))"Продолжить поиск" else "Новый поиск",maxLines=1,softWrap=false)}
-                OutlinedButton(openResults,enabled=canShow){Text("Последний поиск",maxLines=1,softWrap=false)}
-            }
+            if(stopped)VisualDuplicateStoppedPanel(
+                canStart,canShow,::startScan,openResults,
+                (status.coverage ?: storedPartial?.result?.coverage)?.takeIf{it.source==catalog.source}
+            )
+            else VisualDuplicateReadyPanel(canStart,canShow,::startScan,openResults,
+                hasPrevious=canShow || (sameScope&&VisualDuplicateBackgroundScan.interrupted(context)))
         }
         status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
@@ -277,40 +280,63 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     }
 }
 
-/** Cancellation is a normal resumable state; errors keep their separate error treatment. */
+/** Search entry is compact and follows the same design as Music, without a long instruction. */
 @Composable
-internal fun VisualDuplicateStoppedPanel(canResume:Boolean,canShowResults:Boolean,onResume:()->Unit,onResults:()->Unit){
-    Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            Icon(Icons.Rounded.Pause,contentDescription=null,tint=MaterialTheme.colorScheme.primary)
-            Text("Поиск остановлен",color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.titleMedium)
-        }
-        Text("Проверенные файлы и результаты сохранены.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            CompactStoppedAction("Продолжить",canResume,true,onResume)
-            CompactStoppedAction("Результаты",canShowResults,false,onResults)
+internal fun VisualDuplicateReadyPanel(
+    canStart:Boolean,canShowResults:Boolean,onStart:()->Unit,onResults:()->Unit,
+    hasPrevious:Boolean=false
+){
+    Card(Modifier.fillMaxWidth()){
+        Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                Icon(Icons.Rounded.ContentCopy,contentDescription=null,tint=MaterialTheme.colorScheme.primary)
+                Column(verticalArrangement=Arrangement.spacedBy(3.dp)){
+                    Text("Поиск дубликатов",style=MaterialTheme.typography.titleMedium)
+                    Text("Точные и похожие фото и видео",color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        style=MaterialTheme.typography.bodySmall)
+                }
+            }
+            Button(onStart,enabled=canStart,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                Text(if(hasPrevious)"Новый поиск" else "Начать поиск")
+            }
+            if(canShowResults)OutlinedButton(onResults,modifier=Modifier.fillMaxWidth()){
+                Text("Последний поиск")
+            }
         }
     }
 }
 
-/** Content-sized actions: Material3 Button's default minimum constraints can clip
- * Cyrillic labels on narrow screens even when they have maxLines=1. */
+/** Stopping never deletes the last completed report or the resumable fingerprints. */
+@Composable
+internal fun VisualDuplicateStoppedPanel(
+    canResume:Boolean,canShowResults:Boolean,onResume:()->Unit,onResults:()->Unit,
+    coverage:VisualScanCoverage?=null
+){
+    Card(Modifier.fillMaxWidth()){
+        Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                Icon(Icons.Rounded.Pause,contentDescription=null,tint=MaterialTheme.colorScheme.primary)
+                Text("Поиск остановлен",style=MaterialTheme.typography.titleMedium)
+            }
+            coverage?.let{ Text("Проверено: ${it.checked} из ${it.total}",
+                color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall) }
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                CompactStoppedAction("Продолжить",canResume,true,onResume)
+                CompactStoppedAction("Результаты",canShowResults,false,onResults)
+            }
+        }
+    }
+}
+
+/** Keep both compact actions on a single row at narrow phone widths. */
 @Composable
 private fun CompactStoppedAction(label:String,enabled:Boolean,filled:Boolean,onClick:()->Unit){
     val scheme=MaterialTheme.colorScheme
-    Surface(
-        onClick=onClick,
-        enabled=enabled,
-        shape=CircleShape,
-        color=if(filled) {
-            if(enabled) scheme.primary else scheme.onSurface.copy(alpha=0.12f)
-        } else Color.Transparent,
-        contentColor=if(!enabled) scheme.onSurface.copy(alpha=0.38f)
-            else if(filled) scheme.onPrimary else scheme.primary,
-        border=if(filled) null else androidx.compose.foundation.BorderStroke(
-            1.dp,if(enabled) scheme.outline else scheme.onSurface.copy(alpha=0.12f)
-        )
-    ){
+    Surface(onClick=onClick,enabled=enabled,shape=CircleShape,
+        color=if(filled){if(enabled)scheme.primary else scheme.onSurface.copy(alpha=0.12f)} else Color.Transparent,
+        contentColor=if(!enabled)scheme.onSurface.copy(alpha=0.38f) else if(filled)scheme.onPrimary else scheme.primary,
+        border=if(filled)null else androidx.compose.foundation.BorderStroke(1.dp,
+            if(enabled)scheme.outline else scheme.onSurface.copy(alpha=0.12f))){
         Text(label,modifier=Modifier.padding(horizontal=10.dp,vertical=10.dp).widthIn(min=110.dp),
             maxLines=1,softWrap=true,style=MaterialTheme.typography.labelSmall)
     }

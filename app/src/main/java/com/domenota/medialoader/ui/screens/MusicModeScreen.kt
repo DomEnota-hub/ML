@@ -502,6 +502,8 @@ internal fun MusicModeScreen(
                     if (searchVisible != false && playlist == null) OutlinedTextField(search, { search = it },
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp), singleLine = true,
                         label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
+                    if (searchVisible == true && playlist == null && onOpenDuplicates != null && onTrashDuplicates != null)
+                        DuplicateSearchShortcut(::openDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     if (tab == 0) BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
                         val wide = !listeningEnabled || maxWidth >= 480.dp
                         Row(Modifier.fillMaxWidth(),verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -533,10 +535,6 @@ internal fun MusicModeScreen(
                                 Icon(Icons.Rounded.Sort, contentDescription = "Сортировка треков")
                             }
                             DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                                if (onTrashDuplicates != null) {
-                                    DropdownMenuItem(text = { Text("Найти дубликаты") }, onClick = { sortMenu = false; openDuplicates() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                                    HorizontalDivider()
-                                }
                                 MusicLibrarySort.entries.forEach { option ->
                                     DropdownMenuItem(text = { Text(musicSortLabel(option), color = if (sort == option) com.domenota.medialoader.ui.theme.musicPlaybackAccent else MaterialTheme.colorScheme.onSurface) },
                                         onClick = { sort = option; sortMenu = false })
