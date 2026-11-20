@@ -71,7 +71,7 @@ internal object VaultCipher {
         return VaultCopyEvidence(count,hex(hash.digest()))
     }
 
-    fun authenticatedDigest(input:InputStream,key:SecretKey):VaultCopyEvidence {
+    fun decrypt(input:InputStream,output:OutputStream,key:SecretKey):VaultCopyEvidence {
         val source=DataInputStream(input)
         val magic=ByteArray(MAGIC.size);source.readFully(magic)
         require(magic.contentEquals(MAGIC)) { "Unsupported vault content format" }
@@ -86,11 +86,18 @@ internal object VaultCipher {
                 val size=decrypted.read(buffer)
                 if(size<0)break
                 if(size==0)continue
-                hash.update(buffer,0,size);count+=size
+                hash.update(buffer,0,size);output.write(buffer,0,size);count+=size
             }
         }
+        output.flush()
         return VaultCopyEvidence(count,hex(hash.digest()))
     }
+
+    fun authenticatedDigest(input:InputStream,key:SecretKey):VaultCopyEvidence =
+        decrypt(input,object:OutputStream(){
+            override fun write(value:Int) {}
+            override fun write(bytes:ByteArray,offset:Int,length:Int) {}
+        },key)
 }
 
 /** Shared encrypted storage for future generic media vault and existing private content
