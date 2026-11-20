@@ -21,13 +21,17 @@ internal class SelectiveArchiveReferenceGuard(
     private val database:HistoryDatabase,
     private val playlists:PlaylistRepository,
 ) {
-    suspend fun sha256(original:SelectiveArchiveIdentity):String?=withContext(Dispatchers.IO) {
-        require(original.wellFormed())
-        val row=database.downloadDao().byId(original.catalogId) ?: return@withContext null
-        if(row.savedUri!=original.originalUri ||
+    suspend fun sha256(original:SelectiveArchiveIdentity):String? =
+        sha256(original.catalogId,original.originalUri,original.sizeBytes)
+
+    /** Preflight can calculate the reference proof BEFORE streamed media SHA. */
+    suspend fun sha256(catalogId:String,uri:String,bytes:Long?=null):String?=withContext(Dispatchers.IO) {
+        require(catalogId.isNotBlank() && uri.startsWith("content://media/"))
+        val row=database.downloadDao().byId(catalogId) ?: return@withContext null
+        if(row.savedUri!=uri ||
             row.state!=DownloadState.COMPLETED || row.isPrivate || row.hidden ||
-            row.sizeBytes?.let { it!=original.sizeBytes }==true ||
-            database.downloadDao().countSavedUriReferences(original.originalUri)!=1
+            (bytes!=null && row.sizeBytes?.let { it!=bytes }==true) ||
+            database.downloadDao().countSavedUriReferences(uri)!=1
         ) return@withContext null
         // A folder member must retain its original assignment and favorite flag.
         val assignment=database.catalogDao().assignmentById(original.catalogId)
