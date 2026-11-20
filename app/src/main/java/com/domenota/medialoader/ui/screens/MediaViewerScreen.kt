@@ -1093,11 +1093,11 @@ internal fun LocalVideoPlayer(
                         onHoldEnd = { endHoldSpeed() },
                     )
                 }) {
-                // Inline Gallery reserves top-half horizontal swipes for paging
-                // between media. Bottom-half drags scrub the video instead.
+                // Inline Gallery reserves the upper region, including the centre,
+                // for ordinary paging. Drags within the bottom 45% seek video.
                 // Parent vertical edge gestures and tap/hold still work normally.
                 if (galleryPagingEnabled && !fullscreen) Box(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.5f)
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.45f)
                         .pointerInput(player, playableDurationMs) {
                             var startPosition = 0L
                             var distanceX = 0f
