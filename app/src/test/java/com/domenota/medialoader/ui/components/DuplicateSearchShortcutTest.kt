@@ -22,7 +22,7 @@ class DuplicateSearchShortcutTest {
 
     @Test fun shortcutIsCompactAndNeverStartsSearchByComposition() {
         var opens=0
-        compose.setContent { MaterialTheme { DuplicateSearchShortcut { opens++ } } }
+        compose.setContent { MaterialTheme { DuplicateSearchShortcut(onClick = { opens++ }) } }
         compose.onNodeWithTag("duplicate-search-shortcut").assertIsDisplayed()
         compose.onNodeWithText("Найти дубликаты").assertIsDisplayed()
         assertEquals(0,opens)
