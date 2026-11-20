@@ -20,7 +20,7 @@ internal data class DuplicateJournalRow(val at:Long,val groups:Int,val files:Int
 
 @Composable
 internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,startedAt:Long,phaseStartedAt:Long,
-    music:Boolean,groups:Int,bytes:Long,modifier:Modifier=Modifier,showSummary:Boolean=true){
+    music:Boolean,groups:Int,bytes:Long,modifier:Modifier=Modifier,showSummary:Boolean=true,completedMetadata:Int=0){
     val context=androidx.compose.ui.platform.LocalContext.current
     var now by remember{mutableLongStateOf(SystemClock.elapsedRealtime())}
     LaunchedEffect(startedAt){while(true){now=SystemClock.elapsedRealtime();delay(1000)}}
@@ -46,7 +46,7 @@ internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,star
                     if(eta!=null)Text("До конца этапа ≈ ${duration(eta)}",style=MaterialTheme.typography.bodySmall)
                 }
             }
-            phases.forEachIndexed{i,p->Text((if(i<index)"✓ " else if(i==index)"● " else "○ ")+p.caption+(if(i<index)" · готово" else ""),
+            phases.forEachIndexed{i,p->Text((if(i<index)"✓ " else if(i==index)"● " else "○ ")+p.caption+(if(i==0&&i<index&&music&&completedMetadata>0)" · $completedMetadata обработано" else if(i<index)" · готово" else ""),
                 color=if(i==index)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
             if(showSummary)Text("Найдено групп: $groups · точные копии: ${android.text.format.Formatter.formatFileSize(context,bytes)}",
                 style=MaterialTheme.typography.bodyMedium)
