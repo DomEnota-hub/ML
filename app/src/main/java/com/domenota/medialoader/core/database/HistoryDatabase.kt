@@ -128,6 +128,14 @@ interface DownloadDao {
     @Query("UPDATE downloads SET durationMs = :duration WHERE id = :id")
     suspend fun setDuration(id: String, duration: Long)
 
+    /** Only an unchanged public completed file can acquire missing duration metadata.
+     * A restored/private/rebound entry must not be modified by an old async probe. */
+    @Query("UPDATE downloads SET durationMs = :duration " +
+        "WHERE id = :id AND savedUri = :uri AND state = 'COMPLETED' AND isPrivate = 0 " +
+        "AND hidden = 0 AND mediaType IN ('AUDIO','VIDEO') " +
+        "AND (durationMs IS NULL OR durationMs <= 0) AND :duration > 0")
+    suspend fun fillMissingDurationWhenCurrent(id: String, uri: String, duration: Long): Int
+
     @Query("SELECT * FROM downloads WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): DownloadEntity?
 

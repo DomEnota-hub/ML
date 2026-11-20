@@ -69,6 +69,7 @@ import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.collectAsState
 import com.domenota.medialoader.ui.screens.PrivateScreen
+import com.domenota.medialoader.ui.screens.VaultScreen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -157,6 +158,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Restore
 
 private const val PRIVATE_ROUTE = "private"
+private const val VAULT_ROUTE = "vault"
 private const val PLAYLIST_ADD_ROUTE = "playlist-add/{playlistId}"
 
 /** The compact transfer panel belongs to Downloader chrome only. Gallery,
@@ -656,7 +658,8 @@ fun MediaLoaderApp(
             onSearch = { librarySearchVisible = !librarySearchVisible },
             onCalendar = if (appMode == AppMode.GALLERY && galleryTab == 0) ({ galleryDateRequest++ }) else null,
             onHiddenTracks = if (appMode == AppMode.MUSIC) ({ hiddenMusicTracksOpen = true }) else null,
-            onPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) })
+            onPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
+             onVault = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(VAULT_ROUTE) })
     }
     // A single observable music-source state feeds Settings and BOTH preview hosts.
     // An experimental source may not silently fall back to HitMoz.
@@ -744,14 +747,14 @@ fun MediaLoaderApp(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer); viewModel.privateAccess.lock() }
     }
-    DisposableEffect(privateNavigation, currentRoute == PRIVATE_ROUTE, privateActivity) {
+    DisposableEffect(privateNavigation, currentRoute in setOf(PRIVATE_ROUTE,VAULT_ROUTE), privateActivity) {
         val window = privateActivity?.window
         val wasSecure = window?.attributes?.flags?.and(android.view.WindowManager.LayoutParams.FLAG_SECURE) != 0
-        if (privateNavigation || currentRoute == PRIVATE_ROUTE) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        if (privateNavigation || currentRoute in setOf(PRIVATE_ROUTE,VAULT_ROUTE)) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { if (!wasSecure) window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
     }
     LaunchedEffect(currentRoute) {
-        if (currentRoute == PRIVATE_ROUTE) privateNavigation = true
+        if (currentRoute in setOf(PRIVATE_ROUTE,VAULT_ROUTE)) privateNavigation = true
         else if (privateNavigation && currentRoute !in setOf(MEDIA_VIEWER_ROUTE, VIDEO_EDITOR_ROUTE, AUDIO_EDITOR_ROUTE, PHOTO_EDITOR_ROUTE)) {
             viewModel.privateAccess.lock()
             privateNavigation = false
@@ -2723,6 +2726,7 @@ fun MediaLoaderApp(
                 PrivateScreen(viewModel.privateAccess, privateDownloads,
                     onBack = { pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false; viewModel.privateAccess.lock(); navController.popBackStack() },
                     onOpen = openDownload,
+                    onOpenVault = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(VAULT_ROUTE) },
                     onOpenGrid = openDownloadWithQueue,
                     onRestore = viewModel::restorePrivate,
                     onFinishMove = viewModel::finishPrivateMove,
@@ -2734,6 +2738,10 @@ fun MediaLoaderApp(
                     onSetFolder = viewModel::setCatalogFolder,
                     onSetFavorite = viewModel::setCatalogFavorite,
                     onCreateFolder = viewModel::createCatalogFolder)
+            },
+            LibraryRouteContent(VAULT_ROUTE) {
+                VaultScreen(viewModel.privateAccess,
+                    onBack = { viewModel.privateAccess.lock(); navController.popBackStack() })
             },
             LibraryRouteContent(AppDestination.Settings.route) {
                 SettingsScreen(

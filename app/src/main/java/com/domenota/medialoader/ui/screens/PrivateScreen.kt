@@ -3,6 +3,11 @@ package com.domenota.medialoader.ui.screens
 import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -50,12 +55,16 @@ fun PrivateScreen(
     onSetFavorite: suspend (String, Boolean) -> Unit = { _, _ -> },
     onCreateFolder: suspend (String) -> String = { "" },
     onOpenGrid: ((String, List<String>) -> Unit)? = null,
+    onOpenVault: () -> Unit = {},
 ) {
     val state by access.state.collectAsState()
     var settings by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<List<String>?>(null) }
     var folderTarget by remember { mutableStateOf<List<String>?>(null) }
+    var restoreTarget by remember { mutableStateOf<List<String>?>(null) }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selecting by remember { mutableStateOf(false) }
     var autoAuthenticate by rememberSaveable { mutableStateOf(true) }
     var expandedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
     var groupLimits by rememberSaveable { mutableStateOf(mapOf<String, Int>()) }
@@ -81,22 +90,41 @@ fun PrivateScreen(
         AppNotice.postBatch(context, "Результат операции", result, "Обработано")
     }
     LaunchedEffect(state.unlocked) {
-        if (!state.unlocked) { deleteTarget = null; folderTarget = null }
+        if (!state.unlocked) {
+            deleteTarget = null; folderTarget = null; restoreTarget = null
+            selectedIds = emptySet(); selecting = false
+        } else {
+            selectedIds = selectedIds.intersect(items.map { it.id }.toSet())
+        }
     }
     LaunchedEffect(state.mode, state.unlocked) {
         if (state.mode == PrivateAccessMode.NONE && !state.unlocked) access.unlockWithoutProtection()
     }
-    BackHandler(busy || externalBusy || settings) {
-        if (!busy && !externalBusy) settings = false
+    BackHandler(busy || externalBusy || settings || selecting) {
+        if (!busy && !externalBusy) {
+            if (selecting) { selecting = false; selectedIds = emptySet() }
+            else settings = false
+        }
     }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { if (settings) settings = false else onBack() }, enabled = !busy && !externalBusy) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад")
             }
-            Text(if (settings) "Защита личного" else "Личное", style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.weight(1f))
-            if (state.unlocked && !settings) {
+            Text(if (settings) "Защита личного" else if (selecting) "Выбрано: ${selectedIds.size}" else "Личное",
+                style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+            if (selecting && state.unlocked) {
+                TextButton(onClick = { selectedIds = if (selectedIds.size == items.size) emptySet()
+                    else items.map { it.id }.toSet() },enabled = !busy && !externalBusy) {
+                    Text(if (selectedIds.size == items.size) "Снять всё" else "Выбрать все")
+                }
+                IconButton(onClick = { selecting = false; selectedIds = emptySet() },
+                    enabled = !busy && !externalBusy) {
+                    Icon(Icons.Rounded.Close,"Отменить выбор")
+                }
+            }
+            if (state.unlocked && !settings && !selecting) {
+                TextButton(onClick=onOpenVault,enabled=!busy && !externalBusy) { Text("Сейф") }
                 IconButton(onClick = {
                     gridMode = !gridMode
                     prefs.edit().putBoolean("private_grid", gridMode).apply()
@@ -124,19 +152,66 @@ fun PrivateScreen(
             else -> Box(Modifier.weight(1f).fillMaxWidth()) {
                 @Composable fun fileRow(row: DownloadUiItem, modifier: Modifier = Modifier) {
                     val favorite = assignments[row.id]?.isFavorite == true
-                    DownloadRow(row, modifier = modifier, compact = gridMode,
-                        onOpen = { if (!busy && !externalBusy) {
-                            if (onOpenGrid != null) onOpenGrid(row.id, uiItems.map { it.id })
-                            else onOpen(row.id)
-                        } }, onCancel = {},
-                        onHide = { if (!busy && !externalBusy) deleteTarget = listOf(row.id) },
-                        onRename = { if (!busy && !externalBusy) onRename(row.id, it) },
-                        onRestoreFromPrivate = { action { batch(listOf(row.id), onRestore) } },
-                        favorite = favorite,
-                        folderLabel = catalogFolders.find { it.id == assignments[row.id]?.folderId }?.name,
-                        onToggleFavorite = { action { batch(listOf(row.id)) { onSetFavorite(it, !favorite) } } },
-                        onChooseFolder = { if (!busy && !externalBusy) folderTarget = listOf(row.id) },
-                        allowSharing = false, privateDeletion = true)
+                    var swipeDistance by remember(row.id) { mutableFloatStateOf(0f) }
+                    val swipeGesture = Modifier.pointerInput(row.id, state.unlocked, busy, externalBusy, selecting) {
+                        if (!state.unlocked || busy || externalBusy || selecting) return@pointerInput
+                        detectHorizontalDragGestures(
+                            onDragStart = { swipeDistance = 0f },
+                            onHorizontalDrag = { change, amount ->
+                                change.consume()
+                                swipeDistance += amount
+                            },
+                            onDragEnd = {
+                                // Reveal confirmation; never publish a private file on a gesture alone.
+                                if (swipeDistance < -72f && !busy && !externalBusy && state.unlocked)
+                                    restoreTarget = listOf(row.id)
+                                swipeDistance = 0f
+                            },
+                            onDragCancel = { swipeDistance = 0f }
+                        )
+                    }
+                    Box(modifier.then(swipeGesture)) {
+                        DownloadRow(row, modifier = Modifier.fillMaxWidth(), compact = gridMode,
+                            onOpen = { if (!busy && !externalBusy) {
+                                if (selecting) selectedIds = if (row.id in selectedIds)
+                                    selectedIds - row.id else selectedIds + row.id
+                                else if (onOpenGrid != null) onOpenGrid(row.id, uiItems.map { it.id })
+                                else onOpen(row.id)
+                            } }, onCancel = {},
+                            onLongSelect = { if (state.unlocked && !busy && !externalBusy) {
+                                selecting = true; selectedIds = selectedIds + row.id
+                            } },
+                            selectionMode = selecting, selected = row.id in selectedIds,
+                            onHide = { if (!busy && !externalBusy) deleteTarget = listOf(row.id) },
+                            onRename = { if (!busy && !externalBusy) onRename(row.id, it) },
+                            onRestoreFromPrivate = { if (!busy && !externalBusy) restoreTarget = listOf(row.id) },
+                            favorite = favorite,
+                            folderLabel = catalogFolders.find { it.id == assignments[row.id]?.folderId }?.name,
+                            onToggleFavorite = { action { batch(listOf(row.id)) { onSetFavorite(it, !favorite) } } },
+                            onChooseFolder = { if (!busy && !externalBusy) folderTarget = listOf(row.id) },
+                            allowSharing = false, privateDeletion = true)
+                    }
+                }
+                Column {
+                if (selecting) {
+                    Surface(color=MaterialTheme.colorScheme.surfaceVariant,shape=MaterialTheme.shapes.medium,
+                        modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(8.dp),
+                            verticalAlignment=Alignment.CenterVertically,
+                            horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Rounded.CheckCircle,null,tint=MaterialTheme.colorScheme.primary)
+                            Text("${selectedIds.size} файлов",Modifier.weight(1f))
+                            Button(onClick={restoreTarget=selectedIds.toList()},
+                                enabled=selectedIds.isNotEmpty() && !busy && !externalBusy) {
+                                Icon(Icons.Rounded.Restore,null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Вынести")
+                            }
+                        }
+                    }
+                    Text("Долгое нажатие: выбор. Свайп влево: вынести с подтверждением.",
+                        Modifier.padding(horizontal=16.dp,vertical=6.dp),
+                        style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (items.isEmpty()) item { Text("Здесь пока нет файлов. Переместите их через меню в загрузках.") }
@@ -186,6 +261,7 @@ fun PrivateScreen(
                         }
                     }
                 }
+                }
                 if (busy || externalBusy) Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background.copy(alpha = 0.93f)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         CircularProgressIndicator()
@@ -207,6 +283,19 @@ fun PrivateScreen(
                 finally { busy = false }
             }
         })
+    if (state.unlocked && !settings && restoreTarget != null) AlertDialog(
+        onDismissRequest = { if (!busy && !externalBusy) restoreTarget = null },
+        title = { Text("Вынести из Личного?") },
+        text = { Text("Выбранные файлы (${restoreTarget!!.size}) станут доступны в обычной медиатеке и системной галерее. Исходная приватная копия сохраняется при ошибке восстановления.") },
+        confirmButton = { TextButton(onClick = {
+            val ids=restoreTarget.orEmpty()
+            restoreTarget=null
+            if (ids.isNotEmpty() && state.unlocked) action {
+                batch(ids) { id -> access.requireUnlocked(); onRestore(id) }
+                selectedIds=emptySet(); selecting=false
+            }
+        }, enabled = !busy && !externalBusy) { Text("Вынести") } },
+        dismissButton = { TextButton(onClick = { restoreTarget = null }) { Text("Отмена") } })
     if (state.unlocked && deleteTarget != null) AlertDialog(
         onDismissRequest = { deleteTarget = null },
         title = { Text("Удалить личные файлы (${deleteTarget!!.size})?") },

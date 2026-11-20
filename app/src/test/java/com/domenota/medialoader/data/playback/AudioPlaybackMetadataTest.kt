@@ -35,6 +35,18 @@ class AudioPlaybackMetadataTest {
         assertEquals("Song", restored.sourceAudioTitle)
         assertEquals("Artist", restored.sourceAudioArtist)
     }
+    @Test fun playbackSessionKeepsDurationWhenPhoneIndexIsTemporarilyUnavailable() {
+        val known = row().copy(durationMs = 148000L)
+        val media = AudioPlaybackMetadata.item(known, setOf("file-stat:identity"))
+        assertEquals(148000L, media.mediaMetadata.extras?.getLong(AudioPlaybackMetadata.VERIFIED_DURATION))
+        val restored = AudioPlaybackMetadata.publicSessionRows(
+            listOf(MediaItem.fromBundle(media.toBundle())), emptyList(), emptySet()
+        ).single()
+        assertEquals(148000L, restored.durationMs)
+        val secret = AudioPlaybackMetadata.item(known.copy(isPrivate = true), emptySet())
+        assertFalse(secret.mediaMetadata.extras?.containsKey(AudioPlaybackMetadata.VERIFIED_DURATION) == true)
+    }
+
     @Test fun sessionAliasRemainsResolvableWhenHistoryUsesAnotherId() {
         val media = AudioPlaybackMetadata.item(row(), emptySet())
         val history = row("download-id").copy(originalName = "custom-name.mp3")

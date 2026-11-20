@@ -5,6 +5,8 @@ import android.net.Uri
 import android.util.AtomicFile
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -32,16 +34,21 @@ internal object VaultImportPolicy {
 
     fun advance(current:VaultImportPhase,next:VaultImportPhase,systemConfirmed:Boolean=false):Boolean = when(current) {
         VaultImportPhase.COPY_VERIFIED_PUBLIC_PRESENT ->
-            next==VaultImportPhase.AWAITING_PUBLIC_REMOVAL
+            next==VaultImportPhase.AWAITING_PUBLIC_REMOVAL || next==VaultImportPhase.RESTORE_PENDING
         VaultImportPhase.AWAITING_PUBLIC_REMOVAL ->
             next==VaultImportPhase.PUBLIC_REMOVAL_FAILED ||
                 (next==VaultImportPhase.FULLY_HIDDEN && systemConfirmed)
         VaultImportPhase.PUBLIC_REMOVAL_FAILED ->
-            next==VaultImportPhase.AWAITING_PUBLIC_REMOVAL
+            next==VaultImportPhase.AWAITING_PUBLIC_REMOVAL || next==VaultImportPhase.RESTORE_PENDING
         VaultImportPhase.FULLY_HIDDEN -> next==VaultImportPhase.RESTORE_PENDING
         VaultImportPhase.RESTORE_PENDING -> next==VaultImportPhase.FULLY_HIDDEN
     }
 }
+
+internal data class VaultIndexSnapshot(
+    val items: List<VaultImportRecord>,
+    val unreadableRecords: Int,
+)
 
 internal data class VaultImportRecord(
     val id:String,
@@ -69,17 +76,21 @@ internal class VaultImportIndex(context:Context,private val key:()->javax.crypto
         require(file.canonicalFile.parentFile==root && file.canonicalFile==file.absoluteFile)
         return AtomicFile(file)
     }
-    fun persist(record:VaultImportRecord) = synchronized(lock) {
+    fun persist(record:VaultImportRecord, systemConfirmed:Boolean=false) = synchronized(lock) {
         require(record.bytes>=0L && record.sha256.matches(Regex("[a-f0-9]{64}")))
         require(record.privateFileId.matches(Regex("[a-f0-9]{32}")))
         require(record.displayName.length in 1..256)
         require(Uri.parse(record.originalUri).scheme=="content")
         val file=target(record.id)
-        val previous=runCatching{read(record.id)}.getOrNull()
+        // A corrupt existing record is never equivalent to a missing record. In
+        // particular a resumed import must not overwrite unreadable state.
+        val existed=file.baseFile.exists() ||
+            File(file.baseFile.absolutePath + ".bak").exists()
+        val previous=if(existed) read(record.id) else null
         if(previous!=null) {
             check(previous.copy(phase=record.phase)==record) { "Source identity changed" }
             check(previous.phase==record.phase ||
-                VaultImportPolicy.advance(previous.phase,record.phase)) { "Invalid vault transition" }
+                VaultImportPolicy.advance(previous.phase,record.phase,systemConfirmed)) { "Invalid vault transition" }
         } else check(record.phase==VaultImportPhase.COPY_VERIFIED_PUBLIC_PRESENT) {
             "Initial record must retain the public original"
         }
@@ -96,6 +107,28 @@ internal class VaultImportIndex(context:Context,private val key:()->javax.crypto
             file.finishWrite(stream)
         } catch(t:Throwable) { file.failWrite(stream);throw t }
     }
+    /** List metadata without showing protected names while the access gate is locked.
+     * Invalid/corrupt records are counted, not automatically deleted or overwritten. */
+    fun snapshot():VaultIndexSnapshot = synchronized(lock) {
+        if(!root.exists()) return@synchronized VaultIndexSnapshot(emptyList(),0)
+        val results=mutableListOf<VaultImportRecord>()
+        var unreadable=0
+        root.listFiles().orEmpty().filter { it.name.matches(Regex("[a-f0-9]{32}\\.record")) }
+            .forEach { file ->
+                val record=runCatching { read(file.name.removeSuffix(".record")) }.getOrNull()
+                if(record==null) unreadable++ else results+=record
+            }
+        VaultIndexSnapshot(results.sortedByDescending { it.importedAt },unreadable)
+    }
+
+    /** Only after a verified external copy and verified disposal of encrypted content. */
+    fun eraseRestored(id:String) = synchronized(lock) {
+        val record=read(id)
+        check(record.phase==VaultImportPhase.RESTORE_PENDING) { "Restore was not verified" }
+        target(id).delete()
+        check(!target(id).baseFile.exists()) { "Protected index deletion failed" }
+    }
+
     fun read(id:String):VaultImportRecord = synchronized(lock) {
         val bytes=java.io.ByteArrayOutputStream()
         target(id).openRead().use{VaultCipher.decrypt(it,bytes,key())}

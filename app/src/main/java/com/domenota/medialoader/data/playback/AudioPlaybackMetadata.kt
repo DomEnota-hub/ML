@@ -28,7 +28,8 @@ internal object AudioPlaybackMetadata {
         return DownloadEntity(item.mediaId, "device", meta.title?.toString() ?: "Трек", MediaType.AUDIO,
             DownloadState.COMPLETED, uri, null, 0, sourceAudioTitle = meta.title?.toString()
                 ?.takeUnless { meta.extras?.getBoolean(FILENAME_TITLE) == true },
-            sourceAudioArtist = meta.artist?.toString(), sourceAudioArtworkUrl = meta.artworkUri?.toString())
+            sourceAudioArtist = meta.artist?.toString(), sourceAudioArtworkUrl = meta.artworkUri?.toString(),
+            durationMs = meta.extras?.getLong(VERIFIED_DURATION)?.takeIf { it > 0L })
     }
     /** A service session can outlive the activity and its phone-media index. Preserve raw
      * session IDs so a mini-player click resolves even before MediaStore is indexed. */
@@ -91,6 +92,7 @@ internal object AudioPlaybackMetadata {
                 putStringArrayList(PublicMediaIdentity.EXTRA_KEYS, ArrayList(identities))
                 if (!row.isPrivate) {
                     putString(PUBLIC_URI, row.savedUri)
+                    row.durationMs?.takeIf { it > 0L }?.let { putLong(VERIFIED_DURATION,it) }
                     putStringArrayList(LISTENING_KEYS, ArrayList(ListeningHistoryPolicy.keys(row,identities)))
                 }
             }).build()).build()

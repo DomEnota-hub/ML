@@ -1,0 +1,3091 @@
+[
+  {
+    "path": ".github/workflows/ml-17176-independent-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17174-five-device-feedback-20261111"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-gallery-order-trial-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-gallery-republish-trial-20261110"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17111-group2-music-validation.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17111-group2-music-4-7-20261102"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "music": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage2-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-stage2-multiclip-20261031",
+          "fix/ml-video-stage2-acceptance-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17207-offline-unsigned-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17207-duplicate-recovery"
+        ],
+        "paths": [
+          ".github/workflows/ml-17207-offline-unsigned-handoff.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "exact-unsigned-handoff": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ui-redesign.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/medialoader-1-4-3-ui-redesign",
+          "feature/medialoader-1-4-5-rutube"
+        ]
+      }
+    },
+    "jobs": {
+      "build": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17146-cutout-orientation-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17146-cutout-orientation-20261107"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify-build": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-round2-refined-arm64-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "integration/ml-round2-refined-7-stages-20261101"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "integrated-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage3-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-stage3-speed-geometry-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17189-stage1-collections-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17195-projection-stability"
+        ]
+      },
+      "pull_request": {
+        "types": [
+          "opened",
+          "reopened",
+          "synchronize"
+        ]
+      },
+      "workflow_dispatch": {
+        "inputs": {
+          "final_acceptance": {
+            "description": "Run full final acceptance and unsigned handoff (stage 3)",
+            "type": "boolean",
+            "default": "true"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "collections": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17195-projection-stability'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17182-background-timer-smart-albums-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17182-background-timer-smart-albums-20261113"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage1-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-stage1-workspace-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-floating-player-corner-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-floating-player-expand-bottom-right-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage9-sign.yml",
+    "triggers": {
+      "workflow_dispatch": {
+        "inputs": {
+          "device_qa_approved": {
+            "description": "Confirm real Android device smoke QA has passed",
+            "required": "true",
+            "type": "boolean",
+            "default": "false"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "signed-arm64": {
+        "if": "${{ inputs.device_qa_approved == true && startsWith(github.ref, 'refs/heads/release/') }}",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/arm64-release.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/1.5.3-instagram-names-history-search-icons",
+          "feature/1.5.5-duplicates-share-devtools",
+          "feature/1.5.7-media-viewer-editor",
+          "feature/1.5.8-media-polish",
+          "feature/1.5.9-editor-ux",
+          "feature/1.6.5-hitmoz-search-stability-artwork",
+          "release/1.5.8",
+          "release/1.5.9",
+          "release/1.6.5",
+          "release/1.6.6",
+          "fix/medialoader-1.6.6-stability",
+          "fix/medialoader-1.6.7-search-safety",
+          "feature/medialoader-1.6.8-integrated",
+          "fix/medialoader-1.6.9-network-diagnostics",
+          "fix/medialoader-1.6.10-full-song-input-lock",
+          "feature/medialoader-1.6.11-muzmo-manual",
+          "feature/medialoader-1.6.18-integrated-from-1.6.17",
+          "feature/1.7.0-photo-inpainting",
+          "feature/1.7.1-lama-mask-text",
+          "fix/1.7.2-lama-unified-mask",
+          "fix/1.7.3-lama-text-controls-visible",
+          "feature/1.7.4-music-log-polish",
+          "feature/1.7.5-bulk-experience",
+          "release/1.7.6-youtube-status",
+          "feature/1.7.7-diagnostics-stage1",
+          "feature/1.7.7-diagnostics-stage2-local-checks",
+          "feature/1.7.7-diagnostics-stage3-source-checks",
+          "feature/1.7.7-diagnostics-stage4-fault-journal",
+          "feature/1.7.7-diagnostics-stage5-journal-polish",
+          "feature/1.7.7-diagnostics-stage6-screen",
+          "feature/1.7.7-diagnostics-stage7-safe-report",
+          "release/1.7.7-diagnostics-integration-arm64"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "release-arm64": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17185-duplicates-album-gapi-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17185-duplicates-album-gapi-20261113"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17196-qa-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17197-safe-media-index"
+        ]
+      },
+      "pull_request": {
+        "types": [
+          "opened",
+          "reopened",
+          "synchronize"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "collections": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17197-safe-media-index'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17208-batch1-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17208-batch1-duplicate-results"
+        ],
+        "paths": [
+          ".github/workflows/ml-17208-batch1-qa.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17207-duplicate-recovery"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "duplicate-recovery-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-recovery-journal-qa.yml",
+    "triggers": {
+      "pull_request": {
+        "branches": [
+          "feature/ml-17167-recovery-journal-qa"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-1.7.109-ux-review.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-ux-review-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "validate-arm64": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-viewer-v10-cutout-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-viewer-v10-parity-cutout-20261105"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-verification": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17135-cutout-android16-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17135-android16-cutout-onnx-20261105"
+        ],
+        "paths": [
+          ".github/workflows/ml-17135-cutout-android16-ci.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "cutout-verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17204-cycle12-full-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17204-recovery-compatibility"
+        ],
+        "paths": [
+          ".github/workflows/ml-17204-cycle12-full-qa.yml",
+          "app/src/main/java/com/domenota/medialoader/ui/components/FolderVisibilityTransferUi.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/organization/CollectionCard.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/components/FolderVisibilityTransferUiTest.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/screens/organization/LastCollectionCoverPresentationTest.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/MediaViewerScreen.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/VideoPlayerUiPolicy.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/VideoViewerPoster.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryViewerState.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryVideoChrome.kt",
+          "app/src/main/java/com/domenota/medialoader/data/playback/VideoWatchProgress.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/screens/VideoPlayerUiPolicyTest.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/screens/GalleryViewerStateTest.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/screens/gallery/GalleryVideoChromeTest.kt",
+          "app/src/test/java/com/domenota/medialoader/data/playback/VideoWatchProgressTest.kt"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "full-qa": {
+        "if": "github.ref == 'refs/heads/feature/ml-17204-recovery-compatibility'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-stage2-live-detector-weights.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-ai-eraser-stage2-people-detector-20261109"
+        ],
+        "paths": [
+          "scripts/qa/stage2_real_detector_smoke.py",
+          ".github/workflows/ml-stage2-live-detector-weights.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "validate": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17205-final-signed-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17205-hidden-v2"
+        ],
+        "paths": [
+          ".github/workflows/ml-17205-final-signed-qa.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "signed-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-editor-stage4-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-photo-editor-stage4-color-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17200-qa-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17200-rebind-gallery-status"
+        ]
+      },
+      "pull_request": {
+        "types": [
+          "opened",
+          "reopened",
+          "synchronize"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "full-qa": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17200-rebind-gallery-status'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17144-cutout-attraction-slider-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17144-cutout-attraction-slider-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify-and-package": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17129-signed-arm64-device-review.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "build/ml-17130-arm64-unsigned-20261104"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "build-verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17209-batch1-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17209-batch1-stability-ui-vault"
+        ],
+        "paths": [
+          ".github/workflows/ml-17209-batch1-qa.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17208-batch2-nomedia-qa"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "entire-app-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-ai-models-stage2-verify.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-ai-eraser-mobile-sam-models-stage2-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17157-private-unsigned-local-sign-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-ai-eraser-stage4-reflection-model-gate-20261109"
+        ],
+        "paths": [
+          ".github/workflows/ml-17157-private-unsigned-local-sign-handoff.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-unsigned": {
+        "if": null,
+        "permissions": null
+      },
+      "verified-reflection-model": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17187-batch-photo-editor-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17187-batch-photo-editor-20261114"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17187-visual-duplicates-20261114"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17187-batch-photo-editor-20261114'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17158-stage3-storage-migration-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17195-projection-stability"
+        ]
+      },
+      "pull_request": {
+        "types": [
+          "opened",
+          "reopened",
+          "synchronize"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "storage-and-regression": {
+        "if": "github.head_ref != 'feature/ml-17168-dated-replacement' && github.head_ref != 'feature/ml-17196-safe-folder-recovery' && github.head_ref != 'feature/ml-17203-transfer-continuity'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17111-group3-video-validation.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17111-group3-video-8-15-20261102"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17145-qa-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17145-album-video-controls-20261107"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify-build": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17206-block1-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17206-visibility-nomedia"
+        ],
+        "paths": [
+          ".github/workflows/ml-17206-block1-qa.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle",
+          "docs/qa/ML-17206-block1-retirement-map.md"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17205-hidden-v2"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "retired-transfer-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17142-magnetic-lines-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17142-magnetic-contour-cutout-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify-and-package": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-round2-stage4-drawing.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-round2-stage4-eraser-tools-20261101"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "drawing": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage8-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-stage8-export-mixed-media-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/release-143.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/medialoader-1-4-3-download-filters"
+        ]
+      }
+    },
+    "jobs": {
+      "release": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/icon-build.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/medialoader-1-4-2-icon-fix"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "build": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17159-gallery-chronology-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17159-safe-gallery-chronology-20261110"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify-date-recovery": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17155-portrait-controls-swipe-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17155-portrait-chrome-history-swipes-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-ai-stage4-dexnet-inspect.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-ai-eraser-stage4-reflection-model-gate-20261109"
+        ],
+        "paths": [
+          "scripts/qa/stage4_dexnet_checkpoint_inspect.py",
+          ".github/workflows/ml-ai-stage4-dexnet-inspect.yml"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109"
+        ],
+        "paths": [
+          "scripts/qa/stage4_dexnet_checkpoint_inspect.py",
+          ".github/workflows/ml-ai-stage4-dexnet-inspect.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "inspect": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17138-release-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "build/ml-17138-arm64-cutout-qa-v7-20261106"
+        ],
+        "paths": [
+          ".github/workflows/ml-17138-release-handoff.yml",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/gallery/**",
+          "app/build.gradle"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "release": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-stage5-integration-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "integration/ml-photo-5-stages-arm64-20261101"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "integration": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/android.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/medialoader-1-2-youtube"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "build": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17137-release-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "build/ml-17137-arm64-retouch-qa-20261106"
+        ],
+        "paths": [
+          ".github/workflows/ml-17137-release-handoff.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "release": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17150-viewer-edge-to-edge-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17150-viewer-edge-to-edge-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/hitmoz-arm64.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/1.4.8-hitmoz-search",
+          "fix/1.5.0-bulk-pacing-missing-history"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "test-and-build": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-ai-mobilesam-inference-stage3-verify.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-ai-eraser-mobilesam-inference-stage3-20261108",
+          "feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-controls-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109",
+          "feature/ml-ai-eraser-stage2-people-detector-20261109",
+          "feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109",
+          "feature/ml-ai-eraser-stage4-reflection-model-gate-20261109"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-ai-eraser-mobilesam-inference-stage3-20261108",
+          "feature/ml-ai-eraser-qa156-stage1-ui-copy-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-controls-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-auto-drag-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-manual-object-trace-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-model-update-check-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-honest-modes-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-magnifier-geometry-20261109",
+          "feature/ml-ai-eraser-qa156-stage1-gapi-balance-20261109",
+          "feature/ml-ai-eraser-stage2-people-detector-20261109",
+          "feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109",
+          "feature/ml-ai-eraser-stage4-reflection-model-gate-20261109"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17139-cutout-v3-exact.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17139-cutout-v3-exact-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17158-stage1-ort-performance-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17158-three-stage-qa-stage1-ort-20261109"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "stage1-regression": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17111-publish-random-debug-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17111-group3-video-8-15-20261102"
+        ],
+        "paths": [
+          ".github/workflows/ml-17111-publish-random-debug-qa.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify-and-publish": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17154-video-chrome-orientation-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17154-video-chrome-orientation-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17138-cutout-editor-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17138-cutout-editor-qa-v7-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "checks": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17206-block2-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17206-visibility-nomedia"
+        ],
+        "paths": [
+          ".github/workflows/ml-17206-block2-qa.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle",
+          "docs/qa/ML-17206-block2-saf-history.md"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17205-hidden-v2"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "saf-nomedia-history": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-ai-stage4-dexnet-full-onnx.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-ai-eraser-stage4-reflection-model-gate-20261109"
+        ],
+        "paths": [
+          "scripts/qa/stage4_dexnet_full_inference_smoke.py",
+          ".github/workflows/ml-ai-stage4-dexnet-full-onnx.yml"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109"
+        ],
+        "paths": [
+          "scripts/qa/stage4_dexnet_full_inference_smoke.py",
+          ".github/workflows/ml-ai-stage4-dexnet-full-onnx.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "model": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-round2-stage1-scan-performance.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-round2-stage1-scan-checkpoints-20261101"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "gallery-scan": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-editor-final-integrated-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-photo-editor-final-theme-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "integrated-android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17206-block3-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17206-visibility-nomedia"
+        ],
+        "paths": [
+          ".github/workflows/ml-17206-block3-qa.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "docs/qa/ML-17206-block3-display-stability.md",
+          "app/build.gradle"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17205-hidden-v2"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "gallery-music-error-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-stage3-navigation.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-photo-stage3-navigation-20261101"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "navigation-and-icons": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17207-stage1-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17207-duplicate-recovery"
+        ],
+        "paths": [
+          ".github/workflows/ml-17207-stage1-qa.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17206-visibility-nomedia"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "duplicate-recovery-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17208-batch2-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17208-batch2-nomedia-qa"
+        ],
+        "paths": [
+          ".github/workflows/ml-17208-batch2-qa.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17208-batch1-duplicate-results"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "entire-app-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/instagram-diagnostics-checks.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/instagram-webview-diagnostics-20261031"
+        ],
+        "paths": [
+          "app/src/main/**",
+          "app/src/test/**",
+          "scripts/test-instagram-backdrop-recovery.cjs",
+          ".github/workflows/instagram-diagnostics-checks.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17151-delete-sheet-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17151-delete-sheet-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17147-gallery-neutral-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17147-gallery-neutral-20261107"
+        ],
+        "paths": [
+          ".github/workflows/ml-17147-gallery-neutral-arm64-handoff.yml",
+          "app/build.gradle"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17148-editor-yellow-white-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17148-editor-yellow-white-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17158-stage2-people-manual-gallery-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17158-stage2-people-gallery-20261109"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "stage1-regression": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-editor-stage6-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-photo-editor-stage6-geometry-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17160-date-audit-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17160-mediastore-date-audit-20261110"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17187-media-organization-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17187-media-organization-20261114"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage7-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-stage7-transitions-fx-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage6-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-stage6-overlays-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17136-gallery-qa-v4.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17136-gallery-qa-v4-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify-gallery": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-signing-tools-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-1.7.110-video-editor-arm64"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "tools": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17199-qa-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17199-nomedia-recovery"
+        ]
+      },
+      "pull_request": {
+        "types": [
+          "opened",
+          "reopened",
+          "synchronize"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "collections": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17199-nomedia-recovery'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/photo-editor-workspace-checks.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/photo-editor-workspace-rebuild"
+        ],
+        "paths": [
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle",
+          ".github/workflows/photo-editor-workspace-checks.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17166-readonly-migration-inventory-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17166-readonly-migration-inventory"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17111-group1-validation.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17111-group1-safety-video-trash-calendar-20261102"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "safety": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17128-ux-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17128-recognition-bulk-progress-cards-20261104",
+          "fix/ml-shazam-throttle-retry-20261104"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-compile": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17180-music-gallery-recovery-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17180-music-gallery-recovery-20261112"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17152-unified-video-player-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17152-unified-video-player-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-chronology-trial-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-chronology-trial-20261110"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17205-hidden-v2-full-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17205-hidden-v2"
+        ],
+        "paths": [
+          ".github/workflows/ml-17205-hidden-v2-full-qa.yml",
+          "app/src/main/java/com/domenota/medialoader/data/catalog/visibility/**",
+          "app/src/test/java/com/domenota/medialoader/data/catalog/visibility/**",
+          "app/build.gradle",
+          "app/src/main/java/com/domenota/medialoader/data/download/MuzmoDownloadUrls.kt",
+          "app/src/main/java/com/domenota/medialoader/data/download/MuzmoDownloadEngine.kt",
+          "app/src/test/java/com/domenota/medialoader/data/download/MuzmoDownloadUrlsTest.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/components/FolderVisibilityTransferUi.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/organization/CollectionCard.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/components/FolderVisibilityTransferUiTest.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/screens/organization/LastCollectionCoverPresentationTest.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/MediaViewerScreen.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/VideoPlayerUiPolicy.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/VideoViewerPoster.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryViewerState.kt",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/gallery/GalleryVideoChrome.kt",
+          "app/src/main/java/com/domenota/medialoader/data/playback/VideoWatchProgress.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/screens/VideoPlayerUiPolicyTest.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/screens/GalleryViewerStateTest.kt",
+          "app/src/test/java/com/domenota/medialoader/ui/screens/gallery/GalleryVideoChromeTest.kt",
+          "app/src/test/java/com/domenota/medialoader/data/playback/VideoWatchProgressTest.kt"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "full-qa": {
+        "if": "github.ref == 'refs/heads/feature/ml-17205-hidden-v2'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-ai-stage4-reflection-real-weights-poc.yml",
+    "triggers": {
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "evaluate": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/integration-medialoader-1.7.108-rc.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "integration/medialoader-1.7.108-rc"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "validate-and-package": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17153-landscape-qa-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17153-gallery-landscape-qa-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17209-batch2-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17209-batch2-vault-private-qa"
+        ],
+        "paths": [
+          ".github/workflows/ml-17209-batch2-qa.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle",
+          "scripts/**"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17209-batch1-stability-ui-vault"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "entire-app-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-1.7.110-signed-library-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-1.7.110-video-editor-arm64"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "sign": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-editor-stage2-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-photo-editor-stage2-drawing-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-inplace-chronology-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-inplace-sort-fix-20261110"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17186-library-listening-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17186-library-listening-20261113"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17134-signed-release.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-1.7.134-v10-signed-arm64-20261105"
+        ],
+        "paths": [
+          ".github/workflows/ml-17134-signed-release.yml",
+          "gradle.properties"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "signed-release": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage4-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-stage4-audio-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/release.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/**"
+        ]
+      }
+    },
+    "jobs": {
+      "release": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-ai-stage3-specular-real-weights-poc.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109"
+        ],
+        "paths": [
+          "scripts/qa/stage3_real_srnet_export_smoke.py",
+          ".github/workflows/ml-ai-stage3-specular-real-weights-poc.yml"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-ai-eraser-stage2-people-detector-20261109"
+        ],
+        "paths": [
+          "scripts/qa/stage3_real_srnet_export_smoke.py",
+          ".github/workflows/ml-ai-stage3-specular-real-weights-poc.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "real-model": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17111-final-qa-publish.yml",
+    "triggers": {
+      "workflow_dispatch": "",
+      "push": {
+        "branches": [
+          "feature/ml-17111-group3-video-8-15-20261102"
+        ],
+        "paths": [
+          ".github/workflows/ml-17111-final-qa-publish.yml"
+        ]
+      }
+    },
+    "jobs": {
+      "publish-after-full-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-1.7.110-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-1.7.110-video-editor-arm64"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "build-ml-arm64": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17135-arm64-signed-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "build/ml-17135-arm64-cutout-qa-20261105"
+        ],
+        "paths": [
+          ".github/workflows/ml-17135-arm64-signed-handoff.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "release-handoff": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17204-recovery-targeted.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17204-recovery-compatibility"
+        ],
+        "paths": [
+          ".github/workflows/ml-17204-recovery-targeted.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "recovery-targeted": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17141-gallery-album-sort-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17141-gallery-album-natural-sort-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify-build": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17173-issue104-four-block-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17173-issue104-four-blocks-20261111"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17187-smart-music-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17187-smart-music-20261114"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-round2-stage3-geometry.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-round2-stage3-geometry-interactions-20261101"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "geometry": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17202-gallery-recovery-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17202-library-recovery-stability"
+        ]
+      },
+      "pull_request": {
+        "types": [
+          "opened",
+          "reopened",
+          "synchronize"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "full-qa": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17202-library-recovery-stability'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17183-viewer-cleanup-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17183-viewer-cleanup-20261113"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17179-library-recovery-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17179-library-recovery-20261112"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-album-video-skip-controls-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-album-video-prev-next-20261107"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17201-stage1-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17201-gallery-transfer-foreground"
+        ]
+      },
+      "pull_request": {
+        "types": [
+          "opened",
+          "reopened",
+          "synchronize"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "full-qa": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17201-gallery-transfer-foreground'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-qa-github-release.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "integration/ml-photo-5-stages-arm64-20261101"
+        ],
+        "paths": [
+          ".github/workflows/ml-photo-qa-github-release.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "publish": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17174-five-feedback-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17174-five-device-feedback-20261111"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17136-release-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "build/ml-17136-arm64-gallery-qa-v4-20261106"
+        ],
+        "paths": [
+          ".github/workflows/ml-17136-release-handoff.yml",
+          "app/src/main/java/com/domenota/medialoader/ui/screens/gallery/**",
+          "app/src/main/java/com/domenota/medialoader/data/editor/LocalTextOcr.kt",
+          "app/src/main/AndroidManifest.xml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "assemble-release": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17140-gallery-bulk-album-move.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17140-gallery-bulk-album-move-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17205-offline-signing-inputs.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17205-hidden-v2"
+        ],
+        "paths": [
+          ".github/workflows/ml-17205-offline-signing-inputs.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "source-verified-unsigned": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/main-ui-v6-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/gallery-waveform-polish-1.7.107"
+        ],
+        "paths": [
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle",
+          ".github/workflows/main-ui-v6-ci.yml"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "main"
+        ],
+        "paths": [
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle",
+          ".github/workflows/main-ui-v6-ci.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      },
+      "arm64-release-package": {
+        "if": "success()",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-gallery-quick-access-neutral-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-gallery-quick-access-neutral-20261107"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17174-final-unsigned-local-sign.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17173-issue104-four-blocks-20261111"
+        ],
+        "paths": [
+          ".github/workflows/ml-17174-final-unsigned-local-sign.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "unsigned": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17158-private-unsigned-local-sign.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17158-stage3-ocr-animation-release-20261109"
+        ],
+        "paths": [
+          ".github/workflows/ml-17158-private-unsigned-local-sign.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "unsigned-handoff": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-round2-gallery-crash-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-round2-gallery-state-and-crash-20261101"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "gallery-regression": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17134-local-sign-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-1.7.134-v10-signed-arm64-20261105"
+        ],
+        "paths": [
+          ".github/workflows/ml-17134-local-sign-handoff.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "unsigned": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage9-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-stage9-final-integration-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "final-video-editor-validation": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17200-exact-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17200-rebind-gallery-status"
+        ],
+        "paths": [
+          ".github/workflows/ml-17200-exact-arm64-handoff.yml",
+          "scripts/run-jvm-isolated-compose.py",
+          "app/build.gradle"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "arm64-handoff": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-music-neutral-waveforms-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17149-music-neutral-waveforms-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-editor-yellow-white-text-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-editor-yellow-sliders-white-text-20261107"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "editor-colors": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17187-visual-duplicates-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17187-visual-duplicates-20261114"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-17187-media-organization-20261114"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17187-visual-duplicates-20261114'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-editor-stage5-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-photo-editor-stage5-effects-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-ai-eraser-compose-stage1-verify.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-ai-eraser-compose-stage1-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-editor-stage3-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-photo-editor-stage3-local-mosaic-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17158-private-signed-drive-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17158-stage3-ocr-animation-release-20261109"
+        ],
+        "paths": [
+          ".github/workflows/ml-17158-private-signed-drive-handoff.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "signed-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17184-duplicate-trash-gallery-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17184-duplicate-trash-gallery-20261113"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-v8-reference-validation.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-v8-reference-rebuild-20261102",
+          "feature/ml-17128-recognition-bulk-progress-cards-20261104"
+        ]
+      },
+      "workflow_dispatch": {
+        "inputs": {
+          "official_release_review": {
+            "description": "Build isolated unsigned Release QA for local official signing",
+            "type": "boolean",
+            "default": "false"
+          },
+          "full_validation": {
+            "description": "Run all release gates and the whole codec suite once",
+            "type": "boolean",
+            "default": "false"
+          },
+          "review_apk": {
+            "description": "Build an isolated ARM64 review APK; targeted checks are recorded locally",
+            "type": "boolean",
+            "default": "false"
+          },
+          "run_device_tests": {
+            "description": "Run Android codecs (disable only when runtime and native tests are unchanged)",
+            "type": "boolean",
+            "default": "true"
+          },
+          "device_test": {
+            "description": "Focused Android test (class#method)",
+            "type": "string",
+            "default": "com.domenota.medialoader.data.editor.Media3ActualVideoFxInstrumentedTest#effectsRedrawPausedFramesPlayAndMatchMp4"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "qa": {
+        "if": "${{ github.event_name == 'push' || inputs.full_validation || inputs.review_apk }}",
+        "permissions": null
+      },
+      "mp4-codec-device": {
+        "if": "${{ github.event_name == 'workflow_dispatch' && inputs.run_device_tests }}",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-stage4-creative-tools.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-photo-stage4-creative-tools-20261101"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "creative-tools": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17174-issue104-final-signed-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17173-issue104-four-blocks-20261111"
+        ],
+        "paths": [
+          ".github/workflows/ml-17174-issue104-final-signed-qa.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "signed-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-ai-stage4-real-model-android-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-ai-eraser-stage4-reflection-model-gate-20261109"
+        ],
+        "paths": [
+          ".github/workflows/ml-ai-stage4-real-model-android-qa.yml"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "feature/ml-ai-eraser-stage3-specular-srnet-poc-20261109"
+        ],
+        "paths": [
+          ".github/workflows/ml-ai-stage4-real-model-android-qa.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "real-model-qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-video-editor-stage5-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-video-editor-stage5-color-filters-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17198-qa-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17198-diagnostics"
+        ]
+      },
+      "pull_request": {
+        "types": [
+          "opened",
+          "reopened",
+          "synchronize"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "collections": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17198-diagnostics'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/instagram-bulk-quality-checks.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/instagram-bulk-best-available-20261031"
+        ],
+        "paths": [
+          "app/src/main/**",
+          "app/src/test/**",
+          ".github/workflows/instagram-bulk-quality-checks.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-round2-stage2-photo-preview.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-round2-stage2-photo-preview-20261101"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "photo-preview": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17205-hidden-v2-focused.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17205-hidden-v2"
+        ],
+        "paths": [
+          ".github/workflows/ml-17205-hidden-v2-focused.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "recovery-targeted": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17188-qa-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17188-qa-rework"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17188-qa-rework'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17178-palette-ocr-eq-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17178-palette-ocr-eq-20261112"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17177-track-eq-caption-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17177-track-eq-caption-recovery-20261112"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-exif-chronology-lab-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-exif-chronology-lab-20261110"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17203-transfer-continuity-qa.yml",
+    "triggers": {
+      "pull_request": {
+        "types": [
+          "opened",
+          "reopened",
+          "synchronize"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "full-qa": {
+        "if": "github.event_name != 'pull_request' || github.head_ref == 'feature/ml-17203-transfer-continuity'",
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17137-qa-v6.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17137-cutout-retouch-ocr-wallpaper-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "qa": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17149-music-waveforms-arm64-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "release/ml-17149-music-neutral-waveform-20261108"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17143-cutout-original-preview-qa.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "fix/ml-17143-cutout-original-preview-20261106"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify-and-package": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17208-offline-unsigned-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17208-batch2-nomedia-qa"
+        ],
+        "paths": [
+          ".github/workflows/ml-17208-offline-unsigned-handoff.yml",
+          "app/src/main/**",
+          "app/src/test/**",
+          "app/build.gradle",
+          "docs/qa/ML-17208-xiaomi-device-qa.md"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "exact-unsigned-handoff": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17140-local-sign-handoff.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17140-gallery-bulk-album-move-20261106"
+        ],
+        "paths": [
+          ".github/workflows/ml-17140-local-sign-handoff.yml"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "handoff": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-photo-editor-stage1-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-photo-editor-stage1-xiaomi-ui-20261031"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "android-check": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  },
+  {
+    "path": ".github/workflows/ml-17181-shortcuts-library-ci.yml",
+    "triggers": {
+      "push": {
+        "branches": [
+          "feature/ml-17181-shortcuts-library-20261113"
+        ]
+      },
+      "workflow_dispatch": ""
+    },
+    "jobs": {
+      "verify": {
+        "if": null,
+        "permissions": null
+      }
+    }
+  }
+]

@@ -57,6 +57,23 @@ class VaultImportCoreTest {
         assertEquals(VaultImportPhase.AWAITING_PUBLIC_REMOVAL,index.read(id).phase)
     }
 
+    @Test fun existingCorruptIndexCannotBeSilentlyOverwrittenAsNewImport() {
+        val ctx=ApplicationProvider.getApplicationContext<Context>()
+        val index=VaultImportIndex(ctx) { key }
+        val id=UUID.randomUUID().toString().replace("-","")
+        val entry=VaultImportRecord(id,VaultOrigin.EXTERNAL_DOCUMENT,
+            "content://docs.provider/document/123","sample.bin",id,4,
+            "b".repeat(64),VaultImportPhase.COPY_VERIFIED_PUBLIC_PRESENT,1700000000000L)
+        val file=File(ctx.noBackupFilesDir,"vault-index-v1/$id.record")
+        file.parentFile!!.mkdirs()
+        val corrupted=byteArrayOf(0x13,0x17,0x23,0x42)
+        file.writeBytes(corrupted)
+        assertTrue(index.snapshot().unreadableRecords>=1)
+        assertTrue(runCatching{index.persist(entry)}.isFailure)
+        assertArrayEquals(corrupted,file.readBytes())
+        assertTrue(runCatching{index.read(id)}.isFailure)
+    }
+
     @Test fun onlyMetadataCanBeRecordedWithoutRemovingPublicSource() {
         val phase=VaultImportPhase.COPY_VERIFIED_PUBLIC_PRESENT
         assertFalse(VaultImportPolicy.advance(phase,VaultImportPhase.PUBLIC_REMOVAL_FAILED))

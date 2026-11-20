@@ -311,6 +311,9 @@ class MediaRepository private constructor(context: Context) {
         onCompleted = { task, result ->
             if (task.item.type == MediaType.AUDIO) {
                 recognitionScope.launch {
+                    // Completion metadata is required by MusicLibraryTrackRow. Do not
+                    // couple it to optional recognition mode or UI scroll/recomposition.
+                    runCatching { persistDuration(task.id, result.savedUri) }
                     waveformGate.withPermit {
                         BackgroundMediaWork.awaitIdle()
                         loadAudioWaveform(appContext, Uri.parse(result.savedUri))
@@ -371,17 +374,20 @@ class MediaRepository private constructor(context: Context) {
                         }
                 }
 
-            // Duration belongs to history metadata. Backfill old completed videos once so
-            // scrolling the UI never has to open every media file repeatedly.
-            rows.filter {
-                !it.isPrivate && it.state == DownloadState.COMPLETED &&
-                    it.mediaType == MediaType.VIDEO &&
-                    it.durationMs == null &&
-                    !it.savedUri.isNullOrBlank()
-            }.forEach { entry ->
-                BackgroundMediaWork.awaitIdle()
-                val duration = mediaDurationMs(entry.savedUri)
-                if (duration != null) history.setDuration(entry.id, duration)
+            // Backfill both older downloaded audio and video whose history lacks duration.
+            // MediaStore already provides durations for phone-library entries, but ML's
+            // own completed downloads can have NULL. Probe strictly on IO, not in Compose.
+            rows.filter(MusicDurationBackfillPolicy::eligible).chunked(32).forEach { batch ->
+                val candidates = mutableListOf<Triple<String, String, Long>>()
+                batch.forEach { entry ->
+                    BackgroundMediaWork.awaitIdle()
+                    val source = entry.savedUri ?: return@forEach
+                    val duration = mediaDurationMs(source)
+                    if (duration != null) candidates += Triple(entry.id, source, duration)
+                }
+                if (candidates.isNotEmpty()) {
+                    runCatching { history.fillMissingDurationsWhenCurrent(candidates) }
+                }
             }
 
             // Prepare every retained audio track once. The player can then paint its waveform
@@ -1875,9 +1881,12 @@ class MediaRepository private constructor(context: Context) {
 
     private suspend fun persistDuration(id: String, savedUri: String?) {
         if (savedUri.isNullOrBlank()) return
-        val duration = mediaDurationMs(savedUri) ?: return
-        val row = history.byId(id) ?: return
-        if (row.durationMs != duration) history.setDuration(id, duration)
+        withContext(Dispatchers.IO) {
+            val current = history.byId(id) ?: return@withContext
+            if (!MusicDurationBackfillPolicy.eligible(current) || current.savedUri != savedUri) return@withContext
+            val duration = mediaDurationMs(savedUri) ?: return@withContext
+            history.fillMissingDurationWhenCurrent(id, savedUri, duration)
+        }
     }
 
     private fun mediaDurationMs(savedUri: String?): Long? {

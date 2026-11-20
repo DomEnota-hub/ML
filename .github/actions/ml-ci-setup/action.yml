@@ -1,0 +1,55 @@
+name: Credential-free MediaLoader CI setup
+description: Exact source, pinned runtime, lane cache and temporary mirror wrapper
+inputs:
+  lane:
+    required: true
+    description: Cache lane
+  epoch:
+    default: v1
+    description: Cache invalidation namespace
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        CACHE_EPOCH: ${{ inputs.epoch }}
+      run: |
+        set -euo pipefail
+        [[ "$CACHE_EPOCH" =~ ^[a-zA-Z0-9._-]{1,40}$ ]]
+        python3 scripts/ci/gate.py inputs
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - uses: actions/cache@v4
+      id: cache
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          ~/.m2/repository/org/robolectric
+        key: ${{ runner.os }}-ml-ci-v1-${{ inputs.lane }}-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-${{ github.event.pull_request.head.sha || github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-ml-ci-v1-${{ inputs.lane }}-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-
+    - shell: bash
+      env:
+        LANE: ${{ inputs.lane }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+      run: |
+        set -euo pipefail
+        bootstrap="$RUNNER_TEMP/ml-wrapper"
+        mkdir -p "$bootstrap/gradle/wrapper"
+        cp gradlew "$bootstrap/gradlew"
+        cp gradle/wrapper/gradle-wrapper.* "$bootstrap/gradle/wrapper/"
+        sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#;s/networkTimeout=10000/networkTimeout=120000/' "$bootstrap/gradle/wrapper/gradle-wrapper.properties"
+        chmod +x "$bootstrap/gradlew"
+        echo "ML_GRADLE=$bootstrap/gradlew" >> "$GITHUB_ENV"
+        echo 'GRADLE_OPTS=-Dorg.gradle.caching=true' >> "$GITHUB_ENV"
+        python3 scripts/ci/gate.py stage bootstrap "$bootstrap/gradlew" --version --no-daemon
+        sdk="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+        if [ ! -f "$ANDROID_SDK_ROOT/platforms/android-35/android.jar" ] || [ ! -f "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" ]; then
+          "$sdk" 'platforms;android-35' 'build-tools;35.0.0'
+        fi
+        printf '\nCache lane %s: exact hit=%s; Gradle8.9 SHA pinned; configuration cache OFF\n' "$LANE" "$CACHE_HIT" >> "$GITHUB_STEP_SUMMARY"
+        git diff --exit-code

@@ -154,4 +154,38 @@ internal class VaultEncryptedFiles(
             VaultCipher.authenticatedDigest(it,keyProvider()) == expected
         } }.getOrDefault(false)
     }
+
+    /** The destination is a new document created by the Android picker, never an
+     * arbitrary existing file. A failed export is left for caller to delete through SAF.
+     * Protected bytes remain until a second read verifies the *public* document. */
+    suspend fun exportVerified(id:String,destination:Uri,expected:VaultCopyEvidence):Boolean =
+        withContext(Dispatchers.IO) {
+            require(destination.scheme=="content")
+            check(verify(id,expected)) { "Protected source was not verified" }
+            val out=app.contentResolver.openOutputStream(destination,"w")
+                ?: error("Cannot write exported document")
+            val readback=FileInputStream(target(id)).use { input ->
+                out.use { output -> VaultCipher.decrypt(input,output,keyProvider()) }
+            }
+            check(readback==expected) { "Decrypted content differs from protected record" }
+            val digest=MessageDigest.getInstance("SHA-256")
+            var count=0L
+            (app.contentResolver.openInputStream(destination) ?: error("Exported document cannot be checked")).use { input ->
+                val buffer=ByteArray(65536)
+                while(true) {
+                    val n=input.read(buffer)
+                    if(n<0)break
+                    if(n>0) { digest.update(buffer,0,n);count+=n }
+                }
+            }
+            val hex=digest.digest().joinToString("") { "%02x".format(it) }
+            count==expected.bytes && hex==expected.sha256
+        }
+
+    /** Called after export verification; fail closed on mismatch or IO failure. */
+    suspend fun deleteVerified(id:String,evidence:VaultCopyEvidence):Boolean=withContext(Dispatchers.IO) {
+        if(!verify(id,evidence))return@withContext false
+        val file=target(id)
+        file.delete() && !file.exists()
+    }
 }
