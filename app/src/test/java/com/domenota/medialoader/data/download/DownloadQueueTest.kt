@@ -30,6 +30,20 @@ class DownloadQueueTest {
         override fun observePrivate(): Flow<List<DownloadEntity>> = MutableStateFlow(emptyList())
         override suspend fun deletePrivate(id: String) { rows.update { list -> list.filterNot { it.id == id && it.isPrivate } } }
         override suspend fun setDuration(id: String, duration: Long) { rows.update { list -> list.map { if (it.id == id) it.copy(durationMs = duration) else it } } }
+        override suspend fun fillMissingDurationWhenCurrent(id: String, uri: String, duration: Long): Int {
+            if(duration<=0L)return 0
+            var updated=0
+            rows.update { list -> list.map { row ->
+                if(row.id==id && row.savedUri==uri && row.state==DownloadState.COMPLETED &&
+                    !row.isPrivate && !row.hidden &&
+                    row.mediaType in setOf(MediaType.AUDIO,MediaType.VIDEO) &&
+                    (row.durationMs==null || row.durationMs<=0)) {
+                    updated++
+                    row.copy(durationMs=duration)
+                } else row
+            } }
+            return updated
+        }
         override fun observeAll(): Flow<List<DownloadEntity>> = rows
         override fun observeHiddenCount(): Flow<Int> = MutableStateFlow(0)
         override fun observeHidden(): Flow<List<DownloadEntity>> = rows
