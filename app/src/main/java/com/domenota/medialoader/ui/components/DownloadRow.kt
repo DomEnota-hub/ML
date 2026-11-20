@@ -106,6 +106,10 @@ fun DownloadRow(
     compact: Boolean = false,
     onAddCollection: (() -> Unit)? = null,
     onPassport: (() -> Unit)? = null,
+    /** Used exclusively by authorized private-media multi-select. */
+    onLongSelect: (() -> Unit)? = null,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
 ) {
     val context = LocalContext.current
     LaunchedEffect(item.id, item.state, item.previewUrl) {
@@ -357,7 +361,8 @@ fun DownloadRow(
             .semantics { contentDescription = shownName; stateDescription = statusText }
             .combinedClickable(
                 onClick = { if (item.state == DownloadUiState.COMPLETED) onOpen() else menuExpanded = true },
-                onLongClickLabel = "Действия с файлом", onLongClick = { menuExpanded = true })) {
+                onLongClickLabel = if (onLongSelect != null) "Выбрать файл" else "Действия с файлом",
+                onLongClick = { if (onLongSelect != null) onLongSelect() else menuExpanded = true })) {
             DownloadThumbnail(item.savedUri, item.previewUrl, item.kind, Modifier.fillMaxSize())
             if (item.kind != MediaKind.IMAGE) Icon(
                 if (item.kind == MediaKind.VIDEO) Icons.Rounded.Videocam else Icons.Rounded.MusicNote,
@@ -370,17 +375,21 @@ fun DownloadRow(
                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
                     .size(20.dp))
             VideoWatchStripe(item, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp))
-            fileMenu()
+            if (selectionMode) Checkbox(selected,onCheckedChange={onOpen()},modifier=Modifier.align(Alignment.TopEnd))
+            else fileMenu()
         }
     } else AppCard(modifier = modifier.fillMaxWidth()) {
         // The whole completed row, including the thumbnail, opens the file.
         // Do not silently disable taps because a cached existence check returned
         // INACCESSIBLE: the action handler rechecks and shows a precise error.
         Row(Modifier.fillMaxWidth()
-            .clickable(enabled = item.state == DownloadUiState.COMPLETED, onClick = onOpen)
+            .combinedClickable(enabled = item.state == DownloadUiState.COMPLETED,
+                onClick = onOpen, onLongClick = onLongSelect,
+                onLongClickLabel = if (onLongSelect != null) "Выбрать файл" else null)
             .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (selectionMode) Checkbox(selected,onCheckedChange={onOpen()},modifier=Modifier.size(42.dp))
             Box(
                 Modifier
                     .size(82.dp).clip(RoundedCornerShape(14.dp))
@@ -436,7 +445,7 @@ fun DownloadRow(
                     Text(statusText, style = MaterialTheme.typography.labelLarge, color = statusColor)
                 }
             }
-            Box {
+            if (!selectionMode) Box {
                 IconButton(onClick = { menuExpanded = true }) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = "Действия с файлом")
                 }
