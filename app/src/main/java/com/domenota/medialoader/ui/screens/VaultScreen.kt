@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -102,7 +103,9 @@ internal fun VaultScreen(access:PrivateAccessManager,onBack:()->Unit) {
     LaunchedEffect(state.unlocked,revision) {
         listing=if(state.unlocked) withContext(Dispatchers.IO){ operations.snapshot() }
             else VaultIndexSnapshot(emptyList(),0)
-        if(!state.unlocked){ message=null; pendingSelection=null; safRemovalId=null }
+        if(!state.unlocked){ message=null; safRemovalId=null }
+        // A picker returning while Android revoked the unlock leaves only a pending
+        // in-memory selection, never an import. It resumes after re-authentication.
     }
     LaunchedEffect(state.unlocked,deletionResultId) {
         val id=deletionResultId
