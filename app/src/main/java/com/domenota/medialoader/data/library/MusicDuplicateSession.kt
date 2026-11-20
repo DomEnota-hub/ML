@@ -30,6 +30,7 @@ internal object MusicDuplicateSessionStore {
             val target=file(context);target.delete()
             check(listOf(target.baseFile,File(target.baseFile.path+".bak"),File(target.baseFile.path+".new")).none{it.exists()})
             DuplicateReportJournal.clearCompleted(context,"music")
+            MusicDuplicateShardStore.clearCompleted(context)
             if(includePartial)DuplicateReportJournal.clearPartial(context,"music")
         }.isSuccess
     }
@@ -43,6 +44,7 @@ internal object MusicDuplicateSessionStore {
     fun clearForPrivacy(context: Context) {
         journalRevision++
         DuplicateReportJournal.clear(context,"music")
+        MusicDuplicateShardStore.clear(context)
         val target=file(context);target.delete()
         val report=trashReportFile(context);report.delete()
         check(!target.baseFile.exists()&&!report.baseFile.exists()){"Не удалось очистить отчёт дубликатов"}
@@ -78,11 +80,15 @@ internal object MusicDuplicateSessionStore {
         group.tracks.all { DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id) }
     }
     suspend fun load(context: Context): DuplicateSession? = withContext(Dispatchers.IO) {
-        synchronized(lock) { runCatching { decode(file(context).openRead().bufferedReader().use { it.readText() }).takeIf { permitted(context,it) } }.getOrNull() }
+        synchronized(lock) {
+            runCatching { MusicDuplicateShardStore.load(context)?.takeIf { permitted(context,it) } }.getOrNull()
+                ?: runCatching { decode(file(context).openRead().bufferedReader().use { it.readText() }).takeIf { permitted(context,it) } }.getOrNull()
+        }
     }
     suspend fun history(context:Context):List<DuplicateSession> = withContext(Dispatchers.IO){synchronized(lock){
         val current=runCatching{decode(file(context).openRead().bufferedReader().use{it.readText()})}.getOrNull()
-        (listOfNotNull(current)+DuplicateReportJournal.history(context,"music").mapNotNull{runCatching{decode(it)}.getOrNull()}).filter{permitted(context,it)}.distinctBy{it.scannedAt}.sortedByDescending{it.scannedAt}
+        (MusicDuplicateShardStore.history(context)+listOfNotNull(current)+DuplicateReportJournal.history(context,"music").mapNotNull{runCatching{decode(it)}.getOrNull()})
+            .filter{permitted(context,it)}.distinctBy{it.scannedAt}.sortedByDescending{it.scannedAt}
     }}
     /** Checkpoints are independent of successful reports and are never promoted implicitly. */
     fun savePartial(context:Context,session:DuplicateSession,expectedJournalGeneration:Long?=null):Boolean=synchronized(lock){
@@ -90,19 +96,34 @@ internal object MusicDuplicateSessionStore {
         if(!permitted(context,session))return@synchronized false
         runCatching{DuplicateReportJournal.savePartial(context,"music",encode(session))}.isSuccess
     }
-    suspend fun partial(context:Context):DuplicateSession?=withContext(Dispatchers.IO){synchronized(lock){runCatching{DuplicateReportJournal.partial(context,"music")?.let(::decode)?.takeIf{permitted(context,it)}}.getOrNull()}}
+    suspend fun partial(context:Context):DuplicateSession?=withContext(Dispatchers.IO){synchronized(lock){runCatching{
+        DuplicateReportJournal.partial(context,"music")?.let(::decode)?.takeIf{permitted(context,it)}
+            ?.let{MusicDuplicateShardStore.applySelection(context,it,true)}
+    }.getOrNull()}}
+    /** Store only lightweight UI choices. Moving the list must not reserialize thousands
+     * of acoustic landmarks or overwrite a completed/partial scan payload. */
+    suspend fun saveInteraction(context:Context,session:DuplicateSession,partial:Boolean,
+                                expectedJournalGeneration:Long?=null):Boolean=withContext(Dispatchers.IO){
+        synchronized(lock) {
+            if(expectedJournalGeneration!=null&&expectedJournalGeneration!=journalRevision)return@synchronized false
+            if(!permitted(context,session))return@synchronized false
+            runCatching{MusicDuplicateShardStore.updateSelection(context,session,partial)}.isSuccess
+        }
+    }
     suspend fun save(context: Context, session: DuplicateSession, expectedJournalGeneration:Long?=null): Boolean = withContext(Dispatchers.IO + NonCancellable) {
         synchronized(lock) {
-            if (expectedJournalGeneration!=null&&expectedJournalGeneration!=journalRevision) return@synchronized false
-            if (!permitted(context,session)) return@synchronized false
-            val target = file(context)
+            if(expectedJournalGeneration!=null&&expectedJournalGeneration!=journalRevision) {
+                DuplicateSaveDiagnostic.record(context,"GENERATION_MISMATCH",null)
+                return@synchronized false
+            }
+            if(!permitted(context,session)) {
+                DuplicateSaveDiagnostic.record(context,"PRIVACY_GUARD",null)
+                return@synchronized false
+            }
             runCatching {
-                val previous=runCatching{decode(target.openRead().bufferedReader().use{it.readText()})}.getOrNull()
-                if(previous!=null&&previous.scannedAt!=session.scannedAt&&permitted(context,previous))DuplicateReportJournal.archive(context,"music",previous.scannedAt,encode(previous))
-                val bytes = encode(session).toByteArray(Charsets.UTF_8)
-                val stream = target.startWrite()
-                try { stream.write(bytes); target.finishWrite(stream) }
-                catch (e: Exception) { target.failWrite(stream); throw e }
+                MusicDuplicateShardStore.commit(context,session)
+            }.onFailure { failure->
+                DuplicateSaveDiagnostic.record(context,"SHARD_COMMIT_FAILED",failure)
             }.isSuccess
         }
     }
@@ -122,6 +143,9 @@ internal object MusicDuplicateSessionStore {
     suspend fun removeTrashed(context:Context,uris:Set<String>)=withContext(Dispatchers.IO+NonCancellable){
         synchronized(lock){
             val target=file(context)
+            val sharded=runCatching{MusicDuplicateShardStore.load(context)}.getOrNull()
+            if(sharded!=null && permitted(context,sharded) && sharded.result.groups.any{g->g.tracks.any{it.uri in uris}})
+                MusicDuplicateShardStore.commit(context,withoutTrashed(sharded,uris))
             val old=runCatching{decode(target.openRead().bufferedReader().use{it.readText()})}.getOrNull()
             if(old!=null&&permitted(context,old))write(target,encode(withoutTrashed(old,uris)))
             DuplicateReportJournal.history(context,"music").forEach{raw->
