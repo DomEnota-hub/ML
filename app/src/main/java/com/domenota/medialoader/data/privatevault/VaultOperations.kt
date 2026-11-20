@@ -159,8 +159,9 @@ internal class VaultOperations(context:Context) {
                     index.persist(record.copy(phase=VaultImportPhase.RESTORE_PENDING))
                     if(files.deleteVerified(record.privateFileId,evidence)) index.eraseRestored(id)
                     else error("Private cleanup needs a retry")
-                } catch(error:Throwable) {
-                    if(error is kotlinx.coroutines.CancellationException)throw error
+                } catch(error:Exception) {
+                    // Cancellation after verified export must not trigger the UI's
+                    // pre-verification cleanup path and delete the only public copy.
                     throw VaultExportCleanupPendingException(error)
                 }
             }
