@@ -82,7 +82,11 @@ internal class VaultImportIndex(context:Context,private val key:()->javax.crypto
         require(record.displayName.length in 1..256)
         require(Uri.parse(record.originalUri).scheme=="content")
         val file=target(record.id)
-        val previous=runCatching{read(record.id)}.getOrNull()
+        // A corrupt existing record is never equivalent to a missing record. In
+        // particular a resumed import must not overwrite unreadable state.
+        val existed=file.baseFile.exists() ||
+            File(file.baseFile.absolutePath + ".bak").exists()
+        val previous=if(existed) read(record.id) else null
         if(previous!=null) {
             check(previous.copy(phase=record.phase)==record) { "Source identity changed" }
             check(previous.phase==record.phase ||
