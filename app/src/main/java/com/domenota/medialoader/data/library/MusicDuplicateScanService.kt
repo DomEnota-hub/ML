@@ -89,7 +89,7 @@ internal object DuplicateBackgroundScan {
     @Synchronized fun phase(token:Long,phase:DuplicateScanPhase){
         val s=mutable.value
         if(s.token==token&&s.running) {
-            val metadataCount=if(s.phase==DuplicateScanPhase.METADATA&&phase!=DuplicateScanPhase.METADATA) s.done else s.completedMetadata
+            val metadataCount=if(s.phase==DuplicateScanPhase.METADATA&&phase!=DuplicateScanPhase.METADATA&&s.total>0&&s.done>=s.total) s.total else s.completedMetadata
             mutable.value=s.copy(phase=phase,done=0,total=0,completedMetadata=metadataCount,
                 phaseStartedAt=android.os.SystemClock.elapsedRealtime())
         }
