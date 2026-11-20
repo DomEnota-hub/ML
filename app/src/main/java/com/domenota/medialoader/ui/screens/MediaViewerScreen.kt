@@ -1113,7 +1113,11 @@ internal fun LocalVideoPlayer(
                                     }
                                 },
                                 onHorizontalDrag = { change, amount ->
-                                    if (seeking && !holdSpeed.active) {
+                                    if (holdSpeed.active) {
+                                        // A long hold owns the drag even in Gallery:
+                                        // do not let the surrounding pager change files.
+                                        change.consume()
+                                    } else if (seeking) {
                                         distanceX += amount
                                         scrubPositionMs = VideoScrubPolicy.target(
                                             startPosition,distanceX,size.width,playableDurationMs)
