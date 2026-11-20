@@ -77,6 +77,12 @@ class SelectiveArchiveMoveEngineTest {
             assertEquals(SelectiveArchiveLocation.SOURCE,port.pos)
             assertEquals(restored,engine.restore(snapshot,original))
             assertEquals(2,port.moveCount)
+            val second=engine.hide(snapshot,original,token,target)
+            assertEquals(SelectiveArchiveMovePhase.HIDDEN_VERIFIED,second.phase)
+            assertEquals(3,port.moveCount)
+            assertEquals(SelectiveArchiveMovePhase.RESTORED_VERIFIED,
+                engine.restore(snapshot,original).phase)
+            assertEquals(4,port.moveCount)
         } finally { dir.deleteRecursively() }
     }
 
