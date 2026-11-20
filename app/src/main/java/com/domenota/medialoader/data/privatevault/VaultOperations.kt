@@ -28,7 +28,8 @@ internal class VaultOperations(context:Context) {
     suspend fun importSelected(uris:List<Uri>):List<Result<VaultImportRecord>> =
         withContext(Dispatchers.IO) {
             access.requireUnlocked()
-            val limited=uris.distinct().take(200)
+            val limited=uris.distinct()
+            require(limited.size<=200) { "За одну операцию можно добавить не более 200 файлов; ни один файл не изменён" }
             limited.map { uri ->
                 runCatching {
                     access.requireUnlocked()
@@ -157,6 +158,13 @@ internal class VaultOperations(context:Context) {
         access.requireUnlocked()
         val record=index.read(id)
         if(record.phase!=VaultImportPhase.RESTORE_PENDING)return@withContext false
+        // Index phase RESTORE_PENDING is written only after a public export passed
+        // an independent SHA-256 readback. A process crash between file deletion
+        // and index cleanup must not strand a phantom private file forever.
+        if(!files.exists(record.privateFileId)) {
+            index.eraseRestored(id)
+            return@withContext true
+        }
         val evidence=VaultCopyEvidence(record.bytes,record.sha256)
         if(!files.deleteVerified(record.privateFileId,evidence))return@withContext false
         index.eraseRestored(id)
