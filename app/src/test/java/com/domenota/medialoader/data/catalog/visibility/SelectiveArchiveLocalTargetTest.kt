@@ -71,6 +71,28 @@ class SelectiveArchiveLocalTargetTest {
         assertEquals("untouched",outside.readText())
     }
 
+    @Test fun cleanupDeletesOnlyOwnedEmptyChildAndKeepsOriginalAndBystanders() = fixture { root,target ->
+        val source=File(root,"Music/Shared")
+        val keeper=File(source,"keeper.mp3").apply {writeText("not a selected file")}
+        target.ensure(origin,receipt)
+        assertTrue(target.releaseEmpty(origin,receipt))
+        assertTrue(target.releaseEmpty(origin,receipt)) // Replayed cleanup.
+        assertTrue(target.sourceFile(origin).isFile)
+        assertEquals("not a selected file",keeper.readText())
+        assertFalse(File(root,receipt.targetRelativePath).exists())
+    }
+
+    @Test fun cleanupRejectsMediaInsideChildAndNeverRecurses() = fixture { root,target ->
+        target.ensure(origin,receipt)
+        val foreign=File(root,receipt.targetRelativePath+"unknown.mp3")
+            .apply {writeText("do not touch")}
+        assertThrows(IllegalStateException::class.java) {
+            target.releaseEmpty(origin,receipt)
+        }
+        assertEquals("do not touch",foreign.readText())
+        assertTrue(File(root,receipt.targetRelativePath+".nomedia").exists())
+    }
+
     @Test fun differentReceiptCannotClaimTheSameTarget() = fixture { _,target ->
         val fake=receipt.copy(originalSha256="c".repeat(64))
         assertThrows(IllegalStateException::class.java) { target.ensure(origin,fake) }
