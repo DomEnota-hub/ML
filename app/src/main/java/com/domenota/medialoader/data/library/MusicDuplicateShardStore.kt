@@ -134,8 +134,8 @@ internal object MusicDuplicateShardStore {
             writeAtomic(File(generation,"manifest.json")){it.write(manifest.toString())}
             // Round-trip each chunk and validate SHA/group count BEFORE publish.
             requireNotNull(readGeneration(context,id,requireCurrentPrivacy=true))
-            writeAtomic(active(context).baseFile){it.write(JSONObject().put("id",id).toString())}
             updateSelection(context,session,false)
+            writeAtomic(active(context).baseFile){it.write(JSONObject().put("id",id).toString())}
         } catch(t:Throwable){
             // Partial generations are intentionally retained for diagnostics and
             // potential recovery, while active and legacy reports stay untouched.
@@ -208,6 +208,13 @@ internal object MusicDuplicateShardStore {
             saved.copy(selected=selected,kept=kept,index=state.getInt("index"),
                 offset=state.getInt("offset"))
         }.getOrElse{saved}
+    }
+    fun clearCompleted(context:Context) {
+        val dir=root(context)
+        dir.listFiles().orEmpty().filter{it.isDirectory&&it.name.startsWith("scan_")}
+            .forEach{check(it.deleteRecursively()){"SHARD_CLEAR_FAILED"}}
+        active(context).delete()
+        stateFile(context,false).delete()
     }
     fun clear(context:Context) {
         val path=root(context)
