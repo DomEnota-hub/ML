@@ -81,7 +81,7 @@ internal object MusicDuplicateShardStore {
     }
     /** Only main service completion calls this. A report never becomes complete
      * until the last verified manifest and active pointer are durable. */
-    fun commit(context:Context,session:DuplicateSession) {
+    fun commit(context:Context,session:DuplicateSession,afterChunk:(Int)->Unit={}) {
         require(identity(context,session)){"PRIVACY_EPOCH_CHANGED"}
         val folder=root(context).apply{mkdirs()}
         val id="scan_"+session.scannedAt+"_"+UUID.randomUUID().toString().replace("-","")
@@ -95,6 +95,11 @@ internal object MusicDuplicateShardStore {
         var atomic:AtomicFile?=null
         var output:java.io.FileOutputStream?=null
         var target:File?=null
+        fun manifest(stage:String):JSONObject=JSONObject()
+            .put("schema",SCHEMA).put("stage",stage).put("id",id).put("at",session.scannedAt)
+            .put("epoch",session.result.privacyEpoch).put("expanded",session.result.expanded)
+            .put("skipped",session.result.skipped).put("acousticUnavailable",session.result.acousticUnavailable)
+            .put("groupCount",written).put("chunks",JSONArray(headers.toString()))
         fun endChunk() {
             if(currentGroups==0)return
             val out=requireNotNull(writer);val stream=requireNotNull(output);val file=requireNotNull(target)
@@ -104,6 +109,10 @@ internal object MusicDuplicateShardStore {
                 .put("bytes",file.length()).put("groups",currentGroups))
             written+=currentGroups
             writer=null;output=null;target=null;atomic=null;currentGroups=0;currentBytes=0
+            // Durable provisional manifest is updated after EACH verified shard.
+            // A process death leaves recoverable groups without false completion.
+            writeAtomic(File(generation,"recovery.json")){it.write(manifest("provisional").toString())}
+            afterChunk(headers.length())
         }
         try {
             for(group in session.result.groups){
@@ -126,12 +135,7 @@ internal object MusicDuplicateShardStore {
             endChunk()
             check(written==session.result.groups.size){"GROUP_COUNT_MISMATCH"}
             // Keep only small mutable UI values in a separate atomic file.
-            val manifest=JSONObject()
-                .put("schema",SCHEMA).put("id",id).put("at",session.scannedAt)
-                .put("epoch",session.result.privacyEpoch).put("expanded",session.result.expanded)
-                .put("skipped",session.result.skipped).put("acousticUnavailable",session.result.acousticUnavailable)
-                .put("groupCount",written).put("chunks",headers)
-            writeAtomic(File(generation,"manifest.json")){it.write(manifest.toString())}
+            writeAtomic(File(generation,"manifest.json")){it.write(manifest("completed").toString())}
             // Verify each persisted chunk with bounded memory before publish.
             // Never decode the entire scan while the original full scan is in heap.
             for(i in 0 until headers.length()){
@@ -153,10 +157,12 @@ internal object MusicDuplicateShardStore {
             throw t
         }
     }
-    private fun readGeneration(context:Context,id:String,requireCurrentPrivacy:Boolean):DuplicateSession? {
+    private fun readGeneration(context:Context,id:String,requireCurrentPrivacy:Boolean,
+                               recovery:Boolean=false):DuplicateSession? {
         require(id.matches(Regex("scan_[0-9]+_[a-f0-9]{32}"))){"INVALID_ID"}
         val dir=File(root(context),id)
-        val doc=JSONObject(atomicText(File(dir,"manifest.json")))
+        val doc=JSONObject(atomicText(File(dir,if(recovery)"recovery.json" else "manifest.json")))
+        require(doc.optString("stage")==if(recovery)"provisional" else "completed")
         require(doc.getInt("schema")==SCHEMA && doc.getString("id")==id)
         val epoch=doc.getLong("epoch")
         if(requireCurrentPrivacy && epoch!=DuplicatePrivacyGuard.generation(context))return null
@@ -184,6 +190,21 @@ internal object MusicDuplicateShardStore {
         if(!active(context).baseFile.exists())return null
         val pointer=JSONObject(atomicText(active(context).baseFile)).getString("id")
         return readGeneration(context,pointer,true)?.let{applySelection(context,it,false)}
+    }
+    /** Best independently verified in-progress shard manifest, not a completed report. */
+    fun recovery(context:Context):DuplicateSession? {
+        val dir=root(context)
+        val candidates=dir.listFiles().orEmpty().asSequence().filter{it.isDirectory&&
+            !File(it,"manifest.json").exists()&&File(it,"recovery.json").exists()}
+            .mapNotNull{folder->runCatching{
+                val meta=JSONObject(atomicText(File(folder,"recovery.json")))
+                folder.name to meta.getInt("groupCount")
+            }.getOrNull()}.sortedByDescending{it.second}.take(3).toList()
+        for((name,_) in candidates) {
+            val saved=runCatching{readGeneration(context,name,true,recovery=true)}.getOrNull()
+            if(saved!=null)return applySelection(context,saved,true)
+        }
+        return null
     }
     fun history(context:Context):List<DuplicateSession> = root(context).listFiles().orEmpty()
         .asSequence().filter{it.isDirectory&&it.name.startsWith("scan_")}
@@ -222,7 +243,8 @@ internal object MusicDuplicateShardStore {
     }
     fun clearCompleted(context:Context) {
         val dir=root(context)
-        dir.listFiles().orEmpty().filter{it.isDirectory&&it.name.startsWith("scan_")}
+        dir.listFiles().orEmpty().filter{it.isDirectory&&it.name.startsWith("scan_") &&
+            File(it,"manifest.json").exists()}
             .forEach{check(it.deleteRecursively()){"SHARD_CLEAR_FAILED"}}
         active(context).delete()
         dir.listFiles().orEmpty().filter{it.name.startsWith("complete-ui-") && it.name.endsWith(".json")}
@@ -230,6 +252,9 @@ internal object MusicDuplicateShardStore {
     }
     fun clearPartialSelection(context:Context) {
         stateFile(context,true,0).delete()
+        root(context).listFiles().orEmpty().filter{it.isDirectory&&
+            it.name.startsWith("scan_")&&!File(it,"manifest.json").exists()}
+            .forEach{check(it.deleteRecursively()){"SHARD_CLEAR_FAILED"}}
     }
     fun clear(context:Context) {
         val path=root(context)
