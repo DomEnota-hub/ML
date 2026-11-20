@@ -65,8 +65,11 @@ internal class SelectiveArchiveRepository(
                             SelectiveArchiveMovePhase.HIDE_INTENT,
                             SelectiveArchiveMovePhase.HIDDEN_VERIFIED,
                             SelectiveArchiveMovePhase.RESTORE_INTENT)) {
-                            try { engine.restore(cp,original) }
-                            catch(_:Exception) { incomplete=true }
+                            try {
+                                val restored=engine.restore(cp,original)
+                                if(restored.phase==SelectiveArchiveMovePhase.RESTORED_VERIFIED)
+                                    runCatching { target.releaseEmpty(original,restored) }
+                            } catch(_:Exception) { incomplete=true }
                         }
                     }
                     throw IOException(if(incomplete)
@@ -87,9 +90,12 @@ internal class SelectiveArchiveRepository(
                 val result=mutableListOf<SelectiveArchiveMoveReceipt>()
                 for(original in checkpoint.originals) {
                     val record=journal.read(folderId,original.catalogId) ?: continue
-                    result+=if(record.phase==SelectiveArchiveMovePhase.RESTORED_VERIFIED)
-                        engine.restore(checkpoint,original)
-                    else engine.restore(checkpoint,original)
+                    val restored=engine.restore(checkpoint,original)
+                    result+=restored
+                    // Cleanup is best-effort only AFTER successful identity,
+                    // bytes, mtime and public-reference restoration. A foreign
+                    // entry is never touched; its diagnostic remains inspectable.
+                    runCatching { target.releaseEmpty(original,restored) }
                 }
                 result
             }
