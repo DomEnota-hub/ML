@@ -14,6 +14,12 @@ import kotlinx.coroutines.withContext
 
 /** A private authenticated copy is never presented as fully hidden until the
  * *original* has been removed with owner consent. No broad storage permissions. */
+/** A verified public export exists. It must never be discarded because
+ * protected cleanup or index finalization failed afterwards. */
+internal class VaultExportCleanupPendingException(cause:Throwable):IllegalStateException(
+    "Файл проверен и сохранён в выбранной папке. Очистка Сейфа завершилась с ошибкой. Не удаляйте публичную копию.",cause
+)
+
 internal class VaultOperations(context:Context) {
     private val app=context.applicationContext
     private val access=PrivateAccessManager.get(app)
@@ -147,9 +153,16 @@ internal class VaultOperations(context:Context) {
             if(!verified)return@withContext false
             access.requireUnlocked()
             if(removeFromVault) {
-                index.persist(record.copy(phase=VaultImportPhase.RESTORE_PENDING))
-                if(files.deleteVerified(record.privateFileId,evidence)) index.eraseRestored(id)
-                else error("Public copy is verified. Private cleanup needs a retry.")
+                // At this point the *public* copy has passed independent SHA256
+                // readback. Any later failure must preserve it.
+                try {
+                    index.persist(record.copy(phase=VaultImportPhase.RESTORE_PENDING))
+                    if(files.deleteVerified(record.privateFileId,evidence)) index.eraseRestored(id)
+                    else error("Private cleanup needs a retry")
+                } catch(error:Throwable) {
+                    if(error is kotlinx.coroutines.CancellationException)throw error
+                    throw VaultExportCleanupPendingException(error)
+                }
             }
             true
         }
