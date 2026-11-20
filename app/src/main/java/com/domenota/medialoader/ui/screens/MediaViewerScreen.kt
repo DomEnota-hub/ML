@@ -940,6 +940,8 @@ internal fun LocalVideoPlayer(
                         detectVerticalDragGestures(
                             onDragStart = { mode = VideoGestureMode.NONE; distance = 0f },
                             onVerticalDrag = { change, amount ->
+                                // A successful long hold already owns this pointer until release.
+                                if (!holdSpeed.active) {
                                 distance += amount
                                 if (mode == VideoGestureMode.NONE) {
                                     mode = VideoGesturePolicy.intentionalMode(gestureOrigin.x, 0f, distance,
@@ -967,6 +969,7 @@ internal fun LocalVideoPlayer(
                                     else -> Unit
                                 }
                                 if (mode != VideoGestureMode.NONE) change.consume()
+                                }
                             }, onDragEnd = { adjustmentActive = false }, onDragCancel = { adjustmentActive = false })
                         return@pointerInput
                     }
@@ -990,6 +993,9 @@ internal fun LocalVideoPlayer(
                             totalY = 0f
                         },
                         onDrag = { change, dragAmount ->
+                            // If holding already enabled ×2, any subsequent movement
+                            // stays inside the hold gesture. No scrub/brightness/volume.
+                            if (!holdSpeed.active) {
                             totalX += dragAmount.x
                             totalY += dragAmount.y
                             if (gestureMode == VideoGestureMode.NONE) {
@@ -1055,6 +1061,7 @@ internal fun LocalVideoPlayer(
                                 VideoGestureMode.NONE -> Unit
                             }
                             change.consume()
+                            }
                         },
                         onDragEnd = {
                             if (gestureMode == VideoGestureMode.SEEK) {
