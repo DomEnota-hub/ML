@@ -25,7 +25,8 @@ internal data class SelectiveArchiveIdentity(
 ) {
     fun wellFormed(): Boolean =
         catalogId.isNotBlank() && originalUri.startsWith("content://media/") &&
-            mediaStoreId > 0 && volume.isNotBlank() &&
+            mediaStoreId > 0 && originalUri.substringAfterLast("/").toLongOrNull() == mediaStoreId &&
+            '?' !in originalUri && '#' !in originalUri && volume.isNotBlank() &&
             relativePath.isNotBlank() && !relativePath.startsWith("/") &&
             relativePath.endsWith("/") &&
             relativePath.split('/').dropLast(1).all {
@@ -42,6 +43,7 @@ private fun String.isValidArchiveSha256() =
 internal enum class SelectiveArchiveBarrier {
     UNKNOWN_OR_CHANGED_SOURCE,
     IDENTITY_COLLISION,
+    NOT_A_PARTIAL_PHYSICAL_FOLDER,
     UNVERIFIED_RESTORATION,
     SOURCE_NOT_PUBLIC,
     REFERENCES_CHANGED,
@@ -66,7 +68,7 @@ internal fun verifySelectiveArchiveSources(
     ) return SelectiveArchiveBarrier.UNKNOWN_OR_CHANGED_SOURCE
     val verdict=archiveInventoryVerdict(selectedSignatures,physical)
     if (verdict !is ArchiveInventoryVerdict.RequiresSelectiveArchive)
-        return SelectiveArchiveBarrier.IDENTITY_COLLISION
+        return SelectiveArchiveBarrier.NOT_A_PARTIAL_PHYSICAL_FOLDER
     return null
 }
 
