@@ -18,12 +18,12 @@ import org.robolectric.annotation.Config
 class MusicDurationBackfillTest {
     private fun row(
         id: String, type: MediaType = MediaType.AUDIO,
-        duration: Long? = null, private: Boolean = false,
+        duration: Long? = null, isPrivate: Boolean = false,
         hidden: Boolean = false, state: DownloadState = DownloadState.COMPLETED
     ) = DownloadEntity(
         id, "ml-test", "$id.mp3", type, state,
         "content://media/external/audio/media/$id", 32000, 1700000000000L,
-        durationMs = duration, isPrivate = private, hidden = hidden
+        durationMs = duration, isPrivate = isPrivate, hidden = hidden
     )
 
     @Test fun audioWithoutDurationIsEligibleButKnownAndProtectedAreNot() {
@@ -31,7 +31,7 @@ class MusicDurationBackfillTest {
         assertTrue(MusicDurationBackfillPolicy.eligible(row("missing-video",type=MediaType.VIDEO)))
         assertTrue(MusicDurationBackfillPolicy.eligible(row("zero-audio",duration=0)))
         assertFalse(MusicDurationBackfillPolicy.eligible(row("known",duration=145000)))
-        assertFalse(MusicDurationBackfillPolicy.eligible(row("private",private=true)))
+        assertFalse(MusicDurationBackfillPolicy.eligible(row("private",isPrivate=true)))
         assertFalse(MusicDurationBackfillPolicy.eligible(row("hidden",hidden=true)))
         assertFalse(MusicDurationBackfillPolicy.eligible(row("pending",state=DownloadState.RUNNING)))
         assertFalse(MusicDurationBackfillPolicy.eligible(row("photo",type=MediaType.PHOTO)))
