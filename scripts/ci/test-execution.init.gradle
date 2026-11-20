@@ -1,0 +1,9 @@
+// CI must execute every required test worker, including warm-cache qualification.
+// Compilation/dependency tasks retain their normal build cache behavior.
+allprojects {
+    tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+        outputs.upToDateWhen { false }
+        outputs.doNotCacheIf('Qualification requires actual test execution') { true }
+        doFirst { logger.lifecycle("ML_CI_TEST_EXECUTED task=${path}") }
+    }
+}

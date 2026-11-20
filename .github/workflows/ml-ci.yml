@@ -1,0 +1,222 @@
+name: MediaLoader exact-source CI
+on:
+  pull_request:
+    branches: [feature/ml-17209-batch1-stability-ui-vault, feature/ml-17209-batch2-vault-private-qa]
+    types: [opened, reopened, synchronize, labeled]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Quick focused feedback or full qualification
+        type: choice
+        options: [quick, qualify]
+        default: qualify
+      cache_epoch:
+        description: Change to invalidate all lane caches (same epoch for cold/warm comparison)
+        default: v1
+      fault:
+        description: Explicit negative probe; must fail and cannot produce qualified handoff
+        type: choice
+        options: [none, compile, lint, test]
+        default: none
+permissions:
+  contents: read
+concurrency:
+  group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && github.event.label.name != 'ci:qualify' && github.run_id || 'active' }}
+  cancel-in-progress: true
+env:
+  ML_MODE: ${{ inputs.mode || 'quick' }}
+  ML_CI_PROFILE: 'true'
+  ML_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  ML_FAULT: ${{ inputs.fault || 'none' }}
+jobs:
+  quick:
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci:qualify'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ML_EXPECTED_SHA }}
+          persist-credentials: false
+      - run: |
+          python3 scripts/ci/gate.py request
+          python3 scripts/ci/gate.py inputs
+          python3 -m unittest discover -s tests/ci -v
+          bash scripts/ci/source-guards.sh
+  jvm:
+    needs: quick
+    if: inputs.fault != 'lint'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ML_EXPECTED_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/ml-ci-setup
+        with:
+          lane: jvm
+          epoch: ${{ inputs.cache_epoch || 'v1' }}
+      - run: python3 scripts/ci/fault.py
+      - name: Compile all JVM test sources first
+        run: python3 scripts/ci/gate.py stage test-compile "$ML_GRADLE" :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac -Parm64Release=true --stacktrace --console=plain
+      - name: Focused PR feedback
+        if: inputs.mode != 'qualify' && !contains(github.event.pull_request.labels.*.name, 'ci:qualify')
+        run: |
+          mapfile -t classes < scripts/ci/focused-tests.txt
+          args=()
+          for name in "${classes[@]}"; do args+=(--tests "$name"); done
+          python3 scripts/ci/gate.py stage focused "$ML_GRADLE" :app:testDebugUnitTest -Parm64Release=true "${args[@]}" --console=plain --stacktrace
+      - name: Full JVM including every isolated Compose method
+        if: inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')
+        run: |
+          python3 scripts/ci/gate.py stage full-jvm python3 scripts/run-jvm-isolated-compose.py full
+          python3 scripts/ci/gate.py cases
+      - name: JVM success receipt
+        if: (inputs.fault == 'none' || inputs.fault == '') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
+        run: python3 scripts/ci/gate.py receipt jvm
+      - uses: actions/upload-artifact@v4
+        if: success() && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == '')
+        with:
+          name: ml-ci-${{ github.run_id }}-receipt-jvm
+          path: ci-output/*-receipt.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ml-ci-${{ github.run_id }}-jvm-diagnostics
+          path: |
+            ci-output/
+            build/reports/profile/
+            app/build/test-results/testDebugUnitTest/
+            app/build/ml-jvm-shards/
+            app/build/reports/tests/testDebugUnitTest/
+          overwrite: true
+          retention-days: 5
+  lint:
+    needs: quick
+    if: (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ML_EXPECTED_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/ml-ci-setup
+        with:
+          lane: lint
+          epoch: ${{ inputs.cache_epoch || 'v1' }}
+      - run: python3 scripts/ci/fault.py
+      - name: API and full Android lint
+        run: python3 scripts/ci/gate.py stage lint "$ML_GRADLE" :app:lintDebug -Parm64Release=true --console=plain --stacktrace
+      - if: inputs.fault == 'none' || inputs.fault == ''
+        run: python3 scripts/ci/gate.py receipt lint
+      - uses: actions/upload-artifact@v4
+        if: success() && (inputs.fault == 'none' || inputs.fault == '')
+        with:
+          name: ml-ci-${{ github.run_id }}-receipt-lint
+          path: ci-output/*-receipt.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ml-ci-${{ github.run_id }}-lint-diagnostics
+          path: |
+            ci-output/
+            build/reports/profile/
+            app/build/reports/lint-results-debug.*
+          overwrite: true
+          retention-days: 5
+  arm64:
+    needs: quick
+    if: (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == '')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ML_EXPECTED_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/ml-ci-setup
+        with:
+          lane: arm64
+          epoch: ${{ inputs.cache_epoch || 'v1' }}
+      - name: ARM64 release compilation
+        run: python3 scripts/ci/gate.py stage arm64 "$ML_GRADLE" :app:assembleRelease -Parm64Release=true --console=plain --stacktrace
+      - name: Verify unsigned bytes, package, ABI and source archive
+        run: |
+          python3 scripts/ci/candidate.py
+          python3 scripts/ci/gate.py receipt arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ml-ci-${{ github.run_id }}-receipt-arm64
+          path: ci-output/*-receipt.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ml-ci-${{ github.run_id }}-UNQUALIFIED-arm64
+          path: arm64-candidate/
+          compression-level: 0
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 5
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ml-ci-${{ github.run_id }}-arm64-diagnostics
+          path: |
+            ci-output/
+            build/reports/profile/
+          overwrite: true
+          retention-days: 5
+  qualification:
+    needs: [quick, jvm, lint, arm64]
+    if: always() && !cancelled() && (github.event.action != 'labeled' || github.event.label.name == 'ci:qualify') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: All required jobs must succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json,os
+          results=json.loads(os.environ['RESULTS'])
+          assert set(results)=={'quick','jvm','lint','arm64'}
+          assert all(x['result']=='success' for x in results.values()),results
+          assert os.environ['ML_FAULT']=='none','Negative runs cannot qualify'
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ML_EXPECTED_SHA }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ml-ci-${{ github.run_id }}-receipt-*
+          merge-multiple: true
+          path: received/
+      - uses: actions/download-artifact@v4
+        with:
+          name: ml-ci-${{ github.run_id }}-UNQUALIFIED-arm64
+          path: received/arm64-candidate/
+      - name: Exact live HEAD and all-success handoff
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ML_SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+          ML_SOURCE_PR: ${{ github.event.pull_request.number }}
+        run: python3 scripts/ci/gate.py qualify
+      - uses: actions/upload-artifact@v4
+        if: success() && !cancelled()
+        with:
+          name: ml-ci-${{ github.run_id }}-QUALIFIED-receipt
+          path: qualified/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
