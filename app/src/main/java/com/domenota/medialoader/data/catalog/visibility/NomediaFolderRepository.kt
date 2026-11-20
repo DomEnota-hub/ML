@@ -56,10 +56,14 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
         withContext(Dispatchers.IO) {
             val found=AndroidNomediaMarkerPort(context).listMedia(plan.treeUri.toString())
                 .map { NomediaMediaSignature(it.displayName,it.byteCount ?: -1L) }
+            NomediaSafTrace.event("INVENTORY_READ",found.size)
             check(nomediaInventoryMatches(plan.expected,found)) {
                 "В каталоге есть другие медиа или файлы изменились. Ничего не скрыто"
             }
-            engine.hide(plan.folderId,plan.treeUri.toString())
+            NomediaSafTrace.event("INVENTORY_EXACT_MATCH",found.size)
+            val record=engine.hide(plan.folderId,plan.treeUri.toString())
+            NomediaSafTrace.event("MARKER_STATE_"+record.markerState.name,found.size)
+            record
         }
     }
     suspend fun hide(folderId:String,treeUri:Uri):NomediaFolderRecord = gate.withLock {

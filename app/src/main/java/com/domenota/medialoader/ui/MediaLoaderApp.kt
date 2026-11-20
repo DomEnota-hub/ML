@@ -332,7 +332,8 @@ fun MediaLoaderApp(
     // The virtual ML album does not imply a physical directory. Resolve the
     // actual files first. A .nomedia marker excludes every real media file
     // inside a tree, so a mismatched inventory must fail without mutation.
-    var nomediaRequest by remember { mutableStateOf<Pair<String,Boolean>?>(null) }
+    // The menu action is already explicit: do not require a second alert.
+    // The only possible additional consent is Android's own SAF permission.
     var nomediaPickerPlan by remember { mutableStateOf<NomediaAutoFolderPlan?>(null) }
     var nomediaPickerShowFolder by remember { mutableStateOf<String?>(null) }
     var nomediaBusy by remember { mutableStateOf(false) }
@@ -340,39 +341,55 @@ fun MediaLoaderApp(
         val fresh=resolveNomediaAutoPlan(context,plan.folderId,
             viewModel.downloads.value,viewModel.catalogAssignments.value)
         check(fresh==plan) { "Состав или расположение папки изменились. Попробуйте ещё раз" }
+        NomediaSafTrace.event("INVENTORY_START",fresh.expected.size)
         val result=nomediaRegistry.hideVerified(fresh)
         check(result.excludedFromMl) { "Скрытие не подтверждено" }
-        AppNotice.post(context,"Медиа скрыты. Галерея Android может обновиться позже")
+        NomediaSafTrace.event("MARKER_VERIFIED",fresh.expected.size)
+        AppNotice.post(context,"Медиа скрыты в ML. Галерея Android обновляется отдельно")
     }
     val nomediaTreePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val plan=nomediaPickerPlan
         val showFolder=nomediaPickerShowFolder
         nomediaPickerPlan=null
         nomediaPickerShowFolder=null
-        if(uri==null) AppNotice.post(context,"Разрешение не предоставлено. Файлы не изменены")
-        else fileActionScope.launch {
+        if(uri==null) {
+            NomediaSafTrace.event("PICKER_CANCELLED")
+            AppNotice.post(context,"Доступ не предоставлен. Файлы не изменены")
+        } else fileActionScope.launch {
             nomediaBusy=true
             try {
                 val expectedTree=plan?.treeUri ?: showFolder?.let{key->
                     android.net.Uri.parse(checkNotNull(nomediaRegistry.snapshot.value.folders[key]).treeUri)
                 }
-                check(uri==expectedTree) { "Android открыл другой каталог. Файлы не изменены" }
+                check(expectedTree!=null &&
+                    NomediaSafPickerPolicy.isExactlyRequestedTree(expectedTree,uri)) {
+                    "Выбрана другая папка. Изменения отменены"
+                }
+                NomediaSafTrace.event("PICKER_EXACT_MATCH")
                 context.contentResolver.takePersistableUriPermission(uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                check(NomediaSafPickerPolicy.hasExactReadWriteGrant(context.contentResolver,expectedTree)) {
+                    "Android не подтвердил доступ к папке"
+                }
+                NomediaSafTrace.event("GRANT_PERSISTED")
                 if(plan!=null) hideNomediaPlan(plan)
                 else if(showFolder!=null) {
                     val result=nomediaRegistry.show(showFolder)
+                    NomediaSafTrace.event("SHOW_VERIFIED")
                     AppNotice.post(context,if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
                         "Показано в ML. Чужой .nomedia сохранён"
                     else "Медиа показаны в ML. Android обновляется отдельно")
                 }
-            }catch(cancelled:CancellationException){throw cancelled}
-            catch(error:Exception){AppNotice.post(context,error.message ?: "Изменение видимости не завершено")}
-            finally{nomediaBusy=false}
+            } catch(cancelled:CancellationException){throw cancelled}
+            catch(error:Exception){
+                NomediaSafTrace.failure("PICKER_RESULT_FAILED",error)
+                AppNotice.post(context,error.message ?: "Изменение видимости не завершено")
+            } finally { nomediaBusy=false }
         }
     }
     val toggleFolderVisibility:suspend (String,Boolean)->Unit={ folder,hidden ->
-        check(!nomediaBusy && !nomediaSnapshot.unknown) { "Скрытие уже выполняется или реестр требует проверки" }
+        check(!nomediaBusy && nomediaPickerPlan==null && nomediaPickerShowFolder==null &&
+            !nomediaSnapshot.unknown) { "Действие уже выполняется или реестр требует проверки" }
         check(folder !in (visibilityGuard?.policy?.snapshot?.hiddenFolders.orEmpty()) &&
             visibilityGuard?.policy?.pendingFolder != folder) {
             "Для старого физического архива сохранена только диагностика"
@@ -381,53 +398,46 @@ fun MediaLoaderApp(
         check(if(hidden) current?.excludedFromMl != true else current?.excludedFromMl == true) {
             "Состояние папки изменилось. Повторите проверку"
         }
-        nomediaRequest=folder to hidden
-    }
-    nomediaRequest?.let { (folder,hide) ->
-        AlertDialog(onDismissRequest={if(!nomediaBusy)nomediaRequest=null},
-            title={Text(if(hide)"Скрыть медиа?" else "Показать медиа?")},
-            text={Text(if(hide)
-                "Файлы останутся на своих местах. Они исчезнут из медиатеки ML, а галерея Android обновится позже."
-                else "Файлы снова появятся в ML. Обновление галереи Android может занять время.")},
-            confirmButton={TextButton(onClick={
-                if(nomediaBusy)return@TextButton
-                nomediaRequest=null
-                fileActionScope.launch {
-                    nomediaBusy=true
-                    try {
-                        if(hide) {
-                            val plan=resolveNomediaAutoPlan(context,folder,
-                                viewModel.downloads.value,viewModel.catalogAssignments.value)
-                            val alreadyGranted=context.contentResolver.persistedUriPermissions.any { grant ->
-                                grant.uri==plan.treeUri && grant.isReadPermission && grant.isWritePermission
-                            }
-                            if(alreadyGranted) hideNomediaPlan(plan)
-                            else {
-                                // The system opens at the exact physical folder. No hunting
-                                // through Pictures/Music or relocation into app storage.
-                                nomediaPickerPlan=plan
-                                nomediaTreePicker.launch(plan.treeUri)
-                            }
-                        } else {
-                            try {
-                                val result=nomediaRegistry.show(folder)
-                                AppNotice.post(context,if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
-                                    "Показано в ML. Чужой .nomedia сохранён"
-                                else "Медиа показаны. Android может обновиться позже")
-                            } catch(error:Exception) {
-                                if(error.message?.contains("Доступ к папке отозван")==true) {
-                                    nomediaPickerShowFolder=folder
-                                    val old=checkNotNull(nomediaSnapshot.folders[folder])
-                                    nomediaTreePicker.launch(android.net.Uri.parse(old.treeUri))
-                                }else throw error
-                            }
-                        }
-                    }catch(cancelled:CancellationException){throw cancelled}
-                    catch(error:Exception){AppNotice.post(context,error.message ?: "Изменение видимости не завершено")}
-                    finally{nomediaBusy=false}
+        nomediaBusy=true
+        try {
+            if(hidden) {
+                val plan=resolveNomediaAutoPlan(context,folder,
+                    viewModel.downloads.value,viewModel.catalogAssignments.value)
+                NomediaSafTrace.event("PHYSICAL_FOLDER_RESOLVED",plan.expected.size)
+                if(NomediaSafPickerPolicy.hasExactReadWriteGrant(context.contentResolver,plan.treeUri)) {
+                    NomediaSafTrace.event("EXACT_GRANT_REUSED",plan.expected.size)
+                    hideNomediaPlan(plan)
+                } else {
+                    val initial=NomediaSafPickerPolicy.suggestedInitialDocument(plan.treeUri)
+                    nomediaPickerPlan=plan
+                    NomediaSafTrace.event("PICKER_LAUNCHED_DOCUMENT",plan.expected.size)
+                    // Android may ignore this initial location; no permissions
+                    // are inferred until it returns the exact selected tree.
+                    nomediaTreePicker.launch(initial)
                 }
-            },enabled=!nomediaBusy){Text(if(hide)"Скрыть" else "Показать")}},
-            dismissButton={TextButton(onClick={nomediaRequest=null},enabled=!nomediaBusy){Text("Отмена")}})
+            } else {
+                val saved=checkNotNull(current)
+                val oldTree=android.net.Uri.parse(saved.treeUri)
+                if(NomediaSafPickerPolicy.hasExactReadWriteGrant(context.contentResolver,oldTree)) {
+                    NomediaSafTrace.event("SHOW_EXACT_GRANT_REUSED")
+                    val result=nomediaRegistry.show(folder)
+                    NomediaSafTrace.event("SHOW_VERIFIED")
+                    AppNotice.post(context,if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
+                        "Показано в ML. Чужой .nomedia сохранён"
+                    else "Медиа показаны в ML. Android обновляется отдельно")
+                } else {
+                    nomediaPickerShowFolder=folder
+                    NomediaSafTrace.event("SHOW_GRANT_REQUIRED")
+                    nomediaTreePicker.launch(NomediaSafPickerPolicy.suggestedInitialDocument(oldTree))
+                }
+            }
+        } catch(cancelled:CancellationException){throw cancelled}
+        catch(error:Exception){
+            nomediaPickerPlan=null
+            nomediaPickerShowFolder=null
+            NomediaSafTrace.failure("VISIBILITY_ACTION_FAILED",error)
+            throw error
+        } finally { nomediaBusy=false }
     }
 
     val visibilityProgress by mediaRepository.folderVisibility.status.collectAsStateWithLifecycle()

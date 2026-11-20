@@ -1,0 +1,111 @@
+name: ML 1.7.208 batch 2 - exact SAF, duplicates and ARM64 QA
+
+on:
+  push:
+    branches:
+      - feature/ml-17208-batch2-nomedia-qa
+    paths:
+      - '.github/workflows/ml-17208-batch2-qa.yml'
+      - 'app/src/main/**'
+      - 'app/src/test/**'
+      - 'app/build.gradle'
+  pull_request:
+    branches:
+      - feature/ml-17208-batch1-duplicate-results
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ml17208-batch2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  entire-app-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Gradle and Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sed -i 's#services.gradle.org/distributions#mirrors.huaweicloud.com/gradle#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/networkTimeout=10000/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for n in 1 2 3 4; do
+            ./gradlew --version --no-daemon && break
+            test "$n" != 4
+            sleep 10
+          done
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Verify requested version and source guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Eq 'versionCode 268$' app/build.gradle
+          grep -Fq "versionName '1.7.208'" app/build.gradle
+          grep -Fq 'showingPartial' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
+          grep -Fq 'android:largeHeap="true"' app/src/main/AndroidManifest.xml
+          grep -Fq 'mutableIntStateOf(0)' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
+          test -s app/src/main/res/drawable-nodpi/ml_launcher_artwork.jpg
+          test -s app/src/main/res/drawable-nodpi/ml_shortcut_gallery.jpg
+          test -s app/src/main/res/drawable-nodpi/ml_shortcut_music.jpg
+          grep -Fq 'MusicDuplicateSessionStore.saveInteraction(context,saved' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
+          grep -Fq 'MusicDuplicateShardStore.commit(context,session)' app/src/main/java/com/domenota/medialoader/data/library/MusicDuplicateSession.kt
+          grep -Fq 'duplicate-restore-progress' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
+          grep -Fq 'MusicDuplicateScanner.verifyMember' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
+          grep -Fq 'NomediaSafPickerPolicy.suggestedInitialDocument' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
+          grep -Fq 'NomediaSafPickerPolicy.isExactlyRequestedTree' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
+          ! grep -Fq 'nomediaRequest' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
+          python3 scripts/audit_ui_palette.py
+          python3 scripts/check-round-sliders.py
+          python3 scripts/check-in-app-notices.py
+      - name: Focused duplicate session, preview, policy and trash tests
+        run: |
+          ./gradlew :app:testDebugUnitTest \
+            --tests com.domenota.medialoader.data.library.MusicDuplicateJournalClearTest \
+            --tests com.domenota.medialoader.data.library.MusicDuplicateShardStoreTest \
+            --tests com.domenota.medialoader.data.library.MusicDuplicateSessionTest \
+            --tests com.domenota.medialoader.data.library.MusicDuplicatePolicyTest \
+            --tests com.domenota.medialoader.data.library.AcousticCandidatePairsMemoryTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.NomediaAutoFolderPlanTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.NomediaSafPickerPolicyTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.NomediaFolderEngineTest \
+            --tests com.domenota.medialoader.data.catalog.visibility.NomediaFolderRepositoryTest \
+            --tests com.domenota.medialoader.ui.screens.music.MusicDuplicatePreliminaryTest \
+            --tests com.domenota.medialoader.ui.screens.music.DuplicateTrashHostRegressionTest \
+            --stacktrace --no-daemon --console=plain
+      - name: Full isolated JVM and Compose
+        run: python3 scripts/run-jvm-isolated-compose.py full
+      - name: Android lint and ARM64 unsigned compile
+        run: ./gradlew :app:lintDebug :app:assembleRelease -Parm64Release=true --stacktrace --no-daemon --console=plain
+      - name: Source and package check
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.domenota.medialoader' versionCode='268' versionName='1.7.208'"
+          test "$(unzip -Z1 "$apk" | awk -F/ '$1=="lib" {print $2}' | sort -u)" = arm64-v8a
+          git rev-parse HEAD
+          sha256sum "$apk"
+      - name: Diagnostics only, no installable QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml17208-batch2-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/ml-jvm-shards/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 5
