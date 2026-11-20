@@ -330,7 +330,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                                 color=MaterialTheme.colorScheme.primary)
                         }
                         LinearProgressIndicator(
-                            progress = { if(total>0) (ok.toFloat()/total).coerceIn(0f,1f) else 0f },
+                            progress = { if(total>0) (outcomes.size.toFloat()/total).coerceIn(0f,1f) else 1f },
                             modifier=Modifier.fillMaxWidth().height(7.dp),
                         )
                     }
