@@ -377,9 +377,17 @@ class MediaRepository private constructor(context: Context) {
             // Backfill both older downloaded audio and video whose history lacks duration.
             // MediaStore already provides durations for phone-library entries, but ML's
             // own completed downloads can have NULL. Probe strictly on IO, not in Compose.
-            rows.filter(MusicDurationBackfillPolicy::eligible).forEach { entry ->
-                BackgroundMediaWork.awaitIdle()
-                runCatching { persistDuration(entry.id, entry.savedUri) }
+            rows.filter(MusicDurationBackfillPolicy::eligible).chunked(32).forEach { batch ->
+                val candidates = mutableListOf<Triple<String, String, Long>>()
+                batch.forEach { entry ->
+                    BackgroundMediaWork.awaitIdle()
+                    val source = entry.savedUri ?: return@forEach
+                    val duration = mediaDurationMs(source)
+                    if (duration != null) candidates += Triple(entry.id, source, duration)
+                }
+                if (candidates.isNotEmpty()) {
+                    runCatching { history.fillMissingDurationsWhenCurrent(candidates) }
+                }
             }
 
             // Prepare every retained audio track once. The player can then paint its waveform
