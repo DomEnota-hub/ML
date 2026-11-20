@@ -21,12 +21,14 @@ import java.util.UUID
  */
 internal class ManagedLocalNomediaPort(
     private val expected: List<NomediaMediaSignature>? = null,
+    private val storageRoot: () -> File = { Environment.getExternalStorageDirectory().canonicalFile },
+    private val hasPermission: () -> Boolean = { FolderVisibilityStorageAccess.granted() },
 ) : NomediaMarkerPort {
     private val prefix = "ML-ARCHIVE-v1:"
     private val idPrefix = "ml-archive-v1:"
 
     private fun folder(raw: String): File {
-        check(Build.VERSION.SDK_INT >= 30 && FolderVisibilityStorageAccess.granted()) {
+        check(Build.VERSION.SDK_INT >= 30 && hasPermission()) {
             "Для автоматического доступа к папке требуется разрешение Android на управление файлами"
         }
         val uri = Uri.parse(raw)
@@ -38,7 +40,7 @@ internal class ManagedLocalNomediaPort(
         check(uri == DocumentsContract.buildTreeDocumentUri(uri.authority!!, doc)) {
             "Адрес физического каталога отличается от ожидаемого"
         }
-        val primary = Environment.getExternalStorageDirectory().canonicalFile
+        val primary = storageRoot().canonicalFile
         check(Files.isDirectory(primary.toPath(), NOFOLLOW_LINKS))
         var current = primary
         for (segment in doc.substringAfter(':').split('/')) {
@@ -96,7 +98,7 @@ internal class ManagedLocalNomediaPort(
         check(Files.isRegularFile(path, NOFOLLOW_LINKS)) { "Служебный маркер изменён" }
         val size = Files.size(path)
         // Never read unbounded foreign marker bytes.
-        val owner = if (size in (prefix.length + 36).toLong()..(prefix.length + 36).toLong()) {
+        val owner = if (size == (prefix.length + 36).toLong()) {
             val bytes = Files.readAllBytes(path)
             val value = bytes.toString(Charsets.US_ASCII)
             val token = value.removePrefix(prefix)
