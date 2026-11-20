@@ -38,6 +38,9 @@ class SelectiveArchiveMoveJournalTest {
             val returned=afterCrash.transition(restoring,SelectiveArchiveMovePhase.RESTORED_VERIFIED)
             assertEquals(4L,returned.sequence)
             assertEquals(returned,SelectiveArchiveMoveJournal(dir).read("folder","track-1"))
+            val nextRound=first.transition(returned,SelectiveArchiveMovePhase.HIDE_INTENT)
+            assertEquals(5L,nextRound.sequence)
+            assertEquals(SelectiveArchiveMovePhase.HIDE_INTENT,nextRound.phase)
             assertThrows(IllegalStateException::class.java) {
                 runBlocking { first.transition(returned,SelectiveArchiveMovePhase.HIDE_INTENT) }
             }
