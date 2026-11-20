@@ -25,6 +25,9 @@ internal class ManagedLocalNomediaPort(
     private val expected: List<NomediaMediaSignature>? = null,
     private val storageRoot: () -> File = { Environment.getExternalStorageDirectory().canonicalFile },
     private val hasPermission: () -> Boolean = { FolderVisibilityStorageAccess.granted() },
+    private val mimeForExtension: (String) -> String? = {
+        MimeTypeMap.getSingleton().getMimeTypeFromExtension(it)
+    },
 ) : NomediaMarkerPort {
     private val prefix = "ML-ARCHIVE-v1:"
     private val idPrefix = "ml-archive-v1:"
@@ -78,7 +81,7 @@ internal class ManagedLocalNomediaPort(
                     Files.isRegularFile(path, NOFOLLOW_LINKS) -> {
                         check(depth == 0) { "Вложенные медиа требуют отдельной проверки" }
                         val extension = child.extension.lowercase(java.util.Locale.ROOT)
-                        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+                        val mime = mimeForExtension(extension)
                         check(mime != null && (mime.startsWith("image/") ||
                             mime.startsWith("video/") || mime.startsWith("audio/"))) {
                             "В папке есть файлы, которые нельзя безопасно отнести к медиа"
