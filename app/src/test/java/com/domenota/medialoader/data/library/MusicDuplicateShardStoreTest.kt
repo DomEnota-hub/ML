@@ -84,4 +84,22 @@ class MusicDuplicateShardStoreTest {
         assertNull(MusicDuplicateSessionStore.load(context))
         assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
     }
+
+    @Test fun failedCommitRetainsVerifiedRecoveryChunksWithoutClaimingCompletion()=runBlocking {
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+        val previous=makeSession(5,1700000016000L)
+        assertTrue(MusicDuplicateSessionStore.savePartial(context,previous))
+        val next=makeSession(250,1700000017000L)
+        val outcome=runCatching{
+            MusicDuplicateShardStore.commit(context,next) { chunk ->
+                if(chunk==2) error("Injected interruption after two durable chunks")
+            }
+        }
+        assertTrue(outcome.isFailure)
+        assertEquals(200,MusicDuplicateShardStore.recovery(context)?.result?.groups?.size)
+        assertEquals(200,MusicDuplicateSessionStore.partial(context)?.result?.groups?.size)
+        assertNull("An interrupted transaction must never be promoted to completed",
+            MusicDuplicateSessionStore.load(context))
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+    }
 }
