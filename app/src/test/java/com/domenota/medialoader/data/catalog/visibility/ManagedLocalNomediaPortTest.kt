@@ -109,4 +109,22 @@ class ManagedLocalNomediaPortTest {
         assertThrows(IllegalStateException::class.java) { direct.listMedia(tree) }
         assertFalse(File(folder,".nomedia").exists())
     }
+    @Test fun hiddenSubdirectoryMustNotHideUnrelatedMediaEvenWithSameNameAndSize()=fixture { root,folder,tree ->
+        File(folder,"photo.jpg").writeBytes(byteArrayOf(1,2))
+        File(folder,"extra").mkdirs()
+        File(folder,"extra/photo.jpg").writeBytes(byteArrayOf(3,4))
+        val expected=listOf(NomediaMediaSignature("photo.jpg",2))
+        assertThrows(IllegalStateException::class.java) { port(root,expected).listMedia(tree) }
+        assertFalse(File(folder,".nomedia").exists())
+    }
+
+    @Test fun unknownSidecarIsNeverMistakenForOnlySelectedPhoto()=fixture { root,folder,tree ->
+        File(folder,"photo.jpg").writeBytes(byteArrayOf(1,2))
+        File(folder,"unknown.custom").writeText("metadata")
+        assertThrows(IllegalStateException::class.java) {
+            port(root,listOf(NomediaMediaSignature("photo.jpg",2))).listMedia(tree)
+        }
+        assertFalse(File(folder,".nomedia").exists())
+    }
+
 }
