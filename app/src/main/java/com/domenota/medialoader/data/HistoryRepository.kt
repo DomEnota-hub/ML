@@ -29,6 +29,15 @@ class HistoryRepository(private val dao: DownloadDao, private val catalogDao: Ca
     suspend fun setDuration(id: String, duration: Long) = dao.setDuration(id, duration)
     suspend fun fillMissingDurationWhenCurrent(id: String, uri: String, duration: Long): Int =
         dao.fillMissingDurationWhenCurrent(id, uri, duration)
+
+    /** One Room invalidation for a small backfill batch rather than one per MP3.
+     * Each update still checks current public URI, privacy, state and missing duration. */
+    suspend fun fillMissingDurationsWhenCurrent(candidates: List<Triple<String, String, Long>>): Int {
+        suspend fun apply(): Int = candidates.count { (id, uri, duration) ->
+            duration > 0L && dao.fillMissingDurationWhenCurrent(id, uri, duration) == 1
+        }
+        return if (db != null) db.withTransaction { apply() } else apply()
+    }
     suspend fun save(entity: DownloadEntity) = dao.upsert(entity)
     /** Only the real download completion path enqueues review. Existing history,
      * metadata rewrites, imports and editor exports cannot create new inbox entries. */
