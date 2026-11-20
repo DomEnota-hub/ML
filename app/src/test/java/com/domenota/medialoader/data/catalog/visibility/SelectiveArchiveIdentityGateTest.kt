@@ -44,7 +44,7 @@ class SelectiveArchiveIdentityGateTest {
             verifySelectiveArchiveSources(original.mapIndexed{n,x->
                 if(n==0)x.copy(sha256="not-a-hash") else x
             },(1..6).map(::signature),physical))
-        assertEquals(SelectiveArchiveBarrier.IDENTITY_COLLISION,
+        assertEquals(SelectiveArchiveBarrier.NOT_A_PARTIAL_PHYSICAL_FOLDER,
             verifySelectiveArchiveSources(original,(1..6).map(::signature),(1..6).map(::signature)))
     }
 
