@@ -44,7 +44,6 @@ fun PrivateScreen(
     items: List<DownloadEntity>,
     onBack: () -> Unit,
     onOpen: (String) -> Unit,
-    onOpenVault: () -> Unit = {},
     onRestore: suspend (String) -> Unit,
     onFinishMove: suspend (String) -> Unit,
     onDelete: suspend (String) -> Unit,
@@ -56,6 +55,7 @@ fun PrivateScreen(
     onSetFavorite: suspend (String, Boolean) -> Unit = { _, _ -> },
     onCreateFolder: suspend (String) -> String = { "" },
     onOpenGrid: ((String, List<String>) -> Unit)? = null,
+    onOpenVault: () -> Unit = {},
 ) {
     val state by access.state.collectAsState()
     var settings by remember { mutableStateOf(false) }
