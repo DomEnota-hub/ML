@@ -46,4 +46,21 @@ class NomediaAutoFolderPlanTest {
         assertTrue(nomediaInventoryMatches(duplicate,duplicate))
         assertFalse(nomediaInventoryMatches(duplicate,listOf(NomediaMediaSignature("shared.jpg",45))))
     }
+    @Test fun virtualSixFrom806NeverAuthorizesWholePhysicalFolderMarker() {
+        val physical=(1..806).map { NomediaMediaSignature("track-$it.mp3",1000L+it) }
+        val selected=physical.take(6)
+        assertEquals(ArchiveInventoryVerdict.RequiresSelectiveArchive(6,806),
+            archiveInventoryVerdict(selected,physical))
+        assertEquals(ArchiveInventoryVerdict.ExactPhysicalFolder,
+            archiveInventoryVerdict(physical,physical.reversed()))
+        assertEquals(ArchiveInventoryVerdict.Unverified,
+            archiveInventoryVerdict(selected,physical.drop(3)))
+        assertEquals(ArchiveInventoryVerdict.Unverified,
+            archiveInventoryVerdict(selected,physical.drop(6)))
+        assertEquals(ArchiveInventoryVerdict.Unverified,
+            archiveInventoryVerdict(selected,physical.mapIndexed { index,value ->
+                if(index==0)value.copy(bytes=-1) else value
+            }))
+    }
+
 }
