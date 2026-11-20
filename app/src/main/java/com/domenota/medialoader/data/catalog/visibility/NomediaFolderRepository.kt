@@ -33,7 +33,10 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
     private val gate = Mutex()
     private val current = MutableStateFlow(load())
     val snapshot = current.asStateFlow()
-    private val engine = NomediaFolderEngine(this,AndroidNomediaMarkerPort(this.context))
+    private val safPort = AndroidNomediaMarkerPort(this.context)
+    private val safEngine = NomediaFolderEngine(this,safPort)
+    private fun engine(record:NomediaFolderRecord) = if(record.accessMode==NomediaAccessMode.MANAGED_LOCAL)
+        NomediaFolderEngine(this,ManagedLocalNomediaPort()) else safEngine
 
     override fun snapshot():NomediaFolderSnapshot = current.value
 
@@ -54,26 +57,40 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
      */
     suspend fun hideVerified(plan:NomediaAutoFolderPlan):NomediaFolderRecord = gate.withLock {
         withContext(Dispatchers.IO) {
-            val found=AndroidNomediaMarkerPort(context).listMedia(plan.treeUri.toString())
-                .map { NomediaMediaSignature(it.displayName,it.byteCount ?: -1L) }
-            NomediaSafTrace.event("INVENTORY_READ",found.size)
-            check(nomediaInventoryMatches(plan.expected,found)) {
-                "В каталоге есть другие медиа или файлы изменились. Ничего не скрыто"
+            // When the existing Android all-files permission is available, no
+            // separate folder picker is needed. Legacy SAF records remain SAF.
+            val direct=FolderVisibilityStorageAccess.granted()
+            val local=if(direct) ManagedLocalNomediaPort(plan.expected) else null
+            val found=if(local!=null) local.listMedia(plan.treeUri.toString())
+                else safPort.listMedia(plan.treeUri.toString())
+            val actual=found.map { NomediaMediaSignature(it.displayName,it.byteCount ?: -1L) }
+            NomediaSafTrace.event("INVENTORY_READ",actual.size)
+            check(nomediaInventoryMatches(plan.expected,actual)) {
+                "Каталог содержит другие файлы или состав изменился. Скрытие всей папки отменено"
             }
-            NomediaSafTrace.event("INVENTORY_EXACT_MATCH",found.size)
-            val record=engine.hide(plan.folderId,plan.treeUri.toString())
+            NomediaSafTrace.event("INVENTORY_EXACT_MATCH",actual.size)
+            val record=if(local!=null)
+                NomediaFolderEngine(this@NomediaFolderRepository,local).hide(
+                    plan.folderId,plan.treeUri.toString(),NomediaAccessMode.MANAGED_LOCAL)
+            else safEngine.hide(plan.folderId,plan.treeUri.toString(),NomediaAccessMode.SAF)
             NomediaSafTrace.event("MARKER_STATE_"+record.markerState.name,found.size)
             record
         }
     }
     suspend fun hide(folderId:String,treeUri:Uri):NomediaFolderRecord = gate.withLock {
-        withContext(Dispatchers.IO) { engine.hide(folderId,treeUri.toString()) }
+        withContext(Dispatchers.IO) { safEngine.hide(folderId,treeUri.toString()) }
     }
     suspend fun show(folderId:String):NomediaFolderRecord = gate.withLock {
-        withContext(Dispatchers.IO) { engine.show(folderId) }
+        withContext(Dispatchers.IO) {
+            val record=checkNotNull(current.value.takeUnless{it.unknown}?.folders?.get(folderId))
+            engine(record).show(folderId)
+        }
     }
     suspend fun reconcile(folderId:String):NomediaFolderRecord = gate.withLock {
-        withContext(Dispatchers.IO) { engine.reconcile(folderId) }
+        withContext(Dispatchers.IO) {
+            val record=checkNotNull(current.value.takeUnless{it.unknown}?.folders?.get(folderId))
+            engine(record).reconcile(folderId)
+        }
     }
     suspend fun releaseShownFolder(folderId:String) = gate.withLock {
         val old=current.value
@@ -96,7 +113,9 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
         check(!snapshot.unknown) { "Реестр скрытия повреждён" }
         val record=checkNotNull(snapshot.folders[folderId]) { "Нет SAF-привязки папки" }
         check(record.excludedFromMl) { "Просмотр SAF доступен только для скрытой папки" }
-        AndroidNomediaMarkerPort(context).listMedia(record.treeUri)
+        if(record.accessMode==NomediaAccessMode.MANAGED_LOCAL)
+            ManagedLocalNomediaPort().listMedia(record.treeUri)
+        else safPort.listMedia(record.treeUri)
     }
 
     /** A temporary playback/view URI under the same already-approved SAF grant.
@@ -106,7 +125,9 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
             "Состояние доступа неизвестно"
         }
         check(record.excludedFromMl) { "Папка не скрыта в ML" }
-        AndroidNomediaMarkerPort(context).readableMediaUri(record.treeUri,documentId)
+        if(record.accessMode==NomediaAccessMode.MANAGED_LOCAL)
+            ManagedLocalNomediaPort().localMediaUri(record.treeUri,documentId)
+        else safPort.readableMediaUri(record.treeUri,documentId)
     }
 
     suspend fun verifySafDocumentRead(folderId:String,documentId:String):Boolean = gate.withLock {
@@ -114,7 +135,11 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
             "Состояние доступа неизвестно"
         }
         check(record.excludedFromMl)
-        AndroidNomediaMarkerPort(context).verifyMediaRead(record.treeUri,documentId)
+        if(record.accessMode==NomediaAccessMode.MANAGED_LOCAL) {
+            val uri=ManagedLocalNomediaPort().localMediaUri(record.treeUri,documentId)
+            runCatching { java.io.FileInputStream(checkNotNull(uri.path)).use { it.read();true } }
+                .getOrDefault(false)
+        } else safPort.verifyMediaRead(record.treeUri,documentId)
     }
 
     /** Returns display-only status; never claims that Xiaomi has rescanned. */
@@ -158,9 +183,18 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
                 mlHidden=e.getBoolean("mlHidden"),markerState=marker,
                 ownedDocumentId=e.optString("ownedDocumentId").takeIf { it.isNotBlank() },
                 errorCode=e.optString("errorCode").takeIf { it.isNotBlank() },
-                updatedAt=e.getLong("updatedAt"))
+                updatedAt=e.getLong("updatedAt"),
+                accessMode=NomediaAccessMode.valueOf(e.optString("accessMode","SAF")),
+                ownedMarkerBytes=e.optLong("ownedMarkerBytes",0L))
             check(result.put(folderId,record)==null) { "Повторный folderId" }
             check(record.treeUri.startsWith("content://"))
+            check(record.accessMode!=NomediaAccessMode.MANAGED_LOCAL ||
+                (android.net.Uri.parse(record.treeUri).authority=="com.android.externalstorage.documents" &&
+                    nomediaSafTreeEligible(android.provider.DocumentsContract.getTreeDocumentId(
+                        android.net.Uri.parse(record.treeUri)))))
+            check(record.ownedDocumentId==null ||
+                record.accessMode==NomediaAccessMode.SAF ||
+                record.ownedDocumentId.startsWith("ml-archive-v1:"))
             check(marker!=NomediaMarkerState.OWN_MARKER || record.ownedDocumentId!=null)
             check(record.ownedDocumentId==null || marker in setOf(NomediaMarkerState.OWN_MARKER,
                 NomediaMarkerState.PENDING_SHOW,NomediaMarkerState.FAILED))
@@ -183,6 +217,8 @@ internal class NomediaFolderRepository(context: Context) : NomediaFolderStore {
                 record.ownedDocumentId?.let { put("ownedDocumentId",it) }
                 record.errorCode?.let { put("errorCode",it) }
                 put("updatedAt",record.updatedAt)
+                if(record.accessMode!=NomediaAccessMode.SAF)put("accessMode",record.accessMode.name)
+                if(record.ownedMarkerBytes>0L)put("ownedMarkerBytes",record.ownedMarkerBytes)
             })
         }
         val raw=JSONObject().put("version",1).put("entries",entries).toString()
