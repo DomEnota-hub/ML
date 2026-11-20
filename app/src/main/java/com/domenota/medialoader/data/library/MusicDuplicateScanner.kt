@@ -212,9 +212,12 @@ internal object MusicDuplicateScanner {
     }
     /** Restore only still-identical public rows; no audio decoding or hashing here. */
     suspend fun restore(context: Context, saved: DuplicateScanResult, rows: List<DownloadEntity>,
-        linkedIds: Set<String>, currentId: String?): DuplicateScanResult = withContext(Dispatchers.IO) {
+        linkedIds: Set<String>, currentId: String?, onProgress:(Int,Int)->Unit={_,_->}): DuplicateScanResult = withContext(Dispatchers.IO) {
         val byId = rows.associateBy { it.id }
         var stale = 0
+        val total=saved.groups.sumOf{it.tracks.size}
+        var checked=0
+        onProgress(0,total)
         val groups = saved.groups.mapNotNull { group ->
             val valid = group.tracks.mapNotNull { t ->
                 coroutineContext.ensureActive()
@@ -222,6 +225,8 @@ internal object MusicDuplicateScanner {
                 val ok = DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id) && row != null && !row.hidden && !row.isPrivate && row.state == DownloadState.COMPLETED &&
                     row.mediaType == MediaType.AUDIO && row.savedUri == t.uri && row.originalName == t.filename &&
                     t.modified != null && runCatching { stamp(context, Uri.parse(t.uri)).let { it.size == t.bytes && it.modified == t.modified } }.getOrDefault(false)
+                checked++
+                if (checked%16==0 || checked==total) onProgress(checked,total)
                 if (ok) t.copy(linked = t.id in linkedIds, current = t.id == currentId)
                 else { stale++; null }
             }
