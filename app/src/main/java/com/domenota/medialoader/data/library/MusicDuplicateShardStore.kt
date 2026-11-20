@@ -18,6 +18,12 @@ import java.util.UUID
  * Schema 1 completed/partial reports are still read by MusicDuplicateSessionStore.
  * A failed migration leaves them (and the owner's partial.json) unchanged.
  */
+/** A small manifest-backed history card, never a proof that every media URI still exists. */
+internal data class DuplicateSavedSummary(
+    val scannedAt: Long, val groupCount: Int, val fileCount: Int?,
+    val selectedCount: Int?, val selectedBytes: Long?, val privacyEpoch: Long,
+)
+
 internal object MusicDuplicateShardStore {
     private const val SCHEMA = 2
     private const val GROUPS_PER_CHUNK = 100
@@ -97,6 +103,7 @@ internal object MusicDuplicateShardStore {
         val generation=File(folder,id).apply{check(mkdirs())}
         val headers=JSONArray()
         var written=0
+        val trackCount = session.result.groups.sumOf { it.tracks.size }
         var position=0
         var currentBytes=0
         var currentGroups=0
@@ -108,7 +115,7 @@ internal object MusicDuplicateShardStore {
             .put("schema",SCHEMA).put("stage",stage).put("id",id).put("at",session.scannedAt)
             .put("epoch",session.result.privacyEpoch).put("expanded",session.result.expanded)
             .put("skipped",session.result.skipped).put("acousticUnavailable",session.result.acousticUnavailable)
-            .put("groupCount",written).put("chunks",JSONArray(headers.toString()))
+            .put("groupCount",written).put("fileCount",trackCount).put("chunks",JSONArray(headers.toString()))
         fun endChunk() {
             if(currentGroups==0)return
             val out=requireNotNull(writer);val stream=requireNotNull(output);val file=requireNotNull(target)
@@ -199,6 +206,30 @@ internal object MusicDuplicateShardStore {
             doc.getInt("acousticUnavailable"),doc.getBoolean("expanded"),epoch),
             emptySet(),emptyMap(),0,0,doc.getLong("at"))
     }
+    /** Read only the atomic pointer, small manifest, and small UI state, not acoustic shards.
+     * A summary is historical until readGeneration and live-file checks complete.
+     * Old schema-2 manifests omit fileCount and are shown with an unknown count. */
+    fun summary(context:Context):DuplicateSavedSummary? = runCatching {
+        val pointer=JSONObject(atomicText(active(context).baseFile)).getString("id")
+        require(pointer.matches(Regex("scan_[0-9]+_[a-f0-9]{32}")))
+        val metadata=JSONObject(atomicText(File(root(context),"$pointer/manifest.json")))
+        require(metadata.getInt("schema")==SCHEMA &&
+            metadata.getString("id")==pointer && metadata.getString("stage")=="completed")
+        val at=metadata.getLong("at")
+        val epoch=metadata.getLong("epoch")
+        require(epoch==DuplicatePrivacyGuard.generation(context))
+        val groups=metadata.getInt("groupCount")
+        val files=metadata.optInt("fileCount",-1).takeIf { it>=0 }
+        require(groups>=0 && (files==null || files>=2*groups))
+        val ui=runCatching{JSONObject(atomicText(stateFile(context,false,at).baseFile))}
+            .getOrNull()?.takeIf{it.optInt("schema")==SCHEMA && it.optLong("epoch")==epoch && it.optLong("at")==at}
+        DuplicateSavedSummary(
+            at,groups,files,
+            ui?.optJSONArray("selected")?.length(),
+            ui?.optLong("selectedBytes",-1)?.takeIf{it>=0L},epoch
+        )
+    }.getOrNull()
+
     fun load(context:Context):DuplicateSession? {
         if(!active(context).baseFile.exists())return null
         val pointer=JSONObject(atomicText(active(context).baseFile)).getString("id")
@@ -232,6 +263,9 @@ internal object MusicDuplicateShardStore {
             .put("epoch",session.result.privacyEpoch).put("selected",JSONArray(session.selected.toList()))
             .put("index",session.index).put("offset",session.offset)
             .put("kept",JSONObject().also{obj->session.kept.forEach{(k,v)->obj.put(k,v)}})
+            .put("selectedBytes",session.result.groups.sumOf { group ->
+                group.tracks.filter { it.id in session.selected }.sumOf { it.bytes.coerceAtLeast(0L) }
+            })
         writeAtomic(stateFile(context,partial,session.scannedAt).baseFile){it.write(data.toString())}
     }
     fun applySelection(context:Context,saved:DuplicateSession,partial:Boolean):DuplicateSession {
