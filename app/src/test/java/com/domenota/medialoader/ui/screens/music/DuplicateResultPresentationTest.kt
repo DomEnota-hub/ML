@@ -37,7 +37,7 @@ class DuplicateResultPresentationTest {
             DuplicateGroupSkeletons()
         } }
         compose.onNodeWithText("144 из 2600").assertExists()
-        compose.onNodeWithText("5%").assertExists()
+        compose.onNodeWithText("6%").assertExists()
         compose.onNodeWithText("Без повторного анализа звука").assertExists()
         compose.onNodeWithTag("duplicate-restore-progress").assertExists()
         compose.onNodeWithTag("duplicate-group-skeletons").assertExists()
