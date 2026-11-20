@@ -68,6 +68,15 @@ class SelectiveArchiveMediaStoreInstrumentedTest {
         }
     }
 
+    /** Image collection visibility is independent from persistence of the Files row. */
+    private fun listedInImageCollection(id:Long):Boolean {
+        val projection=arrayOf(MediaStore.MediaColumns._ID)
+        return resolver.query(mediaCollection,projection,
+            "${MediaStore.MediaColumns._ID}=?",arrayOf(id.toString()),null)?.use {
+            it.moveToFirst()
+        } ?: false
+    }
+
     private fun imageBytes():ByteArray {
         val bmp=Bitmap.createBitmap(8,8,Bitmap.Config.ARGB_8888)
         return try {
@@ -169,14 +178,29 @@ class SelectiveArchiveMediaStoreInstrumentedTest {
             }
             if(hiddenMarker) scan(selectedTarget)
 
-            // The URI may disappear from a normal MediaStore query after
-            // .nomedia reindexing. DO NOT repair that by inserting a new row.
-            val hiddenRow=row(selectedUri)
-            Log.i("MLSelectiveArchiveProbe","hiddenMarker=$hiddenMarker originalIdPresent=${hiddenRow?.id==originalId}")
-            check(hiddenRow?.id==originalId) {
-                "Selected original MediaStore ID disappeared under .nomedia"
+            // An image hidden by .nomedia can cease to appear in Images while
+            // its underlying _ID persists in MediaStore.Files. Losing the
+            // Images row is NOT by itself proof that the original ID was lost.
+            val hiddenImageRow=runCatching { row(selectedUri) }.getOrNull()
+            val filesUri=ContentUris.withAppendedId(
+                MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),originalId)
+            val hiddenFilesRow=runCatching { row(filesUri) }.getOrNull()
+            val galleryVisible=listedInImageCollection(originalId)
+            Log.i("MLSelectiveArchiveProbe",
+                "hiddenMarker=$hiddenMarker galleryVisible=$galleryVisible " +
+                "imageRowSameId=${hiddenImageRow?.id==originalId} filesRowSameId=${hiddenFilesRow?.id==originalId}")
+            if(hiddenMarker) {
+                check(!galleryVisible) { "Gallery still indexes the synthetic hidden image" }
+            } else {
+                check(galleryVisible) { "Regular MediaStore move unexpectedly hid the image" }
             }
-            move(selectedUri,inputRelative)
+            val restoreUri=when {
+                hiddenImageRow?.id==originalId -> selectedUri
+                hiddenFilesRow?.id==originalId -> filesUri
+                else -> error("Original MediaStore ID is not recoverable from Images or Files")
+            }
+            // Recovery must reuse the same row, never insert a replacement URI.
+            move(restoreUri,inputRelative)
             if(hiddenMarker) scan(selectedSource)
             val restored=checkNotNull(row(selectedUri)) {
                 "Restored synthetic MediaStore URI no longer resolves"
