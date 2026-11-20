@@ -43,8 +43,8 @@ def validate_receipts(receipts,sha,run,attempt):
 
 def infrastructure_failure(log):
     # Never retry after any test execution, compiler diagnostic, lint or integrity error.
-    reject=r'testDebugUnitTest|tests completed|(?m:^e: )|Lint found errors|NewApi|[Cc]hecksum|verification failed|Compilation error|test failures'
-    return not re.search(reject,log) and bool(re.search(r'Could not (GET|HEAD|resolve|download)|Could not resolve all|Plugin .* was not found',log)) and bool(re.search(r'HTTP (429|5\d\d)|status code (429|5\d\d)|timed out|Connection reset|Temporary failure|Service Unavailable',log,re.I))
+    reject=r'testDebugUnitTest|tests completed|(?m:^e: )|(?i:\berror:)|Lint found errors|NewApi|[Cc]hecksum|verification failed|Compilation error|test failures'
+    return not re.search(reject,log,re.I) and bool(re.search(r'Could not (GET|HEAD|resolve|download)|Could not resolve all|Plugin .* was not found',log)) and bool(re.search(r'HTTP (429|5\d\d)|status code (429|5\d\d)|timed out|Connection reset|Temporary failure|Service Unavailable',log,re.I))
 
 def sha256(path):
     with Path(path).open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()

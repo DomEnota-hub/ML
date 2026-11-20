@@ -29,7 +29,7 @@ class GateTest(unittest.TestCase):
     def test_network_retry_rejects_test_compile_lint_and_checksum_failures(self):
         net='Could not resolve dependency: Could not GET artifact. HTTP 503 Service Unavailable'
         self.assertTrue(gate.infrastructure_failure(net))
-        for x in ['e: file.kt: type mismatch','Lint found errors','tests completed, 1 failed',':app:testDebugUnitTest','Checksum verification failed']:
+        for x in ['e: file.kt: type mismatch','Lint found errors','tests completed, 1 failed',':app:testDebugUnitTest','Checksum verification failed','Stub.java:5: error: incompatible types: String cannot be converted to int']:
             self.assertFalse(gate.infrastructure_failure(net+'\n'+x))
         self.assertFalse(gate.infrastructure_failure('BUILD FAILED: missing method'))
 
