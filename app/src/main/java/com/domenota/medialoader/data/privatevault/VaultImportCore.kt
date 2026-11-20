@@ -34,12 +34,12 @@ internal object VaultImportPolicy {
 
     fun advance(current:VaultImportPhase,next:VaultImportPhase,systemConfirmed:Boolean=false):Boolean = when(current) {
         VaultImportPhase.COPY_VERIFIED_PUBLIC_PRESENT ->
-            next==VaultImportPhase.AWAITING_PUBLIC_REMOVAL
+            next==VaultImportPhase.AWAITING_PUBLIC_REMOVAL || next==VaultImportPhase.RESTORE_PENDING
         VaultImportPhase.AWAITING_PUBLIC_REMOVAL ->
             next==VaultImportPhase.PUBLIC_REMOVAL_FAILED ||
                 (next==VaultImportPhase.FULLY_HIDDEN && systemConfirmed)
         VaultImportPhase.PUBLIC_REMOVAL_FAILED ->
-            next==VaultImportPhase.AWAITING_PUBLIC_REMOVAL
+            next==VaultImportPhase.AWAITING_PUBLIC_REMOVAL || next==VaultImportPhase.RESTORE_PENDING
         VaultImportPhase.FULLY_HIDDEN -> next==VaultImportPhase.RESTORE_PENDING
         VaultImportPhase.RESTORE_PENDING -> next==VaultImportPhase.FULLY_HIDDEN
     }
