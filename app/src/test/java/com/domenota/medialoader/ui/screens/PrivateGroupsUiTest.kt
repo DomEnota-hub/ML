@@ -81,6 +81,30 @@ class PrivateGroupsUiTest {
         compose.onNodeWithText("Файлы (30) будут удалены навсегда. Вернуть их из корзины не получится.").assertIsDisplayed()
     }
 
+    @Test fun longPressSelectionAndSelectAllNeverExposePrivateFilesBeforeConfirmation() {
+        show(4)
+        compose.onNodeWithContentDescription("Показать сеткой").performClick()
+        compose.onNodeWithContentDescription("secret-1.jpg").performTouchInput { longClick() }
+        compose.onNodeWithText("Выбрано: 1").assertIsDisplayed()
+        compose.onNodeWithText("Выбрать все").performClick()
+        compose.onNodeWithText("Выбрано: 4").assertIsDisplayed()
+        compose.onNodeWithText("Вынести",substring=false).performClick()
+        compose.onNodeWithText("Вынести из Личного?").assertIsDisplayed()
+        assertTrue("Selection must not restore files before confirmation", restored.isEmpty())
+        compose.onAllNodesWithText("Вынести",substring=false).onLast().performClick()
+        compose.waitUntil(10_000) { restored.size==4 }
+        assertEquals((1..4).map { "p$it" },restored)
+    }
+
+    @Test fun swipeLeftOnPrivateFileOnlyOpensRestoreConfirmation() {
+        show(1)
+        compose.onNodeWithText("secret-1.jpg").performTouchInput { swipeLeft() }
+        compose.onNodeWithText("Вынести из Личного?").assertIsDisplayed()
+        assertTrue("Swipe by itself must not expose the file",restored.isEmpty())
+        compose.onNodeWithText("Отмена").performClick()
+        assertTrue(restored.isEmpty())
+    }
+
     @Test fun manualBiometricLockRemainsSuppressedAfterStateRestoration() {
         val context = compose.activity.applicationContext
         context.getSharedPreferences("private_access", Context.MODE_PRIVATE).edit().clear().commit()
