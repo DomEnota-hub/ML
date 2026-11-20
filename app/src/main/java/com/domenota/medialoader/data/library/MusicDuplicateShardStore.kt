@@ -191,8 +191,8 @@ internal object MusicDuplicateShardStore {
         .mapNotNull{runCatching{readGeneration(context,it.name,true)}.getOrNull()}
         .distinctBy{it.scannedAt}.toList()
 
-    private fun stateFile(context:Context,partial:Boolean)=AtomicFile(
-        File(root(context),if(partial)"partial-ui.json" else "complete-ui.json"))
+    private fun stateFile(context:Context,partial:Boolean,at:Long)=AtomicFile(
+        File(root(context),if(partial)"partial-ui.json" else "complete-ui-$at.json"))
     fun updateSelection(context:Context,session:DuplicateSession,partial:Boolean) {
         require(identity(context,session)){"PRIVACY_EPOCH_CHANGED"}
         root(context).mkdirs()
@@ -200,10 +200,10 @@ internal object MusicDuplicateShardStore {
             .put("epoch",session.result.privacyEpoch).put("selected",JSONArray(session.selected.toList()))
             .put("index",session.index).put("offset",session.offset)
             .put("kept",JSONObject().also{obj->session.kept.forEach{(k,v)->obj.put(k,v)}})
-        writeAtomic(stateFile(context,partial).baseFile){it.write(data.toString())}
+        writeAtomic(stateFile(context,partial,session.scannedAt).baseFile){it.write(data.toString())}
     }
     fun applySelection(context:Context,saved:DuplicateSession,partial:Boolean):DuplicateSession {
-        val target=stateFile(context,partial)
+        val target=stateFile(context,partial,saved.scannedAt)
         if(!target.baseFile.exists())return saved
         return runCatching{
             val state=JSONObject(atomicText(target.baseFile))
@@ -213,8 +213,9 @@ internal object MusicDuplicateShardStore {
             val choices=state.getJSONArray("selected")
             val selected=(0 until choices.length()).map{choices.getString(it)}.filter{it in ids}.toSet()
             val chosen=state.getJSONObject("kept")
+            val keys=saved.result.groups.map{it.key}.toSet()
             val kept=chosen.keys().asSequence().associateWith{chosen.getString(it)}
-                .filterKeys{key->saved.result.groups.any{it.key==key}}
+                .filterKeys{it in keys}
             saved.copy(selected=selected,kept=kept,index=state.getInt("index"),
                 offset=state.getInt("offset"))
         }.getOrElse{saved}
@@ -224,7 +225,11 @@ internal object MusicDuplicateShardStore {
         dir.listFiles().orEmpty().filter{it.isDirectory&&it.name.startsWith("scan_")}
             .forEach{check(it.deleteRecursively()){"SHARD_CLEAR_FAILED"}}
         active(context).delete()
-        stateFile(context,false).delete()
+        dir.listFiles().orEmpty().filter{it.name.startsWith("complete-ui-") && it.name.endsWith(".json")}
+            .forEach{check(it.delete()){"STATE_CLEAR_FAILED"}}
+    }
+    fun clearPartialSelection(context:Context) {
+        stateFile(context,true,0).delete()
     }
     fun clear(context:Context) {
         val path=root(context)
