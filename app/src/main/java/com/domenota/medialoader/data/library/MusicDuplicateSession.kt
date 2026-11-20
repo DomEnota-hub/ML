@@ -31,14 +31,14 @@ internal object MusicDuplicateSessionStore {
             check(listOf(target.baseFile,File(target.baseFile.path+".bak"),File(target.baseFile.path+".new")).none{it.exists()})
             DuplicateReportJournal.clearCompleted(context,"music")
             MusicDuplicateShardStore.clearCompleted(context)
-            if(includePartial)DuplicateReportJournal.clearPartial(context,"music")
+            if(includePartial){DuplicateReportJournal.clearPartial(context,"music");MusicDuplicateShardStore.clearPartialSelection(context)}
         }.isSuccess
     }
     fun discardPartial(context:Context):Boolean = synchronized(lock){
         // Invalidate any pending debounced UI snapshot before clearing this
         // checkpoint. Otherwise a late save can resurrect a discarded scan.
         journalRevision++
-        runCatching{DuplicateReportJournal.clearPartial(context,"music")}.isSuccess
+        runCatching{DuplicateReportJournal.clearPartial(context,"music");MusicDuplicateShardStore.clearPartialSelection(context)}.isSuccess
     }
     private fun trashReportFile(context:Context)=AtomicFile(File(context.noBackupFilesDir,"music-duplicate-trash-v1.json"))
     fun clearForPrivacy(context: Context) {
