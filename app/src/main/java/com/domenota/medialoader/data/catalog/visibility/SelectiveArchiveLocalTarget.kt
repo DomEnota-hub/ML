@@ -124,6 +124,38 @@ internal class SelectiveArchiveLocalTarget(
 
     /** Validate a destination's parent without requiring or creating a file.
      * Used for collision preflight before MediaStore's atomic row path update. */
+    /** Remove ONLY two ML-owned marker files from an otherwise empty child
+     * after exact original restoration. Never recurse or remove any media. */
+    fun releaseEmpty(original:SelectiveArchiveIdentity,
+        receipt:SelectiveArchiveMoveReceipt):Boolean {
+        val dir=runCatching { checkedFolder(original,receipt,false) }.getOrNull()
+            ?: return true // Already removed, including interrupted cleanup.
+        val marker=File(dir,markerName)
+        val owner=File(dir,ownerName)
+        // An earlier interruption may have removed just .nomedia. The owner
+        // must STILL match before touching anything.
+        val ownerVerified=Files.isRegularFile(owner.toPath(),NOFOLLOW_LINKS) &&
+            !Files.isSymbolicLink(owner.toPath()) &&
+            Files.size(owner.toPath())==bytes(receipt.token).size.toLong() &&
+            Files.readAllBytes(owner.toPath()).contentEquals(bytes(receipt.token))
+        check(ownerVerified) { "Чужой владелец каталога: очистка запрещена" }
+        check(dir.listFiles()?.all { it.name in setOf(markerName,ownerName) }==true) {
+            "В скрытом каталоге остались данные; удаление запрещено"
+        }
+        if(Files.exists(marker.toPath(),NOFOLLOW_LINKS)) {
+            check(Files.isRegularFile(marker.toPath(),NOFOLLOW_LINKS) &&
+                !Files.isSymbolicLink(marker.toPath()) &&
+                Files.size(marker.toPath())==0L) { "Неизвестный .nomedia" }
+            Files.delete(marker.toPath())
+        }
+        // Verify again after deleting marker, before removing owned tag.
+        check(dir.listFiles()?.map { it.name }==listOf(ownerName) &&
+            Files.readAllBytes(owner.toPath()).contentEquals(bytes(receipt.token)))
+        Files.delete(owner.toPath())
+        Files.delete(dir.toPath()) // Must be empty, never recursive.
+        return true
+    }
+
     fun sourceFileIfAbsent(original:SelectiveArchiveIdentity):File =
         File(directory(original.relativePath,false),original.displayName)
 
