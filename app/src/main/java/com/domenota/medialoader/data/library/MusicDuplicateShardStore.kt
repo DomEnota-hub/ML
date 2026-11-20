@@ -25,6 +25,15 @@ internal object MusicDuplicateShardStore {
     private const val MAX_CHUNKS = 4096
     private fun root(context:Context)=File(context.noBackupFilesDir,"music-duplicate-results-v2")
     private fun active(context:Context)=AtomicFile(File(root(context),"active.json"))
+    /** Only generations in the atomic active pointer are published results. */
+    private fun published(context:Context):List<String> {
+        val doc=runCatching{JSONObject(atomicText(active(context).baseFile))}.getOrNull()?:return emptyList()
+        val primary=doc.optString("id").takeIf{it.isNotBlank()}?:return emptyList()
+        val history=doc.optJSONArray("history")
+        return (listOf(primary)+(0 until (history?.length()?:0)).mapNotNull{
+            runCatching{history!!.getString(it)}.getOrNull()
+        }).distinct().filter{it.matches(Regex("scan_[0-9]+_[a-f0-9]{32}"))}.take(10)
+    }
     private fun identity(context:Context,snapshot:DuplicateSession)=
         snapshot.result.privacyEpoch==DuplicatePrivacyGuard.generation(context)
 
@@ -147,9 +156,13 @@ internal object MusicDuplicateShardStore {
                 }}
                 check(lineCount==info.getInt("groups")){"SHARD_READBACK_FAILED"}
             }
-            writeAtomic(File(generation,"manifest.json")){it.write(manifest("completed").toString())}
             updateSelection(context,session,false)
-            writeAtomic(active(context).baseFile){it.write(JSONObject().put("id",id).toString())}
+            writeAtomic(File(generation,"manifest.json")){it.write(manifest("completed").toString())}
+            val history=JSONArray()
+            (listOf(id)+published(context)).distinct().take(10).forEach{history.put(it)}
+            writeAtomic(active(context).baseFile){
+                it.write(JSONObject().put("id",id).put("history",history).toString())
+            }
         } catch(t:Throwable){
             // Partial generations are intentionally retained for diagnostics and
             // potential recovery, while active and legacy reports stay untouched.
@@ -194,8 +207,9 @@ internal object MusicDuplicateShardStore {
     /** Best independently verified in-progress shard manifest, not a completed report. */
     fun recovery(context:Context):DuplicateSession? {
         val dir=root(context)
+        val committed=published(context).toSet()
         val candidates=dir.listFiles().orEmpty().asSequence().filter{it.isDirectory&&
-            !File(it,"manifest.json").exists()&&File(it,"recovery.json").exists()}
+            it.name !in committed&&File(it,"recovery.json").exists()}
             .mapNotNull{folder->runCatching{
                 val meta=JSONObject(atomicText(File(folder,"recovery.json")))
                 folder.name to meta.getInt("groupCount")
@@ -206,11 +220,8 @@ internal object MusicDuplicateShardStore {
         }
         return null
     }
-    fun history(context:Context):List<DuplicateSession> = root(context).listFiles().orEmpty()
-        .asSequence().filter{it.isDirectory&&it.name.startsWith("scan_")}
-        .sortedByDescending{it.lastModified()}.take(12)
-        .mapNotNull{runCatching{readGeneration(context,it.name,true)}.getOrNull()}
-        .distinctBy{it.scannedAt}.toList()
+    fun history(context:Context):List<DuplicateSession> = published(context)
+        .mapNotNull{runCatching{readGeneration(context,it,true)}.getOrNull()}
 
     private fun stateFile(context:Context,partial:Boolean,at:Long)=AtomicFile(
         File(root(context),if(partial)"partial-ui.json" else "complete-ui-$at.json"))
@@ -243,17 +254,19 @@ internal object MusicDuplicateShardStore {
     }
     fun clearCompleted(context:Context) {
         val dir=root(context)
-        dir.listFiles().orEmpty().filter{it.isDirectory&&it.name.startsWith("scan_") &&
-            File(it,"manifest.json").exists()}
-            .forEach{check(it.deleteRecursively()){"SHARD_CLEAR_FAILED"}}
+        published(context).forEach{id->
+            val folder=File(dir,id)
+            if(folder.exists())check(folder.deleteRecursively()){"SHARD_CLEAR_FAILED"}
+        }
         active(context).delete()
         dir.listFiles().orEmpty().filter{it.name.startsWith("complete-ui-") && it.name.endsWith(".json")}
             .forEach{check(it.delete()){"STATE_CLEAR_FAILED"}}
     }
     fun clearPartialSelection(context:Context) {
         stateFile(context,true,0).delete()
+        val done=published(context).toSet()
         root(context).listFiles().orEmpty().filter{it.isDirectory&&
-            it.name.startsWith("scan_")&&!File(it,"manifest.json").exists()}
+            it.name.startsWith("scan_")&&it.name !in done}
             .forEach{check(it.deleteRecursively()){"SHARD_CLEAR_FAILED"}}
     }
     fun clear(context:Context) {
