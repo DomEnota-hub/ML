@@ -78,7 +78,7 @@ private fun SummaryMetric(value:String,label:String,modifier:Modifier,highlight:
 internal fun DuplicateRestorePanel(done:Int,total:Int,checkingFiles:Boolean,onClose:()->Unit) {
     val hasTotal=total>0
     val checked=done.coerceIn(0,total.coerceAtLeast(0))
-    val percent=if(hasTotal) (checked.toLong()*100L/total).toInt() else null
+    val percent=if(hasTotal) ((checked.toDouble()*100.0/total)+0.5).toInt() else null
     Card(Modifier.fillMaxWidth().testTag("duplicate-restore-panel"),
         shape=RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
