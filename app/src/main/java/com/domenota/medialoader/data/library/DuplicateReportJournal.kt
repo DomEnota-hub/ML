@@ -32,7 +32,13 @@ internal object DuplicateReportJournal {
         val dir=root(context,"music").apply{mkdirs()}
         val source=AtomicFile(File(dir,"partial.json"))
         val backup=AtomicFile(File(dir,"preserved-partial.json"))
-        if(!source.baseFile.exists() || backup.baseFile.exists())return
+        if(!source.baseFile.exists())return
+        fun count(json:String?):Int=runCatching{
+            org.json.JSONObject(requireNotNull(json)).getJSONArray("groups").length()
+        }.getOrDefault(-1)
+        val incoming=runCatching{source.openRead().bufferedReader().use{it.readText()}}.getOrNull()
+        val current=runCatching{backup.openRead().bufferedReader().use{it.readText()}}.getOrNull()
+        if(count(incoming)<=0 || count(incoming)<count(current))return
         val stream=backup.startWrite()
         try{
             source.openRead().use{input->input.copyTo(stream,65536)}
