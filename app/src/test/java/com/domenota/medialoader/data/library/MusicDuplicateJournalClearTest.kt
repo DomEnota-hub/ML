@@ -72,4 +72,30 @@ class MusicDuplicateJournalClearTest {
             MusicDuplicateSessionStore.savePartial(context,session,pendingGeneration))
         assertNull(MusicDuplicateSessionStore.partial(context))
     }
+
+    @Test fun failedRetryMustNotEraseOldProvisionalGroups()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        fun session(count:Int,at:Long):DuplicateSession {
+            val groups=(0 until count).map { i ->
+                val first=DuplicateTrack("first_$i","Song $i",null,"a$i.mp3",
+                    "content://media/audio/"+(2*i+1),1000,456,"sha$i",null,1000,null,null,privacyEpoch=epoch)
+                DuplicateGroup(listOf(first,first.copy(id="second_$i",filename="b$i.mp3",
+                    uri="content://media/audio/"+(2*i+2))),"Song $i","Same",DuplicateKind.EXACT)
+            }
+            return DuplicateSession(DuplicateScanResult(groups,0,privacyEpoch=epoch),
+                emptySet(),emptyMap(),0,0,at)
+        }
+        assertTrue(MusicDuplicateSessionStore.savePartial(context,session(100,1000)))
+        DuplicateReportJournal.preserveMusicPartial(context)
+        assertTrue(MusicDuplicateSessionStore.savePartial(context,session(0,2000)))
+        assertEquals(100,MusicDuplicateSessionStore.partial(context)?.result?.groups?.size)
+        assertTrue(MusicDuplicateSessionStore.savePartial(context,session(150,3000)))
+        DuplicateReportJournal.preserveMusicPartial(context)
+        assertTrue(MusicDuplicateSessionStore.savePartial(context,session(0,4000)))
+        assertEquals(150,MusicDuplicateSessionStore.partial(context)?.result?.groups?.size)
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+        assertNull(MusicDuplicateSessionStore.partial(context))
+    }
 }
