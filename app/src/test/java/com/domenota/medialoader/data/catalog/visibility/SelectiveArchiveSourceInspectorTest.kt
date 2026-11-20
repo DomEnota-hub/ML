@@ -46,6 +46,8 @@ class SelectiveArchiveSourceInspectorTest {
         assertThrows(IllegalStateException::class.java) {
             runBlocking { SelectiveArchiveSourceInspector(probe).inspect(selected,signatures,physical) }
         }
+        // JUnit4 @Test methods must return void, not assertThrows' exception.
+        Unit
     }
 
     @Test fun truncationRevokedAccessPendingAndTrashMustFailClosed()=runBlocking {
