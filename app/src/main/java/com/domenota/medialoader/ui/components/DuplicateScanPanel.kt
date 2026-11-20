@@ -59,7 +59,10 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
     onClear:(()->Unit)?=null,clearEnabled:Boolean=true){
     AlertDialog(onDismissRequest=onDismiss,title={Row(verticalAlignment=Alignment.CenterVertically){
         Text(title,Modifier.weight(1f))
-        if(onClear!=null)IconButton(onClear,enabled=clearEnabled&&(rows.isNotEmpty()||partial!=null)){Icon(androidx.compose.material.icons.Icons.Rounded.DeleteOutline,"Очистить журнал")}
+        if(onClear!=null)OutlinedIconButton(onClear,modifier=Modifier.size(44.dp),
+            enabled=clearEnabled&&(rows.isNotEmpty()||partial!=null)){
+            Icon(androidx.compose.material.icons.Icons.Rounded.DeleteOutline,"Очистить журнал")
+        }
     }},text={
         LazyColumn(Modifier.heightIn(max=420.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             if(partial!=null)item{
@@ -74,7 +77,18 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                     }
                 }}
             }
-            if(rows.isEmpty()&&partial==null)item{Text("Журнал пока пуст")}
+            if(rows.isEmpty()&&partial==null)item{
+                Column(Modifier.fillMaxWidth().padding(vertical=22.dp),
+                    horizontalAlignment=Alignment.CenterHorizontally,
+                    verticalArrangement=Arrangement.spacedBy(9.dp)) {
+                    Icon(androidx.compose.material.icons.Icons.Rounded.History,null,
+                        tint=MaterialTheme.colorScheme.primary,modifier=Modifier.size(38.dp))
+                    Text("Журнал пока пуст",style=MaterialTheme.typography.titleMedium)
+                    Text("Сохранённые проверки появятся здесь",
+                        style=MaterialTheme.typography.bodySmall,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             items(rows,key={it.at}){row->
                 Card(onClick={onOpen(row.at)}){Column(Modifier.padding(12.dp)){
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(row.at)),style=MaterialTheme.typography.titleMedium)
