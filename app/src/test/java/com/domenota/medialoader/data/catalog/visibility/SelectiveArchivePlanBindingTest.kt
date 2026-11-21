@@ -45,10 +45,11 @@ class SelectiveArchivePlanBindingTest {
             archiveInventoryVerdict(signatures,physical))
     }
 
-    @Test fun invalidReplayedCheckpointBlocks() {
-        val invalid=checkpoint.copy(originals=rows.mapIndexed { index,item ->
-            if(index==1)item.copy(originalUri="file:///tmp/track.mp3") else item
-        })
-        assertFalse(selectiveArchivePlanMatches(invalid,"virtual",ids,signatures))
+    @Test fun invalidReplayedCheckpointCannotEvenBeConstructed() {
+        assertThrows(IllegalArgumentException::class.java) {
+            checkpoint.copy(originals=rows.mapIndexed { index,item ->
+                if(index==1)item.copy(originalUri="file:///tmp/track.mp3") else item
+            })
+        }
     }
 }
