@@ -8,6 +8,9 @@ import java.io.File
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -53,9 +56,35 @@ internal class SelectiveArchiveRepository(
     private val engine=SelectiveArchiveMoveEngine(journal,
         AndroidSelectiveArchiveMovePort(app,{original->references.sha256(original)},target))
 
+    // Public Gallery/Music must remain CLOSED while the durable archive
+    // receipts are unexamined, unreadable, or a MediaStore mutation is active.
+    private val privacyState=MutableStateFlow(SelectiveArchivePrivacySnapshot())
+    val privacy=privacyState.asStateFlow()
+
+    suspend fun refreshPrivacy():SelectiveArchivePrivacySnapshot = mutex.withLock {
+        refreshPrivacyLocked()
+    }
+
+    private suspend fun refreshPrivacyLocked():SelectiveArchivePrivacySnapshot =
+        withContext(Dispatchers.IO) {
+            val verified=runCatching {
+                val entries=checkpoints.listAll().flatMap { checkpoint ->
+                    checkpoint.originals.map { original ->
+                        original to journal.read(checkpoint.folderId,original.catalogId)?.phase
+                    }
+                }
+                archivePrivacyProjection(entries)
+            }.getOrElse { SelectiveArchivePrivacySnapshot() }
+            privacyState.value=verified
+            verified
+        }
+
+
     suspend fun hide(plan:NomediaAutoFolderPlan):List<SelectiveArchiveMoveReceipt> =
         mutex.withLock {
-            withContext(Dispatchers.IO) {
+            privacyState.value=SelectiveArchivePrivacySnapshot()
+            try {
+                withContext(Dispatchers.IO) {
                 check(FolderVisibilityStorageAccess.granted()) {
                     "Для выборочного архива нужен доступ к файлам Android"
                 }
@@ -121,12 +150,17 @@ internal class SelectiveArchiveRepository(
                         error)
                 }
                 completed
+                }
+            } finally {
+                withContext(NonCancellable) { refreshPrivacyLocked() }
             }
         }
 
     suspend fun restore(folderId:String):SelectiveArchiveBatchRestoreResult =
         mutex.withLock {
-            withContext(Dispatchers.IO) {
+            privacyState.value=SelectiveArchivePrivacySnapshot()
+            try {
+                withContext(Dispatchers.IO) {
                 val checkpoint=checkNotNull(checkpoints.read(folderId)) {
                     "Сохранённая точка выборочного архива не найдена"
                 }
@@ -159,6 +193,9 @@ internal class SelectiveArchiveRepository(
                     runCatching { target.releaseEmpty(original,restored) }
                 }
                 SelectiveArchiveBatchRestoreResult(result,intact,checkpoint.originals.size)
+                }
+            } finally {
+                withContext(NonCancellable) { refreshPrivacyLocked() }
             }
         }
 
