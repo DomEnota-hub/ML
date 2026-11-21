@@ -69,7 +69,7 @@ internal object AcousticFingerprints {
         }
         fun finish() = AcousticFingerprint(packedAcousticLandmarks(reservoir.map { it.second }.sortedBy { it.frame }))
     }
-    private fun peaks(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray): IntArray {
+    private fun spectrum(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray) {
         for(i in 0 until N) re[i]=samples[i]*window[i]
         im.fill(0.0)
         var j = 0
@@ -87,6 +87,50 @@ internal object AcousticFingerprints {
             }; length *= 2; stage++
         }
         for(i in power.indices) power[i]=re[i]*re[i]+im[i]*im[i]
+    }
+    /** Complete pair analysis; no stored PCM, separate from candidate search. */
+    class ComparisonBuilder(private val stepMs:Long,private val checkActive:()->Unit) {
+        private val blocks = (stepMs * RATE / 1000 / N).toInt()
+        private val samples = FloatArray(N)
+        private val re = DoubleArray(N)
+        private val im = DoubleArray(N)
+        private val power = DoubleArray(N/2)
+        private val bands = DoubleArray(64)
+        private val frames = ArrayList<ComparisonFrame>()
+        private var filled = 0
+        private var count = 0
+        private var energy = 0.0
+        fun accept(value:Float) {
+            samples[filled++] = value
+            energy += value.toDouble() * value
+            if(filled == N) {
+                accumulate()
+                if(count == blocks) emit()
+            }
+        }
+        private fun accumulate() {
+            checkActive()
+            for(i in filled until N) samples[i] = 0f
+            spectrum(samples,re,im,power)
+            // Linear spectral bands, independent of absolute amplitude.
+            for(i in 1 until power.size) bands[i/8] += power[i]
+            count++
+            filled = 0
+        }
+        private fun emit() {
+            check(frames.size < 1800) { "Comparison duration exceeds limit" }
+            frames.add(ComparisonFrame(AudioPairAlignment.normalizedSpectrum(bands),
+                sqrt(energy / (count*N)).toFloat()))
+            bands.fill(0.0); count=0; energy=0.0
+        }
+        fun finish():List<ComparisonFrame> {
+            if(filled>0) accumulate()
+            if(count>0) emit()
+            return frames.toList()
+        }
+    }
+    private fun peaks(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray): IntArray {
+        spectrum(samples,re,im,power)
         if (power.maxOrNull()!! < 1e-9) return intArrayOf()
         // One strongest local peak per broad band, exact bin landmark (not amplitude).
         val result=IntArray(bands.size); var count=0
