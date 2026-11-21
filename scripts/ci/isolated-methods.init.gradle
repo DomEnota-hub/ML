@@ -13,7 +13,8 @@ gradle.projectsEvaluated {
     if (!(original.options instanceof JUnitOptions)) throw new GradleException('Unexpected test framework')
     if (original.filter.includePatterns || original.filter.excludePatterns) throw new GradleException('Unexpected original test filters')
     // Preserve Android resources/config, runtime and compilation dependencies.
-    def prerequisites = original.taskDependencies.getDependencies(original)
+    // Keep task dependencies lazy; Gradle must resolve them under its project lock.
+    def prerequisites = original.taskDependencies
     def prior = null
     plan.eachWithIndex { row, index ->
         def name = String.format('mlCiIsolated%03d', index)

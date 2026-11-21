@@ -41,6 +41,33 @@ def methods(cls):
     if not names:raise ValueError('No tests in '+cls)
     return {(cls,name) for name in names}
 
+def run_batch(expected,label):
+    plan=OUT/f'{label}-plan.json'
+    plan.write_text(json.dumps(expected,indent=2)+'\n')
+    batch_root=ROOT/'app/build/ml-ci-batch'
+    shutil.rmtree(batch_root,ignore_errors=True)
+    task_names=[f'mlCiIsolated{i:03d}' for i in range(len(expected))]
+    cmd=[os.environ.get('ML_GRADLE',str(ROOT/'gradlew')),*(':app:'+n for n in task_names),
+         '-Parm64Release=true','--no-parallel','--stacktrace','--console=plain',
+         '--init-script',str(ROOT/'scripts/ci/isolated-methods.init.gradle'),
+         '--init-script',str(ROOT/'scripts/ci/test-execution.init.gradle')]
+    start=time.monotonic()
+    env=dict(os.environ, ML_CI_ISOLATION_PLAN=str(plan))
+    log=OUT/f'{label}.log'
+    with log.open('w') as stream:
+        proc=subprocess.Popen(cmd,cwd=ROOT,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
+        for line in proc.stdout:
+            print(line,end='',flush=True);stream.write(line)
+        exit_code=proc.wait()
+    batch_seconds=round(time.monotonic()-start,3)
+    if exit_code:raise RuntimeError(f'Batch Gradle exit {exit_code}')
+    log_text=log.read_text()
+    for task,(cls,method) in zip(task_names,expected):
+        marker=f'ML_CI_TEST_EXECUTED task=:app:{task}'
+        if sum(line.strip()==marker for line in log_text.splitlines())!=1:raise ValueError('Missing/duplicate worker marker '+task)
+        require_cases(iso.read_cases(batch_root/task/'xml'),{(cls,method)})
+    return batch_seconds
+
 def main():
     shutil.rmtree(OUT,ignore_errors=True)
     OUT.mkdir(parents=True)
@@ -55,34 +82,13 @@ def main():
     perf=checked_shard('performance',['-PmlPerfBenchmarks=true','--tests',BENCH],bench)
     normal_cases=iso.read_cases(OUT/'warm-regression/xml')
     normal_bench_seconds=sum(float(case.get('time','0')) for key,(_,case) in normal_cases.items() if key in bench)
+    # Fail fast on graph/configuration errors before repeating all legacy methods.
+    run_batch(expected[:2],'pilot-smoke')
     baseline_start=time.monotonic()
     for index,(cls,method) in enumerate(expected):
         checked_shard(f'baseline-{index:03d}',['--tests',cls+'.'+method],{(cls,method)})
     legacy_seconds=round(time.monotonic()-baseline_start,3)
-    plan=OUT/'plan.json'
-    plan.write_text(json.dumps(expected,indent=2)+'\n')
-    batch_root=ROOT/'app/build/ml-ci-batch'
-    shutil.rmtree(batch_root,ignore_errors=True)
-    task_names=[f'mlCiIsolated{i:03d}' for i in range(len(expected))]
-    cmd=[os.environ.get('ML_GRADLE',str(ROOT/'gradlew')),*(':app:'+n for n in task_names),
-         '-Parm64Release=true','--no-parallel','--stacktrace','--console=plain',
-         '--init-script',str(ROOT/'scripts/ci/isolated-methods.init.gradle'),
-         '--init-script',str(ROOT/'scripts/ci/test-execution.init.gradle')]
-    start=time.monotonic()
-    env=dict(os.environ, ML_CI_ISOLATION_PLAN=str(plan))
-    log=OUT/'batch.log'
-    with log.open('w') as stream:
-        proc=subprocess.Popen(cmd,cwd=ROOT,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
-        for line in proc.stdout:
-            print(line,end='',flush=True);stream.write(line)
-        exit_code=proc.wait()
-    batch_seconds=round(time.monotonic()-start,3)
-    if exit_code:raise RuntimeError(f'Batch Gradle exit {exit_code}')
-    log_text=log.read_text()
-    for task,(cls,method) in zip(task_names,expected):
-        marker=f'ML_CI_TEST_EXECUTED task=:app:{task}'
-        if log_text.splitlines().count(marker)!=1:raise ValueError('Missing/duplicate worker marker '+task)
-        require_cases(iso.read_cases(batch_root/task/'xml'),{(cls,method)})
+    batch_seconds=run_batch(expected,'batch')
     report={'sha':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
             'isolated_cases_each':len(expected),'legacy_gradle_invocations':len(expected),
             'pilot_gradle_invocations':1,'legacy_seconds':legacy_seconds,'pilot_seconds':batch_seconds,
