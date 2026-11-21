@@ -1,6 +1,6 @@
 # MediaLoader: current CI instructions
 
-STATUS: CI redesign in progress, PR #174. This file is a staged policy; the batch runner is not approved until exact-source A/B and full-suite verification PASS. Version 1.7.211 is rejected on device; do not release it or build a new APK during CI audit.
+STATUS: CI redesign in progress, PR #174. This file is a staged policy; both exact-source A/B audits passed; the new batch runner replaces the old one in VERIFY pending full-suite verification. No app release until that passes. Version 1.7.211 is rejected on device; do not release it or build a new APK during CI audit.
 
 Use only `.github/workflows/ml-ci.yml` for standard app CI; the signing-tools workflow and explicitly allowlisted research workflows have distinct purposes. Do not restore old YAML, script or branch build routes from history. `docs/ci/allowed-workflows.json` is the reviewed inventory; any change to it requires explicit rationale and review. No emulator. Real Xiaomi/Android device acceptance is mandatory for a stable release, separately from static CI.
 

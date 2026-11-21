@@ -72,7 +72,7 @@ jobs:
       - name: Full JVM including every isolated Compose method
         if: env.ML_MODE == 'qualify' || env.ML_MODE == 'verify'
         run: |
-          python3 scripts/ci/gate.py stage full-jvm python3 scripts/run-jvm-isolated-compose.py full
+          python3 scripts/ci/gate.py stage full-jvm python3 scripts/run-jvm-ci.py full
           python3 scripts/ci/gate.py cases
       - name: JVM success receipt
         if: (inputs.fault == 'none' || inputs.fault == '') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))

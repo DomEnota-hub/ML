@@ -58,6 +58,12 @@ def validate_isolation_manifest(manifest, expected, total, workers):
     if len(set(observed))!=len(observed) or set(observed)!=expected or sum(s['tests'] for s in shards)!=total:
         raise ValueError('Missing, duplicate, or unexpected isolated test')
     
+def validate_batch_markers(manifest,expected,markers):
+    wanted=['ML_CI_TEST_EXECUTED task=:app:testDebugUnitTest']+[
+        f'ML_CI_TEST_EXECUTED task=:app:mlCiIsolated{i:03d}' for i in range(len(expected))]
+    if manifest.get('runner')!='batched' or manifest.get('gradle_invocations')!=2 or sorted(markers)!=sorted(wanted):
+        raise ValueError('Missing/duplicate/unexpected fresh batch worker markers')
+
 def validate_receipts(receipts,sha,run,attempt):
     if len(receipts)!=3 or {r.get('lane') for r in receipts}!={'jvm','lint','arm64'}:raise ValueError('Three unique required lanes must pass')
     for r in receipts:
@@ -153,10 +159,13 @@ def main():
         r=validate_cases(ROOT/'app/build/test-results/testDebugUnitTest',json.loads((ROOT/'docs/ci/required-jvm-tests.json').read_text()))
         m=json.loads((ROOT/'app/build/ml-jvm-shards/full/manifest.json').read_text())
         import importlib.util
-        spec=importlib.util.spec_from_file_location('ml_isolation',ROOT/'scripts/run-jvm-isolated-compose.py')
+        spec=importlib.util.spec_from_file_location('ml_isolation',ROOT/'scripts/run-jvm-ci.py')
         isolation=importlib.util.module_from_spec(spec);spec.loader.exec_module(isolation)
-        workers=sum(p.read_text().count('ML_CI_TEST_EXECUTED task=:app:testDebugUnitTest') for p in out.glob('full-jvm-*.log'))
-        validate_isolation_manifest(m,isolation.expected_methods('full'),r['total'],workers)
+        expected=isolation.expected_methods('full')
+        markers=[line.strip() for p in out.glob('full-jvm-*.log') for line in p.read_text().splitlines() if line.strip().startswith('ML_CI_TEST_EXECUTED task=')]
+        validate_batch_markers(m,expected,markers)
+        workers=len(markers)
+        validate_isolation_manifest(m,expected,r['total'],workers)
         r['workers_observed']=workers
         (out/'jvm-coverage.json').write_text(json.dumps(r,indent=2)+'\n');print(json.dumps(r))
     elif action=='receipt':

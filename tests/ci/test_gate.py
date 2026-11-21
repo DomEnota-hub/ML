@@ -154,3 +154,13 @@ class FullIsolationManifestTest(unittest.TestCase):
             bad=copy.deepcopy(good);mutate(bad)
             with self.assertRaises(ValueError):gate.validate_isolation_manifest(bad,expected,5,3)
         with self.assertRaises(ValueError):gate.validate_isolation_manifest(good,expected,5,2)
+
+class BatchMarkerTest(unittest.TestCase):
+    def test_exact_batch_markers(self):
+        expected=[('A','one'),('B','two')]
+        manifest={'runner':'batched','gradle_invocations':2}
+        markers=['ML_CI_TEST_EXECUTED task=:app:testDebugUnitTest','ML_CI_TEST_EXECUTED task=:app:mlCiIsolated000','ML_CI_TEST_EXECUTED task=:app:mlCiIsolated001']
+        gate.validate_batch_markers(manifest,expected,markers)
+        for bad in [markers[:-1],markers+[markers[1]],[markers[0],markers[1],markers[1]],markers[:-1]+['ML_CI_TEST_EXECUTED task=:app:unknown']]:
+            with self.assertRaises(ValueError):gate.validate_batch_markers(manifest,expected,bad)
+        with self.assertRaises(ValueError):gate.validate_batch_markers({'runner':'legacy','gradle_invocations':3},expected,markers)
