@@ -361,6 +361,7 @@ internal fun CollectionOriginalCover(
     ref:LibraryMediaRef,
     modifier:Modifier=Modifier,
     decoder:CollectionOriginalCoverDecoder=DefaultCollectionOriginalCoverDecoder,
+    decodeDispatcher:kotlinx.coroutines.CoroutineDispatcher=Dispatchers.IO,
 ) {
     val context=LocalContext.current
     val kind=when(ref.item.mediaType){com.domenota.medialoader.core.model.MediaType.PHOTO->MediaKind.IMAGE;com.domenota.medialoader.core.model.MediaType.VIDEO->MediaKind.VIDEO;else->MediaKind.AUDIO}
@@ -376,15 +377,20 @@ internal fun CollectionOriginalCover(
     var bitmap by remember(ref.item.savedUri,coverIdentity,audioRevision) {
         mutableStateOf(CollectionCoverWarmBitmapCache.peek(warmKey))
     }
-    LaunchedEffect(ref.item.savedUri,kind,coverIdentity,audioRevision,decoder){
-        val uri=ref.item.savedUri
-        val decoded=if(uri.isNullOrBlank())null else withContext(Dispatchers.IO){
-            decoder.decode(context,uri,kind,ref.item.previewUrl,coverIdentity).also { image ->
-                // Scale the small retained preview off main to prevent new frame gaps.
-                if(image!=null) CollectionCoverWarmBitmapCache.remember(warmKey,image)
+    LaunchedEffect(ref.item.savedUri,kind,coverIdentity,audioRevision,decoder,decodeDispatcher){
+        // Resume and publish the Compose state on Android's actual UI thread.
+        // A worker completing the decode must not drive a ViewRoot layout.
+        withContext(Dispatchers.Main.immediate) {
+            val uri=ref.item.savedUri
+            val decoded=if(uri.isNullOrBlank())null else withContext(decodeDispatcher){
+                decoder.decode(context,uri,kind,ref.item.previewUrl,coverIdentity).also { image ->
+                    // Keep decoding and warm-cache scaling off-main in production.
+                    if(image!=null) CollectionCoverWarmBitmapCache.remember(warmKey,image)
+                }
             }
+            ensureActive()
+            bitmap=decoded
         }
-        bitmap=decoded
     }
     Box(modifier,contentAlignment=Alignment.Center){
         val image=bitmap
