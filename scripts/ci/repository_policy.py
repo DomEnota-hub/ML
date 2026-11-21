@@ -34,29 +34,8 @@ def validate_ci_trigger(text):
     block = re.search(r'(?ms)^on:[ \t]*\n(.*?)(?=^\S)', text)
     if not block:
         raise ValueError('Missing explicit CI triggers')
-    events = re.findall(r'(?m)^  ([A-Za-z_]+):[ \t]*
-    allowed=json.loads((ROOT/'docs/ci/allowed-workflows.json').read_text())
-    if not isinstance(allowed,list) or not allowed or len(allowed)!=len(set(allowed)):
-        raise ValueError('Invalid workflow allowlist')
-    validate_workflows(ROOT,allowed)
-    validate_retired_paths(ROOT)
-    validate_ci_trigger((ROOT/'.github/workflows/ml-ci.yml').read_text())
-    version,code=validate_version((ROOT/'app/build.gradle').read_text())
-    print(f'Workflow allowlist PASS ({len(allowed)}); version {version}/{code}')
-
-if __name__=='__main__':main()
-, block.group(1))
-    types = re.findall(r'(?m)^    types:[ \t]*\[([^\]]*)\][ \t]*
-    allowed=json.loads((ROOT/'docs/ci/allowed-workflows.json').read_text())
-    if not isinstance(allowed,list) or not allowed or len(allowed)!=len(set(allowed)):
-        raise ValueError('Invalid workflow allowlist')
-    validate_workflows(ROOT,allowed)
-    validate_retired_paths(ROOT)
-    version,code=validate_version((ROOT/'app/build.gradle').read_text())
-    print(f'Workflow allowlist PASS ({len(allowed)}); version {version}/{code}')
-
-if __name__=='__main__':main()
-, block.group(1))
+    events = re.findall(r'(?m)^  ([A-Za-z_]+):[ \t]*$', block.group(1))
+    types = re.findall(r'(?m)^    types:[ \t]*\[([^\]]*)\][ \t]*$', block.group(1))
     if events != ['pull_request', 'workflow_dispatch'] or types != ['labeled']:
         raise ValueError('Automatic CI trigger restored; explicit dispatch/label only')
 
@@ -66,6 +45,7 @@ def main():
         raise ValueError('Invalid workflow allowlist')
     validate_workflows(ROOT,allowed)
     validate_retired_paths(ROOT)
+    validate_ci_trigger((ROOT/'.github/workflows/ml-ci.yml').read_text())
     version,code=validate_version((ROOT/'app/build.gradle').read_text())
     print(f'Workflow allowlist PASS ({len(allowed)}); version {version}/{code}')
 
