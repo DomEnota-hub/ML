@@ -4,6 +4,7 @@ import com.domenota.medialoader.ui.model.displayAudioTitle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -78,7 +79,8 @@ internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isC
         }
         if(selectionMode && onToggleSelection!=null) {
             Box(Modifier.size(48.dp).testTag("music-selection-${track.id}")
-                .combinedClickable(onClick=onToggleSelection,role=Role.Checkbox,onLongClick=null),
+                .toggleable(value=selected,role=Role.Checkbox,
+                    onValueChange={ onToggleSelection() }),
                 contentAlignment=Alignment.Center) {
                 Box(Modifier.size(24.dp).border(2.dp,if(selected) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant,CircleShape)
