@@ -89,7 +89,7 @@ class MediaOrganizationScreenTest {
     }
     @Test fun automaticCoverRetainsItsLastAuthorizedFrameAfterLazyDisposal() {
         // Keep the real Compose image/retention lifecycle under test but use
-        // a deterministic decoder on the UI dispatcher. The synthetic bitmap
+        // a deterministic decoder in the Compose test effect context. The synthetic bitmap
         // requires no IO; Robolectric's Compose test frame clock must not be
         // advanced by a real background worker. Production still decodes on IO.
         val image=android.graphics.Bitmap.createBitmap(320,240,android.graphics.Bitmap.Config.ARGB_8888)
@@ -113,7 +113,8 @@ class MediaOrganizationScreenTest {
             CollectionCoverWarmBitmapCache.clear()
             compose.setContent { MaterialTheme {
                 if(visible.value) CollectionOriginalCover(ref,decoder=decoder,
-                    decodeDispatcher=kotlinx.coroutines.Dispatchers.Main.immediate)
+                    decodeDispatcher=kotlin.coroutines.EmptyCoroutineContext,
+                    publicationDispatcher=kotlin.coroutines.EmptyCoroutineContext)
             } }
             compose.waitUntil(12_000) {
                 compose.onAllNodesWithTag("collection-original-cover-image").fetchSemanticsNodes().isNotEmpty()
@@ -131,6 +132,7 @@ class MediaOrganizationScreenTest {
             }
             compose.onNodeWithTag("collection-original-cover-image").assertDoesNotExist()
             compose.runOnIdle { visible.value=true }
+            compose.onNodeWithTag("collection-original-cover-image").assertIsDisplayed()
             compose.waitUntil(12_000) { calls.get()>=2 }
             // The second decode is explicitly suspended. The displayed frame
             // MUST come from the warm cache, not a faster replacement decode.
