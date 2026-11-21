@@ -2401,107 +2401,11 @@ fun MediaLoaderApp(
     else phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
     MediaManagementAccessPrompt(enabled = appMode != AppMode.DOWNLOADER &&
         currentRoute == AppDestination.Home.route && !checkingPhoneAccess)
-    LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
-    val galleryHomeOverlay = galleryBottomSwitcherIsOverlay(appMode, currentRoute)
-    // Gallery media is drawn behind both transparent system bars. Do not remove
-    // the insets of the private/audio fallback viewer or the other app routes.
-    val fullBleedGalleryViewer = currentRoute == MEDIA_VIEWER_ROUTE &&
-        navController.currentBackStackEntry?.savedStateHandle
-            ?.get<Boolean>("gallery_presentation") == true
-    Scaffold(
-        containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
-            else MaterialTheme.colorScheme.background,
-        contentWindowInsets = when {
-            currentRoute in setOf("music-duplicates", "visual-duplicates", "batch-photo-editor") -> WindowInsets.safeDrawing
-            fullBleedGalleryViewer || currentRoute == "collections" -> WindowInsets(0, 0, 0, 0)
-            galleryHomeOverlay -> WindowInsets.statusBars
-            else -> ScaffoldDefaults.contentWindowInsets
-        },
-        bottomBar = {
-            if (!galleryHomeOverlay && currentRoute != PRIVATE_ROUTE && currentRoute != PREVIEW_ROUTE && currentRoute != BROWSER_ROUTE &&
-                currentRoute != BULK_ROUTE && currentRoute != MEDIA_VIEWER_ROUTE &&
-                currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
-                currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
-                currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" && currentRoute != "collections" &&
-                currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
-                Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
-                    Modifier.navigationBarsPadding() else Modifier) {
-                    // Gallery intentionally has no player chrome. Playback is
-                    // owned by the service and continues independently of this UI.
-                    if (appMode != AppMode.GALLERY && (libraryAudioState.currentId==null || currentLibraryAudioId!=null) && visibilityReady) AudioMiniPlayer(onToggle=::toggleLibraryPlayback,
-                        onOpenQueue = openDownloadWithQueue,
-                        onOpen = { mediaId ->
-                            if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
-                                navController.navigate("viewer/$mediaId")
-                            }
-                        },
-                    )
-                    if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route) {
-                        if ((appMode == AppMode.GALLERY && !galleryDetailOpen) || (appMode == AppMode.MUSIC && !musicDetailOpen))
-                            LibraryBottomSwitcher(appMode, if (appMode == AppMode.GALLERY) galleryTab else musicTab) {
-                                if (appMode == AppMode.GALLERY) {
-                                    if (galleryTab == 0 && it == 0) galleryTopRequest++
-                                    galleryTab = it
-                                } else {
-                                    if (musicTab == it) musicTopRequest++
-                                    musicTab = it
-                                }
-                            }
-                    } else NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                        AppDestination.entries.filter { appMode == AppMode.DOWNLOADER || it != AppDestination.Downloads }.forEach { destination ->
-                            val destinationLabel = if (destination == AppDestination.Home && appMode != AppMode.DOWNLOADER) appMode.label else destination.label
-                            val destinationIcon = if (destination == AppDestination.Home) when (appMode) {
-                                AppMode.GALLERY -> Icons.Rounded.PhotoLibrary
-                                AppMode.MUSIC -> Icons.Rounded.MusicNote
-                                else -> destination.icon
-                            } else destination.icon
-                            NavigationBarItem(
-                                selected = currentRoute == destination.route,
-                                onClick = {
-                                    if (appMode != AppMode.DOWNLOADER && destination == AppDestination.Home) {
-                                        com.domenota.medialoader.ui.navigation.returnToLibrary(navController)
-                                    } else if (BottomTabPolicy.shouldScrollDownloadsToTop(
-                                            currentRoute, destination)) {
-                                        downloadsScrollToTopRequest++
-                                    } else {
-                                        navController.navigate(destination.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    }
-                                },
-                                icon = { Icon(imageVector = destinationIcon, contentDescription = destinationLabel) },
-                                label = { Text(destinationLabel) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    disabledIconColor = Color.Gray,
-                                    disabledTextColor = Color.Gray,
-                                ),
-                            )
-                        }
-                    }
-                }
-            }
-        },
-    ) { innerPadding ->
-        Box(Modifier.fillMaxSize()) {
-        LibraryRefreshShield(
-            checkingPhoneAccess && currentRoute != AppDestination.Settings.route &&
-                !(appMode == AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route),
-            Modifier.padding(innerPadding),
-            onExit = if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
-                ({ changeAppMode(AppMode.DOWNLOADER) }) else null,
-        ) {
-        StableLibraryNavHost(
-            navController = navController,
-            startDestination = AppDestination.Home.route,
-            modifier = Modifier.fillMaxSize(),
-            routes = listOf(
+    // Build destination callbacks at this composition level, not inside LibraryTheme/Scaffold.
+    // Otherwise both enclosing composable closures capture the union of all route state;
+    // the 1.7.211 DEX had invoke-direct/range constructors with 256/257 register words.
+    // StableLibraryNavHost still observes the latest callbacks; only their ownership changes.
+    val libraryRoutes = listOf(
             LibraryRouteContent(AppDestination.Home.route) {
                 val modeStates = rememberSaveableStateHolder()
                 modeStates.SaveableStateProvider(appMode.name) {
@@ -3640,7 +3544,108 @@ fun MediaLoaderApp(
                     } },
                 )
             },
-            ),
+    )
+    LibraryTheme(enabled = (appMode != AppMode.DOWNLOADER && currentRoute in setOf(AppDestination.Home.route, MEDIA_VIEWER_ROUTE)) || currentRoute in setOf(PLAYLIST_ADD_ROUTE, "equalizer")) {
+    val galleryHomeOverlay = galleryBottomSwitcherIsOverlay(appMode, currentRoute)
+    // Gallery media is drawn behind both transparent system bars. Do not remove
+    // the insets of the private/audio fallback viewer or the other app routes.
+    val fullBleedGalleryViewer = currentRoute == MEDIA_VIEWER_ROUTE &&
+        navController.currentBackStackEntry?.savedStateHandle
+            ?.get<Boolean>("gallery_presentation") == true
+    Scaffold(
+        containerColor = if (currentRoute == VIDEO_EDITOR_ROUTE) Color(0xFF101010)
+            else MaterialTheme.colorScheme.background,
+        contentWindowInsets = when {
+            currentRoute in setOf("music-duplicates", "visual-duplicates", "batch-photo-editor") -> WindowInsets.safeDrawing
+            fullBleedGalleryViewer || currentRoute == "collections" -> WindowInsets(0, 0, 0, 0)
+            galleryHomeOverlay -> WindowInsets.statusBars
+            else -> ScaffoldDefaults.contentWindowInsets
+        },
+        bottomBar = {
+            if (!galleryHomeOverlay && currentRoute != PRIVATE_ROUTE && currentRoute != PREVIEW_ROUTE && currentRoute != BROWSER_ROUTE &&
+                currentRoute != BULK_ROUTE && currentRoute != MEDIA_VIEWER_ROUTE &&
+                currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
+                currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
+                currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" && currentRoute != "collections" &&
+                currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
+                Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
+                    Modifier.navigationBarsPadding() else Modifier) {
+                    // Gallery intentionally has no player chrome. Playback is
+                    // owned by the service and continues independently of this UI.
+                    if (appMode != AppMode.GALLERY && (libraryAudioState.currentId==null || currentLibraryAudioId!=null) && visibilityReady) AudioMiniPlayer(onToggle=::toggleLibraryPlayback,
+                        onOpenQueue = openDownloadWithQueue,
+                        onOpen = { mediaId ->
+                            if (publicLibraryRows.any { it.id == mediaId && it.savedUri != null }) {
+                                navController.navigate("viewer/$mediaId")
+                            }
+                        },
+                    )
+                    if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route) {
+                        if ((appMode == AppMode.GALLERY && !galleryDetailOpen) || (appMode == AppMode.MUSIC && !musicDetailOpen))
+                            LibraryBottomSwitcher(appMode, if (appMode == AppMode.GALLERY) galleryTab else musicTab) {
+                                if (appMode == AppMode.GALLERY) {
+                                    if (galleryTab == 0 && it == 0) galleryTopRequest++
+                                    galleryTab = it
+                                } else {
+                                    if (musicTab == it) musicTopRequest++
+                                    musicTab = it
+                                }
+                            }
+                    } else NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                        AppDestination.entries.filter { appMode == AppMode.DOWNLOADER || it != AppDestination.Downloads }.forEach { destination ->
+                            val destinationLabel = if (destination == AppDestination.Home && appMode != AppMode.DOWNLOADER) appMode.label else destination.label
+                            val destinationIcon = if (destination == AppDestination.Home) when (appMode) {
+                                AppMode.GALLERY -> Icons.Rounded.PhotoLibrary
+                                AppMode.MUSIC -> Icons.Rounded.MusicNote
+                                else -> destination.icon
+                            } else destination.icon
+                            NavigationBarItem(
+                                selected = currentRoute == destination.route,
+                                onClick = {
+                                    if (appMode != AppMode.DOWNLOADER && destination == AppDestination.Home) {
+                                        com.domenota.medialoader.ui.navigation.returnToLibrary(navController)
+                                    } else if (BottomTabPolicy.shouldScrollDownloadsToTop(
+                                            currentRoute, destination)) {
+                                        downloadsScrollToTopRequest++
+                                    } else {
+                                        navController.navigate(destination.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                },
+                                icon = { Icon(imageVector = destinationIcon, contentDescription = destinationLabel) },
+                                label = { Text(destinationLabel) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledIconColor = Color.Gray,
+                                    disabledTextColor = Color.Gray,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+    ) { innerPadding ->
+        Box(Modifier.fillMaxSize()) {
+        LibraryRefreshShield(
+            checkingPhoneAccess && currentRoute != AppDestination.Settings.route &&
+                !(appMode == AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route),
+            Modifier.padding(innerPadding),
+            onExit = if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
+                ({ changeAppMode(AppMode.DOWNLOADER) }) else null,
+        ) {
+        StableLibraryNavHost(
+            navController = navController,
+            startDestination = AppDestination.Home.route,
+            modifier = Modifier.fillMaxSize(),
+            routes = libraryRoutes,
         )
         }
         val noticeExtra = when {
