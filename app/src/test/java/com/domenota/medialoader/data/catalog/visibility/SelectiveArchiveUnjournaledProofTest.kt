@@ -75,6 +75,21 @@ class SelectiveArchiveUnjournaledProofTest {
         assertFalse(selectiveArchiveRecoveryCoverage(originals,known+("unexpected" to receipt(originals[0])),intact))
     }
 
+    @Test fun rollbackNeverClaimsSuccessUntilAllSixHaveIndependentProof() {
+        val originals=(1..6).map(::identity)
+        val restored=setOf("download-1","download-2")
+        val untouched=(3..6).mapTo(mutableSetOf()) { "download-$it" }
+        assertTrue(selectiveArchiveRollbackComplete(originals,restored,untouched))
+        assertFalse(selectiveArchiveRollbackComplete(originals,restored,untouched-"download-6"))
+        assertFalse(selectiveArchiveRollbackComplete(originals,
+            restored,untouched+"download-1")) // A member cannot be counted twice.
+        assertFalse(selectiveArchiveRollbackComplete(originals,restored,
+            untouched+"unexpected"))
+        assertFalse(selectiveArchiveRollbackComplete(originals,
+            restored+"download-1",untouched-"download-6"))
+        assertFalse(selectiveArchiveRollbackComplete(emptyList(),emptySet(),emptySet()))
+    }
+
     @Test fun batchOutcomeNeverClaimsIncompleteRestoreSucceeded() {
         val original=identity(1)
         val receipt=SelectiveArchiveMoveReceipt(
