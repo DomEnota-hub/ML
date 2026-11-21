@@ -37,10 +37,11 @@ internal object AudioPairAlignment {
     fun normalizedSpectrum(power: DoubleArray): FloatArray {
         val max = power.maxOrNull() ?: return FloatArray(0)
         if (!max.isFinite() || max < 1e-9) return FloatArray(0)
-        // Log spectral shape removes global level differences. The floor
-        // prevents codec noise in insignificant bands dominating the result.
+        // Compressed, centered spectral shape is invariant to global gain.
+        // Unlike a hard log floor it tolerates small sub-frame timing shifts
+        // and avoids amplifying codec noise in nearly empty bands.
         val values = FloatArray(power.size) { index ->
-            kotlin.math.ln((power[index] / max).coerceIn(1e-5, 1.0)).toFloat()
+            sqrt(sqrt((power[index] / max).coerceIn(0.0, 1.0))).toFloat()
         }
         val mean = values.average().toFloat()
         for (index in values.indices) values[index] -= mean
