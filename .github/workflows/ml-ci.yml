@@ -2,7 +2,8 @@ name: MediaLoader exact-source CI
 on:
   pull_request:
     branches: [feature/ml-17209-batch1-stability-ui-vault, feature/ml-17209-batch2-vault-private-qa, feature/ml-stage5-qa-selective-archive, feature/ml-17211-simple-archive-replacement, ci/ml-17211-workflow-cleanup]
-    types: [opened, reopened, synchronize, labeled]
+    # Intermediate commits must not trigger Gradle.
+    types: [labeled]
   workflow_dispatch:
     inputs:
       mode:
@@ -24,14 +25,14 @@ concurrency:
   group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && !contains(fromJSON('["ci:qualify","ci:verify"]'), github.event.label.name) && github.run_id || 'active' }}
   cancel-in-progress: true
 env:
-  ML_MODE: ${{ inputs.mode || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && 'verify') || (contains(github.event.pull_request.labels.*.name, 'ci:qualify') && 'qualify') || 'quick' }}
+  ML_MODE: ${{ inputs.mode || (github.event.label.name == 'ci:verify' && 'verify') || (github.event.label.name == 'ci:qualify' && 'qualify') || 'quick' }}
   ML_CI_PROFILE: 'true'
   ML_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   ML_FAULT: ${{ inputs.fault || 'none' }}
   ML_MODE_CONFLICT: ${{ contains(github.event.pull_request.labels.*.name, 'ci:audit') || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && contains(github.event.pull_request.labels.*.name, 'ci:qualify')) }}
 jobs:
   quick:
-    if: (github.event.action != 'labeled' || contains(fromJSON('["ci:qualify","ci:verify"]'), github.event.label.name)) && (github.head_ref != 'ci/ml-17211-workflow-cleanup' || contains(github.event.pull_request.labels.*.name, 'ci:verify'))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(fromJSON('["ci:qualify","ci:verify"]'), github.event.label.name))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -75,10 +76,10 @@ jobs:
           python3 scripts/ci/gate.py stage full-jvm python3 scripts/run-jvm-ci.py full
           python3 scripts/ci/gate.py cases
       - name: JVM success receipt
-        if: (inputs.fault == 'none' || inputs.fault == '') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
+        if: (inputs.fault == 'none' || inputs.fault == '') && (inputs.mode == 'qualify' || github.event.label.name == 'ci:qualify')
         run: python3 scripts/ci/gate.py receipt jvm
       - uses: actions/upload-artifact@v4
-        if: success() && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == '')
+        if: success() && (inputs.mode == 'qualify' || github.event.label.name == 'ci:qualify') && (inputs.fault == 'none' || inputs.fault == '')
         with:
           name: ml-ci-${{ github.run_id }}-receipt-jvm
           path: ci-output/*-receipt.json
@@ -124,7 +125,7 @@ jobs:
           retention-days: 5
   lint:
     needs: quick
-    if: (inputs.mode == 'qualify' || inputs.mode == 'verify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify') || contains(github.event.pull_request.labels.*.name, 'ci:verify')) && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
+    if: (inputs.mode == 'qualify' || inputs.mode == 'verify' || github.event.label.name == 'ci:qualify' || github.event.label.name == 'ci:verify') && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -161,7 +162,7 @@ jobs:
           retention-days: 5
   arm64:
     needs: quick
-    if: (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == '')
+    if: (inputs.mode == 'qualify' || github.event.label.name == 'ci:qualify') && (inputs.fault == 'none' || inputs.fault == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -205,7 +206,7 @@ jobs:
           retention-days: 5
   qualification:
     needs: [quick, jvm, lint, arm64]
-    if: always() && !cancelled() && (github.event.action != 'labeled' || github.event.label.name == 'ci:qualify') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
+    if: always() && !cancelled() && (github.event.action != 'labeled' || github.event.label.name == 'ci:qualify') && (inputs.mode == 'qualify' || github.event.label.name == 'ci:qualify')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

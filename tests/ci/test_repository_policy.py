@@ -37,3 +37,13 @@ class RepositoryPolicyTest(unittest.TestCase):
                 item.write_text('retired')
                 with self.assertRaises(ValueError):policy.validate_retired_paths(root)
                 item.unlink()
+
+    def test_ci_allows_only_explicit_dispatch_or_label(self):
+        text = "on:\n  pull_request:\n    types: [labeled]\n  workflow_dispatch:\npermissions:\n  contents: read\n"
+        policy.validate_ci_trigger(text)
+        for invalid in [text.replace('[labeled]', '[labeled, synchronize]'),
+                        text.replace('[labeled]', '[opened]'),
+                        text.replace('on:\n', 'on:\n  push:\n'),
+                        text.replace('    types: [labeled]\n', '')]:
+            with self.assertRaises(ValueError):
+                policy.validate_ci_trigger(invalid)
