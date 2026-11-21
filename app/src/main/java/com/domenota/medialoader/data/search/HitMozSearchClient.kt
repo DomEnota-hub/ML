@@ -33,7 +33,9 @@ class HitMozSearchClient {
         val query = listOf(artist.trim(), title.trim()).filter { it.isNotEmpty() }.joinToString(" ")
         require(query.isNotBlank()) { "Нет названия композиции для поиска" }
 
-        val connection = URL(searchUrl(query)).openConnection() as HttpURLConnection
+        val address = searchUrl(query)
+        val base = URI(address).let { "https://" + it.host }
+        val connection = URL(address).openConnection() as HttpURLConnection
         try {
             connection.instanceFollowRedirects = false
             connection.connectTimeout = connectTimeoutMs
@@ -64,7 +66,7 @@ class HitMozSearchClient {
             if (html.contains("Возможно Вы используете VPN", ignoreCase = true)) {
                 throw IOException("Сервис просит отключить VPN. Поиск внутри приложения временно недоступен.")
             }
-            val result = parseResults(html, artist, title)
+            val result = parseResults(html, artist, title, base)
             if (result.isEmpty() && !html.contains("search", ignoreCase = true)) {
                 throw IOException("Не удалось прочитать результаты поиска. Возможно, сайт изменился.")
             }
@@ -75,7 +77,7 @@ class HitMozSearchClient {
     }
 
     companion object {
-        private const val BASE_URL = "https://ru.hitmoz.org"
+        private val BASE_URL: String get() = MusicOrigins.origin(MusicOriginProvider.HITMOZ)
         private const val MAX_HTML_BYTES = 2L * 1024 * 1024
         private const val MAX_HTML_CHARS = 1_000_000
         private val SONG_ID = Regex("_(\\d{6,})\\.mp3$", RegexOption.IGNORE_CASE)
@@ -85,11 +87,12 @@ class HitMozSearchClient {
             BASE_URL + "/search?q=" + URLEncoder.encode(query.trim(), StandardCharsets.UTF_8.name())
 
         /** Pure HTML parser so the site adapter can be tested without making network requests. */
-        internal fun parseResults(html: String, artist: String, title: String): List<HitMozTrack> {
-            val doc = Jsoup.parse(html, BASE_URL)
+        internal fun parseResults(html: String, artist: String, title: String, base: String = BASE_URL): List<HitMozTrack> {
+            val doc = Jsoup.parse(html, base)
+            val expectedHost = URI(base).host
             val tracks = doc.select("a[href*=/get/music/]").mapNotNull { anchor ->
                 val rawDownload = anchor.absUrl("href")
-                if (!isHitMozUrl(rawDownload) || !URI(rawDownload).path.endsWith(".mp3", ignoreCase = true)) {
+                if (!isHitMozUrl(rawDownload, expectedHost) || !URI(rawDownload).path.endsWith(".mp3", ignoreCase = true)) {
                     return@mapNotNull null
                 }
                 val songId = SONG_ID.find(URI(rawDownload).path.substringAfterLast('/'))?.groupValues?.get(1)
@@ -97,8 +100,8 @@ class HitMozSearchClient {
                 val row = ancestors.filter { it.select("a[href*=/get/music/]").size == 1 }.lastOrNull()
                     ?: anchor.parent() ?: anchor
                 val page = row.selectFirst("a[href*=/song/]")?.absUrl("href")
-                    ?.takeIf(::isHitMozUrl)
-                    ?: songId?.let { BASE_URL + "/song/" + it }
+                    ?.takeIf { isHitMozUrl(it, expectedHost) }
+                    ?: songId?.let { base + "/song/" + it }
                     ?: return@mapNotNull null
 
                 val (filenameArtist, filenameTitle) = namesFromFilename(rawDownload)
@@ -132,10 +135,10 @@ class HitMozSearchClient {
             }.take(30)
         }
 
-        private fun isHitMozUrl(raw: String): Boolean = runCatching {
-            val uri = URI(raw)
-            uri.scheme.equals("https", ignoreCase = true) &&
-                uri.host.equals("ru.hitmoz.org", ignoreCase = true)
+        private fun isHitMozUrl(raw: String, expectedHost: String): Boolean = runCatching {
+            val uri = MusicOriginPolicy.httpsUri(raw) ?: return false
+            MusicOrigins.isTrusted(MusicOriginProvider.HITMOZ, uri.host) &&
+                uri.host.equals(expectedHost, ignoreCase = true)
         }.getOrDefault(false)
 
         private fun isSafeArtworkUrl(raw: String): Boolean = runCatching {

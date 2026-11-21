@@ -60,7 +60,8 @@ internal object MusicAdFilter {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         if (!uri.scheme.equals("http", true) && !uri.scheme.equals("https", true)) return false
         val host = uri.host?.lowercase(Locale.ROOT) ?: return false
-        if (matchesDomain(host, mediaHosts)) return false
+        if (matchesDomain(host, mediaHosts) || MusicOrigins.isTrusted(MusicOriginProvider.HITMOZ, host) ||
+            MusicOrigins.isTrusted(MusicOriginProvider.MUZMO, host)) return false
         if (isBlockedHost(host)) return true
         val path = uri.rawPath?.lowercase(Locale.ROOT).orEmpty()
         return adPaths.any(path::contains)

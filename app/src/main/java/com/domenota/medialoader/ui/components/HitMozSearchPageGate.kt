@@ -1,5 +1,7 @@
 package com.domenota.medialoader.ui.components
 
+import com.domenota.medialoader.data.search.MusicOrigins
+import com.domenota.medialoader.data.search.MusicOriginProvider
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -16,7 +18,7 @@ internal object HitMozSearchPageGate {
     fun route(expectedUrl: String, actualUrl: String): Route {
         val expected = parse(expectedUrl) ?: return Route.REJECT
         val actual = parse(actualUrl) ?: return Route.REJECT
-        if (expected.host != "ru.hitmoz.org" || actual.host != expected.host ||
+        if (!MusicOrigins.isActive(MusicOriginProvider.HITMOZ, expected.host) || actual.host != expected.host ||
             expected.path != "/search" || actual.path != "/search"
         ) return Route.REJECT
         val requested = queryParam(expected.rawQuery, "q").orEmpty()

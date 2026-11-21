@@ -1,5 +1,7 @@
 package com.domenota.medialoader.data.download
 
+import com.domenota.medialoader.data.search.MusicOrigins
+import com.domenota.medialoader.data.search.MusicOriginProvider
 import android.content.Context
 import com.domenota.medialoader.core.logging.AppLog
 import com.domenota.medialoader.core.model.DownloadTask
@@ -41,7 +43,7 @@ object HitMozDownloadUrls {
     fun isTrustedPage(url: String): Boolean = try {
         val uri = URI(url)
         isSafeHttps(uri) &&
-            uri.host.equals("ru.hitmoz.org", ignoreCase = true) &&
+            MusicOrigins.isTrusted(MusicOriginProvider.HITMOZ, uri.host) &&
             (uri.path.startsWith("/search") || uri.path.startsWith("/song/"))
     } catch (_: Exception) {
         false
@@ -50,7 +52,7 @@ object HitMozDownloadUrls {
     fun isMp3(url: String): Boolean = try {
         val uri = URI(url)
         isSafeHttps(uri) &&
-            uri.host.equals("ru.hitmoz.org", ignoreCase = true) &&
+            MusicOrigins.isTrusted(MusicOriginProvider.HITMOZ, uri.host) &&
             uri.path.startsWith("/get/music/") &&
             uri.path.endsWith(".mp3", ignoreCase = true)
     } catch (_: Exception) {
@@ -68,7 +70,7 @@ object HitMozDownloadUrls {
     fun isTrustedRedirect(url: String): Boolean = try {
         val uri = URI(url)
         val host = uri.host?.lowercase(java.util.Locale.ROOT).orEmpty()
-        val hitmozHost = listOf("hitmoz.org", "hitmoz.com").any { domain ->
+        val hitmozHost = MusicOrigins.isTrusted(MusicOriginProvider.HITMOZ, host) || listOf("hitmoz.org", "hitmoz.com").any { domain ->
             host == domain || host.endsWith(".$domain")
         }
         val musicCdn =

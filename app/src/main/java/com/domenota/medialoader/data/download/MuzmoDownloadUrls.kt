@@ -1,5 +1,7 @@
 package com.domenota.medialoader.data.download
 
+import com.domenota.medialoader.data.search.MusicOrigins
+import com.domenota.medialoader.data.search.MusicOriginProvider
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -7,19 +9,18 @@ import java.util.Locale
 
 /** Muzmo-only navigation and MP3 gates; never accept an arbitrary browser redirect. */
 object MuzmoDownloadUrls {
-    const val ORIGIN = "https://rmr.muzmo.cc"
-    private const val HOST = "rmr.muzmo.cc"
+    val ORIGIN: String get() = MusicOrigins.origin(MusicOriginProvider.MUZMO)
     private val MUSIC_PATH = Regex("^/get/music/[0-9]{8}/[^/]+\\.mp3$", RegexOption.IGNORE_CASE)
 
     fun searchUrl(query: String): String =
         "$ORIGIN/search?q=" + URLEncoder.encode(query.trim(), StandardCharsets.UTF_8.name())
 
     fun isSearchPage(url: String): Boolean = safe(url)?.let {
-        it.host.equals(HOST, true) && it.path == "/search"
+        MusicOrigins.isActive(MusicOriginProvider.MUZMO, it.host) && it.path == "/search"
     } ?: false
 
     fun isInfoPage(url: String): Boolean = safe(url)?.let {
-        it.host.equals(HOST, true) && it.path == "/info" &&
+        MusicOrigins.isActive(MusicOriginProvider.MUZMO, it.host) && it.path == "/info" &&
             it.rawQuery?.split('&')?.any { param ->
                 param.matches(Regex("id=[0-9]{1,18}"))
             } == true
@@ -28,14 +29,14 @@ object MuzmoDownloadUrls {
     fun isSitePage(url: String): Boolean = isSearchPage(url) || isInfoPage(url)
 
     fun isMp3(url: String): Boolean = safe(url)?.let {
-        it.host.equals(HOST, true) && MUSIC_PATH.matches(it.path)
+        MusicOrigins.isTrusted(MusicOriginProvider.MUZMO, it.host) && MUSIC_PATH.matches(it.path)
     } ?: false
 
     /** Android 16 log 19.11.2026: rmr.muzmo.cc -> 302 -> ds2.mzmdl.com.
      * Trust only the exact observed host and dated MP3 routes; never
      * arbitrary CDN subdomains, malformed URLs, HTTP or login redirects. */
     fun isTrustedRedirect(url: String): Boolean = safe(url)?.let {
-        (it.host.equals(HOST, true) ||
+        (MusicOrigins.isTrusted(MusicOriginProvider.MUZMO, it.host) ||
             it.host.equals("mzmdl.com", true) ||
             it.host.equals("ds2.mzmdl.com", true)) &&
             MUSIC_PATH.matches(it.path)

@@ -1,5 +1,7 @@
 package com.domenota.medialoader.data
 
+import com.domenota.medialoader.data.search.MusicOrigins
+import com.domenota.medialoader.data.search.MusicOriginProvider
 import kotlinx.coroutines.ensureActive
 
 import com.domenota.medialoader.core.provider.PreviewPlayback
@@ -127,6 +129,7 @@ import kotlinx.coroutines.sync.withPermit
  */
 class MediaRepository private constructor(context: Context) {
     private val appContext = context.applicationContext
+    init { MusicOrigins.initialize(appContext) }
 
     val privateAccess = PrivateAccessManager.get(appContext)
     private val privateFiles = PrivateFileStore(appContext)
@@ -871,8 +874,12 @@ class MediaRepository private constructor(context: Context) {
         }
         val referer = when (item.providerId) {
             InstagramProvider.ID -> "https://www.instagram.com/"
-            "hitmoz" -> "https://ru.hitmoz.org/"
-            "muzmo" -> "https://muzmo.cc/"
+            "hitmoz" -> com.domenota.medialoader.data.search.MusicOriginPolicy.httpsUri(item.downloadUrl)?.host
+                ?.takeIf { MusicOrigins.isTrusted(MusicOriginProvider.HITMOZ, it) }?.let { "https://$it/" }
+            "muzmo" -> com.domenota.medialoader.data.search.MusicOriginPolicy.httpsUri(item.downloadUrl)?.host
+                ?.takeIf { MusicOrigins.isTrusted(MusicOriginProvider.MUZMO, it) }?.let {
+                    if (it == MusicOriginProvider.MUZMO.defaultHost) "https://muzmo.cc/" else "https://$it/"
+                }
             else -> item.sourcePageUrl
         }
         return PreviewPlayback(
@@ -1093,7 +1100,8 @@ class MediaRepository private constructor(context: Context) {
             type = MediaType.AUDIO,
             originalName = "$name.mp3",
             downloadUrl = url,
-            sourcePageUrl = sourcePageUrl?.takeIf(HitMozDownloadUrls::isTrustedPage)
+            sourcePageUrl = sourcePageUrl?.takeIf { HitMozDownloadUrls.isTrustedPage(it) &&
+                com.domenota.medialoader.data.search.MusicOriginPolicy.sameHost(it, url) }
                 ?: HitMozSearchClient.searchUrl("$artist $title"),
             previewUrl = artworkUrl,
             audioArtist = artist.takeIf { it.isNotBlank() },
@@ -1113,7 +1121,8 @@ class MediaRepository private constructor(context: Context) {
         artworkUrl: String? = null,
     ): DownloadEntity {
         require(MuzmoDownloadUrls.isMp3(url)) { "Это не ссылка Muzmo на MP3-файл" }
-        require(MuzmoDownloadUrls.isInfoPage(sourcePageUrl)) { "Недопустимая страница композиции Muzmo" }
+        require(MuzmoDownloadUrls.isInfoPage(sourcePageUrl) &&
+            com.domenota.medialoader.data.search.MusicOriginPolicy.sameHost(sourcePageUrl, url)) { "Недопустимая страница композиции Muzmo" }
         val name = StorageNaming.sanitizeStem(
             listOf(artist.trim(), title.trim()).filter { it.isNotBlank() }.joinToString(" - "),
             maxLength = 100,

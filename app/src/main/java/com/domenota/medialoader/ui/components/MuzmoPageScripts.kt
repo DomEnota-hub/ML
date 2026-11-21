@@ -47,7 +47,11 @@ internal object MuzmoPageScripts {
           var output = [], seen = {};
           for (var i = 0; i < anchors.length; i++) {
             var anchor = anchors[i], url = absolute(anchor.getAttribute('href'));
-            if (!/^https:\/\/rmr\.muzmo\.cc\/info\?/.test(url) || seen[url]) continue;
+            if (!url || seen[url]) continue;
+            var parsed;
+            try { parsed = new URL(url); } catch (_) { continue; }
+            if (parsed.protocol !== 'https:' || parsed.origin !== new URL(location.href).origin ||
+                parsed.username || parsed.password || parsed.pathname !== '/info') continue;
             var id = new URL(url).searchParams.get('id') || '';
             if (!/^[0-9]+$/.test(id)) continue;
             var node = anchor, chosen = anchor;
@@ -145,7 +149,8 @@ internal object MuzmoPageScripts {
           for (var i = 0; i < anchors.length; i++) {
             try {
               var link = new URL(anchors[i].getAttribute('href'), location.href);
-              if (link.protocol === 'https:' && link.hostname === 'rmr.muzmo.cc' &&
+              if (link.protocol === 'https:' && link.origin === new URL(location.href).origin &&
+                  !link.username && !link.password &&
                   /^\/get\/music\/[0-9]{8}\/[^/]+\.mp3$/i.test(link.pathname)) {
                 return JSON.stringify({downloadUrl: link.href, readyState: document.readyState});
               }
