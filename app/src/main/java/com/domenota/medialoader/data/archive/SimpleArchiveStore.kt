@@ -68,7 +68,15 @@ internal class SimpleArchiveStore(context: Context) {
     }
 
     private fun read(): List<SimpleArchiveRecord> {
-        if (!file.exists()) return emptyList()
+        val base = file.baseFile
+        // AtomicFile.openRead recovers a legacy backup. A lone unfinished
+        // write is not a proven empty index; preserve it and refuse mutation.
+        if (!base.exists() && !File(base.path + ".bak").exists()) {
+            if (File(base.path + ".new").exists()) {
+                throw IOException("Незавершённая запись Архива. Данные не изменены")
+            }
+            return emptyList()
+        }
         try {
             val data = JSONObject(file.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() })
             check(data.getInt("version") == 1) { "Неизвестная версия Архива" }
