@@ -206,6 +206,7 @@ fun MediaLoaderApp(
     onCurrentPlayerRequestConsumed: (Int) -> Unit = {},
     viewModel: MediaLoaderViewModel = viewModel(),
 ) {
+    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val navController = rememberNavController()
     val clipboardManager = LocalClipboardManager.current
@@ -908,7 +909,6 @@ fun MediaLoaderApp(
     val deferredMessage by viewModel.deferredMessage.collectAsStateWithLifecycle()
     val bulk by viewModel.bulkState.collectAsStateWithLifecycle()
     val bulkHistory by viewModel.bulkHistory.collectAsStateWithLifecycle()
-    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val privateDownloads by viewModel.privateDownloads.collectAsStateWithLifecycle()
     val privateState by viewModel.privateAccess.state.collectAsState()
     // Keep old phone IDs resolvable for restored routes/playlists without showing duplicate cards.
