@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
           grep -Eq 'versionCode 270$' app/build.gradle
           grep -Fq "versionName '1.7.210'" app/build.gradle
-          test "$GITHUB_REF_NAME" = feature/ml-17205-hidden-v2
+          test "$GITHUB_REF_NAME" = feature/ml-stage5-qa-selective-archive
       - name: Exact safety and observed Muzmo redirect regressions
         shell: bash
         run: |
