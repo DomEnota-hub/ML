@@ -59,6 +59,48 @@ internal object AudioPairAlignment {
     }
 
     /**
+     * Suppress single-frame resampling gaps only when a small, distributed
+     * rate drift is independently supported across a long matching span.
+     * A real insertion/removal with distinct sound remains a difference.
+     */
+    private fun compensateSmallDrift(
+        columns:List<ComparisonColumn>,first:List<ComparisonFrame>,second:List<ComparisonFrame>,
+        stepMs:Long,
+    ):List<ComparisonColumn>{
+        val anchors=columns.filter{!it.different&&it.first!=null&&it.second!=null&&
+            !first[it.first].silent&&!second[it.second].silent}
+        if(anchors.size<48)return columns
+        val start=anchors.first().first!!;val end=anchors.last().first!!
+        if((end-start)*stepMs<30_000L)return columns
+        val xMean=anchors.map{it.first!!.toDouble()}.average()
+        val yMean=anchors.map{it.second!!.toDouble()}.average()
+        val variance=anchors.sumOf{val x=it.first!!-xMean;x*x}
+        if(variance<=0)return columns
+        val ratio=anchors.sumOf{(it.first!!-xMean)*(it.second!!-yMean)}/variance
+        if(abs(ratio-1.0) !in 0.007..0.035)return columns
+        val intercept=yMean-ratio*xMean
+        if(anchors.count{abs(it.second!!-(ratio*it.first!!+intercept))<=2.0} < anchors.size*.85)return columns
+        val candidates=columns.indices.filter{i->
+            if(i==0||i==columns.lastIndex)return@filter false
+            val c=columns[i];val prev=columns[i-1];val next=columns[i+1]
+            if(!c.different||prev.different||next.different||prev.first==null||prev.second==null||
+                next.first==null||next.second==null)return@filter false
+            if(c.first==null&&c.second!=null&&ratio>1.0){
+                val b=second[c.second]
+                !b.silent&&abs(c.second-(ratio*(prev.first+.5)+intercept))<=2.0&&
+                    maxOf(similarity(first[prev.first],b),similarity(first[next.first],b))>=.9f
+            }else if(c.first!=null&&c.second==null&&ratio<1.0){
+                val a=first[c.first]
+                !a.silent&&abs((prev.second+.5)-(ratio*c.first+intercept))<=2.0&&
+                    maxOf(similarity(a,second[prev.second]),similarity(a,second[next.second]))>=.9f
+            }else false
+        }
+        if(candidates.size<3||candidates.last()-candidates.first()<columns.size/3)return columns
+        val corrected=candidates.toSet()
+        return columns.mapIndexed{i,c->if(i in corrected)c.copy(different=false)else c}
+    }
+
+    /**
      * Bounded global sequence alignment with insertions/deletions. An offset or
      * an edit in the middle must not paint every subsequent matching frame red.
      * No result is preferable to inventing an alignment for unrelated recordings.
@@ -123,7 +165,7 @@ internal object AudioPairAlignment {
         // sufficient evidence to label an entire pair as synchronized.
         if (matches * stepMs < 6_000 || diverse < 4 ||
             matches < minOf(n, m) * .25f) return null
-        val columns = reversed.asReversed().toList()
+        val columns = compensateSmallDrift(reversed.asReversed().toList(),first,second,stepMs)
         val zones = ArrayList<ComparisonZone>()
         var start = -1
         for (index in 0..columns.size) {
