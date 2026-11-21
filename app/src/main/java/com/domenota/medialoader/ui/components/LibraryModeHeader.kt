@@ -62,7 +62,7 @@ internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource, onMode: (Ap
             } }
             IconButton(onSearch) { Icon(Icons.Rounded.Search, "Поиск", Modifier.size(23.dp)) }
             IconButton(onPrivate) { Icon(Icons.Rounded.Lock, "Личное", Modifier.size(23.dp)) }
-            IconButton(onVault) { Icon(Icons.Rounded.Shield, "Сейф", Modifier.size(23.dp)) }
+            IconButton(onVault) { ArchiveActionIcon() }
             if (mode == AppMode.GALLERY) {
                 IconButton(onTrash) {
                     Icon(Icons.Rounded.DeleteOutline, "Корзина", Modifier.size(23.dp))

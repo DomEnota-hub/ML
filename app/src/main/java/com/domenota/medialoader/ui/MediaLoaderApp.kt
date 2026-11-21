@@ -1,6 +1,13 @@
 package com.domenota.medialoader.ui
 
 import androidx.compose.ui.platform.testTag
+import com.domenota.medialoader.data.archive.SimpleArchiveStore
+import com.domenota.medialoader.data.archive.SimpleArchiveRecord
+import com.domenota.medialoader.data.archive.SimpleArchiveCandidate
+import com.domenota.medialoader.data.archive.SimpleArchivePolicy
+import com.domenota.medialoader.data.archive.ArchiveEntrySource
+import com.domenota.medialoader.ui.components.ArchiveActionIcon
+import com.domenota.medialoader.ui.screens.SimpleArchiveScreen
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -160,6 +167,7 @@ import androidx.compose.material.icons.rounded.Restore
 
 private const val PRIVATE_ROUTE = "private"
 private const val VAULT_ROUTE = "vault"
+private const val SIMPLE_ARCHIVE_ROUTE = "simple-archive"
 private const val PLAYLIST_ADD_ROUTE = "playlist-add/{playlistId}"
 
 /** The compact transfer panel belongs to Downloader chrome only. Gallery,
@@ -204,6 +212,22 @@ fun MediaLoaderApp(
     val lifecycleOwner = LocalLifecycleOwner.current
     com.domenota.medialoader.ui.components.NoticeForeground()
     val fileActionScope = rememberCoroutineScope()
+    val simpleArchive = remember(context) { SimpleArchiveStore(context) }
+    val archivedRecords by simpleArchive.records.collectAsStateWithLifecycle()
+    var simpleArchiveLoaded by remember { mutableStateOf(false) }
+    var simpleArchiveBusy by remember { mutableStateOf(false) }
+    var simpleArchiveError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(simpleArchive) {
+        try { simpleArchive.refresh(); simpleArchiveLoaded = true }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { simpleArchiveError = "Не удалось открыть Архив" }
+    }
+    val archivedByUri = remember(archivedRecords) { archivedRecords.groupBy { it.savedUri } }
+    fun isSimplyArchived(row: com.domenota.medialoader.core.database.DownloadEntity): Boolean {
+        val uri = row.savedUri ?: return false
+        return SimpleArchivePolicy.isArchived(archivedByUri[uri].orEmpty(),
+            SimpleArchiveCandidate(row.id, uri, row.mediaType, row.sizeBytes))
+    }
     val availabilityCache = remember(viewModel) { SavedFileStatusCache(viewModel::savedFileStatus) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -648,12 +672,14 @@ fun MediaLoaderApp(
         guardedRetainedIndexRefs(libraryIndex,visibilityGuard,libraryPrivateKeys,phoneGallery,phoneMusic,allowUnaffectedKinds=true)
     }
     val publicIndexAllowed = guardedPublicRefs != null
-    val publicLibraryRefs = guardedPublicRefs.orEmpty()
-    val displayInventory = remember(libraryIndex,visibilityGuard,guardedPublicRefs) {
+    val publicLibraryRefs = remember(guardedPublicRefs, archivedRecords, simpleArchiveLoaded) {
+        if (!simpleArchiveLoaded) emptyList() else guardedPublicRefs.orEmpty().filterNot { isSimplyArchived(it.item) }
+    }
+    val displayInventory = remember(libraryIndex,visibilityGuard,guardedPublicRefs,publicLibraryRefs,simpleArchiveLoaded) {
         when {
-            guardedPublicRefs == null -> LibraryDisplayInventory.EMPTY
-            libraryIndex.visibility == visibilityGuard && guardedPublicRefs === libraryIndex.refs -> libraryIndex.display
-            else -> LibraryDisplayInventory.build(guardedPublicRefs,visibilityGuard?.external.orEmpty())
+            guardedPublicRefs == null || !simpleArchiveLoaded -> LibraryDisplayInventory.EMPTY
+            archivedRecords.isEmpty() && libraryIndex.visibility == visibilityGuard && guardedPublicRefs === libraryIndex.refs -> libraryIndex.display
+            else -> LibraryDisplayInventory.build(publicLibraryRefs,visibilityGuard?.external.orEmpty())
         }
     }
     // Always use the live guard for follow-on projections and addressed actions.
@@ -825,7 +851,7 @@ fun MediaLoaderApp(
             onCalendar = if (appMode == AppMode.GALLERY && galleryTab == 0) ({ galleryDateRequest++ }) else null,
             onHiddenTracks = if (appMode == AppMode.MUSIC) ({ hiddenMusicTracksOpen = true }) else null,
             onPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
-             onVault = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(VAULT_ROUTE) })
+             onVault = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } })
     }
     // A single observable music-source state feeds Settings and BOTH preview hosts.
     // An experimental source may not silently fall back to HitMoz.
@@ -868,7 +894,7 @@ fun MediaLoaderApp(
     val privateDownloads by viewModel.privateDownloads.collectAsStateWithLifecycle()
     val privateState by viewModel.privateAccess.state.collectAsState()
     // Keep old phone IDs resolvable for restored routes/playlists without showing duplicate cards.
-    val publicDownloads = remember(downloads,visibilityGuard) { downloads.filter { row -> visibilityGuard?.canOpen(row,null,emptyList()) == true } }
+    val publicDownloads = remember(downloads,visibilityGuard,archivedRecords,simpleArchiveLoaded) { downloads.filter { row -> simpleArchiveLoaded && !isSimplyArchived(row) && visibilityGuard?.canOpen(row,null,emptyList()) == true } }
     val indexedLibraryProjection = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
         emptyList<com.domenota.medialoader.core.database.DownloadEntity>(), publicProjectionGuard, publicDownloads, publicLibraryRefs,
         accessGuard = publicProjectionAccess, retentionGuard = publicRetentionAccess,
@@ -1692,8 +1718,8 @@ fun MediaLoaderApp(
         catalogAssignments.filter { it.folderId in nomediaSnapshot.hiddenFolderIds }
             .mapTo(mutableSetOf()) { it.downloadId }
     }
-    val downloadItems = remember(downloads, fileStatuses, visibilityGuard, folderRefs,nomediaHistoryIds) {
-        downloads.filter { row ->
+    val downloadItems = remember(downloads, fileStatuses, visibilityGuard, folderRefs,nomediaHistoryIds,archivedRecords,simpleArchiveLoaded) {
+        downloads.filter { row -> simpleArchiveLoaded && !isSimplyArchived(row) }.filter { row ->
             visibilityGuard?.canOpen(row,null,emptyList()) == true ||
             (row.id in nomediaHistoryIds && !row.hidden && !row.isPrivate &&
                 visibilityGuard?.let { guard ->
@@ -1706,6 +1732,27 @@ fun MediaLoaderApp(
     }
     val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
 
+    fun archiveSelection(ids: List<String>, source: ArchiveEntrySource) {
+        if (!simpleArchiveLoaded || simpleArchiveBusy || ids.isEmpty()) return
+        val requested = ids.distinct()
+        val rows = requested.mapNotNull { id ->
+            publicLibraryRefs.firstOrNull { it.key == id || id in it.aliases }?.item
+                ?: publicDownloads.firstOrNull { it.id == id }
+        }
+        if (rows.size != requested.size) { AppNotice.post(context, "Некоторые файлы недоступны"); return }
+        simpleArchiveBusy = true
+        simpleArchiveError = null
+        fileActionScope.launch {
+            try {
+                check(rows.all { row -> !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED &&
+                    libraryModel.visibilityGuard.value?.canOpen(row, null, emptyList()) == true }) { "Выбранные файлы недоступны" }
+                simpleArchive.archive(rows, source)
+                AppNotice.post(context, "В архиве: ${rows.size}")
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { simpleArchiveError = e.message ?: "Не удалось добавить в Архив"; AppNotice.post(context, simpleArchiveError.orEmpty()) }
+            finally { simpleArchiveBusy = false }
+        }
+    }
     fun navigateTo(route: String) {
         navController.navigate(route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -2431,7 +2478,10 @@ fun MediaLoaderApp(
                 val modeStates = rememberSaveableStateHolder()
                 modeStates.SaveableStateProvider(appMode.name) {
                 if (appMode == AppMode.DOWNLOADER) HomeScreen(
-                    title = { AppModeTitle(appMode, ::changeAppMode) },
+                    title = { Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppModeTitle(appMode, ::changeAppMode)
+                        IconButton({ navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } }) { ArchiveActionIcon() }
+                    } },
                     url = pendingUrl,
                     onUrlChange = {
                         if (it.isEmpty() && pendingUrl == lastImportedClipboard) dismissedClipboard = lastImportedClipboard
@@ -2472,6 +2522,8 @@ fun MediaLoaderApp(
                     onRecognizeDownload = recognizeVisibilityFile,
                 )
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
+                    onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.GALLERY) },
+                    onOpenSimpleArchive = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
                     items = galleryBrowse.value.items,
                     preparedBrowse = galleryBrowse,
                     preparedBrowseAccess = galleryRetentionAccess,
@@ -2520,6 +2572,7 @@ fun MediaLoaderApp(
                     deviceAlbums = displayInventory.deviceAlbums,
                     )
                 else MusicModeScreen(
+                    onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.MUSIC) },
                     duplicateRequest = duplicateRequest,
                     onDuplicateRequestHandled = { duplicateRequest = 0 },
                     hiddenTracksOpen = hiddenMusicTracksOpen,
@@ -2836,6 +2889,8 @@ fun MediaLoaderApp(
             },
             LibraryRouteContent(AppDestination.Downloads.route) {
                 DownloadsScreen(
+                    onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.DOWNLOADER) },
+                    onOpenSimpleArchive = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
                     items = downloadItems,
                     hiddenFolderIds = visibilityFolders,
                     pendingVisibilityFolderId = null,
@@ -2908,6 +2963,45 @@ fun MediaLoaderApp(
                     onSetFolder = viewModel::setCatalogFolder,
                     onSetFavorite = viewModel::setCatalogFavorite,
                     onCreateFolder = viewModel::createCatalogFolder)
+            },
+            LibraryRouteContent(SIMPLE_ARCHIVE_ROUTE) {
+                SimpleArchiveScreen(records = archivedRecords,
+                    onClose = { navController.popBackStack() },
+                    onOpen = { record ->
+                        // Resolve a fresh public reference, not an unverified historical URI.
+                        val matching = guardedPublicRefs.orEmpty().firstOrNull { ref ->
+                            val row = ref.item
+                            row.savedUri == record.savedUri && !row.isPrivate && !row.hidden &&
+                                SimpleArchivePolicy.matches(record, SimpleArchiveCandidate(row.id, record.savedUri, row.mediaType, row.sizeBytes))
+                        }?.item ?: downloads.firstOrNull { row -> row.savedUri == record.savedUri && !row.isPrivate && !row.hidden &&
+                            SimpleArchivePolicy.matches(record, SimpleArchiveCandidate(row.id, record.savedUri, row.mediaType, row.sizeBytes)) }
+                        if (matching == null) AppNotice.post(context, "Файл недоступен")
+                        else fileActionScope.launch {
+                            try {
+                                check(libraryModel.visibilityGuard.value?.canOpen(matching, null, emptyList()) == true &&
+                                    libraryModel.verifyVisibilityOpen(matching, null) &&
+                                    withContext(Dispatchers.IO) { availabilityCache.get(matching.savedUri, fresh = true) } == SavedFileStatus.PRESENT) { "Файл недоступен" }
+                                val uri = android.net.Uri.parse(record.savedUri)
+                                check(uri.scheme == "content") { "Нет доступного адреса файла" }
+                                val mime = context.contentResolver.getType(uri) ?: when(record.mediaType) {
+                                    MediaType.PHOTO -> "image/*"; MediaType.VIDEO -> "video/*"; MediaType.AUDIO -> "audio/*"
+                                }
+                                context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { AppNotice.post(context, e.message ?: "Не удалось открыть файл") }
+                        }
+                    },
+                    onRestore = { ids -> if (!simpleArchiveBusy && simpleArchiveLoaded) {
+                        simpleArchiveBusy = true; simpleArchiveError = null
+                        fileActionScope.launch {
+                            try { simpleArchive.restore(ids); AppNotice.post(context, "Возвращено: ${ids.size}") }
+                            catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { simpleArchiveError = e.message ?: "Не удалось вернуть файлы" }
+                            finally { simpleArchiveBusy = false }
+                        }
+                    } }, busy = simpleArchiveBusy || !simpleArchiveLoaded,
+                    message = simpleArchiveError)
             },
             LibraryRouteContent(VAULT_ROUTE) {
                 VaultScreen(viewModel.privateAccess,

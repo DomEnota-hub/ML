@@ -95,6 +95,8 @@ internal fun GalleryModeScreen(
     onArchiveRefresh:(()->Unit)?=null,
     onArchivePreview:((String)->Unit)?=null,
     onArchiveRestore:((String)->Unit)?=null,
+    onSimpleArchive: ((List<String>) -> Unit)? = null,
+    onOpenSimpleArchive: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -359,6 +361,9 @@ internal fun GalleryModeScreen(
             if(onAddCollection!=null) IconButton({ onAddCollection(queue.filter { it in selectedSet }) }) {
                 Icon(Icons.Rounded.CollectionsBookmark, "Добавить в коллекцию")
             }
+            if (onSimpleArchive != null) IconButton({ onSimpleArchive(queue.filter { it in selectedSet }) }) {
+                com.domenota.medialoader.ui.components.ArchiveActionIcon("В архив")
+            }
             IconButton({ moveSnapshot = orderedDisplayed.filter { it.id in selectedSet } }) {
                 Icon(Icons.Rounded.DriveFileMove, "Переместить выбранные в альбом")
             }
@@ -518,7 +523,7 @@ internal fun GalleryModeScreen(
             }
             if (tab == 1) {
                 if (source==LibrarySource.APP) item(key="archive-entry",span={GridItemSpan(maxLineSpan)}) {
-                    Surface(onClick={ archiveOpen=true },
+                    Surface(onClick={ if (onOpenSimpleArchive != null) onOpenSimpleArchive() else archiveOpen=true },
                         modifier=Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=8.dp)
                             .testTag("gallery-archive-entry"),
                         shape=RoundedCornerShape(16.dp),

@@ -156,6 +156,8 @@ fun DownloadsScreen(
     onOpenPrivate: () -> Unit = {},
     onMoveToPrivate: (String) -> Unit = {},
     onMoveGroupToPrivate: (List<String>) -> Unit = {},
+    onSimpleArchive: ((List<String>) -> Unit)? = null,
+    onOpenSimpleArchive: (() -> Unit)? = null,
     onSetFavorite: suspend (String, Boolean) -> Unit = { _, _ -> },
     onDeleteGroupFile: suspend (String) -> Unit = {},
     onOpenGrid: ((String, List<String>) -> Unit)? = null,
@@ -632,6 +634,8 @@ fun DownloadsScreen(
                     folderSheetOpen = true
                 }) { Text("В папку") }
                 if(onAddCollection!=null)TextButton(enabled=selectedHistoryIds.isNotEmpty(),onClick={onAddCollection(selectedHistoryIds.toList())}){Text("В коллекцию")}
+                if (onSimpleArchive != null) TextButton(enabled = selectedHistoryIds.isNotEmpty(),
+                    onClick = { onSimpleArchive(selectedHistoryIds.toList()) }) { Text("В архив") }
                 TextButton(enabled = selectedHistoryIds.isNotEmpty(), onClick = {
                     onMoveGroupToPrivate(selectedHistoryIds.toList())
                     selectionMode = false

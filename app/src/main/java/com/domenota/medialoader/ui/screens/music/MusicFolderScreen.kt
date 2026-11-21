@@ -21,6 +21,7 @@ import com.domenota.medialoader.ui.screens.audioTitle
 internal fun MusicFolderScreen(title:String,tracks:List<DownloadEntity>,excluded:Boolean,currentId:String?,playing:Boolean,
     onBack:()->Unit,onToggleVisibility:()->Unit,onPlay:(Boolean)->Unit,onPreview:(String)->Unit,
     onAddCollection:((List<String>)->Unit)?=null,
+    onSimpleArchive:((List<String>)->Unit)?=null,
     actions:@Composable (DownloadEntity)->Unit){
     var menu by remember{mutableStateOf(false)}
     var chosenIds by remember(title){mutableStateOf<Set<String>>(emptySet())}
@@ -86,6 +87,10 @@ internal fun MusicFolderScreen(title:String,tracks:List<DownloadEntity>,excluded
                         Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Коллекция")
+                    }
+                    if (onSimpleArchive != null) IconButton({ onSimpleArchive(selected.toList()) },
+                        modifier=Modifier.testTag("music-folder-selected-archive")) {
+                        com.domenota.medialoader.ui.components.ArchiveActionIcon("В архив")
                     }
                     IconButton({chosenIds=emptySet()}) {
                         Icon(Icons.Rounded.Close,"Отменить выбор")

@@ -76,6 +76,7 @@ internal fun MusicModeScreen(
     onResumeSelection: ((ResolvedResumeQueue)->Unit)? = null,
     onOpenCollections: (() -> Unit)? = null,
     onAddCollection: ((List<String>) -> Unit)? = null,
+    onSimpleArchive: ((List<String>) -> Unit)? = null,
     onPassport: ((String) -> Unit)? = null,
     onRecognize:((String)->Unit)?=null,
     recentItems: List<DownloadEntity> = items, recentLoading: Boolean = loading,
@@ -487,6 +488,7 @@ internal fun MusicModeScreen(
             onPlay={shuffle->if(folderIds.isNotEmpty()){if(onFolderPlay!=null)onFolderPlay(folderIds,shuffle) else {val order=if(shuffle)folderIds.shuffled() else folderIds;(onPreview?:onOpen)(order.first(),order)}}},
             onPreview={id->(onPreview?:onOpen)(id,folderIds)},
             onAddCollection=onAddCollection,
+            onSimpleArchive=onSimpleArchive,
             actions={track->val id=track.id;MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},{onOpen(id,folderIds)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,MusicTrackVisibility.hidden(track,hiddenTrackKeys),{toggleHidden(track)},
                 favorite=id in favoriteIds,onFavorite=onFavorite?.let{action->{mutate{action(id,id !in favoriteIds)}}},onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})})
     } else if(resumeOpen&&onResumeSelection!=null) {
@@ -746,6 +748,10 @@ internal fun MusicModeScreen(
                         Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Коллекция")
+                    }
+                    if (onSimpleArchive != null) IconButton({ onSimpleArchive(selectedPublicIds.toList()) },
+                        modifier=Modifier.testTag("music-selected-archive")) {
+                        com.domenota.medialoader.ui.components.ArchiveActionIcon("В архив")
                     }
                     IconButton({ selectedTrackIds=emptySet() }) {
                         Icon(Icons.Rounded.Close,"Отменить выбор")
