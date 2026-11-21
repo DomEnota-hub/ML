@@ -2,6 +2,10 @@ package com.domenota.medialoader.data.catalog.visibility
 
 import java.io.File
 import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
@@ -45,7 +49,7 @@ internal data class SelectiveArchiveMoveReceipt(
     }
 }
 
-internal class SelectiveArchiveMoveJournal(directory:File) {
+internal class SelectiveArchiveMoveJournal(private val directory:File) {
     private val proof=VisibilityBindingProofStore(directory)
 
     private fun id(folderId:String,catalogId:String):String {
@@ -53,6 +57,34 @@ internal class SelectiveArchiveMoveJournal(directory:File) {
         val hash=MessageDigest.getInstance("SHA-256")
             .digest((folderId.length.toString()+":"+folderId+catalogId).toByteArray(Charsets.UTF_8))
         return "sel-move-"+hash.joinToString("") { "%02x".format(it.toInt() and 255) }
+    }
+
+    /** Proof filenames are also a privacy input. A phase without its source
+     * checkpoint must block public publishing, even if the gallery membership
+     * no longer contains that folder. Never discard orphaned journal bytes. */
+    internal fun memberKey(folderId:String,catalogId:String):String=id(folderId,catalogId)
+
+    suspend fun durableKeys():Set<String> = withContext(Dispatchers.IO) {
+        val root=directory.toPath()
+        if(Files.notExists(root,NOFOLLOW_LINKS))return@withContext emptySet()
+        check(Files.isDirectory(root,NOFOLLOW_LINKS) && !Files.isSymbolicLink(root)) {
+            "Хранилище журнала Архива требует проверки"
+        }
+        val keys=mutableSetOf<String>()
+        Files.newDirectoryStream(root).use { entries ->
+            for(entry in entries) {
+                val name=entry.fileName.toString()
+                if(name.startsWith(".bindings-") && name.endsWith(".tmp")) continue
+                check(Files.isRegularFile(entry,NOFOLLOW_LINKS) &&
+                    name.matches(Regex("sel-move-[0-9a-f]{64}\\.binding"))) {
+                    "Незнакомая запись в журнале выборочного Архива"
+                }
+                check(keys.add(name.removeSuffix(".binding")) && keys.size<=8192) {
+                    "Невозможно подтвердить состав журнала Архива"
+                }
+            }
+        }
+        keys
     }
 
     suspend fun read(folderId:String,catalogId:String):SelectiveArchiveMoveReceipt? {
