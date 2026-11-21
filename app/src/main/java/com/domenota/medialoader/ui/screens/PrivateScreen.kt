@@ -124,7 +124,7 @@ fun PrivateScreen(
                 }
             }
             if (state.unlocked && !settings && !selecting) {
-                TextButton(onClick=onOpenVault,enabled=!busy && !externalBusy) { Text("Сейф") }
+                TextButton(onClick=onOpenVault,enabled=!busy && !externalBusy) { Text("Ранее защищённые файлы") }
                 IconButton(onClick = {
                     gridMode = !gridMode
                     prefs.edit().putBoolean("private_grid", gridMode).apply()

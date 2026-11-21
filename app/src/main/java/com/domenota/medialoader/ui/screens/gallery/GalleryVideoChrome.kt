@@ -72,12 +72,13 @@ internal fun GalleryVideoChrome(
     onSeekTo: (Long) -> Unit,
     onLockChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    centerControlsVisible: Boolean = true,
 ) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var scrubbing by remember { mutableStateOf<Float?>(null) }
     Box(modifier.fillMaxSize()) {
         if (!locked && visible) {
-            Row(
+            if (centerControlsVisible) Row(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalArrangement = Arrangement.spacedBy(if (landscape) 20.dp else 13.dp),
                 verticalAlignment = Alignment.CenterVertically,

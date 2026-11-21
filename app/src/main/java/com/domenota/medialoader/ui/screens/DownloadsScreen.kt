@@ -475,6 +475,9 @@ fun DownloadsScreen(
                 modifier = Modifier.weight(1f),
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
+            if (onOpenSimpleArchive != null) IconButton(onClick = onOpenSimpleArchive, modifier = Modifier.size(40.dp)) {
+                com.domenota.medialoader.ui.components.ArchiveActionIcon()
+            }
             IconButton(onClick = onOpenPrivate, modifier = Modifier.size(40.dp)) {
                 Icon(Icons.Rounded.Lock, contentDescription = "Личное")
             }
@@ -575,7 +578,7 @@ fun DownloadsScreen(
                 },
                 onGroupFolder = { ids -> folderGroupTargets = ids; folderTargetId = ids.firstOrNull(); folderSheetOpen = true },
                 onGroupMove = onMoveGroupToPrivate, onGroupDelete = { deleteGroupTargets = it }, groupActionsEnabled = !groupBusy,
-                onAddCollection=onAddCollection,onPassport=onPassport)
+                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
         }
 
       item(key = "history-header", contentType = "header") {
@@ -721,7 +724,7 @@ fun DownloadsScreen(
                 },
                 onGroupFolder = { ids -> folderGroupTargets = ids; folderTargetId = ids.firstOrNull(); folderSheetOpen = true },
                 onGroupMove = onMoveGroupToPrivate, onGroupDelete = { deleteGroupTargets = it }, groupActionsEnabled = !groupBusy,
-                onAddCollection=onAddCollection,onPassport=onPassport)
+                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
         }
     }
 }
@@ -755,6 +758,7 @@ private fun LazyListScope.DownloadRows(
     groupActionsEnabled: Boolean,
     onAddCollection: ((List<String>)->Unit)? = null,
     onPassport: ((String)->Unit)? = null,
+    onSimpleArchive: ((List<String>)->Unit)? = null,
 ) {
     if (grid) {
         val rows = items.flatten().chunked(4)
@@ -764,7 +768,7 @@ private fun LazyListScope.DownloadRows(
                     key(entry.id) { DownloadItemRow(entry, onOpenDownload, onCancelDownload, onShareDownload,
                         onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload,
                         recognitionEnabled, onRecognizeDownload, assignments, folderNames,
-                        onFavorite, onChooseFolder, onMoveToPrivate, compact = true, modifier = Modifier.weight(1f),onAddCollection=onAddCollection,onPassport=onPassport) }
+                        onFavorite, onChooseFolder, onMoveToPrivate, compact = true, modifier = Modifier.weight(1f),onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive) }
                 }
                 repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
             }
@@ -811,7 +815,7 @@ private fun LazyListScope.DownloadRows(
                         DownloadItemRow(item, onOpenDownload, onCancelDownload, onShareDownload,
                             onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload,
                             recognitionEnabled, onRecognizeDownload, assignments, folderNames,
-                            onFavorite, onChooseFolder, onMoveToPrivate,onAddCollection=onAddCollection,onPassport=onPassport)
+                            onFavorite, onChooseFolder, onMoveToPrivate,onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
                     }
                     Spacer(Modifier.height(8.dp))
                 }
@@ -833,7 +837,7 @@ private fun LazyListScope.DownloadRows(
                 DownloadItemRow(file, onOpenDownload, onCancelDownload, onShareDownload,
                     onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload,
                     recognitionEnabled, onRecognizeDownload, assignments, folderNames,
-                    onFavorite, onChooseFolder, onMoveToPrivate,onAddCollection=onAddCollection,onPassport=onPassport)
+                    onFavorite, onChooseFolder, onMoveToPrivate,onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
             }
             Spacer(Modifier.height(10.dp))
           }
@@ -862,6 +866,7 @@ private fun DownloadItemRow(
     modifier: Modifier = Modifier,
     onAddCollection: ((List<String>)->Unit)? = null,
     onPassport: ((String)->Unit)? = null,
+    onSimpleArchive: ((List<String>)->Unit)? = null,
 ) {
     DownloadRow(
         item = item,
@@ -882,6 +887,7 @@ private fun DownloadItemRow(
         onChooseFolder = onChooseFolder?.let { action -> { action(item.id) } },
         onMoveToPrivate = { onMoveToPrivate(item.id) },
         onAddCollection=onAddCollection?.let{action->{action(listOf(item.id))}},
+        onSimpleArchive=onSimpleArchive?.let{action->{action(listOf(item.id))}},
         onPassport=onPassport?.let{action->{action(item.id)}},
     )
 }

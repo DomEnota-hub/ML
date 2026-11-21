@@ -421,6 +421,7 @@ internal fun LocalVideoPlayer(
     var playbackEnded by remember(uri) { mutableStateOf(false) }
     var scrubPositionMs by remember(uri) { mutableStateOf<Long?>(null) }
     var chromeVisible by remember(uri) { mutableStateOf(true) }
+    var centerHiddenAfterSeek by remember(uri) { mutableStateOf(false) }
     var galleryDisplayedPositionMs by remember(uri) { mutableStateOf(0L) }
     // Gallery's overlay controls follow the native video-controller visibility
     // so a tap never leaves the Gallery header/footer floating above clean video.
@@ -722,6 +723,12 @@ internal fun LocalVideoPlayer(
             unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible)
             return
         }
+        if (centerHiddenAfterSeek && scrubPositionMs == null) {
+            centerHiddenAfterSeek = false
+            chromeVisible = true
+            if (!galleryPagingEnabled) playerView?.showController()
+            return
+        }
         if (galleryPagingEnabled) {
             chromeVisible = !chromeVisible
         } else {
@@ -1007,6 +1014,7 @@ internal fun LocalVideoPlayer(
                                         if (playableDurationMs > 0L) {
                                             chromeVisible = true
                                             startPosition = player.currentPosition.coerceAtLeast(0L)
+                                            centerHiddenAfterSeek = true
                                             scrubPositionMs = startPosition
                                             horizontalDistance = totalX
                                             if (!galleryPagingEnabled) playerView?.showController()
@@ -1108,7 +1116,8 @@ internal fun LocalVideoPlayer(
                                     distanceX = 0f
                                     if (seeking) {
                                         startPosition = player.currentPosition.coerceAtLeast(0L)
-                                        scrubPositionMs = startPosition
+                                        centerHiddenAfterSeek = true
+                                            scrubPositionMs = startPosition
                                         chromeVisible = true
                                     }
                                 },
@@ -1151,7 +1160,7 @@ internal fun LocalVideoPlayer(
         }
         // Previous follows the usual music-player rule: >3s restarts the episode;
         // pressing again near the beginning opens the preceding video in the album.
-        if (!galleryPagingEnabled && !controlsLocked && chromeVisible && nativePreviousCenter != null) IconButton(
+        if (!galleryPagingEnabled && !controlsLocked && chromeVisible && !centerHiddenAfterSeek && scrubPositionMs == null && nativePreviousCenter != null) IconButton(
             onClick = {
                 when (VideoPlayerUiPolicy.previousAction(player.currentPosition, onPreviousVideo != null)) {
                     VideoPlayerUiPolicy.PreviousAction.OPEN_PREVIOUS ->
@@ -1180,7 +1189,7 @@ internal fun LocalVideoPlayer(
         val nextControlCenter = nativeNextCenter ?: nativePlayCenter?.let {
             Offset(it.x + with(LocalDensity.current) { 48.dp.toPx() }, it.y)
         }
-        if (!galleryPagingEnabled && !controlsLocked && chromeVisible && showAlbumSkipButton && nextControlCenter != null) IconButton(
+        if (!galleryPagingEnabled && !controlsLocked && chromeVisible && !centerHiddenAfterSeek && scrubPositionMs == null && showAlbumSkipButton && nextControlCenter != null) IconButton(
             onClick = { onNextVideo?.invoke(player.playWhenReady) },
             enabled = onNextVideo != null,
             modifier = Modifier.align(Alignment.TopStart)
@@ -1194,7 +1203,7 @@ internal fun LocalVideoPlayer(
                     alpha = if (onNextVideo != null) 1f else .4f),
                 modifier = Modifier.size(30.dp))
         }
-        if (!galleryPagingEnabled && !controlsLocked && chromeVisible) IconButton(
+        if (!galleryPagingEnabled && !controlsLocked && chromeVisible && !centerHiddenAfterSeek && scrubPositionMs == null) IconButton(
             onClick = {
                 if (isPlaying) {
                     player.pause()
@@ -1300,7 +1309,8 @@ internal fun LocalVideoPlayer(
                 locked = controlsLocked,
                 unlockVisible = unlockVisible,
                 playing = isPlaying,
-                positionMs = galleryDisplayedPositionMs,
+                positionMs = scrubPositionMs ?: galleryDisplayedPositionMs,
+                centerControlsVisible = !centerHiddenAfterSeek && scrubPositionMs == null,
                 durationMs = playableDurationMs,
                 hasPrevious = onPreviousVideo != null,
                 hasNext = onNextVideo != null,

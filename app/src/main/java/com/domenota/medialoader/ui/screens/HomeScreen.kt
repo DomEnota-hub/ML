@@ -82,6 +82,7 @@ fun HomeScreen(
     organizationContent: (@Composable () -> Unit)? = null,
     onAddCollection: ((List<String>)->Unit)? = null,
     onPassport: ((String)->Unit)? = null,
+    onSimpleArchive: ((String)->Unit)? = null,
     deferredEntries:List<com.domenota.medialoader.data.deferred.DeferredLink> =
         deferredLinks.map{com.domenota.medialoader.data.deferred.DeferredLink(it,it)},
 ) {
@@ -205,7 +206,8 @@ fun HomeScreen(
                     recognitionEnabled = recognitionEnabled,
                     onRecognize = { onRecognizeDownload(item.id) },
                     onAddCollection=onAddCollection?.let{action->{action(listOf(item.id))}},
-                    onPassport=onPassport?.let{action->{action(item.id)}})
+                    onPassport=onPassport?.let{action->{action(item.id)}},
+                    onSimpleArchive=onSimpleArchive?.let{action->{action(item.id)}})
                 Spacer(Modifier.height(8.dp))
             }
         }

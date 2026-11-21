@@ -223,6 +223,11 @@ fun MediaLoaderApp(
         catch (e: Exception) { simpleArchiveError = "Не удалось открыть Архив" }
     }
     val archivedByUri = remember(archivedRecords) { archivedRecords.groupBy { it.savedUri } }
+    val archiveBlocked = remember(archivedRecords) { buildSet {
+        archivedRecords.forEach { record ->
+            add(record.catalogId); add("app:${record.catalogId}"); add(record.savedUri); add("uri:${record.savedUri}")
+        }
+    } }
     fun isSimplyArchived(row: com.domenota.medialoader.core.database.DownloadEntity): Boolean {
         val uri = row.savedUri ?: return false
         return SimpleArchivePolicy.isArchived(archivedByUri[uri].orEmpty(),
@@ -656,13 +661,13 @@ fun MediaLoaderApp(
     val folderRefsById = remember(folderRefs) { folderRefs.associateBy { it.key } }
     val liveFolderRefs by rememberUpdatedState(folderRefs)
     fun canOpenFolderMedia(row: com.domenota.medialoader.core.database.DownloadEntity, folder: String? = null): Boolean =
-        row.isPrivate || libraryModel.visibilityGuard.value?.canOpen(row,folder,liveFolderRefs) == true
+        row.isPrivate || (!isSimplyArchived(row) && libraryModel.visibilityGuard.value?.canOpen(row,folder,liveFolderRefs) == true)
 
     val libraryAudioState by libraryModel.audioPreview.state.collectAsStateWithLifecycle()
     val libraryPrivateKeys by libraryModel.privateKeys.collectAsStateWithLifecycle()
     val visibilityBlocked=remember(visibilityGuard){visibilityGuard?.blockedKeys().orEmpty()}
-    val publicProjectionGuard=remember(libraryPrivateKeys,visibilityGuard,visibilityBlocked) {
-        libraryPrivateKeys?.takeIf { visibilityReady }?.plus(visibilityBlocked)
+    val publicProjectionGuard=remember(libraryPrivateKeys,visibilityGuard,visibilityBlocked,archiveBlocked,simpleArchiveLoaded) {
+        libraryPrivateKeys?.takeIf { visibilityReady && simpleArchiveLoaded }?.plus(visibilityBlocked)?.plus(archiveBlocked)
     }
     // The IO-built index may briefly lag a *visibility-only* receipt update.
     // Re-check previously admitted refs against the current fail-closed guard
@@ -694,7 +699,7 @@ fun MediaLoaderApp(
     }
     val currentPublicRows = remember(publicLibraryRefs) { publicLibraryRefs.associate { it.item.id to it.item.savedUri } }
     fun retainedPublicRow(row: com.domenota.medialoader.core.database.DownloadEntity): Boolean =
-        currentPublicRows.containsKey(row.id) && currentPublicRows[row.id] == row.savedUri
+        !isSimplyArchived(row) && currentPublicRows.containsKey(row.id) && currentPublicRows[row.id] == row.savedUri
     val observeAudioCatalog = phoneMusic.loaded ||
         (appMode == AppMode.MUSIC && currentRoute in setOf("home", MEDIA_VIEWER_ROUTE)) ||
         (currentRoute == "collections" && collectionCatalogRequest == CollectionCatalogRequest.AUDIO)
@@ -900,7 +905,7 @@ fun MediaLoaderApp(
         accessGuard = publicProjectionAccess, retentionGuard = publicRetentionAccess,
         revalidateRetained = { rows -> rows.filter(::retainedPublicRow) }, kind = LibraryProjectionKind.PUBLIC_ROWS) {
         PublicLibraryRows.indexed(publicDownloads, publicLibraryRefs) { row ->
-            publicProjectionAccess?.canOpen(row,null,emptyList()) == true
+            !isSimplyArchived(row) && publicProjectionAccess?.canOpen(row,null,emptyList()) == true
         }
     }
     val indexedLibraryRows = indexedLibraryProjection.value
@@ -916,7 +921,7 @@ fun MediaLoaderApp(
             com.domenota.medialoader.data.playback.AudioPlaybackMetadata.publicSessionRows(libraryAudioState.queue, indexedLibraryRows, keys)
         }.orEmpty()
         PublicLibraryRows.mergeSession(indexedLibraryRows, session) { row ->
-            publicProjectionAccess?.canOpen(row,null,emptyList()) == true
+            !isSimplyArchived(row) && publicProjectionAccess?.canOpen(row,null,emptyList()) == true
         }
     }
     val publicLibraryRows = if (libraryAudioState.queue.isEmpty() || !publicSessionProjection.usable)
@@ -1304,9 +1309,10 @@ fun MediaLoaderApp(
     // set per media row. Real privacy/hidden changes invalidate retained projections.
     val collectionPrivacyGeneration by DuplicatePrivacyGuard.changes.collectAsStateWithLifecycle()
     val inFlightPrivacyKeys = remember(collectionPrivacyGeneration, libraryPrivateKeys, historySnapshot?.blocked) { DuplicatePrivacyGuard.currentBlockedKeys() }
-    val collectionBlocked = remember(libraryPrivateKeys, historySnapshot?.blocked, organizationHidden, inFlightPrivacyKeys, visibilityGuard) {
+    val collectionBlocked = remember(libraryPrivateKeys, historySnapshot?.blocked, organizationHidden, inFlightPrivacyKeys, visibilityGuard,archiveBlocked) {
         buildSet {
             addAll(inFlightPrivacyKeys)
+            addAll(archiveBlocked)
             addAll(visibilityGuard?.blockedKeys().orEmpty())
             addAll(libraryPrivateKeys.orEmpty())
             addAll(historySnapshot?.blocked.orEmpty())
@@ -2511,6 +2517,7 @@ fun MediaLoaderApp(
                         navController.navigate("browser/$source")
                     },
                     recentDownloads = recentDownloadItems.take(3),
+                    onSimpleArchive = { archiveSelection(listOf(it), ArchiveEntrySource.DOWNLOADER) },
                     onOpenDownload = openDownload,
                     onCancelDownload = viewModel::cancelDownload,
                     onShareDownload = shareDownload,
@@ -3005,7 +3012,7 @@ fun MediaLoaderApp(
             },
             LibraryRouteContent(VAULT_ROUTE) {
                 VaultScreen(viewModel.privateAccess,
-                    onBack = { viewModel.privateAccess.lock(); navController.popBackStack() })
+                    onBack = { viewModel.privateAccess.lock(); navController.popBackStack() }, recoveryOnly = true)
             },
             LibraryRouteContent(AppDestination.Settings.route) {
                 SettingsScreen(

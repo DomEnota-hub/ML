@@ -37,7 +37,7 @@ import kotlinx.coroutines.withContext
  * separate from old "Личное" records. Never adds decrypted previews to public caches.
  */
 @Composable
-internal fun VaultScreen(access:PrivateAccessManager,onBack:()->Unit) {
+internal fun VaultScreen(access:PrivateAccessManager,onBack:()->Unit,recoveryOnly:Boolean=false) {
     val context=LocalContext.current
     val state by access.state.collectAsState()
     val operations=remember(context){VaultOperations(context)}
@@ -162,7 +162,7 @@ internal fun VaultScreen(access:PrivateAccessManager,onBack:()->Unit) {
             }
             Icon(Icons.Rounded.Shield,null,tint=MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
-            Text("Сейф",Modifier.weight(1f),style=MaterialTheme.typography.headlineSmall)
+            Text(if(recoveryOnly) "Ранее защищённые файлы" else "Сейф",Modifier.weight(1f),style=MaterialTheme.typography.headlineSmall)
             if(state.unlocked)IconButton(onClick={access.lock()},enabled=!busy) {
                 Icon(Icons.Rounded.Lock,"Заблокировать")
             }
@@ -173,10 +173,10 @@ internal fun VaultScreen(access:PrivateAccessManager,onBack:()->Unit) {
             Column(Modifier.weight(1f)) {
                 Card(Modifier.fillMaxWidth().padding(horizontal=12.dp)) {
                     Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Text("Защищённое хранение",style=MaterialTheme.typography.titleMedium)
-                        Text("Фото, видео, музыка и документы из любых приложений. Сначала создаётся и проверяется зашифрованная копия. Публичный оригинал удаляется отдельно и только с подтверждением.",
+                        Text(if(recoveryOnly) "Восстановление старых файлов" else "Защищённое хранение",style=MaterialTheme.typography.titleMedium)
+                        Text(if(recoveryOnly) "Ранее зашифрованные файлы. Доступ и восстановление сохранены; новые файлы добавляются в обычный Архив." else "Фото, видео, музыка и документы из любых приложений. Сначала создаётся и проверяется зашифрованная копия. Публичный оригинал удаляется отдельно и только с подтверждением.",
                             style=MaterialTheme.typography.bodySmall)
-                        Button(onClick={importer.launch(arrayOf("*/*"))},
+                        if(!recoveryOnly) Button(onClick={importer.launch(arrayOf("*/*"))},
                             enabled=!busy,modifier=Modifier.fillMaxWidth().testTag("vault-import")) {
                             Icon(Icons.Rounded.UploadFile,null)
                             Spacer(Modifier.width(8.dp))
@@ -198,7 +198,7 @@ internal fun VaultScreen(access:PrivateAccessManager,onBack:()->Unit) {
                     contentPadding=PaddingValues(12.dp),
                     verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     if(listing.items.isEmpty()) item {
-                        Text("Сейф пока пуст. Выберите файлы через системный проводник.",
+                        Text(if(recoveryOnly) "Нет ранее защищённых файлов" else "Сейф пока пуст. Выберите файлы через системный проводник.",
                             Modifier.padding(14.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     items(listing.items,key={it.id}) { record ->
