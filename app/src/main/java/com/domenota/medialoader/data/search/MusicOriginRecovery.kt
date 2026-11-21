@@ -96,6 +96,14 @@ internal object MusicOriginRecovery {
                 if (compatible(provider, host, probe)) return Evidence(host, false)
             }
         }
+        // Last-resort bounded suffix probe, never a mass domain scan. Only after the old
+        // origin is persistently unavailable and both search engines have been exhausted.
+        for (suffix in listOf("com", "org", "net", "ru", "cc")) {
+            currentCoroutineContext().ensureActive()
+            val host = provider.prefix + "." + provider.brand + "." + suffix
+            if (!checked.add(host)) continue
+            if (compatible(provider, host, probe)) return Evidence(host, false)
+        }
         return null
     }
 

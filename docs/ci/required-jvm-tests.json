@@ -6287,6 +6287,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.search.MusicOriginPolicyTest#boundedSuffixFallbackStillRequiresApproval": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.search.MusicOriginPolicyTest#brokenOrForeignCandidateContractDoesNotActivate": {
     "skipped": false,
     "failed": false

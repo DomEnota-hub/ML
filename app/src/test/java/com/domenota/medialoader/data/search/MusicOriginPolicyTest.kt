@@ -121,10 +121,30 @@ class MusicOriginPolicyTest {
                 url == "https://ru.hitmoz.net/search?q=Mozart" -> Response(200, body =
                     """<a href="https://foreign.test/get/music/20260101/one.mp3">fake</a>""")
                 url.startsWith("https://yandex.ru/") -> Response(200, body = "")
+                url in listOf("https://ru.hitmoz.com/search?q=Mozart",
+                    "https://ru.hitmoz.ru/search?q=Mozart", "https://ru.hitmoz.cc/search?q=Mozart") -> Response(404)
                 else -> error("Unexpected request $url")
             }
         }
         assertNull(result)
+    }
+
+    @Test fun boundedSuffixFallbackStillRequiresApproval() = runBlocking {
+        val checked = mutableListOf<String>()
+        val result = MusicOriginRecovery.resolve(h, h.defaultHost) { url ->
+            checked.add(url)
+            when {
+                url.startsWith("https://ru.hitmoz.org/") -> Response(dnsMissing = true)
+                url.startsWith("https://www.google.com/") -> Response(403)
+                url.startsWith("https://yandex.ru/") -> Response(429)
+                url == "https://ru.hitmoz.com/search?q=Mozart" -> Response(200, body = hitRows)
+                else -> error("Unexpected request $url")
+            }
+        }
+        assertEquals(MusicOriginRecovery.Evidence("ru.hitmoz.com", false), result)
+        assertTrue(checked.indexOfFirst { it.contains("yandex.ru") } <
+            checked.indexOfFirst { it.contains("ru.hitmoz.com") })
+        assertEquals(6, checked.size)
     }
 
 }
