@@ -451,6 +451,162 @@ fun MediaLoaderApp(
         } finally { nomediaBusy=false }
     }
 
+
+    // Stage 5: QA-only selective Archive access. Never call hide() from the
+    // read-only preflight. An explicit second user confirmation is mandatory.
+    val qaArchive=remember(mediaRepository) { mediaRepository.selectiveArchive }
+    var archiveQaBusy by remember { mutableStateOf(false) }
+    var archiveQaError by remember { mutableStateOf<String?>(null) }
+    var archiveQaEntries by remember {
+        mutableStateOf<List<SelectiveArchiveQaEntry>>(emptyList())
+    }
+    var archiveQaPending by remember {
+        mutableStateOf<Pair<NomediaAutoFolderPlan,SelectiveArchiveQaPreview>?>(null)
+    }
+    var archiveQaRestoreId by remember { mutableStateOf<String?>(null) }
+
+    fun refreshArchiveQa() {
+        if(archiveQaBusy)return
+        fileActionScope.launch {
+            try {
+                archiveQaError=null
+                archiveQaEntries=qaArchive.qaRecoveryEntries()
+            } catch(cancelled:CancellationException) { throw cancelled }
+            catch(error:Exception) {
+                archiveQaError=error.message ?: "Не удалось проверить журнал Архива"
+                archiveQaEntries=emptyList()
+            }
+        }
+    }
+    val previewSelectiveArchive:(String)->Unit = { folderId ->
+        if(!archiveQaBusy && archiveQaPending==null && archiveQaRestoreId==null) {
+            fileActionScope.launch {
+                archiveQaBusy=true
+                archiveQaError=null
+                try {
+                    check(!nomediaBusy && !visibilityBusy && !visibilityWork.state.value.active &&
+                        !nomediaSnapshot.unknown && visibilityGuard?.policy?.unknownPending==false) {
+                        "Реестр видимости занят или требует проверки"
+                    }
+                    check(folderId !in nomediaSnapshot.hiddenFolderIds &&
+                        folderId !in visibilityFolders) {
+                        "Для этого альбома уже существует другой режим скрытия"
+                    }
+                    visibilityAccess.ensure()
+                    val plan=resolveNomediaAutoPlan(context,folderId,
+                        viewModel.downloads.value,viewModel.catalogAssignments.value)
+                    val preview=qaArchive.previewForQa(plan)
+                    archiveQaPending=plan to preview
+                } catch(cancelled:CancellationException){throw cancelled}
+                catch(error:Exception) {
+                    archiveQaError=error.message ?: "Не удалось проверить выбранные файлы"
+                } finally { archiveQaBusy=false }
+            }
+        }
+    }
+    val restoreSelectiveArchive:(String)->Unit = { folderId ->
+        if(!archiveQaBusy && archiveQaPending==null && archiveQaRestoreId==null)
+            archiveQaRestoreId=folderId
+    }
+    archiveQaPending?.let { (plan,preview) ->
+        AlertDialog(onDismissRequest={if(!archiveQaBusy)archiveQaPending=null},
+            modifier=Modifier.testTag("archive-qa-confirm-hide"),
+            title={Text("Тестовое выборочное скрытие")},
+            text={Text("Выбрано: ${preview.selectedCount} файлов из ${preview.physicalCount} " +
+                "в физической папке. Остальные файлы не должны измениться. " +
+                "Подтверди перенос только тестовых копий. При ошибке " +
+                "приложение сохранит журнал и потребует отдельной проверки.")},
+            confirmButton={TextButton(enabled=!archiveQaBusy,onClick={
+                archiveQaPending=null
+                fileActionScope.launch {
+                    archiveQaBusy=true
+                    archiveQaError=null
+                    try {
+                        visibilityAccess.ensure()
+                        check(!nomediaBusy && !visibilityBusy &&
+                            !visibilityWork.state.value.active &&
+                            !nomediaSnapshot.unknown &&
+                            visibilityGuard?.policy?.unknownPending==false &&
+                            plan.folderId !in nomediaSnapshot.hiddenFolderIds &&
+                            plan.folderId !in visibilityFolders) {
+                            "Состояние медиатеки изменилось до начала теста"
+                        }
+                        val fresh=resolveNomediaAutoPlan(context,plan.folderId,
+                            viewModel.downloads.value,viewModel.catalogAssignments.value)
+                        check(fresh==plan && qaArchive.previewForQa(fresh)==preview) {
+                            "Выбранные файлы или физическая папка изменились. Начни проверку заново"
+                        }
+                        val receipts=qaArchive.hide(fresh)
+                        check(receipts.size==preview.selectedCount &&
+                            receipts.all { it.phase==SelectiveArchiveMovePhase.HIDDEN_VERIFIED } &&
+                            qaArchive.privacy.value.verified &&
+                            receipts.all { it.catalogId in qaArchive.privacy.value.blockedIds }) {
+                            "Скрытие не подтверждено для всех файлов; проверь журнал"
+                        }
+                        AppNotice.post(context,
+                            "Тест: выборочно скрыто ${receipts.size} файлов. Проверь Галерею Android и восстановление")
+                    } catch(cancelled:CancellationException){throw cancelled}
+                    catch(error:Exception){
+                        archiveQaError=error.message ?: "Выборочное скрытие не завершилось; проверь журнал"
+                    } finally {
+                        archiveQaEntries=runCatching { qaArchive.qaRecoveryEntries() }
+                            .getOrElse {
+                                archiveQaError="Журнал Архива требует проверки. Не повторяй перенос"
+                                emptyList()
+                            }
+                        archiveQaBusy=false
+                    }
+                }
+            }){Text("Скрыть выбранные")}},
+            dismissButton={TextButton(enabled=!archiveQaBusy,onClick={archiveQaPending=null}){
+                Text("Отмена")
+            }})
+    }
+    archiveQaRestoreId?.let { folderId ->
+        AlertDialog(onDismissRequest={if(!archiveQaBusy)archiveQaRestoreId=null},
+            modifier=Modifier.testTag("archive-qa-confirm-restore"),
+            title={Text("Вернуть файлы из Архива")},
+            text={Text("Будут проверены исходные идентификаторы, байты, даты, " +
+                "связи и появление в публичной медиатеке Android. " +
+                "При неподтверждённом состоянии восстановление остановится.")},
+            confirmButton={TextButton(enabled=!archiveQaBusy,onClick={
+                archiveQaRestoreId=null
+                fileActionScope.launch {
+                    archiveQaBusy=true
+                    archiveQaError=null
+                    try {
+                        visibilityAccess.ensure()
+                        val entries=qaArchive.qaRecoveryEntries()
+                        check(entries.singleOrNull { it.folderId==folderId }
+                            ?.let { !it.restored && !it.needsReview }==true) {
+                            "Восстановление недоступно: сначала проверь журнал"
+                        }
+                        val restored=qaArchive.restore(folderId)
+                        check(restored.restored.size+restored.unchangedPublicIds.size==
+                            restored.expectedCount &&
+                            qaArchive.privacy.value.verified) {
+                            "Не все исходные файлы подтвердили восстановление"
+                        }
+                        AppNotice.post(context,
+                            "Проверено восстановление ${restored.expectedCount} файлов")
+                    } catch(cancelled:CancellationException){throw cancelled}
+                    catch(error:Exception) {
+                        archiveQaError=error.message ?: "Восстановление не подтверждено"
+                    } finally {
+                        archiveQaEntries=runCatching { qaArchive.qaRecoveryEntries() }
+                            .getOrElse {
+                                archiveQaError="Не удалось перечитать журнал после восстановления"
+                                emptyList()
+                            }
+                        archiveQaBusy=false
+                    }
+                }
+            }){Text("Проверить и вернуть")}},
+            dismissButton={TextButton(enabled=!archiveQaBusy,onClick={archiveQaRestoreId=null}) {
+                Text("Отмена")
+            }})
+    }
+
     val visibilityProgress by mediaRepository.folderVisibility.status.collectAsStateWithLifecycle()
     if(visibilityBusy && visibilityMembershipBusy) AlertDialog(onDismissRequest={},confirmButton={},title={Text("Перенос файлов")},text={
         Text(when {
@@ -2321,6 +2477,11 @@ fun MediaLoaderApp(
                     hiddenFolderIds = visibilityFolders,
                     pendingVisibilityFolderId = null,
                     onFolderVisibility = toggleFolderVisibility.takeIf { android.os.Build.VERSION.SDK_INT >= 21 },
+                    archiveRecovery=archiveQaEntries,
+                    archiveBusy=archiveQaBusy, archiveError=archiveQaError,
+                    onArchiveRefresh=::refreshArchiveQa,
+                    onArchivePreview=previewSelectiveArchive,
+                    onArchiveRestore=restoreSelectiveArchive,
                     source = librarySource, loading = !galleryBrowse.usable || !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
                     folders = catalogFolders, assignments = libraryCatalogAssignments, header = libraryHeader,
