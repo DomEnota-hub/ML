@@ -14,6 +14,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -45,6 +55,8 @@ internal class DuplicateTrashOperation(val request:DuplicateTrashSelection,visua
     val reportSaved=mutableStateOf(true)
     val revision=mutableIntStateOf(0)
     val batchLimit=mutableIntStateOf(if(visual)1 else 50)
+    /** UI-only flag: the operation and its activity coordinator remain mounted. */
+    val collapsed=mutableStateOf(false)
 }
 
 /** Read the actual provider state; RESULT_OK alone is not proof that every URI was trashed. */
@@ -79,6 +91,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
     var finished by operation.finished
     var revision by operation.revision
     var batchLimit by operation.batchLimit
+    var collapsed by operation.collapsed
     val privacyRevision by DuplicatePrivacyGuard.changes.collectAsState()
     val latestAppTrash by rememberUpdatedState(onAppTrash)
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
@@ -261,25 +274,221 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
         finishReport()
         }
     }
-    if (finished) {
-        val ok = outcomes.values.count { it.success }
-        val failed = outcomes.values.filterNot { it.success }
-        val warnings = outcomes.values.filter { it.success && it.reason != "Перемещено" }
-        AlertDialog(onDismissRequest = onClose, title = { Text("Результат перемещения") }, text = {
-            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Перемещено в корзину: $ok")
-                Text("Не перемещено: ${failed.size}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                fun public(id:String)=tracks[id]?.let{it.privacyEpoch==privacyRevision&&DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,id)}==true
-                outcomes.entries.filter{!it.value.success}.forEach { (id,row) ->
-                    HorizontalDivider()
-                    Text(if(public(id))row.name else "Файл", style = MaterialTheme.typography.bodyMedium)
-                    Text(if(public(id))row.reason else "Данные недоступны", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val progressTotal = request.selected.size
+    val progressDone = outcomes.size.coerceIn(0, progressTotal)
+    val progressFraction = if (progressTotal > 0) progressDone.toFloat() / progressTotal else 1f
+    val progressPercent = (progressFraction * 100).toInt()
+    val progressStage = when {
+        finished -> "Завершено"
+        waiting -> "Ожидание разрешения Android"
+        !initialized -> "Проверка файлов"
+        else -> "Перемещение"
+    }
+    // Only the ViewModel-retained music operation may collapse. A gallery-local
+    // operation could otherwise be disposed when navigating, silently stopping work.
+    val canCollapse = retained != null
+    if (collapsed && canCollapse) {
+        Popup(
+            alignment = Alignment.TopCenter,
+            onDismissRequest = {},
+            properties = PopupProperties(
+                focusable = false,
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+            ),
+        ) {
+            Surface(
+                modifier = Modifier.statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)
+                    .widthIn(max = 440.dp).testTag("duplicateTrashMiniStatus"),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 8.dp,
+                tonalElevation = 3.dp,
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Перемещение в корзину", style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (finished) "Завершено · $progressDone из $progressTotal" else
+                                "$progressStage · $progressDone из $progressTotal",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(
+                            onClick = { collapsed = false },
+                            modifier = Modifier.testTag("duplicateTrashExpand"),
+                        ) { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Развернуть прогресс") }
+                    }
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier.fillMaxWidth().height(5.dp)
+                            .testTag("duplicateTrashMiniProgress"),
+                    )
                 }
-                outcomes.entries.filter{it.value in warnings}.forEach { (id,row) -> Text(if(public(id))"${row.name}: ${row.reason}" else "Журнал требует обновления", color = MaterialTheme.colorScheme.error) }
-                if (failed.isNotEmpty()) Text("Оставшиеся доступны в последнем поиске. Повтор — после проверки выбранных файлов.", style = MaterialTheme.typography.bodySmall)
-                if(!operation.reportSaved.value)Text("Не удалось сохранить отчёт перемещения",color=MaterialTheme.colorScheme.error)
             }
-        }, confirmButton = { TextButton(onClose) { Text("Вернуться к дубликатам") } })
-    } else if (!waiting) AlertDialog(onDismissRequest = {}, title = { Text("Перемещение в корзину") },
-        text = { Text("Обработано: ${outcomes.size} из ${request.selected.size}") }, confirmButton = {})
+        }
+    }
+    if (finished && !(collapsed && canCollapse)) {
+        val ok = outcomes.values.count { it.success }
+        val failed = outcomes.entries.filterNot { it.value.success }
+        val warnings = outcomes.entries.filter { it.value.success && it.value.reason != "Перемещено" }
+        val problems = failed + warnings
+        val total = request.selected.size
+        var detailsOpen by remember(operation) { mutableStateOf(false) }
+        fun public(id:String) = tracks[id]?.let{
+            it.privacyEpoch == privacyRevision &&
+                DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,id)
+        } == true
+        Dialog(onDismissRequest = onClose) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp).testTag("duplicateTrashResult"),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Rounded.LibraryMusic, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,modifier=Modifier.size(28.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Дубликаты треков",style=MaterialTheme.typography.titleMedium)
+                            Text("Результат перемещения",style=MaterialTheme.typography.bodySmall,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.Rounded.CheckCircle, contentDescription = null,
+                            tint=MaterialTheme.colorScheme.primary)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Surface(Modifier.weight(1f),shape=RoundedCornerShape(14.dp),
+                            color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.60f)) {
+                            Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                                Text("В корзине",style=MaterialTheme.typography.labelMedium,
+                                    color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("$ok",modifier=Modifier.testTag("duplicateTrashSuccessCount"),
+                                    style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
+                            }
+                        }
+                        Surface(Modifier.weight(1f),shape=RoundedCornerShape(14.dp),
+                            color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.60f)) {
+                            Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                                Text("Не перемещено",style=MaterialTheme.typography.labelMedium,
+                                    color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${failed.size}",modifier=Modifier.testTag("duplicateTrashFailureCount"),
+                                    style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Column(verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                            Text("Обработано $total из $total",style=MaterialTheme.typography.bodySmall)
+                            Text("100%",style=MaterialTheme.typography.labelMedium,
+                                color=MaterialTheme.colorScheme.primary)
+                        }
+                        LinearProgressIndicator(
+                            progress = { if(total>0) (outcomes.size.toFloat()/total).coerceIn(0f,1f) else 1f },
+                            modifier=Modifier.fillMaxWidth().height(7.dp),
+                        )
+                    }
+                    if(problems.isNotEmpty()) {
+                        Surface(shape=RoundedCornerShape(14.dp),
+                            color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.55f)) {
+                            Column(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp)) {
+                                TextButton(
+                                    onClick={detailsOpen=!detailsOpen},
+                                    modifier=Modifier.fillMaxWidth().testTag("duplicateTrashErrorToggle"),
+                                ) {
+                                    Icon(Icons.Rounded.WarningAmber,contentDescription=null,
+                                        tint=MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(if(detailsOpen)"Скрыть подробности" else
+                                        "Подробности ошибок (${problems.size})",modifier=Modifier.weight(1f))
+                                    Icon(if(detailsOpen) Icons.Rounded.KeyboardArrowUp else
+                                        Icons.Rounded.KeyboardArrowDown,contentDescription=null)
+                                }
+                                if(detailsOpen) {
+                                    Column(Modifier.fillMaxWidth().heightIn(max=220.dp)
+                                        .verticalScroll(rememberScrollState())
+                                        .testTag("duplicateTrashErrorList"),
+                                        verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                                        problems.forEach { (id,row) ->
+                                            HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+                                            Text(if(public(id))row.name else "Файл",
+                                                style=MaterialTheme.typography.bodyMedium,
+                                                maxLines=2,overflow=TextOverflow.Ellipsis)
+                                            Text(if(public(id))row.reason else "Данные недоступны",
+                                                style=MaterialTheme.typography.bodySmall,
+                                                color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if(failed.isNotEmpty()) {
+                        Text("Оставшиеся файлы доступны в последнем поиске. Повтор — после проверки выбранных файлов.",
+                            style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if(!operation.reportSaved.value) {
+                        Text("Не удалось сохранить отчёт перемещения",
+                            style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.error)
+                    }
+                    Button(onClick=onClose,modifier=Modifier.fillMaxWidth().testTag("duplicateTrashReturn")) {
+                        Text("Вернуться к дубликатам")
+                    }
+                }
+            }
+        }
+    } else if (!waiting && !(collapsed && canCollapse)) {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp)
+                    .testTag("duplicateTrashProgress"),
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+            ) {
+                Column(Modifier.fillMaxWidth().padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Перемещение в корзину", modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleMedium)
+                        if (canCollapse) IconButton(
+                            onClick = { collapsed = true },
+                            modifier = Modifier.testTag("duplicateTrashCollapse"),
+                        ) { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Свернуть прогресс") }
+                    }
+                    Text(progressStage, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Обработано: $progressDone из $progressTotal",
+                            style = MaterialTheme.typography.bodySmall)
+                        Text("$progressPercent%", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier.fillMaxWidth().height(7.dp)
+                            .testTag("duplicateTrashProgressBar"),
+                    )
+                    Text("Подтверждения Android выполняются отдельно. Сворачивание не отменяет перенос.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
 }

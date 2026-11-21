@@ -218,9 +218,10 @@ private fun PhotoEditorContent(
     var toolPanelOpen by rememberSaveable(workspaceKey) { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     val cropWorkspace = currentTab == PhotoWorkspaceTab.CROP && (batch == null || batchCropEditing)
-    val batchRenderKey = if(batch!=null) listOf(uri, originalInfo, edit, activeCrop, batch.draft.format,
-        currentTab, cropWorkspace) else null
-    var composedPreview by remember(item.id,batchRenderKey) { mutableStateOf<Bitmap?>(null) }
+    // Keep the last successfully rendered pixels while a new batch adjustment is prepared.
+    // Key by source, not every slider value: the previous preview must never disappear on drag.
+    var composedPreview by remember(item.id, uri) { mutableStateOf<Bitmap?>(null) }
+    var batchPreviewRendering by remember(item.id, uri) { mutableStateOf(false) }
     var cropColorPreview by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     val photoViewport = remember(item.id) { PhotoViewportState() }
     var previewError by remember(item.id) { mutableStateOf<String?>(null) }
@@ -361,9 +362,11 @@ private fun PhotoEditorContent(
         val source = info?.preview
         if (source == null || cropWorkspace) {
             composedPreview = null
+            batchPreviewRendering = false
             previewError = null
             return@LaunchedEffect
         }
+        if (batch != null) batchPreviewRendering = true
         val rapidCurves = currentTab == PhotoWorkspaceTab.LEVELS &&
             activeLevel == PhotoLevelControl.RGB_CURVES
         if (!rapidCurves) delay(35L)
@@ -383,6 +386,7 @@ private fun PhotoEditorContent(
                 composedPreview=pending
                 pending=null
             } finally { pending?.recycle() }
+            batchPreviewRendering = false
             previewError = null
         } catch (error: CancellationException) {
             // Expected when a newer adjustment supersedes this preview.
@@ -391,6 +395,7 @@ private fun PhotoEditorContent(
             com.domenota.medialoader.core.logging.AppLog.w(
                 "PhotoEditor", "Preview render failed: ${error.javaClass.simpleName}")
             previewError = photoPreviewFailureMessage(error)
+            batchPreviewRendering = false
         }
     }
 
@@ -539,7 +544,12 @@ private fun PhotoEditorContent(
                 }
                 Spacer(Modifier.weight(1f))
                 if (batch != null) {
-                    Text("Пакетный редактор", color = Color.White, fontSize = 13.sp)
+                    Text("${batch.rows.size} фото", color = Color.White, fontSize = 13.sp, maxLines = 1)
+                    TextButton(onClick = { batchExportDialog = true },
+                        enabled = !locked && info != null,
+                        modifier = Modifier.testTag("batch-export")) {
+                        Text("Сохранить", color = if (!locked && info != null) Color.White else Color.Gray)
+                    }
                 } else TextButton(
                     onClick = {
                         onExport(PhotoEditSpec(
@@ -628,7 +638,10 @@ private fun PhotoEditorContent(
                     )
                     }
                 } else if(batch!=null&&!cropWorkspace){
-                    Text(previewError ?: "Обновляем предпросмотр…",color=Color.LightGray)
+                    // Show actual source pixels until the first computed preview is ready.
+                    // Subsequent adjustments continue displaying the previously rendered result.
+                    Image(info.preview.asImageBitmap(), "Предпросмотр",
+                        Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 } else {
                     PhotoWorkspacePreview(
                         info = info, edit = edit.copy(crop=activeCrop), colorPreview = cropColorPreview,
@@ -638,6 +651,14 @@ private fun PhotoEditorContent(
                             edit = fromWorkspace(edit.copy(crop = it))
                         },
                         onCropFinished = ::finishGesture,
+                    )
+                }
+                if (batch != null && batchPreviewRendering && !batchCompare && !cropWorkspace && info != null) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                            .size(23.dp).testTag("batch-preview-refreshing"),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
@@ -724,8 +745,7 @@ private fun PhotoEditorContent(
                     LinearProgressIndicator(progress={batch.state.outcomes.size.toFloat()/batch.state.total.coerceAtLeast(1)},
                         modifier=Modifier.fillMaxWidth())
                     Button(onCancelExport,Modifier.fillMaxWidth().padding(horizontal=10.dp)) { Text("Отменить обработку") }
-                } else Button({ batchExportDialog=true },Modifier.fillMaxWidth().padding(horizontal=10.dp).testTag("batch-export"),
-                    enabled=!locked && info!=null) { Text("Обработать ${batch.rows.size} фото") }
+                }
             }
             previewError?.let { Text(it, color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 3.dp)) }

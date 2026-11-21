@@ -34,6 +34,12 @@ internal data class FolderVisibilityLibraryGuard(
     }
 
     fun excluded(ref: LibraryMediaRef): Boolean {
+        // An old "restored" visibility receipt cannot exempt a selective
+        // Archive identity, including aliases that survive media rescanning.
+        if(ref.key in policy.archiveBlockedAliases ||
+            ref.aliases.any(policy.archiveBlockedAliases::contains) ||
+            ref.item.savedUri in policy.archiveBlockedUris ||
+            ("uri:" + ref.item.savedUri) in policy.archiveBlockedAliases) return true
         val app = ref.appDownloadId
         if (app != null) return policy.isExcluded(app, appFolders[app], ref.item.savedUri) ||
             policy.isRetiredPhoneCollision(ref.key, ref.item.savedUri, ref.aliases,
@@ -76,6 +82,8 @@ internal data class FolderVisibilityLibraryGuard(
      * visible lists. Include exact retired locators, not only current row IDs. */
     fun blockedKeys(): Set<String> = buildSet {
         addAll(retired)
+        policy.archiveBlockedIds.forEach { add(it); add("app:$it") }
+        policy.archiveBlockedUris.forEach { add(it); add("uri:$it") }
         // Current addresses may be used again only after the addressed resolver
         // has checked the actual file-stat. Keep all other historical aliases retired.
         for(receipt in policy.snapshot.receipts.filter { it.direction==VisibilityDirection.SHOW }) {
@@ -84,6 +92,11 @@ internal data class FolderVisibilityLibraryGuard(
             remove(uri);remove("uri:$uri")
             removeAll(com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(uri))
         }
+        // Never let an unrelated legacy SHOW receipt un-block a current
+        // selective Archive journal's exact original URI or catalogue ID.
+        addAll(policy.archiveBlockedAliases)
+        policy.archiveBlockedIds.forEach { add(it); add("app:$it") }
+        policy.archiveBlockedUris.forEach { add(it); add("uri:$it") }
         assignments.filter { it.folderId in policy.excludedFolders }.forEach { add(it.downloadId); add("app:${it.downloadId}") }
         external.filter { policy.isExcluded(it.ref.key,it.folderId,it.ref.item.savedUri) }.forEach { entry ->
             add(entry.ref.key); addAll(entry.ref.aliases); entry.ref.item.savedUri?.let { add(it); add("uri:$it") }

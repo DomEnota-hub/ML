@@ -68,17 +68,26 @@ class InstagramProvider(
             val publicItems = extractEmbeddedMedia(page, code).ifEmpty {
                 listOfNotNull(mediaFromMeta(page, code))
             }
-            if (publicItems.isNotEmpty()) {
-                AppLog.verbose("Instagram", "Caption source · path=public-page · fallback=${publicItems.any(::isUnnamedVisual)}")
-                return enrichMissingCaption(publicItems, link)
+            // A Reel page often exposes its poster via og:image while withholding
+            // the actual video. Never offer the poster as the requested Reel.
+            // A Reel's poster alone is not a downloadable video. However, when
+            // the page has a real video, retain the original publication music
+            // alongside it; stripping audio creates a duplicate MP4 audio proxy.
+            val verifiedItems = if (link.type == InstagramLinkType.REEL &&
+                publicItems.none { it.type == MediaType.VIDEO }) emptyList() else publicItems
+            if (verifiedItems.isNotEmpty()) {
+                AppLog.verbose("Instagram", "Caption source · path=public-page · fallback=${verifiedItems.any(::isUnnamedVisual)}")
+                return enrichMissingCaption(verifiedItems, link)
             }
         }
         val embedPage = attempt({ pageSource(link.embedUrl()) }) { loginWall = true }
         if (embedPage != null) {
-            extractEmbedMedia(embedPage, code)?.let {
-                AppLog.verbose("Instagram", "Caption source · path=embed · fallback=${isUnnamedVisual(it)}")
-                return enrichMissingCaption(listOf(it), link, embedPage)
-            }
+            extractEmbedMedia(embedPage, code)
+                ?.takeUnless { link.type == InstagramLinkType.REEL && it.type != MediaType.VIDEO }
+                ?.let {
+                    AppLog.verbose("Instagram", "Caption source · path=embed · fallback=${isUnnamedVisual(it)}")
+                    return enrichMissingCaption(listOf(it), link, embedPage)
+                }
         }
         // 2) Public access failed: use the saved session if the user already signed in.
         val session = cookies()?.takeIf { it.isNotBlank() }

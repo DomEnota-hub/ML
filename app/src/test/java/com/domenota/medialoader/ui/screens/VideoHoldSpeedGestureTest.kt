@@ -2,6 +2,7 @@ package com.domenota.medialoader.ui.screens
 
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -88,4 +89,70 @@ class VideoHoldSpeedGestureTest {
         compose.mainClock.advanceTimeBy(400)
         compose.runOnIdle { assertFalse(events.contains("boost")); assertFalse(events.contains("restore")) }
     }
+    private fun setupDragAndHoldOnSameCanvas() {
+        var holding = false
+        compose.setContent {
+            if (enabled.value) Box(Modifier.size(320.dp,240.dp).testTag("video-canvas")
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDrag = { change, movement ->
+                            if (!holding && kotlin.math.abs(movement.x) > 0f) {
+                                events += "scrub"
+                                change.consume()
+                            }
+                        },
+                    )
+                }
+                .pointerInput(Unit) {
+                    detectVideoCanvasTaps(
+                        onTap = { events += "tap" },
+                        onDoubleTap = { events += "double" },
+                        onHoldStart = {
+                            holding = true
+                            events += "boost"
+                            true
+                        },
+                        onHoldEnd = {
+                            holding = false
+                            events += "restore"
+                        },
+                    )
+                })
+        }
+        compose.waitForIdle()
+    }
+
+    @Test fun immediateHorizontalDragWinsAgainstDelayedHoldEvenWhenFingerStops() {
+        setupDragAndHoldOnSameCanvas()
+        compose.onNodeWithTag("video-canvas").performTouchInput {
+            down(Offset(width * .8f,height * .7f))
+            moveBy(Offset(-75f,0f))
+            advanceEventTime(550)
+            up()
+        }
+        compose.mainClock.advanceTimeBy(500)
+        compose.runOnIdle {
+            assertTrue("Horizontal seek must receive drag input",events.contains("scrub"))
+            assertFalse("A stopped drag cannot turn into speed boost",events.contains("boost"))
+            assertFalse(events.contains("restore"))
+        }
+    }
+
+    @Test fun activeHoldKeepsBoostWhenFingerMovesWithoutStartingSeek() {
+        setupDragAndHoldOnSameCanvas()
+        compose.onNodeWithTag("video-canvas").performTouchInput {
+            down(Offset(width * .8f,height * .7f))
+            advanceEventTime(510)
+            moveBy(Offset(-75f,0f))
+            advanceEventTime(110)
+            up()
+        }
+        compose.mainClock.advanceTimeBy(500)
+        compose.runOnIdle {
+            assertEquals("Boost must be restored exactly once",1,events.count { it=="boost" })
+            assertEquals(1,events.count { it=="restore" })
+            assertFalse("A held speed may not scrub",events.contains("scrub"))
+        }
+    }
+
 }

@@ -5,6 +5,9 @@ internal enum class NomediaMarkerState {
     PENDING_HIDE, PENDING_SHOW, OWN_MARKER, FOREIGN_MARKER, NO_MARKER, FAILED
 }
 
+/** Old records default to SAF. Direct access is opt-in only when all-files access is granted. */
+internal enum class NomediaAccessMode { SAF, MANAGED_LOCAL }
+
 internal data class NomediaFolderRecord(
     val folderId: String,
     val treeUri: String,
@@ -13,10 +16,15 @@ internal data class NomediaFolderRecord(
     val ownedDocumentId: String? = null,
     val errorCode: String? = null,
     val updatedAt: Long = 0L,
+    val accessMode: NomediaAccessMode = NomediaAccessMode.SAF,
+    val ownedMarkerBytes: Long = 0L,
 ) {
     init {
         require(folderId.isNotBlank() && treeUri.isNotBlank())
         require(ownedDocumentId == null || ownedDocumentId.isNotBlank())
+        require(ownedMarkerBytes >= 0)
+        require(ownedDocumentId != null || ownedMarkerBytes == 0L)
+        require(accessMode != NomediaAccessMode.SAF || ownedMarkerBytes == 0L)
         require(errorCode == null || (errorCode.length <= 64 && errorCode.all { it.isUpperCase() || it.isDigit() || it == '_' }))
     }
     /** A crash between durable intent and marker handling must not expose a folder in ML. */
@@ -55,7 +63,8 @@ internal class NomediaFolderEngine(
     private val port: NomediaMarkerPort,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    suspend fun hide(folderId: String, treeUri: String): NomediaFolderRecord {
+    suspend fun hide(folderId: String, treeUri: String,
+        accessMode: NomediaAccessMode = NomediaAccessMode.SAF): NomediaFolderRecord {
         require(folderId.isNotBlank() && treeUri.isNotBlank())
         val previous = store.snapshot()
         check(!previous.unknown) { "Реестр скрытия повреждён. Действие заблокировано" }
@@ -71,18 +80,24 @@ internal class NomediaFolderEngine(
         // A previously owned marker may never be silently adopted from another tree.
         check(old?.ownedDocumentId == null) { "Ранее созданный маркер требует проверки" }
         val existing = port.inspect(treeUri) // permission and tree preflight, no changes
-        val pending = NomediaFolderRecord(folderId,treeUri,true,NomediaMarkerState.PENDING_HIDE,updatedAt=clock())
+        val pending = NomediaFolderRecord(folderId,treeUri,true,NomediaMarkerState.PENDING_HIDE,
+            updatedAt=clock(),accessMode=accessMode)
         store.write(pending)
         return try {
             val appeared = if (existing == null) port.inspect(treeUri) else existing
             val created = if (appeared == null) port.createEmpty(treeUri) else null
             val verified = existing ?: appeared ?: checkNotNull(created)
-            if (created != null) check(verified.bytes == 0L) { "Созданный маркер не является пустым" }
+            if (created != null) check(verified.bytes == 0L ||
+                (accessMode == NomediaAccessMode.MANAGED_LOCAL &&
+                    verified.documentId.startsWith("ml-archive-v1:"))) {
+                "Неизвестный формат созданного маркера"
+            }
             // If it appeared during inspection it is foreign, not ours.
             val createdByUs = created != null
             val result = pending.copy(
                 markerState = if (createdByUs) NomediaMarkerState.OWN_MARKER else NomediaMarkerState.FOREIGN_MARKER,
-                ownedDocumentId = if (createdByUs) verified.documentId else null,updatedAt=clock())
+                ownedDocumentId = if (createdByUs) verified.documentId else null,
+                ownedMarkerBytes = if (createdByUs) verified.bytes else 0L,updatedAt=clock())
             store.write(result)
             result
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
@@ -104,13 +119,14 @@ internal class NomediaFolderEngine(
         val current=checkNotNull(snapshot.folders[folderId]) { "Папка не найдена" }
         val observed=port.inspect(current.treeUri)
         val owned=current.ownedDocumentId
-        check(owned==null || observed==null || (observed.documentId==owned && observed.bytes==0L)) {
+        check(owned==null || observed==null ||
+            (observed.documentId==owned && observed.bytes==current.ownedMarkerBytes)) {
             "Контрольная точка не совпадает с маркером"
         }
         val result = when {
             owned!=null && observed!=null -> current.copy(mlHidden=true,
                 markerState=NomediaMarkerState.OWN_MARKER,errorCode=null,updatedAt=clock())
-            owned!=null -> current.copy(mlHidden=false,ownedDocumentId=null,
+            owned!=null -> current.copy(mlHidden=false,ownedDocumentId=null,ownedMarkerBytes=0L,
                 markerState=NomediaMarkerState.NO_MARKER,errorCode=null,updatedAt=clock())
             observed!=null -> current.copy(mlHidden=current.mlHidden,
                 markerState=NomediaMarkerState.FOREIGN_MARKER,errorCode=null,updatedAt=clock())
@@ -131,7 +147,8 @@ internal class NomediaFolderEngine(
         }
         val observed = port.inspect(current.treeUri)
         if(current.ownedDocumentId != null) {
-            check(observed?.documentId == current.ownedDocumentId && observed.bytes == 0L) {
+            check(observed?.documentId == current.ownedDocumentId &&
+                observed.bytes == current.ownedMarkerBytes) {
                 "Служебный маркер изменён. Удаление запрещено"
             }
         }
@@ -145,7 +162,7 @@ internal class NomediaFolderEngine(
             check(current.ownedDocumentId == null || after == null) {
                 "Маркер остался после запроса удаления"
             }
-            val result = pending.copy(mlHidden=false,ownedDocumentId=null,
+            val result = pending.copy(mlHidden=false,ownedDocumentId=null,ownedMarkerBytes=0L,
                 markerState=if(after != null) NomediaMarkerState.FOREIGN_MARKER else NomediaMarkerState.NO_MARKER,
                 updatedAt=clock())
             store.write(result)

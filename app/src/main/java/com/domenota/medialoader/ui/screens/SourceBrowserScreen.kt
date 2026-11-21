@@ -78,7 +78,7 @@ enum class BrowserSource(val id: String, val title: String, val startUrl: String
         val host = uri.host?.lowercase() ?: return false
         val domains = when (this) {
             INSTAGRAM -> listOf("instagram.com")
-            YOUTUBE -> listOf("youtube.com")
+            YOUTUBE -> listOf("youtube.com", "youtu.be")
             VK -> listOf("vk.com", "vk.ru", "vkvideo.ru")
             RUTUBE -> listOf("rutube.ru")
         }

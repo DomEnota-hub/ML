@@ -95,6 +95,10 @@ internal fun MusicModeScreen(
     val tab = tabOverride ?: localTab
     fun selectTab(value: Int) { localTab = value; onTabChange(value) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    // A small, transient selection. Never serialize 3000+ IDs in SavedState.
+    // The public library is revalidated by the root collection action.
+    var selectedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
     var frequentOpen by rememberSaveable { mutableStateOf(false) }
     var smartPage by rememberSaveable { mutableStateOf<SmartMusicPage?>(null) }
     var resumeOpen by rememberSaveable { mutableStateOf(false) }
@@ -432,6 +436,22 @@ internal fun MusicModeScreen(
         }
     }
     val displayedIds=browseRows.value.displayedIds
+    val selectableIds=remember(browseRows.value,tab) {
+        if(tab==0) displayed.mapTo(mutableSetOf()) { it.id }
+        else displayedIds.filterTo(mutableSetOf()) { it in available }
+    }
+    val selectedPublicIds=selectedTrackIds.intersect(selectableIds)
+    LaunchedEffect(tab,selectedId) { selectedTrackIds=emptySet() }
+    // A background scan or privacy revocation can remove a track mid-selection.
+    // Revalidate synchronously at the actual action as well as in the UI.
+    LaunchedEffect(selectableIds) {
+        val retained=selectedTrackIds.intersect(selectableIds)
+        if(retained!=selectedTrackIds)selectedTrackIds=retained
+    }
+    fun toggleTrackSelection(id:String) {
+        if(id in selectableIds) selectedTrackIds=if(id in selectedTrackIds) selectedTrackIds-id
+            else selectedTrackIds+id
+    }
     val queue=browseRows.value.queue
     fun preview(id: String) {
         if (playlist != null && onPreviewFromPlaylist != null) onPreviewFromPlaylist(id,queue,playlist.id)
@@ -466,6 +486,7 @@ internal fun MusicModeScreen(
             onToggleVisibility={val exclude=folder !in excludedFolders;excludedFolders=if(exclude)excludedFolders+folder else excludedFolders-folder;folderPrefs.edit().putStringSet("excluded",excludedFolders).apply()},
             onPlay={shuffle->if(folderIds.isNotEmpty()){if(onFolderPlay!=null)onFolderPlay(folderIds,shuffle) else {val order=if(shuffle)folderIds.shuffled() else folderIds;(onPreview?:onOpen)(order.first(),order)}}},
             onPreview={id->(onPreview?:onOpen)(id,folderIds)},
+            onAddCollection=onAddCollection,
             actions={track->val id=track.id;MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},{onOpen(id,folderIds)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,MusicTrackVisibility.hidden(track,hiddenTrackKeys),{toggleHidden(track)},
                 favorite=id in favoriteIds,onFavorite=onFavorite?.let{action->{mutate{action(id,id !in favoriteIds)}}},onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})})
     } else if(resumeOpen&&onResumeSelection!=null) {
@@ -502,6 +523,8 @@ internal fun MusicModeScreen(
                     if (searchVisible != false && playlist == null) OutlinedTextField(search, { search = it },
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp), singleLine = true,
                         label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
+                    if (searchVisible == true && playlist == null && onOpenDuplicates != null && onTrashDuplicates != null)
+                        DuplicateSearchShortcut(::openDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     if (tab == 0) BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
                         val wide = !listeningEnabled || maxWidth >= 480.dp
                         Row(Modifier.fillMaxWidth(),verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -533,10 +556,6 @@ internal fun MusicModeScreen(
                                 Icon(Icons.Rounded.Sort, contentDescription = "Сортировка треков")
                             }
                             DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                                if (onTrashDuplicates != null) {
-                                    DropdownMenuItem(text = { Text("Найти дубликаты") }, onClick = { sortMenu = false; openDuplicates() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                                    HorizontalDivider()
-                                }
                                 MusicLibrarySort.entries.forEach { option ->
                                     DropdownMenuItem(text = { Text(musicSortLabel(option), color = if (sort == option) com.domenota.medialoader.ui.theme.musicPlaybackAccent else MaterialTheme.colorScheme.onSurface) },
                                         onClick = { sort = option; sortMenu = false })
@@ -674,7 +693,12 @@ internal fun MusicModeScreen(
                         }
                         items(records, key = { it.id }) { track ->
                             val id = track.id
-                            MusicLibraryTrackRow(track, { preview(id) }, id == currentPlayingId, playing) {
+                            MusicLibraryTrackRow(track, { if(selectedPublicIds.isNotEmpty()) toggleTrackSelection(id) else preview(id) },
+                                id == currentPlayingId, playing,
+                                selectionMode=selectedPublicIds.isNotEmpty(),
+                                selected=id in selectedPublicIds,
+                                onArtworkLongPress={ toggleTrackSelection(id) },
+                                onToggleSelection={ toggleTrackSelection(id) }) {
                                 MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } },
                                     { openTrack(id) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
                                     null, null, null, MusicTrackVisibility.hidden(track, hiddenTrackKeys), { toggleHidden(track) },
@@ -686,7 +710,11 @@ internal fun MusicModeScreen(
                     val track = available[id] ?: browse.value.byId[id]
                     if (track == null && playlist != null) UnavailablePlaylistTrackRow((browseRows.value.ordinals[id] ?: 0) + 1) {
                         mutate { onRemoveTrack(playlist.id, id) }
-                    } else if (track != null) MusicLibraryTrackRow(track, { preview(id) }, id == currentPlayingId, playing) {
+                    } else if (track != null) MusicLibraryTrackRow(track,
+                        { if(selectedPublicIds.isNotEmpty()) toggleTrackSelection(id) else preview(id) },
+                        id == currentPlayingId, playing,
+                        selectionMode=selectedPublicIds.isNotEmpty(), selected=id in selectedPublicIds,
+                        onArtworkLongPress={toggleTrackSelection(id)}, onToggleSelection={toggleTrackSelection(id)}) {
                         MusicTrackActions(track, onEnqueue?.let { action -> { next -> action(id, next) } }, { openTrack(id) }, { addTrack = id }, { onShare(id) }, { onDeleteFile(id) },
                             playlist?.let { entry -> { mutate { onRemoveTrack(entry.id, id) } } },
                             playlist?.takeIf { (browseRows.value.ordinals[id] ?: 0) > 0 }?.let { entry -> { mutate { onMoveTrack(entry.id, id, -1) } } },
@@ -698,7 +726,35 @@ internal fun MusicModeScreen(
         }
         if (tab == 0 || playlist != null) MusicFastScroll(listState, fastLabels, Modifier.align(Alignment.CenterEnd))
         }
-        if (tabOverride == null && playlist == null) LibraryBottomSwitcher(AppMode.MUSIC, tab, ::selectTab)
+        if (selectedPublicIds.isNotEmpty()) {
+            Surface(Modifier.fillMaxWidth().testTag("music-selection-bottom"),
+                tonalElevation = 5.dp, color = MaterialTheme.colorScheme.surfaceContainer) {
+                Row(Modifier.fillMaxWidth().padding(horizontal=12.dp, vertical=7.dp),
+                    verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Text("Выбрано: ${selectedPublicIds.size}",
+                        Modifier.weight(1f),fontWeight=FontWeight.SemiBold)
+                    OutlinedButton(onClick={
+                        // No stale ID or hidden row can reach the collection picker.
+                        val confirmed=selectedTrackIds.intersect(selectableIds).toList()
+                        if(confirmed.isNotEmpty() && onAddCollection!=null) {
+                            onAddCollection(confirmed)
+                            selectedTrackIds=emptySet()
+                        }
+                    },enabled=onAddCollection!=null,
+                        modifier=Modifier.testTag("music-selected-collection")) {
+                        Icon(Icons.Rounded.CollectionsBookmark,null,Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Коллекция")
+                    }
+                    IconButton({ selectedTrackIds=emptySet() }) {
+                        Icon(Icons.Rounded.Close,"Отменить выбор")
+                    }
+                }
+            }
+        }
+        if (tabOverride == null && playlist == null && selectedPublicIds.isEmpty())
+            LibraryBottomSwitcher(AppMode.MUSIC, tab, ::selectTab)
     }
     if (creating) LibraryNameDialog("Новый плейлист", "", { creating = false }) { name -> selectedId = onCreate(name); selectTab(1); creating = false }
     renameTarget?.let { target -> LibraryNameDialog("Переименовать плейлист", target.name, { renameTarget = null }) {

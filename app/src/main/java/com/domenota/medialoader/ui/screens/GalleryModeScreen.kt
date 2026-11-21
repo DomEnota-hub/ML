@@ -88,6 +88,13 @@ internal fun GalleryModeScreen(
     onShareFromAlbum: ((String,String?) -> Unit)? = null,
     preparedBrowse: BackgroundLibraryValue<GalleryBrowseInventory>? = null,
     preparedBrowseAccess: Any? = null,
+    onOpenDuplicates: (() -> Unit)? = null,
+    archiveRecovery:List<com.domenota.medialoader.data.catalog.visibility.SelectiveArchiveQaEntry> = emptyList(),
+    archiveBusy:Boolean=false,
+    archiveError:String?=null,
+    onArchiveRefresh:(()->Unit)?=null,
+    onArchivePreview:((String)->Unit)?=null,
+    onArchiveRestore:((String)->Unit)?=null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -102,6 +109,7 @@ internal fun GalleryModeScreen(
     }
     var deletingAlbum by remember(source) { mutableStateOf<GalleryAlbum?>(null) }
     var otherAlbumsExpanded by rememberSaveable(source.name) { mutableStateOf(false) }
+    var archiveOpen by rememberSaveable(source.name) { mutableStateOf(false) }
     var search by rememberSaveable(source.name) { mutableStateOf("") }
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var selection by rememberSaveable(source.name) { mutableStateOf("all") }
@@ -140,6 +148,7 @@ internal fun GalleryModeScreen(
     var jumpToMedia by remember { mutableStateOf<String?>(null) }
     var highlightedMedia by remember { mutableStateOf<String?>(null) }
     BackHandler(detailOpen || tab != 0) { if (detailOpen) closeAlbum() else selectTab(0) }
+    BackHandler(archiveOpen) { archiveOpen = false }
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     // Multi-select can include the entire phone library. Keep large IDs in
     // transient screen state instead of serializing them into Android Bundles.
@@ -323,7 +332,22 @@ internal fun GalleryModeScreen(
             }
         }
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    val archiveCandidates=remember(folders,assignments) {
+        val counts=assignments.groupingBy { it.folderId }.eachCount()
+        folders.map { ArchiveQaFolder(it.id,it.name,counts[it.id] ?: 0) }
+            .filter { it.count>0 }
+    }
+    if (archiveOpen) ArchiveOverviewScreen(
+        knownHiddenFolders=hiddenFolderIds.size,
+        onClose={ archiveOpen=false },
+        onOpenFolders={ archiveOpen=false; selectTab(1) },
+        candidates=archiveCandidates,
+        recovery=archiveRecovery,
+        busy=archiveBusy,error=archiveError,
+        onRefresh=onArchiveRefresh,
+        onPreview=onArchivePreview,
+        onRestore=onArchiveRestore,
+    ) else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (selecting) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -486,11 +510,33 @@ internal fun GalleryModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
                         leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                    if (searchVisible == true && !detailOpen && onOpenDuplicates != null)
+                        DuplicateSearchShortcut(onOpenDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading || (tab==0 && !gridReady), message, settingsError ?: error,
                         tab == 0 && gridReady && visibleDisplayed.isEmpty(), "Нет фото и видео") }
                 }
             }
             if (tab == 1) {
+                if (source==LibrarySource.APP) item(key="archive-entry",span={GridItemSpan(maxLineSpan)}) {
+                    Surface(onClick={ archiveOpen=true },
+                        modifier=Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=8.dp)
+                            .testTag("gallery-archive-entry"),
+                        shape=RoundedCornerShape(16.dp),
+                        color=MaterialTheme.colorScheme.surfaceContainer) {
+                        Row(Modifier.fillMaxWidth().padding(15.dp),
+                            verticalAlignment=Alignment.CenterVertically,
+                            horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                            Icon(Icons.Rounded.Archive,"Архив",Modifier.size(28.dp),
+                                tint=MaterialTheme.colorScheme.primary)
+                            Column(Modifier.weight(1f)) {
+                                Text("Архив",fontWeight=FontWeight.SemiBold)
+                                Text("Папки и выбранные файлы",fontSize=12.sp,
+                                    color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(Icons.Rounded.ChevronRight,null)
+                        }
+                    }
+                }
                 if(collectionContent!=null)item(key="collections",span={GridItemSpan(maxLineSpan)}){collectionContent()}
                 item(key = "quick-title", span = { GridItemSpan(maxLineSpan) }) { GallerySectionTitle("Быстрый доступ") }
                 itemsIndexed(defaultQuickItems, key = { _, shortcut -> "quick:${shortcut.key}" },

@@ -50,6 +50,28 @@ class InstagramProviderTest {
         }
     }
 
+    @Test fun reelPosterOnlyDefersToConfirmedEmbedVideo() = runBlocking {
+        val requests = mutableListOf<String>()
+        val provider = InstagramProvider { url ->
+            requests += url
+            if (url.endsWith("/embed/captioned/"))
+                """<script>{"video_url":"https://scontent.fbcdn.net/real.mp4"}</script>"""
+            else """<meta property="og:image" content="https://scontent.fbcdn.net/cover.jpg">"""
+        }
+        val result = provider.resolve("https://www.instagram.com/reel/Ab_12-z/")
+        assertEquals(listOf(MediaType.VIDEO), result.map { it.type })
+        assertEquals("https://scontent.fbcdn.net/real.mp4", result.single().downloadUrl)
+        assertEquals(2, requests.size)
+    }
+
+    @Test fun reelPosterWithoutVideoRequiresAccessInsteadOfOfferingPhoto() {
+        val onlyPoster = """<meta property="og:image" content="https://scontent.fbcdn.net/cover.jpg">"""
+        val error = expectProviderError {
+            InstagramProvider { onlyPoster }.resolve("https://www.instagram.com/reel/Ab_12-z/")
+        }
+        assertEquals(ProviderException.Reason.ACCESS_REQUIRED, error.reason)
+    }
+
     @Test fun postAndTvKeepTheirOwnPages() {
         runBlocking {
             val requested = mutableListOf<String>()
