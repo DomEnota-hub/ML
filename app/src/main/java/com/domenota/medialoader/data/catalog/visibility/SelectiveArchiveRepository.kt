@@ -68,7 +68,17 @@ internal class SelectiveArchiveRepository(
     private suspend fun refreshPrivacyLocked():SelectiveArchivePrivacySnapshot =
         withContext(Dispatchers.IO) {
             val verified=runCatching {
-                val entries=checkpoints.listAll().flatMap { checkpoint ->
+                val saved=checkpoints.listAll()
+                val expectedKeys=saved.flatMap { checkpoint ->
+                    checkpoint.originals.map { journal.memberKey(checkpoint.folderId,it.catalogId) }
+                }.toSet()
+                val durableKeys=journal.durableKeys()
+                // Missing or orphaned mutation phases are not harmless.
+                // Orphans mean a checkpoint may have disappeared after a move.
+                check(durableKeys.all(expectedKeys::contains)) {
+                    "Существует журнал Архива без подтверждённой контрольной точки"
+                }
+                val entries=saved.flatMap { checkpoint ->
                     checkpoint.originals.map { original ->
                         original to journal.read(checkpoint.folderId,original.catalogId)?.phase
                     }
