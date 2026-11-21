@@ -86,7 +86,7 @@ class SelectiveArchiveCheckpointStoreTest {
         assertEquals(listOf(proof),store.listAll())
     }
 
-    @Test fun unknownArchiveProofFailsClosedInsteadOfReportingEmpty()=runBlocking {
+    @Test fun unknownArchiveProofFailsClosedInsteadOfReportingEmpty()=runBlocking<Unit> {
         val dir=temp.newFolder("archive-unknown")
         val store=SelectiveArchiveCheckpointStore(dir)
         File(dir,"unexpected.binding").writeText("untrusted")
@@ -95,7 +95,7 @@ class SelectiveArchiveCheckpointStoreTest {
         }
     }
 
-    @Test fun checksumTamperingPreventsEnumeratingDurableArchive()=runBlocking {
+    @Test fun checksumTamperingPreventsEnumeratingDurableArchive()=runBlocking<Unit> {
         val dir=temp.newFolder("archive-bad-hash")
         val store=SelectiveArchiveCheckpointStore(dir)
         store.prepare("safety-folder",identities(),selected,physical) { 1_700_000_000_000L }
