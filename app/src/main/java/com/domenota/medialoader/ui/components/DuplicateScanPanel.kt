@@ -66,7 +66,7 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                 Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically,
                     horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(title,Modifier.weight(1f,fill=false),style=MaterialTheme.typography.headlineSmall)
-                    if(onClear!=null)IconButton(onClear,modifier=Modifier.size(40.dp),
+                    if(onClear!=null)IconButton(onClear,modifier=Modifier.size(48.dp),
                         enabled=clearEnabled&&(rows.isNotEmpty()||partial!=null)){
                         Icon(Icons.Rounded.DeleteOutline,"Очистить журнал",Modifier.size(23.dp))
                     }
@@ -79,7 +79,7 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                     partial.mode?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(partial.at)))
                     Text("Групп: ${partial.groups} · файлов: ${partial.files}")
-                    Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){
                         TextButton(onResume,enabled=resumeEnabled){Text("Продолжить")}
                         onPartial?.let{TextButton(it){Text("Результаты")}}
                     }
@@ -105,7 +105,7 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                 }}
             }
                 }
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center) {
                     TextButton(onDismiss){Text("Закрыть")}
                 }
             }
