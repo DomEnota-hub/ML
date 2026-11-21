@@ -71,4 +71,20 @@ class SimpleArchiveStoreTest {
         assertEquals("original", file.readText())
         file.delete()
     }
+
+    @Test fun incompleteFirstWriteIsNotTreatedAsEmptyOrOverwritten() = runBlocking<Unit> {
+        val unfinished = File(index.path + ".new").apply { writeText("unfinished") }
+        val before = unfinished.readBytes()
+        val media = File(context.cacheDir, "archive-unfinished-test.jpg").apply { writeText("original") }
+        try {
+            val store = SimpleArchiveStore(context)
+            assertThrows(IOException::class.java) { runBlocking { store.refresh() } }
+            assertThrows(IOException::class.java) {
+                runBlocking { store.archive(listOf(row("normal", media, MediaType.PHOTO)), ArchiveEntrySource.GALLERY) }
+            }
+            assertArrayEquals(before, unfinished.readBytes())
+            assertEquals("original", media.readText())
+            assertFalse(index.exists())
+        } finally { media.delete() }
+    }
 }
