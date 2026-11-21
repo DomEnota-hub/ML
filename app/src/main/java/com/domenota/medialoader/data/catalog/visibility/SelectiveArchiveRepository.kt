@@ -44,7 +44,13 @@ internal class SelectiveArchiveRepository(
                     "Для выборочного архива нужен доступ к файлам Android"
                 }
                 val cp=checkpoints.read(plan.folderId) ?: prepare(plan)
-                check(cp.folderId==plan.folderId)
+                // Never replay a saved plan for a collection whose membership
+                // or selected physical originals have changed in the meantime.
+                val assigned=db.catalogDao().memberIds(plan.folderId)
+                check(selectiveArchivePlanMatches(cp,plan.folderId,assigned,plan.expected) &&
+                    cp.originals.all { nomediaSuggestedTree(it.volume,it.relativePath)==plan.treeUri }) {
+                    "Выбранная коллекция изменилась после создания контрольной точки. Перенос остановлен"
+                }
                 val completed=mutableListOf<SelectiveArchiveMoveReceipt>()
                 try {
                     for(original in cp.originals) {
@@ -90,9 +96,20 @@ internal class SelectiveArchiveRepository(
                 val checkpoint=checkNotNull(checkpoints.read(folderId)) {
                     "Сохранённая точка выборочного архива не найдена"
                 }
+                // Validate COMPLETE journal coverage before restoring any file.
+                // A missing member receipt is an unknown batch state, never a
+                // successful partial restore.
+                val receipts=checkpoint.originals.map { original ->
+                    checkNotNull(journal.read(folderId,original.catalogId)) {
+                        "Нет записи журнала для выбранного файла. Восстановление всей подборки остановлено"
+                    }
+                }
+                check(receipts.size==checkpoint.originals.size &&
+                    receipts.all { it.folderId==folderId }) {
+                    "Неполный или изменённый журнал выборочного архива"
+                }
                 val result=mutableListOf<SelectiveArchiveMoveReceipt>()
                 for(original in checkpoint.originals) {
-                    val record=journal.read(folderId,original.catalogId) ?: continue
                     val restored=engine.restore(checkpoint,original)
                     result+=restored
                     // Cleanup is best-effort only AFTER successful identity,
