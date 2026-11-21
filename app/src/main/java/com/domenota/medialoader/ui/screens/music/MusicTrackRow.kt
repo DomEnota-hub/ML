@@ -4,6 +4,7 @@ import com.domenota.medialoader.ui.model.displayAudioTitle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,7 +15,7 @@ import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.draw.border
+import androidx.compose.foundation.border
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +35,7 @@ import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.ui.screens.audioArtist
 import com.domenota.medialoader.ui.screens.audioTitle
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun MusicLibraryTrackRow(track: DownloadEntity, onPlay: () -> Unit, isCurrent: Boolean = false,
                                   isPlaying: Boolean = false, rank: Int? = null, listeningCount: Long? = null,
