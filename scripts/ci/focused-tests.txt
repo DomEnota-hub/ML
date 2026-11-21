@@ -19,3 +19,4 @@ com.domenota.medialoader.ui.screens.music.DuplicateTrashHostRegressionTest
 com.domenota.medialoader.data.archive.SimpleArchivePolicyTest
 com.domenota.medialoader.data.archive.SimpleArchiveStoreTest
 com.domenota.medialoader.ui.screens.gallery.GalleryVideoChromeTest
+com.domenota.medialoader.data.library.AudioPairAlignmentTest
