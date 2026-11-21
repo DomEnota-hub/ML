@@ -6287,6 +6287,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.search.MusicOriginPolicyTest#exactBrandAndSupportedSuffixOnly": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.search.MusicOriginPolicyTest#identityContinuityRequiresPermanentHttpsRedirectToSameBrand": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.search.MusicOriginPolicyTest#onlyMainFrameActiveSearchMissingTriggersRecovery": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.search.MusicOriginPolicyTest#privateAndReservedAddressesAreRejected": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.search.MusicOriginPolicyTest#searchResultsDoNotAcceptForeignHostsOrAdRedirects": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.search.MusicSourcePolicyTest#automaticModeDoesNotCancelQueuedDownloadsWhenChangingModes": {
     "skipped": false,
     "failed": false
