@@ -7,6 +7,9 @@ import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.ensureActive
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.clip
 import com.domenota.medialoader.core.model.RussianCounts
@@ -566,122 +569,250 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     })
 }
 
+private data class PairAnalysis(
+    val first:List<ComparisonFrame>, val second:List<ComparisonFrame>,
+    val aligned:AlignedAudioComparison?,
+)
+private data class PairMediaKey(val id:String,val uri:String,val bytes:Long,val modified:Long?,
+    val sha:String,val epoch:Long)
+private fun DuplicateTrack.pairKey()=PairMediaKey(id,uri,bytes,modified,sha,privacyEpoch)
+private fun pairTime(ms:Long):String="%d:%02d.%01d".format(ms/60000,ms/1000%60,ms%1000/100)
+
 @OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewId:String?,playing:Boolean,player:ExoPlayer,
     onPlay:(DuplicateTrack,Long?)->Unit,onKeep:(String)->Unit,onClose:()->Unit){
     val context=LocalContext.current
-    var active by remember(group.key){mutableStateOf(group.tracks.first().id)}
-    val track=group.tracks.first{it.id==active}
-    var position by remember{mutableLongStateOf(0)}
-    val reference=group.tracks.first()
+    var referenceId by remember(group.key){mutableStateOf(group.tracks.first().id)}
     var targetId by remember(group.key){mutableStateOf(group.tracks[1].id)}
+    var active by remember(group.key){mutableStateOf(group.tracks.first().id)}
+    val reference=group.tracks.first{it.id==referenceId}
     val target=group.tracks.first{it.id==targetId}
-    var referenceWaveform by remember(group.key,reference.id){mutableStateOf<FloatArray?>(null)}
-    var targetWaveform by remember(group.key,targetId){mutableStateOf<FloatArray?>(null)}
-    var evidence by remember(targetId){mutableStateOf<AcousticAlignment?>(null)}
-    fun choose(t:DuplicateTrack){active=t.id;if(t.id!=reference.id)targetId=t.id;onPlay(t,0L)}
-    suspend fun verifiedWaveform(t:DuplicateTrack):FloatArray=withContext(Dispatchers.IO) {
-        if(!DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id))return@withContext FloatArray(0)
+    val track=group.tracks.first{it.id==active}
+    val step=AudioPairAlignment.stepMs(reference.duration,target.duration)
+    val identity=Triple(reference.pairKey(),target.pairKey(),step)
+    // Session-local, bounded and identity-bound. No comparison PCM persisted.
+    val cache=remember(group.key){LinkedHashMap<Triple<PairMediaKey,PairMediaKey,Long>,PairAnalysis>(4,.75f,true)}
+    var analysis by remember(identity){mutableStateOf<PairAnalysis?>(null)}
+    var failed by remember(identity){mutableStateOf(false)}
+    var zoneIndex by remember(identity){mutableIntStateOf(-1)}
+    var position by remember{mutableLongStateOf(0L)}
+    val latestOnPlay by rememberUpdatedState(onPlay)
+    fun allowed(t:DuplicateTrack)=DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id)
+    fun choose(t:DuplicateTrack){
+        active=t.id
+        if(t.id!=referenceId)targetId=t.id
+    }
+    fun makeReference(t:DuplicateTrack){
+        if(t.id==referenceId)return
+        val old=referenceId
+        referenceId=t.id
+        if(targetId==t.id)targetId=old
+        active=t.id
+    }
+    LaunchedEffect(identity){
         try {
-            val uri=Uri.parse(t.uri)
-            val duration=runCatching{
-                val retriever=android.media.MediaMetadataRetriever()
-                try{retriever.setDataSource(context,uri)
-                    retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()}
-                finally{retriever.release()}
-            }.getOrNull()?.takeIf{it>0}?:t.duration?.takeIf{it>0}
-            if(duration==null)return@withContext FloatArray(0)
-            // Use the same PCM RMS v6 cache and cancellation guard as the
-            // audio editor; packet sizes are NOT comparable audio loudness.
-            val job=kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
-            val cached=com.domenota.medialoader.ui.components.readCachedAudioWaveform(context,uri,duration)
-            val peaks=cached?:loadAudioWaveform(context,uri,duration,isCancelled={job?.isActive==false})
-            if(peaks.isEmpty()||!DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id))FloatArray(0)
-            else com.domenota.medialoader.ui.components.waveformColumnPeaks(peaks,256)
-        } catch(e:CancellationException){throw e} catch(_:Exception){FloatArray(0)}
+            if(!allowed(reference)||!allowed(target)){failed=true;return@LaunchedEffect}
+            val cached=cache[identity]
+            val value=cached?:withContext(Dispatchers.IO){
+                val first=AcousticAudioDecoder.comparisonFrames(context,Uri.parse(reference.uri),step)
+                    ?:return@withContext null
+                val second=AcousticAudioDecoder.comparisonFrames(context,Uri.parse(target.uri),step)
+                    ?:return@withContext null
+                val aligned=withContext(Dispatchers.Default){
+                    val job=kotlin.coroutines.coroutineContext
+                    AudioPairAlignment.align(first,second,step){job.ensureActive()}
+                }
+                PairAnalysis(first,second,aligned)
+            }
+            if(value==null||!allowed(reference)||!allowed(target)){failed=true;return@LaunchedEffect}
+            if(cached==null){
+                cache[identity]=value
+                while(cache.size>3)cache.remove(cache.keys.first())
+            }
+            analysis=value
+        }catch(e:CancellationException){throw e}
+        catch(_:Exception){failed=true}
     }
-    // Both reference and candidate are decoded off-main. An old candidate's
-    // result cannot be shown after targetId changes: remember resets the state
-    // and LaunchedEffect cancels its previous decoder.
-    LaunchedEffect(group.key,reference.id,reference.privacyEpoch) {
-        referenceWaveform=verifiedWaveform(reference)
+    LaunchedEffect(previewId,playing,identity){
+        while(true){
+            position=if(previewId==referenceId||previewId==targetId)player.currentPosition else 0L
+            delay(200)
+        }
     }
-    LaunchedEffect(group.key,targetId,target.privacyEpoch) {
-        targetWaveform=verifiedWaveform(target)
+    val result=analysis?.aligned
+    val zones=result?.zones.orEmpty()
+    val zone=zones.getOrNull(zoneIndex)
+    fun seekFrame(first:Boolean):Long? {
+        val selected=zone?:return null
+        val aligned=result?:return null
+        val col=aligned.columns.subList(selected.start,selected.endExclusive)
+        val frame=col.firstNotNullOfOrNull{if(first)it.first else it.second}?:return null
+        return frame*aligned.stepMs
     }
-    LaunchedEffect(targetId){
-        evidence=withContext(Dispatchers.Default){val a=reference.acoustic;val b=target.acoustic
-            if(a!=null&&b!=null)AcousticFingerprints.alignment(a,b) else null}
+    fun play(t:DuplicateTrack,at:Long?=null){
+        if(allowed(t))latestOnPlay(t,if(previewId==t.id&&playing)null else at)
     }
-    LaunchedEffect(previewId,playing,active){while(true){position=if(previewId==active)player.currentPosition else 0;delay(250)}}
-    Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false)){
+    Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         Surface(Modifier.fillMaxSize()){
-            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp)){
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal=16.dp,vertical=6.dp)){
                 Row(verticalAlignment=Alignment.CenterVertically){
                     IconButton(onClose){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
-                    Text("Сравнение треков",style=MaterialTheme.typography.titleLarge)
+                    Text("Сравнение треков",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,
+                        maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
-                Text(MusicDuplicatePolicy.shortReason(group),style=MaterialTheme.typography.bodySmall)
-                LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                    items(group.tracks,key={it.id}){t->
-                        Card(onClick={choose(t)}){
-                            Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically){
-                                DownloadThumbnail(t.uri,null,MediaKind.AUDIO,Modifier.size(52.dp))
-                                Column(Modifier.weight(1f).padding(horizontal=8.dp)){
-                                    Text(t.title,maxLines=2,overflow=TextOverflow.Ellipsis)
-                                    Text(listOfNotNull(t.artist,t.duration?.let{"${it/60000}:${"%02d".format(it/1000%60)}"},t.bitrate?.let{"${it/1000} кбит/с"}).joinToString(" · "),style=MaterialTheme.typography.bodySmall)
-                                    if(t.id==keeper)Text("Остаётся",color=MaterialTheme.colorScheme.primary)
+                // Both parts scroll independently. The action row below is
+                // outside the scrolling body and above navigation insets.
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()){
+                    val maximumListHeight=maxHeight*.44f
+                    Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(6.dp)){
+                        Text(MusicDuplicatePolicy.shortReason(group),style=MaterialTheme.typography.bodySmall)
+                        LazyColumn(Modifier.fillMaxWidth().heightIn(max=maximumListHeight)
+                            .testTag("comparison-track-list"),verticalArrangement=Arrangement.spacedBy(6.dp)){
+                            items(group.tracks,key={it.id}){t->
+                                Card(onClick={choose(t)},modifier=Modifier.fillMaxWidth()){
+                                    Row(Modifier.padding(horizontal=10.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically){
+                                        DownloadThumbnail(t.uri,null,MediaKind.AUDIO,Modifier.size(44.dp))
+                                        Column(Modifier.weight(1f).padding(horizontal=8.dp)){
+                                            Text(t.title,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                            Text(listOfNotNull(t.artist,t.duration?.let{"${it/60000}:${"%02d".format(it/1000%60)}"},t.bitrate?.let{"${it/1000} кбит/с"}).joinToString(" · "),
+                                                style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                            if(t.id==referenceId)Text("Оригинал",color=musicPlaybackAccent,style=MaterialTheme.typography.labelMedium)
+                                            else if(t.id==targetId)Text("Сравниваемая версия",style=MaterialTheme.typography.labelMedium)
+                                            if(t.id==keeper)Text("Остаётся",color=musicPlaybackAccent,style=MaterialTheme.typography.labelMedium)
+                                            if(t.id!=referenceId)TextButton(onClick={makeReference(t)},
+                                                modifier=Modifier.testTag("comparison-reference-${t.id}")){
+                                                Text("Сделать оригиналом",style=MaterialTheme.typography.labelMedium)
+                                            }
+                                        }
+                                        RadioButton(t.id==active,{choose(t)},modifier=Modifier.testTag("comparison-select-${t.id}"))
+                                    }
                                 }
-                                RadioButton(t.id==active,{choose(t)})
+                            }
+                        }
+                        HorizontalDivider()
+                        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                            .testTag("comparison-scroll-body"),verticalArrangement=Arrangement.spacedBy(6.dp)){
+                            Text("Сравнение звучания",style=MaterialTheme.typography.titleMedium)
+                            if(failed)Text("Анализ недоступен",style=MaterialTheme.typography.bodySmall,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            else if(analysis==null){
+                                Text("Синхронизация записей…",style=MaterialTheme.typography.labelMedium)
+                                LinearProgressIndicator(Modifier.fillMaxWidth())
+                            }else if(result==null){
+                                Text("Синхронизация не подтверждена",style=MaterialTheme.typography.labelMedium)
+                                // A fallback may show independent waveform envelopes,
+                                // never invented matches or difference regions.
+                                val pair=analysis
+                                if(pair!=null){
+                                    listOf(reference to pair.first,target to pair.second).forEach{(t,frames)->
+                                        Text(t.title,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                        val max=frames.maxOfOrNull{it.rms}?:0f
+                                        if(max>0f)AudioWaveform(FloatArray(frames.size){frames[it].rms/max},
+                                            if(previewId==t.id)comparisonWaveformProgress(position,t.duration)else 0f,
+                                            {fraction->t.duration?.takeIf{it>0}?.let{play(t,(it*fraction).toLong())}})
+                                    }
+                                }
+                            }else{
+                                val firstMatch=result.columns.firstOrNull{!it.different&&it.first!=null&&it.second!=null}
+                                val offset=firstMatch?.let{(requireNotNull(it.second)-requireNotNull(it.first))*result.stepMs}
+                                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                                    Text("Синхронизировано",style=MaterialTheme.typography.labelMedium)
+                                    if(offset!=null)Text("Смещение: ${if(offset>=0)"+" else "−"}${kotlin.math.abs(offset)/1000.0} с",
+                                        style=MaterialTheme.typography.labelSmall)
+                                }
+                                AlignedPairWaveform(result,zoneIndex,previewId==referenceId,previewId==targetId,position){zoneIndex=it}
+                                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                                    Text("Оригинал",color=musicPlaybackAccent,style=MaterialTheme.typography.labelSmall)
+                                    Text("Версия",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.labelSmall)
+                                    Text("Различия",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.labelSmall)
+                                }
+                                Text("Отличающиеся участки: ${zones.size}",style=MaterialTheme.typography.labelMedium)
+                                if(zones.isNotEmpty()){
+                                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                                        IconButton(onClick={zoneIndex=if(zoneIndex<=0)zones.lastIndex else zoneIndex-1}){
+                                            Icon(Icons.Rounded.SkipPrevious,"Предыдущее отличие")
+                                        }
+                                        Text(if(zoneIndex<0)"Выбрать участок" else "${zoneIndex+1} из ${zones.size}",
+                                            Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
+                                        IconButton(onClick={zoneIndex=if(zoneIndex>=zones.lastIndex)0 else zoneIndex+1}){
+                                            Icon(Icons.Rounded.SkipNext,"Следующее отличие")
+                                        }
+                                    }
+                                    if(zone!=null)Text("Оригинал: ${seekFrame(true)?.let(::pairTime)?:"нет фрагмента"} · Версия: ${seekFrame(false)?.let(::pairTime)?:"нет фрагмента"}",
+                                        style=MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                                TextButton(onClick={play(reference,seekFrame(true))},enabled=zone==null||seekFrame(true)!=null,
+                                    modifier=Modifier.weight(1f)){
+                                    Icon(if(previewId==referenceId&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
+                                    Text("Оригинал")
+                                }
+                                TextButton(onClick={play(target,seekFrame(false))},enabled=zone==null||seekFrame(false)!=null,
+                                    modifier=Modifier.weight(1f)){
+                                    Icon(if(previewId==targetId&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
+                                    Text("Версия")
+                                }
                             }
                         }
                     }
                 }
-                Text("Сравнение звуковых волн",style=MaterialTheme.typography.titleMedium)
-                // The same time scale is used independently for both tracks;
-                // each bar shows relative RMS, not calibrated loudness.
-                listOf(reference to referenceWaveform,target to targetWaveform).forEachIndexed { index,(candidate,peaks) ->
-                    Column(Modifier.fillMaxWidth().testTag("duplicate-waveform-${index+1}"),
-                        verticalArrangement=Arrangement.spacedBy(3.dp)) {
-                        Row(verticalAlignment=Alignment.CenterVertically) {
-                            Text(if(index==0)"Оригинал" else "Сравниваемая версия",
-                                Modifier.weight(1f),style=MaterialTheme.typography.labelMedium)
-                            IconButton(onClick={active=candidate.id;onPlay(candidate,null)},
-                                modifier=Modifier.size(40.dp)) {
-                                Icon(if(previewId==candidate.id&&playing)Icons.Rounded.Pause
-                                    else Icons.Rounded.PlayArrow,
-                                    "Прослушать ${if(index==0)"оригинал" else "сравниваемый трек"}")
-                            }
-                        }
-                        Text(candidate.title,style=MaterialTheme.typography.bodySmall,maxLines=1,
-                            overflow=TextOverflow.Ellipsis)
-                        val offset=if(previewId==candidate.id)position else
-                            (if(index==0)evidence?.firstMs else evidence?.secondMs)?:0L
-                        val fraction=comparisonWaveformProgress(offset,candidate.duration)
-                        if(peaks==null) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        else if(peaks.any { it>0f }) AudioWaveform(peaks,fraction,{
-                            f->active=candidate.id;onPlay(candidate,((candidate.duration?:0L)*f).toLong())
-                        })
-                        else Text("Волна недоступна",style=MaterialTheme.typography.bodySmall)
-                    }
-                }
-                Text("Высота столбиков относительная. Уровень громкости разных записей напрямую не сравнивается.",
-                    style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    IconButton({onPlay(track,null)}){Icon(if(previewId==active&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,"Прослушать")}
-                    Text("${position/60000}:${"%02d".format(position/1000%60)}",Modifier.weight(1f))
-                    Button({onKeep(active)}){Text("Оставить эту версию")}
-                }
-                evidence?.let{match->
-                    Text("Подтверждённое смещение фрагмента",style=MaterialTheme.typography.labelMedium)
-                    Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                        TextButton({active=reference.id;onPlay(reference,match.firstMs)}){Text("Первый фрагмент")}
-                        TextButton({active=target.id;onPlay(target,match.secondMs)}){Text("Второй фрагмент")}
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth().padding(top=4.dp).testTag("comparison-fixed-footer"),verticalAlignment=Alignment.CenterVertically){
+                    IconButton(onClick={play(track)}){Icon(if(previewId==active&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,"Прослушать выбранный трек")}
+                    Text(pairTime(if(previewId==active)position else 0L),Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
+                    Button({if(allowed(track))onKeep(active)},modifier=Modifier.testTag("comparison-keep")){
+                        Text("Оставить эту версию")
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AlignedPairWaveform(result:AlignedAudioComparison,selected:Int,playingFirst:Boolean,playingSecond:Boolean,
+    position:Long,onZone:(Int)->Unit){
+    val accent=musicPlaybackAccent
+    val other=MaterialTheme.colorScheme.onSurfaceVariant
+    val error=MaterialTheme.colorScheme.error
+    val firstMax=remember(result){(result.first.maxOfOrNull{it.rms}?:0f).coerceAtLeast(1e-6f)}
+    val secondMax=remember(result){(result.second.maxOfOrNull{it.rms}?:0f).coerceAtLeast(1e-6f)}
+    val latestZone by rememberUpdatedState(onZone)
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(92.dp)
+        .testTag("comparison-aligned-waveform").pointerInput(result){
+            detectTapGestures { point->
+                val column=(point.x/size.width.coerceAtLeast(1)*result.columns.size).toInt()
+                latestZone(result.zones.indexOfFirst{column>=it.start&&column<it.endExclusive})
+            }
+        }){
+        val unit=size.width/result.columns.size.coerceAtLeast(1)
+        val middle=size.height/2
+        for((index,zone)in result.zones.withIndex()){
+            drawRect(error.copy(alpha=if(index==selected).36f else .16f),
+                topLeft=androidx.compose.ui.geometry.Offset(zone.start*unit,0f),
+                size=androidx.compose.ui.geometry.Size((zone.endExclusive-zone.start)*unit,size.height))
+        }
+        result.columns.forEachIndexed{index,column->
+            val x=(index+.5f)*unit
+            column.second?.let{
+                val h=(result.second[it].rms/secondMax).coerceIn(0f,1f)*middle*.92f
+                drawLine(other,androidx.compose.ui.geometry.Offset(x,middle-h),
+                    androidx.compose.ui.geometry.Offset(x,middle+h),strokeWidth=unit.coerceAtLeast(1f))
+            }
+            column.first?.let{
+                val h=(result.first[it].rms/firstMax).coerceIn(0f,1f)*middle*.92f
+                drawLine(accent.copy(alpha=.85f),androidx.compose.ui.geometry.Offset(x,middle-h),
+                    androidx.compose.ui.geometry.Offset(x,middle+h),strokeWidth=(unit*.55f).coerceAtLeast(.8f))
+            }
+        }
+        val frame=(position/result.stepMs).toInt()
+        val cursor=if(playingFirst)result.columns.indexOfFirst{it.first==frame}
+            else if(playingSecond)result.columns.indexOfFirst{it.second==frame}else -1
+        if(cursor>=0)drawLine(accent,androidx.compose.ui.geometry.Offset(cursor*unit,0f),
+            androidx.compose.ui.geometry.Offset(cursor*unit,size.height),strokeWidth=2.dp.toPx())
     }
 }
 
