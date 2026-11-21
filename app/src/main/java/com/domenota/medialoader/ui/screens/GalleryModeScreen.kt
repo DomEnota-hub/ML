@@ -88,6 +88,7 @@ internal fun GalleryModeScreen(
     onShareFromAlbum: ((String,String?) -> Unit)? = null,
     preparedBrowse: BackgroundLibraryValue<GalleryBrowseInventory>? = null,
     preparedBrowseAccess: Any? = null,
+    onOpenDuplicates: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -486,6 +487,8 @@ internal fun GalleryModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
                         leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                    if (searchVisible == true && !detailOpen && onOpenDuplicates != null)
+                        DuplicateSearchShortcut(onOpenDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading || (tab==0 && !gridReady), message, settingsError ?: error,
                         tab == 0 && gridReady && visibleDisplayed.isEmpty(), "Нет фото и видео") }
                 }

@@ -1,0 +1,295 @@
+package com.domenota.medialoader.data.catalog.visibility
+
+import android.content.ContentResolver
+import android.content.ContentUris
+import android.content.ContentValues
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.media.MediaScannerConnection
+import android.util.Log
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import java.security.MessageDigest
+import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/**
+ * Device-only evidence experiment. Does NOT archive user content or enable the
+ * retired v2 mover. Every write is confined to a fresh uniquely named disposable
+ * Pictures/MLSelectiveArchiveProbe_<uuid> tree and app-created MediaStore rows.
+ *
+ * Run on Xiaomi with MANAGE_EXTERNAL_STORAGE already granted to the test APK.
+ * A missing grant is a FAILED probe, not a silently skipped PASS.
+ *
+ * Even a PASS establishes only the measured OEM/build, not a universal Android
+ * guarantee. Record model/Android build, run with / without .nomedia, and never
+ * use this test as authorization for moving real files.
+ */
+@RunWith(AndroidJUnit4::class)
+class SelectiveArchiveMediaStoreInstrumentedTest {
+    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+    private val resolver:ContentResolver get() = context.contentResolver
+    private val mediaCollection:Uri get() =
+        MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
+    @Test fun ordinaryMovePreservesMediaStoreIdentity() = runBlocking<Unit> {
+        withContext(Dispatchers.IO) { probe(hiddenMarker=false) }
+    }
+
+    @Test fun nomediaMoveAndScanPreservesMediaStoreIdentityOrFailsExplicitly() = runBlocking<Unit> {
+        withContext(Dispatchers.IO) { probe(hiddenMarker=true) }
+    }
+
+    private data class Row(
+        val id:Long,val name:String,val relative:String,val size:Long,val pending:Boolean,val trashed:Boolean
+    )
+
+    private fun row(uri:Uri):Row? {
+        val columns=arrayOf(
+            MediaStore.MediaColumns._ID,MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.RELATIVE_PATH,MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.IS_PENDING,MediaStore.MediaColumns.IS_TRASHED)
+        return resolver.query(uri,columns,null,null,null)?.use { c ->
+            if(!c.moveToFirst()) return@use null
+            check(c.count==1)
+            Row(c.getLong(0),c.getString(1),c.getString(2),c.getLong(3),
+                c.getInt(4)!=0,c.getInt(5)!=0)
+        }
+    }
+
+    /** Image collection visibility is independent from persistence of the Files row. */
+    private fun listedInImageCollection(id:Long):Boolean {
+        val projection=arrayOf(MediaStore.MediaColumns._ID)
+        return resolver.query(mediaCollection,projection,
+            "${MediaStore.MediaColumns._ID}=?",arrayOf(id.toString()),null)?.use {
+            it.moveToFirst()
+        } ?: false
+    }
+
+    private fun imageBytes():ByteArray {
+        val bmp=Bitmap.createBitmap(8,8,Bitmap.Config.ARGB_8888)
+        return try {
+            bmp.eraseColor(0xff4070aa.toInt())
+            java.io.ByteArrayOutputStream().use {
+                check(bmp.compress(Bitmap.CompressFormat.PNG,100,it))
+                it.toByteArray()
+            }
+        } finally { bmp.recycle() }
+    }
+
+    private fun createSynthetic(name:String,relative:String,bytes:ByteArray):Uri {
+        val values=ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME,name)
+            put(MediaStore.MediaColumns.MIME_TYPE,"image/png")
+            put(MediaStore.MediaColumns.RELATIVE_PATH,relative)
+            put(MediaStore.MediaColumns.IS_PENDING,1)
+        }
+        val uri=checkNotNull(resolver.insert(mediaCollection,values)) {
+            "Cannot insert synthetic proof media"
+        }
+        try {
+            resolver.openOutputStream(uri,"w")!!.use { it.write(bytes) }
+            check(resolver.update(uri,ContentValues().apply {
+                put(MediaStore.MediaColumns.IS_PENDING,0)
+            },null,null)==1) { "Synthetic media was not published" }
+            return uri
+        } catch (error:Throwable) {
+            runCatching { resolver.delete(uri,null,null) }
+            throw error
+        }
+    }
+
+    private fun move(uri:Uri,relative:String) {
+        val updated=resolver.update(uri,ContentValues().apply {
+            put(MediaStore.MediaColumns.RELATIVE_PATH,relative)
+        },null,null)
+        check(updated==1) { "MediaStore refused RELATIVE_PATH update; changed=$updated" }
+    }
+
+    private fun scan(path:File) {
+        val latch=CountDownLatch(1)
+        MediaScannerConnection.scanFile(context,arrayOf(path.absolutePath),arrayOf("image/png")) { _,_ ->
+            latch.countDown()
+        }
+        check(latch.await(15,TimeUnit.SECONDS)) { "MediaScanner did not finish in time" }
+    }
+
+    private fun payload(uri:Uri):ByteArray =
+        checkNotNull(resolver.openInputStream(uri)) { "Original URI is unreadable" }.use { it.readBytes() }
+
+    private fun sha(bytes:ByteArray)=MessageDigest.getInstance("SHA-256").digest(bytes)
+
+    private fun probe(hiddenMarker:Boolean) {
+        check(Build.VERSION.SDK_INT>=30) { "Android 11+ required" }
+        check(Environment.isExternalStorageManager()) {
+            "Explicit all-files access required for isolated .nomedia experiment"
+        }
+        val id=UUID.randomUUID().toString().replace("-","")
+        val root=File(Environment.getExternalStorageDirectory(),"Pictures/MLSelectiveArchiveProbe_$id")
+        val source=File(root,"source")
+        val target=File(root,"target")
+        val inputRelative="Pictures/${root.name}/source/"
+        val targetRelative="Pictures/${root.name}/target/"
+        val selectedName="selected_$id.png"
+        val keeperName="keeper_$id.png"
+        val expected=imageBytes()
+        val selectedSource=File(source,selectedName)
+        val selectedTarget=File(target,selectedName)
+        val keeperSource=File(source,keeperName)
+        val marker=File(target,".nomedia")
+        var selected:Uri?=null
+        var keeper:Uri?=null
+        check(!root.exists()) { "Probe path already exists" }
+        try {
+            check(source.mkdirs() && target.mkdirs()) { "Cannot create disposable probe directories" }
+            // Create the marker ONLY in the empty, unique target directory.
+            if(hiddenMarker) {
+                check(target.listFiles()?.isEmpty()==true)
+                check(marker.createNewFile() && marker.isFile && marker.length()==0L)
+            }
+            selected=createSynthetic(selectedName,inputRelative,expected)
+            keeper=createSynthetic(keeperName,inputRelative,expected)
+            val selectedUri=requireNotNull(selected)
+            val keeperUri=requireNotNull(keeper)
+            val original=checkNotNull(row(selectedUri))
+            val neighbor=checkNotNull(row(keeperUri))
+            val originalId=ContentUris.parseId(selectedUri)
+            val neighborId=ContentUris.parseId(keeperUri)
+            check(original.id==originalId && neighbor.id==neighborId)
+            check(original.relative==inputRelative && neighbor.relative==inputRelative)
+            val originalTime=selectedSource.lastModified()
+            val neighborTime=keeperSource.lastModified()
+            check(originalTime>0 && neighborTime>0)
+            assertArrayEquals(expected,payload(selectedUri))
+            // Compare the production archive visibility guard with the same
+            // independent collection query used by this disposable device probe.
+            val archiveIdentity=SelectiveArchiveIdentity(
+                "probe-$id",selectedUri.toString(),originalId,
+                MediaStore.VOLUME_EXTERNAL_PRIMARY,inputRelative,selectedName,
+                expected.size.toLong(),
+                sha(expected).joinToString("") { "%02x".format(it.toInt() and 255) },
+                originalTime,"0".repeat(64)
+            )
+            check(archiveIdentity.wellFormed())
+            val runtimeIndex=AndroidSelectiveArchiveMovePort(context,{ null })
+            assertEquals("Source must appear in the public collection",
+                true,runtimeIndex.publicIndexed(archiveIdentity))
+            move(selectedUri,targetRelative)
+            check(selectedTarget.isFile && selectedTarget.length()==expected.size.toLong()) {
+                "Synthetic selected file did not reach intended target"
+            }
+            if(hiddenMarker) scan(selectedTarget)
+
+            // An image hidden by .nomedia can cease to appear in Images while
+            // its underlying _ID persists in MediaStore.Files. Losing the
+            // Images row is NOT by itself proof that the original ID was lost.
+            val hiddenImageRow=runCatching { row(selectedUri) }.getOrNull()
+            val filesUri=ContentUris.withAppendedId(
+                MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),originalId)
+            val hiddenFilesRow=runCatching { row(filesUri) }.getOrNull()
+            val galleryVisible=listedInImageCollection(originalId)
+            assertEquals("Runtime guard must match independent public collection",
+                galleryVisible,runtimeIndex.publicIndexed(archiveIdentity))
+            Log.i("MLSelectiveArchiveProbe",
+                "hiddenMarker=$hiddenMarker galleryVisible=$galleryVisible " +
+                "imageRowSameId=${hiddenImageRow?.id==originalId} filesRowSameId=${hiddenFilesRow?.id==originalId}")
+            if(hiddenMarker) {
+                check(!galleryVisible) { "Gallery still indexes the synthetic hidden image" }
+            } else {
+                check(galleryVisible) { "Regular MediaStore move unexpectedly hid the image" }
+            }
+            val restoreUri=when {
+                hiddenImageRow?.id==originalId -> selectedUri
+                hiddenFilesRow?.id==originalId -> filesUri
+                else -> error("Original MediaStore ID is not recoverable from Images or Files")
+            }
+            // Recovery must reuse the same row, never insert a replacement URI.
+            move(restoreUri,inputRelative)
+            if(hiddenMarker) scan(selectedSource)
+            val restored=checkNotNull(row(selectedUri)) {
+                "Restored synthetic MediaStore URI no longer resolves"
+            }
+            val neighborAfter=checkNotNull(row(keeperUri))
+            assertEquals("Restored original must reappear in public collection",
+                true,runtimeIndex.publicIndexed(archiveIdentity))
+            assertEquals("Restored ID must be exactly original",originalId,restored.id)
+            assertEquals("Restored URI folder changed",inputRelative,restored.relative)
+            assertEquals("Original filename changed",selectedName,restored.name)
+            assertFalse(restored.pending)
+            assertFalse(restored.trashed)
+            assertEquals(expected.size.toLong(),restored.size)
+            assertArrayEquals(sha(expected),sha(payload(selectedUri)))
+            assertEquals("Selected mtime changed",originalTime,selectedSource.lastModified())
+            assertEquals("Unselected file ID changed",neighborId,neighborAfter.id)
+            assertEquals(inputRelative,neighborAfter.relative)
+            assertEquals(keeperName,neighborAfter.name)
+            assertEquals("Unselected mtime changed",neighborTime,keeperSource.lastModified())
+            assertArrayEquals(expected,payload(keeperUri))
+            Log.i("MLSelectiveArchiveProbe",
+                "PASS hiddenMarker=$hiddenMarker sameId=true sameBytes=true sameMtime=true neighborPreserved=true")
+        } finally {
+            // CLEANUP IS SCOPED to our random synthetic names/URIs ONLY.
+            // Never recursively delete user directories or unknown contents.
+            // MediaStore may recycle a deleted _ID: NEVER delete through an old
+            // URI unless the current row is still provably OUR own synthetic.
+            fun removeOwnedUri(uri:Uri?,name:String) {
+                if(uri==null)return
+                val live=runCatching { row(uri) }.getOrNull()
+                if(live!=null && live.name==name && live.size==expected.size.toLong() &&
+                    live.relative in setOf(inputRelative,targetRelative) && !live.trashed) {
+                    runCatching {
+                        val samePayload=payload(uri).contentEquals(expected)
+                        if(samePayload) resolver.delete(uri,null,null)
+                    }
+                }
+            }
+            removeOwnedUri(selected,selectedName)
+            removeOwnedUri(keeper,keeperName)
+            // The same rule applies to direct files: never follow a symlink,
+            // never delete an unknown file, and never recurse a directory.
+            // Android may legitimately canonicalize system-managed /sdcard
+            // ancestors differently. Check the newly created LEAF itself
+            // with NOFOLLOW_LINKS rather than rejecting those platform aliases.
+            val ownedRoot=root.name=="MLSelectiveArchiveProbe_$id" &&
+                root.parentFile==File(Environment.getExternalStorageDirectory(),"Pictures") &&
+                java.nio.file.Files.isDirectory(root.toPath(),
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+                !java.nio.file.Files.isSymbolicLink(root.toPath()) &&
+                source.parentFile==root && target.parentFile==root &&
+                java.nio.file.Files.isDirectory(source.toPath(),
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+                java.nio.file.Files.isDirectory(target.toPath(),
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS)
+            if(ownedRoot) {
+                for(file in listOf(selectedSource,selectedTarget,keeperSource)) {
+                    if(java.nio.file.Files.isRegularFile(file.toPath(),
+                            java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+                        !java.nio.file.Files.isSymbolicLink(file.toPath()) &&
+                        file.parentFile in listOf(source,target) &&
+                        file.length()==expected.size.toLong() &&
+                        runCatching { file.readBytes().contentEquals(expected) }.getOrDefault(false)) {
+                        runCatching { file.delete() }
+                    }
+                }
+                if(java.nio.file.Files.isRegularFile(marker.toPath(),
+                        java.nio.file.LinkOption.NOFOLLOW_LINKS) && marker.length()==0L)
+                    runCatching { marker.delete() }
+                source.delete();target.delete();root.delete()
+            }
+            if(root.exists()) {
+                Log.w("MLSelectiveArchiveProbe","Disposable probe root requires manual inspection; no recursive deletion")
+            }
+        }
+    }
+}

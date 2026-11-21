@@ -146,4 +146,49 @@ class NomediaFolderEngineTest {
         assertTrue(store.state.folders["x"]!!.excludedFromMl)
         assertEquals(NomediaMarkerState.FAILED,store.state.folders["x"]!!.markerState)
     }
+    @Test fun managedLocalOwnedTokenMayBeNonemptyButMustMatchOnRestore()=runBlocking {
+        val store=MemoryStore()
+        val port=object:NomediaMarkerPort {
+            var marker:NomediaMarkerProof?=null
+            override suspend fun inspect(treeUri:String)=marker
+            override suspend fun createEmpty(treeUri:String):NomediaMarkerProof {
+                return NomediaMarkerProof("ml-archive-v1:token",53).also{marker=it}
+            }
+            override suspend fun deleteVerified(treeUri:String,documentId:String):Boolean {
+                check(marker?.documentId==documentId && marker?.bytes==53L)
+                marker=null
+                return true
+            }
+        }
+        val engine=NomediaFolderEngine(store,port)
+        val hidden=engine.hide("folder",tree,NomediaAccessMode.MANAGED_LOCAL)
+        assertEquals(NomediaAccessMode.MANAGED_LOCAL,hidden.accessMode)
+        assertEquals(53L,hidden.ownedMarkerBytes)
+        assertEquals("ml-archive-v1:token",hidden.ownedDocumentId)
+        val restored=engine.show("folder")
+        assertFalse(restored.excludedFromMl)
+        assertEquals(0L,restored.ownedMarkerBytes)
+        assertNull(restored.ownedDocumentId)
+    }
+
+    @Test fun managedMarkerBytesChangedEvenWithSameTokenRefusesRestore()=runBlocking {
+        val store=MemoryStore()
+        val port=object:NomediaMarkerPort {
+            var marker:NomediaMarkerProof?=null
+            var deleted=false
+            override suspend fun inspect(treeUri:String)=marker
+            override suspend fun createEmpty(treeUri:String)=NomediaMarkerProof("ml-archive-v1:token",53).also{marker=it}
+            override suspend fun deleteVerified(treeUri:String,documentId:String):Boolean {
+                deleted=true
+                return true
+            }
+        }
+        val engine=NomediaFolderEngine(store,port)
+        engine.hide("folder",tree,NomediaAccessMode.MANAGED_LOCAL)
+        port.marker=NomediaMarkerProof("ml-archive-v1:token",54)
+        assertThrows(IllegalStateException::class.java) { runBlocking { engine.show("folder") } }
+        assertFalse(port.deleted)
+        assertTrue(store.snapshot().folders["folder"]!!.excludedFromMl)
+    }
+
 }

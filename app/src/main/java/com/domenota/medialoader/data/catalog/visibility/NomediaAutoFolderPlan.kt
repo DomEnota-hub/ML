@@ -48,6 +48,30 @@ internal fun nomediaInventoryMatches(
         histogram(expected)==histogram(found)
 }
 
+/** Distinguish an actual physical directory from an ML virtual collection.
+ * A .nomedia marker can NEVER be used for a proper subset of a directory. */
+internal sealed interface ArchiveInventoryVerdict {
+    data object ExactPhysicalFolder : ArchiveInventoryVerdict
+    data class RequiresSelectiveArchive(val selected:Int,val physical:Int) : ArchiveInventoryVerdict
+    data object Unverified : ArchiveInventoryVerdict
+}
+
+internal fun archiveInventoryVerdict(
+    selected:List<NomediaMediaSignature>,
+    physical:List<NomediaMediaSignature>,
+):ArchiveInventoryVerdict {
+    if(nomediaInventoryMatches(selected,physical)) return ArchiveInventoryVerdict.ExactPhysicalFolder
+    if(selected.isEmpty() || selected.any { it.name.isBlank() || it.bytes < 0 } ||
+        physical.any { it.name.isBlank() || it.bytes < 0 }) return ArchiveInventoryVerdict.Unverified
+    val available=physical.groupingBy { it }.eachCount()
+    val wanted=selected.groupingBy { it }.eachCount()
+    if(wanted.all { (entry,count) -> count <= (available[entry] ?: 0) } &&
+        physical.size > selected.size) {
+        return ArchiveInventoryVerdict.RequiresSelectiveArchive(selected.size,physical.size)
+    }
+    return ArchiveInventoryVerdict.Unverified
+}
+
 internal suspend fun resolveNomediaAutoPlan(
     context:Context,
     folderId:String,

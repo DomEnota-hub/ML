@@ -69,8 +69,16 @@ class DuplicateTrashHostRegressionTest {
             }}
             compose.waitUntil(30_000){operation.finished.value}
             val success=if(partial)8 else 10
-            compose.onNodeWithText("Перемещено в корзину: $success").assertExists()
-            compose.onNodeWithText("Не перемещено: ${10-success}").assertExists()
+            compose.onNodeWithTag("duplicateTrashResult").assertExists()
+            compose.onNodeWithTag("duplicateTrashSuccessCount").assertTextEquals("$success")
+            compose.onNodeWithTag("duplicateTrashFailureCount").assertTextEquals("${10-success}")
+            if(partial) {
+                compose.onNodeWithTag("duplicateTrashErrorList").assertDoesNotExist()
+                compose.onNodeWithTag("duplicateTrashErrorToggle").performClick()
+                compose.onNodeWithTag("duplicateTrashErrorList").assertExists()
+                compose.onNodeWithTag("duplicateTrashErrorToggle").performClick()
+                compose.onNodeWithTag("duplicateTrashErrorList").assertDoesNotExist()
+            }
             compose.runOnIdle{
                 assertEquals(10,operation.outcomes.size)
                 assertEquals(success,moved.size);assertEquals(success,committed.size)

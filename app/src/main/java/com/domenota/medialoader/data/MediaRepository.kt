@@ -220,6 +220,11 @@ class MediaRepository private constructor(context: Context) {
     internal val nomediaFolders by lazy {
         com.domenota.medialoader.data.catalog.visibility.NomediaFolderRepository(appContext)
     }
+    // Stage 3 backend only; Stage 4 integrates the approved Archive UI and
+    // its fail-closed media-index privacy projection. No automatic file moves.
+    internal val selectiveArchive by lazy {
+        com.domenota.medialoader.data.catalog.visibility.SelectiveArchiveRepository(appContext,historyDb)
+    }
     internal val folderVisibility by lazy { com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager(appContext,historyDb) }
     internal val folderVisibilityWork by lazy {
         com.domenota.medialoader.data.catalog.visibility.FolderVisibilityWorkCoordinator(appContext,this)
