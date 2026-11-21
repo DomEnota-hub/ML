@@ -44,24 +44,39 @@ class Mp3MetadataWriter(private val context: Context) {
                 AppLog.i("Recognition", "MP3 metadata saved · direct ID3 · newArtwork=${artwork != null}")
                 return@withContext Tagged(output, artwork != null)
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) {
+            catch (error: Exception) {
                 output.delete()
-                AppLog.w("Recognition", "Direct ID3 unavailable; trying MP3 remux")
+                // Never log MP3 paths, tag values or artist/title. Keep the reason class.
+                AppLog.w("Recognition", "Direct ID3 unavailable · type=${error.javaClass.simpleName}; trying MP3 remux")
             }
             // Keep optional artwork if supported. Copy a normalized JPEG instead
             // of requiring the video encoder in the audio-only FFmpeg build.
             val firstPass = executeCommand(buildArguments(input, output, result, artwork, preserveExistingArtwork))
-            if (firstPass && verifiedTags(output, result, artwork != null, unchangedTags) && (!preserveExistingArtwork || artworkMatches(output,artwork,previousCover))) {
+            val tagVerified = firstPass && verifiedTags(output, result, artwork != null, unchangedTags)
+            val coverVerified = tagVerified && (!preserveExistingArtwork || artworkMatches(output,artwork,previousCover))
+            if (tagVerified && coverVerified) {
+                AppLog.i("Recognition", "MP3 metadata saved · verified remux · newArtwork=${artwork != null}")
                 Tagged(output, artwork != null)
-            } else if (artwork != null || preserveExistingArtwork) {
-                AppLog.w("Recognition", "MP3 cover/tag pass failed; retrying audio-only tags")
+            } else if (artwork != null) {
+                AppLog.w("Recognition", "MP3 cover/tag pass rejected · remuxOk=$firstPass · tagsOk=$tagVerified · coverOk=$coverVerified; retrying original-cover-safe tags")
                 output.delete()
-                val tagsOnly = executeCommand(buildArguments(input, output, result, null, false))
-                if (!tagsOnly || !verifiedTags(output, result, false, unchangedTags) || !artworkMatches(output,null,previousCover))
-                    throw IOException("Не удалось записать MP3-теги даже без обложки.")
-                AppLog.i("Recognition", "MP3 metadata saved without artwork")
+                // A tags-only fallback may omit a NEW cover, but must never discard
+                // an EXISTING one. The previous implementation used -vn here and
+                // then demanded that the deleted original artwork still existed.
+                val retainOriginalCover = preserveExistingArtwork && previousCover != null
+                val tagsOnly = executeCommand(buildArguments(input, output, result, null, retainOriginalCover))
+                val fallbackTagsVerified = tagsOnly && verifiedTags(output, result, false, unchangedTags)
+                val fallbackCoverVerified = fallbackTagsVerified && (!preserveExistingArtwork || artworkMatches(output,null,previousCover))
+                if (!fallbackTagsVerified || !fallbackCoverVerified) {
+                    AppLog.w("Recognition", "MP3 safe fallback rejected · remuxOk=$tagsOnly · tagsOk=$fallbackTagsVerified · originalCoverOk=$fallbackCoverVerified")
+                    throw IOException("Не удалось безопасно обновить MP3-теги с сохранением исходных данных и обложки. Оригинал не изменён.")
+                }
+                AppLog.i("Recognition", "MP3 metadata saved · original cover preserved=$retainOriginalCover")
                 Tagged(output, false)
-            } else throw IOException("Не удалось записать метаданные MP3 без обложки.")
+            } else {
+                AppLog.w("Recognition", "MP3 existing-cover/tag pass rejected · remuxOk=$firstPass · tagsOk=$tagVerified · originalCoverOk=$coverVerified")
+                throw IOException("Не удалось подтвердить новые теги и сохранность исходной обложки MP3. Оригинал не изменён.")
+            }
         } catch (error: Exception) {
             output.delete()
             throw error

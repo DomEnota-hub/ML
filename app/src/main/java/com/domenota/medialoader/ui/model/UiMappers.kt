@@ -81,8 +81,7 @@ fun DownloadEntity.toUi(fileStatus: SavedFileStatus = SavedFileStatus.UNCHECKED)
                 "SHAZAM_LOOP" -> "Shazam · loop"
                 else -> source
             }
-            listOfNotNull(recognizedArtist, recognizedTitle).joinToString(" — ")
-                .takeIf { it.isNotBlank() }?.let { "$it · $origin" } ?: origin
+            formatRecognitionAttribution(recognizedArtist, recognizedTitle, origin, source)
         },
         recognized = recognitionSource != null,
         recognitionSource = recognitionSource,
@@ -129,4 +128,18 @@ internal fun downloadDateLabel(at:Long):String {
     val locale=Locale.getDefault();val zone=TimeZone.getDefault()
     val cached=dateLabels.get()?.takeIf{it.locale==locale&&it.zone==zone} ?: DownloadDateLabels(locale,zone).also(dateLabels::set)
     return cached.labels.getOrPut(at){cached.formatter.format(Date(at))}
+}
+
+/** Visual attribution only. Preserve actual track titles, punctuation and MP3 tags.
+ * Shazam needs no middle dot between the confirmed title and its source. */
+internal fun formatRecognitionAttribution(
+    artist: String?,
+    title: String?,
+    origin: String,
+    source: String,
+): String {
+    val track = listOfNotNull(artist, title).joinToString(" — ").takeIf { it.isNotBlank() }
+        ?: return origin
+    val separator = if (source == "SHAZAM_DIRECT" || source == "SHAZAM_LOOP") " " else " · "
+    return track + separator + origin
 }

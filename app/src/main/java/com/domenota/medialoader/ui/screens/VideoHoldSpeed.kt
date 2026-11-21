@@ -67,6 +67,18 @@ private suspend fun AwaitPointerEventScope.awaitTapOrHold(down: PointerInputChan
         withTimeoutOrNull(VideoHoldSpeedPolicy.HOLD_MS) { awaitCanvasTapEnd(down) } ?: CanvasTapEnd.Hold
     } else awaitCanvasTapEnd(down)
 
+/** Once speed has won the gesture, movement is NOT a seek or a fresh tap.
+ * Keep the temporary speed until release, second finger or input cancellation. */
+private suspend fun AwaitPointerEventScope.awaitHoldRelease(down: PointerInputChange) {
+    while (true) {
+        val event = awaitPointerEvent(PointerEventPass.Main)
+        val current = event.changes.firstOrNull { it.id == down.id } ?: return
+        if (!current.pressed || event.changes.any { it.id != down.id && it.pressed }) return
+        // Intentionally ignore movement and consumption by other recognizers:
+        // the drag handler is locked out after a successful hold.
+    }
+}
+
 /** Only one recognizer owns tap, double tap and hold, so a boost never also seeks/toggles chrome. */
 internal suspend fun PointerInputScope.detectVideoCanvasTaps(
     onTap: () -> Unit,
@@ -75,15 +87,17 @@ internal suspend fun PointerInputScope.detectVideoCanvasTaps(
     onHoldEnd: () -> Unit,
 ) {
     awaitEachGesture {
-        val down = awaitFirstDown()
-        down.consume()
+        // Never consume the DOWN: detectDragGestures must see it and win when
+        // movement crosses touch slop before HOLD_MS. A consumed DOWN prevented
+        // the seek recognizer from ever starting.
+        val down = awaitFirstDown(requireUnconsumed = false)
         val first = awaitTapOrHold(down)
         when (first) {
             CanvasTapEnd.Hold -> {
                 val started = onHoldStart()
                 try {
                     // Even a refused hold (paused/locked) must not turn into an ordinary tap.
-                    (awaitCanvasTapEnd(down) as? CanvasTapEnd.Up)?.change?.consume()
+                    awaitHoldRelease(down)
                 } finally { if (started) onHoldEnd() }
                 return@awaitEachGesture
             }
@@ -101,11 +115,11 @@ internal suspend fun PointerInputScope.detectVideoCanvasTaps(
             onTap()
             return@awaitEachGesture
         }
-        secondDown.consume()
+        // The second DOWN is also shared with the drag recognizer.
         when (val second = awaitTapOrHold(secondDown)) {
             CanvasTapEnd.Hold -> {
                 val started = onHoldStart()
-                try { (awaitCanvasTapEnd(secondDown) as? CanvasTapEnd.Up)?.change?.consume() }
+                try { awaitHoldRelease(secondDown) }
                 finally { if (started) onHoldEnd() }
             }
             CanvasTapEnd.Cancelled -> onTap()

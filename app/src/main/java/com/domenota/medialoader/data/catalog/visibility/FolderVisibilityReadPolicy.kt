@@ -22,6 +22,9 @@ internal data class FolderVisibilityReadPolicy(
     val unknownPending: Boolean = false,
     val pendingMembers: List<VisibilityMoveRecord> = emptyList(),
     val nomediaHiddenFolders: Set<String> = emptySet(),
+    val archiveBlockedIds: Set<String> = emptySet(),
+    val archiveBlockedUris: Set<String> = emptySet(),
+    val archiveBlockedAliases: Set<String> = emptySet(),
 ) {
     val excludedFolders: Set<String> = snapshot.hiddenFolders + nomediaHiddenFolders + listOfNotNull(pendingFolder)
     private val receiptsById = snapshot.receipts.associateBy { it.downloadId }
@@ -31,13 +34,15 @@ internal data class FolderVisibilityReadPolicy(
     private val pendingUris = pendingMembers.flatMapTo(mutableSetOf()) { listOfNotNull(it.sourceUri,it.logicalSourceUri,it.destinationUri) }
 
     fun isExcluded(id: String, folder: String?, uri: String?): Boolean =
-        unknownPending || folder in excludedFolders || uri in hiddenUris || id in pendingIds || uri in pendingUris ||
+        unknownPending || id in archiveBlockedIds || uri in archiveBlockedUris ||
+            folder in excludedFolders || uri in hiddenUris || id in pendingIds || uri in pendingUris ||
             receiptsById[id]?.let { it.direction == VisibilityDirection.HIDE } == true
 
     /** An explicit folder selection is not an authorization to open arbitrary
      * media. Both membership and the completed receipt must agree exactly. */
     fun canOpenHidden(id: String, folder: String?, uri: String?, explicitFolder: String?): Boolean {
-        if (unknownPending || folder == null || folder == pendingFolder || folder !in snapshot.hiddenFolders ||
+        if (unknownPending || id in archiveBlockedIds || uri in archiveBlockedUris ||
+            folder == null || folder == pendingFolder || folder !in snapshot.hiddenFolders ||
             explicitFolder != folder || uri == null) return false
         val receipt = receiptsById[id] ?: return false
         return receipt.direction == VisibilityDirection.HIDE && receipt.folderId == folder && receipt.destinationUri == uri
@@ -49,7 +54,7 @@ internal data class FolderVisibilityReadPolicy(
     /** MediaStore row IDs can be recycled. Keep the original physical aliases
      * out of public resolution rather than attaching a different file to a
      * retained hidden identity. The current confirmed destination is exempt. */
-    val retiredPhoneLocators: Set<String> = snapshot.retiredLocators +
+    val retiredPhoneLocators: Set<String> = snapshot.retiredLocators + archiveBlockedAliases +
         (snapshot.receipts + pendingMembers).flatMapTo(mutableSetOf()) { retiredLocatorsFor(it) }
 
     companion object {

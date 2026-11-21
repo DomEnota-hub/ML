@@ -406,8 +406,10 @@ fun MediaLoaderApp(
                 val plan=resolveNomediaAutoPlan(context,folder,
                     viewModel.downloads.value,viewModel.catalogAssignments.value)
                 NomediaSafTrace.event("PHYSICAL_FOLDER_RESOLVED",plan.expected.size)
-                if(NomediaSafPickerPolicy.hasExactReadWriteGrant(context.contentResolver,plan.treeUri)) {
-                    NomediaSafTrace.event("EXACT_GRANT_REUSED",plan.expected.size)
+                if(FolderVisibilityStorageAccess.granted() ||
+                    NomediaSafPickerPolicy.hasExactReadWriteGrant(context.contentResolver,plan.treeUri)) {
+                    NomediaSafTrace.event(if(FolderVisibilityStorageAccess.granted())
+                        "MANAGED_LOCAL_ACCESS" else "EXACT_GRANT_REUSED",plan.expected.size)
                     hideNomediaPlan(plan)
                 } else {
                     val initial=NomediaSafPickerPolicy.suggestedInitialDocument(plan.treeUri)
@@ -420,14 +422,21 @@ fun MediaLoaderApp(
             } else {
                 val saved=checkNotNull(current)
                 val oldTree=android.net.Uri.parse(saved.treeUri)
-                if(NomediaSafPickerPolicy.hasExactReadWriteGrant(context.contentResolver,oldTree)) {
-                    NomediaSafTrace.event("SHOW_EXACT_GRANT_REUSED")
+                if((saved.accessMode==NomediaAccessMode.MANAGED_LOCAL &&
+                        FolderVisibilityStorageAccess.granted()) ||
+                    (saved.accessMode==NomediaAccessMode.SAF &&
+                        NomediaSafPickerPolicy.hasExactReadWriteGrant(context.contentResolver,oldTree))) {
+                    NomediaSafTrace.event(if(saved.accessMode==NomediaAccessMode.MANAGED_LOCAL)
+                        "SHOW_MANAGED_LOCAL_ACCESS" else "SHOW_EXACT_GRANT_REUSED")
                     val result=nomediaRegistry.show(folder)
                     NomediaSafTrace.event("SHOW_VERIFIED")
                     AppNotice.post(context,if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
                         "Показано в ML. Чужой .nomedia сохранён"
                     else "Медиа показаны в ML. Android обновляется отдельно")
                 } else {
+                    check(saved.accessMode==NomediaAccessMode.SAF) {
+                        "Для восстановления разрешите ML управление файлами Android"
+                    }
                     nomediaPickerShowFolder=folder
                     NomediaSafTrace.event("SHOW_GRANT_REQUIRED")
                     nomediaTreePicker.launch(NomediaSafPickerPolicy.suggestedInitialDocument(oldTree))
@@ -2325,10 +2334,7 @@ fun MediaLoaderApp(
                     onShareFromAlbum = { id, album -> shareScopedFile(id,album?.takeIf { it.startsWith("folder:") }?.removePrefix("folder:")) },
                     onTrashFolderContents = requestAlbumTrash,
                     collectionContent={
-                        Column {
-                            CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)},blockedIdentities=collectionBlocked.takeIf{collectionReadAccess!=null},cachedCovers=if(organizationProjection.ready && organizationUsable) emptyMap() else cachedCollectionCovers, coverAccess=collectionCoverAccess, collectionsReady=collectionsLoaded)
-                            TextButton({navController.navigate("visual-duplicates"){launchSingleTop=true}}){Text("Дубликаты фото и видео")}
-                        }
+                        CollectionGalleryStrip(collections,organizationRefs,onOpen={openCollections(it)},onCreate={openCollections(create=true)},blockedIdentities=collectionBlocked.takeIf{collectionReadAccess!=null},cachedCovers=if(organizationProjection.ready && organizationUsable) emptyMap() else cachedCollectionCovers, coverAccess=collectionCoverAccess, collectionsReady=collectionsLoaded)
                     },
                     onAddCollection=::addToCollection,
                     onBatchPhotoEdit={ids->runRestoredAction(ids) {
@@ -2341,7 +2347,9 @@ fun MediaLoaderApp(
                     onDeviceAlbumsChanged = { libraryModel.refresh(AppMode.GALLERY, force = true) },
                     onRename = renameVisibilityFile,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
-                    searchVisible = librarySearchVisible, tabOverride = galleryTab, datePickerRequest = galleryDateRequest,
+                    searchVisible = librarySearchVisible,
+                    onOpenDuplicates = { navController.navigate("visual-duplicates") { launchSingleTop = true } },
+                    tabOverride = galleryTab, datePickerRequest = galleryDateRequest,
                      scrollToTopRequest = galleryTopRequest, onTabChange = {
                          if (galleryTab == 0 && it == 0) galleryTopRequest++
                          galleryTab = it

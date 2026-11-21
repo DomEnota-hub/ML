@@ -39,4 +39,20 @@ class MusicFolderScreenTest{
         compose.onNodeWithText("Скрыта из общего списка").assertExists()
         compose.onNodeWithContentDescription("Назад").performClick();assertEquals(1,back)
     }
+    @Test fun folderArtworkLongPressAddsOnlySelectedTrackToCollection() {
+        val row=DownloadEntity("folder-track","device","Song.mp3",MediaType.AUDIO,
+            DownloadState.COMPLETED,"content://media/external/audio/media/22",1024,1)
+        var played=0
+        var chosen=emptyList<String>()
+        compose.setContent { MaterialTheme {
+            MusicFolderScreen("Folder",listOf(row),false,null,false,{}, {},{}, {played++},
+                onAddCollection={chosen=it}) {}
+        } }
+        compose.onNodeWithTag("music-artwork-folder-track").performTouchInput { longClick() }
+        compose.onNodeWithTag("music-folder-selection-footer").assertExists()
+        compose.onNodeWithTag("music-folder-selected-collection").performClick()
+        assertEquals(listOf("folder-track"),chosen)
+        assertEquals(0,played)
+    }
+
 }

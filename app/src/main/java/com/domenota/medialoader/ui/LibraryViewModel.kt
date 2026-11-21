@@ -460,9 +460,21 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(snapshot,progress.folderId,
             (progress.pending && progress.folderId == null) || nomedia.unknown,progress.members,
             nomedia.hiddenFolderIds),assignments,external)
+    }.combine(mediaRepository.selectiveArchive.privacy) { ordinary, archive ->
+        ordinary.copy(policy=ordinary.policy.copy(
+            unknownPending=ordinary.policy.unknownPending || !archive.verified,
+            archiveBlockedIds=archive.blockedIds,
+            archiveBlockedUris=archive.blockedUris,
+            archiveBlockedAliases=archive.blockedAliases,
+        ))
     }.catch { emit(FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot(),unknownPending=true),emptyList(),emptyList())) }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.Eagerly,null)
-    init { viewModelScope.launch(Dispatchers.IO) { folderVisibility.pending() } }
+    init {
+        viewModelScope.launch(Dispatchers.IO) { folderVisibility.pending() }
+        // The public index cannot be published before all durable Archive
+        // checkpoints and their member receipts are validated after restart.
+        viewModelScope.launch(Dispatchers.IO) { mediaRepository.selectiveArchive.refreshPrivacy() }
+    }
 
     private suspend fun verifiedHidden(ref: LibraryMediaRef, guard: FolderVisibilityLibraryGuard): LibraryMediaRef? {
         val record = guard.explicitReceipt(ref) ?: return null
