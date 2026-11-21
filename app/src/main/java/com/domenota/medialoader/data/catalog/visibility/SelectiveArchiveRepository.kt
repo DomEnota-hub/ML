@@ -80,23 +80,41 @@ internal class SelectiveArchiveRepository(
                     // observations, never delete or reinsert. Unknown records
                     // stay durable for a later explicit recovery.
                     var incomplete=false
+                    val verifiedRestored=mutableSetOf<String>()
+                    val verifiedUntouched=mutableSetOf<String>()
                     for(original in cp.originals.asReversed()) {
                         val record=try { journal.read(cp.folderId,original.catalogId) }
                             catch(_:Exception) {
-                                incomplete=true // Unknown receipt is not a confirmed rollback.
+                                incomplete=true // Corrupt/unknown journal: never assume original is safe.
                                 continue
-                            } ?: continue
-                        if(record.phase in setOf(SelectiveArchiveMovePhase.PREPARED,
-                            SelectiveArchiveMovePhase.HIDE_INTENT,
-                            SelectiveArchiveMovePhase.HIDDEN_VERIFIED,
-                            SelectiveArchiveMovePhase.RESTORE_INTENT)) {
-                            try {
-                                val restored=engine.restore(cp,original)
-                                if(restored.phase==SelectiveArchiveMovePhase.RESTORED_VERIFIED)
-                                    runCatching { target.releaseEmpty(original,restored) }
-                            } catch(_:Exception) { incomplete=true }
+                            }
+                        if(record==null) {
+                            // A batch interruption can precede this member's
+                            // PREPARED receipt. No action was authorized for it,
+                            // but check actual identity, bytes, date and links.
+                            val untouched=try { unjournaled.publicUnchanged(original) }
+                                catch(_:Exception) { false }
+                            if(untouched) verifiedUntouched+=original.catalogId
+                            else incomplete=true
+                            continue
                         }
+                        if(record.phase==SelectiveArchiveMovePhase.NEEDS_REVIEW) {
+                            incomplete=true
+                            continue
+                        }
+                        try {
+                            // RESTORED_VERIFIED must also be independently checked:
+                            // a durable phase is not proof the file stayed intact.
+                            val restored=engine.restore(cp,original)
+                            if(restored.phase==SelectiveArchiveMovePhase.RESTORED_VERIFIED) {
+                                verifiedRestored+=original.catalogId
+                                if(runCatching { target.releaseEmpty(original,restored) }
+                                    .getOrNull()!=true) incomplete=true
+                            } else incomplete=true
+                        } catch(_:Exception) { incomplete=true }
                     }
+                    if(!selectiveArchiveRollbackComplete(cp.originals,
+                            verifiedRestored,verifiedUntouched)) incomplete=true
                     throw IOException(if(incomplete)
                         "Выборочное скрытие не завершено. Часть файлов требует проверки журнала"
                     else "Выборочное скрытие отменено, исходные файлы проверены",
