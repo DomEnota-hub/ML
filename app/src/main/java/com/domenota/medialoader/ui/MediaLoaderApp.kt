@@ -490,7 +490,7 @@ fun MediaLoaderApp(
                         "Реестр видимости занят или требует проверки"
                     }
                     check(folderId !in nomediaSnapshot.hiddenFolderIds &&
-                        folderId !in visibilityFolders) {
+                        folderId !in visibilityGuard?.policy?.excludedFolders.orEmpty()) {
                         "Для этого альбома уже существует другой режим скрытия"
                     }
                     visibilityAccess.ensure()
@@ -529,7 +529,7 @@ fun MediaLoaderApp(
                             !nomediaSnapshot.unknown &&
                             visibilityGuard?.policy?.unknownPending==false &&
                             plan.folderId !in nomediaSnapshot.hiddenFolderIds &&
-                            plan.folderId !in visibilityFolders) {
+                            plan.folderId !in visibilityGuard?.policy?.excludedFolders.orEmpty()) {
                             "Состояние медиатеки изменилось до начала теста"
                         }
                         val fresh=resolveNomediaAutoPlan(context,plan.folderId,
