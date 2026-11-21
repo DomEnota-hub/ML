@@ -41,6 +41,10 @@ import com.domenota.medialoader.core.logging.SafeWebConsole
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.data.MediaRepository
 import com.domenota.medialoader.data.download.MuzmoDownloadUrls
+import com.domenota.medialoader.data.search.MusicOrigins
+import com.domenota.medialoader.data.search.MusicOriginProvider
+import com.domenota.medialoader.data.search.MusicOriginPolicy
+import com.domenota.medialoader.data.search.MusicOriginRecovery
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -80,9 +84,66 @@ fun MuzmoSearchDialog(
     var problem by remember { mutableStateOf<String?>(null) }
     var searchId by remember { mutableIntStateOf(0) }
     var detailId by remember { mutableIntStateOf(0) }
+    var recoveringOrigin by remember { mutableStateOf(false) }
+    var originProposal by remember { mutableStateOf<MusicOriginRecovery.Proposal?>(null) }
+    var attemptedOriginSearch by remember { mutableStateOf("") }
+
+    suspend fun applyOrigin(view: WebView, proposal: MusicOriginRecovery.Proposal, expected: String, id: Int) {
+        if (queryUrl != expected || searchId != id) return
+        val query = Uri.parse(expected).getQueryParameter("q")?.takeIf(String::isNotBlank) ?: return
+        val accepted = MusicOriginRecovery.accept(proposal)
+        if (queryUrl != expected || searchId != id) return
+        recoveringOrigin = false
+        originProposal = null
+        if (!accepted) {
+            searching = false
+            problem = "Не удалось подтвердить новый адрес. Прежний адрес сохранён."
+            return
+        }
+        queryUrl = MuzmoDownloadUrls.searchUrl(query)
+        attemptedOriginSearch = queryUrl
+        searchId++
+        detailId++
+        pending = null
+        results = emptyList()
+        previewLinks = emptyMap()
+        problem = null
+        searching = true
+        view.loadUrl(queryUrl)
+    }
+
+    fun investigateOrigin(view: WebView): Boolean {
+        if (recoveringOrigin || originProposal != null) return true
+        if (!searching || pending != null || results.isNotEmpty() || queryUrl.isBlank() ||
+            attemptedOriginSearch == queryUrl) return false
+        val expected = queryUrl
+        if (!MusicOrigins.isActive(MusicOriginProvider.MUZMO, MusicOriginPolicy.hostOf(MusicOriginProvider.MUZMO, expected)))
+            return false
+        attemptedOriginSearch = expected
+        recoveringOrigin = true
+        searchId++
+        val id = searchId
+        view.stopLoading()
+        scope.launch {
+            val proposal = kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                MusicOriginRecovery.investigate(MusicOriginProvider.MUZMO, expected)
+            }
+            if (queryUrl != expected || searchId != id) return@launch
+            if (proposal?.confirmedRedirect == true) {
+                applyOrigin(view, proposal, expected, id)
+            } else {
+                recoveringOrigin = false
+                searching = false
+                originProposal = proposal
+                problem = if (proposal == null) "Музыкальный источник недоступен. Прежний адрес сохранён."
+                    else "Найден возможный новый адрес: ${proposal.newHost}. Подтвердите его использование."
+            }
+        }
+        return true
+    }
 
     fun matchesQuery(address: String): Boolean = runCatching {
-        MuzmoDownloadUrls.isSearchPage(address) &&
+        MuzmoDownloadUrls.isSearchPage(address) && MusicOriginPolicy.sameHost(queryUrl, address) &&
             Uri.parse(queryUrl).getQueryParameter("q")?.trim()
                 .equals(Uri.parse(address).getQueryParameter("q")?.trim(), ignoreCase = true) &&
             !Uri.parse(queryUrl).getQueryParameter("q").isNullOrBlank()
@@ -111,6 +172,12 @@ fun MuzmoSearchDialog(
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val destination = request.url.toString()
                     AppLog.verbose("Muzmo", "Navigation · op=$operationId · mainFrame=${request.isForMainFrame} · method=${request.method} · redirect=${request.isRedirect} · allowed=${MuzmoDownloadUrls.isSitePage(destination)}")
+                    if (request.isForMainFrame && request.isRedirect && searching &&
+                        !MuzmoDownloadUrls.isSitePage(destination) &&
+                        MusicOriginPolicy.hostOf(MusicOriginProvider.MUZMO, destination) != null) {
+                        investigateOrigin(view)
+                        return true
+                    }
                     return request.isForMainFrame && !MuzmoDownloadUrls.isSitePage(destination)
                 }
 
@@ -119,6 +186,7 @@ fun MuzmoSearchDialog(
                 }
 
                 override fun onPageFinished(view: WebView, url: String?) {
+                    if (recoveringOrigin || originProposal != null) return
                     val address = url.orEmpty()
                     AppLog.verbose("Muzmo", "Page finished · op=$operationId · searchId=$searchId · detailId=$detailId · searchMatch=${matchesQuery(address)}")
                     if (searching && matchesQuery(address)) {
@@ -256,8 +324,10 @@ fun MuzmoSearchDialog(
                 }
 
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                    if (!request.isForMainFrame) return
+                    if (!request.isForMainFrame || recoveringOrigin || originProposal != null) return
                     val code = error.errorCode
+                    if (searching && matchesQuery(request.url.toString()) &&
+                        code == WebViewClient.ERROR_HOST_LOOKUP && investigateOrigin(view)) return
                     // Only a failed user-initiated action is a terminal ERROR.
                     when {
                         searching -> AppLog.e("Muzmo",
@@ -297,7 +367,9 @@ fun MuzmoSearchDialog(
                             else -> Unit // subresource failures are not terminal
                         }
                     }
-                    if (request.isForMainFrame && status >= 400) {
+                    if (request.isForMainFrame && status >= 400 && !recoveringOrigin && originProposal == null) {
+                        if (searching && matchesQuery(request.url.toString()) && status in setOf(404, 410) &&
+                            investigateOrigin(view)) return
                         searching = false
                         pending = null
                         problem = "Музыкальный источник временно недоступен."
@@ -317,7 +389,12 @@ fun MuzmoSearchDialog(
         }
     }
     LaunchedEffect(browser) {
-        if (queryUrl.isNotBlank()) browser.loadUrl(queryUrl)
+        if (queryUrl.isNotBlank()) {
+            Uri.parse(queryUrl).getQueryParameter("q")?.takeIf(String::isNotBlank)?.let {
+                queryUrl = MuzmoDownloadUrls.searchUrl(it)
+            }
+            browser.loadUrl(queryUrl)
+        }
     }
     fun reset() {
         previewPlayer.stop()
@@ -328,6 +405,9 @@ fun MuzmoSearchDialog(
         pending = null
         results = emptyList()
         queryUrl = ""
+        recoveringOrigin = false
+        originProposal = null
+        attemptedOriginSearch = ""
         problem = null
         browser.stopLoading()
     }
@@ -386,6 +466,14 @@ fun MuzmoSearchDialog(
                     }
                     HorizontalDivider()
                     if (searching || pending != null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (recoveringOrigin) Text("Проверяем адрес источника…", style = MaterialTheme.typography.bodySmall)
+                    originProposal?.let { proposal ->
+                        TextButton(onClick = {
+                            val expected = queryUrl
+                            val id = searchId
+                            scope.launch { applyOrigin(browser, proposal, expected, id) }
+                        }) { Text("Использовать новый адрес") }
+                    }
                     problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     previewPlayer.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (pending != null) Text("Получаем оригинальный MP3…")

@@ -73,6 +73,10 @@ import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.data.MediaRepository
 import com.domenota.medialoader.data.download.HitMozDownloadUrls
 import com.domenota.medialoader.data.search.HitMozSearchClient
+import com.domenota.medialoader.data.search.MusicOrigins
+import com.domenota.medialoader.data.search.MusicOriginProvider
+import com.domenota.medialoader.data.search.MusicOriginPolicy
+import com.domenota.medialoader.data.search.MusicOriginRecovery
 import com.domenota.medialoader.data.search.MusicArtworkLookup
 import com.domenota.medialoader.data.search.HitMozTrack
 import com.domenota.medialoader.data.search.MusicAdFilter
@@ -145,22 +149,84 @@ fun HitMozSearchDialog(
     var verifiedDomRevision by remember { mutableIntStateOf(-1) }
     var verifiedDomUrl by remember { mutableStateOf("") }
     var verifyingDomRevision by remember { mutableIntStateOf(-1) }
+    var recoveringOrigin by remember { mutableStateOf(false) }
+    var originProposal by remember { mutableStateOf<MusicOriginRecovery.Proposal?>(null) }
+    var attemptedOriginSearch by remember { mutableStateOf("") }
+
+    suspend fun applyOrigin(view: WebView, proposal: MusicOriginRecovery.Proposal, expected: String, revision: Int) {
+        if (currentSearch != expected || searchRevision != revision) return
+        val query = HitMozSearchPageGate.expectedQuery(expected) ?: return
+        val accepted = MusicOriginRecovery.accept(proposal)
+        if (currentSearch != expected || searchRevision != revision) return
+        recoveringOrigin = false
+        originProposal = null
+        if (!accepted) {
+            loading = false
+            loadError = "Не удалось подтвердить новый адрес. Прежний адрес сохранён."
+            return
+        }
+        currentSearch = HitMozSearchClient.searchUrl(query)
+        attemptedOriginSearch = currentSearch
+        searchRevision += 1
+        extractionRevision = -1
+        pageFinishedRevision = -1
+        fallbackRevision = -1
+        verifiedDomRevision = -1
+        verifiedDomUrl = ""
+        verifyingDomRevision = -1
+        tracks = emptyList()
+        nextPageUrl = null
+        appendResults = false
+        loadError = null
+        loading = true
+        view.loadUrl(currentSearch)
+    }
+
+    fun investigateOrigin(view: WebView): Boolean {
+        if (recoveringOrigin || originProposal != null) return true
+        if (!loading || appendResults || tracks.isNotEmpty() || currentSearch.isBlank() ||
+            attemptedOriginSearch == currentSearch) return false
+        val expected = currentSearch
+        if (!MusicOrigins.isActive(MusicOriginProvider.HITMOZ, MusicOriginPolicy.hostOf(MusicOriginProvider.HITMOZ, expected)))
+            return false
+        attemptedOriginSearch = expected
+        recoveringOrigin = true
+        searchRevision += 1
+        val revision = searchRevision
+        view.stopLoading()
+        scope.launch {
+            val proposal = kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                MusicOriginRecovery.investigate(MusicOriginProvider.HITMOZ, expected)
+            }
+            if (currentSearch != expected || searchRevision != revision) return@launch
+            if (proposal?.confirmedRedirect == true) {
+                applyOrigin(view, proposal, expected, revision)
+            } else {
+                recoveringOrigin = false
+                loading = false
+                originProposal = proposal
+                loadError = if (proposal == null) "Музыкальный источник недоступен. Прежний адрес сохранён."
+                    else "Найден возможный новый адрес: ${proposal.newHost}. Подтвердите его использование."
+            }
+        }
+        return true
+    }
 
     // Only the active search can trigger an automatic handoff. Editing the fields or
     // loading another page cancels this timer; successful results keep HitMoz visible.
-    LaunchedEffect(currentSearch, searchRevision, loading, tracks.isEmpty(), onSearchUnavailable) {
+    LaunchedEffect(currentSearch, searchRevision, loading, tracks.isEmpty(), onSearchUnavailable, recoveringOrigin, originProposal) {
         if (onSearchUnavailable != null && currentSearch.isNotBlank() && loading &&
-            tracks.isEmpty() && !appendResults
+            tracks.isEmpty() && !appendResults && !recoveringOrigin && originProposal == null
         ) {
             kotlinx.coroutines.delay(12_000L)
-            if (loading && tracks.isEmpty() && !appendResults) {
+            if (loading && tracks.isEmpty() && !appendResults && !recoveringOrigin && originProposal == null) {
                 onSearchUnavailable(artist.trim(), title.trim(), "timeout")
             }
         }
     }
-    LaunchedEffect(currentSearch, loading, loadError, onSearchUnavailable) {
+    LaunchedEffect(currentSearch, loading, loadError, onSearchUnavailable, recoveringOrigin, originProposal) {
         if (onSearchUnavailable != null && currentSearch.isNotBlank() && !loading &&
-            tracks.isEmpty() && !appendResults && loadError != null
+            tracks.isEmpty() && !appendResults && loadError != null && !recoveringOrigin && originProposal == null
         ) {
             onSearchUnavailable(artist.trim(), title.trim(), "search-failed")
         }
@@ -350,7 +416,7 @@ fun HitMozSearchDialog(
 
     fun extractNativeResults(view: WebView) {
         val expectedUrl = view.url ?: return
-        if (!loading) return
+        if (!loading || recoveringOrigin || originProposal != null) return
         val revision = searchRevision
         val requestedSearch = currentSearch
 
@@ -470,10 +536,16 @@ fun HitMozSearchDialog(
                         acceptBrowserMp3(destination, "webview-navigation")
                         return true
                     }
+                    if (request.isRedirect && !isHitMozPage(destination) &&
+                        MusicOriginPolicy.hostOf(MusicOriginProvider.HITMOZ, destination) != null) {
+                        investigateOrigin(view)
+                        return true
+                    }
                     return !isHitMozPage(destination)
                 }
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                    if (recoveringOrigin || originProposal != null) return
                     if (currentSearch.isBlank()) {
                         AppLog.verbose("HitMoz", "Ignored page start after search input changed")
                         view.stopLoading()
@@ -503,7 +575,7 @@ fun HitMozSearchDialog(
 
                 override fun onPageFinished(view: WebView, url: String?) {
                     val route = HitMozSearchPageGate.route(currentSearch, url.orEmpty())
-                    AppLog.verbose("HitMoz", "WebView page finished · hitmoz=${isHitMozPage(url.orEmpty())} · route=${route.name} · cookies=${!CookieManager.getInstance().getCookie("https://ru.hitmoz.org").isNullOrBlank()}")
+                    AppLog.verbose("HitMoz", "WebView page finished · hitmoz=${isHitMozPage(url.orEmpty())} · route=${route.name} · cookies=${!CookieManager.getInstance().getCookie(MusicOrigins.origin(MusicOriginProvider.HITMOZ)).isNullOrBlank()}")
                     if (!isHitMozPage(url.orEmpty())) return
                     if (loading && route != HitMozSearchPageGate.Route.REJECT) {
                         pageFinishedRevision = searchRevision
@@ -555,7 +627,9 @@ fun HitMozSearchDialog(
                     request: WebResourceRequest,
                     error: WebResourceError,
                 ) {
-                    if (!request.isForMainFrame || !loading) return
+                    if (!request.isForMainFrame || !loading || recoveringOrigin || originProposal != null) return
+                    if (belongsToCurrentSearch(request.url.toString()) &&
+                        error.errorCode == WebViewClient.ERROR_HOST_LOOKUP && investigateOrigin(view)) return
                     // A timeout can fire while usable song rows are already in the DOM.
                     // Attempt extraction rather than prematurely erasing a valid search.
                     if (error.errorCode == WebViewClient.ERROR_TIMEOUT) {
@@ -579,7 +653,10 @@ fun HitMozSearchDialog(
                     if (errorResponse.statusCode >= 400) {
                         AppLog.verbose("MusicWebView", "HTTP error · host=${request.url.host.orEmpty()} · code=${errorResponse.statusCode} · mainFrame=${request.isForMainFrame} · method=${request.method} · mime=${errorResponse.mimeType.orEmpty().take(40)} · location=${errorResponse.responseHeaders?.containsKey("Location") == true} · ${HitMozDownloadUrls.diagnosticAddress(request.url.toString())}")
                     }
-                    if (request.isForMainFrame && errorResponse.statusCode >= 400 && loading) {
+                    if (request.isForMainFrame && errorResponse.statusCode >= 400 && loading &&
+                        !recoveringOrigin && originProposal == null) {
+                        if (belongsToCurrentSearch(request.url.toString()) &&
+                            errorResponse.statusCode in setOf(404, 410) && investigateOrigin(view)) return
                         loading = false
                         searchRevision += 1
                         extractionRevision = -1
@@ -655,6 +732,7 @@ fun HitMozSearchDialog(
 
     LaunchedEffect(web) {
         if (currentSearch.isNotBlank()) {
+            HitMozSearchPageGate.expectedQuery(currentSearch)?.let { currentSearch = HitMozSearchClient.searchUrl(it) }
             AppLog.i("HitMoz", "Initial browser search requested · revision=$searchRevision · ${HitMozDownloadUrls.diagnosticAddress(currentSearch)}")
             web.loadUrl(currentSearch)
         } else {
@@ -670,6 +748,9 @@ fun HitMozSearchDialog(
         pendingSearchRevision = -1
         searchRevision += 1
         currentSearch = ""
+        recoveringOrigin = false
+        originProposal = null
+        attemptedOriginSearch = ""
         tracks = emptyList()
         nextPageUrl = null
         appendResults = false
@@ -690,6 +771,9 @@ fun HitMozSearchDialog(
             .filter { it.isNotBlank() }
             .joinToString(" ")
         if (query.isBlank()) return
+        recoveringOrigin = false
+        originProposal = null
+        attemptedOriginSearch = ""
         pendingBrowserTrack = null
         pendingSearchRevision = -1
         browserRequestId += 1
@@ -794,6 +878,14 @@ fun HitMozSearchDialog(
 
                     HorizontalDivider()
                     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (recoveringOrigin) Text("Проверяем адрес источника…", style = MaterialTheme.typography.bodySmall)
+                    originProposal?.let { proposal ->
+                        TextButton(onClick = {
+                            val expected = currentSearch
+                            val revision = searchRevision
+                            scope.launch { applyOrigin(web, proposal, expected, revision) }
+                        }) { Text("Использовать новый адрес") }
+                    }
                     loadError?.let {
                         Text(
                             it,
@@ -1028,12 +1120,8 @@ internal fun isSafeBrowserUrl(url: String): Boolean = runCatching {
     uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()
 }.getOrDefault(false)
 
-internal fun isHitMozPage(url: String): Boolean = runCatching {
-    val uri = Uri.parse(url)
-    val host = uri.host?.lowercase().orEmpty()
-    uri.scheme.equals("https", ignoreCase = true) &&
-        (host == "ru.hitmoz.org" || host.endsWith(".ru.hitmoz.org"))
-}.getOrDefault(false)
+internal fun isHitMozPage(url: String): Boolean =
+    MusicOrigins.isActive(MusicOriginProvider.HITMOZ, MusicOriginPolicy.httpsUri(url)?.host)
 
 internal fun musicAdHost(host: String): Boolean {
     val normalized = host.lowercase(java.util.Locale.ROOT)
