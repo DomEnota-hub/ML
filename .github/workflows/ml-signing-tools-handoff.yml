@@ -1,14 +1,13 @@
 name: ML Android signing tools handoff (no secrets)
 on:
-  push:
-    branches:
-      - release/ml-1.7.110-video-editor-arm64
-      - qa/ml-17202-signing-tools-handoff
-  workflow_dispatch:
+  pull_request:
+    branches: [qa/ml-17202-signing-tools-handoff]
+    types: [opened, synchronize, reopened]
 permissions:
   contents: read
 jobs:
   tools:
+    if: github.head_ref == 'qa/ml-17211-signing-tools-only'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
