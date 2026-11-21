@@ -96,14 +96,35 @@ internal class AndroidSelectiveArchiveMovePort(
         }
     }
 
-    private fun publicIndexed(original:SelectiveArchiveIdentity):Boolean? {
-        val uri=Uri.parse(original.originalUri)
+    /**
+     * A direct lookup by the original media URI proves that an _ID is still
+     * addressable, NOT that Android's gallery/music/video collection lists it.
+     * .nomedia may remove the row from a public media collection while the
+     * same _ID remains accessible through MediaStore.Files. Always query the
+     * typed COLLECTION independently, as in the device-only archive probe.
+     * A null cursor or revoked permission is UNKNOWN, never a success.
+     */
+    internal fun publicIndexed(original:SelectiveArchiveIdentity):Boolean? {
+        check(original.wellFormed())
+        val kind=Uri.parse(original.originalUri).pathSegments.getOrNull(1)
+        val collection=when(kind) {
+            "images" -> MediaStore.Images.Media.getContentUri(original.volume)
+            "video" -> MediaStore.Video.Media.getContentUri(original.volume)
+            "audio" -> MediaStore.Audio.Media.getContentUri(original.volume)
+            else -> return null
+        }
         return try {
-            resolver.query(uri,arrayOf(MediaStore.MediaColumns._ID),null,null,null)?.use {
-                if(it.moveToFirst()) {
-                    check(it.count==1 && it.getLong(0)==original.mediaStoreId)
+            val cursor=resolver.query(collection,arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns._ID}=?",
+                arrayOf(original.mediaStoreId.toString()),null) ?: return null
+            cursor.use {
+                if(!it.moveToFirst()) false
+                else {
+                    check(it.count==1 && it.getLong(0)==original.mediaStoreId) {
+                        "Публичная медиаколлекция вернула иной идентификатор"
+                    }
                     true
-                } else false
+                }
             }
         } catch(_:SecurityException) { null }
     }
