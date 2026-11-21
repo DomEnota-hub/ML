@@ -22,6 +22,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,8 @@ internal class DuplicateTrashOperation(val request:DuplicateTrashSelection,visua
     val reportSaved=mutableStateOf(true)
     val revision=mutableIntStateOf(0)
     val batchLimit=mutableIntStateOf(if(visual)1 else 50)
+    /** UI-only flag: the operation and its activity coordinator remain mounted. */
+    val collapsed=mutableStateOf(false)
 }
 
 /** Read the actual provider state; RESULT_OK alone is not proof that every URI was trashed. */
@@ -87,6 +91,7 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
     var finished by operation.finished
     var revision by operation.revision
     var batchLimit by operation.batchLimit
+    var collapsed by operation.collapsed
     val privacyRevision by DuplicatePrivacyGuard.changes.collectAsState()
     val latestAppTrash by rememberUpdatedState(onAppTrash)
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
@@ -269,7 +274,66 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
         finishReport()
         }
     }
-    if (finished) {
+    val progressTotal = request.selected.size
+    val progressDone = outcomes.size.coerceIn(0, progressTotal)
+    val progressFraction = if (progressTotal > 0) progressDone.toFloat() / progressTotal else 1f
+    val progressPercent = (progressFraction * 100).toInt()
+    val progressStage = when {
+        finished -> "Завершено"
+        waiting -> "Ожидание разрешения Android"
+        !initialized -> "Проверка файлов"
+        else -> "Перемещение"
+    }
+    // Only the ViewModel-retained music operation may collapse. A gallery-local
+    // operation could otherwise be disposed when navigating, silently stopping work.
+    val canCollapse = retained != null
+    if (collapsed && canCollapse) {
+        Popup(
+            alignment = Alignment.TopCenter,
+            onDismissRequest = {},
+            properties = PopupProperties(
+                focusable = false,
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+            ),
+        ) {
+            Surface(
+                modifier = Modifier.statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)
+                    .widthIn(max = 440.dp).testTag("duplicateTrashMiniStatus"),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 8.dp,
+                tonalElevation = 3.dp,
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Перемещение в корзину", style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (finished) "Завершено · $progressDone из $progressTotal" else
+                                "$progressStage · $progressDone из $progressTotal",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(
+                            onClick = { collapsed = false },
+                            modifier = Modifier.testTag("duplicateTrashExpand"),
+                        ) { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Развернуть прогресс") }
+                    }
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier.fillMaxWidth().height(5.dp)
+                            .testTag("duplicateTrashMiniProgress"),
+                    )
+                }
+            }
+        }
+    }
+    if (finished && !(collapsed && canCollapse)) {
         val ok = outcomes.values.count { it.success }
         val failed = outcomes.entries.filterNot { it.value.success }
         val warnings = outcomes.entries.filter { it.value.success && it.value.reason != "Перемещено" }
@@ -385,6 +449,46 @@ internal fun DuplicateTrashHost(request: DuplicateTrashSelection, refs: Map<Stri
                 }
             }
         }
-    } else if (!waiting) AlertDialog(onDismissRequest = {}, title = { Text("Перемещение в корзину") },
-        text = { Text("Обработано: ${outcomes.size} из ${request.selected.size}") }, confirmButton = {})
+    } else if (!waiting && !(collapsed && canCollapse)) {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp)
+                    .testTag("duplicateTrashProgress"),
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+            ) {
+                Column(Modifier.fillMaxWidth().padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Перемещение в корзину", modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleMedium)
+                        if (canCollapse) IconButton(
+                            onClick = { collapsed = true },
+                            modifier = Modifier.testTag("duplicateTrashCollapse"),
+                        ) { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Свернуть прогресс") }
+                    }
+                    Text(progressStage, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Обработано: $progressDone из $progressTotal",
+                            style = MaterialTheme.typography.bodySmall)
+                        Text("$progressPercent%", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier.fillMaxWidth().height(7.dp)
+                            .testTag("duplicateTrashProgressBar"),
+                    )
+                    Text("Подтверждения Android выполняются отдельно. Сворачивание не отменяет перенос.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
 }

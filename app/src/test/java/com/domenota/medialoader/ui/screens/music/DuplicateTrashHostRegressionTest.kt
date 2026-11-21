@@ -34,7 +34,10 @@ class DuplicateTrashHostRegressionTest {
     @Test fun changedAndProtectedMembersDoNotBlockIndependentTransfers(){
         runBatch(true)
     }
-    private fun runBatch(partial:Boolean){
+    @Test fun collapsedProgressRemainsAttachedUntilResultAndCanExpand(){
+        runBatch(false, initiallyCollapsed = true)
+    }
+    private fun runBatch(partial:Boolean, initiallyCollapsed:Boolean=false){
         val context=compose.activity
         val dir=File(context.cacheDir,"duplicate-host-test").apply{mkdirs()}
         val bytes=ByteArray(2048){(it%251).toByte()}
@@ -54,6 +57,7 @@ class DuplicateTrashHostRegressionTest {
         if(partial)File(dir,"2.mp3").writeBytes(ByteArray(bytes.size){77})
         val request=DuplicateTrashSelection(listOf(group),selected,selected,emptyMap())
         val operation=DuplicateTrashOperation(request)
+        operation.collapsed.value=initiallyCollapsed
         val moved=mutableSetOf<String>()
         val committed=mutableSetOf<String>()
         try{
@@ -67,7 +71,12 @@ class DuplicateTrashHostRegressionTest {
                     onTrashed={uris->committed.addAll(uris);Unit},
                     onClose={},retained=operation)
             }}
+            if(initiallyCollapsed) compose.onNodeWithTag("duplicateTrashMiniStatus").assertExists()
             compose.waitUntil(30_000){operation.finished.value}
+            if(initiallyCollapsed){
+                compose.onNodeWithTag("duplicateTrashMiniStatus").assertExists()
+                compose.onNodeWithTag("duplicateTrashExpand").performClick()
+            }
             val success=if(partial)8 else 10
             compose.onNodeWithTag("duplicateTrashResult").assertExists()
             compose.onNodeWithTag("duplicateTrashSuccessCount").assertTextEquals("$success")
