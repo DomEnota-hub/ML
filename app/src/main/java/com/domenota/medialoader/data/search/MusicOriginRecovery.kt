@@ -3,7 +3,6 @@ package com.domenota.medialoader.data.search
 import android.os.SystemClock
 import java.io.IOException
 import java.net.InetAddress
-import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
 import java.net.UnknownHostException
@@ -50,46 +49,55 @@ internal object MusicOriginRecovery {
                 val now = SystemClock.elapsedRealtime()
                 if (lastAttempt[provider]?.let { now - it < COOLDOWN_MS } == true) return@withLock null
                 lastAttempt[provider] = now
-                val oldRoot = fetch("https://$oldHost/")
-                val oldSearch = fetch(searchUrl(oldHost))
-                currentCoroutineContext().ensureActive()
-                val direct = listOf(oldRoot, oldSearch).firstNotNullOfOrNull {
-                    MusicOriginPolicy.permanentMigration(provider, oldHost, it.status, it.location)
+                resolve(provider, oldHost, ::fetch)?.let {
+                    Proposal(provider, oldHost, it.host, it.confirmedRedirect)
                 }
-                if (direct != null && compatible(provider, direct)) {
-                    return@withLock Proposal(provider, oldHost, direct, true)
-                }
-
-                // One missing search/track, temporary HTTP/network/TLS or VPN problem is not a move.
-                // Two independent paths plus a repeat are required before using search engines.
-                val dnsMissing = oldRoot.dnsMissing && oldSearch.dnsMissing
-                val gone = oldRoot.status in setOf(404, 410) && oldSearch.status in setOf(404, 410)
-                if (!dnsMissing && !gone) return@withLock null
-                val repeat = fetch(searchUrl(oldHost))
-                if (!(dnsMissing && repeat.dnsMissing) && !(gone && repeat.status in setOf(404, 410)))
-                    return@withLock null
-
-                val checked = mutableSetOf(oldHost)
-                val engines = listOf(
-                    "https://www.google.com/search?q=" + provider.brand,
-                    "https://yandex.ru/search/?text=" + provider.brand
-                )
-                for (engine in engines) {
-                    val page = fetch(engine)
-                    if (page.status !in 200..299) continue
-                    for (host in candidates(provider, engine, page.body)) {
-                        currentCoroutineContext().ensureActive()
-                        if (!checked.add(host)) continue
-                        if (checked.size > MAX_CANDIDATES + 1) return@withLock null
-                        if (compatible(provider, host)) {
-                            // Structural compatibility is not proof of ownership.
-                            return@withLock Proposal(provider, oldHost, host, false)
-                        }
-                    }
-                }
-                null
             }
         }
+
+    internal data class Evidence(val host: String, val confirmedRedirect: Boolean)
+
+    /** Dependency-injected transport for deterministic state-machine regression. */
+    internal suspend fun resolve(
+        provider: MusicOriginProvider,
+        oldHost: String,
+        probe: suspend (String) -> Response,
+    ): Evidence? {
+        val oldRoot = probe("https://$oldHost/")
+        val oldSearch = probe(searchUrl(oldHost))
+        currentCoroutineContext().ensureActive()
+        val direct = listOf(oldRoot, oldSearch).firstNotNullOfOrNull {
+            MusicOriginPolicy.permanentMigration(provider, oldHost, it.status, it.location)
+        }
+        if (direct != null && compatible(provider, direct, probe)) return Evidence(direct, true)
+
+        // A live root or temporary/VPN/TLS error is not a move.
+        val dnsMissing = oldRoot.dnsMissing && oldSearch.dnsMissing
+        val gone = oldRoot.status in setOf(404, 410) && oldSearch.status in setOf(404, 410)
+        if (!dnsMissing && !gone) return null
+        val repeat = probe(searchUrl(oldHost))
+        if (!(dnsMissing && repeat.dnsMissing) && !(gone && repeat.status in setOf(404, 410)))
+            return null
+
+        val checked = mutableSetOf(oldHost)
+        val engines = listOf(
+            "https://www.google.com/search?q=" + provider.brand,
+            "https://yandex.ru/search/?text=" + provider.brand
+        )
+        for (engine in engines) {
+            val page = probe(engine)
+            if (page.status !in 200..299) continue
+            // Bound each engine separately so the second can still recover from bad first-engine results.
+            var attempts = 0
+            for (host in candidates(provider, engine, page.body)) {
+                currentCoroutineContext().ensureActive()
+                if (!checked.add(host)) continue
+                if (++attempts > 3) break
+                if (compatible(provider, host, probe)) return Evidence(host, false)
+            }
+        }
+        return null
+    }
 
     suspend fun accept(proposal: Proposal): Boolean = withContext(Dispatchers.IO) {
         currentCoroutineContext().ensureActive()
@@ -114,16 +122,17 @@ internal object MusicOriginRecovery {
             }
             val host = MusicOriginPolicy.hostOf(provider, raw) ?: continue
             hosts.add(host)
-            if (host.startsWith(provider.brand + ".")) hosts.add(provider.prefix + "." + host)
+            val base = host.split('.').takeLast(2).joinToString(".")
+            hosts.add(provider.prefix + "." + base)
             if (hosts.size >= MAX_CANDIDATES) break
         }
         return hosts.take(MAX_CANDIDATES)
     }
 
     /** Search and real detail/MP3 path structure, without downloading audio or trusting arbitrary hosts. */
-    private suspend fun compatible(provider: MusicOriginProvider, host: String): Boolean {
+    private suspend fun compatible(provider: MusicOriginProvider, host: String, probe: suspend (String) -> Response): Boolean {
         if (MusicOriginPolicy.candidateHost(provider, host) != host) return false
-        val search = fetch(searchUrl(host))
+        val search = probe(searchUrl(host))
         if (search.status !in 200..299) return false
         fun urls(body: String, base: String) = Jsoup.parse(body, base).select("a[href]")
             .mapNotNull { MusicOriginPolicy.httpsUri(it.absUrl("href")) }
@@ -131,21 +140,21 @@ internal object MusicOriginRecovery {
         val links = urls(search.body, searchUrl(host))
         val audioPath = Regex("^/get/music/[0-9]{8}/[^/]+\\.mp3$", RegexOption.IGNORE_CASE)
         return when (provider) {
-            MusicOriginProvider.HITMOZ -> links.count { audioPath.matches(it.path) } >= 2 &&
+            MusicOriginProvider.HITMOZ -> links.filter { audioPath.matches(it.path) }.distinctBy { it.path }.size >= 2 &&
                 links.any { it.path.matches(Regex("^/song/[0-9]+/?$")) }
             MusicOriginProvider.MUZMO -> {
                 val details = links.filter { it.path == "/info" &&
                     it.rawQuery.orEmpty().split('&').any { p -> p.matches(Regex("id=[0-9]{1,18}")) } }
                     .distinctBy { it.toString() }
                 if (details.size < 2) return false
-                val detail = fetch(details.first().toString())
+                val detail = probe(details.first().toString())
                 detail.status in 200..299 &&
                     urls(detail.body, details.first().toString()).any { audioPath.matches(it.path) }
             }
         }
     }
 
-    private data class Response(val status: Int = 0, val location: String? = null,
+    internal data class Response(val status: Int = 0, val location: String? = null,
                                 val body: String = "", val dnsMissing: Boolean = false)
 
     private suspend fun fetch(address: String): Response {

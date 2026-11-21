@@ -280,7 +280,7 @@ fun MuzmoSearchDialog(
                                     return@evaluateJavascript
                                 }
                                 val link = document.optString("downloadUrl")
-                                if (MuzmoDownloadUrls.isMp3(link)) {
+                                if (MuzmoDownloadUrls.isMp3(link) && MusicOriginPolicy.sameHost(selection.infoUrl, link)) {
                                     val previewOnly = pendingPreview
                                     pending = null
                                     pendingPreview = false
@@ -327,7 +327,7 @@ fun MuzmoSearchDialog(
                     if (!request.isForMainFrame || recoveringOrigin || originProposal != null) return
                     val code = error.errorCode
                     if (searching && matchesQuery(request.url.toString()) &&
-                        code == WebViewClient.ERROR_HOST_LOOKUP && investigateOrigin(view)) return
+                        MusicOriginPolicy.shouldInvestigate(true, searching, code == WebViewClient.ERROR_HOST_LOOKUP, null) && investigateOrigin(view)) return
                     // Only a failed user-initiated action is a terminal ERROR.
                     when {
                         searching -> AppLog.e("Muzmo",
@@ -368,7 +368,7 @@ fun MuzmoSearchDialog(
                         }
                     }
                     if (request.isForMainFrame && status >= 400 && !recoveringOrigin && originProposal == null) {
-                        if (searching && matchesQuery(request.url.toString()) && status in setOf(404, 410) &&
+                        if (searching && matchesQuery(request.url.toString()) && MusicOriginPolicy.shouldInvestigate(true, searching, false, status) &&
                             investigateOrigin(view)) return
                         searching = false
                         pending = null
@@ -468,9 +468,10 @@ fun MuzmoSearchDialog(
                     if (searching || pending != null) LinearProgressIndicator(Modifier.fillMaxWidth())
                     if (recoveringOrigin) Text("Проверяем адрес источника…", style = MaterialTheme.typography.bodySmall)
                     originProposal?.let { proposal ->
-                        TextButton(onClick = {
+                        TextButton(enabled = !recoveringOrigin, onClick = {
                             val expected = queryUrl
                             val id = searchId
+                            recoveringOrigin = true
                             scope.launch { applyOrigin(browser, proposal, expected, id) }
                         }) { Text("Использовать новый адрес") }
                     }

@@ -1,6 +1,8 @@
 package com.domenota.medialoader.data.search
 
 import java.net.InetAddress
+import kotlinx.coroutines.runBlocking
+import com.domenota.medialoader.data.search.MusicOriginRecovery.Response
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -60,4 +62,69 @@ class MusicOriginPolicyTest {
         assertEquals(listOf("hitmoz.net", "ru.hitmoz.net", "ru.hitmoz.cc"),
             MusicOriginRecovery.candidates(h, "https://www.google.com/search?q=hitmoz", html))
     }
+    private val hitRows = """<a href="/get/music/20260101/one.mp3">1</a>
+        <a href="/get/music/20260101/two.mp3">2</a><a href="/song/123456">song</a>"""
+    @Test fun temporaryFailureOrSingle404NeverCallsSearchEngine() = runBlocking {
+        val checked = mutableListOf<String>()
+        val result = MusicOriginRecovery.resolve(h, h.defaultHost) { url ->
+            checked.add(url)
+            if (url.endsWith("/")) Response(200) else Response(404)
+        }
+        assertNull(result)
+        assertEquals(2, checked.size)
+        assertTrue(checked.all { it.startsWith("https://ru.hitmoz.org/") })
+        val blocked = MusicOriginRecovery.resolve(h, h.defaultHost) { url ->
+            assertTrue(url.startsWith("https://ru.hitmoz.org/"))
+            Response(403)
+        }
+        assertNull(blocked)
+    }
+
+    @Test fun permanentRedirectWithCompatibleSearchNeedsNoManualApproval() = runBlocking {
+        val result = MusicOriginRecovery.resolve(h, h.defaultHost) { url ->
+            when {
+                url.startsWith("https://ru.hitmoz.org/") -> Response(301, "https://ru.hitmoz.net/")
+                url == "https://ru.hitmoz.net/search?q=Mozart" -> Response(200, body = hitRows)
+                else -> error("Unexpected request $url")
+            }
+        }
+        assertEquals(MusicOriginRecovery.Evidence("ru.hitmoz.net", true), result)
+    }
+
+    @Test fun dnsLossFallsBackFromGoogleToYandexButRequiresConfirmation() = runBlocking {
+        val checked = mutableListOf<String>()
+        val result = MusicOriginRecovery.resolve(m, m.defaultHost) { url ->
+            checked.add(url)
+            when {
+                url.startsWith("https://rmr.muzmo.cc/") -> Response(dnsMissing = true)
+                url.startsWith("https://www.google.com/") -> Response(429)
+                url.startsWith("https://yandex.ru/") -> Response(200, body = """<a href="https://rmr.muzmo.org/">result</a>""")
+                url == "https://rmr.muzmo.org/search?q=Mozart" -> Response(200, body =
+                    """<a href="/info?id=123">one</a><a href="/info?id=456">two</a>""")
+                url == "https://rmr.muzmo.org/info?id=123" -> Response(200, body =
+                    """<a href="/get/music/20260101/one.mp3">download</a>""")
+                else -> error("Unexpected request $url")
+            }
+        }
+        assertEquals(MusicOriginRecovery.Evidence("rmr.muzmo.org", false), result)
+        assertEquals(3, checked.count { it.startsWith("https://rmr.muzmo.cc/") })
+        assertTrue(checked.indexOfFirst { it.contains("google.com") } < checked.indexOfFirst { it.contains("yandex.ru") })
+        assertTrue(checked.filter { it.contains("google.com") || it.contains("yandex.ru") }.all { it.endsWith("muzmo") })
+    }
+
+    @Test fun brokenOrForeignCandidateContractDoesNotActivate() = runBlocking {
+        val result = MusicOriginRecovery.resolve(h, h.defaultHost) { url ->
+            when {
+                url.startsWith("https://ru.hitmoz.org/") -> Response(410)
+                url.startsWith("https://www.google.com/") -> Response(200, body =
+                    """<a href="https://hitmoz.net.evil.com/">fake</a><a href="https://ru.hitmoz.net/">wrong parser</a>""")
+                url == "https://ru.hitmoz.net/search?q=Mozart" -> Response(200, body =
+                    """<a href="https://foreign.test/get/music/20260101/one.mp3">fake</a>""")
+                url.startsWith("https://yandex.ru/") -> Response(200, body = "")
+                else -> error("Unexpected request $url")
+            }
+        }
+        assertNull(result)
+    }
+
 }
