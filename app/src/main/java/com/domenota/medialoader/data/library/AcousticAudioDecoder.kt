@@ -16,7 +16,7 @@ internal object AcousticAudioDecoder {
         val active=coroutineContext
         suspend fun decode(windows:List<AcousticWindow>):AcousticFingerprint?{
             val builder=AcousticFingerprints.Builder{active.ensureActive()}
-            for(window in windows){active.ensureActive();if(!decodeWindow(context,uri,window,builder))return null}
+            for(window in windows){active.ensureActive();if(!decodeWindow(context,uri,window,builder::beginWindow,builder::accept))return null}
             return builder.finish()
         }
         val windows=AcousticScanPlan.windows(durationMs,expanded)
@@ -24,7 +24,15 @@ internal object AcousticAudioDecoder {
         // Some providers/codecs cannot seek reliably; do not silently omit their acoustic analysis.
         return first ?: if(windows.size>1)decode(listOf(AcousticWindow(0,null))) else null
     }
-    private suspend fun decodeWindow(context:Context,uri:Uri,window:AcousticWindow,builder:AcousticFingerprints.Builder):Boolean {
+    suspend fun comparisonFrames(context:Context,uri:Uri,stepMs:Long):List<ComparisonFrame>? {
+        require(stepMs in setOf(256L,512L,1024L))
+        val active = coroutineContext
+        val builder = AcousticFingerprints.ComparisonBuilder(stepMs) { active.ensureActive() }
+        if (!decodeWindow(context,uri,AcousticWindow(0,null),{},builder::accept)) return null
+        active.ensureActive()
+        return builder.finish()
+    }
+    private suspend fun decodeWindow(context:Context,uri:Uri,window:AcousticWindow,beginWindow:(Long)->Unit,accept:(Float)->Unit):Boolean {
         val active = coroutineContext
         val previousPriority = android.os.Process.getThreadPriority(android.os.Process.myTid())
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
@@ -82,12 +90,12 @@ internal object AcousticAudioDecoder {
                             val skip=((startUs-info.presentationTimeUs).coerceAtLeast(0)*rate/1_000_000L).coerceAtMost(frames.toLong()).toInt()
                             val until=if(endUs==null)frames else ((endUs-info.presentationTimeUs).coerceAtLeast(0)*rate/1_000_000L).coerceAtMost(frames.toLong()).toInt()
                             buffer.position(buffer.position()+skip*frameBytes)
-                            if(!started&&until>skip){builder.beginWindow((info.presentationTimeUs+skip*1_000_000L/rate)/1000);started=true}
+                            if(!started&&until>skip){beginWindow((info.presentationTimeUs+skip*1_000_000L/rate)/1000);started=true}
                             repeat((until-skip).coerceAtLeast(0)) {
                                 var mono = 0.0
                                 repeat(channels) { mono += if (sampleBytes == 2) buffer.short/32768.0 else buffer.float.toDouble() }
                                 sum += mono/channels; count++; phase += AcousticFingerprints.RATE
-                                if (phase >= rate) { builder.accept((sum/count).toFloat());accepted++; phase -= rate; sum = 0.0; count = 0 }
+                                if (phase >= rate) { accept((sum/count).toFloat());accepted++; phase -= rate; sum = 0.0; count = 0 }
                             }
                             if(endUs!=null&&until<frames)windowDone=true
                         } finally { codec.releaseOutputBuffer(index,false) }
