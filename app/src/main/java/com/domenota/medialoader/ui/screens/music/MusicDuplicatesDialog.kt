@@ -573,34 +573,42 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     val context=LocalContext.current
     var active by remember(group.key){mutableStateOf(group.tracks.first().id)}
     val track=group.tracks.first{it.id==active}
-    var waveform by remember(active){mutableStateOf<FloatArray?>(null)}
     var position by remember{mutableLongStateOf(0)}
     val reference=group.tracks.first()
     var targetId by remember(group.key){mutableStateOf(group.tracks[1].id)}
     val target=group.tracks.first{it.id==targetId}
+    var referenceWaveform by remember(group.key,reference.id){mutableStateOf<FloatArray?>(null)}
+    var targetWaveform by remember(group.key,targetId){mutableStateOf<FloatArray?>(null)}
     var evidence by remember(targetId){mutableStateOf<AcousticAlignment?>(null)}
     fun choose(t:DuplicateTrack){active=t.id;if(t.id!=reference.id)targetId=t.id;onPlay(t,0L)}
-    LaunchedEffect(active){
-        val job=kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
-        waveform=withContext(Dispatchers.IO){
-            if(!DuplicatePrivacyGuard.accepts(context,track.privacyEpoch,track.id))FloatArray(0)
-            else try{
-                val uri=Uri.parse(track.uri)
-                val duration=runCatching{
-                    val retriever=android.media.MediaMetadataRetriever()
-                    try{retriever.setDataSource(context,uri);retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()}
-                    finally{retriever.release()}
-                }.getOrNull()?.takeIf{it>0}?:track.duration?.takeIf{it>0}
-                if(duration==null)FloatArray(0) else {
-                    // Share the player/editor's PCM RMS v6 cache and cancellation gate.
-                    // The legacy packet-size fallback is not a true audio waveform.
-                    val cached=com.domenota.medialoader.ui.components.readCachedAudioWaveform(context,uri,duration)
-                    val peaks=cached?:loadAudioWaveform(context,uri,duration,isCancelled={job?.isActive==false})
-                    if(peaks.isEmpty()||!DuplicatePrivacyGuard.accepts(context,track.privacyEpoch,track.id))FloatArray(0)
-                    else com.domenota.medialoader.ui.components.waveformColumnPeaks(peaks,256)
-                }
-            }catch(e:CancellationException){throw e}catch(_:Exception){FloatArray(0)}
-        }
+    suspend fun verifiedWaveform(t:DuplicateTrack):FloatArray=withContext(Dispatchers.IO) {
+        if(!DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id))return@withContext FloatArray(0)
+        try {
+            val uri=Uri.parse(t.uri)
+            val duration=runCatching{
+                val retriever=android.media.MediaMetadataRetriever()
+                try{retriever.setDataSource(context,uri)
+                    retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()}
+                finally{retriever.release()}
+            }.getOrNull()?.takeIf{it>0}?:t.duration?.takeIf{it>0}
+            if(duration==null)return@withContext FloatArray(0)
+            // Use the same PCM RMS v6 cache and cancellation guard as the
+            // audio editor; packet sizes are NOT comparable audio loudness.
+            val job=kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+            val cached=com.domenota.medialoader.ui.components.readCachedAudioWaveform(context,uri,duration)
+            val peaks=cached?:loadAudioWaveform(context,uri,duration,isCancelled={job?.isActive==false})
+            if(peaks.isEmpty()||!DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id))FloatArray(0)
+            else com.domenota.medialoader.ui.components.waveformColumnPeaks(peaks,256)
+        } catch(e:CancellationException){throw e} catch(_:Exception){FloatArray(0)}
+    }
+    // Both reference and candidate are decoded off-main. An old candidate's
+    // result cannot be shown after targetId changes: remember resets the state
+    // and LaunchedEffect cancels its previous decoder.
+    LaunchedEffect(group.key,reference.id,reference.privacyEpoch) {
+        referenceWaveform=verifiedWaveform(reference)
+    }
+    LaunchedEffect(group.key,targetId,target.privacyEpoch) {
+        targetWaveform=verifiedWaveform(target)
     }
     LaunchedEffect(targetId){
         evidence=withContext(Dispatchers.Default){val a=reference.acoustic;val b=target.acoustic
@@ -630,12 +638,38 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                         }
                     }
                 }
-                Text(track.title,style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
-                val peaks=waveform
-                if(peaks==null)LinearProgressIndicator(Modifier.fillMaxWidth())
-                else if(peaks.any{it>0f})AudioWaveform(peaks,(position.toDouble()/(track.duration?:1L).coerceAtLeast(1)).toFloat().coerceIn(0f,1f),
-                    {fraction->onPlay(track,((track.duration?:0L)*fraction).toLong())})
-                else Text("Волна недоступна")
+                Text("Сравнение звуковых волн",style=MaterialTheme.typography.titleMedium)
+                // The same time scale is used independently for both tracks;
+                // each bar shows relative RMS, not calibrated loudness.
+                listOf(reference to referenceWaveform,target to targetWaveform).forEachIndexed { index,(candidate,peaks) ->
+                    Column(Modifier.fillMaxWidth().testTag("duplicate-waveform-${index+1}"),
+                        verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                        Row(verticalAlignment=Alignment.CenterVertically) {
+                            Text(if(index==0)"Оригинал" else "Сравниваемая версия",
+                                Modifier.weight(1f),style=MaterialTheme.typography.labelMedium)
+                            IconButton(onClick={active=candidate.id;onPlay(candidate,null)},
+                                modifier=Modifier.size(40.dp)) {
+                                Icon(if(previewId==candidate.id&&playing)Icons.Rounded.Pause
+                                    else Icons.Rounded.PlayArrow,
+                                    "Прослушать ${if(index==0)"оригинал" else "сравниваемый трек"}")
+                            }
+                        }
+                        Text(candidate.title,style=MaterialTheme.typography.bodySmall,maxLines=1,
+                            overflow=TextOverflow.Ellipsis)
+                        val offset=if(previewId==candidate.id)position else
+                            (if(index==0)evidence?.firstMs else evidence?.secondMs)?:0L
+                        val fraction=if(candidate.duration!=null&&candidate.duration>0)
+                            (offset.toDouble()/candidate.duration).toFloat().coerceIn(0f,1f)
+                            else 0f
+                        if(peaks==null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        else if(peaks.any { it>0f }) AudioWaveform(peaks,fraction,{
+                            f->active=candidate.id;onPlay(candidate,((candidate.duration?:0L)*f).toLong())
+                        })
+                        else Text("Волна недоступна",style=MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Text("Высота столбиков относительная. Уровень громкости разных записей напрямую не сравнивается.",
+                    style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(verticalAlignment=Alignment.CenterVertically){
                     IconButton({onPlay(track,null)}){Icon(if(previewId==active&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,"Прослушать")}
                     Text("${position/60000}:${"%02d".format(position/1000%60)}",Modifier.weight(1f))
