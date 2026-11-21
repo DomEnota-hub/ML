@@ -21,7 +21,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.style.TextOverflow
 import com.domenota.medialoader.ui.components.AudioWaveform
-import com.domenota.medialoader.ui.components.loadAudioWaveform
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.components.DuplicateScanPanel
 import com.domenota.medialoader.ui.components.DuplicateJournalDialog
@@ -614,22 +613,32 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
         try {
             if(!allowed(reference)||!allowed(target)){failed=true;return@LaunchedEffect}
             val cached=cache[identity]
-            val value=cached?:withContext(Dispatchers.IO){
-                val first=AcousticAudioDecoder.comparisonFrames(context,Uri.parse(reference.uri),step)
-                    ?:return@withContext null
-                val second=AcousticAudioDecoder.comparisonFrames(context,Uri.parse(target.uri),step)
-                    ?:return@withContext null
-                val aligned=withContext(Dispatchers.Default){
-                    val job=kotlin.coroutines.coroutineContext
-                    AudioPairAlignment.align(first,second,step){job.ensureActive()}
+            val verified=withContext(Dispatchers.IO){
+                val beforeFirst=MusicDuplicateScanner.comparisonStamp(context,reference)?:return@withContext null
+                val beforeSecond=MusicDuplicateScanner.comparisonStamp(context,target)?:return@withContext null
+                val cacheSafe=reference.modified!=null&&target.modified!=null&&
+                    beforeFirst.second!=null&&beforeSecond.second!=null
+                val value=cached?.takeIf{cacheSafe}?:run{
+                    val first=AcousticAudioDecoder.comparisonFrames(context,Uri.parse(reference.uri),step)
+                        ?:return@withContext null
+                    val second=AcousticAudioDecoder.comparisonFrames(context,Uri.parse(target.uri),step)
+                        ?:return@withContext null
+                    val aligned=withContext(Dispatchers.Default){
+                        val job=kotlin.coroutines.coroutineContext
+                        AudioPairAlignment.align(first,second,step){job.ensureActive()}
+                    }
+                    PairAnalysis(first,second,aligned)
                 }
-                PairAnalysis(first,second,aligned)
+                if(MusicDuplicateScanner.comparisonStamp(context,reference)!=beforeFirst||
+                    MusicDuplicateScanner.comparisonStamp(context,target)!=beforeSecond)return@withContext null
+                value to cacheSafe
             }
-            if(value==null||!allowed(reference)||!allowed(target)){failed=true;return@LaunchedEffect}
-            if(cached==null){
+            if(verified==null||!allowed(reference)||!allowed(target)){failed=true;return@LaunchedEffect}
+            val (value,cacheSafe)=verified
+            if(cacheSafe){
                 cache[identity]=value
                 while(cache.size>3)cache.remove(cache.keys.first())
-            }
+            }else cache.remove(identity)
             analysis=value
         }catch(e:CancellationException){throw e}
         catch(_:Exception){failed=true}
