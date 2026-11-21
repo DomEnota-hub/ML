@@ -1591,7 +1591,6 @@ fun MediaLoaderApp(
     val currentScopedCatalog by rememberUpdatedState(scopedCatalog)
     val currentRecentCatalog by rememberUpdatedState(recentProjection.value)
     val currentBlocked by rememberUpdatedState(collectionBlocked)
-    val currentArchiveRecords by rememberUpdatedState(archivedRecords)
     val recentDeviceFolders = remember(phoneMusic.items) { phoneMusic.items.mapNotNull { row ->
         row.savedUri?.let { uri -> row.groupId?.let { uri to it } }
     }.toMap() }
@@ -1752,6 +1751,7 @@ fun MediaLoaderApp(
         if (rows.size != requested.size) { AppNotice.post(context, "Некоторые файлы недоступны"); return }
         simpleArchiveBusy = true
         simpleArchiveError = null
+        libraryPreviewJob?.cancel()
         fileActionScope.launch {
             try {
                 check(rows.all { row -> !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED &&
@@ -2996,8 +2996,14 @@ fun MediaLoaderApp(
                 SimpleArchiveScreen(records = archivedRecords, liveRows = archiveLiveRows,
                     legacyRecovery = archiveQaEntries.filterNot { it.restored },
                     legacyNames = catalogFolders.associate { it.id to it.name },
-                    legacyBusy = archiveQaBusy, legacyMessage = archiveQaError,
+                    legacyBusy = archiveQaBusy || nomediaBusy, legacyMessage = archiveQaError,
                     onLegacyRestore = restoreSelectiveArchive,
+                    legacyHiddenFolders = nomediaSnapshot.hiddenFolderIds,
+                    onLegacyFolderRestore = { folderId -> fileActionScope.launch {
+                        try { toggleFolderVisibility(folderId, false) }
+                        catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { AppNotice.post(context, e.message ?: "Не удалось вернуть файлы") }
+                    } },
                     onClose = { navController.popBackStack() },
                     onOpen = { record ->
                         // Resolve a fresh public reference, not an unverified historical URI.

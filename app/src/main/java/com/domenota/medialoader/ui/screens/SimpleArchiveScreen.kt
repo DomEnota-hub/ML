@@ -44,6 +44,8 @@ internal fun SimpleArchiveScreen(
     legacyBusy: Boolean = false,
     legacyMessage: String? = null,
     onLegacyRestore: ((String) -> Unit)? = null,
+    legacyHiddenFolders: Set<String> = emptySet(),
+    onLegacyFolderRestore: ((String) -> Unit)? = null,
 ) {
     var type by remember { mutableStateOf<MediaType?>(null) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
@@ -87,7 +89,8 @@ internal fun SimpleArchiveScreen(
         }
         if (legacyMessage != null) Text(legacyMessage, Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             style = MaterialTheme.typography.bodySmall)
-        if (filtered.isEmpty() && legacyRecovery.isEmpty()) {
+        val hasLegacy = type == null && (legacyRecovery.isNotEmpty() || legacyHiddenFolders.isNotEmpty())
+        if (filtered.isEmpty() && !hasLegacy) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -98,7 +101,7 @@ internal fun SimpleArchiveScreen(
             }
         } else {
             LazyColumn(Modifier.weight(1f)) {
-                if (legacyRecovery.isNotEmpty() && type == null) {
+                if (hasLegacy) {
                     item { Text("Ранее скрытые файлы", Modifier.padding(16.dp), fontWeight = FontWeight.SemiBold) }
                     items(legacyRecovery, key = { "legacy:" + it.folderId }) { entry ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -111,6 +114,17 @@ internal fun SimpleArchiveScreen(
                             TextButton(onClick = { onLegacyRestore?.invoke(entry.folderId) },
                                 enabled = !legacyBusy && !busy && !entry.needsReview && onLegacyRestore != null) { Text("Вернуть") }
                         }
+                    }
+                }
+                if (hasLegacy) items(legacyHiddenFolders.sorted(), key = { "folder:" + it }) { folderId ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(legacyNames[folderId] ?: "Скрытая папка")
+                            Text("Ранее скрытая папка", style = MaterialTheme.typography.bodySmall)
+                        }
+                        TextButton(onClick = { onLegacyFolderRestore?.invoke(folderId) },
+                            enabled = !busy && !legacyBusy && onLegacyFolderRestore != null) { Text("Вернуть") }
                     }
                 }
                 items(filtered, key = { it.catalogId }) { item ->
