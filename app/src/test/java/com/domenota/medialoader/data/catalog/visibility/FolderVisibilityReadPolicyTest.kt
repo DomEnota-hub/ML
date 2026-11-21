@@ -51,4 +51,23 @@ class FolderVisibilityReadPolicyTest {
         assertTrue(policy.isExcluded("x",null,null))
         assertFalse(policy.canOpenHidden("x","a","file:///x","a"))
     }
+    @Test fun selectiveArchiveBlocksBothOriginalAddressAndReusedAliases() {
+        val uri="content://media/external_primary/images/media/42"
+        val policy=FolderVisibilityReadPolicy(FolderVisibilitySnapshot(),
+            archiveBlockedIds=setOf("history-42"),
+            archiveBlockedUris=setOf(uri),
+            archiveBlockedAliases=setOf("phone:image:42","media:external:42",uri,"uri:$uri"))
+        assertTrue(policy.isExcluded("history-42",null,"content://media/external_primary/images/media/99"))
+        assertTrue(policy.isExcluded("other",null,uri))
+        assertTrue(policy.isRetiredPhoneCollision("phone:image:42",null,emptySet()))
+        assertTrue(policy.isRetiredPhoneCollision("media:external:42",null,emptySet()))
+        assertFalse(policy.isExcluded("unrelated",null,"content://media/external_primary/images/media/99"))
+    }
+
+    @Test fun unknownArchiveIndexClosesPublicLibraryUntilDiskJournalIsRead() {
+        val policy=FolderVisibilityReadPolicy(FolderVisibilitySnapshot(),unknownPending=true)
+        assertTrue(policy.isExcluded("any",null,null))
+        assertFalse(policy.canOpenHidden("any","folder","file:///private","folder"))
+    }
+
 }
