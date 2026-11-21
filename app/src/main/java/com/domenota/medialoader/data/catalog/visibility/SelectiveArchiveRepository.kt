@@ -12,6 +12,20 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/** Complete proof of a partially interrupted batch's restoration. */
+internal data class SelectiveArchiveBatchRestoreResult(
+    val restored:List<SelectiveArchiveMoveReceipt>,
+    val unchangedPublicIds:Set<String>,
+    val expectedCount:Int,
+) {
+    init {
+        require(expectedCount>0 && restored.size+unchangedPublicIds.size==expectedCount)
+        require(restored.all { it.phase==SelectiveArchiveMovePhase.RESTORED_VERIFIED })
+        require(restored.map { it.catalogId }.distinct().size==restored.size)
+        require(restored.none { it.catalogId in unchangedPublicIds })
+    }
+}
+
 /**
  * Stage 3 selective archive backend. The caller supplies a user-selected
  * physical-folder plan. Never converts a virtual collection into a parent
@@ -28,7 +42,9 @@ internal class SelectiveArchiveRepository(
     private val mutex=Mutex()
     private val playlists=PlaylistRepository(app)
     private val references=SelectiveArchiveReferenceGuard(db,playlists)
-    private val inspector=SelectiveArchiveSourceInspector(AndroidSelectiveArchiveMediaProbe(app))
+    private val mediaProbe=AndroidSelectiveArchiveMediaProbe(app)
+    private val inspector=SelectiveArchiveSourceInspector(mediaProbe)
+    private val unjournaled=SelectiveArchiveUnjournaledProof(mediaProbe,references::sha256)
     private val checkpoints=SelectiveArchiveCheckpointStore(
         File(app.noBackupFilesDir,"selective-archive-checkpoints-v1"))
     private val journal=SelectiveArchiveMoveJournal(
@@ -90,26 +106,33 @@ internal class SelectiveArchiveRepository(
             }
         }
 
-    suspend fun restore(folderId:String):List<SelectiveArchiveMoveReceipt> =
+    suspend fun restore(folderId:String):SelectiveArchiveBatchRestoreResult =
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 val checkpoint=checkNotNull(checkpoints.read(folderId)) {
                     "Сохранённая точка выборочного архива не найдена"
                 }
-                // Validate COMPLETE journal coverage before restoring any file.
-                // A missing member receipt is an unknown batch state, never a
-                // successful partial restore.
-                val receipts=checkpoint.originals.map { original ->
-                    checkNotNull(journal.read(folderId,original.catalogId)) {
-                        "Нет записи журнала для выбранного файла. Восстановление всей подборки остановлено"
+                // Restore every journaled member, but an interruption may occur
+                // before later members have any receipt. Independently prove
+                // those originals STILL PUBLIC before changing any other file.
+                val receipts=checkpoint.originals.mapNotNull { original ->
+                    journal.read(folderId,original.catalogId)?.let { original.catalogId to it }
+                }.toMap()
+                val intact=mutableSetOf<String>()
+                for(original in checkpoint.originals) {
+                    if(original.catalogId !in receipts) {
+                        check(unjournaled.publicUnchanged(original)) {
+                            "Нет журнала и точного доказательства доступности исходного файла"
+                        }
+                        intact+=original.catalogId
                     }
                 }
-                check(receipts.size==checkpoint.originals.size &&
-                    receipts.all { it.folderId==folderId }) {
-                    "Неполный или изменённый журнал выборочного архива"
+                check(selectiveArchiveRecoveryCoverage(checkpoint.originals,receipts,intact)) {
+                    "Журнал или состав выборочного архива не подтверждены"
                 }
                 val result=mutableListOf<SelectiveArchiveMoveReceipt>()
                 for(original in checkpoint.originals) {
+                    if(original.catalogId in intact) continue // Independently proven untouched.
                     val restored=engine.restore(checkpoint,original)
                     result+=restored
                     // Cleanup is best-effort only AFTER successful identity,
@@ -117,7 +140,7 @@ internal class SelectiveArchiveRepository(
                     // entry is never touched; its diagnostic remains inspectable.
                     runCatching { target.releaseEmpty(original,restored) }
                 }
-                result
+                SelectiveArchiveBatchRestoreResult(result,intact,checkpoint.originals.size)
             }
         }
 
