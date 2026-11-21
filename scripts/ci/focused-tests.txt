@@ -20,3 +20,5 @@ com.domenota.medialoader.data.archive.SimpleArchivePolicyTest
 com.domenota.medialoader.data.archive.SimpleArchiveStoreTest
 com.domenota.medialoader.ui.screens.gallery.GalleryVideoChromeTest
 com.domenota.medialoader.data.library.AudioPairAlignmentTest
+com.domenota.medialoader.ui.screens.organization.CollectionPurePolicyTest
+com.domenota.medialoader.ui.screens.gallery.GalleryVideoClockTest

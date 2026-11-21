@@ -129,3 +129,23 @@ class RetryTest(unittest.TestCase):
                 self.assertEqual(int(counter.read_text()),1 if functional else 2)
                 timing=json.loads((root/'ci-output/probe-timing.json').read_text())
                 self.assertEqual(len(timing['attempts']),1 if functional else 2)
+
+class FullIsolationManifestTest(unittest.TestCase):
+    def test_exact_methods_required_even_when_worker_counts_match(self):
+        import copy
+        expected=[('A','one'),('B','two')]
+        good=dict(mode='full',total=5,isolated_methods=2,errors=[],shards=[
+            dict(label='bulk',gradle_exit=0,tests=3,expected=None),
+            dict(label='A-one',gradle_exit=0,tests=1,expected=[['A','one']]),
+            dict(label='B-two',gradle_exit=0,tests=1,expected=[['B','two']])])
+        gate.validate_isolation_manifest(good,expected,5,3)
+        for mutate in [
+            lambda m: m['shards'][2].update(expected=[['A','one']]),
+            lambda m: m['shards'][2].update(expected=[['B','other']]),
+            lambda m: m['shards'][1].update(gradle_exit=1),
+            lambda m: m.update(isolated_methods=1),
+            lambda m: m.update(incomplete=True),
+        ]:
+            bad=copy.deepcopy(good);mutate(bad)
+            with self.assertRaises(ValueError):gate.validate_isolation_manifest(bad,expected,5,3)
+        with self.assertRaises(ValueError):gate.validate_isolation_manifest(good,expected,5,2)

@@ -35,6 +35,27 @@ def validate_cases(directory, required):
     if missing or not found:raise ValueError('Missing required tests: '+str(sorted(missing)))
     return {'total':len(found),'passed':sum(not x['skipped'] for x in found.values()),'skipped':[k for k,v in found.items() if v['skipped']]}
 
+def validate_isolation_manifest(manifest, expected, total, workers):
+    """Fresh worker per current isolated method; no silent count-based bypass."""
+    expected = set(tuple(x) for x in expected)
+    if not expected or manifest.get('errors') or manifest.get('incomplete') or manifest.get('total') != total:
+        raise ValueError('Invalid full isolation manifest')
+    if manifest.get('isolated_methods') != len(expected):
+        raise ValueError('Isolated method count mismatch')
+    shards=manifest.get('shards', [])
+    if len(shards)!=len(expected)+1 or workers!=len(shards):
+        raise ValueError('Missing required fresh test workers')
+    bulk=shards[0]
+    if bulk.get('label')!='bulk' or bulk.get('expected') is not None or bulk.get('gradle_exit')!=0 or bulk.get('tests',0)<1:
+        raise ValueError('Invalid bulk shard')
+    observed=[]
+    for shard in shards[1:]:
+        if shard.get('gradle_exit')!=0 or shard.get('tests')!=1 or len(shard.get('expected') or [])!=1:
+            raise ValueError('Invalid isolated shard')
+        observed.append(tuple(shard['expected'][0]))
+    if len(set(observed))!=len(observed) or set(observed)!=expected or sum(s['tests'] for s in shards)!=total:
+        raise ValueError('Missing, duplicate, or unexpected isolated test')
+    
 def validate_receipts(receipts,sha,run,attempt):
     if len(receipts)!=3 or {r.get('lane') for r in receipts}!={'jvm','lint','arm64'}:raise ValueError('Three unique required lanes must pass')
     for r in receipts:
@@ -129,9 +150,11 @@ def main():
     elif action=='cases':
         r=validate_cases(ROOT/'app/build/test-results/testDebugUnitTest',json.loads((ROOT/'docs/ci/required-jvm-tests.json').read_text()))
         m=json.loads((ROOT/'app/build/ml-jvm-shards/full/manifest.json').read_text())
-        if m['errors'] or m['total']!=r['total'] or m['isolated_methods']<40:raise ValueError('Invalid full isolation manifest')
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('ml_isolation',ROOT/'scripts/run-jvm-isolated-compose.py')
+        isolation=importlib.util.module_from_spec(spec);spec.loader.exec_module(isolation)
         workers=sum(p.read_text().count('ML_CI_TEST_EXECUTED task=:app:testDebugUnitTest') for p in out.glob('full-jvm-*.log'))
-        if workers!=m['isolated_methods']+1:raise ValueError('Required fresh test workers did not execute')
+        validate_isolation_manifest(m,isolation.expected_methods('full'),r['total'],workers)
         r['workers_observed']=workers
         (out/'jvm-coverage.json').write_text(json.dumps(r,indent=2)+'\n');print(json.dumps(r))
     elif action=='receipt':

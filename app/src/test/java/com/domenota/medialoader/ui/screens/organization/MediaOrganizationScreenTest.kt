@@ -203,10 +203,6 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.runOnIdle{assertTrue(back)}
     }
-    @Test fun countsUseRussianPluralForms(){
-        val expected=mapOf(0 to "0 файлов",1 to "1 файл",2 to "2 файла",4 to "4 файла",5 to "5 файлов",11 to "11 файлов",14 to "14 файлов",21 to "21 файл",22 to "22 файла")
-        expected.forEach{(n,label)->assertEquals(label,com.domenota.medialoader.core.model.RussianCounts.files(n))}
-    }
     @Test fun collectionMusicIsCollapsedAndSelectedTrackReceivesWholeQueue(){
         val rows=listOf("a","b").map{DownloadEntity(it,"device","$it.mp3",MediaType.AUDIO,DownloadState.COMPLETED,"content://media/$it",100,100)}
         val refs=rows.map{LibraryMediaRef(it.id,setOf("file-stat:${it.id}"),it,null)}
@@ -281,19 +277,6 @@ class MediaOrganizationScreenTest {
         compose.runOnIdle{blocked.value=setOf(row.id)}
         compose.onNodeWithText("Выбрано: 0").assertIsDisplayed()
         compose.onNodeWithText("Убрать").assertIsNotEnabled()
-    }
-    @Test fun missingFileDisplayNameOnlyRemovesRecognizedSuffix(){
-        val row=DownloadEntity("x","device","live.2026.MP3",MediaType.AUDIO,DownloadState.COMPLETED,null,100,100)
-        assertEquals("live.2026",missingCollectionDisplayName(row))
-        assertEquals("AC/DC — T.N.T.",missingCollectionDisplayName(row.copy(originalName="AC/DC — T.N.T.")))
-        assertEquals("track.bin",missingCollectionDisplayName(row.copy(originalName="track.bin")))
-    }
-    @Test fun collectionOrderMoveAndRussianLinkForms(){
-        assertEquals(listOf("b","c","a"),moveCollectionMember(listOf("a","b","c"),"a","c"))
-        assertEquals(listOf("a","b"),moveCollectionMember(listOf("a","b"),"a","missing"))
-        assertEquals("112 файлов",com.domenota.medialoader.core.model.RussianCounts.files(112))
-        assertEquals("21 ссылка",com.domenota.medialoader.core.model.RussianCounts.links(21))
-        assertEquals("14 ссылок",com.domenota.medialoader.core.model.RussianCounts.links(14))
     }
     @Test fun missingPassportDoesNotDisplayOldPrivateMetadata(){
         compose.setContent{MaterialTheme{MediaPassportScreen(null,emptyList(),emptyList(),emptyList(),emptyList(),emptyList(),{},{_,_->},{},{})}}

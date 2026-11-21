@@ -27,12 +27,6 @@ import org.robolectric.annotation.LooperMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class GalleryVideoChromeTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    @Test fun clockDisplaysMinutesAndHours() {
-        assertEquals("00:00", galleryVideoClock(0L))
-        assertEquals("00:19", galleryVideoClock(19_123L))
-        assertEquals("01:05", galleryVideoClock(65_000L))
-        assertEquals("1:02:03", galleryVideoClock(3_723_000L))
-    }
     @Test fun missingDurationNeverPretendsResumedVideoIsAtEnd() {
         var duration by mutableStateOf(0L)
         var soughtTo:Long? = null

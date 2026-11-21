@@ -1,0 +1,13 @@
+{
+  "source_commit": "809594e4315e984cb7b9452b71088ccbd06e8d0a",
+  "reason": "Four pure functions were running in Activity/Compose fixtures; same test bodies moved verbatim, no assertions or cases removed. Three isolated methods move to bulk; 40->37 isolated + bulk, 41->38 invocations. New exact manifest check validates expected method names and worker count, not a historic magic minimum.",
+  "moves": {
+    "com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest#countsUseRussianPluralForms": "com.domenota.medialoader.ui.screens.organization.CollectionPurePolicyTest#countsUseRussianPluralForms",
+    "com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest#missingFileDisplayNameOnlyRemovesRecognizedSuffix": "com.domenota.medialoader.ui.screens.organization.CollectionPurePolicyTest#missingFileDisplayNameOnlyRemovesRecognizedSuffix",
+    "com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest#collectionOrderMoveAndRussianLinkForms": "com.domenota.medialoader.ui.screens.organization.CollectionPurePolicyTest#collectionOrderMoveAndRussianLinkForms",
+    "com.domenota.medialoader.ui.screens.gallery.GalleryVideoChromeTest#clockDisplaysMinutesAndHours": "com.domenota.medialoader.ui.screens.gallery.GalleryVideoClockTest#clockDisplaysMinutesAndHours"
+  },
+  "required_count_before": 2246,
+  "required_count_after": 2246,
+  "validation": "Requires JVM CI on this commit before acceptance."
+}
