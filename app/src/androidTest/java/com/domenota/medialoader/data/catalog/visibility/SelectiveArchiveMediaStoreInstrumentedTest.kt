@@ -172,6 +172,19 @@ class SelectiveArchiveMediaStoreInstrumentedTest {
             val neighborTime=keeperSource.lastModified()
             check(originalTime>0 && neighborTime>0)
             assertArrayEquals(expected,payload(selectedUri))
+            // Compare the production archive visibility guard with the same
+            // independent collection query used by this disposable device probe.
+            val archiveIdentity=SelectiveArchiveIdentity(
+                "probe-$id",selectedUri.toString(),originalId,
+                MediaStore.VOLUME_EXTERNAL_PRIMARY,inputRelative,selectedName,
+                expected.size.toLong(),
+                sha(expected).joinToString("") { "%02x".format(it.toInt() and 255) },
+                originalTime,"0".repeat(64)
+            )
+            check(archiveIdentity.wellFormed())
+            val runtimeIndex=AndroidSelectiveArchiveMovePort(context,{ null })
+            assertEquals("Source must appear in the public collection",
+                true,runtimeIndex.publicIndexed(archiveIdentity))
             move(selectedUri,targetRelative)
             check(selectedTarget.isFile && selectedTarget.length()==expected.size.toLong()) {
                 "Synthetic selected file did not reach intended target"
@@ -186,6 +199,8 @@ class SelectiveArchiveMediaStoreInstrumentedTest {
                 MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),originalId)
             val hiddenFilesRow=runCatching { row(filesUri) }.getOrNull()
             val galleryVisible=listedInImageCollection(originalId)
+            assertEquals("Runtime guard must match independent public collection",
+                galleryVisible,runtimeIndex.publicIndexed(archiveIdentity))
             Log.i("MLSelectiveArchiveProbe",
                 "hiddenMarker=$hiddenMarker galleryVisible=$galleryVisible " +
                 "imageRowSameId=${hiddenImageRow?.id==originalId} filesRowSameId=${hiddenFilesRow?.id==originalId}")
@@ -206,6 +221,8 @@ class SelectiveArchiveMediaStoreInstrumentedTest {
                 "Restored synthetic MediaStore URI no longer resolves"
             }
             val neighborAfter=checkNotNull(row(keeperUri))
+            assertEquals("Restored original must reappear in public collection",
+                true,runtimeIndex.publicIndexed(archiveIdentity))
             assertEquals("Restored ID must be exactly original",originalId,restored.id)
             assertEquals("Restored URI folder changed",inputRelative,restored.relative)
             assertEquals("Original filename changed",selectedName,restored.name)
