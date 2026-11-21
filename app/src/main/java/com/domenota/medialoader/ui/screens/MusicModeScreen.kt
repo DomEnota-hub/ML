@@ -486,6 +486,7 @@ internal fun MusicModeScreen(
             onToggleVisibility={val exclude=folder !in excludedFolders;excludedFolders=if(exclude)excludedFolders+folder else excludedFolders-folder;folderPrefs.edit().putStringSet("excluded",excludedFolders).apply()},
             onPlay={shuffle->if(folderIds.isNotEmpty()){if(onFolderPlay!=null)onFolderPlay(folderIds,shuffle) else {val order=if(shuffle)folderIds.shuffled() else folderIds;(onPreview?:onOpen)(order.first(),order)}}},
             onPreview={id->(onPreview?:onOpen)(id,folderIds)},
+            onAddCollection=onAddCollection,
             actions={track->val id=track.id;MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},{onOpen(id,folderIds)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,MusicTrackVisibility.hidden(track,hiddenTrackKeys),{toggleHidden(track)},
                 favorite=id in favoriteIds,onFavorite=onFavorite?.let{action->{mutate{action(id,id !in favoriteIds)}}},onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})})
     } else if(resumeOpen&&onResumeSelection!=null) {
