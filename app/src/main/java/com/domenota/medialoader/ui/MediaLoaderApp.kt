@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui
 
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
