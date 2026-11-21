@@ -33,6 +33,8 @@ def validate_cases(directory, required):
         if int(suite.get('failures','0')) or int(suite.get('errors','0')):raise ValueError('Failed suite: '+path.name)
     missing=set(required)-set(found)
     if missing or not found:raise ValueError('Missing required tests: '+str(sorted(missing)))
+    unreviewed=set(found)-set(required)
+    if unreviewed:raise ValueError('Unreviewed JVM test identities; reconcile required inventory deliberately: '+str(sorted(unreviewed)))
     return {'total':len(found),'passed':sum(not x['skipped'] for x in found.values()),'skipped':[k for k,v in found.items() if v['skipped']]}
 
 def validate_isolation_manifest(manifest, expected, total, workers):

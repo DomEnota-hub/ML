@@ -16,6 +16,9 @@ class GateTest(unittest.TestCase):
             required={'A#one':{'skipped':False},'A#opt':{'skipped':True}}
             ok='<testcase classname="A" name="one"/><testcase classname="A" name="opt"><skipped/></testcase>'
             write(ok);self.assertEqual(gate.validate_cases(root,required)['total'],2)
+            write(ok+'<testcase classname="A" name="new"/>')
+            with self.assertRaisesRegex(ValueError,'Unreviewed JVM test identities'):
+                gate.validate_cases(root,required)
             for bad in [ok.replace('<testcase classname="A" name="one"/>',''),ok+ok,ok.replace('name="one"/>','name="one"><failure/></testcase>'),ok.replace('name="one"/>','name="one"><skipped/></testcase>')]:
                 write(bad)
                 with self.assertRaises(ValueError):gate.validate_cases(root,required)
