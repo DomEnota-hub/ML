@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Quick feedback, qualification, performance, isolation audit or full CI-only verification
+        description: Quick feedback, full CI-only verification, qualification or opt-in performance
         type: choice
-        options: [quick, qualify, perf, audit, verify]
-        default: qualify
+        options: [quick, verify, qualify, perf]
+        default: verify
       cache_epoch:
         description: Change to invalidate all lane caches (same epoch for cold/warm comparison)
         default: v1
@@ -21,17 +21,17 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && !contains(fromJSON('["ci:qualify","ci:audit","ci:verify"]'), github.event.label.name) && github.run_id || 'active' }}
+  group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && !contains(fromJSON('["ci:qualify","ci:verify"]'), github.event.label.name) && github.run_id || 'active' }}
   cancel-in-progress: true
 env:
-  ML_MODE: ${{ inputs.mode || (contains(github.event.pull_request.labels.*.name, 'ci:audit') && 'audit') || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && 'verify') || (contains(github.event.pull_request.labels.*.name, 'ci:qualify') && 'qualify') || 'quick' }}
+  ML_MODE: ${{ inputs.mode || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && 'verify') || (contains(github.event.pull_request.labels.*.name, 'ci:qualify') && 'qualify') || 'quick' }}
   ML_CI_PROFILE: 'true'
   ML_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   ML_FAULT: ${{ inputs.fault || 'none' }}
-  ML_MODE_CONFLICT: ${{ (contains(github.event.pull_request.labels.*.name, 'ci:audit') && (contains(github.event.pull_request.labels.*.name, 'ci:verify') || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))) || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && contains(github.event.pull_request.labels.*.name, 'ci:qualify')) }}
+  ML_MODE_CONFLICT: ${{ contains(github.event.pull_request.labels.*.name, 'ci:audit') || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && contains(github.event.pull_request.labels.*.name, 'ci:qualify')) }}
 jobs:
   quick:
-    if: (github.event.action != 'labeled' || contains(fromJSON('["ci:qualify","ci:audit","ci:verify"]'), github.event.label.name)) && (github.base_ref != 'feature/ml-stage5-qa-selective-archive' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (github.head_ref != 'ci/ml-17211-workflow-cleanup' || contains(github.event.pull_request.labels.*.name, 'ci:audit') || contains(github.event.pull_request.labels.*.name, 'ci:verify'))
+    if: (github.event.action != 'labeled' || contains(fromJSON('["ci:qualify","ci:verify"]'), github.event.label.name)) && (github.head_ref != 'ci/ml-17211-workflow-cleanup' || contains(github.event.pull_request.labels.*.name, 'ci:verify'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -47,7 +47,7 @@ jobs:
           bash scripts/ci/source-guards.sh
   jvm:
     needs: quick
-    if: inputs.fault != 'lint' && inputs.mode != 'perf' && inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit')
+    if: inputs.fault != 'lint' && inputs.mode != 'perf'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -97,30 +97,6 @@ jobs:
             app/build/reports/tests/testDebugUnitTest/
           overwrite: true
           retention-days: 5
-  audit:
-    needs: quick
-    if: (inputs.mode == 'audit' || contains(github.event.pull_request.labels.*.name, 'ci:audit')) && !contains(github.event.pull_request.labels.*.name, 'ci:qualify') && (inputs.fault == 'none' || inputs.fault == '')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.ML_EXPECTED_SHA }}
-          persist-credentials: false
-      - uses: ./.github/actions/ml-ci-setup
-        with:
-          lane: jvm
-          epoch: ${{ inputs.cache_epoch || 'v1' }}
-      - name: Same-source isolation parity and benchmark A/B (no APK)
-        run: python3 scripts/ci/gate.py stage ci-audit python3 scripts/ci/isolation_audit.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: ml-ci-${{ github.run_id }}-audit-diagnostics
-          path: |
-            ci-output/
-            app/build/ml-ci-batch/
-          retention-days: 5
   perf:
     needs: quick
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'perf' && (inputs.fault == 'none' || inputs.fault == '')
@@ -148,7 +124,7 @@ jobs:
           retention-days: 5
   lint:
     needs: quick
-    if: inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit') && (inputs.mode == 'qualify' || inputs.mode == 'verify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify') || contains(github.event.pull_request.labels.*.name, 'ci:verify')) && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
+    if: (inputs.mode == 'qualify' || inputs.mode == 'verify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify') || contains(github.event.pull_request.labels.*.name, 'ci:verify')) && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -185,7 +161,7 @@ jobs:
           retention-days: 5
   arm64:
     needs: quick
-    if: inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == '')
+    if: (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -229,7 +205,7 @@ jobs:
           retention-days: 5
   qualification:
     needs: [quick, jvm, lint, arm64]
-    if: always() && !cancelled() && inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit') && (github.event.action != 'labeled' || github.event.label.name == 'ci:qualify') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
+    if: always() && !cancelled() && (github.event.action != 'labeled' || github.event.label.name == 'ci:qualify') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

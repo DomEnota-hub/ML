@@ -50,7 +50,7 @@ class IsolationTest(unittest.TestCase):
         import unittest.mock as mock
         import importlib.util
         import json
-        p=pathlib.Path(__file__).parents[2]/'scripts/run-jvm-isolated-compose.py'
+        p=pathlib.Path(__file__).parents[2]/'scripts/run-jvm-ci.py'
         spec=importlib.util.spec_from_file_location('isolation',p)
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(module,'SHARDS',pathlib.Path(tmp)), mock.patch.object(module,'expected_methods',return_value=[('A','method')]), mock.patch.object(module,'run_shard',return_value=(1,{})) as run, mock.patch('sys.argv',['runner','full']):
@@ -61,7 +61,7 @@ class IsolationTest(unittest.TestCase):
 
 class RequestTest(unittest.TestCase):
     def test_quick_negative_probes_cannot_bypass_the_required_lane(self):
-        gate.validate_request('quick','none');gate.validate_request('qualify','none');gate.validate_request('perf','none');gate.validate_request('audit','none');gate.validate_request('verify','none')
+        gate.validate_request('quick','none');gate.validate_request('qualify','none');gate.validate_request('perf','none');gate.validate_request('verify','none')
         for fault in ['compile','lint','test']:
             gate.validate_request('qualify',fault)
             with self.assertRaises(ValueError):gate.validate_request('quick',fault)
@@ -69,6 +69,7 @@ class RequestTest(unittest.TestCase):
             with self.assertRaises(ValueError):gate.validate_request('audit',fault)
             with self.assertRaises(ValueError):gate.validate_request('verify',fault)
         with self.assertRaises(ValueError):gate.validate_request('unknown','none')
+        with self.assertRaises(ValueError):gate.validate_request('audit','none')
 
 class ReviewRegressions(unittest.TestCase):
     def test_no_green_consumption_after_head_change_cancellation_or_incomplete_run(self):

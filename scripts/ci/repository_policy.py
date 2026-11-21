@@ -23,11 +23,19 @@ def validate_version(text):
         raise ValueError('Expected one valid literal release versionName and versionCode')
     return names[0], int(codes[0])
 
+def validate_retired_paths(root):
+    paths = ['docs/ci/archive/workflows-17211', 'scripts/run-jvm-isolated-compose.py', 'scripts/ci/isolation_audit.py']
+    for rel in paths:
+        item=root/rel
+        if item.exists() or item.is_symlink():
+            raise ValueError('Retired CI path restored: '+rel)
+
 def main():
     allowed=json.loads((ROOT/'docs/ci/allowed-workflows.json').read_text())
     if not isinstance(allowed,list) or not allowed or len(allowed)!=len(set(allowed)):
         raise ValueError('Invalid workflow allowlist')
     validate_workflows(ROOT,allowed)
+    validate_retired_paths(ROOT)
     version,code=validate_version((ROOT/'app/build.gradle').read_text())
     print(f'Workflow allowlist PASS ({len(allowed)}); version {version}/{code}')
 

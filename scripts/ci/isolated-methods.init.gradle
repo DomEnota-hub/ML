@@ -1,5 +1,5 @@
-// EXPERIMENT ONLY. One configuration, one separate Test task/JVM per method.
-// Never used by qualification until exact A/B parity and timing are proven.
+// Current CI isolation. One configuration, one separate Test task/JVM per method.
+// Accepted by two same-source A/B audits and the full VERIFY run 44947470186.
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.testing.junit.JUnitOptions
 import groovy.json.JsonSlurper

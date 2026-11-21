@@ -1,71 +1,30 @@
-# MediaLoader CI: quick feedback and exact-source qualification
+# MediaLoader CI — единственный актуальный регламент
 
-This CI-only change starts from released1.7.209/269,8f83894082b20eacf63727257617bc1674f1ffef (Draft163). It does not modify application logic, versions, user files or signing credentials. No installation APK is released by these workflows.
+**Решение:** заменить старые маршруты штатной сборки единой exact-source системой. CI PR #174: два A/B аудита #44945855009/#44945854128 PASS, полная проверка #44947470186 PASS на `a446c491095e1586caf594a168c1aaf057fce697`; удаление старой инфраструктуры — следующий проверяемый коммит. Никакого нового APK на этапе CI. 1.7.211 забракован на устройстве; следующий выпуск только после исправления VerifyError.
 
-## Measured baseline
+## Режимы
 
-Source artifacts44753902351 and44753902352 were downloaded and their canonical XML compared:2246 unique JVM identities,40 isolated Compose methods; all104 storage cases are already inside the full set. Known opt-in Shazam skip is explicit. Required identities are pinned in required-jvm-tests.json. Workflow trigger inventory covers153 files; most historical workflows are manual/branch-specific or skip this PR, not expensive duplicates.
+| Режим | Что выполняется | APK |
+|---|---|---|
+| quick | исходные guards, CI helper tests, компиляция тестов, 24 focused classes | нет |
+| verify | guards, полная JVM-регрессия и lint | нет |
+| qualify | guards, full JVM, lint, ARM64, кандидат и exact-source qualification receipt | неподписанный внутренний кандидат |
+| perf | полный opt-in бенчмарк БД | нет |
 
-| Baseline run | Result | Active runner duration | Evidence |
-|---|---|---:|---|
-|44753902351|success, exact8f838940|26m37s|focused+initial compile5m01s; full9m10s; lint+ARM6411m44s|
-|44753902352|success, same SHA, parallel storage|15m53s|104 repeated cases, repeated lint and ARM64|
-|44742075785|failure|22m08s|NewApi: createDeleteRequest API30 with minSDK26 found only after JVM|
-|44745437669 attempt2|success|22m32s|previous source, not final8f838940|
-|44752625791|cancelled|8m11s|new HEAD superseded in-flight work|
+Маршрут: .github/workflows/ml-ci.yml. Для PR поставить только ci:verify либо ci:qualify, не обе метки; перед очередными изменениями убрать метку, дождаться завершения действующего запуска. Во время активной работы опрос около 60 секунд. Не дублировать запуски. Не запускать qualify для чистого CI-аудита. Параллельные значимые триггеры используют единую concurrency group; новые SHA отменяют устаревший run. Для ручного dispatch выбрать точную рабочую ветку и mode (по умолчанию verify), при необходимости наблюдаемый workflow ID вместо имени (исторически GitHub возвращал 404 для нового файла вне main).
 
-The final pair consumed42m30s runner time; wall time was about26m38s, not their sum. JSON retains queue/step timestamps. Baseline setup-java restored dependencies; a cache hit did not remove the repeated execution. Exact checkout assertion exists in final44753902351; earlier run API head_sha alone is not proof of actual checkout. Where older runs lack Gradle profiling, configuration/resolve/compile separation is unknown, not fabricated. New diagnostics preserve Gradle HTML profiles, stage and per-shard wall timings; parallel task durations must not be summed as wall time. Actual before/after results and final source SHA are recorded in this Draft PR and the current Drive Summary after CI, so reporting them does not change the qualified source.
+## Тесты и доказательства
 
-## Commands
+Full runner: scripts/run-jvm-ci.py full — один bulk и один граф из 37 независимых Test-задач (каждая одна JVM); всего 38 точных маркеров, 2 вызова Gradle. Изоляция не ослаблена. Пин 2359 точных идентификаторов в required-jvm-tests.json, 2358 PASS/1 известный opt-in Shazam skip; новые, пропущенные, дублированные, упавшие или неожиданно skipped тесты блокируют результат. Новые ID добавлять после проверки смысла. Не удалять тесты ради скорости: отдельный аудит полезности отложен. Raw XML и логи сохраняются; не использовать кэш результатов тестов, компиляционный кэш разрешён.
 
-All commands below target an explicitly reviewed branch, never implicit main. Workflow ID425172502 is used because GitHub filename lookup returns404 while this new workflow exists only on a non-default branch; dispatch by the observed workflow ID works without a production merge:
+VERIFY #44947470186: exact SHA a446c491095e1586caf594a168c1aaf057fce697; JVM 280.655 s против 404.676 s прежнего полного набора (~30.6% в двух запусках), 38 actual Test markers, 2359/2358/1; lint 915.448 s, 0 errors, 103 warnings (33 Information). Не считать ускорением общее время CI: lint остаётся отдельным узким местом, кэши и состояния runner различаются. Оба artifacts проверены SHA256 и CRC. Детальные A/B и DEX evidence — соседние документы. Командное окружение: Java17, Gradle8.9 SHA pinned, AGP8.7.3/Kotlin2.0.21, SDK35, configuration cache off. Кэш lane/epoch/Gradle inputs/source; без GAPI/keystore. При доказанном transport failure до тестов максимум один видимый retry; никаких ретраев функциональных ошибок.
 
-```sh
-# Normal PR open/synchronize: guards, CI-helper tests, all test-source compilation,
-# then the same18-class focused suite. No qualification receipt or installable QA.
+## Выпуск
 
-gh workflow run 425172502 --repo DomEnota-hub/ML --ref ci/ml-pipeline-optimization \
-  -f mode=qualify -f fault=none -f cache_epoch=ci-audit-v1
-```
+Qualify требует success quick+jvm+lint+arm64 на одном SHA/run, проверку ARM64/package/version, DEX invoke register-word validation, exact source ZIP и хеши. Не подписывать UNQUALIFIED без успешного всего workflow, receipt и live HEAD сверки:
+`python3 scripts/ci/gate.py consume /path/receipt/QUALIFIED.json /path/candidate`.
+Receipt допускает прежний успешный attempt того же run/SHA; не другой run или stale/cancelled HEAD. Negative probes (compile/lint/test) только qualify, без qualification receipt; проверять именно ожидаемую диагностику. После локальной подписи DomEnota проверить v2/v3, сертификат, zipalign, ARM64, DEX и хеш финальных байтов. Ключи/GAPI не передавать в GitHub. Выдача только Drive; без GitHub Releases/prereleases. Эмулятор не применяется, физическая приёмка отдельно.
 
-Alternatively label the PR `ci:qualify` to qualify the PR's exact head; remove it before iterative commits to return to quick feedback. An unrelated label does not cancel an active qualification. Manual dispatch uses the exact selected branch SHA. A source push cancels superseded normal work under the same branch concurrency group.
+## Запрещённые обходные маршруты
 
-Qualification runs JVM, full lint and ARM64 on independent runners. Compilation failures surface in the JVM lane first; API lint does not wait behind tests. All2246 baseline cases remain required; extra cases may pass, missing/duplicate/failing/newly skipped cases reject. Forty incompatible UI methods stay in separate invocations/workers. Test-result cache/up-to-date reuse is disabled for Test tasks; compilation cache stays enabled. The gate requires41 actual Test execution markers, not merely restored XML. Failed bulk stops with an explicitly incomplete red manifest rather than spending another40 workers after failure.
-
-## Cache and infrastructure
-
-Java17, Gradle8.9 with existing distribution SHA256, AGP8.7.3/Kotlin2.0.21 and SDK/build-tools35 remain pinned. A temporary wrapper copy changes only its download mirror/timeout; tracked source stays clean. No lockfiles or dependency-verification metadata existed in this baseline; dependency locking/configuration cache are not added without compatibility work. Dynamic dependency changes still require review. Cold/warm comparison means a new cache_epoch for the first run, same epoch and same source for the second; cache-hit logs are evidence, not an assumption about OS caches.
-
-Caches are lane/epoch/Gradle-input/source keyed, with same-lane/config/epoch fallback. They contain Gradle dependencies/transforms/local build outputs plus Robolectric dependencies. They do not contain project workspaces, private GAPI assets, keystores, cookies, decoded user media or signed APKs. Protected input presence is rejected before cache access/build. No credential-bearing local build is performed here. Fork PRs do not save or restore these caches and cannot produce signing handoffs. Configuration cache remains OFF. Immutable cache keys and Gradle task fingerprints enforce source invalidation; change cache_epoch to discard suspected cache contamination.
-
-A transport failure may retry once with explicit10s backoff only when dependency-resolution/HTTP429/5xx/timeout evidence exists and no test execution, compiler diagnostic, lint error or checksum failure appears. Functional failures never retry. XML/report cleanup and coverage validation remain strict. Every attempt and its exit appears in ci-output timings. Controlled transport-then-success and transport+compiler-failure tests exercise this classifier/runner. An actual provider outage cannot be guaranteed on demand; distinguish simulation from real observations.
-
-## Required gate, resume and signing handoff
-
-- quick, jvm, lint and arm64 must all succeed on the same exact source. Each lane emits a SHA/run/attempt receipt only after its checks pass. Retained successful receipts from an earlier attempt of the SAME run/SHA may be reused by `gh run rerun RUN_ID --failed`; future attempts, other runs/SHAs or missing lanes fail. Candidate retention5days exceeds receipt3days; resume within48h, otherwise run a new qualification.
-- An ARM64 artifact named UNQUALIFIED contains unsigned bytes, package/version/ABI metadata, exact `git archive` source ZIP and hashes. It is internal build evidence, not approval to sign or install. Diagnostics never duplicate the APK.
-- The final job verifies all receipts, original-source ZIP comment, every file hash, and the current branch/PR head after expensive verification. Only then uploads a tiny QUALIFIED-receipt artifact; it does not duplicate the large APK. Cancellation inhibits publication. Because HEAD can change immediately after any check, a receipt MUST be consumed only after the whole workflow completed SUCCESS and after checking live HEAD again. A cancelled/stale run is never sufficient even if a tiny artifact exists.
-
-After downloading the receipt and its referenced UNQUALIFIED candidate into separate local directories, verify immediately before any separately authorized signing:
-
-```sh
-python3 scripts/ci/gate.py consume /path/receipt/QUALIFIED.json /path/candidate
-```
-
-This reads GitHub metadata (read-only `gh` auth or CI's read-only token), compares live source and successful run, and checks candidate/source hashes. Signing remains outside this task: original DomEnota certificate SHA256 `4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2`, v2/v3, package `com.domenota.medialoader`, correct version/ARM64, protected local service inputs and final signed hash remain required. No original private signing key or service credential is accessed here. Google Drive delivery requires a separately authorized QA release; no GitHub Releases/prereleases or production merges.
-
-## Negative validation and measurement
-
-```sh
-gh workflow run 425172502 --repo DomEnota-hub/ML --ref ci/ml-pipeline-optimization \
-  -f mode=qualify -f fault=compile -f cache_epoch=ci-audit-v1
-# Repeat with fault=lint and fault=test. quick+fault is invalid and fails preflight.
-```
-
-Probe files exist only in disposable runner workspaces and are never committed. ARM64/signing handoff is disabled for probe runs. A red aggregate alone DOES NOT prove the probe: acceptance must inspect the intended compiler/lint/test step and expected diagnostic (`CiCompileFault`, `CiLintFault` NewApi, or `CiTestFault.qualificationMustRejectFailure`). Failed probe results and absence of qualified artifact are recorded separately. Never retry a functional failure into green.
-
-Run two successful qualifications on an unchanged final SHA with the same new cache epoch; compare actual queue/critical path, runner-minutes, setup/cache, compile, full bulk/40isolated, lint, ARM64 and artifact stages. Inspect XML zero missing/duplicate, known skip,41 workers and APK/source metadata. JVM worker startup and unchanged test bodies are retained, not merged for a speed number. Device QA, full signing/delivery timing and real network outages are distinct evidence and must not be claimed from these CI measurements.
-
-## Rollback
-
-Keep this Draft unmerged until evidence is accepted. The old sequential workflow is retained as manual-dispatch-only for historical comparison; the storage workflow skips managed branches because its test and guard coverage is retained. Revert this CI-only commit range to restore the original automatic hooks, without changing app data or release branches. Do not edit the required test inventory to hide a regression. Existing historical manual workflows and their unique checks remain intact.
+Разрешены 7 workflow из allowed-workflows.json: main CI, инструменты подписи (ручные, без секретов), 5 model research. Последние не имеют полномочий выпускать APK. Удалённые 148 исторических YAML, старый последовательный runner и A/B script/режим сохраняются только в истории Git, не в текущем дереве. Исторический коммит исходного набора: 1d7fbdf8bd9edc3d808da1cb5badc4e4fc086221; временный архив — bbf48d1b83369dd1bd69df007e7e7d9963acf00b. Аудит inventory JSON — историческая запись, не инструкция к запуску. AGENTS.md и repository_policy.py фиксируют актуальный порядок. Не восстанавливать YAML или скрипты из старых веток. Отдельные исследовательские сценарии и исходники тестов сохранены; точечные исторические UI/source assertions не считаются эквивалентными без отдельной семантической ревизии. Реальные model research проверяют CPU/ONNX, не Android ARM64; прежняя исследовательская сборка с секретами отключена. Старые ветки не удалять без сверки уникальных коммитов и защиты от потери работы.

@@ -26,3 +26,14 @@ class RepositoryPolicyTest(unittest.TestCase):
             (directory/'old.yml').unlink()
             (directory/'ml-ci.yml').unlink()
             with self.assertRaises(ValueError):policy.validate_workflows(root,['ml-ci.yml'])
+
+    def test_retired_runner_or_archive_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            policy.validate_retired_paths(root)
+            for rel in ['scripts/run-jvm-isolated-compose.py','scripts/ci/isolation_audit.py','docs/ci/archive/workflows-17211']:
+                item=root/rel
+                item.parent.mkdir(parents=True,exist_ok=True)
+                item.write_text('retired')
+                with self.assertRaises(ValueError):policy.validate_retired_paths(root)
+                item.unlink()

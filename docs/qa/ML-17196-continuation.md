@@ -1,3 +1,5 @@
+<!-- HISTORICAL. Superseded by /AGENTS.md and /docs/ci/README.md. Do not run the old workflow or runner. -->
+
 # QA196 continuation checkpoint — implementation, NOT a release
 
 Prepared 16 Nov 2026 following the owner's instruction to preserve remaining Codex quota. Six QA195 implementations are present; hardware acceptance and final release gates remain open.

@@ -1,17 +1,3 @@
-# CI audit ledger — 2026-11-20-ci-optimization
+# CI decision log — historical + current
 
-Baseline complete at8f838940:2246 required identities,40 isolated,104 storage subset.
-Ruling: retain existing isolation and avoid test sharding in first optimization; dominant proven duplication/serialization can be removed without changing test workers.
-Ruling: configuration cache remains off; no compatibility proof. CI-only local build cache with no protected inputs, lane/epoch/config/source keys.
-Ruling: exact same-source successful lane receipts may survive rerun-failed-jobs in the same run, but never future attempts, other runs or other SHAs; actual GitHub needs statuses must also pass.
-Plan interface review: source identity and case manifest feed the gate; no application business APIs changed.
-Helpers RED(import absent) then GREEN3/3; missing/duplicate/skipped/failed cases and mismatched receipts covered.
-
-Final review: independent fresh reviewer reported cached test-result reuse, stale/cancelled receipt consumption, quick fault bypass, ignored-label cancellation, ineffective negated shell guards, package/signature verification, and retention mismatch. One fix pass completed with failing regression evidence then12/12 GREEN and actionlint1.7.7 PASS. Real negative runs must additionally prove their specific target diagnostic; aggregate red alone is insufficient.
-Ruling: publish only a tiny qualified receipt; candidate remains explicitly unsigned/unqualified until successful-run+live-HEAD+byte validation at consumption. A live branch update can occur after any upload, so an artifact name alone is never authority to sign.
-Ruling: retain manual historical workflow for rollback; remove its automatic hooks and only exclude proven managed storage duplicate branches. No blanket deletion of153historical workflows.
-Source implementation complete; exact-SHA cold/warm and negative CI acceptance pending. CI results are recorded externally in PR/current Drive Summary so result documentation does not change the measured sourceSHA.
-
-Observed GitHub limitation: dispatch by new filename returned404 outside default branch; discovered workflowID425172502 from PR run and dispatch byID succeeded. Documentation corrected before qualification to avoid an unusable command. First PR quick run44768099453 is superseded by qualification44768183861/source update; do not claim it passed.
-
-Runtime acceptance on c275bcec: cold44768328877 SUCCESS,2246/2245PASS/1knownSKIP,40isolated/41actualTest tasks;17m18run-to-gate,35m58runner time. Negative compile44771486837 correctly failed in Kapt stub CiCompileFaultKt.java with incompatible String/int before tests, no qualified artifact. Its Java diagnostic exposed a classifier gap when combined with transport errors. Added Java error regression RED→GREEN and case-insensitive diagnostic rejection; requires new final-source qualification rather than claiming the previous green applies.
+Historical ledger at a446c491095e1586caf594a168c1aaf057fce697: see Git history. Current evidence: VERIFY #44947470186 exact a446c491095e1586caf594a168c1aaf057fce697, quick/jvm/lint PASS, APK and qualification skipped. JVM 2359/2358/1, 38 actual workers, 2 invocations, full 280.655s. lint 0 errors 103 warnings, 915.448s. Artifact 14724605595 SHA256 20f06f68ba583c78c3f1b00241869c8b2b13e9766f280e8c9b465d6c5e149952; 14724666176 SHA256 59b7d58da8f7fdb239b6488dfd9bd8e4aba80864846ba4ca9512d317a11e1d96; CRC PASS. User approved retirement only after successful acceptance. Remove 144 archived + 4 remaining bypass-build workflows, old runner and temporary audit script; no test Kotlin/main changes. Final cleanup source requires its own verify; do not claim previous green applies to new SHA.

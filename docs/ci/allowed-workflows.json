@@ -1,11 +1,7 @@
 [
-  "ml-ai-eraser-compose-stage1-verify.yml",
-  "ml-ai-mobilesam-inference-stage3-verify.yml",
-  "ml-ai-models-stage2-verify.yml",
   "ml-ai-stage3-specular-real-weights-poc.yml",
   "ml-ai-stage4-dexnet-full-onnx.yml",
   "ml-ai-stage4-dexnet-inspect.yml",
-  "ml-ai-stage4-real-model-android-qa.yml",
   "ml-ai-stage4-reflection-real-weights-poc.yml",
   "ml-ci.yml",
   "ml-signing-tools-handoff.yml",
