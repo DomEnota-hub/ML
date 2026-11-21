@@ -4011,6 +4011,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.editor.VideoGesturePolicyTest#inlineGallerySeekAreaIsHalvedOnlyInPortrait": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.VideoGesturePolicyTest#one vertical gesture can traverse the entire range": {
     "skipped": false,
     "failed": false

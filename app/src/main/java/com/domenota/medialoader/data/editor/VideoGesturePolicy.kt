@@ -5,6 +5,8 @@ import kotlin.math.abs
 internal enum class VideoGestureMode { NONE, SEEK, BRIGHTNESS, VOLUME }
 
 internal object VideoGesturePolicy {
+    fun inlineGallerySeekFraction(portrait: Boolean): Float = if (portrait) .225f else .45f
+
     fun intentionalMode(startX: Float, totalX: Float, totalY: Float, width: Float,
         thresholdPx: Float, startY: Float = 1f, height: Float = 1f): VideoGestureMode {
         val horizontal = abs(totalX)

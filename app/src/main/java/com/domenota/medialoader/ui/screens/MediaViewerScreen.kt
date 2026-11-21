@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioManager
@@ -111,6 +112,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
@@ -1102,10 +1104,12 @@ internal fun LocalVideoPlayer(
                     )
                 }) {
                 // Inline Gallery reserves the upper region, including the centre,
-                // for ordinary paging. Drags within the bottom 45% seek video.
+                // for ordinary paging. Portrait keeps only the bottom 22.5% for seeking;
+                // landscape retains the original bottom 45%.
                 // Parent vertical edge gestures and tap/hold still work normally.
                 if (galleryPagingEnabled && !fullscreen) Box(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.45f)
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(
+                        VideoGesturePolicy.inlineGallerySeekFraction(LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT))
                         .pointerInput(player, playableDurationMs) {
                             var startPosition = 0L
                             var distanceX = 0f

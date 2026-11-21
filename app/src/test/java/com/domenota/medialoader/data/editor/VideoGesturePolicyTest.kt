@@ -4,6 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class VideoGesturePolicyTest {
+    @Test fun inlineGallerySeekAreaIsHalvedOnlyInPortrait() {
+        assertEquals(.225f, VideoGesturePolicy.inlineGallerySeekFraction(true), .0001f)
+        assertEquals(.45f, VideoGesturePolicy.inlineGallerySeekFraction(false), .0001f)
+    }
+
     @Test
     fun `small or diagonal drags do not activate player gestures`() {
         assertEquals(VideoGestureMode.NONE,
