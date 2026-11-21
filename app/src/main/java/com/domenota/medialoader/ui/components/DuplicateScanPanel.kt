@@ -58,16 +58,23 @@ internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,star
 internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,partial:DuplicateJournalRow?,
     onOpen:(Long)->Unit,onResume:()->Unit,onDismiss:()->Unit,onPartial:(()->Unit)?=null,resumeEnabled:Boolean=true,
     onClear:(()->Unit)?=null,clearEnabled:Boolean=true){
-    AlertDialog(onDismissRequest=onDismiss,title={Row(verticalAlignment=Alignment.CenterVertically){
-        Text(title,Modifier.weight(1f))
-        if(onClear!=null)OutlinedIconButton(onClear,modifier=Modifier.size(44.dp),
-            enabled=clearEnabled&&(rows.isNotEmpty()||partial!=null)){
-            Icon(androidx.compose.material.icons.Icons.Rounded.DeleteOutline,"Очистить журнал")
-        }
-    }},text={
-        LazyColumn(Modifier.heightIn(max=420.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+    androidx.compose.ui.window.Dialog(onDismissRequest=onDismiss) {
+        Surface(Modifier.fillMaxWidth(), shape=MaterialTheme.shapes.extraLarge,
+            color=MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=14.dp),
+                verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Text(title,Modifier.weight(1f,fill=false),style=MaterialTheme.typography.headlineSmall)
+                    if(onClear!=null)IconButton(onClear,modifier=Modifier.size(40.dp),
+                        enabled=clearEnabled&&(rows.isNotEmpty()||partial!=null)){
+                        Icon(Icons.Rounded.DeleteOutline,"Очистить журнал",Modifier.size(23.dp))
+                    }
+                }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max=420.dp).weight(1f,fill=false),
+                    verticalArrangement=Arrangement.spacedBy(8.dp)){
             if(partial!=null)item{
-                Card{Column(Modifier.padding(12.dp)){
+                Card(Modifier.fillMaxWidth()){Column(Modifier.fillMaxWidth().padding(12.dp)){
                     Text(partial.status,style=MaterialTheme.typography.titleMedium)
                     partial.mode?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(partial.at)))
@@ -91,12 +98,17 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                 }
             }
             items(rows,key={it.at}){row->
-                Card(onClick={onOpen(row.at)}){Column(Modifier.padding(12.dp)){
+                Card(onClick={onOpen(row.at)},modifier=Modifier.fillMaxWidth()){Column(Modifier.fillMaxWidth().padding(12.dp)){
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(row.at)),style=MaterialTheme.typography.titleMedium)
                     row.mode?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
                     Text("${row.status} · групп: ${row.groups} · файлов: ${row.files}",style=MaterialTheme.typography.bodySmall)
                 }}
             }
+                }
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
+                    TextButton(onDismiss){Text("Закрыть")}
+                }
+            }
         }
-    },confirmButton={TextButton(onDismiss){Text("Закрыть")}})
+    }
 }
