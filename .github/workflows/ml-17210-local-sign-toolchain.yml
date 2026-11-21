@@ -1,0 +1,39 @@
+name: ML 1.7.210 temporary official Android signing tools
+on:
+  push:
+    branches:
+      - feature/ml-17210-local-sign-toolchain
+    paths:
+      - .github/workflows/ml-17210-local-sign-toolchain.yml
+permissions:
+  contents: read
+jobs:
+  signing-tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install verified Android SDK build tools
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+      - name: Bundle exact official signing tooling
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -s "$bt/lib/apksigner.jar"
+          test -x "$bt/zipalign"
+          test -x "$bt/aapt"
+          mkdir -p signing-tools
+          cp "$bt/lib/apksigner.jar" "$bt/zipalign" "$bt/aapt" signing-tools/
+          cp -a "$bt/lib64" signing-tools/
+          (cd signing-tools && sha256sum apksigner.jar zipalign aapt > TOOL_SHA256.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ML_1.7.210_OFFICIAL_SIGNING_TOOLS
+          path: signing-tools/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
