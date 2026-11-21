@@ -19,6 +19,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.model.MediaType
+import com.domenota.medialoader.core.database.DownloadEntity
+import com.domenota.medialoader.ui.components.DownloadThumbnail
+import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.data.archive.SimpleArchiveRecord
 import com.domenota.medialoader.ui.components.ArchiveActionIcon
 
@@ -34,6 +37,7 @@ internal fun SimpleArchiveScreen(
     onRestore: (Set<String>) -> Unit,
     busy: Boolean = false,
     message: String? = null,
+    liveRows: Map<String, DownloadEntity> = emptyMap(),
 ) {
     var type by remember { mutableStateOf<MediaType?>(null) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
@@ -94,7 +98,10 @@ internal fun SimpleArchiveScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Icon(when (item.mediaType) {
+                        val liveRow = liveRows[item.catalogId]
+                        if (liveRow != null) DownloadThumbnail(liveRow.savedUri, liveRow.previewUrl,
+                            liveRow.toUi().kind, Modifier.size(56.dp))
+                        else Icon(when (item.mediaType) {
                             MediaType.PHOTO -> Icons.Rounded.Image
                             MediaType.VIDEO -> Icons.Rounded.Movie
                             MediaType.AUDIO -> Icons.Rounded.MusicNote

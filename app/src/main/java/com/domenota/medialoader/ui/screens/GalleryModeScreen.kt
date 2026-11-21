@@ -361,9 +361,6 @@ internal fun GalleryModeScreen(
             if(onAddCollection!=null) IconButton({ onAddCollection(queue.filter { it in selectedSet }) }) {
                 Icon(Icons.Rounded.CollectionsBookmark, "Добавить в коллекцию")
             }
-            if (onSimpleArchive != null) IconButton({ onSimpleArchive(queue.filter { it in selectedSet }) }) {
-                com.domenota.medialoader.ui.components.ArchiveActionIcon("В архив")
-            }
             IconButton({ moveSnapshot = orderedDisplayed.filter { it.id in selectedSet } }) {
                 Icon(Icons.Rounded.DriveFileMove, "Переместить выбранные в альбом")
             }
@@ -732,7 +729,18 @@ internal fun GalleryModeScreen(
         }
         Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
             .onSizeChanged { galleryOverlayHeightPx = it.height }.zIndex(6f)) {
-            if (!detailOpen) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
+            if (selecting && onSimpleArchive != null) Surface(color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 5.dp, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { onSimpleArchive(queue.filter { it in selectedSet }) },
+                        modifier = Modifier.testTag("gallery-selected-archive")) {
+                        com.domenota.medialoader.ui.components.ArchiveActionIcon(null)
+                        Spacer(Modifier.width(6.dp)); Text("В архив")
+                    }
+                }
+            }
+            if (!detailOpen && !selecting) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
         }
         }
     }

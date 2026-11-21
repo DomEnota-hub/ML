@@ -73,10 +73,13 @@ internal fun MusicFolderScreen(title:String,tracks:List<DownloadEntity>,excluded
         if(selected.isNotEmpty()) {
             Surface(color=MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation=5.dp,modifier=Modifier.fillMaxWidth().testTag("music-folder-selection-footer")) {
-                Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=7.dp),
-                    verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text("Выбрано: ${selected.size}",Modifier.weight(1f))
+                Column(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=4.dp)) {
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        Text("Выбрано: ${selected.size}",Modifier.weight(1f))
+                        IconButton({chosenIds=emptySet()}) { Icon(Icons.Rounded.Close,"Отменить выбор") }
+                    }
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
+                        horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick={
                         val confirmed=chosenIds.intersect(eligible).toList()
                         if(confirmed.isNotEmpty()&&onAddCollection!=null) {
@@ -88,12 +91,11 @@ internal fun MusicFolderScreen(title:String,tracks:List<DownloadEntity>,excluded
                         Spacer(Modifier.width(6.dp))
                         Text("Коллекция")
                     }
-                    if (onSimpleArchive != null) IconButton({ onSimpleArchive(selected.toList()) },
+                    if (onSimpleArchive != null) TextButton({ onSimpleArchive(selected.toList()) },
                         modifier=Modifier.testTag("music-folder-selected-archive")) {
-                        com.domenota.medialoader.ui.components.ArchiveActionIcon("В архив")
+                        com.domenota.medialoader.ui.components.ArchiveActionIcon(null)
+                        Spacer(Modifier.width(6.dp)); Text("В архив")
                     }
-                    IconButton({chosenIds=emptySet()}) {
-                        Icon(Icons.Rounded.Close,"Отменить выбор")
                     }
                 }
             }

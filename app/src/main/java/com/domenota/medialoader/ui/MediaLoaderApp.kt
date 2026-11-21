@@ -2972,7 +2972,17 @@ fun MediaLoaderApp(
                     onCreateFolder = viewModel::createCatalogFolder)
             },
             LibraryRouteContent(SIMPLE_ARCHIVE_ROUTE) {
-                SimpleArchiveScreen(records = archivedRecords,
+                val archiveLiveRows = remember(archivedRecords, guardedPublicRefs, downloads, visibilityGuard) {
+                    val candidates = (guardedPublicRefs.orEmpty().map { it.item } + downloads)
+                        .filter { !it.isPrivate && !it.hidden && it.state == DownloadState.COMPLETED && visibilityGuard?.canOpen(it, null, emptyList()) == true }
+                        .groupBy { it.savedUri }
+                    archivedRecords.mapNotNull { record ->
+                        candidates[record.savedUri]?.firstOrNull { row ->
+                            SimpleArchivePolicy.matches(record, SimpleArchiveCandidate(row.id, record.savedUri, row.mediaType, row.sizeBytes))
+                        }?.let { record.catalogId to it }
+                    }.toMap()
+                }
+                SimpleArchiveScreen(records = archivedRecords, liveRows = archiveLiveRows,
                     onClose = { navController.popBackStack() },
                     onOpen = { record ->
                         // Resolve a fresh public reference, not an unverified historical URI.

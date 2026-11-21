@@ -731,11 +731,13 @@ internal fun MusicModeScreen(
         if (selectedPublicIds.isNotEmpty()) {
             Surface(Modifier.fillMaxWidth().testTag("music-selection-bottom"),
                 tonalElevation = 5.dp, color = MaterialTheme.colorScheme.surfaceContainer) {
-                Row(Modifier.fillMaxWidth().padding(horizontal=12.dp, vertical=7.dp),
-                    verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text("Выбрано: ${selectedPublicIds.size}",
-                        Modifier.weight(1f),fontWeight=FontWeight.SemiBold)
+                Column(Modifier.fillMaxWidth().padding(horizontal=12.dp, vertical=4.dp)) {
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        Text("Выбрано: ${selectedPublicIds.size}", Modifier.weight(1f),fontWeight=FontWeight.SemiBold)
+                        IconButton({selectedTrackIds=emptySet()}) { Icon(Icons.Rounded.Close,"Отменить выбор") }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically,
+                        horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick={
                         // No stale ID or hidden row can reach the collection picker.
                         val confirmed=selectedTrackIds.intersect(selectableIds).toList()
@@ -749,12 +751,11 @@ internal fun MusicModeScreen(
                         Spacer(Modifier.width(6.dp))
                         Text("Коллекция")
                     }
-                    if (onSimpleArchive != null) IconButton({ onSimpleArchive(selectedPublicIds.toList()) },
+                    if (onSimpleArchive != null) TextButton({ onSimpleArchive(selectedPublicIds.toList()) },
                         modifier=Modifier.testTag("music-selected-archive")) {
-                        com.domenota.medialoader.ui.components.ArchiveActionIcon("В архив")
+                        com.domenota.medialoader.ui.components.ArchiveActionIcon(null)
+                        Spacer(Modifier.width(6.dp)); Text("В архив")
                     }
-                    IconButton({ selectedTrackIds=emptySet() }) {
-                        Icon(Icons.Rounded.Close,"Отменить выбор")
                     }
                 }
             }

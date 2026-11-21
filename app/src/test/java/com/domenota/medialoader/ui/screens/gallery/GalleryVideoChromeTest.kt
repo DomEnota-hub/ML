@@ -83,4 +83,23 @@ class GalleryVideoChromeTest {
         compose.waitForIdle()
         assertFalse(locked)
     }
+    @Test fun canvasSeekHidesCenterControlsButKeepsTimeline() {
+        var centerVisible by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                GalleryVideoChrome(visible = true, locked = false, unlockVisible = false,
+                    playing = true, positionMs = 39_000L, durationMs = 150_000L,
+                    hasPrevious = true, hasNext = true, onPlayPause = {}, onPrevious = {},
+                    onNext = {}, onSeekTo = {}, onLockChange = {}, centerControlsVisible = centerVisible)
+            }
+        }
+        compose.onNodeWithContentDescription("Пауза").assertIsDisplayed()
+        compose.runOnIdle { centerVisible = false }
+        compose.onNodeWithContentDescription("Пауза").assertDoesNotExist()
+        compose.onNodeWithContentDescription("К началу или предыдущему видео").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Следующее видео").assertDoesNotExist()
+        compose.onNodeWithText("00:39").assertIsDisplayed()
+        compose.onNodeWithText("02:30").assertIsDisplayed()
+    }
+
 }
