@@ -55,7 +55,7 @@ class InstagramProviderTest {
         val provider = InstagramProvider { url ->
             requests += url
             if (url.endsWith("/embed/captioned/"))
-                """<script>{"video_url":"https:\\/\\/scontent.fbcdn.net\\/real.mp4"}</script>"""
+                """<script>{"video_url":"https://scontent.fbcdn.net/real.mp4"}</script>"""
             else """<meta property="og:image" content="https://scontent.fbcdn.net/cover.jpg">"""
         }
         val result = provider.resolve("https://www.instagram.com/reel/Ab_12-z/")

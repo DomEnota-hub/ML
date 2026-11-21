@@ -70,8 +70,11 @@ class InstagramProvider(
             }
             // A Reel page often exposes its poster via og:image while withholding
             // the actual video. Never offer the poster as the requested Reel.
-            val verifiedItems = if (link.type == InstagramLinkType.REEL)
-                publicItems.filter { it.type == MediaType.VIDEO } else publicItems
+            // A Reel's poster alone is not a downloadable video. However, when
+            // the page has a real video, retain the original publication music
+            // alongside it; stripping audio creates a duplicate MP4 audio proxy.
+            val verifiedItems = if (link.type == InstagramLinkType.REEL &&
+                publicItems.none { it.type == MediaType.VIDEO }) emptyList() else publicItems
             if (verifiedItems.isNotEmpty()) {
                 AppLog.verbose("Instagram", "Caption source · path=public-page · fallback=${verifiedItems.any(::isUnnamedVisual)}")
                 return enrichMissingCaption(verifiedItems, link)
