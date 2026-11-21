@@ -658,9 +658,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                             overflow=TextOverflow.Ellipsis)
                         val offset=if(previewId==candidate.id)position else
                             (if(index==0)evidence?.firstMs else evidence?.secondMs)?:0L
-                        val fraction=if(candidate.duration!=null&&candidate.duration>0)
-                            (offset.toDouble()/candidate.duration).toFloat().coerceIn(0f,1f)
-                            else 0f
+                        val fraction=comparisonWaveformProgress(offset,candidate.duration)
                         if(peaks==null) LinearProgressIndicator(Modifier.fillMaxWidth())
                         else if(peaks.any { it>0f }) AudioWaveform(peaks,fraction,{
                             f->active=candidate.id;onPlay(candidate,((candidate.duration?:0L)*f).toLong())
@@ -686,6 +684,12 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
         }
     }
 }
+
+/** Display-only cursor. Unknown durations must never divide by zero or
+ * move a different track's player position. */
+internal fun comparisonWaveformProgress(positionMs:Long,durationMs:Long?):Float =
+    if(durationMs==null || durationMs<=0L) 0f
+    else (positionMs.coerceIn(0L,durationMs).toDouble()/durationMs).toFloat()
 
 @Composable
 internal fun DuplicatePreviewSeek(id:String,position:Long,duration:Long,enabled:Boolean,onSeek:(Long)->Unit){
