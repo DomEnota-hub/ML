@@ -73,4 +73,37 @@ class SelectiveArchiveCheckpointStoreTest {
         }
         assertArrayEquals(corrupt,file.readBytes())
     }
+    @Test fun listingAllDurableCheckpointsWorksWithoutCurrentCatalogAssignments()=runBlocking {
+        val dir=temp.newFolder("archive-enumeration")
+        val store=SelectiveArchiveCheckpointStore(dir)
+        assertTrue(store.listAll().isEmpty())
+        val proof=store.prepare("deleted-virtual-album",identities(),selected,physical) {
+            1_700_000_000_000L
+        }
+        assertEquals(listOf(proof),SelectiveArchiveCheckpointStore(dir).listAll())
+        // A stale uncommitted temporary file is not proof that a transfer began.
+        File(dir,".bindings-old.tmp").writeText("incomplete")
+        assertEquals(listOf(proof),store.listAll())
+    }
+
+    @Test fun unknownArchiveProofFailsClosedInsteadOfReportingEmpty()=runBlocking {
+        val dir=temp.newFolder("archive-unknown")
+        val store=SelectiveArchiveCheckpointStore(dir)
+        File(dir,"unexpected.binding").writeText("untrusted")
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking { store.listAll() }
+        }
+    }
+
+    @Test fun checksumTamperingPreventsEnumeratingDurableArchive()=runBlocking {
+        val dir=temp.newFolder("archive-bad-hash")
+        val store=SelectiveArchiveCheckpointStore(dir)
+        store.prepare("safety-folder",identities(),selected,physical) { 1_700_000_000_000L }
+        val proof=dir.listFiles()!!.single { it.name.endsWith(".binding") }
+        proof.writeBytes(proof.readBytes().apply { this[4]=(this[4].toInt() xor 0x40).toByte() })
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking { store.listAll() }
+        }
+    }
+
 }
