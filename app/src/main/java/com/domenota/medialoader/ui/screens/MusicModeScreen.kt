@@ -436,8 +436,10 @@ internal fun MusicModeScreen(
         }
     }
     val displayedIds=browseRows.value.displayedIds
-    val selectableIds=if(tab==0) displayed.mapTo(mutableSetOf()) { it.id }
+    val selectableIds=remember(browseRows.value,tab) {
+        if(tab==0) displayed.mapTo(mutableSetOf()) { it.id }
         else displayedIds.filterTo(mutableSetOf()) { it in available }
+    }
     val selectedPublicIds=selectedTrackIds.intersect(selectableIds)
     LaunchedEffect(tab,selectedId) { selectedTrackIds=emptySet() }
     // A background scan or privacy revocation can remove a track mid-selection.
