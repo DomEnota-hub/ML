@@ -766,7 +766,8 @@ fun MediaLoaderApp(
         try{val link=MediaOrganizationPolicy.link(raw);context.startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse(link)))}
         catch(_:Exception){AppNotice.post(context,"Не удалось открыть ссылку")}
     }
-    val currentLibraryAudioId = libraryAudioState.currentId?.takeUnless { id -> folderRefsById.containsKey(id) || id in visibilityBlocked }?.let { id -> libraryRefsByAlias[id]?.key
+    val currentLibraryAudioId = libraryAudioState.currentId?.takeUnless { id -> folderRefsById.containsKey(id) || id in visibilityBlocked || id in archiveBlocked ||
+        libraryAudioState.identities.any(archiveBlocked::contains) }?.let { id -> libraryRefsByAlias[id]?.key
         ?: libraryAudioState.identities.firstNotNullOfOrNull { libraryRefsByAlias[it]?.key } ?: id }
     val externalCatalog by libraryModel.externalCatalog.entries.collectAsStateWithLifecycle()
     val externalByAlias = remember(externalCatalog) { externalCatalog.flatMap { entry ->
@@ -1304,7 +1305,9 @@ fun MediaLoaderApp(
         onDispose{musicVisibilityPrefs.unregisterOnSharedPreferenceChangeListener(listener)}
     }
     val recoveryRunning by com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.collectAsStateWithLifecycle()
-    val collectionHistory = historySnapshot?.rows.orEmpty()
+    val collectionHistory = remember(historySnapshot, archivedRecords, simpleArchiveLoaded) {
+        if (!simpleArchiveLoaded) emptyMap() else historySnapshot?.rows.orEmpty().filterValues { !isSimplyArchived(it) }
+    }
     // The only synchronous gate contains small identity sets, not one newly allocated
     // set per media row. Real privacy/hidden changes invalidate retained projections.
     val collectionPrivacyGeneration by DuplicatePrivacyGuard.changes.collectAsStateWithLifecycle()
@@ -1326,11 +1329,11 @@ fun MediaLoaderApp(
             (android.Manifest.permission.READ_MEDIA_IMAGES !in granted || android.Manifest.permission.READ_MEDIA_VIDEO !in granted)
         granted.sorted().joinToString("|") + if (partial) ":selected:$fileScanEpoch" else ""
     }
-    val collectionAccess = libraryPrivateKeys?.takeIf { !recoveryRunning && historySnapshot != null && visibilityReady }?.let {
+    val collectionAccess = libraryPrivateKeys?.takeIf { simpleArchiveLoaded && !recoveryRunning && historySnapshot != null && visibilityReady }?.let {
         CollectionAccessGuard(it, collectionBlocked, galleryAccessEpoch, musicAccessEpoch, collectionPermissionTag, collectionPrivacyGeneration)
     }
     val collectionReadAccess = libraryPrivateKeys?.takeIf {
-        historySnapshot != null && visibilityReady && collectionReadAllowed(publicIndexAllowed, com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value,
+        simpleArchiveLoaded && historySnapshot != null && visibilityReady && collectionReadAllowed(publicIndexAllowed, com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value,
             visibilityGuard?.policy?.pendingFolder, visibilityGuard?.policy?.unknownPending != false,
             com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isFolderVisibilityOperation())
     }?.let { CollectionAccessGuard(it, collectionBlocked, galleryAccessEpoch, musicAccessEpoch, collectionPermissionTag, collectionPrivacyGeneration) }
@@ -1345,7 +1348,7 @@ fun MediaLoaderApp(
         libraryIndex.galleryRevision == phoneGallery.revision && libraryIndex.musicRevision == phoneMusic.revision
     val completeRefs = if(fullGuard == null) null else when(collectionCatalogRequest) {
         CollectionCatalogRequest.NONE -> null
-        CollectionCatalogRequest.AUDIO -> audioPickerSnapshot?.refs
+        CollectionCatalogRequest.AUDIO -> audioPickerSnapshot?.refs?.filterNot { isSimplyArchived(it.item) }
         CollectionCatalogRequest.ALL -> publicLibraryRefs.takeIf { allCatalogComplete }
     }
     val collectionComplete = completeRefs != null
@@ -1518,14 +1521,14 @@ fun MediaLoaderApp(
     val missingExternalRefs = remember(externalCatalog, collectionBlocked, collectionRouteActive) {
         if (!collectionRouteActive) emptyList() else externalCatalog.map { it.ref }.filter { it.appDownloadId == null && !collectionRefBlocked(it, collectionBlocked) }
     }
-    val audioSnapshot = audioCatalog?.takeIf { it.guard.privacy == libraryPrivateKeys && it.guard.accessEpoch == musicAccessEpoch && it.guard.visibility == visibilityGuard && !recoveryRunning }
+    val audioSnapshot = audioCatalog?.takeIf { simpleArchiveLoaded && it.guard.privacy == libraryPrivateKeys && it.guard.accessEpoch == musicAccessEpoch && it.guard.visibility == visibilityGuard && !recoveryRunning }
     val listeningHistoryRows by libraryModel.listeningHistoryRows.collectAsStateWithLifecycle()
     val analyticsGuard = audioSnapshot?.guard?.takeIf { historySnapshot != null && listeningHistoryRows != null }
         ?.let { ListeningCatalogGuard(it,collectionBlocked,collectionPrivacyGeneration) }
     val analyticsProjection = addressedLibraryProjection(ListeningCatalog.EMPTY, analyticsGuard,
         audioSnapshot, listeningHistoryRows, statusSnapshot, statusUriSnapshot, serial=true,
         retain={ previous,next -> if(previous.refs==next.refs) previous else next }) {
-        ListeningCatalog(filterRouteCatalog(audioSnapshot?.refs.orEmpty(),collectionBlocked,listeningHistoryRows.orEmpty(),statusSnapshot,statusUriSnapshot))
+        ListeningCatalog(filterRouteCatalog(audioSnapshot?.refs.orEmpty().filterNot { isSimplyArchived(it.item) },collectionBlocked,listeningHistoryRows.orEmpty(),statusSnapshot,statusUriSnapshot))
     }
     val currentAnalytics by rememberUpdatedState(analyticsProjection.value)
     val currentAnalyticsGuard by rememberUpdatedState(analyticsGuard)
@@ -1546,7 +1549,7 @@ fun MediaLoaderApp(
         ?.let { RecentAccessGuard(it, collectionBlocked, musicLibrarySource) }
     val recentProjection = addressedLibraryProjection(RouteMediaCatalog.EMPTY, recentGuard, audioSnapshot,
         collectionHistory, statusSnapshot, statusUriSnapshot, externalByAlias) {
-        val refs = filterRouteCatalog(audioSnapshot?.refs.orEmpty(), collectionBlocked, collectionHistory, statusSnapshot, statusUriSnapshot)
+        val refs = filterRouteCatalog(audioSnapshot?.refs.orEmpty().filterNot { isSimplyArchived(it.item) }, collectionBlocked, collectionHistory, statusSnapshot, statusUriSnapshot)
         RouteMediaCatalog(refs.filter { ref -> musicLibrarySource == LibrarySource.PHONE || ref.appDownloadId != null ||
             ref.aliases.any { externalByAlias[it]?.folderId != null } })
     }
@@ -1588,6 +1591,7 @@ fun MediaLoaderApp(
     val currentScopedCatalog by rememberUpdatedState(scopedCatalog)
     val currentRecentCatalog by rememberUpdatedState(recentProjection.value)
     val currentBlocked by rememberUpdatedState(collectionBlocked)
+    val currentArchiveRecords by rememberUpdatedState(archivedRecords)
     val recentDeviceFolders = remember(phoneMusic.items) { phoneMusic.items.mapNotNull { row ->
         row.savedUri?.let { uri -> row.groupId?.let { uri to it } }
     }.toMap() }
@@ -1668,7 +1672,7 @@ fun MediaLoaderApp(
         val excluded = musicVisibilityPrefs.getStringSet("excluded",emptySet()).orEmpty()
         val allowedTypes = MediaType.entries.filter { type -> PhoneMediaLibrary.canRead(type,Build.VERSION.SDK_INT) {
             ContextCompat.checkSelfPermission(context,it)==PackageManager.PERMISSION_GRANTED } }.toSet()
-        return checked.filter { ref -> live(ref.key)?.item?.savedUri == ref.item.savedUri && !collectionRefBlocked(ref, keys) &&
+        return checked.filter { ref -> !isSimplyArchived(ref.item) && live(ref.key)?.item?.savedUri == ref.item.savedUri && !collectionRefBlocked(ref, keys) &&
             !collectionRefBlocked(ref, currentBlocked) && !collectionRefBlocked(ref, finalHidden) &&
             DuplicatePrivacyGuard.accepts(context,actionPrivacyEpoch,ref.appDownloadId ?: ref.key,ref.aliases) &&
             (ref.appDownloadId != null || ref.item.mediaType in allowedTypes) && (!(recent || analytics) ||
@@ -1699,7 +1703,7 @@ fun MediaLoaderApp(
             privateReady = libraryPrivateKeys != null,
             currentItem = libraryAudioState.currentItem,
             rows = publicLibraryRows,
-            blockedIdentities = libraryPrivateKeys.orEmpty() + organizationHidden)
+            blockedIdentities = libraryPrivateKeys.orEmpty() + organizationHidden + archiveBlocked)
         when (decision) {
             com.domenota.medialoader.data.playback.CurrentPlayerDestination.Wait -> Unit
             com.domenota.medialoader.data.playback.CurrentPlayerDestination.Unavailable -> {
@@ -1752,7 +1756,9 @@ fun MediaLoaderApp(
             try {
                 check(rows.all { row -> !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED &&
                     libraryModel.visibilityGuard.value?.canOpen(row, null, emptyList()) == true }) { "Выбранные файлы недоступны" }
-                simpleArchive.archive(rows, source)
+                val next = simpleArchive.archive(rows, source)
+                com.domenota.medialoader.data.playback.AudioPlaybackService.removeArchivedFromQueue(
+                    next.filter { it.mediaType == MediaType.AUDIO }.map { it.savedUri })
                 AppNotice.post(context, "В архиве: ${rows.size}")
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { simpleArchiveError = e.message ?: "Не удалось добавить в Архив"; AppNotice.post(context, simpleArchiveError.orEmpty()) }
@@ -2171,7 +2177,11 @@ fun MediaLoaderApp(
     }
     fun toggleLibraryPlayback() {
         fileActionScope.launch {
-            try { libraryModel.togglePublicAudio() }
+            try {
+                val current = libraryModel.audioPreview.state.value
+                check(current.currentId !in archiveBlocked && current.identities.none(archiveBlocked::contains)) { "Трек в Архиве" }
+                libraryModel.togglePublicAudio()
+            }
             catch(e:CancellationException){throw e}
             catch(_:Exception){AppNotice.post(context,"Трек или доступ изменились")}
         }
@@ -2982,7 +2992,12 @@ fun MediaLoaderApp(
                         }?.let { record.catalogId to it }
                     }.toMap()
                 }
+                LaunchedEffect(Unit) { refreshArchiveQa() }
                 SimpleArchiveScreen(records = archivedRecords, liveRows = archiveLiveRows,
+                    legacyRecovery = archiveQaEntries.filterNot { it.restored },
+                    legacyNames = catalogFolders.associate { it.id to it.name },
+                    legacyBusy = archiveQaBusy, legacyMessage = archiveQaError,
+                    onLegacyRestore = restoreSelectiveArchive,
                     onClose = { navController.popBackStack() },
                     onOpen = { record ->
                         // Resolve a fresh public reference, not an unverified historical URI.

@@ -45,6 +45,9 @@ class AudioPlaybackService : MediaSessionService() {
         internal fun isCurrentPublicUri(uri:String):Boolean=liveSession?.player?.currentMediaItem?.let{
             AudioPlaybackMetadata.matchesPublicUri(it,uri)
         }==true
+        /** Membership-only operation: never touches a file or a playlist record. */
+        internal fun removeArchivedFromQueue(uris: List<String>) = removeTrashedFromQueue(uris)
+
         internal fun removeTrashedFromQueue(uris: List<String>) {
             val p = liveSession?.player ?: return
             for (index in p.mediaItemCount - 1 downTo 0) {

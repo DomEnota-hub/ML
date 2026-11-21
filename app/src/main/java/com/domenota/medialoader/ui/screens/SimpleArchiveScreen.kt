@@ -23,6 +23,7 @@ import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.data.archive.SimpleArchiveRecord
+import com.domenota.medialoader.data.catalog.visibility.SelectiveArchiveQaEntry
 import com.domenota.medialoader.ui.components.ArchiveActionIcon
 
 /** Ordinary, unlocked archive. No vault or private-access state is consumed here.
@@ -38,6 +39,11 @@ internal fun SimpleArchiveScreen(
     busy: Boolean = false,
     message: String? = null,
     liveRows: Map<String, DownloadEntity> = emptyMap(),
+    legacyRecovery: List<SelectiveArchiveQaEntry> = emptyList(),
+    legacyNames: Map<String,String> = emptyMap(),
+    legacyBusy: Boolean = false,
+    legacyMessage: String? = null,
+    onLegacyRestore: ((String) -> Unit)? = null,
 ) {
     var type by remember { mutableStateOf<MediaType?>(null) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
@@ -79,7 +85,9 @@ internal fun SimpleArchiveScreen(
                     enabled = !busy) { Text(if (chosen == liveIds) "Снять выбор" else "Выбрать все") }
             }
         }
-        if (filtered.isEmpty()) {
+        if (legacyMessage != null) Text(legacyMessage, Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.bodySmall)
+        if (filtered.isEmpty() && legacyRecovery.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -90,6 +98,21 @@ internal fun SimpleArchiveScreen(
             }
         } else {
             LazyColumn(Modifier.weight(1f)) {
+                if (legacyRecovery.isNotEmpty() && type == null) {
+                    item { Text("Ранее скрытые файлы", Modifier.padding(16.dp), fontWeight = FontWeight.SemiBold) }
+                    items(legacyRecovery, key = { "legacy:" + it.folderId }) { entry ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(legacyNames[entry.folderId] ?: "Скрытые файлы")
+                                Text(if (entry.needsReview) "Требуется проверка" else "Файлов: ${entry.hidden}",
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                            TextButton(onClick = { onLegacyRestore?.invoke(entry.folderId) },
+                                enabled = !legacyBusy && !busy && !entry.needsReview && onLegacyRestore != null) { Text("Вернуть") }
+                        }
+                    }
+                }
                 items(filtered, key = { it.catalogId }) { item ->
                     Row(
                         Modifier.fillMaxWidth().combinedClickable(enabled = !busy,
