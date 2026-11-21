@@ -88,4 +88,20 @@ class SelectiveArchiveMoveJournalTest {
             assertTrue(dir.listFiles().isNullOrEmpty())
         } finally { dir.deleteRecursively() }
     }
+    @Test fun durableKeyEnumerationRejectsUnknownMutationProofs() = runBlocking<Unit> {
+        val dir=Files.createTempDirectory("sel-journal-keys").toFile()
+        try {
+            val store=SelectiveArchiveMoveJournal(dir)
+            assertTrue(store.durableKeys().isEmpty())
+            store.begin(cp,origin,token,target)
+            assertEquals(setOf(store.memberKey("folder","track-1")),store.durableKeys())
+            File(dir,".bindings-leftover.tmp").writeText("incomplete")
+            assertEquals(setOf(store.memberKey("folder","track-1")),store.durableKeys())
+            File(dir,"foreign.binding").writeText("unknown")
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { store.durableKeys() }
+            }
+        } finally { dir.deleteRecursively() }
+    }
+
 }
