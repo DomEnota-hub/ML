@@ -1,0 +1,7 @@
+# MediaLoader: current CI instructions
+
+STATUS: CI redesign in progress, PR #174. This file is a staged policy; the batch runner is not approved until exact-source A/B and full-suite verification PASS. Version 1.7.211 is rejected on device; do not release it or build a new APK during CI audit.
+
+Use only `.github/workflows/ml-ci.yml` for standard app CI; the signing-tools workflow and explicitly allowlisted research workflows have distinct purposes. Do not restore old YAML, script or branch build routes from history. `docs/ci/allowed-workflows.json` is the reviewed inventory; any change to it requires explicit rationale and review. No emulator. Real Xiaomi/Android device acceptance is mandatory for a stable release, separately from static CI.
+
+Modes: quick for focused feedback; audit for temporary A/B (no APK); verify for full JVM and lint with no APK or qualification receipts; perf for opt-in performance; qualify for exact-source JVM/lint/ARM64 and DEX checks before signing. PR labels ci:audit/ci:verify/ci:qualify are mutually exclusive. Do not request another run while an exact-source run is active. Protect every reviewed test identity, do not weaken tests to make CI pass. Final unsigned and signed APK must pass static DEX checks; signing keys and GAPI stay outside GitHub. Delivery via Google Drive only, no GitHub Releases. Remove retired runner and temporary workflow archive only after evidence supports the replacement. Update the existing Drive Сводка.md and Правила.md with final CI policy; preserve historical record.

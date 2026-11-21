@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Quick feedback, full qualification or opt-in database performance measurements
+        description: Quick feedback, qualification, performance, isolation audit or full CI-only verification
         type: choice
-        options: [quick, qualify, perf, audit]
+        options: [quick, qualify, perf, audit, verify]
         default: qualify
       cache_epoch:
         description: Change to invalidate all lane caches (same epoch for cold/warm comparison)
@@ -21,16 +21,17 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && github.event.label.name != 'ci:qualify' && github.run_id || 'active' }}
+  group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && !contains(fromJSON('["ci:qualify","ci:audit","ci:verify"]'), github.event.label.name) && github.run_id || 'active' }}
   cancel-in-progress: true
 env:
-  ML_MODE: ${{ inputs.mode || (contains(github.event.pull_request.labels.*.name, 'ci:audit') && 'audit') || 'quick' }}
+  ML_MODE: ${{ inputs.mode || (contains(github.event.pull_request.labels.*.name, 'ci:audit') && 'audit') || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && 'verify') || (contains(github.event.pull_request.labels.*.name, 'ci:qualify') && 'qualify') || 'quick' }}
   ML_CI_PROFILE: 'true'
   ML_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   ML_FAULT: ${{ inputs.fault || 'none' }}
+  ML_MODE_CONFLICT: ${{ (contains(github.event.pull_request.labels.*.name, 'ci:audit') && (contains(github.event.pull_request.labels.*.name, 'ci:verify') || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))) || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && contains(github.event.pull_request.labels.*.name, 'ci:qualify')) }}
 jobs:
   quick:
-    if: (github.event.action != 'labeled' || contains(fromJSON('["ci:qualify","ci:audit"]'), github.event.label.name)) && (github.base_ref != 'feature/ml-stage5-qa-selective-archive' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (github.head_ref != 'ci/ml-17211-workflow-cleanup' || contains(github.event.pull_request.labels.*.name, 'ci:audit'))
+    if: (github.event.action != 'labeled' || contains(fromJSON('["ci:qualify","ci:audit","ci:verify"]'), github.event.label.name)) && (github.base_ref != 'feature/ml-stage5-qa-selective-archive' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (github.head_ref != 'ci/ml-17211-workflow-cleanup' || contains(github.event.pull_request.labels.*.name, 'ci:audit') || contains(github.event.pull_request.labels.*.name, 'ci:verify'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -39,6 +40,7 @@ jobs:
           ref: ${{ env.ML_EXPECTED_SHA }}
           persist-credentials: false
       - run: |
+          test "$ML_MODE_CONFLICT" = false
           python3 scripts/ci/gate.py request
           python3 scripts/ci/gate.py inputs
           python3 -m unittest discover -s tests/ci -v
@@ -61,14 +63,14 @@ jobs:
       - name: Compile JVM and Android device-test sources (without running device tests)
         run: python3 scripts/ci/gate.py stage test-compile "$ML_GRADLE" :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac :app:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestJavaWithJavac -Parm64Release=true --stacktrace --console=plain
       - name: Focused PR feedback
-        if: inputs.mode != 'qualify' && !contains(github.event.pull_request.labels.*.name, 'ci:qualify')
+        if: env.ML_MODE == 'quick'
         run: |
           mapfile -t classes < scripts/ci/focused-tests.txt
           args=()
           for name in "${classes[@]}"; do args+=(--tests "$name"); done
           python3 scripts/ci/gate.py stage focused "$ML_GRADLE" :app:testDebugUnitTest -Parm64Release=true "${args[@]}" --console=plain --stacktrace
       - name: Full JVM including every isolated Compose method
-        if: inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')
+        if: env.ML_MODE == 'qualify' || env.ML_MODE == 'verify'
         run: |
           python3 scripts/ci/gate.py stage full-jvm python3 scripts/run-jvm-isolated-compose.py full
           python3 scripts/ci/gate.py cases
@@ -146,7 +148,7 @@ jobs:
           retention-days: 5
   lint:
     needs: quick
-    if: inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
+    if: inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit') && (inputs.mode == 'qualify' || inputs.mode == 'verify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify') || contains(github.event.pull_request.labels.*.name, 'ci:verify')) && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -161,10 +163,10 @@ jobs:
       - run: python3 scripts/ci/fault.py
       - name: API and full Android lint
         run: python3 scripts/ci/gate.py stage lint "$ML_GRADLE" :app:lintDebug -Parm64Release=true --console=plain --stacktrace
-      - if: inputs.fault == 'none' || inputs.fault == ''
+      - if: env.ML_MODE == 'qualify' && (inputs.fault == 'none' || inputs.fault == '')
         run: python3 scripts/ci/gate.py receipt lint
       - uses: actions/upload-artifact@v4
-        if: success() && (inputs.fault == 'none' || inputs.fault == '')
+        if: success() && env.ML_MODE == 'qualify' && (inputs.fault == 'none' || inputs.fault == '')
         with:
           name: ml-ci-${{ github.run_id }}-receipt-lint
           path: ci-output/*-receipt.json
