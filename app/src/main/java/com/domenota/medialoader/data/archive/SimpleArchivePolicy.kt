@@ -54,7 +54,8 @@ internal object SimpleArchivePolicy {
         val result = existing.toMutableList()
         for (item in selected) {
             check(result.none { it.catalogId == item.catalogId &&
-                (it.savedUri != item.savedUri || it.mediaType != item.mediaType) }) {
+                (it.savedUri != item.savedUri || it.mediaType != item.mediaType ||
+                (it.fileSizeBytes != null && item.fileSizeBytes != null && it.fileSizeBytes != item.fileSizeBytes)) }) {
                 "Идентификатор файла изменился. Требуется обновить Архив"
             }
             if (result.none { matches(it, SimpleArchiveCandidate(

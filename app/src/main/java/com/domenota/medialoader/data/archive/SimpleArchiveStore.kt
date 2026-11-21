@@ -68,7 +68,7 @@ internal class SimpleArchiveStore(context: Context) {
     }
 
     private fun read(): List<SimpleArchiveRecord> {
-        if (!file.baseFile.exists()) return emptyList()
+        if (!file.exists()) return emptyList()
         try {
             val data = JSONObject(file.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() })
             check(data.getInt("version") == 1) { "Неизвестная версия Архива" }

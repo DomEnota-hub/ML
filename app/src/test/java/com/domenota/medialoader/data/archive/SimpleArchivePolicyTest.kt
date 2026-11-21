@@ -42,6 +42,14 @@ internal class SimpleArchivePolicyTest {
             candidate("a", "content://media/external/audio/media/5", MediaType.AUDIO, 500)))
     }
 
+    @Test fun duplicateCatalogIdWithDifferentBytesMustNotCorruptPersistedIndex() {
+        val original = entry("phone:audio:8", "content://media/external/audio/media/8", MediaType.AUDIO, 100)
+        val replacement = entry("phone:audio:8", "content://media/external/audio/media/8", MediaType.AUDIO, 900)
+        assertThrows(IllegalStateException::class.java) {
+            SimpleArchivePolicy.archive(listOf(original), listOf(replacement))
+        }
+    }
+
     @Test fun restoreChangesOnlySelectedEntryAndNeverTouchesOriginalFiles() {
         val before = listOf(entry("one", "content://a"), entry("two", "content://b"))
         assertEquals(listOf(before[1]), SimpleArchivePolicy.restore(before, setOf("one")))
