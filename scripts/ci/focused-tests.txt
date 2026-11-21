@@ -16,3 +16,6 @@ com.domenota.medialoader.data.catalog.visibility.NomediaFolderEngineTest
 com.domenota.medialoader.data.catalog.visibility.NomediaFolderRepositoryTest
 com.domenota.medialoader.ui.screens.music.MusicDuplicatePreliminaryTest
 com.domenota.medialoader.ui.screens.music.DuplicateTrashHostRegressionTest
+com.domenota.medialoader.data.archive.SimpleArchivePolicyTest
+com.domenota.medialoader.data.archive.SimpleArchiveStoreTest
+com.domenota.medialoader.ui.screens.gallery.GalleryVideoChromeTest

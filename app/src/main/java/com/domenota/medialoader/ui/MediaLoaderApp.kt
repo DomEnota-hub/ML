@@ -223,11 +223,6 @@ fun MediaLoaderApp(
         catch (e: Exception) { simpleArchiveError = "Не удалось открыть Архив" }
     }
     val archivedByUri = remember(archivedRecords) { archivedRecords.groupBy { it.savedUri } }
-    val archiveBlocked = remember(archivedRecords) { buildSet {
-        archivedRecords.forEach { record ->
-            add(record.catalogId); add("app:${record.catalogId}"); add(record.savedUri); add("uri:${record.savedUri}")
-        }
-    } }
     fun isSimplyArchived(row: com.domenota.medialoader.core.database.DownloadEntity): Boolean {
         val uri = row.savedUri ?: return false
         return SimpleArchivePolicy.isArchived(archivedByUri[uri].orEmpty(),
@@ -666,15 +661,32 @@ fun MediaLoaderApp(
     val libraryAudioState by libraryModel.audioPreview.state.collectAsStateWithLifecycle()
     val libraryPrivateKeys by libraryModel.privateKeys.collectAsStateWithLifecycle()
     val visibilityBlocked=remember(visibilityGuard){visibilityGuard?.blockedKeys().orEmpty()}
-    val publicProjectionGuard=remember(libraryPrivateKeys,visibilityGuard,visibilityBlocked,archiveBlocked,simpleArchiveLoaded) {
-        libraryPrivateKeys?.takeIf { visibilityReady && simpleArchiveLoaded }?.plus(visibilityBlocked)?.plus(archiveBlocked)
-    }
     // The IO-built index may briefly lag a *visibility-only* receipt update.
     // Re-check previously admitted refs against the current fail-closed guard
     // instead of blanking the other thousands of valid photos and songs.
     // Permission/private changes still return null immediately.
     val guardedPublicRefs = remember(libraryIndex,visibilityGuard,libraryPrivateKeys,phoneGallery,phoneMusic) {
         guardedRetainedIndexRefs(libraryIndex,visibilityGuard,libraryPrivateKeys,phoneGallery,phoneMusic,allowUnaffectedKinds=true)
+    }
+    val archiveBlocked = remember(archivedRecords, guardedPublicRefs, downloads) { buildSet {
+        // Exact live file membership; do not block a recycled catalog ID by itself.
+        guardedPublicRefs.orEmpty().filter { isSimplyArchived(it.item) }.forEach { ref ->
+            add(ref.key); addAll(ref.aliases)
+            ref.item.savedUri?.let { addAll(com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(it)) }
+        }
+        downloads.filter { isSimplyArchived(it) }.forEach { row ->
+            add(row.id); add("app:${row.id}")
+            row.savedUri?.let { addAll(com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(it)) }
+        }
+    } }
+    val publicProjectionGuard=remember(libraryPrivateKeys,visibilityGuard,visibilityBlocked,archiveBlocked,simpleArchiveLoaded) {
+        libraryPrivateKeys?.takeIf { visibilityReady && simpleArchiveLoaded }?.plus(visibilityBlocked)?.plus(archiveBlocked)
+    }
+    LaunchedEffect(simpleArchiveLoaded, archivedRecords, libraryAudioState.queueGeneration) {
+        if (simpleArchiveLoaded && archivedRecords.isNotEmpty()) {
+            val uris = archivedRecords.filter { it.mediaType == MediaType.AUDIO }.map { it.savedUri }
+            com.domenota.medialoader.data.playback.AudioPlaybackService.removeArchivedFromQueue(uris)
+        }
     }
     val publicIndexAllowed = guardedPublicRefs != null
     val publicLibraryRefs = remember(guardedPublicRefs, archivedRecords, simpleArchiveLoaded) {
@@ -2179,7 +2191,7 @@ fun MediaLoaderApp(
         fileActionScope.launch {
             try {
                 val current = libraryModel.audioPreview.state.value
-                check(current.currentId !in archiveBlocked && current.identities.none(archiveBlocked::contains)) { "Трек в Архиве" }
+                check(current.currentId?.let { it !in archiveBlocked } != false && current.identities.none(archiveBlocked::contains)) { "Трек в Архиве" }
                 libraryModel.togglePublicAudio()
             }
             catch(e:CancellationException){throw e}

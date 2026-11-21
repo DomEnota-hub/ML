@@ -1,7 +1,7 @@
 name: MediaLoader exact-source CI
 on:
   pull_request:
-    branches: [feature/ml-17209-batch1-stability-ui-vault, feature/ml-17209-batch2-vault-private-qa]
+    branches: [feature/ml-17209-batch1-stability-ui-vault, feature/ml-17209-batch2-vault-private-qa, feature/ml-stage5-qa-selective-archive]
     types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
     inputs:
@@ -30,7 +30,7 @@ env:
   ML_FAULT: ${{ inputs.fault || 'none' }}
 jobs:
   quick:
-    if: github.event.action != 'labeled' || github.event.label.name == 'ci:qualify'
+    if: (github.event.action != 'labeled' || github.event.label.name == 'ci:qualify') && (github.base_ref != 'feature/ml-stage5-qa-selective-archive' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

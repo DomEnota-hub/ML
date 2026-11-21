@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-grep -Eq 'versionCode 270$' app/build.gradle
-grep -Fq "versionName '1.7.210'" app/build.gradle
+grep -Eq 'versionCode 271$' app/build.gradle
+grep -Fq "versionName '1.7.211'" app/build.gradle
 grep -Fq 'showingPartial' app/src/main/java/com/domenota/medialoader/ui/screens/music/MusicDuplicatesDialog.kt
 grep -Fq 'android:largeHeap="true"' app/src/main/AndroidManifest.xml
 grep -Fq 'mutableIntStateOf(0)' app/src/main/java/com/domenota/medialoader/ui/MediaLoaderApp.kt
