@@ -2330,7 +2330,10 @@ fun MediaLoaderApp(
             lastHandledLink = pendingUrl
             navigateTo(AppDestination.Home.route)
             showPicker = true
-            viewModel.analyze(pendingUrl)
+            viewModel.analyzeExplicit(pendingUrl,
+                allowAutomatic = Regex("https?://", RegexOption.IGNORE_CASE).findAll(sharedText.orEmpty()).count() == 1) {
+                showPicker = false
+            }
             onSharedTextConsumed()
         }
     }
@@ -2343,7 +2346,7 @@ fun MediaLoaderApp(
         lastHandledLink=link
         clipboardLookup=fileActionScope.launch {
             val used=try{viewModel.wasInstagramDownloaded(link)}catch(e:CancellationException){throw e}catch(e:Exception){false}
-            if(used)usedLinkPrompt=link else {viewModel.analyze(link);showPicker=true}
+            if(used)usedLinkPrompt=link else {showPicker=true;viewModel.analyzeExplicit(link){showPicker=false}}
         }
     }
     usedLinkPrompt?.let{link->
@@ -3702,7 +3705,7 @@ fun MediaLoaderApp(
     }
     if (showPicker && (currentRoute == AppDestination.Home.route || currentRoute == BROWSER_ROUTE)) {
         ModalBottomSheet(
-            onDismissRequest = { showPicker = false },
+            onDismissRequest = { viewModel.cancelAutomaticAnalysis(); showPicker = false },
             sheetState = pickerState,
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
@@ -3712,7 +3715,7 @@ fun MediaLoaderApp(
                 url = preview.url.ifBlank { pendingUrl },
                 state = preview.analysis,
                 items = preview.items.map { it.toPreviewUi(selected = it.id in preview.selectedIds) },
-                onBack = { showPicker = false },
+                onBack = { viewModel.cancelAutomaticAnalysis(); showPicker = false },
                 onToggleItem = viewModel::toggle,
                 onToggleAllPhotos = viewModel::toggleAllPhotos,
                 onDownloadSelected = requestDownload,

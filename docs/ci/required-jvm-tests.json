@@ -7823,6 +7823,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.model.YouTubeAutoSelectionTest#rejectsPlaylistAmbiguousAndUnknownOrForeignResults": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.model.YouTubeAutoSelectionTest#selectsSingleKnownVideoWithExistingExactMuxSelectorAndIgnoresAudio": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.navigation.BottomTabPolicyTest#repeatedDownloadsTapRequestsScrollToTop": {
     "skipped": false,
     "failed": false

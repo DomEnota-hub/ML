@@ -1256,6 +1256,35 @@ class MediaRepository private constructor(context: Context) {
         }
     }
 
+    /** Automatic path shares the ordinary queue lock/validation, but never deliberately duplicates a transfer. */
+    suspend fun enqueueAutomaticYouTube(item: MediaItem): Boolean {
+        require(com.domenota.medialoader.core.model.YouTubeAutoSelection.singleVideo(item.downloadUrl, listOf(item)) == item)
+        require(resolver.canDownload(item)) { "Недопустимый адрес файла" }
+        return musicPostProcessGate.withPermit {
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+            val key = BulkIdentity.key(item)
+            val same = history.all().filter { row ->
+                !row.isPrivate && !row.hidden && row.providerId == item.providerId && row.mediaType == item.type &&
+                    (row.bulkMediaKey == key ||
+                        (row.formatSelector == item.formatSelector &&
+                            listOfNotNull(row.sourcePageUrl, row.sourceUrl).any {
+                                com.domenota.medialoader.core.provider.YouTubeLinkParser.parse(it)?.canonicalUrl() == item.downloadUrl
+                            }))
+            }
+            if (same.any { it.state == DownloadState.QUEUED || it.state == DownloadState.RUNNING } ||
+                same.any { it.state == DownloadState.COMPLETED && it.savedUri != null &&
+                    withContext(Dispatchers.IO) { savedFileStatus(it.savedUri) == SavedFileStatus.PRESENT } })
+                return@withPermit false
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            prefetchVideoCovers(listOf(item))
+            // Once accepted, preserve the durable history + queue write even if the analyzing UI closes.
+            withContext(NonCancellable) {
+                queue.enqueue(listOf(item), bulkMediaKeys = listOf(key))
+            }
+            true
+        }
+    }
+
     /** Stable IDs make restoring a confirmed bulk job safe after a process interruption. */
     suspend fun enqueueBulk(items: List<MediaItem>, stableIds: List<String>, groupIds: List<String>): List<DownloadEntity> {
         com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()

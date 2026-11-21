@@ -36,6 +36,10 @@ import com.domenota.medialoader.ui.model.AnalysisUiState
 import com.domenota.medialoader.ui.model.defaultSelectedIds
 import com.domenota.medialoader.ui.model.togglePreviewSelection
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
+import com.domenota.medialoader.core.model.YouTubeAutoSelection
+import com.domenota.medialoader.data.share.InstagramShareSettings
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -186,6 +190,8 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private var analysisJob: Job? = null
+    private var analysisGeneration = 0L
+    private var automaticAnalysis = false
     private var fullSongJob: Job? = null
     private val fullSongGate = FullSongSessionGate()
 
@@ -747,9 +753,33 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     /** Public access first; providers fall back to their saved sessions only when needed. */
     suspend fun wasInstagramDownloaded(url:String)=repository.wasInstagramDownloaded(url)
 
-    fun analyze(url: String, recoveryHistoryId: String? = null) {
-        val link = url.trim()
+    /** Only explicit user submission/Share may opt into automatic YouTube video. */
+    fun analyzeExplicit(url: String, allowAutomatic: Boolean = true, onAutomaticFinished: () -> Unit) {
+        val context = getApplication<Application>()
+        val storageReady = android.os.Build.VERSION.SDK_INT >= 29 || !needsLegacyStoragePermission() ||
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        val automatic = allowAutomatic && storageReady && InstagramShareSettings.isAutomatic(context) &&
+            YouTubeAutoSelection.canonicalUrl(url) != null
+        analyzeInternal(url, null, automatic, onAutomaticFinished)
+    }
+
+    fun cancelAutomaticAnalysis() {
+        if (!automaticAnalysis) return
+        analysisGeneration++
+        automaticAnalysis = false
         analysisJob?.cancel()
+        _preview.value = PreviewState()
+    }
+
+    fun analyze(url: String, recoveryHistoryId: String? = null) =
+        analyzeInternal(url, recoveryHistoryId, false, null)
+
+    private fun analyzeInternal(url: String, recoveryHistoryId: String?, automaticYoutube: Boolean, onAutomaticFinished: (() -> Unit)?) {
+        val link = url.trim()
+        val generation = ++analysisGeneration
+        analysisJob?.cancel()
+        automaticAnalysis = automaticYoutube
         fullSongGate.close()
         fullSongJob?.cancel()
         fullSongJob = null
@@ -763,6 +793,8 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     return@launch
                 }
                 val resolved = analyzeMedia(link)
+                currentCoroutineContext().ensureActive()
+                if (generation != analysisGeneration) return@launch
                 val items = if (recoveryHistoryId == null) resolved else {
                     val exact = repository.missingRecoveryCandidate(recoveryHistoryId, resolved)
                     if (exact == null) {
@@ -776,6 +808,29 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                 if (items.any { it.providerId == "instagram" }) {
                     _instagramSessionRevision.value++
                 }
+                val automaticItem = if (automaticYoutube && recoveryHistoryId == null)
+                    YouTubeAutoSelection.singleVideo(link, items) else null
+                if (automaticItem != null) {
+                    try {
+                        currentCoroutineContext().ensureActive()
+                        ActiveDownloadService.start(getApplication())
+                        val queued = repository.enqueueAutomaticYouTube(automaticItem)
+                        currentCoroutineContext().ensureActive()
+                        if (generation != analysisGeneration) return@launch
+                        if (queued) deferredStore.complete(link, null)
+                        _preview.value = PreviewState()
+                        AppNotice.post(getApplication(), if (queued) "Видео добавлено в загрузки" else "Видео уже скачано или находится в очереди")
+                        onAutomaticFinished?.invoke()
+                        return@launch
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        AppLog.w("Download", "Automatic YouTube enqueue failed; manual selection retained", error)
+                        currentCoroutineContext().ensureActive()
+                        if (generation != analysisGeneration) return@launch
+                    }
+                }
+                automaticAnalysis = false
                 _preview.value = PreviewState(
                     analysis = AnalysisUiState.PREVIEW_READY,
                     url = link,
@@ -816,6 +871,8 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     recoveryIdentityFailure=failure!=null,
                     message = failure?.message ?: "Не удалось проверить ссылку. Попробуйте ещё раз.",
                 )
+            } finally {
+                if (generation == analysisGeneration) automaticAnalysis = false
             }
         }
     }
