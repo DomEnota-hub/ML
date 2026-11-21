@@ -1,0 +1,60 @@
+// EXPERIMENT ONLY. One configuration, one separate Test task/JVM per method.
+// Never used by qualification until exact A/B parity and timing are proven.
+import org.gradle.api.tasks.testing.Test
+import org.gradle.api.tasks.testing.junit.JUnitOptions
+import groovy.json.JsonSlurper
+
+gradle.projectsEvaluated {
+    def app = gradle.rootProject.project(':app')
+    def planPath = System.getenv('ML_CI_ISOLATION_PLAN')
+    if (!planPath) throw new GradleException('Missing isolation plan')
+    def plan = new JsonSlurper().parse(new File(planPath))
+    def original = app.tasks.named('testDebugUnitTest', Test).get()
+    if (!(original.options instanceof JUnitOptions)) throw new GradleException('Unexpected test framework')
+    if (original.filter.includePatterns || original.filter.excludePatterns) throw new GradleException('Unexpected original test filters')
+    // Preserve Android resources/config, runtime and compilation dependencies.
+    def prerequisites = original.taskDependencies.getDependencies(original)
+    def prior = null
+    plan.eachWithIndex { row, index ->
+        def name = String.format('mlCiIsolated%03d', index)
+        def earlier = prior
+        def probe = app.tasks.register(name, Test) { Test task ->
+            task.dependsOn(prerequisites)
+            task.testClassesDirs = original.testClassesDirs
+            task.classpath = original.classpath
+            original.copyTo(task)
+            task.javaLauncher.set(original.javaLauncher)
+            task.jvmArgumentProviders.addAll(original.jvmArgumentProviders)
+            task.useJUnit {
+                includeCategories original.options.includeCategories as String[]
+                excludeCategories original.options.excludeCategories as String[]
+            }
+            task.includes = original.includes
+            task.excludes = original.excludes
+            task.scanForTestClasses = original.scanForTestClasses
+            task.maxParallelForks = 1
+            task.forkEvery = 1
+            task.ignoreFailures = false
+            task.filter {
+                includeTestsMatching(row[0] + '.' + row[1])
+                failOnNoMatchingTests = true
+            }
+            task.binaryResultsDirectory.set(app.layout.buildDirectory.dir("ml-ci-batch/$name/binary"))
+            task.reports.junitXml.outputLocation.set(app.layout.buildDirectory.dir("ml-ci-batch/$name/xml"))
+            task.reports.junitXml.required.set(true)
+            task.reports.html.outputLocation.set(app.layout.buildDirectory.dir("ml-ci-batch/$name/html"))
+            if (earlier != null) task.mustRunAfter(earlier)
+            task.doFirst {
+                if (task.classpath.files != original.classpath.files ||
+                    task.testClassesDirs.files != original.testClassesDirs.files ||
+                    task.systemProperties != original.systemProperties ||
+                    task.allJvmArgs != original.allJvmArgs ||
+                    task.workingDir != original.workingDir ||
+                    task.environment != original.environment)
+                    throw new GradleException("Test task differs from AGP original: $name")
+                logger.lifecycle("ML_CI_BATCH_METHOD $name " + row.join('#'))
+            }
+        }
+        prior = probe
+    }
+}

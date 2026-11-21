@@ -58,11 +58,12 @@ class IsolationTest(unittest.TestCase):
 
 class RequestTest(unittest.TestCase):
     def test_quick_negative_probes_cannot_bypass_the_required_lane(self):
-        gate.validate_request('quick','none');gate.validate_request('qualify','none');gate.validate_request('perf','none')
+        gate.validate_request('quick','none');gate.validate_request('qualify','none');gate.validate_request('perf','none');gate.validate_request('audit','none')
         for fault in ['compile','lint','test']:
             gate.validate_request('qualify',fault)
             with self.assertRaises(ValueError):gate.validate_request('quick',fault)
             with self.assertRaises(ValueError):gate.validate_request('perf',fault)
+            with self.assertRaises(ValueError):gate.validate_request('audit',fault)
         with self.assertRaises(ValueError):gate.validate_request('unknown','none')
 
 class ReviewRegressions(unittest.TestCase):

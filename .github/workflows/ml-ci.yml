@@ -1,14 +1,14 @@
 name: MediaLoader exact-source CI
 on:
   pull_request:
-    branches: [feature/ml-17209-batch1-stability-ui-vault, feature/ml-17209-batch2-vault-private-qa, feature/ml-stage5-qa-selective-archive]
+    branches: [feature/ml-17209-batch1-stability-ui-vault, feature/ml-17209-batch2-vault-private-qa, feature/ml-stage5-qa-selective-archive, feature/ml-17211-simple-archive-replacement, ci/ml-17211-workflow-cleanup]
     types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
     inputs:
       mode:
         description: Quick feedback, full qualification or opt-in database performance measurements
         type: choice
-        options: [quick, qualify, perf]
+        options: [quick, qualify, perf, audit]
         default: qualify
       cache_epoch:
         description: Change to invalidate all lane caches (same epoch for cold/warm comparison)
@@ -24,13 +24,13 @@ concurrency:
   group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && github.event.label.name != 'ci:qualify' && github.run_id || 'active' }}
   cancel-in-progress: true
 env:
-  ML_MODE: ${{ inputs.mode || 'quick' }}
+  ML_MODE: ${{ inputs.mode || (contains(github.event.pull_request.labels.*.name, 'ci:audit') && 'audit') || 'quick' }}
   ML_CI_PROFILE: 'true'
   ML_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   ML_FAULT: ${{ inputs.fault || 'none' }}
 jobs:
   quick:
-    if: (github.event.action != 'labeled' || github.event.label.name == 'ci:qualify') && (github.base_ref != 'feature/ml-stage5-qa-selective-archive' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
+    if: (github.event.action != 'labeled' || contains(fromJSON('["ci:qualify","ci:audit"]'), github.event.label.name)) && (github.base_ref != 'feature/ml-stage5-qa-selective-archive' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (github.head_ref != 'ci/ml-17211-workflow-cleanup' || contains(github.event.pull_request.labels.*.name, 'ci:audit'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -45,7 +45,7 @@ jobs:
           bash scripts/ci/source-guards.sh
   jvm:
     needs: quick
-    if: inputs.fault != 'lint' && inputs.mode != 'perf'
+    if: inputs.fault != 'lint' && inputs.mode != 'perf' && inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -95,6 +95,30 @@ jobs:
             app/build/reports/tests/testDebugUnitTest/
           overwrite: true
           retention-days: 5
+  audit:
+    needs: quick
+    if: (inputs.mode == 'audit' || contains(github.event.pull_request.labels.*.name, 'ci:audit')) && !contains(github.event.pull_request.labels.*.name, 'ci:qualify') && (inputs.fault == 'none' || inputs.fault == '')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ML_EXPECTED_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/ml-ci-setup
+        with:
+          lane: jvm
+          epoch: ${{ inputs.cache_epoch || 'v1' }}
+      - name: Same-source isolation parity and benchmark A/B (no APK)
+        run: python3 scripts/ci/gate.py stage ci-audit python3 scripts/ci/isolation_audit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ml-ci-${{ github.run_id }}-audit-diagnostics
+          path: |
+            ci-output/
+            app/build/ml-ci-batch/
+          retention-days: 5
   perf:
     needs: quick
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'perf' && (inputs.fault == 'none' || inputs.fault == '')
@@ -122,7 +146,7 @@ jobs:
           retention-days: 5
   lint:
     needs: quick
-    if: (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
+    if: inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -159,7 +183,7 @@ jobs:
           retention-days: 5
   arm64:
     needs: quick
-    if: (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == '')
+    if: inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify')) && (inputs.fault == 'none' || inputs.fault == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -203,7 +227,7 @@ jobs:
           retention-days: 5
   qualification:
     needs: [quick, jvm, lint, arm64]
-    if: always() && !cancelled() && (github.event.action != 'labeled' || github.event.label.name == 'ci:qualify') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
+    if: always() && !cancelled() && inputs.mode != 'audit' && !contains(github.event.pull_request.labels.*.name, 'ci:audit') && (github.event.action != 'labeled' || github.event.label.name == 'ci:qualify') && (inputs.mode == 'qualify' || contains(github.event.pull_request.labels.*.name, 'ci:qualify'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
