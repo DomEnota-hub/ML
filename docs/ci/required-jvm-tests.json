@@ -4007,15 +4007,23 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.editor.VideoGesturePolicyTest#galleryPagingRequiresPausedUnlockedSynchronizedUnzoomedState": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.VideoGesturePolicyTest#gallerySeekAreaIsRestoredTo45Percent": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.VideoGesturePolicyTest#horizontalMovementSeeksFromEitherSide": {
     "skipped": false,
     "failed": false
   },
-  "com.domenota.medialoader.data.editor.VideoGesturePolicyTest#inlineGallerySeekAreaIsHalvedOnlyInPortrait": {
+  "com.domenota.medialoader.data.editor.VideoGesturePolicyTest#one vertical gesture can traverse the entire range": {
     "skipped": false,
     "failed": false
   },
-  "com.domenota.medialoader.data.editor.VideoGesturePolicyTest#one vertical gesture can traverse the entire range": {
+  "com.domenota.medialoader.data.editor.VideoGesturePolicyTest#playbackIntentKeepsGestureOwnershipDuringBuffering": {
     "skipped": false,
     "failed": false
   },
@@ -4244,6 +4252,14 @@
     "failed": false
   },
   "com.domenota.medialoader.data.editor.VideoReversePlanTest#tinyTerminalRemainderMergesIntoPreviousSegment": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.VideoScrubPolicyTest#equalDistanceProducesEqualSignedDeltaAndReversal": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.VideoScrubPolicyTest#invalidGeometryAndNonfiniteDistanceDoNotSeek": {
     "skipped": false,
     "failed": false
   },

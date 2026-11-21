@@ -4,9 +4,23 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class VideoGesturePolicyTest {
-    @Test fun inlineGallerySeekAreaIsHalvedOnlyInPortrait() {
-        assertEquals(.225f, VideoGesturePolicy.inlineGallerySeekFraction(true), .0001f)
-        assertEquals(.45f, VideoGesturePolicy.inlineGallerySeekFraction(false), .0001f)
+    @Test fun gallerySeekAreaIsRestoredTo45Percent() {
+        assertEquals(.45f, VideoGesturePolicy.inlineGallerySeekFraction(), .0001f)
+    }
+
+    @Test fun playbackIntentKeepsGestureOwnershipDuringBuffering() {
+        assertEquals(true, VideoGesturePolicy.playbackOwnsGestures(true, true, false))
+        assertEquals(false, VideoGesturePolicy.playbackOwnsGestures(false, true, false))
+        assertEquals(false, VideoGesturePolicy.playbackOwnsGestures(true, false, false))
+        assertEquals(false, VideoGesturePolicy.playbackOwnsGestures(true, true, true))
+    }
+
+    @Test fun galleryPagingRequiresPausedUnlockedSynchronizedUnzoomedState() {
+        assertEquals(true, VideoGesturePolicy.galleryCanPage(true, false, false, false))
+        assertEquals(false, VideoGesturePolicy.galleryCanPage(true, false, false, true))
+        assertEquals(false, VideoGesturePolicy.galleryCanPage(true, false, true, false))
+        assertEquals(false, VideoGesturePolicy.galleryCanPage(true, true, false, false))
+        assertEquals(false, VideoGesturePolicy.galleryCanPage(false, false, false, false))
     }
 
     @Test

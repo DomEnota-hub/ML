@@ -37,6 +37,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -84,18 +88,18 @@ internal fun GalleryVideoChrome(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Rounded.SkipPrevious,
+                    OutlinedVideoControlIcon(Icons.Rounded.SkipPrevious,
                         contentDescription = if (hasPrevious) "К началу или предыдущему видео" else "К началу видео",
-                        tint = Color.White, modifier = Modifier.size(30.dp))
+                        modifier = Modifier.size(30.dp))
                 }
                 IconButton(onClick = onPlayPause, modifier = Modifier.size(64.dp)) {
-                    Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    OutlinedVideoControlIcon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = if (playing) "Пауза" else "Воспроизвести",
-                        tint = Color.White, modifier = Modifier.size(43.dp))
+                        modifier = Modifier.size(43.dp))
                 }
                 IconButton(onClick = onNext, enabled = hasNext, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Rounded.SkipNext, contentDescription = "Следующее видео",
-                        tint = Color.White.copy(alpha = if (hasNext) 1f else .35f),
+                    OutlinedVideoControlIcon(Icons.Rounded.SkipNext, contentDescription = "Следующее видео",
+                        opacity = if (hasNext) 1f else .35f,
                         modifier = Modifier.size(30.dp))
                 }
             }
@@ -205,6 +209,34 @@ internal fun GalleryVideoChrome(
                 }
             }
         }
+    }
+}
+
+/** A thin contour around the existing glyph, not a disc or a new touch target. */
+@Composable
+internal fun OutlinedVideoControlIcon(
+    imageVector: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    opacity: Float = 1f,
+) {
+    val painter = rememberVectorPainter(imageVector)
+    Canvas(modifier.semantics { this.contentDescription = contentDescription }) {
+        val glyphSize = size
+        val radius = .6.dp.toPx()
+        val diagonal = radius * .70710678f
+        val outline = ColorFilter.tint(Color.Black)
+        val white = ColorFilter.tint(Color.White)
+        // Paint underneath at eight sub-pixel offsets, then restore the original white shape.
+        for (offset in listOf(Offset(radius, 0f), Offset(-radius, 0f),
+            Offset(0f, radius), Offset(0f, -radius),
+            Offset(diagonal, diagonal), Offset(-diagonal, diagonal),
+            Offset(diagonal, -diagonal), Offset(-diagonal, -diagonal))) {
+            translate(offset.x, offset.y) {
+                with(painter) { draw(size = glyphSize, alpha = opacity, colorFilter = outline) }
+            }
+        }
+        with(painter) { draw(size = glyphSize, alpha = opacity, colorFilter = white) }
     }
 }
 

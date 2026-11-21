@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioManager
@@ -112,7 +111,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
@@ -146,6 +144,7 @@ import com.domenota.medialoader.data.search.FullSongSource
 import com.domenota.medialoader.core.recognition.MusicRecognitionResult
 import com.domenota.medialoader.ui.components.FullSongSearchDialog
 import com.domenota.medialoader.ui.screens.gallery.GalleryVideoChrome
+import com.domenota.medialoader.ui.screens.gallery.OutlinedVideoControlIcon
 import com.domenota.medialoader.data.editor.VideoScrubPolicy
 import com.domenota.medialoader.data.editor.VideoGestureMode
 import com.domenota.medialoader.data.editor.VideoGesturePolicy
@@ -376,6 +375,7 @@ internal fun LocalVideoPlayer(
     floatingWindowRequest: Int = 0,
     galleryCommand: Pair<Int, String>? = null,
     onAudioTrackCountChanged: (Int) -> Unit = {},
+    onPlaybackGestureOwnershipChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val gestureThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
@@ -467,6 +467,21 @@ internal fun LocalVideoPlayer(
             playWhenReady = autoplayOnNavigation
             prepare()
         }
+    }
+    fun playbackOwnsGestures(): Boolean = VideoGesturePolicy.playbackOwnsGestures(
+        player.playWhenReady,
+        player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING,
+        player.playerError != null,
+    )
+    var playbackGestureActive by remember(player) { mutableStateOf(playbackOwnsGestures()) }
+    val notifyGestureOwnership by rememberUpdatedState(onPlaybackGestureOwnershipChanged)
+    fun publishGestureOwnership() {
+        val owns = playbackOwnsGestures()
+        playbackGestureActive = owns
+        notifyGestureOwnership(owns)
+    }
+    LaunchedEffect(player, playbackGestureActive) {
+        if (!playbackGestureActive) scrubPositionMs = null
     }
     val playerSession = remember(player) { Integer.toHexString(System.identityHashCode(player)) }
     DisposableEffect(player) {
@@ -568,6 +583,7 @@ internal fun LocalVideoPlayer(
         }
         updateAudioTracks(player.currentTracks)
         val listener = object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) { publishGestureOwnership() }
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { updateAudioTracks(tracks) }
             override fun onRenderedFirstFrame() {
                 renderedFirstFrame = true
@@ -635,6 +651,7 @@ internal fun LocalVideoPlayer(
             }
         }
         player.addListener(listener)
+        publishGestureOwnership()
 
         fun savePosition() {
             val duration = player.duration
@@ -680,6 +697,7 @@ internal fun LocalVideoPlayer(
             savePosition()
             lifecycleOwner.lifecycle.removeObserver(observer)
             player.removeListener(listener)
+            notifyGestureOwnership(false)
             player.release()
         }
     }
@@ -941,9 +959,9 @@ internal fun LocalVideoPlayer(
                         }
                     }
                 }
-                .pointerInput(player, playableDurationMs, activity, audioManager, gestureThresholdPx, videoViewportSize, galleryPagingEnabled, fullscreen) {
-                    // Inline gallery horizontal swipes change files. Fullscreen retains player gestures.
-                    if (galleryPagingEnabled && !fullscreen) {
+                .pointerInput(player, playableDurationMs, activity, audioManager, gestureThresholdPx, videoViewportSize, galleryPagingEnabled, fullscreen, playbackGestureActive) {
+                    // Gallery horizontal gestures use a separate playback-gated overlay in either orientation.
+                    if (galleryPagingEnabled) {
                         var mode = VideoGestureMode.NONE
                         var distance = 0f
                         var levelAtStart = 0f
@@ -986,7 +1004,6 @@ internal fun LocalVideoPlayer(
                     var gestureMode = VideoGestureMode.NONE
                     var startX = 0f
                     var startY = 0f
-                    var startPosition = 0L
                     var horizontalDistance = 0f
                     var verticalDistance = 0f
                     var totalX = 0f
@@ -1006,18 +1023,17 @@ internal fun LocalVideoPlayer(
                             // If holding already enabled ×2, any subsequent movement
                             // stays inside the hold gesture. No scrub/brightness/volume.
                             if (!holdSpeed.active) {
-                            totalX += dragAmount.x
+                            totalX = change.position.x - startX
                             totalY += dragAmount.y
                             if (gestureMode == VideoGestureMode.NONE) {
                                 gestureMode = VideoGesturePolicy.intentionalMode(startX,
                                     totalX, totalY, size.width.toFloat(), gestureThresholdPx, startY, videoViewportSize.height.toFloat())
                                 when (gestureMode) {
                                     VideoGestureMode.SEEK -> {
-                                        if (playableDurationMs > 0L) {
+                                        if (playbackOwnsGestures() && playableDurationMs > 0L) {
                                             chromeVisible = true
-                                            startPosition = player.currentPosition.coerceAtLeast(0L)
                                             centerHiddenAfterSeek = true
-                                            scrubPositionMs = startPosition
+                                            scrubPositionMs = player.currentPosition.coerceAtLeast(0L)
                                             horizontalDistance = totalX
                                             if (!galleryPagingEnabled) playerView?.showController()
                                         }
@@ -1041,9 +1057,9 @@ internal fun LocalVideoPlayer(
                                 }
                             }
                             when (gestureMode) {
-                                VideoGestureMode.SEEK -> if (playableDurationMs > 0L) {
+                                VideoGestureMode.SEEK -> if (playbackOwnsGestures() && scrubPositionMs != null && playableDurationMs > 0L) {
                                     horizontalDistance = totalX
-                                    val target = VideoScrubPolicy.target(startPosition,
+                                    val target = VideoScrubPolicy.target(player.currentPosition,
                                         horizontalDistance, size.width, playableDurationMs)
                                     scrubPositionMs = target
                                     if (!galleryPagingEnabled) playerView?.showController()
@@ -1075,8 +1091,8 @@ internal fun LocalVideoPlayer(
                             }
                         },
                         onDragEnd = {
-                            if (gestureMode == VideoGestureMode.SEEK) {
-                                scrubPositionMs?.let(player::seekTo)
+                            if (gestureMode == VideoGestureMode.SEEK && scrubPositionMs != null && playbackOwnsGestures()) {
+                                player.seekTo(VideoScrubPolicy.target(player.currentPosition, horizontalDistance, size.width, playableDurationMs))
                             }
                             scrubPositionMs = null
                             adjustmentActive = false
@@ -1093,6 +1109,7 @@ internal fun LocalVideoPlayer(
                         onDoubleTap = { tap ->
                             when {
                                 controlsLocked -> unlockVisible = VideoLockVisibility.afterCanvasTap(unlockVisible)
+                                !playbackOwnsGestures() -> toggleChrome()
                                 tap.x < size.width * .42f -> seekBy(-10_000L)
                                 tap.x > size.width * .58f -> seekBy(10_000L)
                                 else -> toggleChrome()
@@ -1103,25 +1120,21 @@ internal fun LocalVideoPlayer(
                         onHoldEnd = { endHoldSpeed() },
                     )
                 }) {
-                // Inline Gallery reserves the upper region, including the centre,
-                // for ordinary paging. Portrait keeps only the bottom 22.5% for seeking;
-                // landscape retains the original bottom 45%.
-                // Parent vertical edge gestures and tap/hold still work normally.
-                if (galleryPagingEnabled && !fullscreen) Box(
+                // While paused this surface does not exist: the pager owns horizontal gestures.
+                // During playback the lower 45% seeks, across both orientations and fullscreen.
+                if (galleryPagingEnabled && playbackGestureActive) Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(
-                        VideoGesturePolicy.inlineGallerySeekFraction(LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT))
-                        .pointerInput(player, playableDurationMs) {
-                            var startPosition = 0L
+                        VideoGesturePolicy.inlineGallerySeekFraction())
+                        .pointerInput(player, playableDurationMs, playbackGestureActive) {
                             var distanceX = 0f
                             var seeking = false
                             detectHorizontalDragGestures(
                                 onDragStart = {
-                                    seeking = !holdSpeed.active && playableDurationMs > 0L
+                                    seeking = playbackOwnsGestures() && !holdSpeed.active && playableDurationMs > 0L
                                     distanceX = 0f
                                     if (seeking) {
-                                        startPosition = player.currentPosition.coerceAtLeast(0L)
                                         centerHiddenAfterSeek = true
-                                            scrubPositionMs = startPosition
+                                        scrubPositionMs = player.currentPosition.coerceAtLeast(0L)
                                         chromeVisible = true
                                     }
                                 },
@@ -1130,16 +1143,19 @@ internal fun LocalVideoPlayer(
                                         // A long hold owns the drag even in Gallery:
                                         // do not let the surrounding pager change files.
                                         change.consume()
-                                    } else if (seeking) {
-                                        distanceX += amount
+                                    } else if (seeking && playbackOwnsGestures()) {
+                                        distanceX = change.position.x - gestureOrigin.x
                                         scrubPositionMs = VideoScrubPolicy.target(
-                                            startPosition,distanceX,size.width,playableDurationMs)
+                                            player.currentPosition, distanceX, size.width, playableDurationMs)
                                         change.consume()
                                     }
                                 },
                                 onDragEnd = {
-                                    if (seeking && !holdSpeed.active)
-                                        scrubPositionMs?.let(player::seekTo)
+                                    if (seeking && !holdSpeed.active && playbackOwnsGestures()) {
+                                        val target = VideoScrubPolicy.target(player.currentPosition, distanceX, size.width, playableDurationMs)
+                                        player.seekTo(target)
+                                        galleryDisplayedPositionMs = target
+                                    }
                                     seeking = false
                                     scrubPositionMs = null
                                 },
@@ -1184,10 +1200,9 @@ internal fun LocalVideoPlayer(
                     (nativePreviousCenter!!.y - previousButtonHalfPx).toInt(),
                 ) }.size(48.dp),
         ) {
-            Icon(Icons.Rounded.SkipPrevious,
+            OutlinedVideoControlIcon(Icons.Rounded.SkipPrevious,
                 contentDescription = if (onPreviousVideo == null) "К началу видео"
                     else "К началу или предыдущему видео",
-                tint = androidx.compose.ui.graphics.Color.White,
                 modifier = Modifier.size(30.dp))
         }
         val nextControlCenter = nativeNextCenter ?: nativePlayCenter?.let {
@@ -1202,14 +1217,13 @@ internal fun LocalVideoPlayer(
                     (nextControlCenter.y - previousButtonHalfPx).toInt(),
                 ) }.size(48.dp),
         ) {
-            Icon(Icons.Rounded.SkipNext, contentDescription = "Следующее видео",
-                tint = androidx.compose.ui.graphics.Color.White.copy(
-                    alpha = if (onNextVideo != null) 1f else .4f),
+            OutlinedVideoControlIcon(Icons.Rounded.SkipNext, contentDescription = "Следующее видео",
+                opacity = if (onNextVideo != null) 1f else .4f,
                 modifier = Modifier.size(30.dp))
         }
         if (!galleryPagingEnabled && !controlsLocked && chromeVisible && !centerHiddenAfterSeek && scrubPositionMs == null) IconButton(
             onClick = {
-                if (isPlaying) {
+                if (playbackOwnsGestures()) {
                     player.pause()
                 } else {
                     if (VideoPlayerUiPolicy.shouldRestartFromBeginning(playbackEnded)) {
@@ -1224,9 +1238,8 @@ internal fun LocalVideoPlayer(
                     (nativePlayCenter!!.y - playButtonHalfPx).toInt()) }.size(64.dp)
             else Modifier.align(Alignment.Center).size(64.dp),
         ) {
-            Icon(if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = if (isPlaying) "Пауза" else "Воспроизвести",
-                tint = androidx.compose.ui.graphics.Color.White,
+            OutlinedVideoControlIcon(if (playbackGestureActive) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = if (playbackGestureActive) "Пауза" else "Воспроизвести",
                 modifier = Modifier.size(36.dp))
         }
         if (!controlsLocked) scrubPositionMs?.let { position ->
@@ -1312,14 +1325,14 @@ internal fun LocalVideoPlayer(
                 visible = chromeVisible,
                 locked = controlsLocked,
                 unlockVisible = unlockVisible,
-                playing = isPlaying,
+                playing = playbackGestureActive,
                 positionMs = scrubPositionMs ?: galleryDisplayedPositionMs,
                 centerControlsVisible = !centerHiddenAfterSeek && scrubPositionMs == null,
                 durationMs = playableDurationMs,
                 hasPrevious = onPreviousVideo != null,
                 hasNext = onNextVideo != null,
                 onPlayPause = {
-                    if (isPlaying) player.pause() else {
+                    if (playbackOwnsGestures()) player.pause() else {
                         if (VideoPlayerUiPolicy.shouldRestartFromBeginning(playbackEnded)) {
                             player.seekTo(0L)
                             playbackEnded = false

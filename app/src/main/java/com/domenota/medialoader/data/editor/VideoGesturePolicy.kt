@@ -5,7 +5,14 @@ import kotlin.math.abs
 internal enum class VideoGestureMode { NONE, SEEK, BRIGHTNESS, VOLUME }
 
 internal object VideoGesturePolicy {
-    fun inlineGallerySeekFraction(portrait: Boolean): Float = if (portrait) .225f else .45f
+    fun inlineGallerySeekFraction(): Float = .45f
+
+    /** Buffering preserves play intent. Pause, idle, end, and failure release paging. */
+    fun playbackOwnsGestures(playWhenReady: Boolean, readyOrBuffering: Boolean, failed: Boolean): Boolean =
+        playWhenReady && readyOrBuffering && !failed
+
+    fun galleryCanPage(synchronized: Boolean, zoomed: Boolean, locked: Boolean, playbackOwnsGestures: Boolean): Boolean =
+        synchronized && !zoomed && !locked && !playbackOwnsGestures
 
     fun intentionalMode(startX: Float, totalX: Float, totalY: Float, width: Float,
         thresholdPx: Float, startY: Float = 1f, height: Float = 1f): VideoGestureMode {

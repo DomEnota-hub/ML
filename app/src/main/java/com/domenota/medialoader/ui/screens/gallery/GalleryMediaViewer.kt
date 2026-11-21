@@ -46,6 +46,7 @@ import com.domenota.medialoader.ui.components.NoticeDialog as Dialog
 import com.domenota.medialoader.core.database.*
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.ui.screens.LocalVideoPlayer
+import com.domenota.medialoader.data.editor.VideoGesturePolicy
 import com.domenota.medialoader.ui.screens.VideoPlayerUiPolicy
 import com.domenota.medialoader.ui.screens.ZoomablePhoto
 import com.domenota.medialoader.ui.screens.applyFullscreen
@@ -110,6 +111,10 @@ internal fun GalleryMediaViewer(
     // Keep fullscreen when navigating episodes through the player arrows.
     var fullscreen by rememberSaveable { mutableStateOf(false) }
     var locked by rememberSaveable(current.id) { mutableStateOf(false) }
+    var playbackOwner by remember { mutableStateOf<Pair<String, String?>?>(null) }
+    // Playback ownership is tied to the settled source rather than a tentative pager index.
+    val settledSource = queue.getOrNull(pager.settledPage)?.let { it.id to it.savedUri }
+    val playbackOwnsPager = playbackOwner != null && playbackOwner == settledSource
     var landscape by rememberSaveable(current.id) { mutableStateOf(false) }
     var audioTrackCount by remember(current.id, current.savedUri) { mutableIntStateOf(0) }
     var menu by remember(current.id) { mutableStateOf(false) }
@@ -158,6 +163,7 @@ internal fun GalleryMediaViewer(
     LaunchedEffect(ids, synchronizedQueue, pager.settledPage, pager.isScrollInProgress) {
         if (synchronizedQueue && !pager.isScrollInProgress) queue.getOrNull(pager.settledPage)?.let {
             if (episodeNavigation?.first != it.id) episodeNavigation = null
+            if (it.mediaType != MediaType.VIDEO) fullscreen = false
             currentId = it.id; zoomed = false; onCurrentItemChanged(it)
         }
     }
@@ -256,7 +262,7 @@ internal fun GalleryMediaViewer(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
             // Pager may ask its previous key provider for one new index during a size update.
             HorizontalPager(state = pager, key = { page -> queue.getOrNull(page)?.id ?: "pending-gallery-page:$page" }, beyondViewportPageCount = 1,
-                userScrollEnabled = synchronizedQueue && !zoomed && !fullscreen && !locked,
+                userScrollEnabled = VideoGesturePolicy.galleryCanPage(synchronizedQueue, zoomed, locked, playbackOwnsPager),
                 modifier = Modifier.fillMaxSize()) { page ->
                 // Keep the pager measured so scrollToPage can synchronize, but
                 // never construct a player from its old numeric index.
@@ -293,6 +299,12 @@ internal fun GalleryMediaViewer(
                         floatingWindowRequest = if (page == pager.currentPage) floatingRequest else 0,
                         galleryCommand = if (page == pager.currentPage) playerCommand else null,
                         onAudioTrackCountChanged = { count -> if (row.id == current.id) audioTrackCount = count },
+                        onPlaybackGestureOwnershipChanged = { owns ->
+                            val source = row.id to row.savedUri
+                            if (owns && queue.getOrNull(pager.settledPage)?.let { it.id to it.savedUri } == source) {
+                                playbackOwner = source
+                            } else if (!owns && playbackOwner == source) playbackOwner = null
+                        },
                     )
                 } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (poster != null) VideoViewerPoster(poster, Modifier.fillMaxSize())
