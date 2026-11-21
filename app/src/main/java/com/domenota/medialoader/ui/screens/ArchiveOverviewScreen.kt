@@ -149,7 +149,7 @@ internal fun ArchiveOverviewScreen(
                                     ?: "Папка из журнала")
                                 val status=when {
                                     item.needsReview -> "Требуется проверка журнала"
-                                    item.restored -> "Восстановлено и проверено"
+                                    item.restored -> "По журналу: восстановлено ранее (проверьте Android)"
                                     item.hidden==item.total -> "Скрыто и проверено: ${item.hidden}"
                                     else -> "Незавершённая операция: ${item.hidden} из ${item.total}"
                                 }
