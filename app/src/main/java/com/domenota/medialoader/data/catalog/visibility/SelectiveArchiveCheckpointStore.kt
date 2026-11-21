@@ -2,6 +2,10 @@ package com.domenota.medialoader.data.catalog.visibility
 
 import java.io.File
 import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -22,7 +26,7 @@ internal data class SelectiveArchiveCheckpoint(
     }
 }
 
-internal class SelectiveArchiveCheckpointStore(directory: File) {
+internal class SelectiveArchiveCheckpointStore(private val directory: File) {
     // The proven existing journal provides durable CAS, sha256 integrity and
     // NOFOLLOW_LINKS. Keep Archive separate from the retired visibility journal.
     private val store = VisibilityBindingProofStore(directory)
@@ -39,6 +43,43 @@ internal class SelectiveArchiveCheckpointStore(directory: File) {
         val decoded=decode(raw)
         check(decoded.folderId==folderId) { "Неверная привязка контрольной точки" }
         return decoded
+    }
+
+    /** Enumerate every durable archive checkpoint, including folders removed
+     * from the current catalog. Never infer privacy solely from current UI
+     * assignments. An unexpected binding makes the entire scan UNKNOWN. */
+    suspend fun listAll(): List<SelectiveArchiveCheckpoint> = withContext(Dispatchers.IO) {
+        val root=directory.toPath()
+        if(Files.notExists(root,NOFOLLOW_LINKS))return@withContext emptyList()
+        check(Files.isDirectory(root,NOFOLLOW_LINKS) && !Files.isSymbolicLink(root)) {
+            "Хранилище Архива требует проверки"
+        }
+        val ids=mutableListOf<String>()
+        Files.newDirectoryStream(root).use { entries ->
+            for(entry in entries) {
+                val name=entry.fileName.toString()
+                // A staged temp proof is never a committed archive intent.
+                if(name.startsWith(".bindings-") && name.endsWith(".tmp"))continue
+                check(Files.isRegularFile(entry,NOFOLLOW_LINKS) && !Files.isSymbolicLink(entry) &&
+                    name.matches(Regex("selective-[0-9a-f]{64}\\.binding"))) {
+                    "Неизвестная запись в журнале Архива"
+                }
+                ids+=name.removeSuffix(".binding")
+                check(ids.size<=4096) { "Журнал Архива превышает допустимый объём" }
+            }
+        }
+        val checkpoints=ids.sorted().map { id ->
+            val raw=checkNotNull(store.read(id)) { "Запись Архива исчезла при чтении" }
+            decode(raw).also { checkpoint ->
+                check(key(checkpoint.folderId)==id) {
+                    "Идентификатор журнала Архива не подтверждён"
+                }
+            }
+        }
+        check(checkpoints.map { it.folderId }.distinct().size==checkpoints.size) {
+            "Повтор каталога в журнале Архива"
+        }
+        checkpoints
     }
 
     /** A durable source snapshot is recorded BEFORE future file mutations.
