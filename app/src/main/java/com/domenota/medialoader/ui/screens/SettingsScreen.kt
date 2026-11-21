@@ -76,6 +76,7 @@ import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import com.domenota.medialoader.data.preferences.VideoPreferences
+import com.domenota.medialoader.core.model.VideoQualityDirection
 import com.domenota.medialoader.data.preferences.VideoThumbnailMode
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.Groups
@@ -309,6 +310,7 @@ fun SettingsScreen(
     val videoPreferences = remember(context) { VideoPreferences(context) }
     var thumbnailMode by remember { mutableStateOf(videoPreferences.thumbnailMode) }
     var preferredHeight by remember { mutableStateOf(videoPreferences.preferredHeight) }
+    var qualityDirection by remember { mutableStateOf(videoPreferences.qualityDirection) }
     var qualityExpanded by rememberSaveable { mutableStateOf(false) }
     var videoThumbnailDialog by remember { mutableStateOf(false) }
     var aiModelsDialog by remember { mutableStateOf(false) }
@@ -733,12 +735,12 @@ fun SettingsScreen(
 
     if (instagramModeDialog) AlertDialog(
         onDismissRequest = { instagramModeDialog = false },
-        title = { Text("Режим загрузки Instagram") },
+        title = { Text("Режим загрузки") },
         text = {
             Column {
                 listOf(
-                    false to ("Ручной" to "Открывать окно выбора фото, видео и музыки"),
-                    true to ("Автоматический" to "При передаче ссылки через «Поделиться» сохранять все фото и видео без окна выбора; музыку не извлекать"),
+                    false to ("Ручной" to "Instagram и YouTube: открывать окно выбора перед загрузкой"),
+                    true to ("Автоматический" to "Instagram: через «Поделиться» сохранять фото и видео без извлечения музыки. YouTube: при отправке ссылки загружать видео в приоритетном качестве."),
                 ).forEach { (automatic, descriptions) ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
@@ -1016,7 +1018,8 @@ fun SettingsScreen(
                     folderName = downloadFolder.substringAfter("Pictures/", "MediaLoader")
                     folderDialog = true
                 })
-            SettingRow(Icons.Rounded.HighQuality, "Приоритетное качество", VideoPreferences.qualityLabel(preferredHeight),
+            SettingRow(Icons.Rounded.HighQuality, "Приоритетное качество", VideoPreferences.qualityLabel(preferredHeight) +
+                (if (preferredHeight != null) " · ${qualityDirection.label}" else ""),
                 grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
                 onClick = { qualityExpanded = !qualityExpanded },
                 trailing = { Icon(if (qualityExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
@@ -1024,9 +1027,29 @@ fun SettingsScreen(
             if (qualityExpanded) {
                 Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())
                     .padding(start = 48.dp, end = 16.dp, bottom = 12.dp)) {
-                    Text("YouTube, VK и Rutube. Если выбранного качества нет — ближайшее ниже, иначе минимальное доступное.",
+                    Text("YouTube, VK и Rutube. Точное качество имеет приоритет.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("При отсутствии выбранного качества", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        VideoQualityDirection.entries.forEach { direction ->
+                            val chooseDirection = {
+                                videoPreferences.qualityDirection = direction
+                                qualityDirection = direction
+                            }
+                            Row(Modifier.weight(1f).clickable(enabled = preferredHeight != null, onClick = chooseDirection),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = qualityDirection == direction, enabled = preferredHeight != null,
+                                    onClick = chooseDirection)
+                                Text(direction.label, color = if (preferredHeight != null) MaterialTheme.colorScheme.onSurface
+                                    else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    Text(if (preferredHeight == null) "Максимальное качество не зависит от направления."
+                        else "Если вариантов в выбранном направлении нет — ближайшее с другой стороны.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     VideoPreferences.QUALITY_OPTIONS.forEach { height ->
                         val choose = {
                             videoPreferences.preferredHeight = height
@@ -1058,8 +1081,8 @@ fun SettingsScreen(
                         }
                     }) })
             GroupDivider()
-            SettingRow(Icons.Rounded.SwapHoriz, "Режим загрузки Instagram",
-                if (automaticInstagram) "Автоматический" else "Ручной",
+            SettingRow(Icons.Rounded.SwapHoriz, "Режим загрузки",
+                "Instagram и YouTube · " + if (automaticInstagram) "Автоматический" else "Ручной",
                 grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
                 onClick = { instagramModeDialog = true })
             GroupDivider()

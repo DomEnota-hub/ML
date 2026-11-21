@@ -18,6 +18,19 @@ class PreferredVideoQualityTest {
             assertEquals("2160p60", chosen(items, null).single().qualityLabel)
         }
     }
+    @Test fun higherDirectionUsesExactThenNearestHigherThenHighestLower() {
+        for (provider in listOf("youtube", "vk", "rutube")) {
+            val items = variants(provider)
+            fun selected(limit: Int?) = PreferredVideoQuality.apply(items, limit, VideoQualityDirection.HIGHER)
+                .single { it.preselected }.qualityLabel
+            assertEquals("720p60", selected(720))
+            assertEquals("720p60", selected(480))
+            assertEquals("2160p60", selected(4320))
+            assertEquals("2160p60", selected(null))
+        }
+        val unknown = variants().map { it.copy(qualityLabel = "Лучшее") }
+        assertEquals(unknown, PreferredVideoQuality.apply(unknown, 480, VideoQualityDirection.HIGHER))
+    }
     @Test fun separateVideosGetTheirOwnChoiceWhileInstagramAndAudioRemainUnchanged() {
         val instagram = variants("instagram").map { it.copy(id = it.id.replace("instagram", "youtube")) }
         val audio = MediaItem("audio", "youtube", MediaType.AUDIO, "a.mp3", "https://example.org/a", preselected = false)

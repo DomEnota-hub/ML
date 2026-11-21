@@ -1053,7 +1053,7 @@ class MediaRepository private constructor(context: Context) {
             } }.awaitAll().map { item ->
                 item.copy(sourcePageUrl = item.sourcePageUrl ?: if (item.providerId == VkProvider.ID) item.downloadUrl else url)
             }
-        }.let { PreferredVideoQuality.apply(it, videoPreferences.preferredHeight) }.also { results ->
+        }.let { PreferredVideoQuality.apply(it, videoPreferences.preferredHeight, videoPreferences.qualityDirection) }.also { results ->
             AppLog.verbose(
                 "Resolve",
                 "Completed · items=${results.size} · sources=${results.map { it.providerId }.distinct().joinToString(",")} · elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}",

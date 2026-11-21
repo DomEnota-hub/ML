@@ -8,7 +8,7 @@ import com.domenota.medialoader.core.model.MediaItem
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.core.provider.InstagramLinkParser
 
-/** Changes only Android's Share action; manual paste and other sources stay interactive. */
+/** Shared download mode, retaining the existing Instagram preference key and behavior. */
 object InstagramShareSettings {
     private const val PREFS = "ui"
     private const val KEY = "instagram_share_mode"

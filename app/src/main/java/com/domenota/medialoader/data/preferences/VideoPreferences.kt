@@ -1,6 +1,7 @@
 package com.domenota.medialoader.data.preferences
 
 import android.content.Context
+import com.domenota.medialoader.core.model.VideoQualityDirection
 
 enum class VideoThumbnailMode(val stored: String, val label: String) {
     SOURCE("source", "Обложка источника"), FRAME("frame", "Кадр из видео")
@@ -18,9 +19,14 @@ class VideoPreferences(context: Context) {
             prefs.edit().putInt(QUALITY_KEY, value ?: 0).apply()
         }
 
+    var qualityDirection: VideoQualityDirection
+        get() = VideoQualityDirection.fromStored(prefs.getString(QUALITY_DIRECTION_KEY, null))
+        set(value) { prefs.edit().putString(QUALITY_DIRECTION_KEY, value.stored).apply() }
+
     companion object {
         const val THUMBNAIL_KEY = "video_thumbnail_mode"
         const val QUALITY_KEY = "preferred_video_height"
+        const val QUALITY_DIRECTION_KEY = "preferred_video_direction"
         val QUALITY_OPTIONS: List<Int?> = listOf(null, 2160, 1440, 1080, 720, 480, 360, 240, 144)
         fun qualityLabel(height: Int?): String = height?.let { "${it}p" } ?: "Максимальное"
     }
