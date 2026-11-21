@@ -89,6 +89,12 @@ internal fun GalleryModeScreen(
     preparedBrowse: BackgroundLibraryValue<GalleryBrowseInventory>? = null,
     preparedBrowseAccess: Any? = null,
     onOpenDuplicates: (() -> Unit)? = null,
+    archiveRecovery:List<com.domenota.medialoader.data.catalog.visibility.SelectiveArchiveQaEntry> = emptyList(),
+    archiveBusy:Boolean=false,
+    archiveError:String?=null,
+    onArchiveRefresh:(()->Unit)?=null,
+    onArchivePreview:((String)->Unit)?=null,
+    onArchiveRestore:((String)->Unit)?=null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -326,10 +332,21 @@ internal fun GalleryModeScreen(
             }
         }
     }
+    val archiveCandidates=remember(folders,assignments) {
+        val counts=assignments.groupingBy { it.folderId }.eachCount()
+        folders.map { ArchiveQaFolder(it.id,it.name,counts[it.id] ?: 0) }
+            .filter { it.count>0 }
+    }
     if (archiveOpen) ArchiveOverviewScreen(
         knownHiddenFolders=hiddenFolderIds.size,
         onClose={ archiveOpen=false },
         onOpenFolders={ archiveOpen=false; selectTab(1) },
+        candidates=archiveCandidates,
+        recovery=archiveRecovery,
+        busy=archiveBusy,error=archiveError,
+        onRefresh=onArchiveRefresh,
+        onPreview=onArchivePreview,
+        onRestore=onArchiveRestore,
     ) else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (selecting) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
