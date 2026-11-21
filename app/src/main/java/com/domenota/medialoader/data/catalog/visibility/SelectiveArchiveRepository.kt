@@ -29,6 +29,25 @@ internal data class SelectiveArchiveBatchRestoreResult(
     }
 }
 
+/** A read-only, preliminary QA inventory. The real mover must inspect again. */
+internal data class SelectiveArchiveQaPreview(
+    val folderId:String,
+    val selectedCount:Int,
+    val physicalCount:Int,
+    val treeUri:String,
+) {
+    init { require(folderId.isNotBlank() && selectedCount in 1..12 && physicalCount>selectedCount) }
+}
+
+/** Durable recovery UI must not assume a hidden entry is safe to restore. */
+internal data class SelectiveArchiveQaEntry(
+    val folderId:String,
+    val total:Int,
+    val hidden:Int,
+    val needsReview:Boolean,
+    val restored:Boolean,
+)
+
 /**
  * Stage 3 selective archive backend. The caller supplies a user-selected
  * physical-folder plan. Never converts a virtual collection into a parent
@@ -89,6 +108,52 @@ internal class SelectiveArchiveRepository(
             verified
         }
 
+
+
+    /** QA-only read-only preflight. No system file is modified here. User sees
+     * the precise 6 of 806 difference BEFORE consenting to test copies.
+     * The full identity + references + provider verification happens again
+     * in hide() after user approval. */
+    suspend fun previewForQa(plan:NomediaAutoFolderPlan):SelectiveArchiveQaPreview =
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                check(FolderVisibilityStorageAccess.granted()) {
+                    "Для проверки нужен разрешённый Android доступ к файлам"
+                }
+                check(plan.expected.size in 1..12) {
+                    "Первый тестовый запуск допускает от 1 до 12 файлов"
+                }
+                check(refreshPrivacyLocked().verified) {
+                    "Журнал Архива требует проверки. Новые операции запрещены"
+                }
+                val actual=ManagedLocalNomediaPort().listMedia(plan.treeUri.toString())
+                    .map { NomediaMediaSignature(it.displayName,it.byteCount ?: -1L) }
+                val verdict=archiveInventoryVerdict(plan.expected,actual)
+                check(verdict is ArchiveInventoryVerdict.RequiresSelectiveArchive) {
+                    "Нет подтверждённой выборки из общей физической папки"
+                }
+                SelectiveArchiveQaPreview(plan.folderId,verdict.selected,
+                    verdict.physical,plan.treeUri.toString())
+            }
+        }
+
+    /** Recovery entries are read from the durable archive journal, not from
+     * the gallery's currently visible rows. Hidden rows can disappear from
+     * MediaStore's public typed collection and still need a Restore button. */
+    suspend fun qaRecoveryEntries():List<SelectiveArchiveQaEntry> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            check(refreshPrivacyLocked().verified) {
+                "Архив недоступен: журнал повреждён или контрольные точки не подтверждены"
+            }
+            checkpoints.listAll().map { cp ->
+                val phases=cp.originals.map { journal.read(cp.folderId,it.catalogId)?.phase }
+                SelectiveArchiveQaEntry(cp.folderId,cp.originals.size,
+                    phases.count { it==SelectiveArchiveMovePhase.HIDDEN_VERIFIED },
+                    phases.any { it==SelectiveArchiveMovePhase.NEEDS_REVIEW },
+                    phases.all { it==SelectiveArchiveMovePhase.RESTORED_VERIFIED })
+            }
+        }
+    }
 
     suspend fun hide(plan:NomediaAutoFolderPlan):List<SelectiveArchiveMoveReceipt> =
         mutex.withLock {
