@@ -134,9 +134,14 @@ class MediaOrganizationScreenTest {
             compose.runOnIdle { visible.value=false }
             compose.onNodeWithTag("collection-original-cover-image").assertDoesNotExist()
         } finally {
+            // The cached native Bitmap is shared with an active Compose frame.
+            // First revoke the frame on the UI thread and allow the recomposer
+            // to drain; otherwise Robolectric's native ViewRoot may dispose it
+            // from the worker during the next isolated Compose test.
+            compose.runOnIdle { visible.value=false }
+            compose.waitForIdle()
             CollectionCoverWarmBitmapCache.clear()
-            // Do not recycle an image while a Robolectric composition may
-            // still be disposing its native-backed ImageBitmap.
+            // Never recycle an image while a composition still owns it.
         }
     }
 
