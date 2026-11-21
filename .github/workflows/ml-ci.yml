@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Quick focused feedback or full qualification
+        description: Quick feedback, full qualification or opt-in database performance measurements
         type: choice
-        options: [quick, qualify]
+        options: [quick, qualify, perf]
         default: qualify
       cache_epoch:
         description: Change to invalidate all lane caches (same epoch for cold/warm comparison)
@@ -45,7 +45,7 @@ jobs:
           bash scripts/ci/source-guards.sh
   jvm:
     needs: quick
-    if: inputs.fault != 'lint'
+    if: inputs.fault != 'lint' && inputs.mode != 'perf'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -94,6 +94,31 @@ jobs:
             app/build/ml-jvm-shards/
             app/build/reports/tests/testDebugUnitTest/
           overwrite: true
+          retention-days: 5
+  perf:
+    needs: quick
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'perf' && (inputs.fault == 'none' || inputs.fault == '')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ML_EXPECTED_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/ml-ci-setup
+        with:
+          lane: jvm
+          epoch: ${{ inputs.cache_epoch || 'v1' }}
+      - name: Full database benchmark (no qualification or APK)
+        run: python3 scripts/ci/gate.py stage perf "$ML_GRADLE" :app:testDebugUnitTest -Parm64Release=true -PmlPerfBenchmarks=true --tests com.domenota.medialoader.data.storage.HistoricalReferenceQueryBenchmarkTest --console=plain --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ml-ci-${{ github.run_id }}-perf-diagnostics
+          path: |
+            ci-output/
+            build/reports/profile/
+            app/build/test-results/testDebugUnitTest/
           retention-days: 5
   lint:
     needs: quick

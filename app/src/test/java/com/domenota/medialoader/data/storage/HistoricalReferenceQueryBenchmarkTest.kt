@@ -29,6 +29,9 @@ import kotlin.math.ceil
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class HistoricalReferenceQueryBenchmarkTest {
+    // Exercise every workload/connection/logging combination in normal CI.
+    // Only repeated measurements of identical read-only queries are opt-in.
+    private val performanceRun = System.getProperty("ml.perfBenchmarks") == "true"
     private val rowCount = 512
     private data class Sample(val millis: Double, val gcCount: Long?, val gcMillis: Long?)
     private data class Gc(val count: Long?, val millis: Long?)
@@ -70,6 +73,10 @@ class HistoricalReferenceQueryBenchmarkTest {
     } catch (_: Exception) { Gc(null, null) }
 
     private suspend fun measure(block: suspend () -> Unit): Sample {
+        if (!performanceRun) {
+            block()
+            return Sample(0.0, null, null) // no timing or GC sampling in regression mode
+        }
         val before = gc()
         val start = System.nanoTime()
         block()
@@ -83,7 +90,7 @@ class HistoricalReferenceQueryBenchmarkTest {
     private suspend fun check(db: HistoryDatabase, kind: String, optimized: Boolean,
         targets: List<Pair<String, Set<String>>>) {
         var references = 0
-        for ((uri, aliases) in targets) repeat(7) {
+        for ((uri, aliases) in targets) repeat(if (performanceRun) 7 else 1) {
             val found = if (kind == "artwork") {
                 if (optimized) HistoricalReferenceQueries.hasArtwork(db, uri)
                 else !db.downloadDao().all().none {
@@ -133,7 +140,7 @@ class HistoricalReferenceQueryBenchmarkTest {
                         check(reused, kind, false, targets.take(1))
                         check(reused, kind, true, targets.take(1))
                     }
-                    repeat(3) { round ->
+                    repeat(if (performanceRun) 3 else 1) { round ->
                         val db = reused ?: database()
                         try {
                             val actualRows = db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM downloads")
@@ -145,7 +152,7 @@ class HistoricalReferenceQueryBenchmarkTest {
                             for (optimized in if (round % 2 == 0) listOf(false, true) else listOf(true, false)) {
                                 val sample = measure { check(db, kind, optimized, targets) }
                                 samples.getValue(optimized).add(sample)
-                                println("ML203_QUERY_BENCH_SAMPLE " + JSONObject()
+                                if (performanceRun) println("ML203_QUERY_BENCH_SAMPLE " + JSONObject()
                                     .put("kind", kind).put("sources", files).put("verifyCallsPerSource", 7)
                                     .put("connectionMode", mode).put("round", round)
                                     .put("path", if (optimized) "minimal_cursor" else "original_all_none")
@@ -159,7 +166,7 @@ class HistoricalReferenceQueryBenchmarkTest {
                             }
                         } finally { if (reused == null) db.close() }
                     }
-                    for (optimized in listOf(false, true)) emitSummary(kind, files, mode,
+                    if (performanceRun) for (optimized in listOf(false, true)) emitSummary(kind, files, mode,
                         if (optimized) "minimal_cursor" else "original_all_none", samples.getValue(optimized))
                 } finally { reused?.close() }
             }
@@ -183,13 +190,13 @@ class HistoricalReferenceQueryBenchmarkTest {
                     check(db,kind,true,targets.take(1))
                 }
                 val samples=mapOf(false to mutableListOf<Sample>(),true to mutableListOf<Sample>())
-                repeat(6) { round ->
+                repeat(if (performanceRun) 6 else 1) { round ->
                     for(enabled in if(round%2==0) listOf(false,true) else listOf(true,false)) {
                         AppLog.setDetailedPerformance(enabled)
                         samples.getValue(enabled).add(measure { check(db,kind,true,targets) })
                     }
                 }
-                for(enabled in listOf(false,true)) println("ML203_QUERY_DIAGNOSTICS "+JSONObject()
+                if (performanceRun) for(enabled in listOf(false,true)) println("ML203_QUERY_DIAGNOSTICS "+JSONObject()
                     .put("scope","query_layer_real_logger_enqueue_not_phone_fs_flush")
                     .put("appLogInitialized",true).put("alternatingOrder",true)
                     .put("enabled",enabled).put("kind",kind).put("sources",4)

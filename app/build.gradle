@@ -92,6 +92,10 @@ android {
     testOptions {
         unitTests.includeAndroidResources = true
         unitTests.all { testTask ->
+            // Explicit opt-in for measurements; ordinary runs still assert correctness.
+            def perfMode = project.findProperty('mlPerfBenchmarks')?.toString() ?: 'false'
+            if (!(perfMode in ['true', 'false'])) throw new GradleException('Invalid mlPerfBenchmarks')
+            testTask.systemProperty 'ml.perfBenchmarks', perfMode
             // GitHub shared CI can receive Maven Central 429 while Robolectric lazily
             // fetches Android framework jars. Use an independent Maven mirror in CI.
             // Local development keeps the established repository. Override explicitly

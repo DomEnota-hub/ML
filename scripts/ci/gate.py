@@ -91,7 +91,7 @@ def validate_candidate(candidate,manifest,sha):
         if z.comment.decode()!=sha or z.testzip() is not None:raise ValueError('Archive not exact source')
 
 def validate_request(mode,fault):
-    if mode not in {'quick','qualify'} or fault not in {'none','compile','lint','test'}:raise ValueError('Invalid CI request')
+    if mode not in {'quick','qualify','perf'} or fault not in {'none','compile','lint','test'}:raise ValueError('Invalid CI request')
     if fault!='none' and mode!='qualify':raise ValueError('Negative probes require mode=qualify')
 
 def validate_consumption(receipt,live_sha,run):
