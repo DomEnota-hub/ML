@@ -88,19 +88,20 @@ class MediaOrganizationScreenTest {
         compose.onNodeWithText("Выбрано: 0").assertIsDisplayed()
     }
     @Test fun automaticCoverRetainsItsLastAuthorizedFrameAfterLazyDisposal() {
-        // Verify the *real Compose display behavior*, but supply a deterministic
-        // decoded bitmap. Robolectric SDK34 does not implement the full native
-        // image decoder; depending on a real JPEG made this test race Compose
-        // disposal and fail with CalledFromWrongThread/SlotTable corruption.
+        // Keep the real Compose image/retention lifecycle under test but use
+        // a deterministic decoder on the UI dispatcher. The synthetic bitmap
+        // requires no IO; Robolectric's Compose test frame clock must not be
+        // advanced by a real background worker. Production still decodes on IO.
         val image=android.graphics.Bitmap.createBitmap(320,240,android.graphics.Bitmap.Config.ARGB_8888)
         val calls=java.util.concurrent.atomic.AtomicInteger()
+        val secondDecode=kotlinx.coroutines.CompletableDeferred<Unit>()
         val decoder=object:CollectionOriginalCoverDecoder {
             override suspend fun decode(
                 context:android.content.Context, uri:String,
                 kind:com.domenota.medialoader.ui.model.MediaKind,
                 previewUrl:String?, identity:String,
             ):android.graphics.Bitmap? {
-                calls.incrementAndGet()
+                if(calls.incrementAndGet()>1) secondDecode.await()
                 return image
             }
         }
@@ -111,7 +112,8 @@ class MediaOrganizationScreenTest {
         try {
             CollectionCoverWarmBitmapCache.clear()
             compose.setContent { MaterialTheme {
-                if(visible.value) CollectionOriginalCover(ref,decoder=decoder)
+                if(visible.value) CollectionOriginalCover(ref,decoder=decoder,
+                    decodeDispatcher=kotlinx.coroutines.Dispatchers.Main.immediate)
             } }
             compose.waitUntil(12_000) {
                 compose.onAllNodesWithTag("collection-original-cover-image").fetchSemanticsNodes().isNotEmpty()
@@ -129,8 +131,14 @@ class MediaOrganizationScreenTest {
             }
             compose.onNodeWithTag("collection-original-cover-image").assertDoesNotExist()
             compose.runOnIdle { visible.value=true }
+            compose.waitUntil(12_000) { calls.get()>=2 }
+            // The second decode is explicitly suspended. The displayed frame
+            // MUST come from the warm cache, not a faster replacement decode.
+            assertFalse("The second decode must still be suspended",secondDecode.isCompleted)
             compose.onNodeWithTag("collection-original-cover-image").assertIsDisplayed()
             compose.onNodeWithTag("collection-original-cover-placeholder").assertDoesNotExist()
+            compose.runOnIdle { secondDecode.complete(Unit) }
+            compose.waitForIdle()
             compose.runOnIdle { visible.value=false }
             compose.onNodeWithTag("collection-original-cover-image").assertDoesNotExist()
         } finally {
