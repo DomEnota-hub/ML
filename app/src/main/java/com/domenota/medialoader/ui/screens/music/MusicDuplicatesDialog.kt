@@ -27,6 +27,10 @@ import com.domenota.medialoader.ui.components.DuplicateJournalDialog
 import com.domenota.medialoader.ui.components.DuplicateJournalRow
 import com.domenota.medialoader.ui.model.MediaKind
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import android.os.SystemClock
+import com.domenota.medialoader.core.logging.AppLog
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.border
@@ -611,6 +615,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     }
     LaunchedEffect(identity){
         try {
+            val started=SystemClock.elapsedRealtime()
             if(!allowed(reference)||!allowed(target)){failed=true;return@LaunchedEffect}
             val cached=cache[identity]
             val verified=withContext(Dispatchers.IO){
@@ -619,13 +624,18 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                 val cacheSafe=reference.modified!=null&&target.modified!=null&&
                     beforeFirst.second!=null&&beforeSecond.second!=null
                 val value=cached?.takeIf{cacheSafe}?:run{
-                    val first=AcousticAudioDecoder.comparisonFrames(context,Uri.parse(reference.uri),step)
-                        ?:return@withContext null
-                    val second=AcousticAudioDecoder.comparisonFrames(context,Uri.parse(target.uri),step)
-                        ?:return@withContext null
+                    val (first,second)=coroutineScope {
+                        val left=async { MusicComparisonFrames.load(context,reference,beforeFirst,step) }
+                        val right=async { MusicComparisonFrames.load(context,target,beforeSecond,step) }
+                        left.await() to right.await()
+                    }
+                    if(first==null||second==null)return@withContext null
                     val aligned=withContext(Dispatchers.Default){
                         val job=kotlin.coroutines.coroutineContext
-                        AudioPairAlignment.align(first,second,step){job.ensureActive()}
+                        val started=SystemClock.elapsedRealtime()
+                        AudioPairAlignment.align(first,second,step){job.ensureActive()}.also {
+                            AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null}")
+                        }
                     }
                     PairAnalysis(first,second,aligned)
                 }
@@ -640,6 +650,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                 while(cache.size>3)cache.remove(cache.keys.first())
             }else cache.remove(identity)
             analysis=value
+            AppLog.i("MusicCompare","pair ready elapsedMs=${SystemClock.elapsedRealtime()-started} pairCache=${cached!=null&&cacheSafe}")
         }catch(e:CancellationException){throw e}
         catch(_:Exception){failed=true}
     }

@@ -51,6 +51,7 @@ internal object DuplicatePrivacyGuard {
             try { stream.write(state.generation.toString().toByteArray()); target.finishWrite(stream) }
             catch (error: Throwable) { target.failWrite(stream); throw error }
             // Invalidation removes only our reports/checkpoints; never user media or unrelated caches.
+            MusicComparisonFrames.clearForPrivacy(context)
             MusicDuplicateScanner.clearForPrivacy(context)
             MusicDuplicateSessionStore.clearForPrivacy(context)
             DuplicateBackgroundScan.invalidateForPrivacy()

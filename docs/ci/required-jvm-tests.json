@@ -4755,6 +4755,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.ComparisonFrameStoreTest#corruptOrTruncatedPayloadCannotBeUsed": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.ComparisonFrameStoreTest#identityIncludesSourceModificationHashEpochAndResolution": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.ComparisonFrameStoreTest#independentTrackSurvivesNewPairAndProcessRestart": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.ComparisonFrameStoreTest#privacyClearRemovesMemoryAndDiskAndDiskBudgetIsBounded": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.ComparisonFrameStoreTest#unknownOrStaleStampCannotProducePersistentKey": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.DuplicateMainThreadReadTest#epochSnapshotPreservesRevokedIdsAndAliases": {
     "skipped": false,
     "failed": false
