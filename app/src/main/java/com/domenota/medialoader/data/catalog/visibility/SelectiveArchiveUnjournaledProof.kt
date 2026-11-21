@@ -55,3 +55,18 @@ internal fun selectiveArchiveRecoveryCoverage(
             receipt.phase!=SelectiveArchiveMovePhase.NEEDS_REVIEW
     }
 }
+
+
+/** A rollback may claim success only after EVERY member is accounted for:
+ * restored by the exact journal OR independently proven never moved.
+ * Disjointness is mandatory; a member cannot be counted twice. */
+internal fun selectiveArchiveRollbackComplete(
+    originals:List<SelectiveArchiveIdentity>,
+    restoredIds:Set<String>,
+    untouchedIds:Set<String>,
+):Boolean {
+    val all=originals.map { it.catalogId }
+    return all.isNotEmpty() && all.distinct().size==all.size &&
+        restoredIds.intersect(untouchedIds).isEmpty() &&
+        restoredIds.union(untouchedIds)==all.toSet()
+}
