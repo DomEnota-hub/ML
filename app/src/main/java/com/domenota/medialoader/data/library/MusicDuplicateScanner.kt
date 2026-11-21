@@ -45,6 +45,15 @@ internal object MusicDuplicateScanner {
         } ?: error("Метаданные файла недоступны")
         check(values.size > 0); return values
     }
+    /** Recheck the source of a read-only comparison before and after decoding.
+     * Unknown modification times cannot authorize reuse of comparison results. */
+    internal fun comparisonStamp(context:Context,track:DuplicateTrack):Pair<Long,Long?>? {
+        if (!DuplicatePrivacyGuard.accepts(context,track.privacyEpoch,track.id)) return null
+        val actual=stamp(context,Uri.parse(track.uri))
+        return (actual.size to actual.modified).takeIf {
+            actual.size==track.bytes && (track.modified==null || track.modified==actual.modified)
+        }
+    }
     private suspend fun hash(context: Context, uri: Uri): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val stream = context.contentResolver.openInputStream(uri) ?: error("Файл недоступен")
