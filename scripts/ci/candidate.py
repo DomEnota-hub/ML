@@ -6,12 +6,14 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import zipfile
 from gate import ROOT, clean_inputs, exact_sha, sha256, validate_unsigned
 
 clean_inputs()
 source=ROOT/'app/build/outputs/apk/release/app-release-unsigned.apk'
 validate_unsigned(source)
+subprocess.run([sys.executable, str(ROOT/'scripts/ci/dex_invokes.py'), str(source)], cwd=ROOT, check=True)
 with zipfile.ZipFile(source) as z:
     if {n.split('/')[1] for n in z.namelist() if n.startswith('lib/')}!={'arm64-v8a'}:raise ValueError('Wrong ABI')
     if 'assets/gapi-builtin-keys.json' in z.namelist():raise ValueError('Protected asset in CI APK')

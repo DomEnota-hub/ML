@@ -1,0 +1,7 @@
+# Static DEX gate (1.7.211 incident)
+
+No emulator; Xiaomi device QA remains separate. The check is deliberately not a full ART verifier. The unsigned candidate is blocked before its receipt if ordinary invoke argument word counts or encoded register counts are invalid. Run the same script on the delivered signed APK before release.
+
+Measured locally on the exact downloaded previous signed 1.7.210: 288779 methods, zero findings, exit 0, 6.376 s. Exact original 1.7.211 unsigned candidate and readback signed APK: 289375 methods, two findings each, exit 1, 6.492/6.304 s. classes3.dex MediaLoaderAppKt.MediaLoaderApp dex_pc=0x7277 invoke-direct/range count=0 expected=256; nested MediaLoaderApp$68.invoke dex_pc=0x569 count=1 expected=257. The generated constructors exceed the 8-bit range argument word limit, including the receiver. No APK rebuild or source-code fix was attempted. Seven isolated Python regression tests passed; both actual APKs tested. Runtime installation/cold start/device behavior still unverified by CI.
+
+Historical workflows archived in docs/ci/archive/workflows-17211; original blobs preserved. Active main CI + signing tools + nine ML research workflows. Keep previous required JVM identities; no production merges. Next steps: audit redundant tests and isolate performance-only measurements. New candidate release blocked until the app defect is fixed and the exact final APK passes the DEX gate and Xiaomi QA.
