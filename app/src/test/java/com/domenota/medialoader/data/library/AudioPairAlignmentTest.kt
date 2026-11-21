@@ -61,4 +61,29 @@ class AudioPairAlignmentTest {
         val result=requireNotNull(AudioPairAlignment.align(frames(.6f),frames(.12f),256))
         assertTrue(result.zones.isEmpty())
     }
+
+    @Test fun actualPcmOneSecondPrefixIsNotPaintedRedAcrossEntireTrack() {
+        fun frames(prefix:Boolean):List<ComparisonFrame>{
+            val builder=AcousticFingerprints.ComparisonBuilder(256){}
+            if(prefix)repeat(8000){i->builder.accept((.6*sin(2*PI*1800*i/8000)).toFloat())}
+            repeat(8000*18){i->
+                val hz=220+(i/2048)%17*93
+                builder.accept((.6*sin(2*PI*hz*i/8000)).toFloat())
+            }
+            return builder.finish()
+        }
+        val result=requireNotNull(AudioPairAlignment.align(frames(false),frames(true),256))
+        assertTrue(result.zones.isNotEmpty())
+        assertTrue(result.zones.first().start<=1)
+        assertTrue(result.zones.first().endExclusive in 3..6)
+        assertTrue(result.columns.drop(6).count{it.different}<=3)
+    }
+    @Test fun distributedSmallDriftDoesNotMarkResamplingGapsAsEdits() {
+        val first=recording(240)
+        val second=buildList{
+            first.forEachIndexed{i,frame->add(frame);if(i in setOf(39,79,119,159,199))add(frame)}
+        }
+        val result=requireNotNull(AudioPairAlignment.align(first,second,256))
+        assertTrue(result.zones.isEmpty())
+    }
 }
