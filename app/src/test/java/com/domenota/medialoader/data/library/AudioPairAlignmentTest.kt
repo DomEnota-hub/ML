@@ -107,6 +107,35 @@ class AudioPairAlignmentTest {
         assertEquals(320,result.columns.first{it.first==320}.second)
     }
 
+    @Test fun lowLevelNonSilentTerminalDifferenceIsUncertainNotChangedContent() {
+        val music=recording(72)
+        val a=music+List(9){ComparisonFrame(FloatArray(128).apply{this[117]=1f},.00010f)}
+        val b=music+List(9){ComparisonFrame(FloatArray(128).apply{this[118]=1f},.00012f)}
+        val result=requireNotNull(AudioPairAlignment.align(a,b,256))
+        assertTrue(result.zones.isNotEmpty())
+        assertEquals(result.columns.size,result.zones.last().endExclusive)
+        assertEquals(ComparisonZoneKind.QUIET_EDGE_UNCERTAIN,result.zoneKind(result.zones.last()))
+    }
+
+    @Test fun realQuietAudioOnBoundaryRemainsAReportedDifference() {
+        val music=recording(72)
+        val a=music+List(8){ComparisonFrame(FloatArray(128).apply{this[117]=1f},.002f)}
+        val b=music+List(8){ComparisonFrame(FloatArray(128).apply{this[118]=1f},.002f)}
+        val result=requireNotNull(AudioPairAlignment.align(a,b,256))
+        assertTrue(result.zones.isNotEmpty())
+        assertNotEquals(ComparisonZoneKind.QUIET_EDGE_UNCERTAIN,result.zoneKind(result.zones.last()))
+        assertNotEquals(ComparisonZoneKind.SILENT_PADDING,result.zoneKind(result.zones.last()))
+    }
+
+    @Test fun veryQuietInternalEditIsNeverClassifiedAsTerminalPadding() {
+        val music=recording(72)
+        val a=music.take(28)+List(8){ComparisonFrame(FloatArray(128).apply{this[117]=1f},.0001f)}+music.drop(28)
+        val b=music.take(28)+List(8){ComparisonFrame(FloatArray(128).apply{this[118]=1f},.0001f)}+music.drop(28)
+        val result=requireNotNull(AudioPairAlignment.align(a,b,256))
+        assertTrue(result.zones.isNotEmpty())
+        assertTrue(result.zones.all{result.zoneKind(it)!=ComparisonZoneKind.QUIET_EDGE_UNCERTAIN})
+    }
+
     @Test fun silenceInsideTrackAndQuietAudibleIntroAreNotDismissedAsPadding() {
         val first=recording(90)
         val gap=List(4){ComparisonFrame(FloatArray(0),0f)}
