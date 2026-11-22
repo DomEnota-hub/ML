@@ -14,6 +14,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.editor.CropAspectPreset
 import com.domenota.medialoader.data.editor.CropFractions
+import com.domenota.medialoader.data.editor.MediaCropShape
 import com.domenota.medialoader.data.editor.VideoCropHandle
 import com.domenota.medialoader.data.editor.VideoCropMath
 import kotlin.math.abs
@@ -44,6 +47,7 @@ fun CropFrameOverlay(
     onCropChangeFinished: () -> Unit = {},
     /** Leave legacy touch behavior intact for the video editor. */
     precisePhotoHandles: Boolean = false,
+    shape: MediaCropShape = MediaCropShape.RECTANGLE,
 ) {
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var activeHandle by remember { mutableStateOf<VideoCropHandle?>(null) }
@@ -159,6 +163,21 @@ fun CropFrameOverlay(
         val bottom = imageRect.top + imageRect.height * (1f - crop.bottom)
         val shade = Color.Black.copy(alpha = 0.58f)
 
+        if(shape == MediaCropShape.CIRCLE){
+            // The crop window supplies a circular diameter in source PIXELS;
+            // the same size/position is used by the photo mask and video overlay.
+            val radius=min(right-left,bottom-top)*.5f
+            val cx=(left+right)*.5f
+            val cy=(top+bottom)*.5f
+            val blackout=Path().apply {
+                fillType=PathFillType.EvenOdd
+                addRect(imageRect)
+                addOval(Rect(cx-radius,cy-radius,cx+radius,cy+radius))
+            }
+            drawPath(blackout,Color.Black)
+            drawCircle(Color.White,radius,Offset(cx,cy),
+                style=Stroke(width=2.dp.toPx()))
+        } else {
         drawRect(
             shade,
             topLeft = imageRect.topLeft,
@@ -187,6 +206,7 @@ fun CropFrameOverlay(
             style = Stroke(width = 2.dp.toPx()),
         )
 
+        }
         val cornerRadius = 5.dp.toPx()
         listOf(
             Offset(left, top),
