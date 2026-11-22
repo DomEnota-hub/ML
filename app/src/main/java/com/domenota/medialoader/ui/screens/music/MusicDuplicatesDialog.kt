@@ -389,9 +389,10 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                 } else {
                     BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-                    val controlsMaxHeight=if(result==null) maxHeight else maxHeight*.48f
                     Column(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxWidth().heightIn(max=controlsMaxHeight).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+                    // Do not cap the search controls at 48% or create a nested scroller:
+                    // show the whole search header; only the result list scrolls.
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     val fileCount = remember(DuplicateReferenceKey(result),privacyRevision) { groups.sumOf{it.tracks.size} }
                     Text(if(showingPartial)
                         "Предварительный · ${groups.size} групп · $fileCount файлов"
@@ -417,10 +418,26 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if(result==null||scanControlsExpanded) MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
-                    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                        FilterChip(filter==null,{filter=null},{Text("Все")})
-                        val counts=remember(DuplicateReferenceKey(result),privacyRevision){groups.groupingBy{it.kind}.eachCount()}
-                        DuplicateKind.entries.forEach{k->FilterChip(filter==k,{filter=k},{Text(when(k){DuplicateKind.EXACT->"Точные";DuplicateKind.ACOUSTIC->"Акустика";DuplicateKind.POSSIBLE->"Версии"}+" · "+(counts[k]?:0))})}
+                    val counts=remember(DuplicateReferenceKey(result),privacyRevision){
+                        groups.groupingBy{it.kind}.eachCount()
+                    }
+                    // Two complete rows, no clipped fourth filter or horizontal scrolling.
+                    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(2.dp)){
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            FilterChip(filter==null,{filter=null},{Text("Все")},
+                                modifier=Modifier.weight(1f))
+                            FilterChip(filter==DuplicateKind.EXACT,{filter=DuplicateKind.EXACT},
+                                {Text("Точные · "+(counts[DuplicateKind.EXACT]?:0))},
+                                modifier=Modifier.weight(1f))
+                        }
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            FilterChip(filter==DuplicateKind.ACOUSTIC,{filter=DuplicateKind.ACOUSTIC},
+                                {Text("Акустика · "+(counts[DuplicateKind.ACOUSTIC]?:0))},
+                                modifier=Modifier.weight(1f))
+                            FilterChip(filter==DuplicateKind.POSSIBLE,{filter=DuplicateKind.POSSIBLE},
+                                {Text("Версии · "+(counts[DuplicateKind.POSSIBLE]?:0))},
+                                modifier=Modifier.weight(1f))
+                        }
                     }
                     result?.let{r->Text(if(r.expanded)"Режим: расширенный" else "Режим: быстрый",style=MaterialTheme.typography.labelMedium)
                         if(r.acousticUnavailable>0)Text("Без акустического отпечатка: ${r.acousticUnavailable}. Точные совпадения сохранены.",style=MaterialTheme.typography.bodySmall)}
