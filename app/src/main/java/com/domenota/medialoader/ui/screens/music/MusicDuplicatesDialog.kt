@@ -698,7 +698,8 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     }
     val result=analysis?.aligned
     val zones=result?.zones.orEmpty()
-    val zone=zones.getOrNull(zoneIndex)
+    val shownZoneIndex=if(zones.size==1&&zoneIndex<0)0 else zoneIndex
+    val zone=zones.getOrNull(shownZoneIndex)
     fun seekFrame(first:Boolean):Long? {
         val selected=zone?:return null
         val aligned=result?:return null
@@ -765,32 +766,41 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                 Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.55f)){
                                     Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
                                         Text("Обзор записи",style=MaterialTheme.typography.labelMedium)
-                                        AlignedPairWaveform(result,zoneIndex,previewId==referenceId,previewId==targetId,position,
+                                        AlignedPairWaveform(result,shownZoneIndex,previewId==referenceId,previewId==targetId,position,
                                             range=0 until result.columns.size){zoneAt,column->tapWave(zoneAt,column)}
                                     }
                                 }
-                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement=Arrangement.spacedBy(12.dp)){
-                                    Text("Оригинал",color=musicPlaybackAccent,style=MaterialTheme.typography.labelSmall)
-                                    Text("Версия",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.labelSmall)
-                                    Text("Добавлено",color=MaterialTheme.colorScheme.tertiary,style=MaterialTheme.typography.labelSmall)
-                                    Text("Отсутствует",color=musicPlaybackAccent,style=MaterialTheme.typography.labelSmall)
-                                    Text("Изменено",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.labelSmall)
+                                ComparisonWaveLegend()
+                                val evaluated=remember(DuplicateReferenceKey(result)){
+                                    zones.groupingBy{result.zoneKind(it)}.eachCount()
                                 }
-                                val audible=remember(DuplicateReferenceKey(result)){zones.count{result.zoneKind(it)!=ComparisonZoneKind.SILENT_PADDING}}
-                                Text(if(zones.isEmpty())"Отличий не обнаружено" else "Участки: ${zones.size} · изменения звучания: $audible",
+                                val quietEdges=(evaluated[ComparisonZoneKind.QUIET_EDGE_UNCERTAIN]?:0)+
+                                    (evaluated[ComparisonZoneKind.SILENT_PADDING]?:0)
+                                val changed=zones.size-quietEdges
+                                Text(if(zones.isEmpty())"Различий не обнаружено" else
+                                    "Значимые участки: $changed · тихие края: $quietEdges",
                                     style=MaterialTheme.typography.labelMedium)
-                                Text("Цвет выделяет тип участка; совпадение не означает побайтовую идентичность.",
-                                    style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Тихие края могут содержать звук: проверяйте их прослушиванием. " +
+                                    "Акустическое сходство не означает побайтовую идентичность.",
+                                    style=MaterialTheme.typography.labelSmall,
+                                    color=MaterialTheme.colorScheme.onSurfaceVariant)
                                 if(zones.isNotEmpty()){
-                                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                                        IconButton(onClick={zoneIndex=if(zoneIndex<=0)zones.lastIndex else zoneIndex-1}){
-                                            Icon(Icons.Rounded.SkipPrevious,"Предыдущее отличие")
-                                        }
-                                        Text(if(zoneIndex<0)"Выбрать участок" else "${zoneIndex+1} из ${zones.size}",
-                                            Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
-                                        IconButton(onClick={zoneIndex=if(zoneIndex>=zones.lastIndex)0 else zoneIndex+1}){
-                                            Icon(Icons.Rounded.SkipNext,"Следующее отличие")
+                                    Surface(shape=RoundedCornerShape(12.dp),
+                                        color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.42f)){
+                                        Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp),
+                                            verticalAlignment=Alignment.CenterVertically){
+                                            if(zones.size>1){
+                                                IconButton(onClick={zoneIndex=if(shownZoneIndex<=0)zones.lastIndex else shownZoneIndex-1}){
+                                                    Icon(Icons.Rounded.SkipPrevious,"Предыдущий участок")
+                                                }
+                                            }
+                                            Text("Участок ${shownZoneIndex.coerceAtLeast(0)+1} из ${zones.size}",
+                                                Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium)
+                                            if(zones.size>1){
+                                                IconButton(onClick={zoneIndex=if(shownZoneIndex>=zones.lastIndex)0 else shownZoneIndex+1}){
+                                                    Icon(Icons.Rounded.SkipNext,"Следующий участок")
+                                                }
+                                            }
                                         }
                                     }
                                     if(zone!=null){
@@ -799,11 +809,19 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                         Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.55f)){
                                             Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                                                 Text(comparisonZoneLabel(kind),color=comparisonZoneColor(kind),style=MaterialTheme.typography.titleSmall)
+                                                if(kind==ComparisonZoneKind.QUIET_EDGE_UNCERTAIN ||
+                                                    kind==ComparisonZoneKind.SILENT_PADDING){
+                                                    Text("Здесь очень слабый сигнал на границе файла. " +
+                                                        "Возможен хвост кодека или тихая музыка. " +
+                                                        "Это не подтверждённое слышимое изменение: проверьте прослушиванием.",
+                                                        style=MaterialTheme.typography.bodySmall,
+                                                        color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
                                                 Text("Оригинал: ${seekFrame(true)?.let(::pairTime)?:"нет фрагмента"} · Версия: ${seekFrame(false)?.let(::pairTime)?:"нет фрагмента"}",
                                                     style=MaterialTheme.typography.bodySmall)
                                                 Text("Увеличенный участок · ${pairTime((range.last-range.first+1)*result.stepMs)}",
                                                     style=MaterialTheme.typography.labelSmall)
-                                                AlignedPairWaveform(result,zoneIndex,previewId==referenceId,previewId==targetId,position,
+                                                AlignedPairWaveform(result,shownZoneIndex,previewId==referenceId,previewId==targetId,position,
                                                     range=range,focus=true){zoneAt,column->tapWave(zoneAt,column)}
                                                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,
                                                     verticalAlignment=Alignment.CenterVertically){
@@ -820,16 +838,28 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                     }
                                 }
                             }
-                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                                TextButton(onClick={play(reference,seekFrame(true))},enabled=zone==null||seekFrame(true)!=null,
-                                    modifier=Modifier.weight(1f)){
-                                    Icon(if(zone==null&&previewId==referenceId&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Text("Оригинал")
+                            Text("Прослушивание",style=MaterialTheme.typography.labelMedium,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                                val firstPlaying=previewId==referenceId&&playing
+                                val secondPlaying=previewId==targetId&&playing
+                                OutlinedButton(onClick={play(reference,if(firstPlaying)null else seekFrame(true))},
+                                    enabled=zone==null||seekFrame(true)!=null,modifier=Modifier.weight(1f),
+                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
+                                        if(firstPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
+                                    Icon(if(firstPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(if(firstPlaying)"Пауза" else "Оригинал",maxLines=1,
+                                        overflow=TextOverflow.Ellipsis)
                                 }
-                                TextButton(onClick={play(target,seekFrame(false))},enabled=zone==null||seekFrame(false)!=null,
-                                    modifier=Modifier.weight(1f)){
-                                    Icon(if(zone==null&&previewId==targetId&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Text("Версия")
+                                OutlinedButton(onClick={play(target,if(secondPlaying)null else seekFrame(false))},
+                                    enabled=zone==null||seekFrame(false)!=null,modifier=Modifier.weight(1f),
+                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
+                                        if(secondPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
+                                    Icon(if(secondPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(if(secondPlaying)"Пауза" else "Версия",maxLines=1,
+                                        overflow=TextOverflow.Ellipsis)
                                 }
                             }
                         }
@@ -902,6 +932,7 @@ private fun ComparisonTrackSelector(label:String,track:DuplicateTrack,active:Boo
 
 private fun comparisonZoneLabel(kind:ComparisonZoneKind)=when(kind){
     ComparisonZoneKind.SILENT_PADDING->"Тишина на границе"
+    ComparisonZoneKind.QUIET_EDGE_UNCERTAIN->"Тихий хвост · отличие не подтверждено"
     ComparisonZoneKind.EXTRA_IN_VERSION->"Добавленный фрагмент"
     ComparisonZoneKind.MISSING_IN_VERSION->"Отсутствующий фрагмент"
     ComparisonZoneKind.CHANGED_CONTENT->"Изменённое звучание"
@@ -910,9 +941,39 @@ private fun comparisonZoneLabel(kind:ComparisonZoneKind)=when(kind){
 @Composable
 private fun comparisonZoneColor(kind:ComparisonZoneKind):Color=when(kind){
     ComparisonZoneKind.SILENT_PADDING->MaterialTheme.colorScheme.onSurfaceVariant
+    ComparisonZoneKind.QUIET_EDGE_UNCERTAIN->MaterialTheme.colorScheme.onSurfaceVariant
     ComparisonZoneKind.EXTRA_IN_VERSION->MaterialTheme.colorScheme.tertiary
     ComparisonZoneKind.MISSING_IN_VERSION->musicPlaybackAccent
     ComparisonZoneKind.CHANGED_CONTENT->MaterialTheme.colorScheme.error
+}
+
+/** Display-only legend; its markers are not playback or filter controls. */
+@Composable
+private fun ComparisonWaveLegend(){
+    val secondary=MaterialTheme.colorScheme.onSurfaceVariant
+    Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+        Text("Обозначения графика",style=MaterialTheme.typography.labelMedium,color=secondary)
+        Row(horizontalArrangement=Arrangement.spacedBy(18.dp)){
+            ComparisonLegendMark("Оригинал",musicPlaybackAccent)
+            ComparisonLegendMark("Версия",secondary)
+        }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement=Arrangement.spacedBy(14.dp)){
+            ComparisonLegendMark("+ Добавлено",MaterialTheme.colorScheme.tertiary)
+            ComparisonLegendMark("− Отсутствует",musicPlaybackAccent)
+            ComparisonLegendMark("≠ Изменено",MaterialTheme.colorScheme.error)
+            ComparisonLegendMark("· Тихий край",secondary)
+        }
+    }
+}
+
+@Composable
+private fun ComparisonLegendMark(label:String,color:Color){
+    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)){
+        Box(Modifier.size(9.dp).background(color,CircleShape))
+        Text(label,style=MaterialTheme.typography.labelSmall,
+            color=MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
