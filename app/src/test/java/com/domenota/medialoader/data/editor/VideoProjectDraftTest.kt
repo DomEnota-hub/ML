@@ -33,6 +33,14 @@ class VideoProjectDraftTest {
         assertEquals(15000, original.durationMs)
         assertEquals(original.clips[1], trimmed.clips[1])
         assertEquals(2000, trimmed.clips[0].inMs)
+        val circleCrop = VideoCropMath.centerCrop(1920, 1080, CropAspectPreset.RATIO_1_1)
+        val circular = trimmed.setGeometry("first", circleCrop, CropAspectPreset.RATIO_1_1,
+            0, false, false, MediaCropShape.CIRCLE)
+        assertEquals(MediaCropShape.CIRCLE, circular.clips[0].cropShape)
+        assertEquals(circleCrop, circular.clips[0].crop)
+        assertEquals(MediaCropShape.RECTANGLE, circular.clips[1].cropShape)
+        assertEquals(MediaCropShape.RECTANGLE, trimmed.clips[0].cropShape)
+        assertEquals(MediaCropShape.CIRCLE, circular.trimClip("first", 2500, 6500).clips[0].cropShape)
     }
 
     @Test fun acceptsIndependentAudioTracksWithoutMutatingVideoSource() {
