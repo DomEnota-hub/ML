@@ -79,6 +79,7 @@ private enum class PhotoHslControl(val title: String) {
 internal data class PhotoEditSnapshot(
     val crop: CropFractions = CropFractions(),
     val cropPreset: CropAspectPreset = CropAspectPreset.FREE,
+    val cropShape: MediaCropShape = MediaCropShape.RECTANGLE,
     val cropReferenceWidth: Int = 0,
     val cropReferenceHeight: Int = 0,
     val geometry: PhotoGeometry = PhotoGeometry(),
@@ -196,7 +197,7 @@ private fun PhotoEditorContent(
             removeGps=draft.removeGps,removeExif=draft.removeExif,
             editSpec=PhotoEditSpec(cropLeft=edit.crop.left,cropRight=edit.crop.right,
                 cropTop=edit.crop.top,cropBottom=edit.crop.bottom,
-                rotationDegrees=edit.rotation,mirrorHorizontal=edit.mirrorHorizontal,
+                cropShape=edit.cropShape,rotationDegrees=edit.rotation,mirrorHorizontal=edit.mirrorHorizontal,
                 mirrorVertical=edit.mirrorVertical,geometry=edit.geometry,
                 colorAdjustments=edit.color,textLayers=edit.textLayers,
                 drawing=edit.drawing,localEffects=edit.localEffects,
@@ -357,7 +358,7 @@ private fun PhotoEditorContent(
     // Debounced previews are calculated away from the UI thread; full-resolution
     // export applies the same operations in the same order.
     LaunchedEffect(info, activeCrop, edit.rotation, edit.mirrorHorizontal, edit.mirrorVertical,
-        edit.geometry, edit.color, edit.textLayers, edit.drawing, edit.localEffects,
+        edit.geometry, edit.cropShape, edit.color, edit.textLayers, edit.drawing, edit.localEffects,
         bakedGraphic, currentTab, cropWorkspace, activeLevel, rgbFastPreview, batch?.draft?.format) {
         val source = info?.preview
         if (source == null || cropWorkspace) {
@@ -374,7 +375,7 @@ private fun PhotoEditorContent(
             var pending: Bitmap? = null
             val previewSpec = PhotoEditSpec(rotationDegrees=edit.rotation,
                 mirrorHorizontal=edit.mirrorHorizontal,mirrorVertical=edit.mirrorVertical,
-                geometry=edit.geometry,colorAdjustments=edit.color,textLayers=edit.textLayers,
+                cropShape=edit.cropShape,geometry=edit.geometry,colorAdjustments=edit.color,textLayers=edit.textLayers,
                 drawing=edit.drawing,localEffects=edit.localEffects,graphicWatermark=bakedGraphic)
             try {
                 withContext(Dispatchers.Default) {
@@ -555,7 +556,7 @@ private fun PhotoEditorContent(
                         onExport(PhotoEditSpec(
                             cropLeft = edit.crop.left, cropRight = edit.crop.right,
                             cropTop = edit.crop.top, cropBottom = edit.crop.bottom,
-                            rotationDegrees = edit.rotation,
+                            cropShape = edit.cropShape,rotationDegrees = edit.rotation,
                             geometry = edit.geometry,
                             mirrorHorizontal = edit.mirrorHorizontal, mirrorVertical = edit.mirrorVertical,
                             inpaintOverlayPath = edit.overlayPath, textLayers = edit.textLayers,
@@ -822,7 +823,8 @@ private fun PhotoWorkspacePreview(
         if (cropFrameVisible) {
             CropFrameOverlay(
                 crop = edit.crop, sourceWidth = info.width, sourceHeight = info.height,
-                preset = edit.cropPreset, onCropChange = onCropChange,
+                preset = edit.cropPreset, shape = edit.cropShape,
+                onCropChange = onCropChange,
                 modifier = Modifier.fillMaxSize(),
                 showFrame = !showOriginal,
                 precisePhotoHandles = true,
@@ -924,9 +926,19 @@ private fun PhotoWorkspaceTools(
                                         else info?.let {
                                             VideoCropMath.centerCrop(it.width, it.height, preset)
                                         } ?: CropFractions()
-                                    onEdit(edit.copy(cropPreset = preset, crop = crop))
+                                    onEdit(edit.copy(cropPreset = preset, crop = crop,
+                                        cropShape = MediaCropShape.RECTANGLE))
                                 }, label = { Text(preset.label) })
                         }
+                        FilterChip(selected = edit.cropShape == MediaCropShape.CIRCLE,
+                            enabled = !locked && info != null,
+                            onClick = {
+                                val square = info?.let {
+                                    VideoCropMath.centerCrop(it.width,it.height,CropAspectPreset.RATIO_1_1)
+                                } ?: CropFractions()
+                                onEdit(edit.copy(cropPreset=CropAspectPreset.RATIO_1_1,
+                                    crop=square,cropShape=MediaCropShape.CIRCLE))
+                            },label={Text("Круг")})
                     } else Text(
                         if (cropTool == "rotate") "Поворот: " + edit.rotation + "°"
                         else "Нажми инструмент ещё раз для отражения",
