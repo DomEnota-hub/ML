@@ -2,6 +2,7 @@ package com.domenota.medialoader.data.editor
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import kotlin.math.abs
 import kotlin.math.sin
@@ -16,7 +17,9 @@ internal object PhotoDistortionMath {
         if (amount == 0f) return source
         val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
         try {
-            Canvas(output).drawBitmapMesh(source, GRID, GRID,
+            val canvas=Canvas(output)
+            canvas.drawColor(Color.BLACK)
+            canvas.drawBitmapMesh(source, GRID, GRID,
                 vertices(source.width, source.height, amount), 0, null, 0,
                 Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
             return output
