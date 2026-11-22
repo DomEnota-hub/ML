@@ -68,3 +68,22 @@ internal fun comparisonFocusRange(count:Int,start:Int,endExclusive:Int,zoomLevel
     }
     return maxOf(0,a-pad) until minOf(count,b+pad)
 }
+
+/** Selecting a new comparison reference never changes the keeper or trash selection.
+ * If the old target becomes the reference, swap the old reference into the target slot.
+ * Otherwise preserve the target so a 3+ track comparison remains stable.
+ */
+internal fun comparisonPairWithReference(
+    trackIds: List<String>, referenceId: String, targetId: String, requestedId: String,
+): Pair<String, String>? {
+    if (trackIds.size < 2 || trackIds.distinct().size != trackIds.size ||
+        referenceId !in trackIds || targetId !in trackIds || referenceId == targetId ||
+        requestedId !in trackIds) return null
+    if (referenceId == requestedId) return referenceId to targetId
+    val nextTarget = if (targetId == requestedId) referenceId else targetId
+    return requestedId to nextTarget
+}
+
+/** The reference is never offered as its own comparison target, including in big groups. */
+internal fun comparisonTargetIds(trackIds: List<String>, referenceId: String): List<String> =
+    trackIds.distinct().filter { it != referenceId }
