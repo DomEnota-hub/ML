@@ -343,30 +343,35 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     // Starting a new scan belongs to the explicit mode controls below.
                 }
                 if (scanning) {
-                    Column((if(background.running&&partial!=null) Modifier.fillMaxWidth().heightIn(max=220.dp) else Modifier.weight(1f).fillMaxWidth()).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                    if(!background.running) {
-                        quickSummary?.let{ DuplicateSavedSummaryPanel(it,null) }
-                        if(restoringSaved || scanRevision==0) {
-                            Spacer(Modifier.height(12.dp))
-                            DuplicateRestorePanel(restoreDone,restoreTotal,restoringSaved,::close)
-                            Spacer(Modifier.height(12.dp))
-                            DuplicateGroupSkeletons()
-                        } else LinearProgressIndicator(Modifier.fillMaxWidth())
-                    } else DuplicateScanPanel(background.phase,background.done,background.total,
-                        background.startedAt,background.phaseStartedAt,true,partial?.groups?.size?:0,
-                        exactBytes(partial?.groups.orEmpty()),showSummary=partial==null,
-                        completedMetadata=background.completedMetadata)
                     if (background.running) {
-                        Button({ close() }, Modifier.fillMaxWidth()) { Text("Продолжить в фоне") }
-                        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                            OutlinedButton({DuplicateBackgroundScan.pause(context)},enabled=!background.committing,modifier=Modifier.weight(1f)){Text("Пауза")}
-                            TextButton({DuplicateBackgroundScan.cancel(context)},enabled=!background.committing){Text("Остановить")}
+                        // Measure the entire progress header. Never clip it to 220dp or
+                        // scroll it independently of the preliminary results.
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                            DuplicateScanPanel(background.phase,background.done,background.total,
+                                background.startedAt,background.phaseStartedAt,true,partial?.groups?.size?:0,
+                                exactBytes(partial?.groups.orEmpty()),showSummary=partial==null,
+                                completedMetadata=background.completedMetadata)
+                            Button({ close() }, Modifier.fillMaxWidth()) { Text("Продолжить в фоне") }
+                            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                                OutlinedButton({DuplicateBackgroundScan.pause(context)},enabled=!background.committing,modifier=Modifier.weight(1f)){Text("Пауза")}
+                                TextButton({DuplicateBackgroundScan.cancel(context)},enabled=!background.committing){Text("Остановить")}
+                            }
                         }
-
+                        // Only the list of preliminary groups scrolls below the full header.
+                        if(partial!=null)PreliminaryMusicGroups(partial.groups,exactBytes(partial.groups),previewRows,
+                            Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
+                    } else {
+                        // Restoration retains its normal page scroll, independent of scan UI.
+                        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+                            quickSummary?.let{ DuplicateSavedSummaryPanel(it,null) }
+                            if(restoringSaved || scanRevision==0) {
+                                Spacer(Modifier.height(12.dp))
+                                DuplicateRestorePanel(restoreDone,restoreTotal,restoringSaved,::close)
+                                Spacer(Modifier.height(12.dp))
+                                DuplicateGroupSkeletons()
+                            } else LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
                     }
-                    }
-                    if(background.running&&partial!=null)PreliminaryMusicGroups(partial.groups,exactBytes(partial.groups),previewRows,
-                        Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
                 } else if (displayPrevious != null) {
                     Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
                     val saved = displayPrevious
