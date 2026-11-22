@@ -12,6 +12,10 @@ class VideoCropMathTest {
         assertEquals(0.21875f, crop.right, 0.0001f)
         assertEquals(0f, crop.top, 0.0001f)
         assertEquals(0f, crop.bottom, 0.0001f)
+        val circle = MediaCircleCrop.region(1920, 1080, crop)
+        assertEquals(960f, circle.centerX, 0.001f)
+        assertEquals(540f, circle.centerY, 0.001f)
+        assertEquals(540f, circle.radius, 0.001f)
     }
 
     @Test
