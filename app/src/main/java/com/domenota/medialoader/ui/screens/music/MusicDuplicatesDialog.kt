@@ -130,7 +130,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     var storedPartial by remember{mutableStateOf<DuplicateSession?>(null,referentialEqualityPolicy())}
     var filter by rememberSaveable{mutableStateOf<DuplicateKind?>(null)}
     var expandedGroupKey by rememberSaveable { mutableStateOf<String?>(null) }
-    var comparing by remember{mutableStateOf<DuplicateGroup?>(null)}
+    var comparing by remember{mutableStateOf<DuplicateGroup?>(null, referentialEqualityPolicy())}
     // Do not inflate all acoustic reports merely because this route was opened.
     LaunchedEffect(journal,background.running,privacyRevision) {
         if (journal) history=MusicDuplicateSessionStore.history(context)
@@ -287,7 +287,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     val partial=remember(background.running,background.partial,storedPartial,privacyRevision){
         (if(background.running)background.partial else background.partial?:storedPartial?.result)?.takeIf(::admissible)
     }
-    val visibleGroups=remember(groups,filter){groups.filter{filter==null||it.kind==filter}}
+    val visibleGroups=remember(DuplicateReferenceKey(result),privacyRevision,filter){groups.filter{filter==null||it.kind==filter}}
     val unfinished=DuplicateBackgroundScan.interrupted(context)||partial!=null
     val unfinishedExpanded=DuplicateBackgroundScan.resumeExpanded(context)
     fun resume(){stopPreview();expandedScan=unfinishedExpanded;scanRevision++}
@@ -617,7 +617,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     val identity=Triple(reference.pairKey(),target.pairKey(),step)
     // Session-local, bounded and identity-bound. No comparison PCM persisted.
     val cache=remember(group.key){LinkedHashMap<Triple<PairMediaKey,PairMediaKey,Long>,PairAnalysis>(4,.75f,true)}
-    var analysis by remember(identity){mutableStateOf<PairAnalysis?>(null)}
+    var analysis by remember(identity){mutableStateOf<PairAnalysis?>(null, referentialEqualityPolicy())}
     var failed by remember(identity){mutableStateOf(false)}
     var zoneIndex by remember(identity){mutableIntStateOf(-1)}
     var closeFocus by remember(identity){mutableStateOf(false)}
@@ -753,7 +753,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                     Text("Версия",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.labelSmall)
                                     Text("Отличия",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.labelSmall)
                                 }
-                                val audible=zones.count{result.zoneKind(it)!=ComparisonZoneKind.SILENT_PADDING}
+                                val audible=remember(DuplicateReferenceKey(result)){zones.count{result.zoneKind(it)!=ComparisonZoneKind.SILENT_PADDING}}
                                 Text(if(zones.isEmpty())"Отличий не обнаружено" else "Участки: ${zones.size} · изменения звучания: $audible",
                                     style=MaterialTheme.typography.labelMedium)
                                 Text("Цвет выделяет тип участка; совпадение не означает побайтовую идентичность.",
@@ -822,7 +822,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                     verticalArrangement=Arrangement.spacedBy(4.dp)){
                     items(group.tracks.filter{original||it.id!=referenceId},key={it.id}){t->
                         val chosen=if(original)t.id==referenceId else t.id==targetId
-                        val select={
+                        val select: () -> Unit ={
                             if(allowed(t)){
                                 if(original){makeReference(t);active=t.id}else choose(t)
                                 pickingReference=null
