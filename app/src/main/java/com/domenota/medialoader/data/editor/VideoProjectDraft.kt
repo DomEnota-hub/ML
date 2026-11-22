@@ -17,6 +17,7 @@ data class VideoClipDraft(
     val speed: Float = 1f,
     val crop: CropFractions = CropFractions(),
     val cropPreset: CropAspectPreset = CropAspectPreset.FREE,
+    val cropShape: MediaCropShape = MediaCropShape.RECTANGLE,
     val rotationDegrees: Int = 0,
     val mirrorHorizontal: Boolean = false,
     val mirrorVertical: Boolean = false,
@@ -198,9 +199,11 @@ data class VideoProjectDraft(
         rotationDegrees: Int,
         mirrorHorizontal: Boolean,
         mirrorVertical: Boolean,
+        cropShape: MediaCropShape = MediaCropShape.RECTANGLE,
     ): VideoProjectDraft = copy(clips = clips.map {
         if (it.id == id) it.copy(crop = crop, cropPreset = preset,
-            rotationDegrees = rotationDegrees, mirrorHorizontal = mirrorHorizontal,
+            cropShape = cropShape,rotationDegrees = rotationDegrees,
+            mirrorHorizontal = mirrorHorizontal,
             mirrorVertical = mirrorVertical) else it
     })
 
