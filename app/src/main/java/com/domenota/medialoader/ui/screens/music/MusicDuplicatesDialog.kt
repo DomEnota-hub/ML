@@ -743,7 +743,8 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                             .testTag("comparison-target-shortcuts"),
                             horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                            group.tracks.filter{it.id!=referenceId}.forEach{candidate->
+                            val targetIds=comparisonTargetIds(group.tracks.map{it.id},referenceId).toSet()
+                            group.tracks.filter{it.id in targetIds}.forEach{candidate->
                                 OutlinedButton(onClick={if(allowed(candidate))choose(candidate)},
                                     enabled=allowed(candidate),
                                     border=androidx.compose.foundation.BorderStroke(
@@ -805,7 +806,6 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                 }
                                 val quietEdges=(evaluated[ComparisonZoneKind.QUIET_EDGE_UNCERTAIN]?:0)+
                                     (evaluated[ComparisonZoneKind.SILENT_PADDING]?:0)
-                                val changed=zones.size-quietEdges
                                 Text(if(zones.isEmpty())"Различий не обнаружено" else
                                     "Найдено участков: ${zones.size}",style=MaterialTheme.typography.labelMedium)
                                 if(quietEdges>0)Text("Тихие края: $quietEdges. Прослушайте перед решением.",
@@ -980,15 +980,6 @@ private fun comparisonZoneLabel(kind:ComparisonZoneKind)=when(kind){
     ComparisonZoneKind.EXTRA_IN_VERSION->"Добавленный фрагмент"
     ComparisonZoneKind.MISSING_IN_VERSION->"Отсутствующий фрагмент"
     ComparisonZoneKind.CHANGED_CONTENT->"Изменённое звучание"
-}
-
-@Composable
-private fun comparisonZoneColor(kind:ComparisonZoneKind):Color=when(kind){
-    ComparisonZoneKind.SILENT_PADDING->MaterialTheme.colorScheme.onSurfaceVariant
-    ComparisonZoneKind.QUIET_EDGE_UNCERTAIN->MaterialTheme.colorScheme.onSurfaceVariant
-    ComparisonZoneKind.EXTRA_IN_VERSION->MaterialTheme.colorScheme.tertiary
-    ComparisonZoneKind.MISSING_IN_VERSION->musicPlaybackAccent
-    ComparisonZoneKind.CHANGED_CONTENT->MaterialTheme.colorScheme.error
 }
 
 /** One yellow overlay, two independent aligned recordings, a shared comparison timeline.
