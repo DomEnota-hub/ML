@@ -393,7 +393,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                     }
                 } else {
-                    BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
                     Column(Modifier.fillMaxSize()) {
                     // Do not cap the search controls at 48% or create a nested scroller:
                     // show the whole search header; only the result list scrolls.
