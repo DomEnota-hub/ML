@@ -55,4 +55,31 @@ class ComparisonWaveformLayoutTest {
         }
     }
 
+
+    @Test fun fourRecordingGroupCanSwitchTargetsWithoutChangingReference() {
+        val ids = listOf("original", "censored", "alternative", "live")
+        assertEquals(listOf("censored", "alternative", "live"), comparisonTargetIds(ids, "original"))
+        val pair = comparisonPairWithReference(ids, "original", "censored", "original")
+        assertEquals("original" to "censored", pair)
+        assertEquals(listOf("original", "censored", "live"), comparisonTargetIds(ids, "alternative"))
+    }
+
+    @Test fun switchingReferencePreservesOtherTrackUnlessItBecomesTheNewReference() {
+        val ids = listOf("A", "B", "C", "D")
+        assertEquals("C" to "B", comparisonPairWithReference(ids, "A", "B", "C"))
+        assertEquals("B" to "A", comparisonPairWithReference(ids, "A", "B", "B"))
+        assertEquals("A" to "B", comparisonPairWithReference(ids, "A", "B", "A"))
+        assertEquals("D" to "B", comparisonPairWithReference(ids, "A", "B", "D"))
+    }
+
+    @Test fun tenTrackGroupNeverSelfComparesOrAcceptsUnknownReferences() {
+        val ids = (0 until 10).map { "rec-$it" }
+        assertEquals(9, comparisonTargetIds(ids, "rec-0").size)
+        assertTrue(comparisonTargetIds(ids, "rec-4").none { it == "rec-4" })
+        assertEquals("rec-8" to "rec-0", comparisonPairWithReference(ids, "rec-0", "rec-8", "rec-8"))
+        assertNull(comparisonPairWithReference(ids, "rec-0", "rec-1", "stranger"))
+        assertNull(comparisonPairWithReference(ids, "rec-0", "rec-0", "rec-2"))
+        assertNull(comparisonPairWithReference(listOf("only"), "only", "only", "only"))
+    }
+
 }
