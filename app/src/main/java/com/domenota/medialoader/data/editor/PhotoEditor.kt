@@ -21,6 +21,7 @@ data class PhotoEditSpec(
     val cropRight: Float = 0f,
     val cropTop: Float = 0f,
     val cropBottom: Float = 0f,
+    val cropShape: MediaCropShape = MediaCropShape.RECTANGLE,
     val rotationDegrees: Int = 0,
     val mirrorHorizontal: Boolean = false,
     val mirrorVertical: Boolean = false,
