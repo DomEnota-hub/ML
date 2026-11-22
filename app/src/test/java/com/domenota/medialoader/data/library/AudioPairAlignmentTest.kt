@@ -86,4 +86,35 @@ class AudioPairAlignmentTest {
         val result=requireNotNull(AudioPairAlignment.align(first,second,256))
         assertTrue(result.zones.isEmpty())
     }
+    @Test fun adaptiveBandKeepsOffsetAndAvoidsFullGridForSimilarTracks() {
+        val first=recording(1600)
+        val silence=List(4){ComparisonFrame(FloatArray(0),0f)}
+        val result=requireNotNull(AudioPairAlignment.align(first,silence+first,256))
+        assertEquals(listOf(ComparisonZone(0,4)),result.zones)
+        assertEquals(ComparisonZoneKind.SILENT_PADDING,result.zoneKind(result.zones.single()))
+        assertTrue(result.evaluatedCells < first.size.toLong()*(first.size+4)/10)
+        assertTrue(result.columns.drop(4).none{it.different})
+    }
+
+    @Test fun largeInternalOffsetWidensSearchAndKeepsBothRealEdits() {
+        val first=List(400){i->ComparisonFrame(FloatArray(512).apply{this[i]=1f},.5f)}
+        val insert=List(70){ComparisonFrame(FloatArray(512).apply{this[511]=1f},.5f)}
+        val second=first.take(80)+insert+first.subList(80,250)+first.drop(320)
+        val result=requireNotNull(AudioPairAlignment.align(first,second,256))
+        assertEquals(listOf(ComparisonZone(80,150),ComparisonZone(320,390)),result.zones)
+        assertEquals(ComparisonZoneKind.EXTRA_IN_VERSION,result.zoneKind(result.zones[0]))
+        assertEquals(ComparisonZoneKind.MISSING_IN_VERSION,result.zoneKind(result.zones[1]))
+        assertEquals(320,result.columns.first{it.first==320}.second)
+    }
+
+    @Test fun silenceInsideTrackAndQuietAudibleIntroAreNotDismissedAsPadding() {
+        val first=recording(90)
+        val gap=List(4){ComparisonFrame(FloatArray(0),0f)}
+        val middle=requireNotNull(AudioPairAlignment.align(first,first.take(30)+gap+first.drop(30),256))
+        assertEquals(ComparisonZoneKind.EXTRA_IN_VERSION,middle.zoneKind(middle.zones.single()))
+        val audible=List(4){i->ComparisonFrame(FloatArray(128).apply{this[100+i]=1f},.002f)}
+        val intro=requireNotNull(AudioPairAlignment.align(first,audible+first,256))
+        assertEquals(ComparisonZoneKind.EXTRA_IN_VERSION,intro.zoneKind(intro.zones.single()))
+    }
+
 }

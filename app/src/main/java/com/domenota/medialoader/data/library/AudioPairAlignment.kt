@@ -10,13 +10,33 @@ internal class ComparisonFrame(val spectrum: FloatArray, val rms: Float) {
 
 internal data class ComparisonColumn(val first: Int?, val second: Int?, val different: Boolean)
 internal data class ComparisonZone(val start: Int, val endExclusive: Int)
+internal enum class ComparisonZoneKind { SILENT_PADDING, EXTRA_IN_VERSION, MISSING_IN_VERSION, CHANGED_CONTENT }
 internal data class AlignedAudioComparison(
     val stepMs: Long,
     val first: List<ComparisonFrame>,
     val second: List<ComparisonFrame>,
     val columns: List<ComparisonColumn>,
     val zones: List<ComparisonZone>,
-)
+    val evaluatedCells: Long = 0,
+) {
+    /** A quiet boundary is still reported, but separately from an audible edit.
+     * Never use this read-only description to authorize automatic deletion. */
+    fun zoneKind(zone: ComparisonZone): ComparisonZoneKind {
+        val section = columns.subList(zone.start, zone.endExclusive)
+        val extra = section.all { it.first == null && it.second != null }
+        val missing = section.all { it.second == null && it.first != null }
+        val boundary = zone.start == 0 || zone.endExclusive == columns.size
+        if (boundary && (extra || missing) && section.all { column ->
+                val frame = column.first?.let(first::get) ?: second[requireNotNull(column.second)]
+                frame.silent && frame.rms <= .003f
+            }) return ComparisonZoneKind.SILENT_PADDING
+        return when {
+            extra -> ComparisonZoneKind.EXTRA_IN_VERSION
+            missing -> ComparisonZoneKind.MISSING_IN_VERSION
+            else -> ComparisonZoneKind.CHANGED_CONTENT
+        }
+    }
+}
 
 internal object AudioPairAlignment {
     const val BASE_STEP_MS = 256L
@@ -113,30 +133,19 @@ internal object AudioPairAlignment {
         require(stepMs in setOf(256L, 512L, 1024L))
         val n = first.size; val m = second.size
         if (n !in 1..MAX_FRAMES || m !in 1..MAX_FRAMES) return null
-        val width = m + 1
-        val trace = ByteArray((n + 1) * width)
-        var previous = FloatArray(width) { it * GAP }
-        var current = FloatArray(width)
-        for (j in 1..m) trace[j] = 2
-        for (i in 1..n) {
-            checkActive()
-            current[0] = i * GAP
-            trace[i * width] = 1
-            for (j in 1..m) {
-                val score = similarity(first[i - 1], second[j - 1])
-                val diagonal = previous[j - 1] + (1f - score)
-                val delete = previous[j] + GAP
-                val insert = current[j - 1] + GAP
-                val at = i * width + j
-                when {
-                    diagonal <= delete && diagonal <= insert -> {
-                        current[j] = diagonal; trace[at] = 0
-                    }
-                    delete <= insert -> { current[j] = delete; trace[at] = 1 }
-                    else -> { current[j] = insert; trace[at] = 2 }
-                }
-            }
-            val swap = previous; previous = current; current = swap
+        // Try a short band first. Non-negative diagonal costs mean that any
+        // path leaving |i-j| <= band must pay at least (2*(band+1)-|n-m|)*GAP.
+        // A strictly cheaper in-band result is therefore globally optimal.
+        // The margin covers Float accumulation error; ties/unproven cases widen.
+        var band = minOf(maxOf(n,m), maxOf(24, abs(n-m)+8))
+        var evaluated = 0L
+        var path: Trace
+        while (true) {
+            path = trace(first,second,band,checkActive)
+            evaluated += path.cells
+            val outsideLowerBound = (2L*(band+1)-abs(n-m))*GAP
+            if (band >= maxOf(n,m) || path.cost + 1f < outsideLowerBound) break
+            band = if (band*2 >= maxOf(n,m)/2) maxOf(n,m) else band*2
         }
         val reversed = ArrayList<ComparisonColumn>(n + m)
         var i = n; var j = m
@@ -145,7 +154,7 @@ internal object AudioPairAlignment {
         var lastMatch: ComparisonFrame? = null
         while (i > 0 || j > 0) {
             checkActive()
-            when (trace[i * width + j].toInt()) {
+            when (path.direction(i,j)) {
                 0 -> {
                     i--; j--
                     val a = first[i]; val b = second[j]
@@ -180,6 +189,45 @@ internal object AudioPairAlignment {
                 start = -1
             }
         }
-        return AlignedAudioComparison(stepMs, first, second, columns, zones)
+        return AlignedAudioComparison(stepMs, first, second, columns, zones, evaluated)
     }
+
+    private class Trace(val band: Int, val width: Int, val directions: ByteArray,
+        val cost: Float, val cells: Long) {
+        fun direction(i: Int, j: Int): Int = directions[i*width+j-maxOf(0,i-band)].toInt()
+    }
+
+    /** Exact legacy scoring and tie order, with compact traceback for visited cells. */
+    private fun trace(first: List<ComparisonFrame>, second: List<ComparisonFrame>, band: Int,
+        checkActive: () -> Unit): Trace {
+        val n=first.size; val m=second.size
+        val width=minOf(m+1,2*band+1)
+        val directions=ByteArray((n+1)*width)
+        var previous=FloatArray(m+1){ Float.POSITIVE_INFINITY }
+        var current=FloatArray(m+1){ Float.POSITIVE_INFINITY }
+        var cells=0L
+        for (j in 0..minOf(m,band)) { previous[j]=j*GAP; directions[j]=2 }
+        for (i in 1..n) {
+            checkActive()
+            val low=maxOf(0,i-band); val high=minOf(m,i+band)
+            if(low==0) { current[0]=i*GAP; directions[i*width]=1 }
+            else current[low-1]=Float.POSITIVE_INFINITY
+            if(high<m) current[high+1]=Float.POSITIVE_INFINITY
+            for (j in maxOf(1,low)..high) {
+                cells++
+                val diagonal=previous[j-1]+(1f-similarity(first[i-1],second[j-1]))
+                val delete=previous[j]+GAP
+                val insert=current[j-1]+GAP
+                val at=i*width+j-low
+                when {
+                    diagonal<=delete && diagonal<=insert -> {current[j]=diagonal;directions[at]=0}
+                    delete<=insert -> {current[j]=delete;directions[at]=1}
+                    else -> {current[j]=insert;directions[at]=2}
+                }
+            }
+            val swap=previous;previous=current;current=swap
+        }
+        return Trace(band,width,directions,previous[m],cells)
+    }
+
 }

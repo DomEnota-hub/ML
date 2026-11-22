@@ -592,7 +592,8 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     val reference=group.tracks.first{it.id==referenceId}
     val target=group.tracks.first{it.id==targetId}
     val track=group.tracks.first{it.id==active}
-    val step=AudioPairAlignment.stepMs(reference.duration,target.duration)
+    // One grid per group: switching target must not invalidate the reference features.
+    val step=AudioPairAlignment.stepMs(group.tracks.maxOfOrNull { it.duration ?: 0L },null)
     val identity=Triple(reference.pairKey(),target.pairKey(),step)
     // Session-local, bounded and identity-bound. No comparison PCM persisted.
     val cache=remember(group.key){LinkedHashMap<Triple<PairMediaKey,PairMediaKey,Long>,PairAnalysis>(4,.75f,true)}
@@ -634,7 +635,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                         val job=kotlin.coroutines.coroutineContext
                         val started=SystemClock.elapsedRealtime()
                         AudioPairAlignment.align(first,second,step){job.ensureActive()}.also {
-                            AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null}")
+                            AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null} cells=${it?.evaluatedCells ?: -1}")
                         }
                     }
                     PairAnalysis(first,second,aligned)

@@ -4599,6 +4599,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.AudioPairAlignmentTest#adaptiveBandKeepsOffsetAndAvoidsFullGridForSimilarTracks": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.AudioPairAlignmentTest#differentLevelDoesNotChangeNormalizedSpectrum": {
     "skipped": false,
     "failed": false
@@ -4615,11 +4619,19 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.AudioPairAlignmentTest#largeInternalOffsetWidensSearchAndKeepsBothRealEdits": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.AudioPairAlignmentTest#missingMiddleSectionRealignsLaterFrames": {
     "skipped": false,
     "failed": false
   },
   "com.domenota.medialoader.data.library.AudioPairAlignmentTest#oneSecondLongerIntroDoesNotMarkRemainingRecording": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioPairAlignmentTest#silenceInsideTrackAndQuietAudibleIntroAreNotDismissedAsPadding": {
     "skipped": false,
     "failed": false
   },
