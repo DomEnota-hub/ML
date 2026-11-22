@@ -10,7 +10,7 @@ internal class ComparisonFrame(val spectrum: FloatArray, val rms: Float) {
 
 internal data class ComparisonColumn(val first: Int?, val second: Int?, val different: Boolean)
 internal data class ComparisonZone(val start: Int, val endExclusive: Int)
-internal enum class ComparisonZoneKind { SILENT_PADDING, EXTRA_IN_VERSION, MISSING_IN_VERSION, CHANGED_CONTENT }
+internal enum class ComparisonZoneKind { SILENT_PADDING, QUIET_EDGE_UNCERTAIN, EXTRA_IN_VERSION, MISSING_IN_VERSION, CHANGED_CONTENT }
 internal data class AlignedAudioComparison(
     val stepMs: Long,
     val first: List<ComparisonFrame>,
@@ -19,8 +19,9 @@ internal data class AlignedAudioComparison(
     val zones: List<ComparisonZone>,
     val evaluatedCells: Long = 0,
 ) {
-    /** A quiet boundary is still reported, but separately from an audible edit.
-     * Never use this read-only description to authorize automatic deletion. */
+    /** Keep uncertain low-level recording edges visible without calling them musical edits.
+     * This is only a conservative UI classification: even a quiet tail can be audible
+     * on some equipment. Neither these labels nor the comparison authorize deletion. */
     fun zoneKind(zone: ComparisonZone): ComparisonZoneKind {
         val section = columns.subList(zone.start, zone.endExclusive)
         val extra = section.all { it.first == null && it.second != null }
@@ -30,6 +31,20 @@ internal data class AlignedAudioComparison(
                 val frame = column.first?.let(first::get) ?: second[requireNotNull(column.second)]
                 frame.silent && frame.rms <= .003f
             }) return ComparisonZoneKind.SILENT_PADDING
+        // Normalized spectra can turn tiny decoder residuals into apparently different
+        // shapes. Require BOTH files to be consistently very quiet across at least
+        // two edge frames. Keep the zone inspectable and explicitly uncertain.
+        if (boundary && section.size >= 2) {
+            val firstPeak = (first.maxOfOrNull { it.rms } ?: 0f).coerceAtLeast(1e-6f)
+            val secondPeak = (second.maxOfOrNull { it.rms } ?: 0f).coerceAtLeast(1e-6f)
+            fun quiet(frame: ComparisonFrame, peak: Float) =
+                frame.rms.isFinite() && frame.rms <= .00075f && frame.rms <= peak * .006f
+            val lowOnBoth = section.all { column ->
+                (column.first == null || quiet(first[column.first], firstPeak)) &&
+                    (column.second == null || quiet(second[column.second], secondPeak))
+            }
+            if (lowOnBoth) return ComparisonZoneKind.QUIET_EDGE_UNCERTAIN
+        }
         return when {
             extra -> ComparisonZoneKind.EXTRA_IN_VERSION
             missing -> ComparisonZoneKind.MISSING_IN_VERSION
