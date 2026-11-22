@@ -128,7 +128,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }
     var history by remember{mutableStateOf(emptyList<DuplicateSession>(),referentialEqualityPolicy())}
     var storedPartial by remember{mutableStateOf<DuplicateSession?>(null,referentialEqualityPolicy())}
-    var filter by remember{mutableStateOf<DuplicateKind?>(null)}
+    var filter by rememberSaveable{mutableStateOf<DuplicateKind?>(null)}
+    var expandedGroupKey by rememberSaveable { mutableStateOf<String?>(null) }
     var comparing by remember{mutableStateOf<DuplicateGroup?>(null)}
     // Do not inflate all acoustic reports merely because this route was opened.
     LaunchedEffect(journal,background.running,privacyRevision) {
@@ -334,7 +335,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     // Starting a new scan belongs to the explicit mode controls below.
                 }
                 if (scanning) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Column((if(background.running&&partial!=null) Modifier.fillMaxWidth().heightIn(max=220.dp) else Modifier.weight(1f).fillMaxWidth()).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
                     if(!background.running) {
                         quickSummary?.let{ DuplicateSavedSummaryPanel(it,null) }
                         if(restoringSaved || scanRevision==0) {
@@ -359,7 +360,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     if(background.running&&partial!=null)PreliminaryMusicGroups(partial.groups,exactBytes(partial.groups),previewRows,
                         Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
                 } else if (displayPrevious != null) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
                     val saved = displayPrevious
                     val savedBytes = remember(DuplicateReferenceKey(saved)) {
                         saved.result.groups.sumOf { g -> g.tracks.filter { it.id in saved.selected }.sumOf { it.bytes.coerceAtLeast(0L) } }
@@ -379,10 +380,14 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                     }
                 } else {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                    val controlsMaxHeight=if(result==null) maxHeight else maxHeight*.48f
+                    Column(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxWidth().heightIn(max=controlsMaxHeight).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+                    val fileCount = remember(DuplicateReferenceKey(result),privacyRevision) { groups.sumOf{it.tracks.size} }
                     Text(if(showingPartial)
-                        "Предварительный · ${groups.size} групп · ${groups.sumOf{it.tracks.size}} файлов"
-                        else "Групп: ${groups.size} · файлов: ${groups.sumOf{it.tracks.size}}",
+                        "Предварительный · ${groups.size} групп · $fileCount файлов"
+                        else "Групп: ${groups.size} · файлов: $fileCount",
                         style = MaterialTheme.typography.bodyMedium)
                     if(result!=null) TextButton({scanControlsExpanded=!scanControlsExpanded},
                         modifier=Modifier.testTag("duplicate-toggle-search-controls")) {
@@ -406,14 +411,15 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     if(result==null||scanControlsExpanded) MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
                     Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
                         FilterChip(filter==null,{filter=null},{Text("Все")})
-                        DuplicateKind.entries.forEach{k->FilterChip(filter==k,{filter=k},{Text(when(k){DuplicateKind.EXACT->"Точные";DuplicateKind.ACOUSTIC->"Акустика";DuplicateKind.POSSIBLE->"Версии"})})}
+                        val counts=remember(DuplicateReferenceKey(result),privacyRevision){groups.groupingBy{it.kind}.eachCount()}
+                        DuplicateKind.entries.forEach{k->FilterChip(filter==k,{filter=k},{Text(when(k){DuplicateKind.EXACT->"Точные";DuplicateKind.ACOUSTIC->"Акустика";DuplicateKind.POSSIBLE->"Версии"}+" · "+(counts[k]?:0))})}
                     }
                     result?.let{r->Text(if(r.expanded)"Режим: расширенный" else "Режим: быстрый",style=MaterialTheme.typography.labelMedium)
                         if(r.acousticUnavailable>0)Text("Без акустического отпечатка: ${r.acousticUnavailable}. Точные совпадения сохранены.",style=MaterialTheme.typography.bodySmall)}
                     if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     previewError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (result!=null && groups.isEmpty() && error == null && !unfinished) Text("Совпадений не найдено", Modifier.padding(vertical = 24.dp))
-                    if (groups.any { it.kind != DuplicateKind.EXACT }) Text("Акустические и возможные совпадения выбирайте вручную после прослушивания.", style = MaterialTheme.typography.bodySmall)
+                    if (groups.any { it.kind != DuplicateKind.EXACT } && filter!=DuplicateKind.EXACT) Text("Разные версии проверяйте прослушиванием.", style = MaterialTheme.typography.labelSmall)
                     if (allSelected.isNotEmpty() || selected.isNotEmpty()) {
                         OutlinedButton({ selected = if (selected == allSelected || allSelected.isEmpty()) emptySet() else allSelected }, Modifier.fillMaxWidth(), enabled = !verifying&&!clearingJournal) { Text(if (selected == allSelected || allSelected.isEmpty()) "Снять выделение" else "Выделить точные") }
                     }
@@ -424,15 +430,27 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         items(visibleGroups, key = { it.key }) { group ->
                             val keep = kept[group.key] ?: MusicDuplicatePolicy.recommended(group)
                             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp)) {
-                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(group.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                    Text("${MusicDuplicatePolicy.shortReason(group)} · ${RussianCounts.files(group.tracks.size)}", style = MaterialTheme.typography.bodySmall, color = musicPlaybackAccent)
-                                    TextButton({comparing=group}){Text("Сравнить записи")}
-                                    group.tracks.forEach { t ->
+                                Column(Modifier.padding(horizontal=10.dp,vertical=6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    val expanded=expandedGroupKey==group.key
+                                    Row(Modifier.fillMaxWidth().heightIn(min=56.dp)
+                                        .testTag("duplicate-group-${group.key}").clickable {
+                                            expandedGroupKey=if(expanded)null else group.key
+                                        },verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                                        Icon(Icons.Rounded.MusicNote,null,Modifier.size(24.dp),tint=musicPlaybackAccent)
+                                        Column(Modifier.weight(1f)){
+                                            Text(group.title,style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                            Text("${MusicDuplicatePolicy.shortReason(group)} · ${RussianCounts.files(group.tracks.size)}",
+                                                style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Выбрано: ${group.tracks.count{it.id in selected}}",style=MaterialTheme.typography.labelSmall,color=musicPlaybackAccent)
+                                        }
+                                        Icon(if(expanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(expanded)"Свернуть" else "Развернуть")
+                                    }
+                                    TextButton({comparing=group},enabled=!verifying&&!clearingJournal){Text("Сравнить записи")}
+                                    if(expanded) group.tracks.forEach { t ->
                                         HorizontalDivider()
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             IconButton({ play(t) }, enabled = !verifying) { Icon(if (previewId == t.id && previewPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Прослушать ${t.filename}") }
-                                            DownloadThumbnail(t.uri,null,MediaKind.AUDIO,Modifier.size(44.dp))
+                                            DownloadThumbnail(t.uri,null,MediaKind.AUDIO,Modifier.size(36.dp))
                                             Column(Modifier.weight(1f).padding(start=8.dp)) {
                                                 Text(t.title, fontWeight = FontWeight.Medium,maxLines=2,overflow=TextOverflow.Ellipsis)
                                                 Text(displayFileName(t.filename,MediaKind.AUDIO),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -442,10 +460,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                                 if (t.linked) Text("Есть связи библиотеки", style = MaterialTheme.typography.labelSmall, color = musicPlaybackAccent)
                                                 if(t.id !in selected)Text("Остаётся",color=musicPlaybackAccent,style=MaterialTheme.typography.labelLarge)
                                                 if(t.id!=keep||group.tracks.any{it.id!=t.id&&eligible(it)&&it.id !in selected})
-                                                    TextButton({keepVersion(group,t.id)},enabled=!verifying&&
-                                                        liveRows[t.id]?.let{it.savedUri==t.uri&&!it.hidden&&!it.isPrivate}==true,
-                                                        modifier=Modifier.heightIn(min=48.dp)){
-                                                        Text("Оставить эту версию",style=MaterialTheme.typography.labelMedium)
+                                                    TextButton({keepVersion(group,t.id)},enabled=!verifying&&!clearingJournal&&
+                                                        liveRows[t.id]?.let{it.savedUri==t.uri&&!it.hidden&&!it.isPrivate}==true){
+                                                        Text("Оставить",style=MaterialTheme.typography.labelMedium)
                                                     }
                                                 if(t.id==currentId)Text("Текущий трек",style=MaterialTheme.typography.labelSmall)
                                                 else if(!eligible(t))Text("Недоступен для корзины",style=MaterialTheme.typography.labelSmall)
@@ -472,6 +489,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                     MusicFastScroll(listState, emptyList(), Modifier.align(Alignment.CenterEnd),
                         tag = "duplicates-fast-scroll", description = "Быстрая прокрутка дубликатов")
+                    }
+                    }
                     }
                     if (groups.isNotEmpty()&&!clearingJournal) {
                         DuplicateResultsFooter(selected.size, android.text.format.Formatter.formatFileSize(context,size), verifying) { confirm = true }
