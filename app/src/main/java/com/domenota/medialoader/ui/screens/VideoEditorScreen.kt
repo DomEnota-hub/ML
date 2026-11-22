@@ -104,6 +104,7 @@ import androidx.media3.ui.PlayerView
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.data.editor.CropAspectPreset
 import com.domenota.medialoader.data.editor.CropFractions
+import com.domenota.medialoader.data.editor.MediaCropShape
 import com.domenota.medialoader.data.editor.VideoCropMath
 import com.domenota.medialoader.data.editor.VideoEditSpec
 import com.domenota.medialoader.data.editor.VideoEditor
@@ -299,6 +300,7 @@ private fun VideoEditorContent(
     val currentClip = project?.clips?.firstOrNull { it.id == selectedClipId }
     val crop = currentClip?.crop ?: CropFractions()
     val cropPreset = currentClip?.cropPreset ?: CropAspectPreset.FREE
+    val cropShape = currentClip?.cropShape ?: MediaCropShape.RECTANGLE
     val rotation = currentClip?.rotationDegrees ?: 0
     val mirrorHorizontal = currentClip?.mirrorHorizontal ?: false
     val mirrorVertical = currentClip?.mirrorVertical ?: false
@@ -316,10 +318,11 @@ private fun VideoEditorContent(
         updatedRotation: Int = rotation,
         updatedMirrorHorizontal: Boolean = mirrorHorizontal,
         updatedMirrorVertical: Boolean = mirrorVertical,
+    updatedShape: MediaCropShape = cropShape,
     ) {
         val draft = project ?: return
         project = draft.setGeometry(selectedClipId, updatedCrop, updatedPreset,
-            updatedRotation, updatedMirrorHorizontal, updatedMirrorVertical)
+            updatedRotation, updatedMirrorHorizontal, updatedMirrorVertical, updatedShape)
     }
 
     fun applyProject(
@@ -605,8 +608,10 @@ private fun VideoEditorContent(
     }
     val canvasClip = project?.clips?.firstOrNull()
     val canvasInfo = firstClipInfo ?: info
-    val naturalCanvasWidth = ((canvasInfo?.width ?: 16) * (canvasClip?.crop?.keptWidth ?: 1f)).coerceAtLeast(1f)
-    val naturalCanvasHeight = ((canvasInfo?.height ?: 9) * (canvasClip?.crop?.keptHeight ?: 1f)).coerceAtLeast(1f)
+    val canvasCropWidth = if (canvasClip?.cropShape == MediaCropShape.CIRCLE) 1f else canvasClip?.crop?.keptWidth ?: 1f
+    val canvasCropHeight = if (canvasClip?.cropShape == MediaCropShape.CIRCLE) 1f else canvasClip?.crop?.keptHeight ?: 1f
+    val naturalCanvasWidth = ((canvasInfo?.width ?: 16) * canvasCropWidth).coerceAtLeast(1f)
+    val naturalCanvasHeight = ((canvasInfo?.height ?: 9) * canvasCropHeight).coerceAtLeast(1f)
     val naturalCanvasRatio = if ((canvasClip?.rotationDegrees ?: 0) % 180 == 0)
         naturalCanvasWidth / naturalCanvasHeight else naturalCanvasHeight / naturalCanvasWidth
     val previewCanvasRatio = if (selectedTool == VideoWorkspaceTool.CROP) null
@@ -614,6 +619,7 @@ private fun VideoEditorContent(
     val textPreviewSpec = VideoEditSpec(startMs = currentClip?.inMs ?: 0L,
         cropLeft = previewCrop.left, cropRight = previewCrop.right,
         cropTop = previewCrop.top, cropBottom = previewCrop.bottom,
+        cropShape = if (selectedTool == VideoWorkspaceTool.CROP) MediaCropShape.RECTANGLE else cropShape,
         rotationDegrees = rotation,
         mirrorHorizontal = mirrorHorizontal, mirrorVertical = mirrorVertical,
         color = clipColor,
@@ -862,9 +868,9 @@ private fun VideoEditorContent(
                 val previewDimensions = selectedPreviewInfo ?: info
                 val showEditedFrame = selectedTool != VideoWorkspaceTool.CROP
                 val w = ((previewDimensions?.width ?: 16) *
-                    if (showEditedFrame) crop.keptWidth else 1f).roundToInt().coerceAtLeast(1)
+                    if (showEditedFrame && cropShape != MediaCropShape.CIRCLE) crop.keptWidth else 1f).roundToInt().coerceAtLeast(1)
                 val h = ((previewDimensions?.height ?: 9) *
-                    if (showEditedFrame) crop.keptHeight else 1f).roundToInt().coerceAtLeast(1)
+                    if (showEditedFrame && cropShape != MediaCropShape.CIRCLE) crop.keptHeight else 1f).roundToInt().coerceAtLeast(1)
                 val isRotated = rotation % 180 != 0
                 val naturalWidth = if (isRotated) h else w
                 val naturalHeight = if (isRotated) w else h
@@ -880,6 +886,7 @@ private fun VideoEditorContent(
                     sourceHeight = if (isRotated) w else h,
                     crop = crop,
                     cropPreset = cropPreset,
+                    cropShape = cropShape,
                     onCropChange = { updateSelectedGeometry(updatedCrop = it) },
                     showCropFrame = selectedTool == VideoWorkspaceTool.CROP,
                     selectedTextLayer = previewTextLayers.firstOrNull { it.id == selectedOverlayId && it.visibleAt(playheadMs) }
@@ -1231,7 +1238,9 @@ private fun VideoEditorContent(
                         VideoWorkspaceTool.CROP -> {
             Text("Кадрирование", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Потяни сторону или угол рамки. Затемнённая область будет удалена.",
+                if (cropShape == MediaCropShape.CIRCLE)
+                    "Перемещай рамку круга. За пределами круга будет чёрный фон, размер видео сохранится."
+                else "Потяни сторону или угол рамки. Затемнённая область будет удалена.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1250,21 +1259,36 @@ private fun VideoEditorContent(
                                 if (dimensions != null && preset != CropAspectPreset.FREE)
                                     VideoCropMath.centerCrop(dimensions.width, dimensions.height, preset)
                                 else if (preset == CropAspectPreset.FREE) crop else CropFractions()
-                            updateSelectedGeometry(updatedPreset = preset, updatedCrop = updatedCrop)
+                            updateSelectedGeometry(updatedPreset = preset, updatedCrop = updatedCrop,
+                                updatedShape = MediaCropShape.RECTANGLE)
                         },
                         label = { Text(preset.label) },
                     )
                 }
+                FilterChip(
+                    selected = cropShape == MediaCropShape.CIRCLE,
+                    onClick = {
+                        val mediaDimensions = selectedPreviewInfo ?: info
+                        val circleBounds = mediaDimensions?.let {
+                            VideoCropMath.centerCrop(it.width, it.height, CropAspectPreset.RATIO_1_1)
+                        } ?: CropFractions()
+                        updateSelectedGeometry(updatedCrop = circleBounds,
+                            updatedPreset = CropAspectPreset.RATIO_1_1,
+                            updatedShape = MediaCropShape.CIRCLE)
+                    },
+                    label = { Text("Круг") },
+                )
             }
 
             val dimensions = selectedPreviewInfo ?: info
             if (dimensions != null) {
                 Spacer(Modifier.height(10.dp))
-                val outputWidth = (dimensions.width * crop.keptWidth).roundToInt().coerceAtLeast(1)
-                val outputHeight = (dimensions.height * crop.keptHeight).roundToInt().coerceAtLeast(1)
+                val outputWidth = (dimensions.width * if (cropShape == MediaCropShape.CIRCLE) 1f else crop.keptWidth).roundToInt().coerceAtLeast(1)
+                val outputHeight = (dimensions.height * if (cropShape == MediaCropShape.CIRCLE) 1f else crop.keptHeight).roundToInt().coerceAtLeast(1)
                 val rotated = rotation % 180 != 0
                 Text(
-                    "Итог: ${if (rotated) outputHeight else outputWidth} × " +
+                    (if (cropShape == MediaCropShape.CIRCLE) "Круг на чёрном фоне · " else "Итог: ") +
+                        "${if (rotated) outputHeight else outputWidth} × " +
                         "${if (rotated) outputWidth else outputHeight} px",
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -1361,8 +1385,8 @@ private fun VideoEditorContent(
                                 settings = exportSettings,
                                 sourceWidth = firstClipInfo?.width,
                                 sourceHeight = firstClipInfo?.height,
-                                cropWidth = base?.crop?.keptWidth ?: 1f,
-                                cropHeight = base?.crop?.keptHeight ?: 1f,
+                                cropWidth = if (base?.cropShape == MediaCropShape.CIRCLE) 1f else base?.crop?.keptWidth ?: 1f,
+                                cropHeight = if (base?.cropShape == MediaCropShape.CIRCLE) 1f else base?.crop?.keptHeight ?: 1f,
                                 rotationDegrees = base?.rotationDegrees ?: 0,
                                 estimatedFrameRate = firstClipInfo?.frameDurationMs
                                     ?.takeIf { it > 0 }?.let { (1000L / it).toInt() } ?: 30,
@@ -1790,6 +1814,7 @@ private fun CropVideoPreview(
     sourceHeight: Int,
     crop: CropFractions,
     cropPreset: CropAspectPreset,
+    cropShape: MediaCropShape = MediaCropShape.RECTANGLE,
     onCropChange: (CropFractions) -> Unit,
     showCropFrame: Boolean = true,
     selectedTextLayer: TextLayer? = null,
@@ -1829,6 +1854,7 @@ private fun CropVideoPreview(
             sourceWidth = sourceWidth,
             sourceHeight = sourceHeight,
             preset = cropPreset,
+            shape = cropShape,
             onCropChange = onCropChange,
             modifier = Modifier.fillMaxSize(),
         )
