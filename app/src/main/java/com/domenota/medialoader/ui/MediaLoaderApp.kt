@@ -3453,9 +3453,15 @@ fun MediaLoaderApp(
                 val knownBlocked = downloadId != null &&
                     (downloadId in libraryPrivateKeys.orEmpty() ||
                         downloadId in visibilityBlocked || downloadId in archiveBlocked)
+                // Gallery scans are intentionally silent in the normal
+                // library index, so projection.ready alone cannot prove a
+                // missing video has permanently disappeared. This signal is
+                // admission-only and does not restart the index or player.
+                val galleryIndexBusy by libraryModel.galleryScanInProgress.collectAsStateWithLifecycle()
                 val catalogReady = publicProjectionGuard != null &&
                     indexedLibraryProjection.ready && libraryAliasProjection.ready &&
-                    !awaitingPhone(downloadId)
+                    !awaitingPhone(downloadId) &&
+                    !galleryIndexBusy && !phoneGallery.loading
                 val admission = VideoEditorRouteAdmissionPolicy.decide(
                     authorizedVideoAvailable = item != null,
                     explicitlyDenied = knownBlocked,
