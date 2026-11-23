@@ -40,7 +40,7 @@ internal object AudioContinuousDifference {
     private const val MIN_CORRELATION = .90
     private const val MIN_RMS = .01
     private const val RELATIVE_THRESHOLD = 2.10
-    private const val ABSOLUTE_THRESHOLD = .20
+    private const val ABSOLUTE_THRESHOLD = .35
     private data class Segment(val startFirst: Int, val endFirst: Int, val deltaFrames: Int)
     private data class Point(val sample: Int, val value: Double, val rms: Double, val segment: Int)
 
