@@ -419,7 +419,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                     if(scanControlsExpanded) {
                         MusicScanModeControls(expandedScan,{expandedScan=it},unfinished,unfinishedExpanded,
-                            { if(unfinished&&expandedScan==unfinishedExpanded)resume() else startSelected() },!verifying&&!clearingJournal)
+                            { if(shouldResumeMusicScan(unfinished,expandedScan,unfinishedExpanded))resume() else startSelected() },!verifying&&!clearingJournal)
                         MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
                     }
                     }
@@ -458,7 +458,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                     if(result==null||scanControlsExpanded)
                         MusicScanModeControls(expandedScan,{expandedScan=it},unfinished,unfinishedExpanded,
-                            { if(unfinished&&expandedScan==unfinishedExpanded)resume() else startSelected() },!verifying&&!clearingJournal)
+                            { if(shouldResumeMusicScan(unfinished,expandedScan,unfinishedExpanded))resume() else startSelected() },!verifying&&!clearingJournal)
                     if(result==null&&partial!=null) {
                         Text("Сохранено групп: ${partial.groups.size}. Поиск можно продолжить отдельно.")
                         if (!background.running && storedPartial != null) Button(
