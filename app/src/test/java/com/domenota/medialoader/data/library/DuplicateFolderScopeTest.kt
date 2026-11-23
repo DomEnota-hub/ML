@@ -37,8 +37,11 @@ class DuplicateFolderScopeTest {
         assertEquals(2,DuplicateFolderScope.filter(all,null){it}.size)
         assertTrue(DuplicateFolderScope.filter(all,emptySet()){it}.isEmpty())
         assertEquals(listOf(a),DuplicateFolderScope.filter(all,setOf(key)){it})
-        assertEquals("Выборочно: 1 папок",DuplicateFolderScope.label(setOf(key)))
+        assertEquals("Выборочно: 1 папка",DuplicateFolderScope.label(setOf(key)))
         assertEquals("Все файлы",DuplicateFolderScope.label(null))
+        assertEquals("папки",DuplicateFolderScope.folderWord(2))
+        assertEquals("папок",DuplicateFolderScope.folderWord(11))
+        assertEquals("папка",DuplicateFolderScope.folderWord(21))
     }
 
     @Test fun sameNamedPhonePhotoAlbumsStaySeparateByBucketId(){
