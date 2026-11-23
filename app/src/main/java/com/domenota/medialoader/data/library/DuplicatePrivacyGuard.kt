@@ -53,6 +53,11 @@ internal object DuplicatePrivacyGuard {
             else state.revoke(id,identities)
             // Publish the block before any file I/O or expensive cache removal.
             publish(state)
+            com.domenota.medialoader.core.logging.AppLog.i(
+                "DuplicatePrivacy",
+                if (keepUnrelatedReports) "PRIVATE_MOVE · unrelated reports retained"
+                else "PRIVATE_MOVE · strict report invalidation",
+            )
             if (!keepUnrelatedReports) {
                 mutableChanges.value = state.generation
                 val target = file(context); val stream = target.startWrite()
