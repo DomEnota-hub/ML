@@ -82,10 +82,10 @@ internal fun DuplicateScanScopeDialog(
     }
     BackHandler { if (choosing) choosing = false else onDismiss() }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(
-        usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .imePadding().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ if (choosing) choosing = false else onDismiss() }) {
@@ -215,6 +215,9 @@ internal fun DuplicateScanScopeDialog(
                         }
                     }
                     HorizontalDivider()
+                    // This footer must fit inside the Dialog decor, not Android system
+                    // navigation. With decorFitsSystemWindows=true it remains above
+                    // three-button navigation even on Xiaomi's edge-to-edge firmware.
                     val countLabel = "${selected.size} ${DuplicateFolderScope.folderWord(selected.size)}"
                     val sizeLabel = selectedBytes?.let {
                         ", ${android.text.format.Formatter.formatShortFileSize(context, it)}"
@@ -223,7 +226,7 @@ internal fun DuplicateScanScopeDialog(
                         style = MaterialTheme.typography.bodyMedium)
                     Button({ onStart(selected.toSet()) },
                         enabled = selectedCount > 0,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("scope-start-selected")) {
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("scope-start-selected")) {
                         Text("Начать поиск")
                     }
                 }
