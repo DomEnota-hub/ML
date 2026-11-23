@@ -14,6 +14,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.library.DuplicateBackgroundScan.Outcome
 
+/** "Continue" is never a synonym for choosing a new scan scope. */
+internal fun shouldResumeMusicScan(unfinished:Boolean,selectedExpanded:Boolean,storedExpanded:Boolean):Boolean =
+    unfinished && selectedExpanded==storedExpanded
+
 internal fun musicScanModeName(expanded:Boolean)=if(expanded)"Расширенный поиск" else "Быстрый поиск"
 internal fun musicScanActionLabel(expanded:Boolean,unfinished:Boolean,unfinishedExpanded:Boolean):String =
     (if(unfinished&&expanded==unfinishedExpanded)"Продолжить " else "Запустить ")+musicScanModeName(expanded).lowercase()
