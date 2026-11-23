@@ -70,6 +70,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     var filter by remember{mutableStateOf<VisualMatch?>(null)}
     var preview by remember{mutableStateOf<Pair<VisualDuplicateGroup,String>?>(null)}
     var choosingScope by remember { mutableStateOf(false) }
+    var openedHistoryAt by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(journal,status.running,privacyEpoch){history=VisualDuplicateSessionStore.history(context);storedPartial=VisualDuplicateSessionStore.partial(context)}
     LaunchedEffect(privacyEpoch){preview=null;journal=false}
     val list=rememberLazyListState()
@@ -91,13 +92,13 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     val displayReady=reportReady&&phonePermission&&indexProjection.ready&&currentProjection.ready
     val latestCompletedAt=status.session?.scannedAt
     val verified=displayReady&&current!=null&&
-        (latestCompletedAt==null||current.scannedAt==latestCompletedAt)
+        (latestCompletedAt==null||current.scannedAt==latestCompletedAt||current.scannedAt==openedHistoryAt)
     val actionsReady=verified&&ready&&currentGeneration()
     // A background index rebuild must not erase the already verified screen. Never
     // borrow a previous report after another scan completes or privacy changes.
     val shown=if(verified)current else lastVerified?.takeIf{
         phonePermission&&loaded&&it.result.privacyEpoch==privacyEpoch&&
-            (latestCompletedAt==null||it.scannedAt==latestCompletedAt)
+            (latestCompletedAt==null||it.scannedAt==latestCompletedAt||it.scannedAt==openedHistoryAt)
     }
     val stopped=VisualDuplicateBackgroundScan.stopped(context)
     val latestSession by rememberUpdatedState(session)
@@ -107,6 +108,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     val liveGeneration by rememberUpdatedState(currentGeneration)
     fun startScan(keys: Set<String>? = null){
         if(latestReady && liveGeneration() && DuplicatePrivacyGuard.generation(context)==latestEpoch) {
+            openedHistoryAt=null
             val currentCatalog=latestCatalog
             if(currentCatalog.source==LibrarySource.PHONE && !com.domenota.medialoader.ui.hasPhoneLibraryAccess(context,AppMode.GALLERY))return
             val scanned=DuplicateFolderScope.filter(currentCatalog.scan,keys){it.item}
@@ -301,7 +303,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     }
     if(journal)DuplicateJournalDialog("Журнал Галереи",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size})},
         storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size} ,VisualDuplicateBackgroundScan.journalStatus(context))},
-        onOpen={at->journal=false;if(!status.running&&displayReady)history.firstOrNull{it.scannedAt==at}?.let{saved->scope.launch{val checked=withContext(Dispatchers.Default){saved.reconcileById(byId)};if(DuplicatePrivacyGuard.generation(context)==privacyEpoch){persist(checked);restored=false}}}},
+        onOpen={at->journal=false;if(!status.running&&displayReady)history.firstOrNull{it.scannedAt==at}?.let{saved->scope.launch{val checked=withContext(Dispatchers.Default){saved.reconcileById(byId)};if(DuplicatePrivacyGuard.generation(context)==privacyEpoch){openedHistoryAt=at;persist(checked);restored=false}}}},
         onResume={journal=false;if(!status.running)startScan(VisualDuplicateBackgroundScan.resumeScope(context))},onDismiss={journal=false},
         onPartial={journal=false;showPartial=true},resumeEnabled=!status.running&&ready&&phonePermission&&catalog.scan.isNotEmpty())
     if(choosingScope)com.domenota.medialoader.ui.components.DuplicateScanScopeDialog(
