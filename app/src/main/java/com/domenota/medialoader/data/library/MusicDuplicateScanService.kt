@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 internal object DuplicateBackgroundScan {
     const val OPEN_ACTION = "com.domenota.medialoader.OPEN_DUPLICATES"
     enum class Outcome(val stored:String){IDLE("idle"),RUNNING("running"),PAUSED("paused"),STOPPED("stopped"),COMPLETED("completed"),FAILED("failed"),INTERRUPTED("interrupted")}
-    data class Request(val token: Long, val rows: List<DownloadEntity>, val linked: Set<String>, val current: String?,val expanded:Boolean=false)
+    data class Request(val token: Long, val rows: List<DownloadEntity>, val linked: Set<String>, val current: String?,val expanded:Boolean=false, val scopeLabel:String="Все файлы")
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
         val session: DuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false,
         val phase:DuplicateScanPhase=DuplicateScanPhase.METADATA,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:DuplicateScanResult?=null,
@@ -64,14 +64,21 @@ internal object DuplicateBackgroundScan {
         mutable.value=Status(token=++nextToken);true
     }}
     fun resumeExpanded(context:Context)=prefs(context).getBoolean("expanded",false)
+    fun resumeScope(context:Context):Set<String>? {
+        val saved=prefs(context)
+        return if(saved.getBoolean("scopeAll",true))null
+            else saved.getStringSet("scopeKeys",emptySet())?.toSet() ?: emptySet()
+    }
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
-    @Synchronized fun start(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?,expanded:Boolean=false) {
+    @Synchronized fun start(context: Context, rows: List<DownloadEntity>, linked: Set<String>, current: String?,expanded:Boolean=false,scopeKeys:Set<String>?=null) {
         if (mutable.value.running) return
         val token = ++nextToken
-        pending = Request(token,rows.toList(),linked.toSet(),current,expanded)
+        pending = Request(token,rows.toList(),linked.toSet(),current,expanded,DuplicateFolderScope.label(scopeKeys))
         val now=android.os.SystemClock.elapsedRealtime()
         mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now,outcome=Outcome.RUNNING,expanded=expanded)
-        prefs(context).edit().putBoolean("expanded",expanded).apply()
+        prefs(context).edit().putBoolean("expanded",expanded)
+            .putBoolean("scopeAll",scopeKeys==null)
+            .putStringSet("scopeKeys",scopeKeys?.toSet() ?: emptySet()).apply()
         prefs(context).edit().putString("journalStatus","running").apply()
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,MusicDuplicateScanService::class.java)) }
@@ -180,8 +187,9 @@ class MusicDuplicateScanService : Service() {
                 }
                 val result = MusicDuplicateScanner.scan(this@MusicDuplicateScanService,request.rows,request.linked,request.current,request.expanded,
                     onPhase={renewWakeLock();DuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
-                        DuplicateBackgroundScan.partial(scanToken,partial)
-                        MusicDuplicateSessionStore.savePartial(this@MusicDuplicateScanService,DuplicateSession(partial,emptySet(),emptyMap(),0,0,scanAt))
+                        val scoped=partial.copy(scopeLabel=request.scopeLabel)
+                        DuplicateBackgroundScan.partial(scanToken,scoped)
+                        MusicDuplicateSessionStore.savePartial(this@MusicDuplicateScanService,DuplicateSession(scoped,emptySet(),emptyMap(),0,0,scanAt))
                     }) { done,total ->
                     DuplicateBackgroundScan.progress(scanToken,done,total)
                     renewWakeLock()
@@ -193,7 +201,8 @@ class MusicDuplicateScanService : Service() {
                 }
                 ensureActive()
                 if (!DuplicateBackgroundScan.beginCommit(scanToken)) return@launch
-                val session = DuplicateSession(result,emptySet(),result.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) },0,0,scanAt)
+                val scopedResult=result.copy(scopeLabel=request.scopeLabel)
+                val session = DuplicateSession(scopedResult,emptySet(),result.groups.associate { it.key to MusicDuplicatePolicy.recommended(it) },0,0,scanAt)
                 check(MusicDuplicateSessionStore.save(this@MusicDuplicateScanService,session)) { "Не удалось сохранить поиск" }
                 synchronized(DuplicatePrivacyGuard.lock){
                     DuplicateReportJournal.clearPartial(this@MusicDuplicateScanService,"music")
