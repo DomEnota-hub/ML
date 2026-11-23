@@ -5151,6 +5151,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.MusicPairResultCacheTest#changingFileOrEpochOrDirectionProducesCacheMiss": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MusicPairResultCacheTest#completedComparisonSurvivesNewReadWithoutRecalculation": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MusicPairResultCacheTest#corruptDiskAndWrongFrameShapeFailClosed": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MusicPairResultCacheTest#rejectsInvalidColumnsAndNonConfirmedRegions": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MusicPairResultCacheTest#revocationRemovesSavedResult": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.PhoneLibraryCacheTest#coldViewModelPublishesDiskListBeforeBlockedBackgroundScanAndThenReconciles": {
     "skipped": false,
     "failed": false
@@ -9436,6 +9456,14 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.music.MusicScanModeControlsTest#changingModeDoesNotStartAndPauseIsNotFailure": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.MusicScanModeControlsTest#resultGroupsUseCorrectRussianGrammaticalForm": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.MusicScanModeControlsTest#savedMatchingModeAlwaysContinuesInsteadOfOpeningScopePicker": {
     "skipped": false,
     "failed": false
   },
