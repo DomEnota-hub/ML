@@ -168,14 +168,20 @@ internal object MusicDuplicateScanner {
         return next
     }
     suspend fun scan(context: Context, rows: List<DownloadEntity>, linkedIds: Set<String>, currentId: String?,expanded:Boolean=false,
-        onPhase:(DuplicateScanPhase)->Unit={},onPartial:(DuplicateScanResult)->Unit={}, progress: (Int,Int) -> Unit): DuplicateScanResult = withContext(Dispatchers.IO) {
+        isScoped:Boolean=false, onPhase:(DuplicateScanPhase)->Unit={},onPartial:(DuplicateScanResult)->Unit={}, progress: (Int,Int) -> Unit): DuplicateScanResult = withContext(Dispatchers.IO) {
         val epoch = DuplicatePrivacyGuard.generation(context)
         val usable = rows.filter { !it.hidden && !it.isPrivate && it.state == DownloadState.COMPLETED && it.mediaType == MediaType.AUDIO && !it.savedUri.isNullOrBlank() }.distinctBy { it.id }
         val publicUris = usable.mapNotNull { it.savedUri }.toSet()
-        synchronized(cache) { cache.keys.retainAll(publicUris.flatMap{listOf(it+"#full",it+"#sampled")}.toSet()) }
+        // A selective folder scan is NOT the whole public library. Never evict
+        // other folders' valid fingerprints simply because they were not selected.
+        // Epoch/stamp identity remains checked on each reuse and privacy revocation
+        // still clears all caches.
+        if(!isScoped) {
+            synchronized(cache) { cache.keys.retainAll(publicUris.flatMap{listOf(it+"#full",it+"#sampled")}.toSet()) }
+            val permittedKeys = publicUris.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } + ".json" }.toSet()
+            cacheDirectory(context,expanded).listFiles().orEmpty().filter { it.name !in permittedKeys }.forEach { it.delete() }
+        }
         File(context.noBackupFilesDir,"duplicate-scan-cache-v1").deleteRecursively()
-        val permittedKeys = publicUris.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } + ".json" }.toSet()
-        cacheDirectory(context,expanded).listFiles().orEmpty().filter { it.name !in permittedKeys }.forEach { it.delete() }
         val metrics=DuplicateScanMetrics("music")
         val seen = mutableSetOf<String>(); val tracks = mutableListOf<DuplicateTrack>(); var skipped = 0
         // Keep a bounded disk cache; it is never trusted for deletion.
