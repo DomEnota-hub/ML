@@ -8,6 +8,14 @@ internal class DuplicatePrivacyEpoch(initial: Long = 0) {
     fun accepts(epoch: Long, id: String, identities: Set<String> = emptySet()) = epoch == generation && id !in blocked &&
         blocked.values.none { aliases -> identities.any { it in aliases } }
     fun revoke(id: String, identities: Set<String> = emptySet()) { generation++; blocked[id] = identities.toSet() }
+    /** Used ONLY after all persistent and live duplicate references are proven unrelated.
+     * Block this identity immediately without invalidating an independent report.
+     * An uncertain or active scan must always use revoke() instead.
+     */
+    fun revokeUnrelated(id: String, identities: Set<String>) {
+        require(id.isNotBlank() && identities.isNotEmpty())
+        blocked[id] = identities.toSet()
+    }
     fun restored(id: String) { blocked.remove(id) }
     fun blockedKeys(): Set<String> = blocked.keys + blocked.values.flatten()
     fun blockedIdsSnapshot(): Set<String> = blocked.keys.toSet()

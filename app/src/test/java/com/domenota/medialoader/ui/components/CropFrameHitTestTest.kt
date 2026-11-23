@@ -42,4 +42,46 @@ class CropFrameHitTestTest {
             touch, crop, rect, edgeHitRadius = 32f, cornerHitRadius = 76f,
             preferNearest = true))
     }
+    @Test fun videoCircleMovesFromInteriorButKeepsOuterRingForResize() {
+        val rect = Rect(0f, 0f, 500f, 300f)
+        val crop = CropFractions(left = .2f, right = .2f, top = .1f, bottom = .1f)
+        org.junit.Assert.assertTrue(isInsideCircleCropMoveZone(
+            Offset(250f, 150f), crop, rect, 22f))
+        org.junit.Assert.assertFalse(isInsideCircleCropMoveZone(
+            Offset(250f, 45f), crop, rect, 22f))
+        org.junit.Assert.assertFalse(isInsideCircleCropMoveZone(
+            Offset(100f, 30f), crop, rect, 22f))
+        org.junit.Assert.assertFalse(isInsideCircleCropMoveZone(
+            Offset(800f, 900f), crop, rect, 22f))
+    }
+
+    @Test fun smallVideoCircleStillHasDraggableCenterDespiteLargeCornerTargets() {
+        val rect = Rect(0f, 0f, 120f, 120f)
+        val crop = CropFractions(left = .4f, right = .4f, top = .4f, bottom = .4f)
+        org.junit.Assert.assertTrue(isInsideCircleCropMoveZone(
+            Offset(60f, 60f), crop, rect, 22f))
+        org.junit.Assert.assertFalse(isInsideCircleCropMoveZone(
+            Offset(71f, 60f), crop, rect, 22f))
+    }
+
+
+    @Test fun photoLeftCornersCaptureFromInsideWithoutShrinkingRightTargets() {
+        val rect = Rect(0f, 0f, 500f, 400f)
+        val crop = CropFractions(left = .05f, right = .05f, top = .05f, bottom = .05f)
+        val leftTop = priorityPhotoCropCorner(Offset(78f, 28f), crop, rect, 68f, 54f)
+        val leftBottom = priorityPhotoCropCorner(Offset(78f, 372f), crop, rect, 68f, 54f)
+        val rightTop = priorityPhotoCropCorner(Offset(435f, 28f), crop, rect, 68f, 54f)
+        val rightBottom = priorityPhotoCropCorner(Offset(435f, 372f), crop, rect, 68f, 54f)
+        assertEquals(VideoCropHandle.TOP_LEFT, leftTop)
+        assertEquals(VideoCropHandle.BOTTOM_LEFT, leftBottom)
+        assertEquals(VideoCropHandle.TOP_RIGHT, rightTop)
+        assertEquals(VideoCropHandle.BOTTOM_RIGHT, rightBottom)
+    }
+
+    @Test fun photoCenterRemainsMovableEvenWhenCornerTargetsGrow() {
+        val rect = Rect(0f, 0f, 160f, 160f)
+        val crop = CropFractions(left = .2f, right = .2f, top = .2f, bottom = .2f)
+        assertEquals(null, priorityPhotoCropCorner(Offset(80f, 80f), crop, rect, 68f, 54f))
+        org.junit.Assert.assertTrue(isInsideCropMoveZone(Offset(80f, 80f), crop, rect, 22f))
+    }
 }

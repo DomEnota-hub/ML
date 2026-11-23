@@ -145,6 +145,8 @@ import com.domenota.medialoader.ui.navigation.PREVIEW_ROUTE
 import com.domenota.medialoader.ui.navigation.BULK_ROUTE
 import com.domenota.medialoader.ui.navigation.MEDIA_VIEWER_ROUTE
 import com.domenota.medialoader.ui.navigation.VIDEO_EDITOR_ROUTE
+import com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmission
+import com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicy
 import com.domenota.medialoader.ui.navigation.AUDIO_EDITOR_ROUTE
 import com.domenota.medialoader.ui.navigation.PHOTO_EDITOR_ROUTE
 import com.domenota.medialoader.ui.screens.DownloadsScreen
@@ -3432,12 +3434,68 @@ fun MediaLoaderApp(
             },
             LibraryRouteContent(VIDEO_EDITOR_ROUTE) { entry ->
                 val downloadId = entry.arguments?.getString("downloadId")
-                val item = accessibleDownloads.firstOrNull { it.id == downloadId }
-                if (item == null || item.savedUri == null || item.mediaType != MediaType.VIDEO) {
-                    if (awaitingPhone(downloadId)) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    else LaunchedEffect(downloadId) { navController.popBackStack() }
+                val candidate = accessibleDownloads.firstOrNull { it.id == downloadId }
+                // A stale public projection must not overrule the live privacy
+                // identity guard. A separately unlocked private row remains
+                // allowed through the existing secure editor flow.
+                val knownBlocked = downloadId != null &&
+                    (downloadId in libraryPrivateKeys.orEmpty() ||
+                        downloadId in visibilityBlocked || downloadId in archiveBlocked) &&
+                    !(candidate?.isPrivate == true && privateState.unlocked)
+                val item = candidate?.takeIf {
+                    !knownBlocked && it.savedUri != null && it.mediaType == MediaType.VIDEO &&
+                        (if (it.isPrivate) privateState.unlocked else publicProjectionGuard != null)
+                }
+                // Projections can go temporarily empty while MediaStore is
+                // rebuilding after a privacy change. Never render an unverified
+                // cached URI, but also never pop the editor on one empty frame.
+                var missingForMs by remember(entry.id, downloadId) { mutableIntStateOf(0) }
+                LaunchedEffect(entry.id, downloadId, item != null) {
+                    missingForMs = 0
+                    if (item == null) {
+                        delay(VideoEditorRouteAdmissionPolicy.MIN_WAIT_MS)
+                        missingForMs = VideoEditorRouteAdmissionPolicy.MIN_WAIT_MS.toInt()
+                        delay(VideoEditorRouteAdmissionPolicy.MAX_WAIT_MS -
+                            VideoEditorRouteAdmissionPolicy.MIN_WAIT_MS)
+                        missingForMs = VideoEditorRouteAdmissionPolicy.MAX_WAIT_MS.toInt()
+                    }
+                }
+                // Gallery scans are intentionally silent in the normal
+                // library index, so projection.ready alone cannot prove a
+                // missing video has permanently disappeared. This signal is
+                // admission-only and does not restart the index or player.
+                val galleryIndexBusy by libraryModel.galleryScanInProgress.collectAsStateWithLifecycle()
+                val catalogReady = publicProjectionGuard != null &&
+                    indexedLibraryProjection.ready && libraryAliasProjection.ready &&
+                    !awaitingPhone(downloadId) &&
+                    !galleryIndexBusy && !phoneGallery.loading
+                val admission = VideoEditorRouteAdmissionPolicy.decide(
+                    authorizedVideoAvailable = item != null,
+                    explicitlyDenied = knownBlocked,
+                    publicCatalogReady = catalogReady,
+                    elapsedMs = missingForMs.toLong(),
+                )
+                if (admission != VideoEditorRouteAdmission.OPEN || item == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                    if (admission == VideoEditorRouteAdmission.EXIT) {
+                        LaunchedEffect(entry.id, downloadId, admission) {
+                            // An old asynchronous admission must not pop the
+                            // viewer or another editor after navigation changed.
+                            if (navController.currentBackStackEntry?.id == entry.id) {
+                                AppLog.w("VideoEditorNav",
+                                    "EDITOR_ENTRY_UNAVAILABLE afterMs=$missingForMs" +
+                                        " catalogReady=$catalogReady blocked=$knownBlocked")
+                                navController.popBackStack()
+                            }
+                        }
+                    }
                 } else {
-                    LaunchedEffect(item.id) { viewModel.clearEditorMessage() }
+                    LaunchedEffect(entry.id, item?.id) {
+                        AppLog.i("VideoEditorNav", "EDITOR_ENTRY_AUTHORIZED")
+                        viewModel.clearEditorMessage()
+                    }
                     VideoEditorScreen(
                         item = item,
                         exportState = editorExport,

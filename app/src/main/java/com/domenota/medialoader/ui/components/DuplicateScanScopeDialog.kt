@@ -81,12 +81,56 @@ internal fun DuplicateScanScopeDialog(
         if (chosen.all { it.sizeBytes != null }) chosen.sumOf { it.sizeBytes ?: 0L } else null
     }
     BackHandler { if (choosing) choosing = false else onDismiss() }
+    val countLabel = "${selected.size} ${DuplicateFolderScope.folderWord(selected.size)}"
+    val sizeLabel = selectedBytes?.let {
+        ", ${android.text.format.Formatter.formatShortFileSize(context, it)}"
+    } ?: ""
+    // The chooser owns its window insets. The parent route's Scaffold cannot
+    // protect a full-screen Dialog's controls on edge-to-edge Xiaomi devices.
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(
-        usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
+        usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
-                .imePadding().padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = MaterialTheme.colorScheme.background,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                bottomBar = {
+                    if (choosing) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 3.dp,
+                            shadowElevation = 8.dp,
+                        ) {
+                            // Independent Scaffold slot: scrolling 700+ folders
+                            // cannot push the button behind navigation or IME.
+                            Column(
+                                Modifier.fillMaxWidth()
+                                    .navigationBarsPadding()
+                                    .imePadding()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    .testTag("scope-fixed-footer"),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text("Выбрано: $countLabel, $selectedCount файлов$sizeLabel",
+                                    style = MaterialTheme.typography.bodyMedium)
+                                Button({ onStart(selected.toSet()) },
+                                    enabled = selectedCount > 0,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                                        .testTag("scope-start-selected")) {
+                                    Text("Начать поиск")
+                                }
+                            }
+                        }
+                    }
+                },
+            ) { layoutPadding ->
+                Column(
+                    Modifier.fillMaxSize()
+                        .padding(layoutPadding)
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ if (choosing) choosing = false else onDismiss() }) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад")
@@ -214,21 +258,7 @@ internal fun DuplicateScanScopeDialog(
                             HorizontalDivider()
                         }
                     }
-                    HorizontalDivider()
-                    // This footer must fit inside the Dialog decor, not Android system
-                    // navigation. With decorFitsSystemWindows=true it remains above
-                    // three-button navigation even on Xiaomi's edge-to-edge firmware.
-                    val countLabel = "${selected.size} ${DuplicateFolderScope.folderWord(selected.size)}"
-                    val sizeLabel = selectedBytes?.let {
-                        ", ${android.text.format.Formatter.formatShortFileSize(context, it)}"
-                    } ?: ""
-                    Text("Выбрано: $countLabel, $selectedCount файлов$sizeLabel",
-                        style = MaterialTheme.typography.bodyMedium)
-                    Button({ onStart(selected.toSet()) },
-                        enabled = selectedCount > 0,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("scope-start-selected")) {
-                        Text("Начать поиск")
-                    }
+                }
                 }
             }
         }

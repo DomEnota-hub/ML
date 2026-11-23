@@ -3899,6 +3899,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.editor.VideoCropMathTest#circleDragPreservesDiameterAndStopsAtSourceBorders": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.VideoCropMathTest#fixedRatio_cornerDrag_preservesAspectAndOppositeCorner": {
     "skipped": false,
     "failed": false
@@ -4915,6 +4919,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.DuplicatePrivacyRetentionTest#absentProofOrUnknownAliasesUseOriginalInvalidation": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicatePrivacyRetentionTest#movingUnrelatedFileKeepsCompletedPublicReportAvailable": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicatePrivacyRetentionTest#relatedUriAliasForcesFullInvalidation": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicatePrivacyRetentionTest#sameHistoryIdForcesFullInvalidationEvenWithDifferentUri": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicatePrivacyRetentionTest#unreadableReportContentFailsClosed": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.DuplicateProgressPolicyTest#etaNeedsMeasuredWork": {
     "skipped": false,
     "failed": false
@@ -5072,6 +5096,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.library.MusicDuplicateJournalClearTest#clearReportsKeepsPartialTrashVisualAndRejectsStaleSave": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MusicDuplicateJournalClearTest#deleteOneMusicReportPreservesOtherHistoryPartialAndMedia": {
     "skipped": false,
     "failed": false
   },
@@ -5372,6 +5400,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#coverageRoundTripAndLegacyReportCompatibility": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#deleteSingleGalleryReportNeverResurrectsFromLateSaveOrScroll": {
     "skipped": false,
     "failed": false
   },
@@ -7515,6 +7547,22 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.CropFrameHitTestTest#photoCenterRemainsMovableEvenWhenCornerTargetsGrow": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.CropFrameHitTestTest#photoLeftCornersCaptureFromInsideWithoutShrinkingRightTargets": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.CropFrameHitTestTest#smallVideoCircleStillHasDraggableCenterDespiteLargeCornerTargets": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.CropFrameHitTestTest#videoCircleMovesFromInteriorButKeepsOuterRingForResize": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.CropFrameHitTestTest#videoEditorRetainsLegacyCornerPreference": {
     "skipped": false,
     "failed": false
@@ -7543,7 +7591,27 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.DuplicateIssueCopyTest#generalSearchErrorRetainsTechnicalMeaning": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateIssueCopyTest#privacyChangeIsAnActionableWarningNotGlobalFailure": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateJournalDialogTest#deleteOneCompletedRowOnlyAfterConfirmation": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#filteredSelectAllDoesNotSelectHiddenSibling": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#footerStaysPinnedWhileScrollingManyNestedFolders": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#narrowShortWindowStillOffersSelectableFooter": {
     "skipped": false,
     "failed": false
   },
@@ -8084,6 +8152,26 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.navigation.StableLibraryNavHostTest#routeGraphSurvivesRootUpdatesAndContentRemainsFresh": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicyTest#indefinitelyMissingMediaMustNotLeaveAnUnusableEditorForever": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicyTest#knownBlockedPrivateOrArchivedMediaExitsImmediately": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicyTest#onlyCurrentlyAuthorizedRowCanOpenPlayer": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicyTest#rebuildingMediaStoreCanRecoverAfterNormalGracePeriod": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicyTest#transientMissingMediaMustNotPopEditorOnFirstFrame": {
     "skipped": false,
     "failed": false
   },
@@ -8952,6 +9040,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.VideoWorkspaceToolbarTest#sharedColorToolRespectsDirectCorrectionVsFilters": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.VideoWorkspaceToolbarTest#timelineClipTapPreservesEverySelectedEditingTool": {
     "skipped": false,
     "failed": false
   },

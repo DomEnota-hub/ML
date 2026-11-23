@@ -143,7 +143,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     }
     LaunchedEffect(status.session,loaded,trash) {
         if(loaded&&trash==null) status.session?.let { fresh ->
-            if(fresh.scannedAt!=session?.scannedAt){session=fresh;restored=false}
+            if(!VisualDuplicateSessionStore.isDeleted(context,fresh.scannedAt) &&
+                fresh.scannedAt!=session?.scannedAt){session=fresh;restored=false}
         }
     }
     LaunchedEffect(current,actionsReady,loaded,status.running,trash) {
@@ -169,6 +170,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }
     }
     fun persist(next:VisualDuplicateSession){
+        if(VisualDuplicateSessionStore.isDeleted(context,next.scannedAt))return
         session=next.normalized()
         saving=true
         scope.launch {
@@ -268,8 +270,9 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             else VisualDuplicateReadyPanel(canStart,canShow,{choosingScope=true},openResults,
                 hasPrevious=canShow || (sameScope&&VisualDuplicateBackgroundScan.interrupted(context)))
         }
-        status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+        listOfNotNull(status.error,error).distinct().forEach{message->
+            com.domenota.medialoader.ui.components.DuplicateIssueNotice(message)
+        }
         if(!loaded||!phonePermission)return@Column
         if(status.running&&partial!=null&&displayReady){
             Text("Предварительные результаты · удаление после завершения")
@@ -359,7 +362,28 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size} ,VisualDuplicateBackgroundScan.journalStatus(context))},
         onOpen={at->journal=false;if(!status.running&&displayReady)history.firstOrNull{it.scannedAt==at}?.let{saved->scope.launch{val checked=withContext(Dispatchers.Default){saved.reconcileById(byId)};if(DuplicatePrivacyGuard.generation(context)==privacyEpoch){openedHistoryAt=at;persist(checked);restored=false}}}},
         onResume={journal=false;if(!status.running)startScan(VisualDuplicateBackgroundScan.resumeScope(context))},onDismiss={journal=false},
-        onPartial={journal=false;showPartial=true},resumeEnabled=!status.running&&ready&&phonePermission&&catalog.scan.isNotEmpty())
+        onPartial={journal=false;showPartial=true},
+        resumeEnabled=!status.running&&ready&&phonePermission&&catalog.scan.isNotEmpty(),
+        onDelete={at->
+            if(!status.running&&!status.committing&&!saving&&trash==null){
+                saving=true
+                scope.launch {
+                    try {
+                        val ok=withContext(Dispatchers.IO){
+                            VisualDuplicateSessionStore.deleteCompleted(context,at)
+                        }
+                        if(ok){
+                            if(session?.scannedAt==at)session=null
+                            if(lastVerified?.scannedAt==at)lastVerified=null
+                            if(openedHistoryAt==at)openedHistoryAt=null
+                            history=VisualDuplicateSessionStore.history(context)
+                            // A partial checkpoint and its selection remain untouched.
+                        }else error="Не удалось удалить выбранный отчёт"
+                    }finally{saving=false}
+                }
+            }
+        },
+        deleteEnabled=!status.running&&!status.committing&&!saving&&trash==null)
     if(choosingScope)com.domenota.medialoader.ui.components.DuplicateScanScopeDialog(
         rows=catalog.scan.map{it.item},mediaLabel="Фото и видео",
         onDismiss={choosingScope=false},

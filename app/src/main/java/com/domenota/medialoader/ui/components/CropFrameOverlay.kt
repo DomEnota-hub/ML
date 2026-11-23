@@ -14,8 +14,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -45,7 +43,7 @@ fun CropFrameOverlay(
     showFrame: Boolean = true,
     onCompareOriginalChange: ((Boolean) -> Unit)? = null,
     onCropChangeFinished: () -> Unit = {},
-    /** Leave legacy touch behavior intact for the video editor. */
+    /** Photo-only precision handles; circle movement is enabled for video too. */
     precisePhotoHandles: Boolean = false,
     shape: MediaCropShape = MediaCropShape.RECTANGLE,
 ) {
@@ -57,21 +55,39 @@ fun CropFrameOverlay(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val edgeHitRadiusPx = with(density) { if (precisePhotoHandles) 32.dp.toPx() else 36.dp.toPx() }
-    val cornerHitRadiusPx = with(density) { if (precisePhotoHandles) 92.dp.toPx() else 64.dp.toPx() }
+    val cornerHitRadiusPx = with(density) { if (precisePhotoHandles) 108.dp.toPx() else 64.dp.toPx() }
+    val leftCornerPriorityPx = with(density) { 68.dp.toPx() }
+    val rightCornerPriorityPx = with(density) { 54.dp.toPx() }
 
     Canvas(
         modifier = modifier
             .onSizeChanged { containerSize = it }
-            .pointerInput(containerSize, sourceWidth, sourceHeight, edgeHitRadiusPx, cornerHitRadiusPx, precisePhotoHandles) {
+            .pointerInput(containerSize, sourceWidth, sourceHeight, edgeHitRadiusPx, cornerHitRadiusPx,
+                leftCornerPriorityPx, rightCornerPriorityPx, precisePhotoHandles, shape) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val imageRect = fittedImageRect(containerSize, sourceWidth, sourceHeight)
-                    // For photos, a finger in the inner portion moves the
-                    // entire selection. This must take priority over the
-                    // enlarged, invisible corner targets on smaller crops.
-                    val moveFrame = precisePhotoHandles && isInsideCropMoveZone(
-                        down.position, latestCrop, imageRect, with(density) { 22.dp.toPx() })
-                    val handle = if (moveFrame) null else hitTestCropHandle(
+                    // The center of a circular video crop drags the whole
+                    // selection. Keep its outer ring and corner targets for
+                    // resize, even when invisible targets overlap on a small crop.
+                    // Rectangular video crops retain their original gestures.
+                    val moveInset = with(density) { 22.dp.toPx() }
+                    // Near visible photo corners, grabbing the corner must win
+                    // over frame movement. A smaller core zone prevents the
+                    // enlarged invisible targets from swallowing small crops.
+                    val photoCorner = if (precisePhotoHandles)
+                        priorityPhotoCropCorner(
+                            down.position, latestCrop, imageRect,
+                            leftCornerPriorityPx, rightCornerPriorityPx)
+                    else null
+                    val moveFrame = photoCorner == null && when {
+                        shape == MediaCropShape.CIRCLE -> isInsideCircleCropMoveZone(
+                            down.position, latestCrop, imageRect, moveInset)
+                        precisePhotoHandles -> isInsideCropMoveZone(
+                            down.position, latestCrop, imageRect, moveInset)
+                        else -> false
+                    }
+                    val handle = photoCorner ?: if (moveFrame) null else hitTestCropHandle(
                         point = down.position,
                         crop = latestCrop,
                         imageRect = imageRect,
@@ -169,12 +185,8 @@ fun CropFrameOverlay(
             val radius=min(right-left,bottom-top)*.5f
             val cx=(left+right)*.5f
             val cy=(top+bottom)*.5f
-            val blackout=Path().apply {
-                fillType=PathFillType.EvenOdd
-                addRect(imageRect)
-                addOval(Rect(cx-radius,cy-radius,cx+radius,cy+radius))
-            }
-            drawPath(blackout,Color.Black)
+            // Editing preview must remain unobscured. The export renderer
+            // still applies the black outside-circle mask to output video.
             drawCircle(Color.White,radius,Offset(cx,cy),
                 style=Stroke(width=2.dp.toPx()))
         } else {
@@ -238,10 +250,30 @@ private fun fittedImageRect(
     return Rect(left, top, left + width, top + height)
 }
 
+/** Drag circle only from its interior; its boundary remains available to resize.
+ * Positions are computed in the fitted source image, not the whole preview.
+ * This is used for video and photo circles without changing rectangle gestures.
+ */
+internal fun isInsideCircleCropMoveZone(
+    point: Offset, crop: CropFractions, rect: Rect, edgeExclusion: Float,
+): Boolean {
+    if (rect.width <= 0f || rect.height <= 0f) return false
+    val left = rect.left + crop.left * rect.width
+    val right = rect.right - crop.right * rect.width
+    val top = rect.top + crop.top * rect.height
+    val bottom = rect.bottom - crop.bottom * rect.height
+    val radius = min(right - left, bottom - top) / 2f
+    if (!radius.isFinite() || radius <= 0f) return false
+    val innerRadius = radius - min(edgeExclusion.coerceAtLeast(0f), radius / 4f)
+    val centerX = (left + right) / 2f
+    val centerY = (top + bottom) / 2f
+    return hypot(point.x - centerX, point.y - centerY) < innerRadius
+}
+
 /**
- * Use a small *visible-edge* exclusion zone for moving a selection.
- * The enlarged invisible handle target must not steal central drags.
- * Video retains its original gestures (the call site is photo-only).
+ * Use a small visible-edge exclusion zone for moving a rectangular selection.
+ * Enlarged invisible photo handles must not steal center drags.
+ * Rectangular video retains its legacy gestures.
  */
 internal fun isInsideCropMoveZone(
     point: Offset, crop: CropFractions, rect: Rect, edgeExclusion: Float,
@@ -256,6 +288,35 @@ internal fun isInsideCropMoveZone(
     val insetY = min(edgeExclusion, (bottom - top) / 4f)
     return point.x in (left + insetX)..(right - insetX) &&
         point.y in (top + insetY)..(bottom - insetY)
+}
+
+/** Priority finger capture for visible photo corners.
+ * The left-side inner capture is slightly larger to compensate for touches
+ * constrained by the display edge; invisible targets never change appearance.
+ * Clamp the core to crop size so moving a small selection still works.
+ */
+internal fun priorityPhotoCropCorner(
+    point: Offset, crop: CropFractions, imageRect: Rect,
+    leftRadiusPx: Float, rightRadiusPx: Float,
+): VideoCropHandle? {
+    val left = imageRect.left + imageRect.width * crop.left
+    val right = imageRect.right - imageRect.width * crop.right
+    val top = imageRect.top + imageRect.height * crop.top
+    val bottom = imageRect.bottom - imageRect.height * crop.bottom
+    val innerLimit = min(right - left, bottom - top) / 3f
+    if (innerLimit <= 0f) return null
+    val corners = listOf(
+        VideoCropHandle.TOP_LEFT to Offset(left, top),
+        VideoCropHandle.TOP_RIGHT to Offset(right, top),
+        VideoCropHandle.BOTTOM_LEFT to Offset(left, bottom),
+        VideoCropHandle.BOTTOM_RIGHT to Offset(right, bottom),
+    )
+    val best = corners.minByOrNull { (_, at) -> hypot(point.x - at.x, point.y - at.y) } ?: return null
+    val radius = if (best.first in setOf(VideoCropHandle.TOP_LEFT, VideoCropHandle.BOTTOM_LEFT))
+        leftRadiusPx else rightRadiusPx
+    return best.first.takeIf {
+        hypot(point.x - best.second.x, point.y - best.second.y) <= min(radius, innerLimit)
+    }
 }
 
 internal fun hitTestCropHandle(

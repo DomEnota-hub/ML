@@ -61,4 +61,44 @@ class DuplicateScanScopeDialogTest {
             .assertIsEnabled().performClick()
         assertEquals(setOf(DuplicateFolderScope.key(alpha)),selected)
     }
+
+    @Test fun footerStaysPinnedWhileScrollingManyNestedFolders() {
+        val tracks = (1..130).map { audio("track$it", "Album$it") }
+        var selected: Set<String>? = null
+        compose.setContent {
+            MaterialTheme {
+                DuplicateScanScopeDialog(tracks, "Музыка", {}, { selected = it })
+            }
+        }
+        compose.onNodeWithTag("scope-select-folders").performClick()
+        compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
+        compose.onNodeWithTag("scope-start-selected").assertIsDisplayed().assertIsEnabled()
+        val before = compose.onNodeWithTag("scope-start-selected")
+            .fetchSemanticsNode().boundsInRoot.top
+
+        compose.onAllNodesWithContentDescription("Раскрыть папку").onFirst().performClick()
+        compose.onNodeWithTag("scope-folder-list").performScrollToIndex(90)
+        compose.waitForIdle()
+        val after = compose.onNodeWithTag("scope-start-selected")
+            .fetchSemanticsNode().boundsInRoot.top
+        assertEquals("The CTA must not scroll with nested folders", before, after, 1f)
+        compose.onNodeWithTag("scope-fixed-footer").assertIsDisplayed()
+        compose.onNodeWithTag("scope-start-selected").assertIsDisplayed()
+            .assertIsEnabled().performClick()
+        assertEquals(130, selected?.size)
+    }
+
+    @Test
+    @Config(sdk=[34], qualifiers="w393dp-h640dp-xhdpi")
+    fun narrowShortWindowStillOffersSelectableFooter() {
+        compose.setContent {
+            MaterialTheme {
+                DuplicateScanScopeDialog(listOf(alpha,beta), "Музыка", {}, {})
+            }
+        }
+        compose.onNodeWithTag("scope-select-folders").performClick()
+        compose.onNodeWithTag("scope-start-selected").assertIsDisplayed().assertIsNotEnabled()
+        compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
+        compose.onNodeWithTag("scope-start-selected").assertIsDisplayed().assertIsEnabled()
+    }
 }
