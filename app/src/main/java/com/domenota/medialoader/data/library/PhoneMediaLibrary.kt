@@ -92,8 +92,8 @@ class PhoneMediaLibrary(context: Context) {
                         rows += row
                         val now = android.os.SystemClock.elapsedRealtime()
                         if (onProgress != null &&
-                            scannedAccess.all { (kind, level) -> accessLevel(kind) >= level } &&
-                            progressPolicy.shouldPublish(completedRows.size + rows.size, now)
+                            progressPolicy.shouldPublish(completedRows.size + rows.size, now) &&
+                            scannedAccess.all { (kind, level) -> accessLevel(kind) >= level }
                         ) {
                             // First page appears promptly. Later immutable copies of the
                             // full intermediate catalog are bounded by rows AND elapsed
