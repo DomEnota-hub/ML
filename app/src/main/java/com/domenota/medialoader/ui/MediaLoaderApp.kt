@@ -3462,7 +3462,7 @@ fun MediaLoaderApp(
                     publicCatalogReady = catalogReady,
                     elapsedMs = missingForMs.toLong(),
                 )
-                if (admission != VideoEditorRouteAdmission.OPEN) {
+                if (admission != VideoEditorRouteAdmission.OPEN || item == null) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
