@@ -3899,6 +3899,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.editor.VideoCropMathTest#circleDragPreservesDiameterAndStopsAtSourceBorders": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.VideoCropMathTest#fixedRatio_cornerDrag_preservesAspectAndOppositeCorner": {
     "skipped": false,
     "failed": false
@@ -7535,6 +7539,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.CropFrameHitTestTest#smallVideoCircleStillHasDraggableCenterDespiteLargeCornerTargets": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.CropFrameHitTestTest#videoCircleMovesFromInteriorButKeepsOuterRingForResize": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.CropFrameHitTestTest#videoEditorRetainsLegacyCornerPreference": {
     "skipped": false,
     "failed": false
@@ -8980,6 +8992,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.VideoWorkspaceToolbarTest#sharedColorToolRespectsDirectCorrectionVsFilters": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.VideoWorkspaceToolbarTest#timelineClipTapPreservesEverySelectedEditingTool": {
     "skipped": false,
     "failed": false
   },
