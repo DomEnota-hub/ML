@@ -4863,6 +4863,30 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#allSortModesWorkWithinParentAndUnknownSizesAlwaysGoLast": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#galleryBucketsStaySeparateWithoutVerifiedPathsThenNestByRealLocation": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#sameNamesOnDifferentVolumesAndUnknownBucketsAreNeverMerged": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#searchShowsAncestorsButNeverSelectsUnmatchedSibling": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#unsafeOrUnknownPathNeverCreatesSyntheticParent": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#verifiedMusicPathsShareRealAncestorsAndKeepExactFolderScope": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.DuplicateMainThreadReadTest#epochSnapshotPreservesRevokedIdsAndAliases": {
     "skipped": false,
     "failed": false
