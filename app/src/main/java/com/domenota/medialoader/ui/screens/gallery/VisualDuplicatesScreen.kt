@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens.gallery
 
 import com.domenota.medialoader.ui.model.displayFileName
+import com.domenota.medialoader.ui.components.GalleryScanProgress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -207,7 +208,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 Icon(Icons.Rounded.History,"Журнал Галереи")
             }
         }
-        if(!status.running && (!reportReady||!loaded) && !stopped) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(!status.running && (!reportReady||!loaded) && !stopped) GalleryScanProgress()
         if(!status.running && !phonePermission) Text("Нет доступа к фото и видео телефона",color=MaterialTheme.colorScheme.error)
         else if(!status.running && !ready && !stopped && shown==null) Row(verticalAlignment=Alignment.CenterVertically){
             // Keep a lightweight status while the latest MediaStore generation is checked.
