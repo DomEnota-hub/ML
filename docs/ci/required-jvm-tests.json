@@ -4595,6 +4595,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#detectsRepeatedShortEditsAndDoesNotFillTheGaps": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#doesNotFlagGainOffsetAndSingleCodecImpulse": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#finds200msWordWithoutCoarseSpectralCandidate": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#keepsLaterSongAfterMiddleInsertionAndStillFindsAnotherEdit": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#rejectsUnrelatedPairsWithoutInventingAComparison": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.AudioPairAlignmentTest#actualPcmOneSecondPrefixIsNotPaintedRedAcrossEntireTrack": {
     "skipped": false,
     "failed": false
