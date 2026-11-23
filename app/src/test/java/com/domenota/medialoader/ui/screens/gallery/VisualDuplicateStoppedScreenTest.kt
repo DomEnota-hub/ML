@@ -37,7 +37,7 @@ class VisualDuplicateStoppedScreenTest {
         val refs=files.map{LibraryMediaRef(it.id,setOf(it.id),DownloadEntity(it.id,"device","${it.id}.jpg",MediaType.PHOTO,DownloadState.COMPLETED,it.uri,100,100),null)}
         VisualDuplicateCatalog(refs,refs,LibrarySource.APP)
     }
-    private val summary="Найдено 1 групп"
+    private val summary="Найдена 1 группа"
     @Test fun stoppedReportSurvivesIrrelevantRefreshAndScreenReentryButTrashWaitsForFreshCatalog(){
         val catalog=prepare()
         val visible=mutableStateOf(true)
