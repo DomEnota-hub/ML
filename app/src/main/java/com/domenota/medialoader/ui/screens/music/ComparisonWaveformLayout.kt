@@ -1,5 +1,21 @@
 package com.domenota.medialoader.ui.screens.music
 
+/** Corresponding start times of one selected difference in two physically distinct recordings.
+ * Each side may be absent (insertion/deletion); never invent a timestamp.
+ */
+internal fun comparisonZonePositions(
+    columns: List<com.domenota.medialoader.data.library.ComparisonColumn>,
+    start: Int,
+    endExclusive: Int,
+    stepMs: Long,
+): Pair<Long?, Long?> {
+    if (start < 0 || endExclusive > columns.size || start >= endExclusive || stepMs <= 0L)
+        return null to null
+    val range = columns.subList(start, endExclusive)
+    return range.firstNotNullOfOrNull { it.first }?.toLong()?.times(stepMs) to
+        range.firstNotNullOfOrNull { it.second }?.toLong()?.times(stepMs)
+}
+
 /** A focus window always covers the entire selected change, bounded by existing columns. */
 internal fun comparisonFocusRange(count:Int,start:Int,endExclusive:Int,close:Boolean):IntRange =
     comparisonFocusRange(count,start,endExclusive,if(close)3 else 1)
