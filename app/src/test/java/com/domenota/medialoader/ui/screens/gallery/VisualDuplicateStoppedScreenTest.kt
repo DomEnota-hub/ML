@@ -54,6 +54,8 @@ class VisualDuplicateStoppedScreenTest {
         compose.waitUntil(5000){compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()}
         compose.onNodeWithText("Обновляю каталог.",substring=true).assertExists()
         compose.onNodeWithText("Подробности").assertIsEnabled()
+        compose.onNodeWithTag("visual-thumbnail-media-a").assertExists()
+        compose.onNodeWithTag("visual-thumbnail-media-b").assertExists()
         compose.onNodeWithText("В корзину: 1",substring=true).assertIsNotEnabled()
         compose.runOnIdle{reportReady.value=true}
         compose.waitUntil(5000){compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()}

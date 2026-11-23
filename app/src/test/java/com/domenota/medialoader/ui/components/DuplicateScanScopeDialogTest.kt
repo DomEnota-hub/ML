@@ -41,7 +41,8 @@ class DuplicateScanScopeDialogTest {
         compose.onNodeWithText("Music").assertExists()
         compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
         compose.onNodeWithText("Выбрано: 2 папки",substring=true).assertExists()
-        compose.onNodeWithTag("scope-start-selected").assertIsEnabled().performClick()
+        compose.onNodeWithTag("scope-start-selected").assertIsDisplayed()
+            .assertIsEnabled().performClick()
         assertEquals(setOf(DuplicateFolderScope.key(alpha),DuplicateFolderScope.key(beta)),selected)
     }
 
@@ -56,7 +57,8 @@ class DuplicateScanScopeDialogTest {
         compose.onNodeWithTag("scope-search-folder").performTextInput("Alpha")
         compose.onNodeWithText("Beta").assertDoesNotExist()
         compose.onNodeWithText("Выбрать все").performClick()
-        compose.onNodeWithTag("scope-start-selected").assertIsEnabled().performClick()
+        compose.onNodeWithTag("scope-start-selected").assertIsDisplayed()
+            .assertIsEnabled().performClick()
         assertEquals(setOf(DuplicateFolderScope.key(alpha)),selected)
     }
 }

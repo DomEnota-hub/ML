@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens.gallery
 
 import com.domenota.medialoader.ui.model.displayFileName
+import com.domenota.medialoader.ui.components.GalleryScanProgress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -207,7 +208,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 Icon(Icons.Rounded.History,"Журнал Галереи")
             }
         }
-        if(!status.running && (!reportReady||!loaded) && !stopped) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(!status.running && (!reportReady||!loaded) && !stopped) GalleryScanProgress()
         if(!status.running && !phonePermission) Text("Нет доступа к фото и видео телефона",color=MaterialTheme.colorScheme.error)
         else if(!status.running && !ready && !stopped && shown==null) Row(verticalAlignment=Alignment.CenterVertically){
             // Keep a lightweight status while the latest MediaStore generation is checked.
@@ -322,12 +323,20 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                     Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                         Text(when(group.reason){VisualMatch.EXACT->"Точные копии";VisualMatch.SIMILAR_PHOTO->"Похожие фотографии";VisualMatch.SIMILAR_VIDEO->"Похожие видео"},style=MaterialTheme.typography.titleMedium)
                         group.files.forEach{file->
-                            val ref=if(actionsReady)byId[file.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(file,it)} else null
+                            // Thumbnail visibility is not tied to the temporary action
+                            // gate. Retain a public, same-epoch result while MediaStore
+                            // recalculates; still disable selection and deletion until
+                            // the new index is verified.
+                            val ref=byId[file.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(file,it)}
+                            val pendingIndex=!displayReady &&
+                                shown.result.privacyEpoch==privacyEpoch && phonePermission && loaded
+                            val canDisplay=ref!=null||pendingIndex
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                                if(ref!=null) DownloadThumbnail(file.uri,null,if(file.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(76.dp).clickable{preview=group to file.id})
+                                if(canDisplay) DownloadThumbnail(file.uri,null,if(file.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(76.dp).testTag("visual-thumbnail-media-${file.id}")
+                                    .clickable(enabled=actionsReady&&ref!=null){preview=group to file.id})
                                 else Box(Modifier.size(76.dp),contentAlignment=Alignment.Center){Icon(Icons.Rounded.Image,contentDescription=null,tint=MaterialTheme.colorScheme.onSurfaceVariant)}
                                 Column(Modifier.weight(1f)){
-                                    Text(if(ref!=null)displayFileName(ref.item) else "Проверяю доступность файла",maxLines=2)
+                                    Text(ref?.let{displayFileName(it.item)} ?: if(pendingIndex)file.uri.substringAfterLast('/').takeIf{it.isNotBlank()} ?: "Проверка файла" else "Проверяю доступность файла",maxLines=2)
                                     Text(android.text.format.Formatter.formatFileSize(context,file.bytes)+" · ${file.width} × ${file.height}",style=MaterialTheme.typography.bodySmall)
                                     file.durationMs?.let{Text("${it/1000} с",style=MaterialTheme.typography.bodySmall)}
                                 }

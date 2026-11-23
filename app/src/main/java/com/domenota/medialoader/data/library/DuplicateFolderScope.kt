@@ -33,7 +33,9 @@ internal object DuplicateFolderScope {
             return "bucket:" + row.bulkMediaKey
         if (!row.groupId.isNullOrBlank())
             return "group:" + row.mediaType.name + ":" + row.groupId
-        return "unspecified:" + row.providerId
+        // Unknown directory identity must NEVER collapse unrelated files into
+        // a provider-wide pseudo-folder. Exact URI only, with a numbered UI label.
+        return "unspecified:" + uri
     }
 
     fun options(rows: List<DownloadEntity>): List<DuplicateFolderOption> =
@@ -62,6 +64,22 @@ internal object DuplicateFolderScope {
                 }
                 DuplicateFolderOption(key, name, location.ifBlank { "Путь не определён" }, grouped.size, bytes, directory)
             }.sortedWith(compareBy<DuplicateFolderOption> { it.name.lowercase() }.thenBy { it.location })
+            .let { ordered ->
+                // Several unrelated MediaStore rows may have no verifiable
+                // directory. Number only their display labels; preserve exact
+                // keys and never merge these buckets or broaden scan scope.
+                val unknown = ordered.filter { it.name == "Папка не определена" }
+                    .sortedBy { it.key }.mapIndexed { index, option ->
+                        option.key to (index + 1)
+                    }.toMap()
+                ordered.map { option ->
+                    val number = unknown[option.key]
+                    if (number == null) option else option.copy(
+                        name = "Папка без пути №$number",
+                        location = "Расположение не определено"
+                    )
+                }
+            }
 
     /** null = explicit whole library; empty set = no selection, never all. */
     fun <T> filter(items: List<T>, keys: Set<String>?, row: (T) -> DownloadEntity): List<T> =

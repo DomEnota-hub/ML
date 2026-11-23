@@ -4,6 +4,7 @@ import com.domenota.medialoader.ui.model.FileNameDisplay
 import com.domenota.medialoader.ui.model.LocalFileNameDisplay
 import com.domenota.medialoader.ui.model.displayFileName
 import android.net.Uri
+import com.domenota.medialoader.ui.components.MusicSyncProgress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -392,7 +393,21 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     val savedBytes = remember(DuplicateReferenceKey(saved)) {
                         saved.result.groups.sumOf { g -> g.tracks.filter { it.id in saved.selected }.sumOf { it.bytes.coerceAtLeast(0L) } }
                     }
-                    Text("Область поиска · ${saved.result.scopeLabel}",
+                    if(unfinished&&partial!=null){
+                        Text("Незавершённый поиск",style=MaterialTheme.typography.titleMedium,
+                            color=musicPlaybackAccent)
+                        Text("Предварительно найдено: ${partial.groups.size} групп",
+                            style=MaterialTheme.typography.bodyMedium)
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            Button({resume()},Modifier.weight(1f).testTag("duplicate-resume-interrupted"),
+                                enabled=!clearingJournal){Text("Продолжить поиск")}
+                            if(storedPartial!=null) OutlinedButton(
+                                {restorePrevious(requireNotNull(storedPartial),fromPartial=true)},
+                                Modifier.weight(1f).testTag("duplicate-open-partial"),
+                                enabled=!clearingJournal){Text("Открыть результат")}
+                        }
+                    }
+                    Text("Завершённый результат · ${saved.result.scopeLabel}",
                         style=MaterialTheme.typography.bodySmall)
                     DuplicateSavedSummaryPanel(DuplicateSavedSummary(saved.scannedAt,saved.result.groups.size,
                         saved.result.groups.sumOf { it.tracks.size },saved.selected.size,savedBytes,
@@ -404,7 +419,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }
                     if(scanControlsExpanded) {
                         MusicScanModeControls(expandedScan,{expandedScan=it},unfinished,unfinishedExpanded,
-                            ::startSelected,!verifying&&!clearingJournal)
+                            { if(shouldResumeMusicScan(unfinished,expandedScan,unfinishedExpanded))resume() else startSelected() },!verifying&&!clearingJournal)
                         MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
                     }
                     }
@@ -415,19 +430,35 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     // show the whole search header; only the result list scrolls.
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     val fileCount = remember(DuplicateReferenceKey(result),privacyRevision) { groups.sumOf{it.tracks.size} }
-                    Text("Область поиска · ${result?.scopeLabel ?: partial?.scopeLabel ?: DuplicateFolderScope.label(selectedScope)}",
-                        style=MaterialTheme.typography.bodySmall)
-                    Text(if(showingPartial)
-                        "Предварительный · ${groups.size} групп · $fileCount файлов"
-                        else "Групп: ${groups.size} · файлов: $fileCount",
-                        style = MaterialTheme.typography.bodyMedium)
-                    if(result!=null) TextButton({scanControlsExpanded=!scanControlsExpanded},
-                        modifier=Modifier.testTag("duplicate-toggle-search-controls")) {
-                        Text(if(scanControlsExpanded)"Скрыть управление поиском" else "Управление поиском")
-                        Icon(if(scanControlsExpanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,null)
+                    if(result!=null){
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            Button({startSelected()},Modifier.weight(1f).heightIn(min=48.dp)
+                                .testTag("duplicate-new-search"),enabled=!verifying&&!clearingJournal){
+                                Text("Новый поиск",maxLines=1)
+                            }
+                            OutlinedButton({scanControlsExpanded=!scanControlsExpanded},
+                                Modifier.weight(1f).heightIn(min=48.dp)
+                                .testTag("duplicate-toggle-search-controls")){
+                                Text("Подробности",maxLines=1)
+                                Icon(if(scanControlsExpanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,null)
+                            }
+                        }
+                        Text("Результаты поиска",style=MaterialTheme.typography.titleMedium)
+                        Text(result?.scopeLabel.orEmpty(),style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(visualMusicGroupLabel(groups.size),style=MaterialTheme.typography.titleLarge,
+                            color=musicPlaybackAccent)
+                        Text("$fileCount файлов",style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }else{
+                        Text("Область поиска · ${partial?.scopeLabel ?: DuplicateFolderScope.label(selectedScope)}",
+                            style=MaterialTheme.typography.bodySmall)
+                        if(partial!=null) Text("Предварительные результаты: ${partial.groups.size} групп",
+                            style=MaterialTheme.typography.titleMedium)
                     }
                     if(result==null||scanControlsExpanded)
-                        MusicScanModeControls(expandedScan,{expandedScan=it},unfinished,unfinishedExpanded,::startSelected,!verifying&&!clearingJournal)
+                        MusicScanModeControls(expandedScan,{expandedScan=it},unfinished,unfinishedExpanded,
+                            { if(shouldResumeMusicScan(unfinished,expandedScan,unfinishedExpanded))resume() else startSelected() },!verifying&&!clearingJournal)
                     if(result==null&&partial!=null) {
                         Text("Сохранено групп: ${partial.groups.size}. Поиск можно продолжить отдельно.")
                         if (!background.running && storedPartial != null) Button(
@@ -462,12 +493,14 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                 modifier=Modifier.weight(1f))
                         }
                     }
-                    result?.let{r->Text(if(r.expanded)"Режим: расширенный" else "Режим: быстрый",style=MaterialTheme.typography.labelMedium)
-                        if(r.acousticUnavailable>0)Text("Без акустического отпечатка: ${r.acousticUnavailable}. Точные совпадения сохранены.",style=MaterialTheme.typography.bodySmall)}
-                    if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if(scanControlsExpanded) {
+                        result?.let{r->Text(if(r.expanded)"Режим: расширенный" else "Режим: быстрый",style=MaterialTheme.typography.labelMedium)
+                            if(r.acousticUnavailable>0)Text("Без акустического отпечатка: ${r.acousticUnavailable}. Точные совпадения сохранены.",style=MaterialTheme.typography.bodySmall)}
+                        if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     previewError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (result!=null && groups.isEmpty() && error == null && !unfinished) Text("Совпадений не найдено", Modifier.padding(vertical = 24.dp))
-                    if (groups.any { it.kind != DuplicateKind.EXACT } && filter!=DuplicateKind.EXACT) Text("Разные версии проверяйте прослушиванием.", style = MaterialTheme.typography.labelSmall)
+                    // Acoustic and version groups are never selected for deletion automatically.
                     if(groups.isNotEmpty()){
                         val clearBulk=selected.isNotEmpty()&&(selected==allSelected||allSelected.isEmpty())
                         OutlinedButton({selected=if(clearBulk)emptySet() else allSelected},
@@ -659,6 +692,43 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     })
 }
 
+internal fun visualMusicGroupLabel(count:Int):String {
+    val word=when {
+        count%100 in 11..14 -> "групп"
+        count%10==1 -> "группа"
+        count%10 in 2..4 -> "группы"
+        else -> "групп"
+    }
+    return "${if(count%100 !in 11..14 && count%10==1) "Найдена" else "Найдено"} $count $word"
+}
+
+/** Center the icon and full label as one unit. Never clip the second source.
+ * At large accessibility font scale allow two text lines without ellipsis.
+ */
+@Composable
+private fun ComparisonPlaybackButton(
+    label:String, playing:Boolean, enabled:Boolean,modifier:Modifier=Modifier,onClick:()->Unit
+) {
+    val accent=musicPlaybackAccent
+    val largeText=androidx.compose.ui.platform.LocalDensity.current.fontScale>1.3f
+    OutlinedButton(onClick=onClick,enabled=enabled,
+        modifier=modifier.heightIn(min=52.dp),
+        contentPadding=PaddingValues(horizontal=4.dp,vertical=7.dp),
+        border=androidx.compose.foundation.BorderStroke(1.4.dp,
+            if(playing)accent else MaterialTheme.colorScheme.outline)) {
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.Center) {
+            Icon(if(playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null,
+                Modifier.size(19.dp))
+            Spacer(Modifier.width(3.dp))
+            Text(label,fontSize=androidx.compose.ui.unit.TextUnit.Unspecified,
+                style=MaterialTheme.typography.labelMedium,
+                maxLines=if(largeText)2 else 1,
+                softWrap=largeText)
+        }
+    }
+}
+
 private data class PairAnalysis(
     val first:List<ComparisonFrame>, val second:List<ComparisonFrame>,
     val aligned:AlignedAudioComparison?,
@@ -725,20 +795,42 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                         left.await() to right.await()
                     }
                     if(first==null||second==null)return@withContext null
-                    val aligned=withContext(Dispatchers.Default){
-                        val job=kotlin.coroutines.coroutineContext
-                        val started=SystemClock.elapsedRealtime()
-                        AudioPairAlignment.align(first,second,step){job.ensureActive()}.also {
-                            AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null} cells=${it?.evaluatedCells ?: -1} candidates=${it?.shortCandidates?.size ?: 0}")
+                    val firstKey=ComparisonFrameKey.verified(reference,beforeFirst,step)
+                    val secondKey=ComparisonFrameKey.verified(target,beforeSecond,step)
+                    val stored=if(cacheSafe&&firstKey!=null&&secondKey!=null)
+                        synchronized(DuplicatePrivacyGuard.lock){
+                            if(allowed(reference)&&allowed(target))
+                                MusicPairResultCache.read(context,firstKey,secondKey,first,second)
+                            else null
+                        } else null
+                    if(stored!=null){
+                        AppLog.i("MusicCompare","verified pair cache HIT stepMs=$step zones=${stored.zones.size}")
+                        PairAnalysis(first,second,stored)
+                    }else{
+                        AppLog.i("MusicCompare","verified pair cache MISS stepMs=$step")
+                        val aligned=withContext(Dispatchers.Default){
+                            val job=kotlin.coroutines.coroutineContext
+                            val started=SystemClock.elapsedRealtime()
+                            AudioPairAlignment.align(first,second,step){job.ensureActive()}.also {
+                                AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null} cells=${it?.evaluatedCells ?: -1} candidates=${it?.shortCandidates?.size ?: 0}")
+                            }
                         }
+                        // The first comparison still inspects the complete audio,
+                        // independent of library search mode. Disk hits never
+                        // bypass identity and privacy verification.
+                        val refined=if(aligned!=null)AcousticAudioDecoder.refineCompletePair(
+                            context,Uri.parse(reference.uri),Uri.parse(target.uri),aligned)
+                            else null
+                        if(refined!=null && firstKey!=null&&secondKey!=null&&
+                            MusicDuplicateScanner.comparisonStamp(context,reference)==beforeFirst&&
+                            MusicDuplicateScanner.comparisonStamp(context,target)==beforeSecond){
+                            synchronized(DuplicatePrivacyGuard.lock){
+                                if(allowed(reference)&&allowed(target))
+                                    MusicPairResultCache.write(context,firstKey,secondKey,refined)
+                            }
+                        }
+                        PairAnalysis(first,second,refined)
                     }
-                    // Detailed pair comparison ALWAYS examines the complete audio,
-                    // independent of fast/expanded library discovery mode.
-                    val refined = if(aligned != null) {
-                        AcousticAudioDecoder.refineCompletePair(context,
-                            Uri.parse(reference.uri), Uri.parse(target.uri), aligned)
-                    } else null
-                    PairAnalysis(first,second,refined)
                 }
                 if(MusicDuplicateScanner.comparisonStamp(context,reference)!=beforeFirst||
                     MusicDuplicateScanner.comparisonStamp(context,target)!=beforeSecond)return@withContext null
@@ -836,30 +928,20 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                                 val firstPlaying=previewId==referenceId&&playing
                                 val secondPlaying=previewId==targetId&&playing
-                                OutlinedButton(onClick={play(reference,if(firstPlaying)null else seekFrame(true))},
-                                    enabled=zone==null||seekFrame(true)!=null,modifier=Modifier.weight(1f),
-                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
-                                        if(firstPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
-                                    Icon(if(firstPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Основа",maxLines=1,
-                                        overflow=TextOverflow.Ellipsis)
+                                ComparisonPlaybackButton("Основа",firstPlaying,
+                                    zone==null||seekFrame(true)!=null,Modifier.weight(1f)){
+                                    play(reference,if(firstPlaying)null else seekFrame(true))
                                 }
-                                OutlinedButton(onClick={play(target,if(secondPlaying)null else seekFrame(false))},
-                                    enabled=zone==null||seekFrame(false)!=null,modifier=Modifier.weight(1f),
-                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
-                                        if(secondPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
-                                    Icon(if(secondPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Сравниваемая",maxLines=1,
-                                        overflow=TextOverflow.Ellipsis)
+                                ComparisonPlaybackButton("Сравниваемая",secondPlaying,
+                                    zone==null||seekFrame(false)!=null,Modifier.weight(1f)){
+                                    play(target,if(secondPlaying)null else seekFrame(false))
                                 }
                             }
                             if(failed)Text("Анализ недоступен",style=MaterialTheme.typography.bodySmall,
                                 color=MaterialTheme.colorScheme.onSurfaceVariant)
                             else if(analysis==null){
                                 Text("Синхронизация записей…",style=MaterialTheme.typography.labelMedium)
-                                LinearProgressIndicator(Modifier.fillMaxWidth())
+                                MusicSyncProgress(accent=musicPlaybackAccent)
                             }else if(result==null){
                                 Text("Записи слишком отличаются для точного сравнения",style=MaterialTheme.typography.labelMedium)
                                 // A fallback may show independent waveform envelopes,

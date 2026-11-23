@@ -59,8 +59,11 @@ class DuplicateFolderScopeTest {
             DownloadState.COMPLETED,"content://media/images/1",1L,1L)
         val b=a.copy(id="b",savedUri="content://media/images/2")
         val options=DuplicateFolderScope.options(listOf(a,b))
-        assertEquals(1,options.size)
-        assertEquals("Папка не определена",options.single().name)
-        assertEquals(listOf(a,b),DuplicateFolderScope.filter(listOf(a,b),setOf(options.single().key)){it})
+        assertEquals(2,options.size)
+        assertEquals(2,options.map{it.name}.distinct().size)
+        assertTrue(options.all{it.name.startsWith("Папка без пути №")})
+        assertNotEquals(DuplicateFolderScope.key(a),DuplicateFolderScope.key(b))
+        assertEquals(listOf(a),DuplicateFolderScope.filter(listOf(a,b),
+            setOf(DuplicateFolderScope.key(a))){it})
     }
 }

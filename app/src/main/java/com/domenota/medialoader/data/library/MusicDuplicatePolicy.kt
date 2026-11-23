@@ -87,9 +87,18 @@ internal object MusicDuplicatePolicy {
         val tokens = HashMap<String,MutableList<DuplicateTrack>>()
         rows.forEach { row -> baseTitle(row).split(" ").filter { it.length >= 2 }.distinct().forEach { tokens.getOrPut(it) { mutableListOf() }.add(row) } }
         val fingerprints = rows.mapNotNull { t -> t.acoustic?.let { t.id to it } }.toMap()
-        val acoustic = AcousticFingerprints.candidatePairs(fingerprints,checkActive).filter { (a,b) ->
-            AcousticFingerprints.matches(fingerprints.getValue(a), fingerprints.getValue(b),checkActive)
-        }.toSet()
+        val acoustic = if (fingerprints.size < 2) emptySet() else {
+            val started=System.nanoTime()
+            val candidates=AcousticFingerprints.candidatePairs(fingerprints,checkActive)
+            com.domenota.medialoader.core.logging.AppLog.i("DuplicateScanMetrics",
+                "music grouping stage=candidates tracks=${fingerprints.size} pairs=${candidates.size} elapsedMs=${(System.nanoTime()-started)/1_000_000}")
+            val accepted=candidates.filter { (a,b) ->
+                AcousticFingerprints.matches(fingerprints.getValue(a), fingerprints.getValue(b),checkActive)
+            }.toSet()
+            com.domenota.medialoader.core.logging.AppLog.i("DuplicateScanMetrics",
+                "music grouping stage=verified candidates=${candidates.size} accepted=${accepted.size} elapsedMs=${(System.nanoTime()-started)/1_000_000}")
+            accepted
+        }
         fun acousticMatch(a: DuplicateTrack,b: DuplicateTrack) = (minOf(a.id,b.id) to maxOf(a.id,b.id)) in acoustic
         val byId = rows.associateBy { it.id }
         val acousticNeighbors = HashMap<String,MutableSet<String>>()
