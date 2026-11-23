@@ -48,8 +48,8 @@ class AcousticFingerprintTest {
     @Test fun fourHundredTwentyTrackCandidatesRemainExactWithDenseCounter(){
         val tracks=linkedMapOf<String,AcousticFingerprint>()
         for(group in 0 until 140)for(member in 0 until 3){
-            val landmarks=(0 until 95).map{i->AcousticLandmark(group*1000+i,i*8)}
-                + (0 until 12).map{i->AcousticLandmark(900000+i,i*10)}
+            val landmarks=(0 until 95).map{i->AcousticLandmark(group*1000+i,i*8)} +
+                (0 until 12).map{i->AcousticLandmark(900000+i,i*10)}
             tracks["track-$group-$member"]=AcousticFingerprint(landmarks)
         }
         val candidates=AcousticFingerprints.candidatePairs(tracks)
