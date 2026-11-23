@@ -62,10 +62,17 @@ class DuplicatePrivacyRetentionTest {
     @Test fun unreadableReportContentFailsClosed() {
         val context = RuntimeEnvironment.getApplication()
         val file = journal("content://media/external/audio/media/17", "public-17")
+        val backup = File(file.path + ".bak")
         try {
+            backup.writeText(JSONObject().put("groups", org.json.JSONArray().put(
+                JSONObject().put("id", movedId)
+            )).toString())
+            assertFalse("AtomicFile recovery cannot reexpose a private entry",
+                DuplicatePrivacyRetention.provenUnrelated(context, movedId, movedAliases))
+            backup.delete()
             file.writeText("not a JSON report")
             assertFalse(DuplicatePrivacyRetention.provenUnrelated(context, movedId, movedAliases))
-        } finally { file.delete() }
+        } finally { file.delete(); backup.delete() }
     }
 
     @Test fun absentProofOrUnknownAliasesUseOriginalInvalidation() {
@@ -73,6 +80,9 @@ class DuplicatePrivacyRetentionTest {
         val file = journal("content://media/external/audio/media/17", "public-17")
         try {
             assertFalse(DuplicatePrivacyRetention.provenUnrelated(context, movedId, emptySet()))
+            assertFalse("Physical alias without a verifiable public URI must fail closed",
+                DuplicatePrivacyRetention.provenUnrelated(context, movedId,
+                    movedAliases + "file-stat:unknown:inode"))
             assertFalse(DuplicatePrivacyRetention.unrelatedMember(movedId, movedAliases,
                 "member-without-uri", ""))
         } finally { file.delete() }
