@@ -3443,7 +3443,8 @@ fun MediaLoaderApp(
                         downloadId in visibilityBlocked || downloadId in archiveBlocked) &&
                     !(candidate?.isPrivate == true && privateState.unlocked)
                 val item = candidate?.takeIf {
-                    !knownBlocked && it.savedUri != null && it.mediaType == MediaType.VIDEO
+                    !knownBlocked && it.savedUri != null && it.mediaType == MediaType.VIDEO &&
+                        (if (it.isPrivate) privateState.unlocked else publicProjectionGuard != null)
                 }
                 // Projections can go temporarily empty while MediaStore is
                 // rebuilding after a privacy change. Never render an unverified
