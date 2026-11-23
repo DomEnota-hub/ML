@@ -9283,6 +9283,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.music.ComparisonWaveformLayoutTest#differenceMappingRejectsInvalidOrEmptyRanges": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.music.ComparisonWaveformLayoutTest#focusAlwaysIncludesWholeSelectedZoneAndClipsToRecording": {
     "skipped": false,
     "failed": false
@@ -9292,6 +9296,14 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.music.ComparisonWaveformLayoutTest#fourRecordingGroupCanSwitchTargetsWithoutChangingReference": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.ComparisonWaveformLayoutTest#insertedOrMissingRegionNeverInventsAbsentSide": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.ComparisonWaveformLayoutTest#selectedDifferenceSeeksTwoIndependentAlignedTimes": {
     "skipped": false,
     "failed": false
   },
