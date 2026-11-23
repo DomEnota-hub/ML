@@ -4639,6 +4639,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.AudioPairAlignmentTest#nearThresholdWordIsQueuedButNotAutomaticallyCalledDifferent": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.AudioPairAlignmentTest#oneSecondLongerIntroDoesNotMarkRemainingRecording": {
     "skipped": false,
     "failed": false
@@ -4660,6 +4664,18 @@
     "failed": false
   },
   "com.domenota.medialoader.data.library.AudioPairAlignmentTest#veryQuietInternalEditIsNeverClassifiedAsTerminalPadding": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioPcmShortDifferenceTest#identicalGainAndSmallCodecTimeShiftAreNotEdits": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioPcmShortDifferenceTest#twoConsecutiveChangedFramesAreVisibleButNotOneCodecImpulse": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioPcmShortDifferenceTest#unrelatedAndNearSilentRecordingsFailClosed": {
     "skipped": false,
     "failed": false
   },
