@@ -98,11 +98,15 @@ internal object VisualDuplicateSessionStore {
         synchronized(lock){runCatching{
             val target=file(context)
             val previous=decode(target.openRead().bufferedReader().use{it.readText()})
-            if(previous.scannedAt==scannedAt && !isDeleted(context,scannedAt)){
-                val stream=target.startWrite()
-                try{stream.write(encode(previous.copy(index=index,offset=offset).normalized()).toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
-                catch(e:Exception){target.failWrite(stream);throw e}
+            // Do not report success for a stale or explicitly deleted report.
+            // This is a no-op for media bytes and a strict refusal for a
+            // deferred journal/scroll save targeting a removed generation.
+            check(previous.scannedAt==scannedAt && !isDeleted(context,scannedAt)){
+                "REPORT_POSITION_STALE_OR_DELETED"
             }
+            val stream=target.startWrite()
+            try{stream.write(encode(previous.copy(index=index,offset=offset).normalized()).toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
+            catch(e:Exception){target.failWrite(stream);throw e}
         }.isSuccess}
     }
     /** Apply confirmed moves to the persisted generation only, without replacing newer scans. */
