@@ -392,7 +392,21 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     val savedBytes = remember(DuplicateReferenceKey(saved)) {
                         saved.result.groups.sumOf { g -> g.tracks.filter { it.id in saved.selected }.sumOf { it.bytes.coerceAtLeast(0L) } }
                     }
-                    Text("Область поиска · ${saved.result.scopeLabel}",
+                    if(unfinished&&partial!=null){
+                        Text("Незавершённый поиск",style=MaterialTheme.typography.titleMedium,
+                            color=musicPlaybackAccent)
+                        Text("Предварительно найдено: ${partial.groups.size} групп",
+                            style=MaterialTheme.typography.bodyMedium)
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            Button({resume()},Modifier.weight(1f).testTag("duplicate-resume-interrupted"),
+                                enabled=!clearingJournal){Text("Продолжить поиск")}
+                            if(storedPartial!=null) OutlinedButton(
+                                {restorePrevious(requireNotNull(storedPartial),fromPartial=true)},
+                                Modifier.weight(1f).testTag("duplicate-open-partial"),
+                                enabled=!clearingJournal){Text("Открыть результат")}
+                        }
+                    }
+                    Text("Завершённый результат · ${saved.result.scopeLabel}",
                         style=MaterialTheme.typography.bodySmall)
                     DuplicateSavedSummaryPanel(DuplicateSavedSummary(saved.scannedAt,saved.result.groups.size,
                         saved.result.groups.sumOf { it.tracks.size },saved.selected.size,savedBytes,
@@ -415,16 +429,31 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     // show the whole search header; only the result list scrolls.
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     val fileCount = remember(DuplicateReferenceKey(result),privacyRevision) { groups.sumOf{it.tracks.size} }
-                    Text("Область поиска · ${result?.scopeLabel ?: partial?.scopeLabel ?: DuplicateFolderScope.label(selectedScope)}",
-                        style=MaterialTheme.typography.bodySmall)
-                    Text(if(showingPartial)
-                        "Предварительный · ${groups.size} групп · $fileCount файлов"
-                        else "Групп: ${groups.size} · файлов: $fileCount",
-                        style = MaterialTheme.typography.bodyMedium)
-                    if(result!=null) TextButton({scanControlsExpanded=!scanControlsExpanded},
-                        modifier=Modifier.testTag("duplicate-toggle-search-controls")) {
-                        Text(if(scanControlsExpanded)"Скрыть управление поиском" else "Управление поиском")
-                        Icon(if(scanControlsExpanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,null)
+                    if(result!=null){
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            Button({startSelected()},Modifier.weight(1f).heightIn(min=48.dp)
+                                .testTag("duplicate-new-search"),enabled=!verifying&&!clearingJournal){
+                                Text("Новый поиск",maxLines=1)
+                            }
+                            OutlinedButton({scanControlsExpanded=!scanControlsExpanded},
+                                Modifier.weight(1f).heightIn(min=48.dp)
+                                .testTag("duplicate-toggle-search-controls")){
+                                Text("Подробности",maxLines=1)
+                                Icon(if(scanControlsExpanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,null)
+                            }
+                        }
+                        Text("Результаты поиска",style=MaterialTheme.typography.titleMedium)
+                        Text(result?.scopeLabel.orEmpty(),style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(visualMusicGroupLabel(groups.size),style=MaterialTheme.typography.titleLarge,
+                            color=musicPlaybackAccent)
+                        Text("$fileCount файлов",style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }else{
+                        Text("Область поиска · ${partial?.scopeLabel ?: DuplicateFolderScope.label(selectedScope)}",
+                            style=MaterialTheme.typography.bodySmall)
+                        if(partial!=null) Text("Предварительные результаты: ${partial.groups.size} групп",
+                            style=MaterialTheme.typography.titleMedium)
                     }
                     if(result==null||scanControlsExpanded)
                         MusicScanModeControls(expandedScan,{expandedScan=it},unfinished,unfinishedExpanded,
@@ -463,12 +492,14 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                 modifier=Modifier.weight(1f))
                         }
                     }
-                    result?.let{r->Text(if(r.expanded)"Режим: расширенный" else "Режим: быстрый",style=MaterialTheme.typography.labelMedium)
-                        if(r.acousticUnavailable>0)Text("Без акустического отпечатка: ${r.acousticUnavailable}. Точные совпадения сохранены.",style=MaterialTheme.typography.bodySmall)}
-                    if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if(scanControlsExpanded) {
+                        result?.let{r->Text(if(r.expanded)"Режим: расширенный" else "Режим: быстрый",style=MaterialTheme.typography.labelMedium)
+                            if(r.acousticUnavailable>0)Text("Без акустического отпечатка: ${r.acousticUnavailable}. Точные совпадения сохранены.",style=MaterialTheme.typography.bodySmall)}
+                        if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     previewError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (result!=null && groups.isEmpty() && error == null && !unfinished) Text("Совпадений не найдено", Modifier.padding(vertical = 24.dp))
-                    if (groups.any { it.kind != DuplicateKind.EXACT } && filter!=DuplicateKind.EXACT) Text("Разные версии проверяйте прослушиванием.", style = MaterialTheme.typography.labelSmall)
+                    // Acoustic and version groups are never selected for deletion automatically.
                     if(groups.isNotEmpty()){
                         val clearBulk=selected.isNotEmpty()&&(selected==allSelected||allSelected.isEmpty())
                         OutlinedButton({selected=if(clearBulk)emptySet() else allSelected},
@@ -658,6 +689,16 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             }
         }) { Text("В корзину") }
     })
+}
+
+internal fun visualMusicGroupLabel(count:Int):String {
+    val word=when {
+        count%100 in 11..14 -> "групп"
+        count%10==1 -> "группа"
+        count%10 in 2..4 -> "группы"
+        else -> "групп"
+    }
+    return "${if(count%100 !in 11..14 && count%10==1) "Найдена" else "Найдено"} $count $word"
 }
 
 private data class PairAnalysis(
