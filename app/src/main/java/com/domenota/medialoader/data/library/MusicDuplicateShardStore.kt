@@ -114,6 +114,7 @@ internal object MusicDuplicateShardStore {
         fun manifest(stage:String):JSONObject=JSONObject()
             .put("schema",SCHEMA).put("stage",stage).put("id",id).put("at",session.scannedAt)
             .put("epoch",session.result.privacyEpoch).put("expanded",session.result.expanded)
+            .put("scopeLabel",session.result.scopeLabel)
             .put("skipped",session.result.skipped).put("acousticUnavailable",session.result.acousticUnavailable)
             .put("groupCount",written).put("fileCount",trackCount).put("chunks",JSONArray(headers.toString()))
         fun endChunk() {
@@ -203,7 +204,8 @@ internal object MusicDuplicateShardStore {
         }
         require(groups.size==doc.getInt("groupCount")){"TOTAL_GROUP_COUNT"}
         return DuplicateSession(DuplicateScanResult(groups,doc.getInt("skipped"),
-            doc.getInt("acousticUnavailable"),doc.getBoolean("expanded"),epoch),
+            doc.getInt("acousticUnavailable"),doc.getBoolean("expanded"),epoch,
+            doc.optString("scopeLabel","Все файлы")),
             emptySet(),emptyMap(),0,0,doc.getLong("at"))
     }
     /** Read only the atomic pointer, small manifest, and small UI state, not acoustic shards.
