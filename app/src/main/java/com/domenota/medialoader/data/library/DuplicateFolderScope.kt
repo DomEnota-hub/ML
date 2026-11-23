@@ -41,7 +41,7 @@ internal object DuplicateFolderScope {
             .groupBy(::key).map { (key, grouped) ->
                 val row = grouped.first()
                 val location = when {
-                    key.startsWith("file:") -> key.removePrefix("file:")
+                    key.startsWith("file:") -> key.removePrefix("file:").removePrefix("file://")
                     row.mediaType == MediaType.AUDIO -> row.groupId.orEmpty().substringAfter(':')
                     else -> row.groupId.orEmpty()
                 }.trimEnd('/')
