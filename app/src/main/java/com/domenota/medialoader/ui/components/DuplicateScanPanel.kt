@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -57,7 +58,9 @@ internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,star
 @Composable
 internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,partial:DuplicateJournalRow?,
     onOpen:(Long)->Unit,onResume:()->Unit,onDismiss:()->Unit,onPartial:(()->Unit)?=null,resumeEnabled:Boolean=true,
-    onClear:(()->Unit)?=null,clearEnabled:Boolean=true){
+    onClear:(()->Unit)?=null,clearEnabled:Boolean=true,
+    onDelete:((Long)->Unit)?=null,deleteEnabled:Boolean=true){
+    var deleteCandidateAt by remember { mutableStateOf<Long?>(null) }
     androidx.compose.ui.window.Dialog(onDismissRequest=onDismiss) {
         Surface(Modifier.fillMaxWidth(), shape=MaterialTheme.shapes.extraLarge,
             color=MaterialTheme.colorScheme.surfaceContainerHigh) {
@@ -98,11 +101,22 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                 }
             }
             items(rows,key={it.at}){row->
-                Card(onClick={onOpen(row.at)},modifier=Modifier.fillMaxWidth()){Column(Modifier.fillMaxWidth().padding(12.dp)){
-                    Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(row.at)),style=MaterialTheme.typography.titleMedium)
-                    row.mode?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
-                    Text("${row.status} · групп: ${row.groups} · файлов: ${row.files}",style=MaterialTheme.typography.bodySmall)
-                }}
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(4.dp)){
+                    Card(onClick={onOpen(row.at)},modifier=Modifier.weight(1f)){Column(
+                        Modifier.fillMaxWidth().padding(12.dp)) {
+                        Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(row.at)),
+                            style=MaterialTheme.typography.titleMedium)
+                        row.mode?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
+                        Text("${row.status} · групп: ${row.groups} · файлов: ${row.files}",
+                            style=MaterialTheme.typography.bodySmall)
+                    }}
+                    if(onDelete!=null)IconButton(
+                        onClick={deleteCandidateAt=row.at},
+                        enabled=deleteEnabled,
+                        modifier=Modifier.size(48.dp).testTag("journal-delete-${row.at}"),
+                    ){Icon(Icons.Rounded.DeleteOutline,"Удалить этот отчёт")}
+                }
             }
                 }
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center) {
@@ -110,5 +124,17 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                 }
             }
         }
+    }
+    deleteCandidateAt?.let{at->
+        AlertDialog(
+            onDismissRequest={deleteCandidateAt=null},
+            title={Text("Удалить выбранный отчёт?")},
+            text={Text("Запись поиска будет удалена из журнала. Медиафайлы, другие отчёты и незавершённая проверка останутся на месте.")},
+            confirmButton={TextButton({
+                deleteCandidateAt=null
+                if(deleteEnabled)onDelete?.invoke(at)
+            }){Text("Удалить",color=MaterialTheme.colorScheme.error)}},
+            dismissButton={TextButton({deleteCandidateAt=null}){Text("Отмена")}},
+        )
     }
 }
