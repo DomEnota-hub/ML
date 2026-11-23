@@ -697,7 +697,14 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                             AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null} cells=${it?.evaluatedCells ?: -1}")
                         }
                     }
-                    PairAnalysis(first,second,aligned)
+                    val refined = if(aligned != null && aligned.shortCandidates.isNotEmpty()) {
+                        val refinedAudio = AcousticAudioDecoder.refineShortDifferences(
+                            context, Uri.parse(reference.uri), Uri.parse(target.uri), aligned)
+                        AppLog.i("MusicCompare", "shortZones candidates=${aligned.shortCandidates.size} " +
+                            "confirmed=${refinedAudio.confirmedShortZones.size}")
+                        refinedAudio
+                    } else aligned
+                    PairAnalysis(first,second,refined)
                 }
                 if(MusicDuplicateScanner.comparisonStamp(context,reference)!=beforeFirst||
                     MusicDuplicateScanner.comparisonStamp(context,target)!=beforeSecond)return@withContext null
@@ -1002,6 +1009,7 @@ private fun comparisonZoneLabel(kind:ComparisonZoneKind)=when(kind){
     ComparisonZoneKind.EXTRA_IN_VERSION->"Добавленный фрагмент"
     ComparisonZoneKind.MISSING_IN_VERSION->"Отсутствующий фрагмент"
     ComparisonZoneKind.CHANGED_CONTENT->"Изменённое звучание"
+    ComparisonZoneKind.SHORT_CHANGE_UNCERTAIN->"Короткое отличие · проверьте на слух"
 }
 
 /** One yellow overlay, two independent aligned recordings, a shared comparison timeline.
