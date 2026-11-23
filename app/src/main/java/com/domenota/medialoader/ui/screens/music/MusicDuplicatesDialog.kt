@@ -887,6 +887,8 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                         Text("Обзор записи",style=MaterialTheme.typography.labelMedium)
                                         ComparisonTwoWaveforms(result,shownZoneIndex,previewId==referenceId,
                                             previewId==targetId,position,
+                                            if(previewId==referenceId)position else seekFrame(true),
+                                            if(previewId==targetId)position else seekFrame(false),
                                             range=0 until result.columns.size,referenceName=reference.title,
                                             targetName=target.title){zoneAt,column,first->tapWave(zoneAt,column,first)}
                                     }
@@ -960,7 +962,10 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                                 Text("Увеличенный участок · ${pairTime((range.last-range.first+1)*result.stepMs)}",
                                                     style=MaterialTheme.typography.labelSmall)
                                                 ComparisonTwoWaveforms(result,shownZoneIndex,previewId==referenceId,
-                                                    previewId==targetId,position,range=range,focus=true,
+                                                    previewId==targetId,position,
+                                                    if(previewId==referenceId)position else seekFrame(true),
+                                                    if(previewId==targetId)position else seekFrame(false),
+                                                    range=range,focus=true,
                                                     referenceName=reference.title,targetName=target.title){
                                                         zoneAt,column,first->tapWave(zoneAt,column,first)
                                                     }
@@ -1060,25 +1065,27 @@ private fun comparisonZoneLabel(kind:ComparisonZoneKind)=when(kind){
  * Tapping either row seeks THAT row's recording using the corresponding frame. */
 @Composable
 private fun ComparisonTwoWaveforms(result:AlignedAudioComparison,selected:Int,
-    playingFirst:Boolean,playingSecond:Boolean,position:Long,range:IntRange,
+    playingFirst:Boolean,playingSecond:Boolean,position:Long,
+    firstCue:Long?,secondCue:Long?,range:IntRange,
     referenceName:String,targetName:String,focus:Boolean=false,
     onTap:(Int,Int,Boolean)->Unit){
     Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
         Text("Основа · $referenceName",style=MaterialTheme.typography.labelSmall,
             maxLines=1,overflow=TextOverflow.Ellipsis)
         AlignedPairWaveform(result,selected,playingFirst,playingSecond,position,
-            range=range,focus=focus,laneFirst=true){zone,column->onTap(zone,column,true)}
+            firstCue,secondCue,range=range,focus=focus,laneFirst=true){zone,column->onTap(zone,column,true)}
         Spacer(Modifier.height(4.dp))
         Text("Сравниваемая · $targetName",style=MaterialTheme.typography.labelSmall,
             maxLines=1,overflow=TextOverflow.Ellipsis)
         AlignedPairWaveform(result,selected,playingFirst,playingSecond,position,
-            range=range,focus=focus,laneFirst=false){zone,column->onTap(zone,column,false)}
+            firstCue,secondCue,range=range,focus=focus,laneFirst=false){zone,column->onTap(zone,column,false)}
     }
 }
 
 @Composable
 private fun AlignedPairWaveform(result:AlignedAudioComparison,selected:Int,playingFirst:Boolean,playingSecond:Boolean,
-    position:Long,range:IntRange,focus:Boolean=false,laneFirst:Boolean,onTap:(Int,Int)->Unit){
+    position:Long,firstCue:Long?,secondCue:Long?,
+    range:IntRange,focus:Boolean=false,laneFirst:Boolean,onTap:(Int,Int)->Unit){
     if(range.isEmpty())return
     val accent=musicPlaybackAccent
     val other=MaterialTheme.colorScheme.onSurfaceVariant
@@ -1111,9 +1118,20 @@ private fun AlignedPairWaveform(result:AlignedAudioComparison,selected:Int,playi
         fun x(column:Int)=(column-range.first)*unit
         for((index,zone)in result.zones.withIndex()){
             val lo=maxOf(range.first,zone.start);val hi=minOf(range.last+1,zone.endExclusive)
-            if(hi>lo)drawRect(accent.copy(alpha=if(index==selected).32f else .14f),
-                topLeft=androidx.compose.ui.geometry.Offset(x(lo),0f),
-                size=androidx.compose.ui.geometry.Size(x(hi)-x(lo),size.height))
+            if(hi>lo) {
+                drawRect(accent.copy(alpha=if(index==selected).32f else .14f),
+                    topLeft=androidx.compose.ui.geometry.Offset(x(lo),0f),
+                    size=androidx.compose.ui.geometry.Size(x(hi)-x(lo),size.height))
+                // A narrow difference must remain visible when zoomed out.
+                if(!focus&&laneFirst && hi-lo<=maxOf(4,count/160)){
+                    val center=x(lo)+(x(hi)-x(lo))/2f
+                    drawLine(accent,androidx.compose.ui.geometry.Offset(center,0f),
+                        androidx.compose.ui.geometry.Offset(center,13.dp.toPx()),
+                        strokeWidth=1.5.dp.toPx())
+                    drawCircle(accent,radius=4.dp.toPx(),
+                        center=androidx.compose.ui.geometry.Offset(center,6.dp.toPx()))
+                }
+            }
         }
         drawLine(other.copy(alpha=.28f),androidx.compose.ui.geometry.Offset(0f,middle),
             androidx.compose.ui.geometry.Offset(size.width,middle),strokeWidth=1.dp.toPx())
@@ -1129,10 +1147,10 @@ private fun AlignedPairWaveform(result:AlignedAudioComparison,selected:Int,playi
                 androidx.compose.ui.geometry.Offset(px,middle+height),
                 strokeWidth=1.6.dp.toPx(),cap=androidx.compose.ui.graphics.StrokeCap.Round)
         }
-        val frame=(position/result.stepMs).toInt()
-        val cursor=if(laneFirst && playingFirst)cursorColumns.first.getOrElse(frame){-1}
-            else if(!laneFirst && playingSecond)cursorColumns.second.getOrElse(frame){-1}
-            else -1
+        // Both aligned positions stay visible even while playback is paused.
+        val frame=(if(laneFirst)firstCue else secondCue)?.let{(it/result.stepMs).toInt()}?:-1
+        val cursor=if(laneFirst)cursorColumns.first.getOrElse(frame){-1}
+            else cursorColumns.second.getOrElse(frame){-1}
         if(cursor in range)drawLine(accent,androidx.compose.ui.geometry.Offset(x(cursor),0f),
             androidx.compose.ui.geometry.Offset(x(cursor),size.height),strokeWidth=1.5.dp.toPx())
     }
