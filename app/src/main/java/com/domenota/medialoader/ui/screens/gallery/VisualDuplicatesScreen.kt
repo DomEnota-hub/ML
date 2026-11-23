@@ -270,8 +270,9 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             else VisualDuplicateReadyPanel(canStart,canShow,{choosingScope=true},openResults,
                 hasPrevious=canShow || (sameScope&&VisualDuplicateBackgroundScan.interrupted(context)))
         }
-        status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+        listOfNotNull(status.error,error).distinct().forEach{message->
+            com.domenota.medialoader.ui.components.DuplicateIssueNotice(message)
+        }
         if(!loaded||!phonePermission)return@Column
         if(status.running&&partial!=null&&displayReady){
             Text("Предварительные результаты · удаление после завершения")
