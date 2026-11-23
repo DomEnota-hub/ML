@@ -19,6 +19,19 @@ import org.robolectric.annotation.*
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MusicScanModeControlsTest {
     @get:Rule val compose=createAndroidComposeRule<ComponentActivity>()
+    @Test fun savedMatchingModeAlwaysContinuesInsteadOfOpeningScopePicker(){
+        assertTrue(shouldResumeMusicScan(true,false,false))
+        assertTrue(shouldResumeMusicScan(true,true,true))
+        assertFalse(shouldResumeMusicScan(true,true,false))
+        assertFalse(shouldResumeMusicScan(false,false,false))
+    }
+    @Test fun resultGroupsUseCorrectRussianGrammaticalForm(){
+        assertEquals("Найдена 1 группа",visualMusicGroupLabel(1))
+        assertEquals("Найдено 2 группы",visualMusicGroupLabel(2))
+        assertEquals("Найдено 5 групп",visualMusicGroupLabel(5))
+        assertEquals("Найдено 21 группа",visualMusicGroupLabel(21))
+        assertEquals("Найдено 11 групп",visualMusicGroupLabel(11))
+    }
     @Test fun changingModeDoesNotStartAndPauseIsNotFailure(){
         var expanded by mutableStateOf(false);var launches=0
         compose.setContent{MaterialTheme{androidx.compose.foundation.layout.Column{
