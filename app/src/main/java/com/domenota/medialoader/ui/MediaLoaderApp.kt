@@ -3434,8 +3434,17 @@ fun MediaLoaderApp(
             },
             LibraryRouteContent(VIDEO_EDITOR_ROUTE) { entry ->
                 val downloadId = entry.arguments?.getString("downloadId")
-                val item = accessibleDownloads.firstOrNull { it.id == downloadId }
-                    ?.takeIf { it.savedUri != null && it.mediaType == MediaType.VIDEO }
+                val candidate = accessibleDownloads.firstOrNull { it.id == downloadId }
+                // A stale public projection must not overrule the live privacy
+                // identity guard. A separately unlocked private row remains
+                // allowed through the existing secure editor flow.
+                val knownBlocked = downloadId != null &&
+                    (downloadId in libraryPrivateKeys.orEmpty() ||
+                        downloadId in visibilityBlocked || downloadId in archiveBlocked) &&
+                    !(candidate?.isPrivate == true && privateState.unlocked)
+                val item = candidate?.takeIf {
+                    !knownBlocked && it.savedUri != null && it.mediaType == MediaType.VIDEO
+                }
                 // Projections can go temporarily empty while MediaStore is
                 // rebuilding after a privacy change. Never render an unverified
                 // cached URI, but also never pop the editor on one empty frame.
@@ -3450,9 +3459,6 @@ fun MediaLoaderApp(
                         missingForMs = VideoEditorRouteAdmissionPolicy.MAX_WAIT_MS.toInt()
                     }
                 }
-                val knownBlocked = downloadId != null &&
-                    (downloadId in libraryPrivateKeys.orEmpty() ||
-                        downloadId in visibilityBlocked || downloadId in archiveBlocked)
                 // Gallery scans are intentionally silent in the normal
                 // library index, so projection.ready alone cannot prove a
                 // missing video has permanently disappeared. This signal is
