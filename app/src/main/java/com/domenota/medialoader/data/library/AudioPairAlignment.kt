@@ -27,6 +27,17 @@ internal data class AlignedAudioComparison(
         return copy(zones = (zones + accepted).distinct().sortedBy { it.start },
             shortCandidates = emptyList(), confirmedShortZones = accepted)
     }
+    /** Full-stream confirmed short zones are independent of coarse candidates.
+     * Keep original insertion/deletion zones, avoid overlapping duplicate markers,
+     * and mark new regions as inspectable, never automatic-delete evidence. */
+    fun withPreciseZones(precise: List<ComparisonZone>): AlignedAudioComparison {
+        val added = precise.asSequence().filter { zone ->
+            zone.start >= 0 && zone.endExclusive <= columns.size && zone.start < zone.endExclusive &&
+                zones.none { old -> zone.start < old.endExclusive && old.start < zone.endExclusive }
+        }.distinct().sortedBy { it.start }.toList()
+        return copy(zones = (zones + added).sortedBy { it.start },
+            shortCandidates = emptyList(), confirmedShortZones = confirmedShortZones + added)
+    }
     /** Keep uncertain low-level recording edges visible without calling them musical edits.
      * This is only a conservative UI classification: even a quiet tail can be audible
      * on some equipment. Neither these labels nor the comparison authorize deletion. */
