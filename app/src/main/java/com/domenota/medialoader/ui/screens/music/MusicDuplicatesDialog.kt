@@ -346,6 +346,17 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             onDismiss()
         }
     }
+    // The picker replaces this NavHost route's CONTENT instead of opening a
+    // second Android Window. Our Activity Scaffold already reserves system bars.
+    if (choosingScope) {
+        com.domenota.medialoader.ui.components.DuplicateScanScopeScreen(
+            rows = latestRows.filter { it.mediaType == com.domenota.medialoader.core.model.MediaType.AUDIO },
+            mediaLabel = "Музыка",
+            onDismiss = { choosingScope = false },
+            onStart = { keys -> choosingScope = false; beginScope(keys) },
+        )
+        return
+    }
     BackHandler(enabled = true) { if (!verifying&&!clearingJournal) close() }
     // This is a NavHost destination within the Activity's bounded Scaffold.
     // No independent Dialog window, no duplicate system-bar fitting.
@@ -631,12 +642,6 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             }
         },
         deleteEnabled=!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal)
-    if(choosingScope)com.domenota.medialoader.ui.components.DuplicateScanScopeDialog(
-        rows=latestRows.filter{it.mediaType==com.domenota.medialoader.core.model.MediaType.AUDIO},
-        mediaLabel="Музыка",
-        onDismiss={choosingScope=false},
-        onStart={keys->choosingScope=false;beginScope(keys)},
-    )
     if(replaceScan)AlertDialog(onDismissRequest={replaceScan=false},title={Text("Заменить незавершённый поиск?")},
         text={Text("Сохранённый предварительный отчёт будет удалён. Акустические отпечатки сохранятся. ${DuplicateFolderScope.label(selectedScope)} · ${musicScanModeName(expandedScan)}.")},
         dismissButton={TextButton({replaceScan=false}){Text("Отмена")}},confirmButton={TextButton({
