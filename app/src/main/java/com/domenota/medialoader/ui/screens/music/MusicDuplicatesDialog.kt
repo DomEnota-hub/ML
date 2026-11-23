@@ -831,6 +831,30 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                     }
                     HorizontalDivider()
                             Text("Различия между записями",style=MaterialTheme.typography.titleMedium)
+                            Text("Прослушивание выбранного момента",style=MaterialTheme.typography.labelMedium,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                                val firstPlaying=previewId==referenceId&&playing
+                                val secondPlaying=previewId==targetId&&playing
+                                OutlinedButton(onClick={play(reference,if(firstPlaying)null else seekFrame(true))},
+                                    enabled=zone==null||seekFrame(true)!=null,modifier=Modifier.weight(1f),
+                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
+                                        if(firstPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
+                                    Icon(if(firstPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Основа",maxLines=1,
+                                        overflow=TextOverflow.Ellipsis)
+                                }
+                                OutlinedButton(onClick={play(target,if(secondPlaying)null else seekFrame(false))},
+                                    enabled=zone==null||seekFrame(false)!=null,modifier=Modifier.weight(1f),
+                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
+                                        if(secondPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
+                                    Icon(if(secondPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Сравниваемая",maxLines=1,
+                                        overflow=TextOverflow.Ellipsis)
+                                }
+                            }
                             if(failed)Text("Анализ недоступен",style=MaterialTheme.typography.bodySmall,
                                 color=MaterialTheme.colorScheme.onSurfaceVariant)
                             else if(analysis==null){
@@ -953,30 +977,6 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                             }
                                         }
                                     }
-                                }
-                            }
-                            Text("Прослушивание выбранного момента",style=MaterialTheme.typography.labelMedium,
-                                color=MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                                val firstPlaying=previewId==referenceId&&playing
-                                val secondPlaying=previewId==targetId&&playing
-                                OutlinedButton(onClick={play(reference,if(firstPlaying)null else seekFrame(true))},
-                                    enabled=zone==null||seekFrame(true)!=null,modifier=Modifier.weight(1f),
-                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
-                                        if(firstPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
-                                    Icon(if(firstPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Основа",maxLines=1,
-                                        overflow=TextOverflow.Ellipsis)
-                                }
-                                OutlinedButton(onClick={play(target,if(secondPlaying)null else seekFrame(false))},
-                                    enabled=zone==null||seekFrame(false)!=null,modifier=Modifier.weight(1f),
-                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
-                                        if(secondPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
-                                    Icon(if(secondPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Сравниваемая",maxLines=1,
-                                        overflow=TextOverflow.Ellipsis)
                                 }
                             }
                         }
