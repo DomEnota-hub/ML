@@ -7603,6 +7603,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.DuplicateResultFilterPolicyTest#countsIncludeOnlyPresentKinds": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateResultFilterPolicyTest#disappearingSelectionFallsBackToAll": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateResultFilterPolicyTest#emptyCountsHideAllFilters": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateResultFilterPolicyTest#populatedKindsRemainInDeclaredOrder": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateResultFilterPolicyTest#positiveSelectionIsKept": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#filteredSelectAllDoesNotSelectHiddenSibling": {
     "skipped": false,
     "failed": false
@@ -9367,6 +9387,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.gallery.VisualDuplicateResultFiltersTest#beforeScanNothingRendered": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.gallery.VisualDuplicateResultFiltersTest#hiddenOldGallerySelectionFallsBackToAll": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.gallery.VisualDuplicateResultFiltersTest#onlyPopulatedGalleryKindsShown": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.gallery.VisualDuplicateStoppedPanelTest#accessRevocationDisablesBothActions": {
     "skipped": false,
     "failed": false
@@ -9520,6 +9552,18 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.music.MusicDuplicatePreliminaryTest#provisionalCardsExpandWithoutDeletionAndRetainStateOnUpdate": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.MusicDuplicateResultFiltersTest#beforeScanNothingRendered": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.MusicDuplicateResultFiltersTest#onlyPopulatedMusicKindsShown": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.MusicDuplicateResultFiltersTest#staleMusicSelectionRendersAllAndCanSwitch": {
     "skipped": false,
     "failed": false
   },
