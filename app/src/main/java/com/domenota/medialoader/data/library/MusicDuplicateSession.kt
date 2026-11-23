@@ -59,7 +59,7 @@ internal object MusicDuplicateSessionStore {
                 check(!legacy.baseFile.exists()){"LEGACY_REPORT_DELETE_FAILED"}
             }
             DuplicateReportJournal.deleteCompleted(context,"music",at)
-            check(history(context).none{it.scannedAt==at}){"REPORT_DELETE_INCOMPLETE"}
+            check(DuplicateReportJournal.isDeleted(context,"music",at)){"REPORT_DELETE_NOT_RECORDED"}
         }.isSuccess
     }
 
