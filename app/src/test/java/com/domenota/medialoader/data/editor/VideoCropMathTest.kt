@@ -96,4 +96,20 @@ class VideoCropMathTest {
         assertEquals(initial.right, changed.right, 0.0001f)
         assertEquals(initial.bottom, changed.bottom, 0.0001f)
     }
+    @Test fun circleDragPreservesDiameterAndStopsAtSourceBorders() {
+        val crop = CropFractions(left = .2f, right = .3f, top = .1f, bottom = .2f)
+        val moved = VideoCropMath.moveCrop(crop, .1f, -.2f)
+        assertEquals(.3f, moved.left, .0001f)
+        assertEquals(.2f, moved.right, .0001f)
+        assertEquals(0f, moved.top, .0001f)
+        assertEquals(.3f, moved.bottom, .0001f)
+        assertEquals(crop.keptWidth, moved.keptWidth, .0001f)
+        assertEquals(crop.keptHeight, moved.keptHeight, .0001f)
+        val limited = VideoCropMath.moveCrop(moved, 2f, -2f)
+        assertEquals(0f, limited.right, .0001f)
+        assertEquals(0f, limited.top, .0001f)
+        assertEquals(crop.keptWidth, limited.keptWidth, .0001f)
+        assertEquals(crop.keptHeight, limited.keptHeight, .0001f)
+    }
+
 }
