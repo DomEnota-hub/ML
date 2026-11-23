@@ -29,7 +29,7 @@ class MusicScanModeControlsTest {
         assertEquals("Найдена 1 группа",visualMusicGroupLabel(1))
         assertEquals("Найдено 2 группы",visualMusicGroupLabel(2))
         assertEquals("Найдено 5 групп",visualMusicGroupLabel(5))
-        assertEquals("Найдено 21 группа",visualMusicGroupLabel(21))
+        assertEquals("Найдена 21 группа",visualMusicGroupLabel(21))
         assertEquals("Найдено 11 групп",visualMusicGroupLabel(11))
     }
     @Test fun changingModeDoesNotStartAndPauseIsNotFailure(){
