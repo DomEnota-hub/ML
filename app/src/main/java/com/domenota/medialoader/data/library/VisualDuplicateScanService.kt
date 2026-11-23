@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Main-thread admission, one service-owned scan. The screen only observes progress. */
 internal object VisualDuplicateBackgroundScan {
     const val OPEN_ACTION = "com.domenota.medialoader.OPEN_VISUAL_DUPLICATES"
-    data class Request(val token: Long, val rows: List<LibraryMediaRef>, val source: LibrarySource, val epoch: Long)
+    data class Request(val token: Long, val rows: List<LibraryMediaRef>, val source: LibrarySource, val epoch: Long, val scopeLabel:String="Все файлы")
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
         val session: VisualDuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false,
         val stopped: Boolean = false, val phase:DuplicateScanPhase=DuplicateScanPhase.VISUAL,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:VisualScanResult?=null,val coverage:VisualScanCoverage?=null)
@@ -35,14 +35,21 @@ internal object VisualDuplicateBackgroundScan {
     fun journalStatus(context:Context):String=if(state.value.running)"Выполняется" else when(prefs(context).getString("journalStatus",null)){
         "paused"->"Приостановлен";"stopped"->"Остановлен";"failed"->"Прерван";else->"Незавершённый поиск"
     }
+    fun resumeScope(context:Context):Set<String>? {
+        val saved=prefs(context)
+        return if(saved.getBoolean("scopeAll",true))null
+            else saved.getStringSet("scopeKeys",emptySet())?.toSet() ?: emptySet()
+    }
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
-    @Synchronized fun start(context: Context, rows: List<LibraryMediaRef>, source:LibrarySource, epoch:Long) {
+    @Synchronized fun start(context: Context, rows: List<LibraryMediaRef>, source:LibrarySource, epoch:Long, scopeKeys:Set<String>?=null) {
         if (mutable.value.running) return
         val token = ++nextToken
-        pending = Request(token,rows,source,epoch)
+        pending = Request(token,rows.toList(),source,epoch,DuplicateFolderScope.label(scopeKeys))
         val now=android.os.SystemClock.elapsedRealtime()
         mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now,coverage=VisualScanCoverage(source,rows.size))
-        prefs(context).edit().putString("journalStatus","running").putLong("journalEpoch",epoch).apply()
+        prefs(context).edit().putString("journalStatus","running").putLong("journalEpoch",epoch)
+            .putBoolean("scopeAll",scopeKeys==null)
+            .putStringSet("scopeKeys",scopeKeys?.toSet() ?: emptySet()).apply()
         mark(context,true)
         try { ContextCompat.startForegroundService(context,Intent(context,VisualDuplicateScanService::class.java)) }
         catch (e: Exception) { pending = null; mark(context,false); mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
@@ -126,8 +133,9 @@ class VisualDuplicateScanService : Service() {
         job = scope.launch {
             try {
                 val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,request.source,request.epoch,onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
-                        VisualDuplicateBackgroundScan.partial(scanToken,partial)
-                        VisualDuplicateSessionStore.savePartial(this@VisualDuplicateScanService,VisualDuplicateSession(partial,emptySet(),0,0,scanAt))
+                        val scoped=partial.copy(scopeLabel=request.scopeLabel)
+                        VisualDuplicateBackgroundScan.partial(scanToken,scoped)
+                        VisualDuplicateSessionStore.savePartial(this@VisualDuplicateScanService,VisualDuplicateSession(scoped,emptySet(),0,0,scanAt))
                     }) { coverage ->
                     val done=coverage.checked;val total=coverage.total
                     val now = android.os.SystemClock.elapsedRealtime()
@@ -139,7 +147,7 @@ class VisualDuplicateScanService : Service() {
                 }
                 ensureActive()
                 if (!VisualDuplicateBackgroundScan.beginCommit(scanToken)) return@launch
-                val session = VisualDuplicateSession(result,emptySet(),0,0,scanAt)
+                val session = VisualDuplicateSession(result.copy(scopeLabel=request.scopeLabel),emptySet(),0,0,scanAt)
                 check(VisualDuplicateSessionStore.save(this@VisualDuplicateScanService,session)) { "Не удалось сохранить поиск" }
                 synchronized(DuplicatePrivacyGuard.lock){DuplicateReportJournal.clearPartial(this@VisualDuplicateScanService,"gallery")}
                 terminal = true
