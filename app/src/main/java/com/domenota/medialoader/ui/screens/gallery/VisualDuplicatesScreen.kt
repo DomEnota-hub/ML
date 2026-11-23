@@ -202,6 +202,17 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             onClose={trash=null;onRefresh()},visual=fingerprints,
             catalogReady=ready && phonePermission && currentGeneration())
     }
+    // Replace the Activity-bounded NavHost content instead of opening a Dialog.
+    // Gallery and Music now share precisely the same system-bar-safe picker.
+    if (choosingScope) {
+        com.domenota.medialoader.ui.components.DuplicateScanScopeScreen(
+            rows = catalog.scan.map { it.item },
+            mediaLabel = "Фото и видео",
+            onDismiss = { choosingScope = false },
+            onStart = { keys -> choosingScope = false; startScan(keys) },
+        )
+        return
+    }
     Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Row(Modifier.fillMaxWidth().heightIn(min=56.dp),verticalAlignment=Alignment.CenterVertically){
             IconButton(onBack,enabled=trash==null){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
@@ -384,11 +395,6 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }
         },
         deleteEnabled=!status.running&&!status.committing&&!saving&&trash==null)
-    if(choosingScope)com.domenota.medialoader.ui.components.DuplicateScanScopeDialog(
-        rows=catalog.scan.map{it.item},mediaLabel="Фото и видео",
-        onDismiss={choosingScope=false},
-        onStart={keys->choosingScope=false;startScan(keys)},
-    )
     if(showPartial&&displayReady&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
         text={LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             item{Text("Только просмотр. Удаление доступно после завершения.")}
