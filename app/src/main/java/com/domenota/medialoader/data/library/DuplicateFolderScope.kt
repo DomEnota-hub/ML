@@ -33,7 +33,9 @@ internal object DuplicateFolderScope {
             return "bucket:" + row.bulkMediaKey
         if (!row.groupId.isNullOrBlank())
             return "group:" + row.mediaType.name + ":" + row.groupId
-        return "unspecified:" + row.providerId
+        // Unknown directory identity must NEVER collapse unrelated files into
+        // a provider-wide pseudo-folder. Exact URI only, with a numbered UI label.
+        return "unspecified:" + uri
     }
 
     fun options(rows: List<DownloadEntity>): List<DuplicateFolderOption> =
