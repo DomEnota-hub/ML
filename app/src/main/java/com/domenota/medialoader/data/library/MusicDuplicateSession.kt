@@ -200,6 +200,7 @@ internal object MusicDuplicateSessionStore {
         val keep = JSONObject(); session.kept.forEach { (k,v) -> keep.put(k,v) }
         return JSONObject().put("schema",1).put("groups",groups).put("skipped",session.result.skipped)
             .put("acousticUnavailable",session.result.acousticUnavailable).put("expanded",session.result.expanded).put("privacyEpoch",session.result.privacyEpoch)
+            .put("scopeLabel",session.result.scopeLabel)
             .put("selected",JSONArray(session.selected.toList())).put("kept",keep)
             .put("index",session.index).put("offset",session.offset).put("scannedAt",session.scannedAt).toString()
     }
@@ -217,7 +218,7 @@ internal object MusicDuplicateSessionStore {
         }
         val ka = json.getJSONObject("kept"); val keep = ka.keys().asSequence().associateWith { ka.getString(it) }
         val sa = json.getJSONArray("selected"); val selected = (0 until sa.length()).map { sa.getString(it) }.toSet()
-        return DuplicateSession(DuplicateScanResult(groups,json.getInt("skipped"),json.optInt("acousticUnavailable",0),json.optBoolean("expanded",false),json.optLong("privacyEpoch",groups.firstOrNull()?.tracks?.firstOrNull()?.privacyEpoch?:0L)),selected,keep,
+        return DuplicateSession(DuplicateScanResult(groups,json.getInt("skipped"),json.optInt("acousticUnavailable",0),json.optBoolean("expanded",false),json.optLong("privacyEpoch",groups.firstOrNull()?.tracks?.firstOrNull()?.privacyEpoch?:0L),json.optString("scopeLabel","Все файлы")),selected,keep,
             json.getInt("index").coerceAtLeast(0),json.getInt("offset").coerceAtLeast(0),json.getLong("scannedAt"))
     }
 }
