@@ -15,7 +15,12 @@ class AudioPairAlignmentTest {
     @Test fun isolatedCoarseWordEditIsRetainedForFineConfirmation() {
         val first = recording(100)
         val edited = first.toMutableList()
-        edited[36] = ComparisonFrame(FloatArray(128).apply { this[120] = 1f }, .5f)
+        // A short word edit can be 83% spectrally similar, so a diagonal
+        // substitution is optimal. An unrelated frame would instead realign
+        // as missing+extra content and would not test this edge case.
+        edited[36] = ComparisonFrame(FloatArray(128).apply {
+            this[36] = .83f; this[120] = .5577634f
+        }, .5f)
         val aligned = requireNotNull(AudioPairAlignment.align(first, edited, 256))
         assertTrue("Existing 512-ms gate alone would discard the word", aligned.zones.isEmpty())
         assertEquals(1, aligned.shortCandidates.size)
