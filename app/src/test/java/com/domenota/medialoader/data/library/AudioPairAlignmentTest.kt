@@ -42,10 +42,11 @@ class AudioPairAlignmentTest {
         val base = recording(12)
         val unrelated = List(12) { ComparisonFrame(FloatArray(128).apply { this[100] = 1f }, .5f) }
         assertFalse(AudioPairAlignment.confirmsShortDifference(base, unrelated, 2, 2, 4))
-        val edited = base.toMutableList()
+        val quiet = base.map { ComparisonFrame(it.spectrum, .00001f) }
+        val edited = quiet.toMutableList()
         edited[4] = ComparisonFrame(FloatArray(128).apply { this[120] = 1f }, .00001f)
         edited[5] = ComparisonFrame(FloatArray(128).apply { this[121] = 1f }, .00001f)
-        assertFalse(AudioPairAlignment.confirmsShortDifference(base, edited, 2, 2, 4))
+        assertFalse(AudioPairAlignment.confirmsShortDifference(quiet, edited, 2, 2, 4))
     }
 
     @Test fun oneSecondLongerIntroDoesNotMarkRemainingRecording() {
