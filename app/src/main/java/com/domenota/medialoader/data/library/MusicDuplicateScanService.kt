@@ -186,7 +186,7 @@ class MusicDuplicateScanService : Service() {
                     }
                 }
                 val result = MusicDuplicateScanner.scan(this@MusicDuplicateScanService,request.rows,request.linked,request.current,request.expanded,
-                    onPhase={renewWakeLock();DuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
+                    isScoped=request.scopeLabel!="Все файлы", onPhase={renewWakeLock();DuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
                         val scoped=partial.copy(scopeLabel=request.scopeLabel)
                         DuplicateBackgroundScan.partial(scanToken,scoped)
                         MusicDuplicateSessionStore.savePartial(this@MusicDuplicateScanService,DuplicateSession(scoped,emptySet(),emptyMap(),0,0,scanAt))
