@@ -167,6 +167,15 @@ private data class VideoInfo(
     val isHdr: Boolean = false,
 )
 
+/** A timeline tap selects a clip, not a new editing tool.
+ * Only an explicit toolbar action may switch to TRIM.
+ */
+internal data class VideoClipFocus(val clipId: String, val tool: VideoWorkspaceTool?)
+
+internal fun preserveVideoClipFocus(
+    clipId: String, activeTool: VideoWorkspaceTool?,
+): VideoClipFocus = VideoClipFocus(clipId, activeTool)
+
 /** The approved v8 editor has its own dark canvas, independent of the app's light theme. */
 @Composable
 fun VideoEditorScreen(
@@ -987,8 +996,12 @@ private fun VideoEditorContent(
                             }
                         },
                         onSelect = { id ->
-                            if (selectedClipId != id) {
-                                val nextIndex = activeProject.indexOf(id)
+                            // Focusing a timeline clip is not a request to switch
+                            // tools. In particular, preserve CROP/TEXT/FX panels
+                            // when inspecting another frame or clip.
+                            val focus = preserveVideoClipFocus(id, selectedTool)
+                            if (selectedClipId != focus.clipId) {
+                                val nextIndex = activeProject.indexOf(focus.clipId)
                                 if (nextIndex >= 0) {
                                     val firstMs = activeProject.timelineStart(nextIndex)
                                     playheadMs = firstMs
@@ -997,9 +1010,9 @@ private fun VideoEditorContent(
                                         previewPlayer?.seekTo(nextIndex, 0L)
                                     }
                                 }
-                                selectedClipId = id
+                                selectedClipId = focus.clipId
                             }
-                            selectedTool = VideoWorkspaceTool.TRIM
+                            selectedTool = focus.tool
                         },
                         onSeek = { target ->
                             previewPlayer?.pause()
@@ -1237,15 +1250,6 @@ private fun VideoEditorContent(
                         }
                         VideoWorkspaceTool.CROP -> {
             Text("Кадрирование", style = MaterialTheme.typography.titleMedium)
-            Text(
-                if (cropShape == MediaCropShape.CIRCLE)
-                    "Перемещай рамку круга. За пределами круга будет чёрный фон, размер видео сохранится."
-                else "Потяни сторону или угол рамки. Затемнённая область будет удалена.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(10.dp))
-
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
