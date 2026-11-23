@@ -19,6 +19,44 @@ import kotlinx.coroutines.delay
 
 internal data class DuplicateJournalRow(val at:Long,val groups:Int,val files:Int,val status:String="Завершён",val mode:String?=null)
 
+/** Consistent outlined warning, reused by Gallery and Music duplicate results.
+ * The status speaks only about affected reports; unrelated moves show nothing.
+ */
+internal data class DuplicateIssueCopy(val title:String,val message:String)
+internal fun duplicateIssueCopy(raw:String):DuplicateIssueCopy {
+    val privateMove=raw.contains("Поиск сброшен после переноса") ||
+        raw.contains("Доступ к файлам изменился")
+    return if(privateMove)DuplicateIssueCopy(
+        "Результаты требуют проверки",
+        "Доступ к некоторым файлам изменился. Проверьте результаты или запустите поиск повторно."
+    ) else DuplicateIssueCopy("Не удалось завершить поиск",raw)
+}
+
+@Composable
+internal fun DuplicateIssueNotice(message:String,modifier:Modifier=Modifier){
+    val copy=duplicateIssueCopy(message)
+    val accent=MaterialTheme.colorScheme.error
+    Surface(
+        modifier.fillMaxWidth().padding(vertical=4.dp).testTag("duplicate-issue-notice"),
+        shape=MaterialTheme.shapes.medium,
+        color=accent.copy(alpha=.09f),
+        border=androidx.compose.foundation.BorderStroke(1.dp,accent.copy(alpha=.56f)),
+    ) {
+        Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(10.dp)){
+            Icon(androidx.compose.material.icons.Icons.Rounded.ErrorOutline,null,
+                tint=accent,modifier=Modifier.size(25.dp))
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
+                Text(copy.title,color=accent,style=MaterialTheme.typography.titleSmall)
+                Text(copy.message,color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+
+
 @Composable
 internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,startedAt:Long,phaseStartedAt:Long,
     music:Boolean,groups:Int,bytes:Long,modifier:Modifier=Modifier,showSummary:Boolean=true,completedMetadata:Int=0){
