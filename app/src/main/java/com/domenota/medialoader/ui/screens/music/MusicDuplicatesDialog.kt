@@ -702,6 +702,33 @@ internal fun visualMusicGroupLabel(count:Int):String {
     return "${if(count%100 !in 11..14 && count%10==1) "Найдена" else "Найдено"} $count $word"
 }
 
+/** Center the icon and full label as one unit. Never clip the second source.
+ * At large accessibility font scale allow two text lines without ellipsis.
+ */
+@Composable
+private fun ComparisonPlaybackButton(
+    label:String, playing:Boolean, enabled:Boolean,modifier:Modifier=Modifier,onClick:()->Unit
+) {
+    val accent=musicPlaybackAccent
+    val largeText=androidx.compose.ui.platform.LocalDensity.current.fontScale>1.3f
+    OutlinedButton(onClick=onClick,enabled=enabled,
+        modifier=modifier.heightIn(min=52.dp),
+        contentPadding=PaddingValues(horizontal=4.dp,vertical=7.dp),
+        border=androidx.compose.foundation.BorderStroke(1.4.dp,
+            if(playing)accent else MaterialTheme.colorScheme.outline)) {
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.Center) {
+            Icon(if(playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null,
+                Modifier.size(19.dp))
+            Spacer(Modifier.width(3.dp))
+            Text(label,fontSize=androidx.compose.ui.unit.TextUnit.Unspecified,
+                style=MaterialTheme.typography.labelMedium,
+                maxLines=if(largeText)2 else 1,
+                softWrap=largeText)
+        }
+    }
+}
+
 private data class PairAnalysis(
     val first:List<ComparisonFrame>, val second:List<ComparisonFrame>,
     val aligned:AlignedAudioComparison?,
@@ -901,23 +928,13 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                                 val firstPlaying=previewId==referenceId&&playing
                                 val secondPlaying=previewId==targetId&&playing
-                                OutlinedButton(onClick={play(reference,if(firstPlaying)null else seekFrame(true))},
-                                    enabled=zone==null||seekFrame(true)!=null,modifier=Modifier.weight(1f),
-                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
-                                        if(firstPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
-                                    Icon(if(firstPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Основа",maxLines=1,
-                                        overflow=TextOverflow.Ellipsis)
+                                ComparisonPlaybackButton("Основа",firstPlaying,
+                                    zone==null||seekFrame(true)!=null,Modifier.weight(1f)){
+                                    play(reference,if(firstPlaying)null else seekFrame(true))
                                 }
-                                OutlinedButton(onClick={play(target,if(secondPlaying)null else seekFrame(false))},
-                                    enabled=zone==null||seekFrame(false)!=null,modifier=Modifier.weight(1f),
-                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
-                                        if(secondPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
-                                    Icon(if(secondPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Сравниваемая",maxLines=1,
-                                        overflow=TextOverflow.Ellipsis)
+                                ComparisonPlaybackButton("Сравниваемая",secondPlaying,
+                                    zone==null||seekFrame(false)!=null,Modifier.weight(1f)){
+                                    play(target,if(secondPlaying)null else seekFrame(false))
                                 }
                             }
                             if(failed)Text("Анализ недоступен",style=MaterialTheme.typography.bodySmall,
