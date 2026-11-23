@@ -12,6 +12,42 @@ class AudioPairAlignmentTest {
         v[index%128]=1f
         ComparisonFrame(v,.5f)
     }
+    @Test fun isolatedCoarseWordEditIsRetainedForFineConfirmation() {
+        val first = recording(100)
+        val edited = first.toMutableList()
+        edited[36] = ComparisonFrame(FloatArray(128).apply { this[120] = 1f }, .5f)
+        val aligned = requireNotNull(AudioPairAlignment.align(first, edited, 256))
+        assertTrue("Existing 512-ms gate alone would discard the word", aligned.zones.isEmpty())
+        assertEquals(1, aligned.shortCandidates.size)
+        val region = aligned.shortCandidates.single()
+        assertEquals(36, aligned.columns[region.start].first)
+        val added = aligned.withConfirmedShortZones(setOf(region))
+        assertEquals(listOf(region), added.zones)
+        assertEquals(ComparisonZoneKind.SHORT_CHANGE_UNCERTAIN, added.zoneKind(region))
+    }
+
+    @Test fun twoFineFramesConfirmShortContentButSingleCodecImpulseDoesNot() {
+        val base = recording(12)
+        val changed = base.toMutableList()
+        changed[4] = ComparisonFrame(FloatArray(128).apply { this[124] = 1f }, .5f)
+        changed[5] = ComparisonFrame(FloatArray(128).apply { this[125] = 1f }, .5f)
+        assertTrue(AudioPairAlignment.confirmsShortDifference(base, changed, 2, 2, 4))
+        val blip = base.toMutableList()
+        blip[4] = changed[4]
+        assertFalse(AudioPairAlignment.confirmsShortDifference(base, blip, 2, 2, 4))
+        assertFalse(AudioPairAlignment.confirmsShortDifference(base, base, 2, 2, 4))
+    }
+
+    @Test fun finePassNeedsMatchingContextAndEnoughSignal() {
+        val base = recording(12)
+        val unrelated = List(12) { ComparisonFrame(FloatArray(128).apply { this[100] = 1f }, .5f) }
+        assertFalse(AudioPairAlignment.confirmsShortDifference(base, unrelated, 2, 2, 4))
+        val edited = base.toMutableList()
+        edited[4] = ComparisonFrame(FloatArray(128).apply { this[120] = 1f }, .00001f)
+        edited[5] = ComparisonFrame(FloatArray(128).apply { this[121] = 1f }, .00001f)
+        assertFalse(AudioPairAlignment.confirmsShortDifference(base, edited, 2, 2, 4))
+    }
+
     @Test fun oneSecondLongerIntroDoesNotMarkRemainingRecording() {
         val original=recording(80)
         val intro=List(4){i->ComparisonFrame(FloatArray(128).apply{this[100+i]=1f},.4f)}
