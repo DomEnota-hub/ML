@@ -274,7 +274,11 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                 val r = MusicDuplicateScanner.restore(context,saved.result,latestRows,linkedIds,latestCurrent) { done,total ->
                     restoreDone=done;restoreTotal=total
                 }
-                check(admissible(r)) { "Поиск сброшен после переноса в Личное" }
+                check(admissible(r) &&
+                    !com.domenota.medialoader.data.library.DuplicateReportJournal
+                        .isDeleted(context,"music",saved.scannedAt)) {
+                    "Выбранный отчёт больше недоступен"
+                }
                 val oldKeys = saved.result.groups.map { it.key }.toSet()
                 val recommendations = r.groups.associate { g -> g.key to (saved.kept[g.key]?.takeIf { id -> g.tracks.any { it.id == id } }
                     ?: MusicDuplicatePolicy.recommended(g)) }
@@ -602,7 +606,31 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size} ,DuplicateBackgroundScan.journalStatus(context),musicScanModeName(it.result.expanded)+" · "+it.result.scopeLabel)},
         onOpen={at->journal=false;history.firstOrNull{it.scannedAt==at}?.let{if(!scanning&&!clearingJournal){stopPreview();restorePrevious(it)}}},
         onResume={journal=false;if(!scanning&&!clearingJournal)resume()},onDismiss={journal=false},onPartial={journal=false;storedPartial?.let { if(!scanning&&!clearingJournal) restorePrevious(it,fromPartial=true) }},resumeEnabled=!scanning&&!clearingJournal,
-        onClear={clearPartialToo=false;clearJournalConfirm=true},clearEnabled=!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal)
+        onClear={clearPartialToo=false;clearJournalConfirm=true},
+        clearEnabled=!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal,
+        onDelete={at->
+            if(!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal) {
+                clearingJournal=true
+                scope.launch{
+                    try{
+                        val ok=withContext(Dispatchers.IO){MusicDuplicateSessionStore.deleteCompleted(context,at)}
+                        journalGeneration=MusicDuplicateSessionStore.journalGeneration()
+                        if(ok){
+                            if(scannedAt==at){
+                                stopPreview();comparing=null;result=null;selected=emptySet()
+                                kept=emptyMap();scannedAt=0L;expandedGroupKey=null
+                            }
+                            if(previous?.scannedAt==at)previous=null
+                            if(quickSummary?.scannedAt==at)quickSummary=withContext(Dispatchers.IO){
+                                MusicDuplicateShardStore.summary(context)
+                            }
+                            history=MusicDuplicateSessionStore.history(context)
+                        }else error="Не удалось удалить выбранный отчёт"
+                    }finally{clearingJournal=false}
+                }
+            }
+        },
+        deleteEnabled=!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal)
     if(choosingScope)com.domenota.medialoader.ui.components.DuplicateScanScopeDialog(
         rows=latestRows.filter{it.mediaType==com.domenota.medialoader.core.model.MediaType.AUDIO},
         mediaLabel="Музыка",
