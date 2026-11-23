@@ -16,8 +16,8 @@ internal object VideoEditorRouteAdmissionPolicy {
         publicCatalogReady: Boolean,
         elapsedMs: Long,
     ): VideoEditorRouteAdmission = when {
-        authorizedVideoAvailable -> VideoEditorRouteAdmission.OPEN
         explicitlyDenied -> VideoEditorRouteAdmission.EXIT
+        authorizedVideoAvailable -> VideoEditorRouteAdmission.OPEN
         elapsedMs < MIN_WAIT_MS -> VideoEditorRouteAdmission.WAIT
         publicCatalogReady -> VideoEditorRouteAdmission.EXIT
         elapsedMs < MAX_WAIT_MS -> VideoEditorRouteAdmission.WAIT
