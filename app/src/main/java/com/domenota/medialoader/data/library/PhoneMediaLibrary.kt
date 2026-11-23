@@ -42,8 +42,7 @@ class PhoneMediaLibrary(context: Context) {
         }
         val scannedAccess = mutableMapOf<MediaType, Int>()
         val completedRows = mutableListOf<DownloadEntity>()
-        var lastProgress = 0L
-        var published = false
+        val progressPolicy = PhoneScanProgressPolicy()
         val items = types.flatMap { type ->
             coroutineContext.ensureActive()
             val access = accessLevel(type)
@@ -92,14 +91,14 @@ class PhoneMediaLibrary(context: Context) {
                         }
                         rows += row
                         val now = android.os.SystemClock.elapsedRealtime()
-                        if (onProgress != null && ((!published && rows.size >= 64) || (published && now - lastProgress >= 1000))) {
-                            // Deliver a usable first page without waiting for every file/provider.
-                            // Recheck collection access before exposing an incremental snapshot.
-                            if (scannedAccess.all { (kind, level) -> accessLevel(kind) >= level }) {
-                                onProgress(PhoneMediaSnapshot(completedRows + rows, identities.toMap(), fingerprints.toMap()))
-                                published = true
-                                lastProgress = android.os.SystemClock.elapsedRealtime()
-                            }
+                        if (onProgress != null &&
+                            scannedAccess.all { (kind, level) -> accessLevel(kind) >= level } &&
+                            progressPolicy.shouldPublish(completedRows.size + rows.size, now)
+                        ) {
+                            // First page appears promptly. Later immutable copies of the
+                            // full intermediate catalog are bounded by rows AND elapsed
+                            // time, instead of forcing UI/projections every second.
+                            onProgress(PhoneMediaSnapshot(completedRows + rows, identities.toMap(), fingerprints.toMap()))
                         }
                     }
                 }
