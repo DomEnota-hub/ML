@@ -4563,6 +4563,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.AcousticFingerprintTest#eightyNineSharedHashesDoNotBecomeAnAcousticCandidate": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AcousticFingerprintTest#fourHundredTwentyTrackCandidatesRemainExactWithDenseCounter": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.AcousticFingerprintTest#indexRetrievesIdenticalAudioAndBulkDoesNotSelectFragmentMatches": {
     "skipped": false,
     "failed": false
