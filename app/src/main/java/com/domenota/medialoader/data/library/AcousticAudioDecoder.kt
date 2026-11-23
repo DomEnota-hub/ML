@@ -32,6 +32,56 @@ internal object AcousticAudioDecoder {
         active.ensureActive()
         return builder.finish()
     }
+    /** Confirm only tiny discarded coarse candidates; do not decode either full
+     * song again. Guarded URI stamps and privacy are checked by the caller both
+     * before and after the bounded additional reads.
+     */
+    suspend fun refineShortDifferences(
+        context: Context, firstUri: Uri, secondUri: Uri,
+        aligned: AlignedAudioComparison,
+    ): AlignedAudioComparison {
+        if (aligned.stepMs != AudioPairAlignment.BASE_STEP_MS || aligned.shortCandidates.isEmpty())
+            return aligned
+        val job = coroutineContext
+        val accepted = mutableSetOf<ComparisonZone>()
+        // A fixed budget prevents pathological VBR/codec cases from making the
+        // comparison unresponsive. Never promote unverified candidates.
+        for (candidate in aligned.shortCandidates.take(48)) {
+            job.ensureActive()
+            val column = aligned.columns[candidate.start]
+            val firstIndex = column.first ?: continue
+            val secondIndex = column.second ?: continue
+            val leftBaseMs = firstIndex * aligned.stepMs
+            val rightBaseMs = secondIndex * aligned.stepMs
+            val leftStart = (leftBaseMs - 128L).coerceAtLeast(0L)
+            val rightStart = (rightBaseMs - 128L).coerceAtLeast(0L)
+            val left = shortComparisonFrames(context, firstUri, leftStart, leftBaseMs + aligned.stepMs + 128L)
+                ?: continue
+            val right = shortComparisonFrames(context, secondUri, rightStart, rightBaseMs + aligned.stepMs + 128L)
+                ?: continue
+            val coreLeft = ((leftBaseMs - leftStart) / 64L).toInt()
+            val coreRight = ((rightBaseMs - rightStart) / 64L).toInt()
+            if (AudioPairAlignment.confirmsShortDifference(left, right, coreLeft, coreRight, 4))
+                accepted.add(candidate)
+        }
+        return aligned.withConfirmedShortZones(accepted)
+    }
+
+    private suspend fun shortComparisonFrames(
+        context: Context, uri: Uri, startMs: Long, endMs: Long,
+    ): List<ComparisonFrame>? {
+        val job = coroutineContext
+        val builder = AcousticFingerprints.ShortComparisonBuilder { job.ensureActive() }
+        return try {
+            if (!decodeWindow(context, uri, AcousticWindow(startMs, endMs), {}, builder::accept)) null
+            else builder.finish()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private suspend fun decodeWindow(context:Context,uri:Uri,window:AcousticWindow,beginWindow:(Long)->Unit,accept:(Float)->Unit):Boolean {
         val active = coroutineContext
         val previousPriority = android.os.Process.getThreadPriority(android.os.Process.myTid())
