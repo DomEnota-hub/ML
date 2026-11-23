@@ -14,8 +14,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -45,7 +43,7 @@ fun CropFrameOverlay(
     showFrame: Boolean = true,
     onCompareOriginalChange: ((Boolean) -> Unit)? = null,
     onCropChangeFinished: () -> Unit = {},
-    /** Leave legacy touch behavior intact for the video editor. */
+    /** Photo-only precision handles; circle movement is enabled for video too. */
     precisePhotoHandles: Boolean = false,
     shape: MediaCropShape = MediaCropShape.RECTANGLE,
 ) {
@@ -62,15 +60,22 @@ fun CropFrameOverlay(
     Canvas(
         modifier = modifier
             .onSizeChanged { containerSize = it }
-            .pointerInput(containerSize, sourceWidth, sourceHeight, edgeHitRadiusPx, cornerHitRadiusPx, precisePhotoHandles) {
+            .pointerInput(containerSize, sourceWidth, sourceHeight, edgeHitRadiusPx, cornerHitRadiusPx, precisePhotoHandles, shape) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val imageRect = fittedImageRect(containerSize, sourceWidth, sourceHeight)
-                    // For photos, a finger in the inner portion moves the
-                    // entire selection. This must take priority over the
-                    // enlarged, invisible corner targets on smaller crops.
-                    val moveFrame = precisePhotoHandles && isInsideCropMoveZone(
-                        down.position, latestCrop, imageRect, with(density) { 22.dp.toPx() })
+                    // The center of a circular video crop drags the whole
+                    // selection. Keep its outer ring and corner targets for
+                    // resize, even when invisible targets overlap on a small crop.
+                    // Rectangular video crops retain their original gestures.
+                    val moveInset = with(density) { 22.dp.toPx() }
+                    val moveFrame = when {
+                        shape == MediaCropShape.CIRCLE -> isInsideCircleCropMoveZone(
+                            down.position, latestCrop, imageRect, moveInset)
+                        precisePhotoHandles -> isInsideCropMoveZone(
+                            down.position, latestCrop, imageRect, moveInset)
+                        else -> false
+                    }
                     val handle = if (moveFrame) null else hitTestCropHandle(
                         point = down.position,
                         crop = latestCrop,
@@ -169,12 +174,8 @@ fun CropFrameOverlay(
             val radius=min(right-left,bottom-top)*.5f
             val cx=(left+right)*.5f
             val cy=(top+bottom)*.5f
-            val blackout=Path().apply {
-                fillType=PathFillType.EvenOdd
-                addRect(imageRect)
-                addOval(Rect(cx-radius,cy-radius,cx+radius,cy+radius))
-            }
-            drawPath(blackout,Color.Black)
+            // Editing preview must remain unobscured. The export renderer
+            // still applies the black outside-circle mask to output video.
             drawCircle(Color.White,radius,Offset(cx,cy),
                 style=Stroke(width=2.dp.toPx()))
         } else {
@@ -243,6 +244,26 @@ private fun fittedImageRect(
  * The enlarged invisible handle target must not steal central drags.
  * Video retains its original gestures (the call site is photo-only).
  */
+/** Drag circle only from its interior; its boundary remains available to resize.
+ * Positions are computed in the fitted source image, not the whole preview.
+ * This is used for video and photo circles without changing rectangle gestures.
+ */
+internal fun isInsideCircleCropMoveZone(
+    point: Offset, crop: CropFractions, rect: Rect, edgeExclusion: Float,
+): Boolean {
+    if (rect.width <= 0f || rect.height <= 0f) return false
+    val left = rect.left + crop.left * rect.width
+    val right = rect.right - crop.right * rect.width
+    val top = rect.top + crop.top * rect.height
+    val bottom = rect.bottom - crop.bottom * rect.height
+    val radius = min(right - left, bottom - top) / 2f
+    if (!radius.isFinite() || radius <= 0f) return false
+    val innerRadius = radius - min(edgeExclusion.coerceAtLeast(0f), radius / 4f)
+    val centerX = (left + right) / 2f
+    val centerY = (top + bottom) / 2f
+    return hypot(point.x - centerX, point.y - centerY) < innerRadius
+}
+
 internal fun isInsideCropMoveZone(
     point: Offset, crop: CropFractions, rect: Rect, edgeExclusion: Float,
 ): Boolean {
