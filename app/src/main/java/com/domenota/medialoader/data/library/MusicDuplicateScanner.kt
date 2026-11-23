@@ -19,7 +19,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
-internal data class DuplicateScanResult(val groups: List<DuplicateGroup>, val skipped: Int, val acousticUnavailable:Int=0, val expanded:Boolean=false, val privacyEpoch:Long=0)
+internal data class DuplicateScanResult(val groups: List<DuplicateGroup>, val skipped: Int, val acousticUnavailable:Int=0, val expanded:Boolean=false, val privacyEpoch:Long=0, val scopeLabel:String="Все файлы")
 internal object MusicDuplicateScanner {
     private data class Stamp(val size: Long, val modified: Long?, val folder: String?)
     private data class Cached(val stamp: Stamp, val track: DuplicateTrack)
