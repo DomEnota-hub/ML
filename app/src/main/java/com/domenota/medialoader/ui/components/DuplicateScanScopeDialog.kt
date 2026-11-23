@@ -202,7 +202,7 @@ internal fun DuplicateScanScopeDialog(
                                         } ?: "") +
                                         (folder.sizeBytes?.let {
                                             ", ${android.text.format.Formatter.formatShortFileSize(context, it)}"
-                                        } ?: "")
+                                        } ?: ", размер неизвестен")
                                     Text(path?.let { "$it · $details" } ?: details,
                                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.bodySmall,
