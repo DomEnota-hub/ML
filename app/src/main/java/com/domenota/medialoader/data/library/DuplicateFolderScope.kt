@@ -13,6 +13,9 @@ internal data class DuplicateFolderOption(
     val name: String,
     val location: String,
     val fileCount: Int,
+    val sizeBytes: Long? = null,
+    /** Verified on-device directory identity; a bucket display name is not a path. */
+    val directoryId: String? = null,
 )
 
 internal object DuplicateFolderScope {
@@ -38,13 +41,26 @@ internal object DuplicateFolderScope {
             .groupBy(::key).map { (key, grouped) ->
                 val row = grouped.first()
                 val location = when {
-                    key.startsWith("file:") -> key.removePrefix("file:")
+                    key.startsWith("file:") -> key.removePrefix("file:").removePrefix("file://")
                     row.mediaType == MediaType.AUDIO -> row.groupId.orEmpty().substringAfter(':')
                     else -> row.groupId.orEmpty()
                 }.trimEnd('/')
                 val name = if (key.startsWith("unspecified:")) "Папка не определена"
                     else location.substringAfterLast('/').ifBlank { "Корневая папка" }
-                DuplicateFolderOption(key, name, location.ifBlank { "Путь не определён" }, grouped.size)
+                val bytes = if(grouped.all{it.sizeBytes!=null}) grouped.sumOf{it.sizeBytes!!} else null
+                val directory = when {
+                    key.startsWith("file:") -> "file|" + location
+                    row.mediaType == MediaType.AUDIO && !row.groupId.isNullOrBlank() &&
+                        row.groupId.contains(':') -> {
+                        val volume = row.groupId.substringBefore(':')
+                        val relative = row.groupId.substringAfter(':')
+                        if(volume.isNotBlank() && relative.isNotBlank() &&
+                            !relative.startsWith('/') && relative.split('/').none{it==".."||it=="."})
+                            "volume:$volume|$relative" else null
+                    }
+                    else -> null // Gallery bucket names alone are not reliable hierarchy.
+                }
+                DuplicateFolderOption(key, name, location.ifBlank { "Путь не определён" }, grouped.size, bytes, directory)
             }.sortedWith(compareBy<DuplicateFolderOption> { it.name.lowercase() }.thenBy { it.location })
 
     /** null = explicit whole library; empty set = no selection, never all. */
@@ -52,5 +68,12 @@ internal object DuplicateFolderScope {
         items.filter { item -> eligible(row(item)) && (keys == null || key(row(item)) in keys) }
 
     fun label(keys: Set<String>?): String =
-        if (keys == null) "Все файлы" else "Выборочно: ${keys.size} папок"
+        if (keys == null) "Все файлы" else "Выборочно: ${keys.size} ${folderWord(keys.size)}"
+
+    fun folderWord(count: Int): String = when {
+        count % 100 in 11..14 -> "папок"
+        count % 10 == 1 -> "папка"
+        count % 10 in 2..4 -> "папки"
+        else -> "папок"
+    }
 }

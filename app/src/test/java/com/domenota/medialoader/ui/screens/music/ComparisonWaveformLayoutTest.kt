@@ -82,4 +82,25 @@ class ComparisonWaveformLayoutTest {
         assertNull(comparisonPairWithReference(listOf("only"), "only", "only", "only"))
     }
 
+    @Test fun selectedDifferenceSeeksTwoIndependentAlignedTimes() {
+        val c=com.domenota.medialoader.data.library.ComparisonColumn(273,780,true)
+        val seconds=comparisonZonePositions(listOf(c),0,1,100L)
+        assertEquals(27300L,seconds.first)
+        assertEquals(78000L,seconds.second)
+        assertNotEquals(seconds.first,seconds.second)
+    }
+    @Test fun insertedOrMissingRegionNeverInventsAbsentSide() {
+        val col=com.domenota.medialoader.data.library.ComparisonColumn(null,123,true)
+        assertEquals(null to 12300L,comparisonZonePositions(listOf(col),0,1,100L))
+        val reversed=com.domenota.medialoader.data.library.ComparisonColumn(50,null,true)
+        assertEquals(5000L to null,comparisonZonePositions(listOf(reversed),0,1,100L))
+    }
+    @Test fun differenceMappingRejectsInvalidOrEmptyRanges() {
+        val c=com.domenota.medialoader.data.library.ComparisonColumn(0,0,false)
+        assertEquals(null to null,comparisonZonePositions(listOf(c),-1,1,100L))
+        assertEquals(null to null,comparisonZonePositions(listOf(c),0,0,100L))
+        assertEquals(null to null,comparisonZonePositions(listOf(c),0,2,100L))
+        assertEquals(null to null,comparisonZonePositions(listOf(c),0,1,0L))
+    }
+
 }

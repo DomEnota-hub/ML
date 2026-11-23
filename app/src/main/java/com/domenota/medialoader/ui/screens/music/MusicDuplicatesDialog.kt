@@ -474,8 +474,6 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             Modifier.fillMaxWidth(),enabled=(allSelected.isNotEmpty()||selected.isNotEmpty())&&!verifying&&!clearingJournal){
                             Text(if(clearBulk)"Снять выделение" else "Выбрать всё")
                         }
-                        Text("Автоматически отмечаются только лишние точные копии. Похожие записи проверяйте вручную.",
-                            style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -613,7 +611,17 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }){Text("Очистить",color=MaterialTheme.colorScheme.error)}})
     comparing?.takeIf{g->g.tracks.all{DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id)}}?.let{g->
         DuplicateMusicComparison(g,kept[g.key]?:MusicDuplicatePolicy.recommended(g),previewId,previewPlaying,player,
-            onPlay={t,at->play(t,at)},onKeep={id->
+            onPlay={t,at->play(t,at)},
+            onNavigate={firstId,firstAt,secondId,secondAt->
+                // Only one ExoPlayer exists. Seek the loaded track without toggling
+                // its play state; the other position is held by the comparison zone.
+                val at=when(previewId){firstId->firstAt;secondId->secondAt;else->null}
+                if(at!=null&&player.isCurrentMediaItemSeekable&&player.duration>0L){
+                    val bounded=at.coerceIn(0L,player.duration)
+                    player.seekTo(bounded)
+                    previewPosition=bounded
+                }
+            },onKeep={id->
                 keepVersion(g,id)
             },onClose={stopPreview();comparing=null})
     }
@@ -663,7 +671,9 @@ private fun pairTime(ms:Long):String="%d:%02d.%01d".format(ms/60000,ms/1000%60,m
 @OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewId:String?,playing:Boolean,player:ExoPlayer,
-    onPlay:(DuplicateTrack,Long?)->Unit,onKeep:(String)->Unit,onClose:()->Unit){
+    onPlay:(DuplicateTrack,Long?)->Unit,
+    onNavigate:(String,Long?,String,Long?)->Unit,
+    onKeep:(String)->Unit,onClose:()->Unit){
     val context=LocalContext.current
     var referenceId by remember(group.key){mutableStateOf(group.tracks.firstOrNull{it.id==keeper}?.id?:group.tracks.first().id)}
     var targetId by remember(group.key){mutableStateOf(group.tracks.first{it.id!=referenceId}.id)}
@@ -685,6 +695,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     var technicalDetails by remember(identity){mutableStateOf(false)}
     var position by remember{mutableLongStateOf(0L)}
     val latestOnPlay by rememberUpdatedState(onPlay)
+    val latestOnNavigate by rememberUpdatedState(onNavigate)
     fun allowed(t:DuplicateTrack)=DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id)
     fun choose(t:DuplicateTrack){
         active=t.id
@@ -757,16 +768,26 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     fun seekFrame(first:Boolean):Long? {
         val selected=zone?:return null
         val aligned=result?:return null
-        val col=aligned.columns.subList(selected.start,selected.endExclusive)
-        val frame=col.firstNotNullOfOrNull{if(first)it.first else it.second}?:return null
-        return frame*aligned.stepMs
+        val times=comparisonZonePositions(aligned.columns,selected.start,selected.endExclusive,aligned.stepMs)
+        return if(first)times.first else times.second
+    }
+    fun selectZone(next:Int){
+        val aligned=result?:return
+        val selected=zones.getOrNull(next)?:return
+        zoneIndex=next
+        val (firstAt,secondAt)=comparisonZonePositions(
+            aligned.columns,selected.start,selected.endExclusive,aligned.stepMs)
+        latestOnNavigate(referenceId,firstAt,targetId,secondAt)
     }
     fun play(t:DuplicateTrack,at:Long?=null){
         if(allowed(t))latestOnPlay(t,at)
     }
     fun tapWave(zoneAt:Int,column:Int,first:Boolean){
         val aligned=result?:return
-        if(zoneAt>=0)zoneIndex=zoneAt
+        if(zoneAt>=0) {
+            selectZone(zoneAt) // Both aligned cursors move; paused audio remains paused.
+            return
+        }
         val frame=comparisonSeekFrame(aligned.columns,column,first)?:return
         val selectedTrack=if(first)reference else target
         active=selectedTrack.id
@@ -810,13 +831,37 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                     }
                     HorizontalDivider()
                             Text("Различия между записями",style=MaterialTheme.typography.titleMedium)
+                            Text("Прослушивание выбранного момента",style=MaterialTheme.typography.labelMedium,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                                val firstPlaying=previewId==referenceId&&playing
+                                val secondPlaying=previewId==targetId&&playing
+                                OutlinedButton(onClick={play(reference,if(firstPlaying)null else seekFrame(true))},
+                                    enabled=zone==null||seekFrame(true)!=null,modifier=Modifier.weight(1f),
+                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
+                                        if(firstPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
+                                    Icon(if(firstPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Основа",maxLines=1,
+                                        overflow=TextOverflow.Ellipsis)
+                                }
+                                OutlinedButton(onClick={play(target,if(secondPlaying)null else seekFrame(false))},
+                                    enabled=zone==null||seekFrame(false)!=null,modifier=Modifier.weight(1f),
+                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
+                                        if(secondPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
+                                    Icon(if(secondPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Сравниваемая",maxLines=1,
+                                        overflow=TextOverflow.Ellipsis)
+                                }
+                            }
                             if(failed)Text("Анализ недоступен",style=MaterialTheme.typography.bodySmall,
                                 color=MaterialTheme.colorScheme.onSurfaceVariant)
                             else if(analysis==null){
                                 Text("Синхронизация записей…",style=MaterialTheme.typography.labelMedium)
                                 LinearProgressIndicator(Modifier.fillMaxWidth())
                             }else if(result==null){
-                                Text("Синхронизация не подтверждена",style=MaterialTheme.typography.labelMedium)
+                                Text("Записи слишком отличаются для точного сравнения",style=MaterialTheme.typography.labelMedium)
                                 // A fallback may show independent waveform envelopes,
                                 // never invented matches or difference regions.
                                 val pair=analysis
@@ -842,6 +887,8 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                         Text("Обзор записи",style=MaterialTheme.typography.labelMedium)
                                         ComparisonTwoWaveforms(result,shownZoneIndex,previewId==referenceId,
                                             previewId==targetId,position,
+                                            if(previewId==referenceId)position else seekFrame(true),
+                                            if(previewId==targetId)position else seekFrame(false),
                                             range=0 until result.columns.size,referenceName=reference.title,
                                             targetName=target.title){zoneAt,column,first->tapWave(zoneAt,column,first)}
                                     }
@@ -872,14 +919,14 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                         Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp),
                                             verticalAlignment=Alignment.CenterVertically){
                                             if(zones.size>1){
-                                                IconButton(onClick={zoneIndex=if(shownZoneIndex<=0)zones.lastIndex else shownZoneIndex-1}){
+                                                IconButton(onClick={selectZone(if(shownZoneIndex<=0)zones.lastIndex else shownZoneIndex-1)}){
                                                     Icon(Icons.Rounded.SkipPrevious,"Предыдущий участок")
                                                 }
                                             }
                                             Text("Участок ${shownZoneIndex.coerceAtLeast(0)+1} из ${zones.size}",
                                                 Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium)
                                             if(zones.size>1){
-                                                IconButton(onClick={zoneIndex=if(shownZoneIndex>=zones.lastIndex)0 else shownZoneIndex+1}){
+                                                IconButton(onClick={selectZone(if(shownZoneIndex>=zones.lastIndex)0 else shownZoneIndex+1)}){
                                                     Icon(Icons.Rounded.SkipNext,"Следующий участок")
                                                 }
                                             }
@@ -895,7 +942,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                                 Text("Послушайте этот момент в обеих записях.",
                                                     style=MaterialTheme.typography.bodySmall)
                                                 Text("Основа: ${seekFrame(true)?.let(::pairTime)?:"нет фрагмента"} · " +
-                                                    "Версия: ${seekFrame(false)?.let(::pairTime)?:"нет фрагмента"}",
+                                                    "Сравниваемая: ${seekFrame(false)?.let(::pairTime)?:"нет фрагмента"}",
                                                     style=MaterialTheme.typography.bodySmall)
                                                 TextButton(onClick={technicalDetails=!technicalDetails}){
                                                     Text(if(technicalDetails)"Скрыть подробности" else "Подробнее об участке")
@@ -915,7 +962,10 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                                 Text("Увеличенный участок · ${pairTime((range.last-range.first+1)*result.stepMs)}",
                                                     style=MaterialTheme.typography.labelSmall)
                                                 ComparisonTwoWaveforms(result,shownZoneIndex,previewId==referenceId,
-                                                    previewId==targetId,position,range=range,focus=true,
+                                                    previewId==targetId,position,
+                                                    if(previewId==referenceId)position else seekFrame(true),
+                                                    if(previewId==targetId)position else seekFrame(false),
+                                                    range=range,focus=true,
                                                     referenceName=reference.title,targetName=target.title){
                                                         zoneAt,column,first->tapWave(zoneAt,column,first)
                                                     }
@@ -934,36 +984,12 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                     }
                                 }
                             }
-                            Text("Прослушивание выбранного момента",style=MaterialTheme.typography.labelMedium,
-                                color=MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                                val firstPlaying=previewId==referenceId&&playing
-                                val secondPlaying=previewId==targetId&&playing
-                                OutlinedButton(onClick={play(reference,if(firstPlaying)null else seekFrame(true))},
-                                    enabled=zone==null||seekFrame(true)!=null,modifier=Modifier.weight(1f),
-                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
-                                        if(firstPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
-                                    Icon(if(firstPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(if(firstPlaying)"Пауза" else "Основа",maxLines=1,
-                                        overflow=TextOverflow.Ellipsis)
-                                }
-                                OutlinedButton(onClick={play(target,if(secondPlaying)null else seekFrame(false))},
-                                    enabled=zone==null||seekFrame(false)!=null,modifier=Modifier.weight(1f),
-                                    border=androidx.compose.foundation.BorderStroke(1.4.dp,
-                                        if(secondPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
-                                    Icon(if(secondPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(if(secondPlaying)"Пауза" else "Версия",maxLines=1,
-                                        overflow=TextOverflow.Ellipsis)
-                                }
-                            }
                         }
                 HorizontalDivider()
                 Row(Modifier.fillMaxWidth().padding(top=4.dp).testTag("comparison-fixed-footer"),verticalAlignment=Alignment.CenterVertically){
                     IconButton(onClick={play(track)}){Icon(if(previewId==active&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,"Прослушать выбранный трек")}
                     Column(Modifier.weight(1f)){
-                        Text(if(active==referenceId)"Основа" else "Версия",style=MaterialTheme.typography.labelSmall)
+                        Text(if(active==referenceId)"Основа" else "Сравниваемая",style=MaterialTheme.typography.labelSmall)
                         Text(pairTime(if(previewId==active)position else 0L),style=MaterialTheme.typography.bodySmall)
                     }
                     Button({if(allowed(track))onKeep(active)},modifier=Modifier.testTag("comparison-keep")){
@@ -1039,25 +1065,27 @@ private fun comparisonZoneLabel(kind:ComparisonZoneKind)=when(kind){
  * Tapping either row seeks THAT row's recording using the corresponding frame. */
 @Composable
 private fun ComparisonTwoWaveforms(result:AlignedAudioComparison,selected:Int,
-    playingFirst:Boolean,playingSecond:Boolean,position:Long,range:IntRange,
+    playingFirst:Boolean,playingSecond:Boolean,position:Long,
+    firstCue:Long?,secondCue:Long?,range:IntRange,
     referenceName:String,targetName:String,focus:Boolean=false,
     onTap:(Int,Int,Boolean)->Unit){
     Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
         Text("Основа · $referenceName",style=MaterialTheme.typography.labelSmall,
             maxLines=1,overflow=TextOverflow.Ellipsis)
         AlignedPairWaveform(result,selected,playingFirst,playingSecond,position,
-            range=range,focus=focus,laneFirst=true){zone,column->onTap(zone,column,true)}
+            firstCue,secondCue,range=range,focus=focus,laneFirst=true){zone,column->onTap(zone,column,true)}
         Spacer(Modifier.height(4.dp))
         Text("Сравниваемая · $targetName",style=MaterialTheme.typography.labelSmall,
             maxLines=1,overflow=TextOverflow.Ellipsis)
         AlignedPairWaveform(result,selected,playingFirst,playingSecond,position,
-            range=range,focus=focus,laneFirst=false){zone,column->onTap(zone,column,false)}
+            firstCue,secondCue,range=range,focus=focus,laneFirst=false){zone,column->onTap(zone,column,false)}
     }
 }
 
 @Composable
 private fun AlignedPairWaveform(result:AlignedAudioComparison,selected:Int,playingFirst:Boolean,playingSecond:Boolean,
-    position:Long,range:IntRange,focus:Boolean=false,laneFirst:Boolean,onTap:(Int,Int)->Unit){
+    position:Long,firstCue:Long?,secondCue:Long?,
+    range:IntRange,focus:Boolean=false,laneFirst:Boolean,onTap:(Int,Int)->Unit){
     if(range.isEmpty())return
     val accent=musicPlaybackAccent
     val other=MaterialTheme.colorScheme.onSurfaceVariant
@@ -1090,9 +1118,20 @@ private fun AlignedPairWaveform(result:AlignedAudioComparison,selected:Int,playi
         fun x(column:Int)=(column-range.first)*unit
         for((index,zone)in result.zones.withIndex()){
             val lo=maxOf(range.first,zone.start);val hi=minOf(range.last+1,zone.endExclusive)
-            if(hi>lo)drawRect(accent.copy(alpha=if(index==selected).32f else .14f),
-                topLeft=androidx.compose.ui.geometry.Offset(x(lo),0f),
-                size=androidx.compose.ui.geometry.Size(x(hi)-x(lo),size.height))
+            if(hi>lo) {
+                drawRect(accent.copy(alpha=if(index==selected).32f else .14f),
+                    topLeft=androidx.compose.ui.geometry.Offset(x(lo),0f),
+                    size=androidx.compose.ui.geometry.Size(x(hi)-x(lo),size.height))
+                // A narrow difference must remain visible when zoomed out.
+                if(!focus&&laneFirst && hi-lo<=maxOf(4,count/160)){
+                    val center=x(lo)+(x(hi)-x(lo))/2f
+                    drawLine(accent,androidx.compose.ui.geometry.Offset(center,0f),
+                        androidx.compose.ui.geometry.Offset(center,13.dp.toPx()),
+                        strokeWidth=1.5.dp.toPx())
+                    drawCircle(accent,radius=4.dp.toPx(),
+                        center=androidx.compose.ui.geometry.Offset(center,6.dp.toPx()))
+                }
+            }
         }
         drawLine(other.copy(alpha=.28f),androidx.compose.ui.geometry.Offset(0f,middle),
             androidx.compose.ui.geometry.Offset(size.width,middle),strokeWidth=1.dp.toPx())
@@ -1108,10 +1147,10 @@ private fun AlignedPairWaveform(result:AlignedAudioComparison,selected:Int,playi
                 androidx.compose.ui.geometry.Offset(px,middle+height),
                 strokeWidth=1.6.dp.toPx(),cap=androidx.compose.ui.graphics.StrokeCap.Round)
         }
-        val frame=(position/result.stepMs).toInt()
-        val cursor=if(laneFirst && playingFirst)cursorColumns.first.getOrElse(frame){-1}
-            else if(!laneFirst && playingSecond)cursorColumns.second.getOrElse(frame){-1}
-            else -1
+        // Both aligned positions stay visible even while playback is paused.
+        val frame=(if(laneFirst)firstCue else secondCue)?.let{(it/result.stepMs).toInt()}?:-1
+        val cursor=if(laneFirst)cursorColumns.first.getOrElse(frame){-1}
+            else cursorColumns.second.getOrElse(frame){-1}
         if(cursor in range)drawLine(accent,androidx.compose.ui.geometry.Offset(x(cursor),0f),
             androidx.compose.ui.geometry.Offset(x(cursor),size.height),strokeWidth=1.5.dp.toPx())
     }

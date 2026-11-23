@@ -37,23 +37,34 @@ class VisualDuplicateStoppedScreenTest {
         val refs=files.map{LibraryMediaRef(it.id,setOf(it.id),DownloadEntity(it.id,"device","${it.id}.jpg",MediaType.PHOTO,DownloadState.COMPLETED,it.uri,100,100),null)}
         VisualDuplicateCatalog(refs,refs,LibrarySource.APP)
     }
-    private val summary="Групп: 1 · пропущено: 0 · выбрано: 1"
+    private val summary="Найдена 1 группа"
     @Test fun stoppedReportSurvivesIrrelevantRefreshAndScreenReentryButTrashWaitsForFreshCatalog(){
         val catalog=prepare()
         val visible=mutableStateOf(true)
-        compose.setContent{MaterialTheme{if(visible.value)VisualDuplicatesScreen(catalog,false,true,{false},{},{_,_->error("Stale delete")},{},reportReady=true)}}
+        val reportReady=mutableStateOf(true)
+        compose.setContent{MaterialTheme{if(visible.value)VisualDuplicatesScreen(catalog,false,true,{false},{},{_,_->error("Stale delete")},{},reportReady=reportReady.value)}}
         compose.waitUntil(5000){compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()}
-        compose.onNodeWithText("Результаты").assertIsEnabled()
-        compose.onNodeWithText("Продолжить").assertIsNotEnabled()
+        compose.onNodeWithText("Новый поиск").assertIsNotEnabled()
+        compose.onNodeWithText("Подробности").assertExists()
         compose.onNodeWithText("Подготовка полного каталога Галереи…").assertDoesNotExist()
         compose.onNodeWithText("В корзину: 1",substring=true).assertIsNotEnabled()
-        compose.onNodeWithText("Результаты").performClick()
+        // An unrelated MediaStore refresh invalidates the projections, not the
+        // previously verified report. It stays visible but read-only.
+        compose.runOnIdle{reportReady.value=false}
+        compose.waitUntil(5000){compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithText("Обновляю каталог.",substring=true).assertExists()
+        compose.onNodeWithText("Подробности").assertIsEnabled()
+        compose.onNodeWithText("В корзину: 1",substring=true).assertIsNotEnabled()
+        compose.runOnIdle{reportReady.value=true}
+        compose.waitUntil(5000){compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithText("Подробности").performClick()
+        compose.onNodeWithTag("visual-result-details").assertExists()
         compose.onNodeWithText(summary).assertExists()
         compose.runOnIdle{visible.value=false}
         compose.waitForIdle()
         compose.runOnIdle{visible.value=true}
         compose.waitUntil(5000){compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()}
-        compose.onNodeWithText("Поиск остановлен").assertExists()
+        compose.onNodeWithText(summary).assertExists()
     }
     @Test fun revokedAccessHidesRetainedReportAndDisablesResumeAndResults(){
         val catalog=prepare()
