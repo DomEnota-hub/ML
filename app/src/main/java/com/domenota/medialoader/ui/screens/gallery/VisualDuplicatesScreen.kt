@@ -332,7 +332,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                                 shown.result.privacyEpoch==privacyEpoch && phonePermission && loaded
                             val canDisplay=ref!=null||pendingIndex
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                                if(canDisplay) DownloadThumbnail(file.uri,null,if(file.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(76.dp).clickable(enabled=actionsReady&&ref!=null){preview=group to file.id})
+                                if(canDisplay) DownloadThumbnail(file.uri,null,if(file.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(76.dp).testTag("visual-thumbnail-media-${file.id}")
+                                    .clickable(enabled=actionsReady&&ref!=null){preview=group to file.id})
                                 else Box(Modifier.size(76.dp),contentAlignment=Alignment.Center){Icon(Icons.Rounded.Image,contentDescription=null,tint=MaterialTheme.colorScheme.onSurfaceVariant)}
                                 Column(Modifier.weight(1f)){
                                     Text(ref?.let{displayFileName(it.item)} ?: if(pendingIndex)file.uri.substringAfterLast('/').takeIf{it.isNotBlank()} ?: "Проверка файла" else "Проверяю доступность файла",maxLines=2)
