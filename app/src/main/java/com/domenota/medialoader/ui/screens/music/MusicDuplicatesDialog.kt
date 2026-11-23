@@ -767,20 +767,42 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                         left.await() to right.await()
                     }
                     if(first==null||second==null)return@withContext null
-                    val aligned=withContext(Dispatchers.Default){
-                        val job=kotlin.coroutines.coroutineContext
-                        val started=SystemClock.elapsedRealtime()
-                        AudioPairAlignment.align(first,second,step){job.ensureActive()}.also {
-                            AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null} cells=${it?.evaluatedCells ?: -1} candidates=${it?.shortCandidates?.size ?: 0}")
+                    val firstKey=ComparisonFrameKey.verified(reference,beforeFirst,step)
+                    val secondKey=ComparisonFrameKey.verified(target,beforeSecond,step)
+                    val stored=if(cacheSafe&&firstKey!=null&&secondKey!=null)
+                        synchronized(DuplicatePrivacyGuard.lock){
+                            if(allowed(reference)&&allowed(target))
+                                MusicPairResultCache.read(context,firstKey,secondKey,first,second)
+                            else null
+                        } else null
+                    if(stored!=null){
+                        AppLog.i("MusicCompare","verified pair cache HIT stepMs=$step zones=${stored.zones.size}")
+                        PairAnalysis(first,second,stored)
+                    }else{
+                        AppLog.i("MusicCompare","verified pair cache MISS stepMs=$step")
+                        val aligned=withContext(Dispatchers.Default){
+                            val job=kotlin.coroutines.coroutineContext
+                            val started=SystemClock.elapsedRealtime()
+                            AudioPairAlignment.align(first,second,step){job.ensureActive()}.also {
+                                AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null} cells=${it?.evaluatedCells ?: -1} candidates=${it?.shortCandidates?.size ?: 0}")
+                            }
                         }
+                        // The first comparison still inspects the complete audio,
+                        // independent of library search mode. Disk hits never
+                        // bypass identity and privacy verification.
+                        val refined=if(aligned!=null)AcousticAudioDecoder.refineCompletePair(
+                            context,Uri.parse(reference.uri),Uri.parse(target.uri),aligned)
+                            else null
+                        if(refined!=null && firstKey!=null&&secondKey!=null&&
+                            MusicDuplicateScanner.comparisonStamp(context,reference)==beforeFirst&&
+                            MusicDuplicateScanner.comparisonStamp(context,target)==beforeSecond){
+                            synchronized(DuplicatePrivacyGuard.lock){
+                                if(allowed(reference)&&allowed(target))
+                                    MusicPairResultCache.write(context,firstKey,secondKey,refined)
+                            }
+                        }
+                        PairAnalysis(first,second,refined)
                     }
-                    // Detailed pair comparison ALWAYS examines the complete audio,
-                    // independent of fast/expanded library discovery mode.
-                    val refined = if(aligned != null) {
-                        AcousticAudioDecoder.refineCompletePair(context,
-                            Uri.parse(reference.uri), Uri.parse(target.uri), aligned)
-                    } else null
-                    PairAnalysis(first,second,refined)
                 }
                 if(MusicDuplicateScanner.comparisonStamp(context,reference)!=beforeFirst||
                     MusicDuplicateScanner.comparisonStamp(context,target)!=beforeSecond)return@withContext null
