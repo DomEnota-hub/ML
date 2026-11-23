@@ -107,6 +107,7 @@ internal object VisualDuplicateSessionStore {
         return JSONObject().put("schema",1).put("groups",groups).put("skipped",session.result.skipped).put("privacyEpoch",session.result.privacyEpoch)
             .put("selected",JSONArray(session.selected.toList())).put("index",session.index)
             .put("offset",session.offset).put("scannedAt",session.scannedAt)
+            .put("scopeLabel",session.result.scopeLabel)
             .apply { session.result.coverage?.let { c -> put("coverage",JSONObject().put("source",c.source.name)
                 .put("total",c.total).put("cached",c.cached).put("computed",c.computed).put("aliases",c.aliases)
                 .put("failed",c.failed).put("incompleteVisual",c.incompleteVisual)) } }.toString()
@@ -131,7 +132,7 @@ internal object VisualDuplicateSessionStore {
         val selected=json.getJSONArray("selected")
         val coverage=json.optJSONObject("coverage")?.let { c -> VisualScanCoverage(LibrarySource.valueOf(c.getString("source")),
             c.getInt("total"),c.getInt("cached"),c.getInt("computed"),c.getInt("aliases"),c.getInt("failed"),c.getInt("incompleteVisual")) }
-        return VisualDuplicateSession(VisualScanResult(rows,json.getInt("skipped"),json.optLong("privacyEpoch",0),coverage),
+        return VisualDuplicateSession(VisualScanResult(rows,json.getInt("skipped"),json.optLong("privacyEpoch",0),coverage,json.optString("scopeLabel","Все файлы")),
             (0 until selected.length()).map{selected.getString(it)}.toSet(),json.getInt("index"),
             json.getInt("offset"),json.getLong("scannedAt")).normalized()
     }
