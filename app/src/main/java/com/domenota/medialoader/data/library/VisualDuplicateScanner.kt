@@ -134,7 +134,7 @@ internal object VisualDuplicateScanner {
     }
 
     suspend fun scan(context:Context,refs:List<LibraryMediaRef>,source:LibrarySource=LibrarySource.PHONE,
-        expectedEpoch:Long=DuplicatePrivacyGuard.generation(context),onPhase:(DuplicateScanPhase)->Unit={},
+        expectedEpoch:Long=DuplicatePrivacyGuard.generation(context),isScoped:Boolean=false,onPhase:(DuplicateScanPhase)->Unit={},
         onPartial:(VisualScanResult)->Unit={},progress:(VisualScanCoverage)->Unit={}):VisualScanResult=withContext(Dispatchers.IO){
         val candidates=VisualDuplicateCatalog.candidates(refs)
         val metrics=DuplicateScanMetrics("gallery")
@@ -142,7 +142,7 @@ internal object VisualDuplicateScanner {
         check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск устарел"}
         // A narrower ML-only scan must not delete fingerprints of other phone files.
         // Prune stale entries only when scanning the complete accessible phone scope.
-        if(source==LibrarySource.PHONE) synchronized(DuplicatePrivacyGuard.lock){
+        if(source==LibrarySource.PHONE && !isScoped) synchronized(DuplicatePrivacyGuard.lock){
             check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск устарел"}
             val allowed=candidates.mapNotNull{it.item.savedUri}.map(::key).toSet()
             directory(context).listFiles().orEmpty().filter{it.name !in allowed}.forEach{it.delete()}
