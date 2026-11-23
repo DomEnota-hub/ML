@@ -721,13 +721,12 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                             AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null} cells=${it?.evaluatedCells ?: -1} candidates=${it?.shortCandidates?.size ?: 0}")
                         }
                     }
-                    val refined = if(aligned != null && aligned.shortCandidates.isNotEmpty()) {
-                        val refinedAudio = AcousticAudioDecoder.refineShortDifferences(
-                            context, Uri.parse(reference.uri), Uri.parse(target.uri), aligned)
-                        AppLog.i("MusicCompare", "shortZones candidates=${aligned.shortCandidates.size} " +
-                            "confirmed=${refinedAudio.confirmedShortZones.size}")
-                        refinedAudio
-                    } else aligned
+                    // Detailed pair comparison ALWAYS examines the complete audio,
+                    // independent of fast/expanded library discovery mode.
+                    val refined = if(aligned != null) {
+                        AcousticAudioDecoder.refineCompletePair(context,
+                            Uri.parse(reference.uri), Uri.parse(target.uri), aligned)
+                    } else null
                     PairAnalysis(first,second,refined)
                 }
                 if(MusicDuplicateScanner.comparisonStamp(context,reference)!=beforeFirst||
