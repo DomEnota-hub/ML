@@ -55,12 +55,15 @@ fun CropFrameOverlay(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val edgeHitRadiusPx = with(density) { if (precisePhotoHandles) 32.dp.toPx() else 36.dp.toPx() }
-    val cornerHitRadiusPx = with(density) { if (precisePhotoHandles) 92.dp.toPx() else 64.dp.toPx() }
+    val cornerHitRadiusPx = with(density) { if (precisePhotoHandles) 108.dp.toPx() else 64.dp.toPx() }
+    val leftCornerPriorityPx = with(density) { 68.dp.toPx() }
+    val rightCornerPriorityPx = with(density) { 54.dp.toPx() }
 
     Canvas(
         modifier = modifier
             .onSizeChanged { containerSize = it }
-            .pointerInput(containerSize, sourceWidth, sourceHeight, edgeHitRadiusPx, cornerHitRadiusPx, precisePhotoHandles, shape) {
+            .pointerInput(containerSize, sourceWidth, sourceHeight, edgeHitRadiusPx, cornerHitRadiusPx,
+                leftCornerPriorityPx, rightCornerPriorityPx, precisePhotoHandles, shape) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val imageRect = fittedImageRect(containerSize, sourceWidth, sourceHeight)
@@ -69,14 +72,22 @@ fun CropFrameOverlay(
                     // resize, even when invisible targets overlap on a small crop.
                     // Rectangular video crops retain their original gestures.
                     val moveInset = with(density) { 22.dp.toPx() }
-                    val moveFrame = when {
+                    // Near visible photo corners, grabbing the corner must win
+                    // over frame movement. A smaller core zone prevents the
+                    // enlarged invisible targets from swallowing small crops.
+                    val photoCorner = if (precisePhotoHandles)
+                        priorityPhotoCropCorner(
+                            down.position, latestCrop, imageRect,
+                            leftCornerPriorityPx, rightCornerPriorityPx)
+                    else null
+                    val moveFrame = photoCorner == null && when {
                         shape == MediaCropShape.CIRCLE -> isInsideCircleCropMoveZone(
                             down.position, latestCrop, imageRect, moveInset)
                         precisePhotoHandles -> isInsideCropMoveZone(
                             down.position, latestCrop, imageRect, moveInset)
                         else -> false
                     }
-                    val handle = if (moveFrame) null else hitTestCropHandle(
+                    val handle = photoCorner ?: if (moveFrame) null else hitTestCropHandle(
                         point = down.position,
                         crop = latestCrop,
                         imageRect = imageRect,
@@ -277,6 +288,35 @@ internal fun isInsideCropMoveZone(
     val insetY = min(edgeExclusion, (bottom - top) / 4f)
     return point.x in (left + insetX)..(right - insetX) &&
         point.y in (top + insetY)..(bottom - insetY)
+}
+
+/** Priority finger capture for visible photo corners.
+ * The left-side inner capture is slightly larger to compensate for touches
+ * constrained by the display edge; invisible targets never change appearance.
+ * Clamp the core to crop size so moving a small selection still works.
+ */
+internal fun priorityPhotoCropCorner(
+    point: Offset, crop: CropFractions, imageRect: Rect,
+    leftRadiusPx: Float, rightRadiusPx: Float,
+): VideoCropHandle? {
+    val left = imageRect.left + imageRect.width * crop.left
+    val right = imageRect.right - imageRect.width * crop.right
+    val top = imageRect.top + imageRect.height * crop.top
+    val bottom = imageRect.bottom - imageRect.height * crop.bottom
+    val innerLimit = min(right - left, bottom - top) / 3f
+    if (innerLimit <= 0f) return null
+    val corners = listOf(
+        VideoCropHandle.TOP_LEFT to Offset(left, top),
+        VideoCropHandle.TOP_RIGHT to Offset(right, top),
+        VideoCropHandle.BOTTOM_LEFT to Offset(left, bottom),
+        VideoCropHandle.BOTTOM_RIGHT to Offset(right, bottom),
+    )
+    val best = corners.minByOrNull { (_, at) -> hypot(point.x - at.x, point.y - at.y) } ?: return null
+    val radius = if (best.first in setOf(VideoCropHandle.TOP_LEFT, VideoCropHandle.BOTTOM_LEFT))
+        leftRadiusPx else rightRadiusPx
+    return best.first.takeIf {
+        hypot(point.x - best.second.x, point.y - best.second.y) <= min(radius, innerLimit)
+    }
 }
 
 internal fun hitTestCropHandle(
