@@ -75,6 +75,40 @@ internal object DuplicateFolderTree {
         return roots.values.map { it.freeze() }
     }
 
+    /** Natural name order: Folder2 before Folder10; no conversion to integer. */
+    internal fun compareNatural(left: String, right: String): Int {
+        var l = 0
+        var r = 0
+        while (l < left.length && r < right.length) {
+            if (left[l].isDigit() && right[r].isDigit()) {
+                var le = l
+                var re = r
+                while (le < left.length && left[le].isDigit()) le++
+                while (re < right.length && right[re].isDigit()) re++
+                var ls = l
+                var rs = r
+                while (ls < le && left[ls] == '0') ls++
+                while (rs < re && right[rs] == '0') rs++
+                val lengthDiff = (le - ls).compareTo(re - rs)
+                if (lengthDiff != 0) return lengthDiff
+                for (index in 0 until (le - ls)) {
+                    val diff = left[ls + index].compareTo(right[rs + index])
+                    if (diff != 0) return diff
+                }
+                val paddingDiff = (le - l).compareTo(re - r)
+                if (paddingDiff != 0) return paddingDiff
+                l = le
+                r = re
+            } else {
+                val diff = left[l].lowercaseChar().compareTo(right[r].lowercaseChar())
+                if (diff != 0) return diff
+                l++
+                r++
+            }
+        }
+        return (left.length - l).compareTo(right.length - r)
+    }
+
     /** Stable order within each parent. Unknown sizes stay at the end in size mode. */
     fun sort(
         roots: List<DuplicateFolderNode>,
@@ -83,7 +117,7 @@ internal object DuplicateFolderTree {
     ): List<DuplicateFolderNode> {
         val order = Comparator<DuplicateFolderNode> { first, second ->
             val main = when (mode) {
-                DuplicateFolderSort.NAME -> first.name.compareTo(second.name, ignoreCase = true)
+                DuplicateFolderSort.NAME -> compareNatural(first.name, second.name)
                 DuplicateFolderSort.FILE_COUNT -> first.fileCount.compareTo(second.fileCount)
                 DuplicateFolderSort.SIZE -> when {
                     first.sizeBytes == null && second.sizeBytes != null -> 1
@@ -95,7 +129,7 @@ internal object DuplicateFolderTree {
             val adjusted = if (mode == DuplicateFolderSort.SIZE &&
                 (first.sizeBytes == null || second.sizeBytes == null)) main
                 else if (descending) -main else main
-            if (adjusted != 0) adjusted else first.name.compareTo(second.name, ignoreCase = true)
+            if (adjusted != 0) adjusted else compareNatural(first.name, second.name)
                 .takeIf { it != 0 } ?: first.id.compareTo(second.id)
         }
         fun recursive(nodes: List<DuplicateFolderNode>): List<DuplicateFolderNode> =
