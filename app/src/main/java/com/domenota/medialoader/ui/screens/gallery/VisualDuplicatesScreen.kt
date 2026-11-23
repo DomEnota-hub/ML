@@ -54,6 +54,9 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     val privacyEpoch by DuplicatePrivacyGuard.changes.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
     var session by remember { mutableStateOf<VisualDuplicateSession?>(null) }
+    // Only retain a result that has already been reconciled against a complete catalog.
+    // It may be presented read-only while an unrelated MediaStore refresh is in flight.
+    var lastVerified by remember { mutableStateOf<VisualDuplicateSession?>(null) }
     var loaded by remember { mutableStateOf(false) }
     var restored by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -86,6 +89,16 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     val reconciled=currentProjection.value.takeIf{currentProjection.ready}
     val current=remember(session,reconciled){if(session!=null&&reconciled!=null)session?.copy(result=reconciled.result)?.normalized() else null}
     val displayReady=reportReady&&phonePermission&&indexProjection.ready&&currentProjection.ready
+    val latestCompletedAt=status.session?.scannedAt
+    val verified=displayReady&&current!=null&&
+        (latestCompletedAt==null||current.scannedAt==latestCompletedAt)
+    val actionsReady=verified&&ready&&currentGeneration()
+    // A background index rebuild must not erase the already verified screen. Never
+    // borrow a previous report after another scan completes or privacy changes.
+    val shown=if(verified)current else lastVerified?.takeIf{
+        phonePermission&&loaded&&it.result.privacyEpoch==privacyEpoch&&
+            (latestCompletedAt==null||it.scannedAt==latestCompletedAt)
+    }
     val stopped=VisualDuplicateBackgroundScan.stopped(context)
     val latestSession by rememberUpdatedState(session)
     val latestCatalog by rememberUpdatedState(catalog)
@@ -104,16 +117,21 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     val partial=(if(status.running)status.partial else status.partial?:storedPartial?.result)?.takeIf{it.privacyEpoch==privacyEpoch}
     fun exactBytes(value:List<VisualDuplicateGroup>)=value.filter{it.reason==VisualMatch.EXACT}.sumOf{g->g.files.sumOf{it.bytes}-(g.files.firstOrNull()?.bytes?:0L)}
     LaunchedEffect(privacyEpoch) {
+        loaded=false
+        lastVerified=null
         session=VisualDuplicateSessionStore.load(context)
         loaded=true
+    }
+    LaunchedEffect(verified,current,privacyEpoch) {
+        if(verified&&current?.result?.privacyEpoch==privacyEpoch)lastVerified=current
     }
     LaunchedEffect(status.session,loaded,trash) {
         if(loaded&&trash==null) status.session?.let { fresh ->
             if(fresh.scannedAt!=session?.scannedAt){session=fresh;restored=false}
         }
     }
-    LaunchedEffect(current,displayReady,loaded,status.running,trash) {
-        if(displayReady&&loaded&&!status.running&&trash==null&&current!=null&&current!=session)session=current
+    LaunchedEffect(current,actionsReady,loaded,status.running,trash) {
+        if(actionsReady&&loaded&&!status.running&&trash==null&&current!=null&&current!=session)session=current
     }
     LaunchedEffect(current?.scannedAt,loaded,ready,restored) {
         if(loaded&&ready&&!restored&&current!=null){
@@ -144,7 +162,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     }
     if(confirm) AlertDialog(onDismissRequest={confirm=false},title={Text("Переместить выбранные файлы в корзину?")},
         text={Text("Похожие файлы могут различаться. Сохраняемый экземпляр будет повторно проверен. Окончательное удаление не выполняется.")},
-        confirmButton={TextButton({confirm=false;if(latestReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)trash=current?.takeIf{it.selected.isNotEmpty()}}){Text("Переместить")}},
+        confirmButton={TextButton({confirm=false;if(actionsReady&&latestReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)trash=current?.takeIf{it.selected.isNotEmpty()}}){Text("Переместить")}},
         dismissButton={TextButton({confirm=false}){Text("Отмена")}})
     trash?.let { snapshot ->
         val request=remember(snapshot){
@@ -196,10 +214,14 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             val sameScope=previousScope==null||previousScope==catalog.source
             if(!sameScope)Text("Незавершённый поиск: ${if(previousScope==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"}",style=MaterialTheme.typography.bodySmall)
             val canStart=ready&&phonePermission&&loaded&&!saving&&trash==null&&catalog.scan.isNotEmpty()
-            val canShow=displayReady&&loaded&&!saving&&trash==null&&(session!=null||partial!=null)
+            val canShow=loaded&&phonePermission&&!saving&&trash==null&&
+                (session?.result?.privacyEpoch==privacyEpoch||partial!=null)
             val openResults:()->Unit={
                 if(session==null&&partial!=null)showPartial=true
-                else {
+                else if(!actionsReady){
+                    // No empty or partial catalog may replace a saved result.
+                    scope.launch{if(shown!=null)list.animateScrollToItem(0)}
+                } else {
                     val actionEpoch=latestEpoch
                     scope.launch{
                         val previous=VisualDuplicateSessionStore.load(context)
@@ -217,8 +239,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        if(!displayReady||!loaded)return@Column
-        if(status.running&&partial!=null){
+        if(!loaded||!phonePermission)return@Column
+        if(status.running&&partial!=null&&displayReady){
             Text("Предварительные результаты · удаление после завершения")
             LazyColumn(Modifier.weight(1f)){items(partial.groups,key={it.files.first().id}){g->
                 Row(verticalAlignment=Alignment.CenterVertically){
@@ -227,34 +249,43 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 }
             }};return@Column
         }
-        if(current==null){Text(if(partial!=null)"Сохранено предварительно: ${partial.groups.size} групп. Продолжите поиск." else "Запустите поиск точных и похожих файлов.");return@Column}
-        Text("Результат · ${current.result.scopeLabel}",style=MaterialTheme.typography.bodySmall)
-        current.result.coverage?.let { VisualCoverageSummary(it) }
-        Text("Групп: ${current.result.groups.size} · пропущено: ${current.result.skipped} · выбрано: ${current.selected.size}")
+        if(shown==null){
+            val pending=(status.session?:session)?.takeIf{it.result.privacyEpoch==privacyEpoch}
+            Text(if(pending!=null)"Результаты сохранены: ${pending.result.groups.size} групп. Проверяю доступность файлов…"
+                else if(partial!=null)"Сохранено предварительно: ${partial.groups.size} групп. Продолжите поиск."
+                else "Запустите поиск точных и похожих файлов.")
+            return@Column
+        }
+        if(!actionsReady)Text("Обновляю каталог. Результат сохранён; выбор и корзина пока недоступны.",
+            style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Результат · ${shown.result.scopeLabel}",style=MaterialTheme.typography.bodySmall)
+        shown.result.coverage?.let { VisualCoverageSummary(it) }
+        Text("Групп: ${shown.result.groups.size} · пропущено: ${shown.result.skipped} · выбрано: ${shown.selected.size}")
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
             FilterChip(filter==null,{filter=null},{Text("Все")})
             VisualMatch.entries.forEach{k->FilterChip(filter==k,{filter=k},{Text(when(k){VisualMatch.EXACT->"Точные";VisualMatch.SIMILAR_PHOTO->"Похожие фото";VisualMatch.SIMILAR_VIDEO->"Видео"})})}
         }
-        val exact=VisualDuplicatePolicy.selectExact(current.result.groups)
-        if(exact.isNotEmpty()||current.selected.isNotEmpty())OutlinedButton({persist(current.copy(selected=if(current.selected==exact)emptySet() else exact))},enabled=!saving&&!status.running&&trash==null){Text(if(current.selected==exact)"Снять выделение" else "Выделить точные")}
+        val exact=VisualDuplicatePolicy.selectExact(shown.result.groups)
+        if(exact.isNotEmpty()||shown.selected.isNotEmpty())OutlinedButton({if(actionsReady)current?.let{persist(it.copy(selected=if(shown.selected==exact)emptySet() else exact))}},enabled=actionsReady&&!saving&&!status.running&&trash==null){Text(if(shown.selected==exact)"Снять выделение" else "Выделить точные")}
         Text("Похожие файлы могут различаться. Проверьте каждый экземпляр.",style=MaterialTheme.typography.bodySmall)
         LazyColumn(state=list,modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){
-            items(current.result.groups.filter{filter==null||it.reason==filter},key={it.files.first().id}){group->
+            items(shown.result.groups.filter{filter==null||it.reason==filter},key={it.files.first().id}){group->
                 Card {
                     Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                         Text(when(group.reason){VisualMatch.EXACT->"Точные копии";VisualMatch.SIMILAR_PHOTO->"Похожие фотографии";VisualMatch.SIMILAR_VIDEO->"Похожие видео"},style=MaterialTheme.typography.titleMedium)
                         group.files.forEach{file->
-                            val ref=byId[file.id]
+                            val ref=if(actionsReady)byId[file.id]?.takeIf{VisualDuplicateScanner.matchesCatalog(file,it)} else null
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                                DownloadThumbnail(file.uri,null,if(file.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(76.dp).clickable(enabled=ref!=null){preview=group to file.id})
+                                if(ref!=null) DownloadThumbnail(file.uri,null,if(file.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(76.dp).clickable{preview=group to file.id})
+                                else Box(Modifier.size(76.dp),contentAlignment=Alignment.Center){Icon(Icons.Rounded.Image,contentDescription=null,tint=MaterialTheme.colorScheme.onSurfaceVariant)}
                                 Column(Modifier.weight(1f)){
-                                    Text(if(ref!=null)displayFileName(ref.item) else file.id,maxLines=2)
+                                    Text(if(ref!=null)displayFileName(ref.item) else "Проверяю доступность файла",maxLines=2)
                                     Text(android.text.format.Formatter.formatFileSize(context,file.bytes)+" · ${file.width} × ${file.height}",style=MaterialTheme.typography.bodySmall)
                                     file.durationMs?.let{Text("${it/1000} с",style=MaterialTheme.typography.bodySmall)}
                                 }
-                                com.domenota.medialoader.ui.screens.organization.PickerMark(file.id in current.selected,false,enabled=ready&&!saving&&!status.running&&trash==null&&ref!=null&&(file.id in current.selected||group.files.count{it.id !in current.selected}>1)){
-                                    val selected=if(file.id !in current.selected)current.selected+file.id else current.selected-file.id
-                                    persist(current.copy(selected=selected,index=list.firstVisibleItemIndex,offset=list.firstVisibleItemScrollOffset))
+                                com.domenota.medialoader.ui.screens.organization.PickerMark(file.id in shown.selected,false,enabled=actionsReady&&!saving&&!status.running&&trash==null&&ref!=null&&(file.id in shown.selected||group.files.count{it.id !in shown.selected}>1)){
+                                    val selected=if(file.id !in shown.selected)shown.selected+file.id else shown.selected-file.id
+                                    if(actionsReady)current?.let{persist(it.copy(selected=selected,index=list.firstVisibleItemIndex,offset=list.firstVisibleItemScrollOffset))}
                                 }
                             }
                         }
@@ -262,9 +293,9 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 }
             }
         }
-        val selectedBytes=current.result.groups.sumOf{g->g.files.filter{it.id in current.selected}.sumOf{it.bytes}}
-        Button({if(ready&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true},enabled=ready&&currentGeneration()&&current.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,modifier=Modifier.fillMaxWidth()){
-            Text("В корзину: ${current.selected.size} · ${android.text.format.Formatter.formatFileSize(context,selectedBytes)}")
+        val selectedBytes=shown.result.groups.sumOf{g->g.files.filter{it.id in shown.selected}.sumOf{it.bytes}}
+        Button({if(actionsReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true},enabled=actionsReady&&shown.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,modifier=Modifier.fillMaxWidth()){
+            Text("В корзину: ${shown.selected.size} · ${android.text.format.Formatter.formatFileSize(context,selectedBytes)}")
         }
     }
     if(journal)DuplicateJournalDialog("Журнал Галереи",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size})},
