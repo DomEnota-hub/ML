@@ -41,12 +41,22 @@ class VisualDuplicateStoppedScreenTest {
     @Test fun stoppedReportSurvivesIrrelevantRefreshAndScreenReentryButTrashWaitsForFreshCatalog(){
         val catalog=prepare()
         val visible=mutableStateOf(true)
-        compose.setContent{MaterialTheme{if(visible.value)VisualDuplicatesScreen(catalog,false,true,{false},{},{_,_->error("Stale delete")},{},reportReady=true)}}
+        val reportReady=mutableStateOf(true)
+        compose.setContent{MaterialTheme{if(visible.value)VisualDuplicatesScreen(catalog,false,true,{false},{},{_,_->error("Stale delete")},{},reportReady=reportReady.value)}}
         compose.waitUntil(5000){compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()}
         compose.onNodeWithText("Результаты").assertIsEnabled()
         compose.onNodeWithText("Продолжить").assertIsNotEnabled()
         compose.onNodeWithText("Подготовка полного каталога Галереи…").assertDoesNotExist()
         compose.onNodeWithText("В корзину: 1",substring=true).assertIsNotEnabled()
+        // An unrelated MediaStore refresh invalidates the projections, not the
+        // previously verified report. It stays visible but read-only.
+        compose.runOnIdle{reportReady.value=false}
+        compose.waitUntil(5000){compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithText("Обновляю каталог.",substring=true).assertExists()
+        compose.onNodeWithText("Результаты").assertIsEnabled()
+        compose.onNodeWithText("В корзину: 1",substring=true).assertIsNotEnabled()
+        compose.runOnIdle{reportReady.value=true}
+        compose.waitUntil(5000){compose.onAllNodesWithText(summary).fetchSemanticsNodes().isNotEmpty()}
         compose.onNodeWithText("Результаты").performClick()
         compose.onNodeWithText(summary).assertExists()
         compose.runOnIdle{visible.value=false}
