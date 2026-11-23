@@ -5099,6 +5099,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.MusicDuplicateJournalClearTest#deleteOneMusicReportPreservesOtherHistoryPartialAndMedia": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.MusicDuplicateJournalClearTest#discardingCheckpointRejectsPendingSnapshotWrite": {
     "skipped": false,
     "failed": false
@@ -5396,6 +5400,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#coverageRoundTripAndLegacyReportCompatibility": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#deleteSingleGalleryReportNeverResurrectsFromLateSaveOrScroll": {
     "skipped": false,
     "failed": false
   },
@@ -7539,6 +7547,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.CropFrameHitTestTest#photoCenterRemainsMovableEvenWhenCornerTargetsGrow": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.CropFrameHitTestTest#photoLeftCornersCaptureFromInsideWithoutShrinkingRightTargets": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.CropFrameHitTestTest#smallVideoCircleStillHasDraggableCenterDespiteLargeCornerTargets": {
     "skipped": false,
     "failed": false
@@ -7572,6 +7588,18 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.components.DownloadVideoSongMenuUiTest#photoMenuHasNoVideoRecognitionAction": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateIssueCopyTest#generalSearchErrorRetainsTechnicalMeaning": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateIssueCopyTest#privacyChangeIsAnActionableWarningNotGlobalFailure": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateJournalDialogTest#deleteOneCompletedRowOnlyAfterConfirmation": {
     "skipped": false,
     "failed": false
   },
