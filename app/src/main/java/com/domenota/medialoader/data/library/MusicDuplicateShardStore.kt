@@ -290,6 +290,9 @@ internal object MusicDuplicateShardStore {
                 offset=state.getInt("offset"))
         }.getOrElse{saved}
     }
+    fun hasCompletedAt(context:Context,at:Long):Boolean =
+        at>0L && published(context).any{it.startsWith("scan_${at}_")}
+
     /** Delete one completed generation, not an active recovery checkpoint.
      * Detach from the atomic published pointer before deleting its shards.
      * Caller must hold the shared privacy lock.
