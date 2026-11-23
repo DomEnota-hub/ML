@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -71,6 +72,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     var preview by remember{mutableStateOf<Pair<VisualDuplicateGroup,String>?>(null)}
     var choosingScope by remember { mutableStateOf(false) }
     var openedHistoryAt by remember { mutableStateOf<Long?>(null) }
+    var detailsExpanded by remember { mutableStateOf(false) }
     LaunchedEffect(journal,status.running,privacyEpoch){history=VisualDuplicateSessionStore.history(context);storedPartial=VisualDuplicateSessionStore.partial(context)}
     LaunchedEffect(privacyEpoch){preview=null;journal=false}
     val list=rememberLazyListState()
@@ -196,12 +198,12 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         if(!status.running && (!reportReady||!loaded) && !stopped) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(!status.running && !phonePermission) Text("Нет доступа к фото и видео телефона",color=MaterialTheme.colorScheme.error)
-        else if(!status.running && !ready && !stopped) Row(verticalAlignment=Alignment.CenterVertically){
+        else if(!status.running && !ready && !stopped && shown==null) Row(verticalAlignment=Alignment.CenterVertically){
             // Keep a lightweight status while the latest MediaStore generation is checked.
             Text("Каталог обновляется",style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f))
             TextButton(onRefresh){Text("Обновить")}
         }
-        else if(!status.running) Text("Область поиска: ${if(catalog.source==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"} · ${catalog.scan.size}",style=MaterialTheme.typography.bodySmall)
+        else if(!status.running && shown==null) Text("Область поиска: ${if(catalog.source==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"}",style=MaterialTheme.typography.bodySmall)
         if(status.running){
             Text(status.partial?.scopeLabel ?: DuplicateFolderScope.label(VisualDuplicateBackgroundScan.resumeScope(context)),
                 style=MaterialTheme.typography.bodySmall)
@@ -233,7 +235,21 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                     }
                 }
             }
-            if(stopped)VisualDuplicateStoppedPanel(
+            if(shown!=null){
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    Button({choosingScope=true},enabled=canStart,modifier=Modifier.weight(1f).heightIn(min=44.dp)){
+                        Icon(Icons.Rounded.Search,null,Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Новый поиск",maxLines=1)
+                    }
+                    OutlinedButton({detailsExpanded=!detailsExpanded},
+                        modifier=Modifier.weight(1f).heightIn(min=44.dp)){
+                        Icon(if(detailsExpanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,null,Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Подробности",maxLines=1)
+                    }
+                }
+            }else if(stopped)VisualDuplicateStoppedPanel(
                 canStart,canShow,{startScan(VisualDuplicateBackgroundScan.resumeScope(context))},openResults,
                 (status.coverage ?: storedPartial?.result?.coverage)?.takeIf{it.source==catalog.source}
             )
@@ -261,16 +277,34 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         if(!actionsReady)Text("Обновляю каталог. Результат сохранён; выбор и корзина пока недоступны.",
             style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Результат · ${shown.result.scopeLabel}",style=MaterialTheme.typography.bodySmall)
-        shown.result.coverage?.let { VisualCoverageSummary(it) }
-        Text("Групп: ${shown.result.groups.size} · пропущено: ${shown.result.skipped} · выбрано: ${shown.selected.size}")
+        Column(Modifier.fillMaxWidth().testTag("visual-result-summary"),
+            verticalArrangement=Arrangement.spacedBy(3.dp)){
+            Text("Результаты поиска",style=MaterialTheme.typography.titleMedium)
+            Text(shown.result.scopeLabel,style=MaterialTheme.typography.bodySmall,
+                color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Найдено ${shown.result.groups.size} групп",
+                style=MaterialTheme.typography.titleLarge,color=MaterialTheme.colorScheme.primary)
+            shown.result.coverage?.let{
+                Text("Проверено ${it.checked} файлов",style=MaterialTheme.typography.bodySmall,
+                    color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if(detailsExpanded){
+            Column(Modifier.fillMaxWidth().testTag("visual-result-details"),
+                verticalArrangement=Arrangement.spacedBy(4.dp)){
+                shown.result.coverage?.let { VisualCoverageSummary(it) }
+                Text("Пропущено: ${shown.result.skipped}. Выбрано: ${shown.selected.size}",
+                    style=MaterialTheme.typography.bodySmall)
+                Text("Каталог: ${if(catalog.source==LibrarySource.PHONE)"Телефон" else "Файлы ML"}",
+                    style=MaterialTheme.typography.bodySmall)
+            }
+        }
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
             FilterChip(filter==null,{filter=null},{Text("Все")})
             VisualMatch.entries.forEach{k->FilterChip(filter==k,{filter=k},{Text(when(k){VisualMatch.EXACT->"Точные";VisualMatch.SIMILAR_PHOTO->"Похожие фото";VisualMatch.SIMILAR_VIDEO->"Видео"})})}
         }
         val exact=VisualDuplicatePolicy.selectExact(shown.result.groups)
         if(exact.isNotEmpty()||shown.selected.isNotEmpty())OutlinedButton({if(actionsReady)current?.let{persist(it.copy(selected=if(shown.selected==exact)emptySet() else exact))}},enabled=actionsReady&&!saving&&!status.running&&trash==null){Text(if(shown.selected==exact)"Снять выделение" else "Выделить точные")}
-        Text("Похожие файлы могут различаться. Проверьте каждый экземпляр.",style=MaterialTheme.typography.bodySmall)
         LazyColumn(state=list,modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){
             items(shown.result.groups.filter{filter==null||it.reason==filter},key={it.files.first().id}){group->
                 Card {
@@ -297,8 +331,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }
         }
         val selectedBytes=shown.result.groups.sumOf{g->g.files.filter{it.id in shown.selected}.sumOf{it.bytes}}
-        Button({if(actionsReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true},enabled=actionsReady&&shown.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,modifier=Modifier.fillMaxWidth()){
-            Text("В корзину: ${shown.selected.size} · ${android.text.format.Formatter.formatFileSize(context,selectedBytes)}")
+        Button({if(actionsReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true},enabled=actionsReady&&shown.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("visual-result-trash")){
+            Text("В корзину: ${shown.selected.size} файл(ов), ${android.text.format.Formatter.formatFileSize(context,selectedBytes)}")
         }
     }
     if(journal)DuplicateJournalDialog("Журнал Галереи",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size})},
