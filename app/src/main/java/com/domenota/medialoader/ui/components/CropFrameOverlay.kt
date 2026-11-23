@@ -239,11 +239,6 @@ private fun fittedImageRect(
     return Rect(left, top, left + width, top + height)
 }
 
-/**
- * Use a small *visible-edge* exclusion zone for moving a selection.
- * The enlarged invisible handle target must not steal central drags.
- * Video retains its original gestures (the call site is photo-only).
- */
 /** Drag circle only from its interior; its boundary remains available to resize.
  * Positions are computed in the fitted source image, not the whole preview.
  * This is used for video and photo circles without changing rectangle gestures.
@@ -264,6 +259,11 @@ internal fun isInsideCircleCropMoveZone(
     return hypot(point.x - centerX, point.y - centerY) < innerRadius
 }
 
+/**
+ * Use a small visible-edge exclusion zone for moving a rectangular selection.
+ * Enlarged invisible photo handles must not steal center drags.
+ * Rectangular video retains its legacy gestures.
+ */
 internal fun isInsideCropMoveZone(
     point: Offset, crop: CropFractions, rect: Rect, edgeExclusion: Float,
 ): Boolean {
