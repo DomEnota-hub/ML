@@ -8,6 +8,10 @@ import android.media.MediaFormat
 import android.net.Uri
 import com.domenota.medialoader.core.logging.AppLog
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.coroutineContext
 import java.nio.ByteOrder
 
@@ -33,6 +37,44 @@ internal object AcousticAudioDecoder {
         active.ensureActive()
         return builder.finish()
     }
+    /** Continuous PCM is scoped to the actively opened comparison pair only.
+     * It is never written to a persistent cache or included in a cached report.
+     * On long/unsupported recordings the previous spectral path remains.
+     */
+    private suspend fun comparisonPcm(context:Context,uri:Uri):AudioPcmBlocks? {
+        val active = coroutineContext
+        val samples = AudioPcmBlocks()
+        return try {
+            if (!decodeWindow(context,uri,AcousticWindow(0,null),{}, { value ->
+                    active.ensureActive()
+                    samples.append(value)
+                })) null else samples
+        } catch(e:kotlinx.coroutines.CancellationException) { throw e }
+          catch(_:Exception) { null }
+    }
+
+    suspend fun refineCompletePair(
+        context:Context,firstUri:Uri,secondUri:Uri,aligned:AlignedAudioComparison,
+    ):AlignedAudioComparison {
+        val source = coroutineScope {
+            val a = async { comparisonPcm(context,firstUri) }
+            val b = async { comparisonPcm(context,secondUri) }
+            a.await() to b.await()
+        }
+        val first=source.first;val second=source.second
+        if(first==null || second==null) {
+            AppLog.i("MusicCompare", "fullPcm unavailable; fallback to coarse spectral verification")
+            return refineShortDifferences(context,firstUri,secondUri,aligned)
+        }
+        val precise = withContext(Dispatchers.Default) {
+            val job=coroutineContext
+            AudioContinuousDifference.detect(first,second,aligned){job.ensureActive()}
+        }
+        AppLog.i("MusicCompare", "fullPcm firstSamples=${first.size} secondSamples=${second.size} " +
+            "preciseZones=${precise.size} coarseZones=${aligned.zones.size}")
+        return aligned.withPreciseZones(precise)
+    }
+
     /** Confirm only tiny discarded coarse candidates; do not decode either full
      * song again. Guarded URI stamps and privacy are checked by the caller both
      * before and after the bounded additional reads.
