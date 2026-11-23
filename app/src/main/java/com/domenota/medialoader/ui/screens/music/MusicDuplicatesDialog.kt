@@ -474,8 +474,6 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             Modifier.fillMaxWidth(),enabled=(allSelected.isNotEmpty()||selected.isNotEmpty())&&!verifying&&!clearingJournal){
                             Text(if(clearBulk)"Снять выделение" else "Выбрать всё")
                         }
-                        Text("Автоматически отмечаются только лишние точные копии. Похожие записи проверяйте вручную.",
-                            style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -816,7 +814,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                 Text("Синхронизация записей…",style=MaterialTheme.typography.labelMedium)
                                 LinearProgressIndicator(Modifier.fillMaxWidth())
                             }else if(result==null){
-                                Text("Синхронизация не подтверждена",style=MaterialTheme.typography.labelMedium)
+                                Text("Записи слишком отличаются для точного сравнения",style=MaterialTheme.typography.labelMedium)
                                 // A fallback may show independent waveform envelopes,
                                 // never invented matches or difference regions.
                                 val pair=analysis
@@ -895,7 +893,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                                 Text("Послушайте этот момент в обеих записях.",
                                                     style=MaterialTheme.typography.bodySmall)
                                                 Text("Основа: ${seekFrame(true)?.let(::pairTime)?:"нет фрагмента"} · " +
-                                                    "Версия: ${seekFrame(false)?.let(::pairTime)?:"нет фрагмента"}",
+                                                    "Сравниваемая: ${seekFrame(false)?.let(::pairTime)?:"нет фрагмента"}",
                                                     style=MaterialTheme.typography.bodySmall)
                                                 TextButton(onClick={technicalDetails=!technicalDetails}){
                                                     Text(if(technicalDetails)"Скрыть подробности" else "Подробнее об участке")
@@ -945,7 +943,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                         if(firstPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
                                     Icon(if(firstPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
                                     Spacer(Modifier.width(4.dp))
-                                    Text(if(firstPlaying)"Пауза" else "Основа",maxLines=1,
+                                    Text("Основа",maxLines=1,
                                         overflow=TextOverflow.Ellipsis)
                                 }
                                 OutlinedButton(onClick={play(target,if(secondPlaying)null else seekFrame(false))},
@@ -954,7 +952,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                         if(secondPlaying)musicPlaybackAccent else MaterialTheme.colorScheme.outline)){
                                     Icon(if(secondPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null)
                                     Spacer(Modifier.width(4.dp))
-                                    Text(if(secondPlaying)"Пауза" else "Версия",maxLines=1,
+                                    Text("Сравниваемая",maxLines=1,
                                         overflow=TextOverflow.Ellipsis)
                                 }
                             }
@@ -963,7 +961,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                 Row(Modifier.fillMaxWidth().padding(top=4.dp).testTag("comparison-fixed-footer"),verticalAlignment=Alignment.CenterVertically){
                     IconButton(onClick={play(track)}){Icon(if(previewId==active&&playing)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,"Прослушать выбранный трек")}
                     Column(Modifier.weight(1f)){
-                        Text(if(active==referenceId)"Основа" else "Версия",style=MaterialTheme.typography.labelSmall)
+                        Text(if(active==referenceId)"Основа" else "Сравниваемая",style=MaterialTheme.typography.labelSmall)
                         Text(pairTime(if(previewId==active)position else 0L),style=MaterialTheme.typography.bodySmall)
                     }
                     Button({if(allowed(track))onKeep(active)},modifier=Modifier.testTag("comparison-keep")){
