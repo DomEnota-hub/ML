@@ -403,15 +403,23 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             }
                             val activePreliminaryFilter=DuplicateResultFilterPolicy.active(
                                 preliminaryFilter,preliminaryCounts)
+                            val visiblePreliminaryGroups=remember(partial,activePreliminaryFilter){
+                                partial.groups.filter {
+                                    activePreliminaryFilter==null || it.kind==activePreliminaryFilter
+                                }
+                            }
                             if (partial.groups.isNotEmpty()) {
                                 Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
                                     MusicDuplicateResultFilters(preliminaryCounts,activePreliminaryFilter,
-                                        { preliminaryFilter=it })
+                                        { next ->
+                                            preliminaryFilter=next
+                                            scope.launch { preliminaryListState.scrollToItem(0) }
+                                        })
                                 }
                             }
                             PreliminaryMusicGroups(
-                                partial.groups.filter { activePreliminaryFilter==null || it.kind==activePreliminaryFilter },
-                                exactBytes(partial.groups),previewRows,
+                                visiblePreliminaryGroups,
+                                exactBytes(visiblePreliminaryGroups),previewRows,
                                 Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
                         }
                     } else {
@@ -511,7 +519,10 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if(result==null||scanControlsExpanded) MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
-                    MusicDuplicateResultFilters(resultCounts,activeResultFilter,{filter=it})
+                    MusicDuplicateResultFilters(resultCounts,activeResultFilter,{next ->
+                        filter=next
+                        scope.launch { listState.scrollToItem(0) }
+                    })
                     if(scanControlsExpanded) {
                         result?.let{r->Text(if(r.expanded)"Режим: расширенный" else "Режим: быстрый",style=MaterialTheme.typography.labelMedium)
                             if(r.acousticUnavailable>0)Text("Без акустического отпечатка: ${r.acousticUnavailable}. Точные совпадения сохранены.",style=MaterialTheme.typography.bodySmall)}
