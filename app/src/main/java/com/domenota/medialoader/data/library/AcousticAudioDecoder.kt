@@ -72,7 +72,9 @@ internal object AcousticAudioDecoder {
             if (spectrumAccepted) {
                 spectralAccepted++
                 accepted.add(candidate)
-            } else if (AudioPcmShortDifference.confirms(left.samples, right.samples)) {
+            } else if (coreLeft == coreRight &&
+                AudioPcmShortDifference.confirms(left.samples, right.samples,
+                    contextFrames = coreLeft, coreFrames = 4)) {
                 // Soundtrack spectra may remain similar despite a removed word.
                 // Local 8-kHz PCM residuals are aligned on unchanged context.
                 pcmAccepted++
