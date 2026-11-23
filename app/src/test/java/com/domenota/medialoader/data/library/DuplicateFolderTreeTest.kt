@@ -79,6 +79,14 @@ class DuplicateFolderTreeTest {
         assertEquals(listOf("Beta", "Alpha", "Gamma"), names(DuplicateFolderSort.SIZE, true))
         assertEquals(listOf("Alpha", "Beta", "Gamma"), names(DuplicateFolderSort.SIZE, false))
         assertNull(DuplicateFolderTree.sort(root, DuplicateFolderSort.SIZE, true).single().sizeBytes)
+        val numbered = listOf(
+            DuplicateFolderOption("two", "Folder2", "Folder2", 1),
+            DuplicateFolderOption("ten", "Folder10", "Folder10", 1),
+            DuplicateFolderOption("one", "Folder1", "Folder1", 1),
+        )
+        assertEquals(listOf("Folder1", "Folder2", "Folder10"),
+            DuplicateFolderTree.sort(DuplicateFolderTree.build(numbered),
+                DuplicateFolderSort.NAME, false).map { it.name })
     }
 
     @Test fun searchShowsAncestorsButNeverSelectsUnmatchedSibling() {
