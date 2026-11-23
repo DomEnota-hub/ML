@@ -48,7 +48,7 @@ internal object MusicDuplicateSessionStore {
         }.getOrNull()
         val archive=File(context.noBackupFilesDir,"duplicate-journal-music/$at.json")
         val existed=legacyAt==at || archive.exists() ||
-            MusicDuplicateShardStore.history(context).any{it.scannedAt==at}
+            MusicDuplicateShardStore.hasCompletedAt(context,at)
         if(!existed)return@synchronized false
         journalRevision.incrementAndGet()
         runCatching{
