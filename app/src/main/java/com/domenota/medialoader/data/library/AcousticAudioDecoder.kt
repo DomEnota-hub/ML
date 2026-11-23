@@ -6,6 +6,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import com.domenota.medialoader.core.logging.AppLog
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
 import java.nio.ByteOrder
@@ -44,9 +45,12 @@ internal object AcousticAudioDecoder {
             return aligned
         val job = coroutineContext
         val accepted = mutableSetOf<ComparisonZone>()
-        // A fixed budget prevents pathological VBR/codec cases from making the
-        // comparison unresponsive. Never promote unverified candidates.
-        for (candidate in aligned.shortCandidates.take(48)) {
+        var spectralAccepted = 0
+        var pcmAccepted = 0
+        var decodeUnavailable = 0
+        // Keep candidate count and PCM memory bounded; never re-decode whole songs.
+        val candidates = aligned.shortCandidates.take(48)
+        for (candidate in candidates) {
             job.ensureActive()
             val column = aligned.columns[candidate.start]
             val firstIndex = column.first ?: continue
@@ -56,25 +60,49 @@ internal object AcousticAudioDecoder {
             val leftStart = (leftBaseMs - 128L).coerceAtLeast(0L)
             val rightStart = (rightBaseMs - 128L).coerceAtLeast(0L)
             val left = shortComparisonFrames(context, firstUri, leftStart, leftBaseMs + aligned.stepMs + 128L)
-                ?: continue
             val right = shortComparisonFrames(context, secondUri, rightStart, rightBaseMs + aligned.stepMs + 128L)
-                ?: continue
+            if (left == null || right == null) {
+                decodeUnavailable++
+                continue
+            }
             val coreLeft = ((leftBaseMs - leftStart) / 64L).toInt()
             val coreRight = ((rightBaseMs - rightStart) / 64L).toInt()
-            if (AudioPairAlignment.confirmsShortDifference(left, right, coreLeft, coreRight, 4))
+            val spectrumAccepted = AudioPairAlignment.confirmsShortDifference(
+                left.frames, right.frames, coreLeft, coreRight, 4)
+            if (spectrumAccepted) {
+                spectralAccepted++
                 accepted.add(candidate)
+            } else if (AudioPcmShortDifference.confirms(left.samples, right.samples)) {
+                // Soundtrack spectra may remain similar despite a removed word.
+                // Local 8-kHz PCM residuals are aligned on unchanged context.
+                pcmAccepted++
+                accepted.add(candidate)
+            }
         }
+        // No titles, names, file paths, URI, or PCM ever enter diagnostics.
+        AppLog.i("MusicCompare",
+            "shortRefine candidates=${aligned.shortCandidates.size} inspected=${candidates.size} " +
+                "spectral=$spectralAccepted pcm=$pcmAccepted unavailable=$decodeUnavailable")
         return aligned.withConfirmedShortZones(accepted)
     }
 
+    private data class ShortWindow(val frames: List<ComparisonFrame>, val samples: FloatArray)
+
     private suspend fun shortComparisonFrames(
         context: Context, uri: Uri, startMs: Long, endMs: Long,
-    ): List<ComparisonFrame>? {
+    ): ShortWindow? {
         val job = coroutineContext
         val builder = AcousticFingerprints.ShortComparisonBuilder { job.ensureActive() }
+        // Temporary PCM is limited to one tiny local window and never cached.
+        val pcm = FloatArray(8192)
+        var count = 0
         return try {
-            if (!decodeWindow(context, uri, AcousticWindow(startMs, endMs), {}, builder::accept)) null
-            else builder.finish()
+            val decoded = decodeWindow(context, uri, AcousticWindow(startMs, endMs), {}) { sample ->
+                check(count < pcm.size) { "Short comparison window exceeded limit" }
+                pcm[count++] = sample
+                builder.accept(sample)
+            }
+            if (!decoded) null else ShortWindow(builder.finish(), pcm.copyOf(count))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
