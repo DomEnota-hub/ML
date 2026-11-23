@@ -111,10 +111,20 @@ internal object DuplicatePrivacyRetention {
             val inspection = Inspection(id, aliases)
             val root = context.noBackupFilesDir
             listOf(
-                "music-duplicate-results-v2", "music-duplicates-v1.json",
-                "visual-duplicates-v1.json", "music-duplicate-trash-v1.json",
+                "music-duplicate-results-v2",
                 "duplicate-journal-music", "duplicate-journal-gallery"
             ).forEach { inspection.inspectPath(File(root, it)) }
+            // AtomicFile may recover a .bak/.new companion during the next
+            // read or process start. Inspect those bytes as well; a report is
+            // not proven independent if its fallback copy contains the file.
+            listOf(
+                "music-duplicates-v1.json", "visual-duplicates-v1.json",
+                "music-duplicate-trash-v1.json"
+            ).forEach { name ->
+                listOf("", ".bak", ".new").forEach { suffix ->
+                    inspection.inspectPath(File(root, name + suffix))
+                }
+            }
             // Completed in-memory reports may not yet have been opened again
             // from disk. Include them and preliminary data in the proof.
             fun inspectMusic(groups: List<DuplicateGroup>) {
