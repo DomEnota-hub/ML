@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import com.domenota.medialoader.ui.screens.ZoomablePhoto
 import com.domenota.medialoader.ui.components.DuplicateScanPanel
+import com.domenota.medialoader.ui.components.DuplicateResultFilterPolicy
 import com.domenota.medialoader.ui.components.DuplicateJournalDialog
 import com.domenota.medialoader.ui.components.DuplicateJournalRow
 import android.net.Uri
@@ -325,14 +326,35 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                     style=MaterialTheme.typography.bodySmall)
             }
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-            FilterChip(filter==null,{filter=null},{Text("Все")})
-            VisualMatch.entries.forEach{k->FilterChip(filter==k,{filter=k},{Text(when(k){VisualMatch.EXACT->"Точные";VisualMatch.SIMILAR_PHOTO->"Похожие фото";VisualMatch.SIMILAR_VIDEO->"Видео"})})}
+        val kindCounts=remember(shown.result.groups) {
+            DuplicateResultFilterPolicy.counts(shown.result.groups.map { it.reason })
+        }
+        val availableKinds=DuplicateResultFilterPolicy.available(VisualMatch.entries,kindCounts)
+        val activeFilter=DuplicateResultFilterPolicy.active(filter,kindCounts)
+        if(availableKinds.isNotEmpty()) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).testTag("visual-result-filters"),
+                horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                FilterChip(activeFilter==null,{filter=null},{Text("Все")},
+                    modifier=Modifier.testTag("visual-result-filter-ALL"))
+                availableKinds.forEach { kind ->
+                    FilterChip(activeFilter==kind,{filter=kind},{
+                        Text(when(kind){
+                            VisualMatch.EXACT -> "Точные · ${kindCounts[kind] ?: 0}"
+                            VisualMatch.SIMILAR_PHOTO -> "Похожие фото · ${kindCounts[kind] ?: 0}"
+                            VisualMatch.SIMILAR_VIDEO -> "Видео · ${kindCounts[kind] ?: 0}"
+                        })
+                    },modifier=Modifier.testTag("visual-result-filter-${kind.name}"))
+                }
+            }
+        } else {
+            Text("Совпадений не найдено",Modifier.padding(vertical=20.dp)
+                .testTag("visual-empty-result"),style=MaterialTheme.typography.bodyMedium,
+                color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         val exact=VisualDuplicatePolicy.selectExact(shown.result.groups)
         if(exact.isNotEmpty()||shown.selected.isNotEmpty())OutlinedButton({if(actionsReady)current?.let{persist(it.copy(selected=if(shown.selected==exact)emptySet() else exact))}},enabled=actionsReady&&!saving&&!status.running&&trash==null){Text(if(shown.selected==exact)"Снять выделение" else "Выделить точные")}
         LazyColumn(state=list,modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){
-            items(shown.result.groups.filter{filter==null||it.reason==filter},key={it.files.first().id}){group->
+            items(shown.result.groups.filter{activeFilter==null||it.reason==activeFilter},key={it.files.first().id}){group->
                 Card {
                     Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                         Text(when(group.reason){VisualMatch.EXACT->"Точные копии";VisualMatch.SIMILAR_PHOTO->"Похожие фотографии";VisualMatch.SIMILAR_VIDEO->"Похожие видео"},style=MaterialTheme.typography.titleMedium)
@@ -365,7 +387,10 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }
         }
         val selectedBytes=shown.result.groups.sumOf{g->g.files.filter{it.id in shown.selected}.sumOf{it.bytes}}
-        Button({if(actionsReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true},enabled=actionsReady&&shown.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("visual-result-trash")){
+        if(shown.result.groups.isNotEmpty()) Button({
+            if(actionsReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true
+        },enabled=actionsReady&&shown.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,
+            modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("visual-result-trash")){
             Text("В корзину: ${shown.selected.size} файл(ов), ${android.text.format.Formatter.formatFileSize(context,selectedBytes)}")
         }
     }
