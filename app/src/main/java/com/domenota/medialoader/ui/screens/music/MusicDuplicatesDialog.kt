@@ -718,7 +718,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                         val job=kotlin.coroutines.coroutineContext
                         val started=SystemClock.elapsedRealtime()
                         AudioPairAlignment.align(first,second,step){job.ensureActive()}.also {
-                            AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null} cells=${it?.evaluatedCells ?: -1}")
+                            AppLog.i("MusicCompare","alignment first=${first.size} second=${second.size} stepMs=$step elapsedMs=${SystemClock.elapsedRealtime()-started} aligned=${it!=null} cells=${it?.evaluatedCells ?: -1} candidates=${it?.shortCandidates?.size ?: 0}")
                         }
                     }
                     val refined = if(aligned != null && aligned.shortCandidates.isNotEmpty()) {
