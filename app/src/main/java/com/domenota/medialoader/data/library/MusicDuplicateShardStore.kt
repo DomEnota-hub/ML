@@ -98,6 +98,7 @@ internal object MusicDuplicateShardStore {
      * until the last verified manifest and active pointer are durable. */
     fun commit(context:Context,session:DuplicateSession,afterChunk:(Int)->Unit={}) {
         require(identity(context,session)){"PRIVACY_EPOCH_CHANGED"}
+        require(!DuplicateReportJournal.isDeleted(context,"music",session.scannedAt)){"REPORT_DELETED"}
         val folder=root(context).apply{mkdirs()}
         val id="scan_"+session.scannedAt+"_"+UUID.randomUUID().toString().replace("-","")
         val generation=File(folder,id).apply{check(mkdirs())}
@@ -187,6 +188,7 @@ internal object MusicDuplicateShardStore {
         require(doc.getInt("schema")==SCHEMA && doc.getString("id")==id)
         val epoch=doc.getLong("epoch")
         if(requireCurrentPrivacy && epoch!=DuplicatePrivacyGuard.generation(context))return null
+        if(DuplicateReportJournal.isDeleted(context,"music",doc.getLong("at")))return null
         val chunks=doc.getJSONArray("chunks")
         require(chunks.length()<=MAX_CHUNKS)
         val groups=ArrayList<DuplicateGroup>(doc.getInt("groupCount"))
@@ -287,6 +289,29 @@ internal object MusicDuplicateShardStore {
             saved.copy(selected=selected,kept=kept,index=state.getInt("index"),
                 offset=state.getInt("offset"))
         }.getOrElse{saved}
+    }
+    /** Delete one completed generation, not an active recovery checkpoint.
+     * Detach from the atomic published pointer before deleting its shards.
+     * Caller must hold the shared privacy lock.
+     */
+    fun deleteCompleted(context:Context,at:Long):Boolean {
+        require(at>0L)
+        val ids=published(context)
+        val removed=ids.filter{it.startsWith("scan_${at}_")}
+        if(removed.isEmpty())return false
+        DuplicateReportJournal.markDeleted(context,"music",at)
+        val keep=ids.filterNot{it in removed}
+        if(keep.isEmpty())active(context).delete() else writeAtomic(active(context).baseFile){writer->
+            writer.write(JSONObject().put("id",keep.first()).put("history",JSONArray(keep)).toString())
+        }
+        val dir=root(context)
+        removed.forEach{id->
+            val item=File(dir,id)
+            if(item.exists())check(item.deleteRecursively()){"REPORT_SHARD_DELETE_FAILED"}
+        }
+        stateFile(context,false,at).delete()
+        check(removed.none{File(dir,it).exists()}){"REPORT_SHARD_DELETE_INCOMPLETE"}
+        return true
     }
     fun clearCompleted(context:Context) {
         val dir=root(context)
