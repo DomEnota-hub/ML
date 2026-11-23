@@ -132,7 +132,7 @@ class VisualDuplicateScanService : Service() {
         }
         job = scope.launch {
             try {
-                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,request.source,request.epoch,onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
+                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,request.source,request.epoch,isScoped=request.scopeLabel!="Все файлы",onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
                         val scoped=partial.copy(scopeLabel=request.scopeLabel)
                         VisualDuplicateBackgroundScan.partial(scanToken,scoped)
                         VisualDuplicateSessionStore.savePartial(this@VisualDuplicateScanService,VisualDuplicateSession(scoped,emptySet(),0,0,scanAt))
