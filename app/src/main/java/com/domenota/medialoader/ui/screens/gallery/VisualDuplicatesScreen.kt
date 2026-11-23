@@ -66,6 +66,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     var storedPartial by remember{mutableStateOf<VisualDuplicateSession?>(null)}
     var filter by remember{mutableStateOf<VisualMatch?>(null)}
     var preview by remember{mutableStateOf<Pair<VisualDuplicateGroup,String>?>(null)}
+    var choosingScope by remember { mutableStateOf(false) }
     LaunchedEffect(journal,status.running,privacyEpoch){history=VisualDuplicateSessionStore.history(context);storedPartial=VisualDuplicateSessionStore.partial(context)}
     LaunchedEffect(privacyEpoch){preview=null;journal=false}
     val list=rememberLazyListState()
@@ -91,11 +92,13 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     val latestReady by rememberUpdatedState(ready && phonePermission)
     val latestEpoch by rememberUpdatedState(privacyEpoch)
     val liveGeneration by rememberUpdatedState(currentGeneration)
-    fun startScan(){
+    fun startScan(keys: Set<String>? = null){
         if(latestReady && liveGeneration() && DuplicatePrivacyGuard.generation(context)==latestEpoch) {
             val currentCatalog=latestCatalog
             if(currentCatalog.source==LibrarySource.PHONE && !com.domenota.medialoader.ui.hasPhoneLibraryAccess(context,AppMode.GALLERY))return
-            if(currentCatalog.scan.isNotEmpty())VisualDuplicateBackgroundScan.start(context,currentCatalog.scan,currentCatalog.source,latestEpoch)
+            val scanned=DuplicateFolderScope.filter(currentCatalog.scan,keys){it.item}
+            if(scanned.isEmpty()) { error="В выбранных папках нет доступных файлов";return }
+            VisualDuplicateBackgroundScan.start(context,scanned,currentCatalog.source,latestEpoch,keys)
         }
     }
     val partial=(if(status.running)status.partial else status.partial?:storedPartial?.result)?.takeIf{it.privacyEpoch==privacyEpoch}
@@ -179,6 +182,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         else if(!status.running) Text("Область поиска: ${if(catalog.source==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"} · ${catalog.scan.size}",style=MaterialTheme.typography.bodySmall)
         if(status.running){
+            Text(status.partial?.scopeLabel ?: DuplicateFolderScope.label(VisualDuplicateBackgroundScan.resumeScope(context)),
+                style=MaterialTheme.typography.bodySmall)
             DuplicateScanPanel(status.phase,status.done,status.total,status.startedAt,status.phaseStartedAt,false,partial?.groups?.size?:0,exactBytes(partial?.groups.orEmpty()))
             status.coverage?.let { VisualCoverageSummary(it) }
             Button(onBack,Modifier.fillMaxWidth()){Text("Продолжить в фоне")}
@@ -204,10 +209,10 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 }
             }
             if(stopped)VisualDuplicateStoppedPanel(
-                canStart,canShow,::startScan,openResults,
+                canStart,canShow,{startScan(VisualDuplicateBackgroundScan.resumeScope(context))},openResults,
                 (status.coverage ?: storedPartial?.result?.coverage)?.takeIf{it.source==catalog.source}
             )
-            else VisualDuplicateReadyPanel(canStart,canShow,::startScan,openResults,
+            else VisualDuplicateReadyPanel(canStart,canShow,{choosingScope=true},openResults,
                 hasPrevious=canShow || (sameScope&&VisualDuplicateBackgroundScan.interrupted(context)))
         }
         status.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
@@ -223,6 +228,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }};return@Column
         }
         if(current==null){Text(if(partial!=null)"Сохранено предварительно: ${partial.groups.size} групп. Продолжите поиск." else "Запустите поиск точных и похожих файлов.");return@Column}
+        Text("Результат · ${current.result.scopeLabel}",style=MaterialTheme.typography.bodySmall)
         current.result.coverage?.let { VisualCoverageSummary(it) }
         Text("Групп: ${current.result.groups.size} · пропущено: ${current.result.skipped} · выбрано: ${current.selected.size}")
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
@@ -264,8 +270,13 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     if(journal)DuplicateJournalDialog("Журнал Галереи",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size})},
         storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size} ,VisualDuplicateBackgroundScan.journalStatus(context))},
         onOpen={at->journal=false;if(!status.running&&displayReady)history.firstOrNull{it.scannedAt==at}?.let{saved->scope.launch{val checked=withContext(Dispatchers.Default){saved.reconcileById(byId)};if(DuplicatePrivacyGuard.generation(context)==privacyEpoch){persist(checked);restored=false}}}},
-        onResume={journal=false;if(!status.running)startScan()},onDismiss={journal=false},
+        onResume={journal=false;if(!status.running)startScan(VisualDuplicateBackgroundScan.resumeScope(context))},onDismiss={journal=false},
         onPartial={journal=false;showPartial=true},resumeEnabled=!status.running&&ready&&phonePermission&&catalog.scan.isNotEmpty())
+    if(choosingScope)com.domenota.medialoader.ui.components.DuplicateScanScopeDialog(
+        rows=catalog.scan.map{it.item},mediaLabel="Фото и видео",
+        onDismiss={choosingScope=false},
+        onStart={keys->choosingScope=false;startScan(keys)},
+    )
     if(showPartial&&displayReady&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
         text={LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             item{Text("Только просмотр. Удаление доступно после завершения.")}
