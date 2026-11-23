@@ -47,6 +47,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+internal fun visualResultGroupCount(count:Int):String {
+    val word=when {
+        count%100 in 11..14 -> "групп"
+        count%10==1 -> "группа"
+        count%10 in 2..4 -> "группы"
+        else -> "групп"
+    }
+    val predicate=if(count%100 !in 11..14 && count%10==1)"Найдена" else "Найдено"
+    return "$predicate $count $word"
+}
+
 @Composable
 internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean,phonePermission:Boolean,currentGeneration:()->Boolean,onBack:()->Unit,onAppTrash:suspend (String,String)->Unit,onRefresh:()->Unit,reportReady:Boolean=ready) {
     val context=LocalContext.current
@@ -282,7 +293,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             Text("Результаты поиска",style=MaterialTheme.typography.titleMedium)
             Text(shown.result.scopeLabel,style=MaterialTheme.typography.bodySmall,
                 color=MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Найдено ${shown.result.groups.size} групп",
+            Text(visualResultGroupCount(shown.result.groups.size),
                 style=MaterialTheme.typography.titleLarge,color=MaterialTheme.colorScheme.primary)
             shown.result.coverage?.let{
                 Text("Проверено ${it.checked} файлов",style=MaterialTheme.typography.bodySmall,
