@@ -91,4 +91,30 @@ class VisualDuplicateSessionTest {
         assertEquals(updated,VisualDuplicateSessionStore.decode(VisualDuplicateSessionStore.encode(updated)))
         assertNull(VisualDuplicateSessionStore.decode(VisualDuplicateSessionStore.encode(session)).result.coverage)
     }
+
+    @Test fun deleteSingleGalleryReportNeverResurrectsFromLateSaveOrScroll()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        VisualDuplicateSessionStore.clearForPrivacy(context)
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val a=session.copy(result=session.result.copy(privacyEpoch=epoch),scannedAt=1700000921000L)
+        val b=a.copy(scannedAt=1700000922000L)
+        val c=a.copy(scannedAt=1700000923000L)
+        try{
+            assertTrue(VisualDuplicateSessionStore.save(context,a))
+            assertTrue(VisualDuplicateSessionStore.save(context,b))
+            assertTrue(VisualDuplicateSessionStore.save(context,c))
+            val partial=a.copy(scannedAt=1700000924000L)
+            VisualDuplicateSessionStore.savePartial(context,partial)
+            assertTrue(VisualDuplicateSessionStore.deleteCompleted(context,b.scannedAt))
+            assertEquals(listOf(c.scannedAt,a.scannedAt),
+                VisualDuplicateSessionStore.history(context).map{it.scannedAt})
+            assertFalse(VisualDuplicateSessionStore.save(context,b))
+            assertFalse(VisualDuplicateSessionStore.savePosition(context,b.scannedAt,0,5))
+            assertEquals(partial,VisualDuplicateSessionStore.partial(context))
+            assertTrue(VisualDuplicateSessionStore.deleteCompleted(context,c.scannedAt))
+            assertNull(VisualDuplicateSessionStore.load(context))
+            assertEquals(listOf(a.scannedAt),
+                VisualDuplicateSessionStore.history(context).map{it.scannedAt})
+        }finally{VisualDuplicateSessionStore.clearForPrivacy(context)}
+    }
 }
