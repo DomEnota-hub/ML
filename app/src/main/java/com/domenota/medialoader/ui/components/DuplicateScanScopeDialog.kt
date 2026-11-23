@@ -47,9 +47,12 @@ internal fun DuplicateScanScopeDialog(
         folders.filter { it.key in selected }.sumOf { it.fileCount }
     }
     BackHandler { if (choosing) choosing = false else onDismiss() }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    // Handle system bars inside the edge-to-edge Dialog instead of relying on
+    // platform decor fitting, which can leave the bottom action under navigation.
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(
+        usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().padding(WindowInsets.safeDrawing.asPaddingValues())
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
