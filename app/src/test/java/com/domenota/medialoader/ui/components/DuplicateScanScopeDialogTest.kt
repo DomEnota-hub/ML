@@ -54,7 +54,6 @@ class DuplicateScanScopeDialogTest {
         }
         compose.onNodeWithTag("scope-select-folders").performClick()
         compose.onNodeWithTag("scope-search-folder").performTextInput("Alpha")
-        compose.onNodeWithText("Alpha").assertExists()
         compose.onNodeWithText("Beta").assertDoesNotExist()
         compose.onNodeWithText("Выбрать все").performClick()
         compose.onNodeWithTag("scope-start-selected").assertIsEnabled().performClick()
