@@ -54,6 +54,21 @@ class AudioPairAlignmentTest {
         assertFalse(AudioPairAlignment.confirmsShortDifference(quiet, edited, 2, 2, 4))
     }
 
+    @Test fun nearThresholdWordIsQueuedButNotAutomaticallyCalledDifferent() {
+        val first = recording(100)
+        val second = first.toMutableList()
+        second[36] = ComparisonFrame(FloatArray(128).apply {
+            this[36] = .89f; this[120] = .4559605f
+        }, .5f)
+        val aligned = requireNotNull(AudioPairAlignment.align(first, second, 256))
+        assertTrue("Borderline spectra must not become confirmed zones", aligned.zones.isEmpty())
+        assertTrue("PCM refinement must get the borderline candidate",
+            aligned.shortCandidates.any { region ->
+                aligned.columns[region.start].first == 36 &&
+                    aligned.columns[region.start].second == 36
+            })
+    }
+
     @Test fun oneSecondLongerIntroDoesNotMarkRemainingRecording() {
         val original=recording(80)
         val intro=List(4){i->ComparisonFrame(FloatArray(128).apply{this[100+i]=1f},.4f)}
