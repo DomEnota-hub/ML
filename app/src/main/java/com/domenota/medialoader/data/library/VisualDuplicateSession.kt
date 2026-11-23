@@ -48,19 +48,43 @@ internal data class VisualDuplicateSession(
 internal object VisualDuplicateSessionStore {
     private val lock=DuplicatePrivacyGuard.lock
     fun clearForPrivacy(context:Context){DuplicateReportJournal.clear(context,"gallery");val target=file(context);target.delete();check(!target.baseFile.exists()){"Не удалось очистить отчёт Галереи"}}
+    fun isDeleted(context:Context,at:Long):Boolean =
+        DuplicateReportJournal.isDeleted(context,"gallery",at)
+
+    fun deleteCompleted(context:Context,at:Long):Boolean = synchronized(lock){
+        if(at<=0L || VisualDuplicateBackgroundScan.state.value.running ||
+            VisualDuplicateBackgroundScan.state.value.committing ||
+            isDeleted(context,at))return@synchronized false
+        val target=file(context)
+        val currentAt=runCatching{
+            decode(target.openRead().bufferedReader().use{it.readText()}).scannedAt
+        }.getOrNull()
+        val archive=File(context.noBackupFilesDir,"duplicate-journal-gallery/$at.json")
+        if(currentAt!=at && !archive.exists())return@synchronized false
+        runCatching{
+            DuplicateReportJournal.markDeleted(context,"gallery",at)
+            if(currentAt==at){
+                target.delete()
+                check(!target.baseFile.exists()){"GALLERY_REPORT_DELETE_FAILED"}
+            }
+            DuplicateReportJournal.deleteCompleted(context,"gallery",at)
+            check(isDeleted(context,at)){"GALLERY_REPORT_NOT_TOMBSTONED"}
+        }.isSuccess
+    }
+
     private fun permitted(context:Context,session:VisualDuplicateSession)=session.result.privacyEpoch==DuplicatePrivacyGuard.generation(context)&&session.result.groups.all{g->g.files.all{DuplicatePrivacyGuard.accepts(context,session.result.privacyEpoch,it.id)}}
     private fun file(context:Context)=AtomicFile(File(context.noBackupFilesDir,"visual-duplicates-v1.json"))
     suspend fun load(context:Context):VisualDuplicateSession?=withContext(Dispatchers.IO){
-        synchronized(lock){runCatching{decode(file(context).openRead().bufferedReader().use{it.readText()}).takeIf{permitted(context,it)}}.getOrNull()}
+        synchronized(lock){runCatching{decode(file(context).openRead().bufferedReader().use{it.readText()}).takeIf{permitted(context,it) && !isDeleted(context,it.scannedAt)}}.getOrNull()}
     }
     suspend fun history(context:Context):List<VisualDuplicateSession> = withContext(Dispatchers.IO){synchronized(lock){
         val current=runCatching{decode(file(context).openRead().bufferedReader().use{it.readText()})}.getOrNull()
-        (listOfNotNull(current)+DuplicateReportJournal.history(context,"gallery").mapNotNull{runCatching{decode(it)}.getOrNull()}).filter{permitted(context,it)}.distinctBy{it.scannedAt}.sortedByDescending{it.scannedAt}
+        (listOfNotNull(current)+DuplicateReportJournal.history(context,"gallery").mapNotNull{runCatching{decode(it)}.getOrNull()}).filter{permitted(context,it) && !isDeleted(context,it.scannedAt)}.distinctBy{it.scannedAt}.sortedByDescending{it.scannedAt}
     }}
     fun savePartial(context:Context,session:VisualDuplicateSession){synchronized(lock){if(permitted(context,session))runCatching{DuplicateReportJournal.savePartial(context,"gallery",encode(session))}}}
     suspend fun partial(context:Context):VisualDuplicateSession?=withContext(Dispatchers.IO){synchronized(lock){runCatching{DuplicateReportJournal.partial(context,"gallery")?.let(::decode)?.takeIf{permitted(context,it)}}.getOrNull()}}
     suspend fun save(context:Context,session:VisualDuplicateSession):Boolean=withContext(Dispatchers.IO+NonCancellable){
-        synchronized(lock){if(!permitted(context,session))return@synchronized false;runCatching{
+        synchronized(lock){if(!permitted(context,session) || isDeleted(context,session.scannedAt))return@synchronized false;runCatching{
             val target=file(context)
             val previous=runCatching{decode(target.openRead().bufferedReader().use{it.readText()})}.getOrNull()
             if(previous!=null&&previous.scannedAt!=session.scannedAt&&permitted(context,previous))DuplicateReportJournal.archive(context,"gallery",previous.scannedAt,encode(previous))
@@ -74,7 +98,7 @@ internal object VisualDuplicateSessionStore {
         synchronized(lock){runCatching{
             val target=file(context)
             val previous=decode(target.openRead().bufferedReader().use{it.readText()})
-            if(previous.scannedAt==scannedAt){
+            if(previous.scannedAt==scannedAt && !isDeleted(context,scannedAt)){
                 val stream=target.startWrite()
                 try{stream.write(encode(previous.copy(index=index,offset=offset).normalized()).toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
                 catch(e:Exception){target.failWrite(stream);throw e}
@@ -86,7 +110,7 @@ internal object VisualDuplicateSessionStore {
         synchronized(lock){runCatching{
             val target=file(context)
             val previous=decode(target.openRead().bufferedReader().use{it.readText()})
-            check(previous.scannedAt==scannedAt)
+            check(previous.scannedAt==scannedAt && !isDeleted(context,scannedAt))
             val next=previous.removeConfirmed(uris)
             val stream=target.startWrite()
             try{stream.write(encode(next).toByteArray(Charsets.UTF_8));target.finishWrite(stream)}
