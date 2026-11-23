@@ -40,6 +40,9 @@ class VideoEditorRouteAdmissionPolicyTest {
     @Test fun knownBlockedPrivateOrArchivedMediaExitsImmediately() {
         assertEquals(VideoEditorRouteAdmission.EXIT,
             decision(blocked = true, ready = false, elapsed = 0L))
+        assertEquals("Even a stale visible row must not override privacy",
+            VideoEditorRouteAdmission.EXIT,
+            decision(row = true, blocked = true, ready = false, elapsed = 0L))
     }
 
     @Test fun onlyCurrentlyAuthorizedRowCanOpenPlayer() {
