@@ -16,7 +16,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 import com.domenota.medialoader.data.playback.PublicMediaIdentity
 
-internal data class VisualScanResult(val groups:List<VisualDuplicateGroup>,val skipped:Int,val privacyEpoch:Long=0, val coverage:VisualScanCoverage?=null)
+internal data class VisualScanResult(val groups:List<VisualDuplicateGroup>,val skipped:Int,val privacyEpoch:Long=0, val coverage:VisualScanCoverage?=null, val scopeLabel:String="Все файлы")
 internal object VisualDuplicateScanner {
     private data class Stamp(val bytes:Long,val modified:Long?)
     private fun directory(context:Context)=File(context.noBackupFilesDir,"visual-duplicate-cache-v1")
