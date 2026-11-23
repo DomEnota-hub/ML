@@ -114,6 +114,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     var error by remember { mutableStateOf<String?>(null) }
     var scanRevision by remember { mutableIntStateOf(0) }
     var expandedScan by remember { mutableStateOf(DuplicateBackgroundScan.resumeExpanded(context)) }
+    var selectedScope by remember { mutableStateOf<Set<String>?>(DuplicateBackgroundScan.resumeScope(context)) }
+    var choosingScope by remember { mutableStateOf(false) }
     var replaceScan by remember { mutableStateOf(false) }
     var clearJournalConfirm by remember { mutableStateOf(false) }
     var clearPartialToo by remember { mutableStateOf(false) }
@@ -220,7 +222,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     // The initial route restores a report or offers an explicit mode choice; it never starts implicitly.
                     return@LaunchedEffect
                 }
-                DuplicateBackgroundScan.start(context,latestRows,linkedIds,latestCurrent,expandedScan)
+                val scanRows=DuplicateFolderScope.filter(latestRows,selectedScope){it}
+                if(scanRows.isEmpty()){error="Нет доступных файлов в выбранной области";return@LaunchedEffect}
+                DuplicateBackgroundScan.start(context,scanRows,linkedIds,latestCurrent,expandedScan,selectedScope)
             }
             val finished = DuplicateBackgroundScan.state.first { !it.running }
             val saved = finished.session
@@ -298,11 +302,21 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     val visibleGroups=remember(DuplicateReferenceKey(result),privacyRevision,filter){groups.filter{filter==null||it.kind==filter}}
     val unfinished=DuplicateBackgroundScan.interrupted(context)||partial!=null
     val unfinishedExpanded=DuplicateBackgroundScan.resumeExpanded(context)
-    fun resume(){stopPreview();expandedScan=unfinishedExpanded;scanRevision++}
-    fun startSelected(){
+    fun resume(){
+        stopPreview()
+        expandedScan=unfinishedExpanded
+        selectedScope=DuplicateBackgroundScan.resumeScope(context)
+        scanRevision++
+    }
+    fun beginScope(keys:Set<String>?){
         if(scanning||verifying||clearingJournal)return
-        if(unfinished&&expandedScan!=unfinishedExpanded){replaceScan=true;return}
+        selectedScope=keys
+        if(unfinished&&(expandedScan!=unfinishedExpanded ||
+            keys!=DuplicateBackgroundScan.resumeScope(context))){replaceScan=true;return}
         stopPreview();scanRevision++
+    }
+    fun startSelected(){
+        if(!scanning&&!verifying&&!clearingJournal)choosingScope=true
     }
     fun exactBytes(value:List<DuplicateGroup>)=value.filter{it.kind==DuplicateKind.EXACT}.sumOf{g->g.tracks.sumOf{it.bytes}-(g.tracks.firstOrNull()?.bytes?:0L)}
     val liveRows=remember(rows){rows.associateBy{it.id}}
@@ -378,6 +392,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     val savedBytes = remember(DuplicateReferenceKey(saved)) {
                         saved.result.groups.sumOf { g -> g.tracks.filter { it.id in saved.selected }.sumOf { it.bytes.coerceAtLeast(0L) } }
                     }
+                    Text("Область поиска · ${saved.result.scopeLabel}",
+                        style=MaterialTheme.typography.bodySmall)
                     DuplicateSavedSummaryPanel(DuplicateSavedSummary(saved.scannedAt,saved.result.groups.size,
                         saved.result.groups.sumOf { it.tracks.size },saved.selected.size,savedBytes,
                         saved.result.privacyEpoch),if(clearingJournal)null else {{restorePrevious(saved)}})
@@ -399,6 +415,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     // show the whole search header; only the result list scrolls.
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     val fileCount = remember(DuplicateReferenceKey(result),privacyRevision) { groups.sumOf{it.tracks.size} }
+                    Text("Область поиска · ${result?.scopeLabel ?: partial?.scopeLabel ?: DuplicateFolderScope.label(selectedScope)}",
+                        style=MaterialTheme.typography.bodySmall)
                     Text(if(showingPartial)
                         "Предварительный · ${groups.size} групп · $fileCount файлов"
                         else "Групп: ${groups.size} · файлов: $fileCount",
@@ -549,13 +567,19 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             }
         },confirmButton={TextButton({showTrashReport=false}){Text("Закрыть")}})
     }
-    if(journal)DuplicateJournalDialog("Журнал музыки",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size},mode=musicScanModeName(it.result.expanded))},
-        storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size} ,DuplicateBackgroundScan.journalStatus(context),musicScanModeName(it.result.expanded))},
+    if(journal)DuplicateJournalDialog("Журнал музыки",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size},mode=musicScanModeName(it.result.expanded)+" · "+it.result.scopeLabel)},
+        storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size} ,DuplicateBackgroundScan.journalStatus(context),musicScanModeName(it.result.expanded)+" · "+it.result.scopeLabel)},
         onOpen={at->journal=false;history.firstOrNull{it.scannedAt==at}?.let{if(!scanning&&!clearingJournal){stopPreview();restorePrevious(it)}}},
         onResume={journal=false;if(!scanning&&!clearingJournal)resume()},onDismiss={journal=false},onPartial={journal=false;storedPartial?.let { if(!scanning&&!clearingJournal) restorePrevious(it,fromPartial=true) }},resumeEnabled=!scanning&&!clearingJournal,
         onClear={clearPartialToo=false;clearJournalConfirm=true},clearEnabled=!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal)
+    if(choosingScope)com.domenota.medialoader.ui.components.DuplicateScanScopeDialog(
+        rows=latestRows.filter{it.mediaType==com.domenota.medialoader.core.model.MediaType.AUDIO},
+        mediaLabel="Музыка",
+        onDismiss={choosingScope=false},
+        onStart={keys->choosingScope=false;beginScope(keys)},
+    )
     if(replaceScan)AlertDialog(onDismissRequest={replaceScan=false},title={Text("Заменить незавершённый поиск?")},
-        text={Text("Сохранённый предварительный отчёт будет удалён. Акустические отпечатки сохранятся. Запустить ${musicScanModeName(expandedScan).lowercase()}?")},
+        text={Text("Сохранённый предварительный отчёт будет удалён. Акустические отпечатки сохранятся. ${DuplicateFolderScope.label(selectedScope)} · ${musicScanModeName(expandedScan)}.")},
         dismissButton={TextButton({replaceScan=false}){Text("Отмена")}},confirmButton={TextButton({
             replaceScan=false
             if(!scanning&&!verifying&&!clearingJournal){
