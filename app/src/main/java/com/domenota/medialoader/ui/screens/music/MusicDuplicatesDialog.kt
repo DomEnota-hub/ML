@@ -611,7 +611,17 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }){Text("Очистить",color=MaterialTheme.colorScheme.error)}})
     comparing?.takeIf{g->g.tracks.all{DuplicatePrivacyGuard.accepts(context,it.privacyEpoch,it.id)}}?.let{g->
         DuplicateMusicComparison(g,kept[g.key]?:MusicDuplicatePolicy.recommended(g),previewId,previewPlaying,player,
-            onPlay={t,at->play(t,at)},onKeep={id->
+            onPlay={t,at->play(t,at)},
+            onNavigate={firstId,firstAt,secondId,secondAt->
+                // Only one ExoPlayer exists. Seek the loaded track without toggling
+                // its play state; the other position is held by the comparison zone.
+                val at=when(previewId){firstId->firstAt;secondId->secondAt;else->null}
+                if(at!=null&&player.isCurrentMediaItemSeekable&&player.duration>0L){
+                    val bounded=at.coerceIn(0L,player.duration)
+                    player.seekTo(bounded)
+                    previewPosition=bounded
+                }
+            },onKeep={id->
                 keepVersion(g,id)
             },onClose={stopPreview();comparing=null})
     }
@@ -661,7 +671,9 @@ private fun pairTime(ms:Long):String="%d:%02d.%01d".format(ms/60000,ms/1000%60,m
 @OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewId:String?,playing:Boolean,player:ExoPlayer,
-    onPlay:(DuplicateTrack,Long?)->Unit,onKeep:(String)->Unit,onClose:()->Unit){
+    onPlay:(DuplicateTrack,Long?)->Unit,
+    onNavigate:(String,Long?,String,Long?)->Unit,
+    onKeep:(String)->Unit,onClose:()->Unit){
     val context=LocalContext.current
     var referenceId by remember(group.key){mutableStateOf(group.tracks.firstOrNull{it.id==keeper}?.id?:group.tracks.first().id)}
     var targetId by remember(group.key){mutableStateOf(group.tracks.first{it.id!=referenceId}.id)}
@@ -683,6 +695,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     var technicalDetails by remember(identity){mutableStateOf(false)}
     var position by remember{mutableLongStateOf(0L)}
     val latestOnPlay by rememberUpdatedState(onPlay)
+    val latestOnNavigate by rememberUpdatedState(onNavigate)
     fun allowed(t:DuplicateTrack)=DuplicatePrivacyGuard.accepts(context,t.privacyEpoch,t.id)
     fun choose(t:DuplicateTrack){
         active=t.id
@@ -755,16 +768,26 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
     fun seekFrame(first:Boolean):Long? {
         val selected=zone?:return null
         val aligned=result?:return null
-        val col=aligned.columns.subList(selected.start,selected.endExclusive)
-        val frame=col.firstNotNullOfOrNull{if(first)it.first else it.second}?:return null
-        return frame*aligned.stepMs
+        val times=comparisonZonePositions(aligned.columns,selected.start,selected.endExclusive,aligned.stepMs)
+        return if(first)times.first else times.second
+    }
+    fun selectZone(next:Int){
+        val aligned=result?:return
+        val selected=zones.getOrNull(next)?:return
+        zoneIndex=next
+        val (firstAt,secondAt)=comparisonZonePositions(
+            aligned.columns,selected.start,selected.endExclusive,aligned.stepMs)
+        latestOnNavigate(referenceId,firstAt,targetId,secondAt)
     }
     fun play(t:DuplicateTrack,at:Long?=null){
         if(allowed(t))latestOnPlay(t,at)
     }
     fun tapWave(zoneAt:Int,column:Int,first:Boolean){
         val aligned=result?:return
-        if(zoneAt>=0)zoneIndex=zoneAt
+        if(zoneAt>=0) {
+            selectZone(zoneAt) // Both aligned cursors move; paused audio remains paused.
+            return
+        }
         val frame=comparisonSeekFrame(aligned.columns,column,first)?:return
         val selectedTrack=if(first)reference else target
         active=selectedTrack.id
@@ -870,14 +893,14 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                         Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp),
                                             verticalAlignment=Alignment.CenterVertically){
                                             if(zones.size>1){
-                                                IconButton(onClick={zoneIndex=if(shownZoneIndex<=0)zones.lastIndex else shownZoneIndex-1}){
+                                                IconButton(onClick={selectZone(if(shownZoneIndex<=0)zones.lastIndex else shownZoneIndex-1)}){
                                                     Icon(Icons.Rounded.SkipPrevious,"Предыдущий участок")
                                                 }
                                             }
                                             Text("Участок ${shownZoneIndex.coerceAtLeast(0)+1} из ${zones.size}",
                                                 Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium)
                                             if(zones.size>1){
-                                                IconButton(onClick={zoneIndex=if(shownZoneIndex>=zones.lastIndex)0 else shownZoneIndex+1}){
+                                                IconButton(onClick={selectZone(if(shownZoneIndex>=zones.lastIndex)0 else shownZoneIndex+1)}){
                                                     Icon(Icons.Rounded.SkipNext,"Следующий участок")
                                                 }
                                             }
