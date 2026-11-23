@@ -42,6 +42,11 @@ internal fun MusicScanModeControls(expanded:Boolean,onMode:(Boolean)->Unit,unfin
 internal fun MusicScanStatusCard(outcome:Outcome,partialGroups:Int?,error:String?){
     if(outcome==Outcome.IDLE&&error==null)return
     val state=if(error!=null)Outcome.FAILED else outcome
+    if(state==Outcome.FAILED){
+        com.domenota.medialoader.ui.components.DuplicateIssueNotice(
+            error ?: "Не удалось завершить поиск. Повторите проверку.")
+        return
+    }
     val dark=MaterialTheme.colorScheme.background.luminance()<.5f
     val accent=when(state){
         Outcome.PAUSED->if(dark)Color(0xFF90BFFF) else Color(0xFF245B91)
