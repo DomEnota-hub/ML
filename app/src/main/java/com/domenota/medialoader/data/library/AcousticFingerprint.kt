@@ -256,6 +256,32 @@ internal object AcousticFingerprints {
         val result=HashSet<Pair<String,String>>()
         if(ids.size<2)return result
         val size=ids.size
+        // A 417-track search needs only ~87 KiB for all unordered pair votes.
+        // Processing every posting ONCE avoids repeating every acoustic hash
+        // for each tiled row. Triangular byte storage preserves the existing
+        // threshold and capped-count semantics exactly; for >4096 tracks fall
+        // back to the previous bounded-tile path to control heap usage.
+        if(size<=4096){
+            val votes=ByteArray((size.toLong()*(size-1)/2).toInt())
+            fun at(first:Int,second:Int):Int =
+                (first.toLong()*(2L*size-first-1)/2+(second-first-1)).toInt()
+            for(posting in index.values){
+                checkActive()
+                if(posting.size !in 2..40)continue
+                for(i in 0 until posting.size)for(j in i+1 until posting.size){
+                    val at=at(posting[i],posting[j])
+                    val count=votes[at].toInt()
+                    if(count<90)votes[at]=(count+1).toByte()
+                }
+            }
+            for(first in 0 until size){
+                checkActive()
+                for(second in first+1 until size)
+                    if(votes[at(first,second)].toInt()>=90)
+                        result.add(ids[first] to ids[second])
+            }
+            return result
+        }
         val tileRows=(2_000_000/size).coerceIn(1,256)
         for(start in 0 until size step tileRows){
             checkActive()
