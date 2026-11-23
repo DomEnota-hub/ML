@@ -4,6 +4,7 @@ import com.domenota.medialoader.ui.model.FileNameDisplay
 import com.domenota.medialoader.ui.model.LocalFileNameDisplay
 import com.domenota.medialoader.ui.model.displayFileName
 import android.net.Uri
+import com.domenota.medialoader.ui.components.MusicSyncProgress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -923,7 +924,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                 color=MaterialTheme.colorScheme.onSurfaceVariant)
                             else if(analysis==null){
                                 Text("Синхронизация записей…",style=MaterialTheme.typography.labelMedium)
-                                LinearProgressIndicator(Modifier.fillMaxWidth())
+                                MusicSyncProgress(accent=musicPlaybackAccent)
                             }else if(result==null){
                                 Text("Записи слишком отличаются для точного сравнения",style=MaterialTheme.typography.labelMedium)
                                 // A fallback may show independent waveform envelopes,
