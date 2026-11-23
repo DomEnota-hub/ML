@@ -332,20 +332,10 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         val availableKinds=DuplicateResultFilterPolicy.available(VisualMatch.entries,kindCounts)
         val activeFilter=DuplicateResultFilterPolicy.active(filter,kindCounts)
         if(availableKinds.isNotEmpty()) {
-            Row(Modifier.horizontalScroll(rememberScrollState()).testTag("visual-result-filters"),
-                horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                FilterChip(activeFilter==null,{filter=null},{Text("Все")},
-                    modifier=Modifier.testTag("visual-result-filter-ALL"))
-                availableKinds.forEach { kind ->
-                    FilterChip(activeFilter==kind,{filter=kind},{
-                        Text(when(kind){
-                            VisualMatch.EXACT -> "Точные · ${kindCounts[kind] ?: 0}"
-                            VisualMatch.SIMILAR_PHOTO -> "Похожие фото · ${kindCounts[kind] ?: 0}"
-                            VisualMatch.SIMILAR_VIDEO -> "Видео · ${kindCounts[kind] ?: 0}"
-                        })
-                    },modifier=Modifier.testTag("visual-result-filter-${kind.name}"))
-                }
-            }
+            VisualDuplicateResultFilters(kindCounts,activeFilter,{ next ->
+                filter=next
+                scope.launch { list.scrollToItem(0) }
+            })
         } else {
             Text("Совпадений не найдено",Modifier.padding(vertical=20.dp)
                 .testTag("visual-empty-result"),style=MaterialTheme.typography.bodyMedium,
