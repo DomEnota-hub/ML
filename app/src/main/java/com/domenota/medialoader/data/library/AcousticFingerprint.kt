@@ -26,6 +26,9 @@ internal object AcousticFingerprints {
     private const val LIMIT = 6000
     // Identical FFT coefficients, calculated once rather than for every frame.
     private val window = DoubleArray(N) { 0.5-0.5*cos(2*PI*it/(N-1)) }
+    private val shortWindow = DoubleArray(N) { index ->
+        if (index < N / 2) 0.5 - 0.5 * cos(2 * PI * index / (N / 2 - 1)) else 0.0
+    }
     private val twiddleCos = Array(11) { stage -> val length=2 shl stage; DoubleArray(length/2) { cos(-2*PI/length*it) } }
     private val twiddleSin = Array(11) { stage -> val length=2 shl stage; DoubleArray(length/2) { sin(-2*PI/length*it) } }
     private val bands = arrayOf(8..24,25..56,57..112,113..224,225..480)
@@ -69,8 +72,9 @@ internal object AcousticFingerprints {
         }
         fun finish() = AcousticFingerprint(packedAcousticLandmarks(reservoir.map { it.second }.sortedBy { it.frame }))
     }
-    private fun spectrum(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray) {
-        for(i in 0 until N) re[i]=samples[i]*window[i]
+    private fun spectrum(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray,
+        fftWindow: DoubleArray = window) {
+        for(i in 0 until N) re[i]=samples[i]*fftWindow[i]
         im.fill(0.0)
         var j = 0
         for (i in 1 until N) { var bit = N shr 1; while (j and bit != 0) { j = j xor bit; bit = bit shr 1 }; j = j xor bit
@@ -129,6 +133,43 @@ internal object AcousticFingerprints {
             return frames.toList()
         }
     }
+
+    /** A small, bounded second-pass spectral decoder for isolated 256-ms edits.
+     * It works in 64-ms windows at 8 kHz, using zero-padded 512-sample Hann FFT.
+     * Nothing is persisted; this never changes whole-track landmarks or caches.
+     */
+    class ShortComparisonBuilder(private val checkActive: () -> Unit) {
+        private val samples = FloatArray(N)
+        private val re = DoubleArray(N)
+        private val im = DoubleArray(N)
+        private val power = DoubleArray(N / 2)
+        private val bands = DoubleArray(64)
+        private val frames = ArrayList<ComparisonFrame>()
+        private var filled = 0
+        private var energy = 0.0
+
+        fun accept(value: Float) {
+            samples[filled++] = value
+            energy += value.toDouble() * value
+            if (filled == N / 2) emit()
+        }
+        private fun emit() {
+            checkActive()
+            for (i in filled until N) samples[i] = 0f
+            spectrum(samples, re, im, power, shortWindow)
+            bands.fill(0.0)
+            for (i in 1 until power.size) bands[i / 8] += power[i]
+            frames.add(ComparisonFrame(AudioPairAlignment.normalizedSpectrum(bands),
+                sqrt(energy / filled).toFloat()))
+            filled = 0
+            energy = 0.0
+        }
+        fun finish(): List<ComparisonFrame> {
+            if (filled >= N / 4) emit()
+            return frames.toList()
+        }
+    }
+
     private fun peaks(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray): IntArray {
         spectrum(samples,re,im,power)
         if (power.maxOrNull()!! < 1e-9) return intArrayOf()
