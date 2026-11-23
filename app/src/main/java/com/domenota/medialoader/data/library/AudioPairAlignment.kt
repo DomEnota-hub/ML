@@ -217,7 +217,23 @@ internal object AudioPairAlignment {
                 start = -1
             }
         }
-        return AlignedAudioComparison(stepMs, first, second, columns, zones, evaluated, shortCandidates)
+        // Coarse PCM on device can put a masked syllable just ABOVE .85.
+        // Admit only isolated borderline matches for the guarded 64-ms + PCM
+        // second opinion. They are not zones until independently confirmed.
+        if (stepMs == BASE_STEP_MS) {
+            for (index in 1 until columns.lastIndex) {
+                val current = columns[index]
+                if (current.different || columns[index - 1].different ||
+                    columns[index + 1].different) continue
+                val a = current.first ?: continue
+                val b = current.second ?: continue
+                val score = similarity(first[a], second[b])
+                if (score >= MATCH_THRESHOLD && score < .91f)
+                    shortCandidates.add(ComparisonZone(index, index + 1))
+            }
+        }
+        return AlignedAudioComparison(stepMs, first, second, columns, zones, evaluated,
+            shortCandidates.distinct().sortedBy { it.start })
     }
 
 
