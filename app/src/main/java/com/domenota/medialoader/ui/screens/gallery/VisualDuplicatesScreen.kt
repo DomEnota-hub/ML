@@ -195,7 +195,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         if(!status.running && (!reportReady||!loaded) && !stopped) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(!status.running && !phonePermission) Text("Нет доступа к фото и видео телефона",color=MaterialTheme.colorScheme.error)
         else if(!status.running && !ready && !stopped) Row(verticalAlignment=Alignment.CenterVertically){
-            Text("Подготовка полного каталога Галереи…",style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f))
+            // Keep a lightweight status while the latest MediaStore generation is checked.
+            Text("Каталог обновляется",style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f))
             TextButton(onRefresh){Text("Обновить")}
         }
         else if(!status.running) Text("Область поиска: ${if(catalog.source==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"} · ${catalog.scan.size}",style=MaterialTheme.typography.bodySmall)
