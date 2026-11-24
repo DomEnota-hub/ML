@@ -154,7 +154,10 @@ class DuplicateScanScopeDialogTest {
         compose.onNodeWithTag("scope-select-folders").performClick()
         compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
         compose.onNodeWithTag("scope-start-selected").assertIsDisplayed().assertIsEnabled()
-        compose.onNodeWithTag("scope-row-details-volume:external_primary|Music")
+        // Clickable parent merges semantics: the details Text remains in the
+        // unmerged tree even though its text is visible and accessible.
+        compose.onNodeWithTag("scope-row-details-volume:external_primary|Music",
+            useUnmergedTree = true)
             .assertExists().assertTextContains("1 файл", substring = true)
     }
 
