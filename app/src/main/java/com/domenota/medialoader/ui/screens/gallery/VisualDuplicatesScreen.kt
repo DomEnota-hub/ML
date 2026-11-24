@@ -341,7 +341,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 else->{
                     Text(visualResultGroupCount(partialGroups.size),style=MaterialTheme.typography.titleMedium)
                     LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                        items(partialGroups,key={it.files.first().id}){group->
+                        items(partialGroups,key={"${status.token}:${it.files.first().id}"}){group->
                             Card(Modifier.fillMaxWidth()){
                                 Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                                     var expanded by rememberSaveable(privacyEpoch){mutableStateOf(true)}

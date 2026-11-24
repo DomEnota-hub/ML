@@ -63,4 +63,31 @@ class MusicDuplicateResultFiltersTest {
         compose.onNodeWithText("Акустика: 4").assertExists()
         compose.onNodeWithText("Версии: 1").assertExists()
     }
+
+    @Test fun fourCategoriesRemainEqualAndLargeTextKeepsLastChipCentered() {
+        val fontScale=androidx.compose.runtime.mutableStateOf(1f)
+        compose.setContent {
+            val density=androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density,fontScale.value)
+            ) {
+                MaterialTheme {
+                    MusicDuplicateResultFilters(DuplicateKind.entries.associateWith{1},null,{})
+                }
+            }
+        }
+        fun bounds(tag:String)=compose.onNodeWithTag("duplicate-result-filter-$tag").fetchSemanticsNode().boundsInRoot
+        val all=bounds("ALL")
+        val exact=bounds("EXACT")
+        val acoustic=bounds("ACOUSTIC")
+        val version=bounds("POSSIBLE")
+        assertEquals(all.width,exact.width,1f)
+        assertEquals(all.width,acoustic.width,1f)
+        assertEquals(all.width,version.width,1f)
+        assertEquals(all.top,exact.top,1f)
+        assertEquals(acoustic.top,version.top,1f)
+        compose.runOnIdle{fontScale.value=1.5f}
+        assertEquals(bounds("ALL").width,bounds("POSSIBLE").width,1f)
+        compose.onNodeWithText("Версии: 1").assertExists()
+    }
 }

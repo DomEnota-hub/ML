@@ -7703,6 +7703,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.DuplicateRecordCardTest#keeperAndOtherCardHaveEqualBoundsAndIndependentSelectionInBothThemes": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.DuplicateResultFilterPolicyTest#countsIncludeOnlyPresentKinds": {
     "skipped": false,
     "failed": false
@@ -9708,6 +9712,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.music.MusicDuplicateResultFiltersTest#beforeScanNothingRendered": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.MusicDuplicateResultFiltersTest#fourCategoriesRemainEqualAndLargeTextKeepsLastChipCentered": {
     "skipped": false,
     "failed": false
   },
