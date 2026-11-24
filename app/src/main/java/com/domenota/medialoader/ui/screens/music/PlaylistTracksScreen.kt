@@ -122,6 +122,6 @@ internal fun PlaylistTracksScreen(
                     catch (e: Exception) { error = e.message ?: "Не удалось добавить треки" }
                     finally { busy = false }
                 }
-            }) { Text("Добавить · ${pending.addedKeys.size}", fontSize = 13.sp) }
+            }) { Text("Добавить: ${pending.addedKeys.size}", fontSize = 13.sp) }
     }
 }

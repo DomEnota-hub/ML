@@ -100,7 +100,7 @@ internal fun ResumeMusicScreen(sessions:List<ResolvedResumeQueue>,rows:Map<Strin
                 Column(Modifier.padding(15.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     Text(title,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
                     Text(if(track!=null) displayAudioTitle(track) else "Трек недоступен",style=MaterialTheme.typography.bodyLarge)
-                    Text("Трек ${saved.index+1} из ${saved.entries.size} · остановился на ${position(saved.positionMs)}",
+                    Text("Трек ${saved.index+1} из ${saved.entries.size}, остановился на ${position(saved.positionMs)}",
                         style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     if(saved.durationMs>0)LinearProgressIndicator(progress={ (saved.positionMs.toDouble()/saved.durationMs).coerceIn(0.0,1.0).toFloat() },modifier=Modifier.fillMaxWidth())
                     Text(date,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

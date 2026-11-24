@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
@@ -343,8 +344,14 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                         items(partialGroups,key={it.files.first().id}){group->
                             Card(Modifier.fillMaxWidth()){
                                 Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
-                                    Text("Точные копии, ${group.files.size} файлов")
-                                    group.files.forEach{f->
+                                    var expanded by rememberSaveable(privacyEpoch){mutableStateOf(true)}
+                                    Row(Modifier.fillMaxWidth().heightIn(min=48.dp)
+                                        .clickable{expanded=!expanded},
+                                        verticalAlignment=Alignment.CenterVertically){
+                                        Text("Точные копии: ${group.files.size} файлов",Modifier.weight(1f))
+                                        Icon(if(expanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(expanded)"Свернуть" else "Развернуть")
+                                    }
+                                    if(expanded) group.files.forEach{f->
                                         val row=byId[f.id]?.item
                                         if(row!=null)Row(Modifier.fillMaxWidth().clickable{preview=group to f.id},
                                             verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -536,11 +543,17 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         if(exact.isNotEmpty()||shown.selected.isNotEmpty())OutlinedButton({if(actionsReady)current?.let{persist(it.copy(selected=if(shown.selected==exact)emptySet() else exact))}},enabled=actionsReady&&!saving&&!status.running&&trash==null){Text(if(shown.selected==exact)"Снять выделение" else "Выделить точные")}
         LazyColumn(state=list,modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){
-            items(visibleGroups,key={it.files.first().id}){group->
+            items(visibleGroups,key={"${shown.scannedAt}:${it.files.first().id}"}){group->
                 Card {
                     Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
-                        Text(when(group.reason){VisualMatch.EXACT->"Точные копии";VisualMatch.SIMILAR_PHOTO->"Похожие фотографии";VisualMatch.SIMILAR_VIDEO->"Похожие видео"},style=MaterialTheme.typography.titleMedium)
-                        group.files.forEach{file->
+                        var expanded by rememberSaveable(privacyEpoch){mutableStateOf(true)}
+                        Row(Modifier.fillMaxWidth().heightIn(min=48.dp)
+                            .testTag("visual-duplicate-group-${group.files.first().id}").clickable{expanded=!expanded},
+                            verticalAlignment=Alignment.CenterVertically){
+                            Text(when(group.reason){VisualMatch.EXACT->"Точные копии";VisualMatch.SIMILAR_PHOTO->"Похожие фотографии";VisualMatch.SIMILAR_VIDEO->"Похожие видео"},Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
+                            Icon(if(expanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(expanded)"Свернуть" else "Развернуть")
+                        }
+                        if(expanded) group.files.forEach{file->
                             // Thumbnail visibility is not tied to the temporary action
                             // gate. Retain a public, same-epoch result while MediaStore
                             // recalculates; still disable selection and deletion until
