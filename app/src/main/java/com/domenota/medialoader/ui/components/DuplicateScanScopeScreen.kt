@@ -14,6 +14,11 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.SelectAll
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +33,9 @@ import com.domenota.medialoader.data.library.DuplicateFolderPathResolver
 import com.domenota.medialoader.data.library.DuplicateFolderScope
 import com.domenota.medialoader.data.library.DuplicateFolderSort
 import com.domenota.medialoader.data.library.DuplicateFolderTree
+import com.domenota.medialoader.data.library.DuplicateFileSearch
+import com.domenota.medialoader.data.library.DuplicateFileSearchHit
+import com.domenota.medialoader.core.model.MediaType
 
 /** Same full-screen folder chooser for Gallery and Music.
  * Never expands scope from an ambiguous MediaStore bucket or display name.
@@ -43,6 +51,9 @@ internal fun DuplicateScanScopeScreen(
     val folders = remember(rows) { DuplicateFolderScope.options(rows) }
     var choosing by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
+    var fileFilter by remember { mutableStateOf("") }
+    var searchFiles by remember { mutableStateOf(false) }
+    var focusedKey by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     var sortMode by remember { mutableStateOf(DuplicateFolderSort.FILE_COUNT) }
@@ -65,19 +76,39 @@ internal fun DuplicateScanScopeScreen(
     val tree = remember(options, sortMode, descending) {
         DuplicateFolderTree.sort(DuplicateFolderTree.build(options), sortMode, descending)
     }
-    val visible = remember(tree, expanded, filter) {
-        DuplicateFolderTree.visible(tree, expanded, filter)
+    val focusPath = remember(tree,focusedKey) {
+        focusedKey?.let { DuplicateFileSearch.pathToKey(tree,it) }.orEmpty()
     }
-    val matchingKeys = remember(tree, filter) {
-        DuplicateFolderTree.matchingKeys(tree, filter)
+    val visible = remember(tree, expanded, filter, focusedKey, focusPath) {
+        if(focusedKey!=null)focusPath else DuplicateFolderTree.visible(tree, expanded, filter)
     }
+    val matchingKeys = remember(tree, filter, focusedKey, focusPath) {
+        focusedKey?.let { if(focusPath.isEmpty())emptySet() else setOf(it) }
+            ?: DuplicateFolderTree.matchingKeys(tree, filter)
+    }
+    val matchedFolderCount=remember(options,matchingKeys){
+        DuplicateFolderScope.selectionSummary(options,matchingKeys).folderCount
+    }
+    // File-name matching and sorting can touch the whole media catalogue.
+    // Only publish results for the exact current query and inputs; never keep
+    // stale rows when permissions/catalogue change.
+    val fileProjection=backgroundLibraryProjection(
+        emptyList<DuplicateFileSearchHit>(),emptySet<String>(),rows,options,fileFilter,
+        enabled=choosing&&searchFiles&&fileFilter.isNotBlank()){
+        DuplicateFileSearch.matches(rows,options,fileFilter)
+    }
+    val fileHits=if(fileProjection.ready)fileProjection.value else emptyList()
     val selection = remember(selected, options) {
         DuplicateFolderScope.selectionSummary(options, selected)
     }
     val folderCount = remember(options) {
         DuplicateFolderScope.selectionSummary(options, options.mapTo(mutableSetOf()) { it.key }).folderCount
     }
-    BackHandler { if (choosing) choosing = false else onDismiss() }
+    fun back(){
+        if(choosing&&focusedKey!=null){focusedKey=null;searchFiles=true}
+        else if(choosing)choosing=false else onDismiss()
+    }
+    BackHandler { back() }
     val countLabel = "${selection.folderCount} ${DuplicateFolderScope.folderWord(selection.folderCount)}"
     val sizeLabel = selection.sizeBytes?.let {
         android.text.format.Formatter.formatShortFileSize(context, it)
@@ -128,7 +159,7 @@ internal fun DuplicateScanScopeScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton({ if (choosing) choosing = false else onDismiss() }) {
+                    IconButton(::back) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад")
                     }
                     Text(if (choosing) "Выбор папок" else "Поиск дубликатов",
@@ -163,14 +194,81 @@ internal fun DuplicateScanScopeScreen(
                     }
                     Spacer(Modifier.weight(1f))
                 } else {
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                        FilterChip(!searchFiles,{searchFiles=false},
+                            label={Text("Папки")},modifier=Modifier.weight(1f).testTag("scope-search-mode-folders"))
+                        FilterChip(searchFiles,{searchFiles=true;focusedKey=null},
+                            label={Text("Файлы")},modifier=Modifier.weight(1f).testTag("scope-search-mode-files"))
+                    }
+                    val query=if(searchFiles)fileFilter else filter
                     OutlinedTextField(
-                        value = filter, onValueChange = { filter = it },
-                        label = { Text("Название или путь папки") },
-                        modifier = Modifier.fillMaxWidth().testTag("scope-search-folder"),
+                        value = query, onValueChange = {
+                            if(searchFiles)fileFilter=it else{filter=it;focusedKey=null}
+                        },
+                        label = { Text(if(searchFiles)"Имя файла или трека" else "Название или путь папки") },
+                        leadingIcon={Icon(Icons.Rounded.Search,null)},
+                        trailingIcon={if(query.isNotEmpty())IconButton({
+                            if(searchFiles)fileFilter="" else {filter="";focusedKey=null}
+                        }){Icon(Icons.Rounded.Close,"Очистить поиск")}},
+                        modifier = Modifier.fillMaxWidth().testTag(if(searchFiles)"scope-search-file" else "scope-search-folder"),
                         singleLine = true,
                     )
+                    if(searchFiles){
+                        when{
+                            fileFilter.isBlank()->Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center){
+                                Text("Введите название файла",style=MaterialTheme.typography.bodyMedium)
+                            }
+                            !fileProjection.ready->Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center){
+                                Text("Ищу совпадения…",style=MaterialTheme.typography.bodyMedium)
+                            }
+                            else->{
+                                Text("Найдено: ${fileHits.size} ${DuplicateFolderScope.fileWord(fileHits.size)}",
+                                    modifier=Modifier.testTag("scope-file-count"),style=MaterialTheme.typography.bodySmall)
+                                if(fileHits.isEmpty())ScopeSearchEmpty("Попробуйте другое имя файла",Modifier.weight(1f))
+                                else LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("scope-file-list"),
+                                    verticalArrangement=Arrangement.spacedBy(6.dp)){
+                                    items(fileHits,key={requireNotNull(it.row.savedUri)}){hit->
+                                        Card(Modifier.fillMaxWidth()){
+                                            Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+                                                Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                                                    Icon(when(hit.row.mediaType){
+                                                        MediaType.AUDIO->Icons.Rounded.MusicNote
+                                                        MediaType.VIDEO->Icons.Rounded.Videocam
+                                                        else->Icons.Rounded.Image
+                                                    },null,tint=MaterialTheme.colorScheme.primary)
+                                                    Text(hit.row.originalName,Modifier.weight(1f),maxLines=2,overflow=TextOverflow.Ellipsis)
+                                                }
+                                                if(hit.row.mediaType==MediaType.AUDIO){
+                                                    val title=hit.row.recognizedTitle?:hit.row.sourceAudioTitle
+                                                    title?.takeIf{it.isNotBlank()&&it!=hit.row.originalName}?.let{
+                                                        Text(it,maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodySmall)
+                                                    }
+                                                }
+                                                Text("Папка: ${hit.folder.name}",style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                                Text(if(hit.folder.directoryId!=null)"Расположение папки: ${hit.folder.location}" else "Расположение не определено",
+                                                    style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                                TextButton({
+                                                    // Navigation alone never touches selected keys.
+                                                    focusedKey=hit.folder.key;filter="";searchFiles=false
+                                                },modifier=Modifier.fillMaxWidth().testTag("scope-file-folder-${hit.row.id}")){
+                                                    Text("Перейти к папке")
+                                                    Spacer(Modifier.width(4.dp));Icon(Icons.Rounded.ChevronRight,null,Modifier.size(18.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }else{
+                    if(focusedKey!=null){
+                        Text(if(focusPath.isEmpty())"Папка больше недоступна" else "Отметьте папку, чтобы включить все её доступные файлы в поиск.",
+                            modifier=Modifier.testTag("scope-focused-folder"),style=MaterialTheme.typography.bodySmall)
+                        TextButton({focusedKey=null;filter=""}){Text("Все папки")}
+                    }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Папки: $folderCount", modifier = Modifier.weight(1f),
+                        Text(if(filter.isBlank()&&focusedKey==null)"Папки: $folderCount" else "Найдено: $matchedFolderCount из $folderCount папок",
+                            modifier = Modifier.weight(1f).testTag("scope-folder-count"),
                             style = MaterialTheme.typography.bodySmall)
                         TextButton({
                             selected = if (matchingKeys.isNotEmpty() && matchingKeys.all { it in selected })
@@ -201,23 +299,25 @@ internal fun DuplicateScanScopeScreen(
                     if (resolvingPaths) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("scope-folder-list"),
+                    if(visible.isEmpty())ScopeSearchEmpty("Попробуйте другое название или поиск по файлам",Modifier.weight(1f))
+                    else LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("scope-folder-list"),
                         verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(visible, key = { it.node.id }) { row ->
                             val folder = row.node
-                            val selectedChildren = folder.allKeys.count { it in selected }
+                            val selectable=DuplicateFileSearch.selectableKeys(folder,matchingKeys)
+                            val selectedChildren = selectable.count { it in selected }
                             val state = when {
                                 selectedChildren == 0 -> ToggleableState.Off
-                                selectedChildren == folder.allKeys.size -> ToggleableState.On
+                                selectedChildren == selectable.size -> ToggleableState.On
                                 else -> ToggleableState.Indeterminate
                             }
                             val toggleSelection: () -> Unit = {
-                                selected = if (state == ToggleableState.On) selected - folder.allKeys
-                                    else selected + folder.allKeys
+                                selected = if (state == ToggleableState.On) selected - selectable
+                                    else selected + selectable
                             }
                             Row(Modifier.fillMaxWidth().padding(start = (row.depth.coerceAtMost(5) * 12).dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                if (folder.children.isNotEmpty()) {
+                                if (folder.children.isNotEmpty()&&focusedKey==null) {
                                     IconButton({ expanded = if (folder.id in expanded) expanded - folder.id
                                         else expanded + folder.id }, Modifier.size(40.dp)) {
                                         Icon(if (folder.id in expanded || filter.isNotBlank())
@@ -228,7 +328,7 @@ internal fun DuplicateScanScopeScreen(
                                 Icon(Icons.Rounded.Folder, null, Modifier.size(20.dp)
                                     .padding(end = 3.dp),tint=MaterialTheme.colorScheme.primary)
                                 Column(Modifier.weight(1f).clickable {
-                                    if (folder.children.isNotEmpty()) expanded =
+                                    if (folder.children.isNotEmpty()&&focusedKey==null) expanded =
                                         if (folder.id in expanded) expanded - folder.id else expanded + folder.id
                                     else toggleSelection()
                                 }.padding(vertical = 8.dp)) {
@@ -241,25 +341,41 @@ internal fun DuplicateScanScopeScreen(
                                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    val sizeText = folder.sizeBytes?.let {
+                                    val scopedSummary=remember(options,selectable){DuplicateFolderScope.selectionSummary(options,selectable)}
+                                    val filtered=filter.isNotBlank()||focusedKey!=null
+                                    val bytes=if(filtered)scopedSummary.sizeBytes else folder.sizeBytes
+                                    val count=if(filtered)scopedSummary.fileCount else folder.fileCount
+                                    val sizeText = bytes?.let {
                                         android.text.format.Formatter.formatShortFileSize(context, it)
                                     } ?: "размер неизвестен"
-                                    val details = "${folder.fileCount} ${DuplicateFolderScope.fileWord(folder.fileCount)}" +
-                                        (if (folder.children.isNotEmpty()) ", вложенных папок: ${folder.folderCount}" else "") +
+                                    val details = "$count ${DuplicateFolderScope.fileWord(count)}" +
+                                        (if (folder.children.isNotEmpty()&&!filtered) ", вложенных папок: ${folder.folderCount}" else "") +
                                         ", $sizeText"
                                     Text(details, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.testTag("scope-row-details-${folder.id}"),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                TriStateCheckbox(state = state, onClick = toggleSelection,
+                                TriStateCheckbox(state = state, onClick = toggleSelection,enabled=selectable.isNotEmpty(),
                                     modifier = Modifier.testTag("scope-node-${folder.id}"))
                             }
                             HorizontalDivider()
                         }
                     }
+                    }
                 }
                 }
             }
+    }
+}
+
+@Composable
+private fun ScopeSearchEmpty(hint:String,modifier:Modifier=Modifier){
+    Column(modifier.fillMaxWidth().testTag("scope-search-empty"),verticalArrangement=Arrangement.Center,
+        horizontalAlignment=Alignment.CenterHorizontally){
+        Icon(Icons.Rounded.Search,null,Modifier.size(36.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Ничего не найдено",style=MaterialTheme.typography.titleMedium)
+        Text(hint,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign=androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
