@@ -14,12 +14,24 @@ internal data class SimpleArchiveRecord(
     val source: ArchiveEntrySource,
     val fileSizeBytes: Long?,
     val archivedAtMillis: Long,
+    val group: SimpleArchiveGroup? = null,
 ) {
     init {
         require(catalogId.isNotBlank() && savedUri.isNotBlank() && displayName.isNotBlank())
         require(fileSizeBytes == null || fileSizeBytes >= 0)
         require(archivedAtMillis >= 0)
     }
+}
+
+/** Presentation metadata only; never used as file identity or a physical path. */
+internal enum class SimpleArchiveGroupKind { VIRTUAL_FOLDER, PUBLICATION }
+
+internal data class SimpleArchiveGroup(
+    val kind: SimpleArchiveGroupKind,
+    val key: String,
+    val name: String,
+) {
+    init { require(key.isNotBlank() && name.isNotBlank()) }
 }
 
 internal enum class ArchiveEntrySource { DOWNLOADER, GALLERY, MUSIC }
@@ -57,6 +69,10 @@ internal object SimpleArchivePolicy {
                 (it.savedUri != item.savedUri || it.mediaType != item.mediaType ||
                 (it.fileSizeBytes != null && item.fileSizeBytes != null && it.fileSizeBytes != item.fileSizeBytes)) }) {
                 "Идентификатор файла изменился. Требуется обновить Архив"
+            }
+            check(result.none { it.savedUri == item.savedUri && !matches(it, SimpleArchiveCandidate(
+                item.catalogId, item.savedUri, item.mediaType, item.fileSizeBytes)) }) {
+                "Адрес файла изменился. Требуется обновить Архив"
             }
             if (result.none { matches(it, SimpleArchiveCandidate(
                     item.catalogId, item.savedUri, item.mediaType, item.fileSizeBytes)) }) {
