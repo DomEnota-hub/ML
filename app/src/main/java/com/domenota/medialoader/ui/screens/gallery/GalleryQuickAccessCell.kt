@@ -48,6 +48,7 @@ internal fun GalleryQuickAccessCell(
     systemVisibility: Boolean = false,
     visibilityPending: Boolean = false,
     visibilityEnabled: Boolean = true,
+    logicalArchive: Boolean = false,
 ) {
     var menu by remember(shortcut.key) { mutableStateOf(false) }
     val isDark = MaterialTheme.colorScheme.background.luminance() < .5f
@@ -105,12 +106,12 @@ internal fun GalleryQuickAccessCell(
                             )
                             if (onToggleMedia != null) {
                                 DropdownMenuItem(
-                                    text = { Text(if (visibilityPending) "Продолжить перенос"
+                                    text = { Text(if (logicalArchive) "В архив" else if (visibilityPending) "Продолжить перенос"
                                         else if (systemVisibility) { if (mediaExcluded) "Показывать в медиатеке" else "Скрыть из медиатеки" }
                                         else if (mediaExcluded) "Показывать файлы в «Медиа»" else "Скрыть файлы из «Медиа»") },
                                     enabled = visibilityEnabled,
                                     onClick = { menu = false; onToggleMedia() },
-                                    leadingIcon = { Icon(Icons.Rounded.RemoveRedEye, null) },
+                                    leadingIcon = { if (logicalArchive) com.domenota.medialoader.ui.components.ArchiveActionIcon(null) else Icon(Icons.Rounded.RemoveRedEye, null) },
                                 )
                             }
                             if (onDelete != null) {
