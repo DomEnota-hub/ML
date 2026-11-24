@@ -157,9 +157,13 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         if(scanned.isEmpty()) { error="В выбранных папках нет доступных файлов";return }
         openedHistoryAt=null
         error=null
-        VisualDuplicateBackgroundScan.start(context,scanned,currentCatalog.source,latestEpoch,keys)
+        if(!VisualDuplicateBackgroundScan.start(context,scanned,currentCatalog.source,latestEpoch,keys))
+            error="Не удалось запустить поиск. Проверьте состояние журнала и повторите."
     }
     fun requestNewScan(keys:Set<String>?){
+        if(DuplicateFolderScope.filter(latestCatalog.scan,keys){it.item}.isEmpty()){
+            error="В выбранных папках нет доступных файлов";return
+        }
         if(VisualDuplicateBackgroundScan.interrupted(context)){
             replacement=VisualReplacementRequest(keys?.toSet(),latestCatalog.source,latestEpoch,VisualDuplicateBackgroundScan.state.value.token)
         }else startScan(keys)
@@ -271,7 +275,10 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             confirmButton={TextButton({
                 replacement=null
                 if(!saving&&trash==null&&startBlocker==null&&latestCatalog.source==request.source&&
-                    latestEpoch==request.epoch&&liveGeneration()){
+                    latestEpoch==request.epoch&&DuplicatePrivacyGuard.generation(context)==request.epoch&&liveGeneration()&&
+                    latestPermission&&(request.source!=LibrarySource.PHONE||
+                        com.domenota.medialoader.ui.hasPhoneLibraryAccess(context,AppMode.GALLERY))&&
+                    DuplicateFolderScope.filter(latestCatalog.scan,request.keys){it.item}.isNotEmpty()){
                     saving=true
                     scope.launch{
                         try{
@@ -303,6 +310,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }
         }){Text("Очистить",color=MaterialTheme.colorScheme.error)}})
     if(showPartial){
+        androidx.activity.compose.BackHandler{preview=null;showPartial=false}
         Column(Modifier.fillMaxSize().padding(12.dp).testTag("visual-partial-results"),
             verticalArrangement=Arrangement.spacedBy(8.dp)){
             Row(verticalAlignment=Alignment.CenterVertically){
@@ -556,13 +564,14 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             Text("В корзину: ${shown.selected.size} файл(ов), ${android.text.format.Formatter.formatFileSize(context,selectedBytes)}")
         }
     }
-    if(journal)DuplicateJournalDialog("Журнал Галереи",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size})},
-        storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size} ,VisualDuplicateBackgroundScan.journalStatus(context))},
+    if(journal)DuplicateJournalDialog("Журнал Галереи",history.filter{it.result.privacyEpoch==privacyEpoch}.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size})},
+        storedPartial?.takeIf{(status.running||interrupted)&&it.result.privacyEpoch==privacyEpoch}
+            ?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.files.size},VisualDuplicateBackgroundScan.journalStatus(context),it.result.scopeLabel)},
         onOpen={at->journal=false;if(!status.running&&displayReady)history.firstOrNull{it.scannedAt==at}?.let{saved->scope.launch{val checked=withContext(Dispatchers.Default){saved.reconcileById(byId)};if(DuplicatePrivacyGuard.generation(context)==privacyEpoch){openedHistoryAt=at;persist(checked);restored=false}}}},
         onResume={journal=false;if(!status.running)startScan(VisualDuplicateBackgroundScan.resumeScope(context),resume=true)},onDismiss={journal=false},
         onPartial={journal=false;openPartial()},partialResultsEnabled=partialCanShow,
         resumeEnabled=startBlocker==null&&interrupted&&sameScope,
-        onClear={clearJournalConfirm=true},clearEnabled=history.isNotEmpty()&&!status.running&&!status.committing&&!saving&&trash==null,
+        onClear={journal=false;clearJournalConfirm=true},clearEnabled=history.isNotEmpty()&&!status.running&&!status.committing&&!saving&&trash==null,
         onDelete={at->
             if(!status.running&&!status.committing&&!saving&&trash==null){
                 saving=true
