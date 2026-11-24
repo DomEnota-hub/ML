@@ -18,13 +18,26 @@ internal fun drawerAvailableEntries(journalUnlocked:Boolean):Set<DrawerEntry> =
     DrawerEntry.entries.filterTo(linkedSetOf()){it!=DrawerEntry.JOURNAL||journalUnlocked}
 
 internal fun drawerRouteAllowed(route:String?,mode:AppMode):Boolean =
-    route=="downloads" || (route=="home" && mode in setOf(AppMode.DOWNLOADER,AppMode.GALLERY,AppMode.MUSIC))
+    when(route){
+        "home","downloads","simple-archive",FAVORITES_ROUTE,"private","collections","music-duplicates"->true
+        "settings"->mode==AppMode.MUSIC
+        else->false
+    }
+
+internal fun drawerPrivateContextAllowed(route:String?,privateNavigation:Boolean,unlocked:Boolean):Boolean =
+    if(route=="private") privateNavigation&&unlocked else !privateNavigation
 
 internal fun drawerAllowed(route:String?,mode:AppMode,screenAdmitted:Boolean,blocked:Boolean):Boolean =
     drawerRouteAllowed(route,mode)&&screenAdmitted&&!blocked
 
 internal fun drawerActiveEntry(route:String?,mode:AppMode):DrawerEntry? = when(route){
     "downloads"->DrawerEntry.DOWNLOADS
+    "simple-archive"->DrawerEntry.ARCHIVE
+    FAVORITES_ROUTE->DrawerEntry.FAVORITES
+    "private"->DrawerEntry.PRIVATE
+    "collections"->DrawerEntry.COLLECTIONS
+    "music-duplicates"->DrawerEntry.MUSIC
+    "settings"->DrawerEntry.SETTINGS
     "home"->when(mode){
         AppMode.DOWNLOADER->DrawerEntry.HOME
         AppMode.GALLERY->DrawerEntry.GALLERY

@@ -52,17 +52,29 @@ import kotlin.math.roundToInt
 internal class DrawerAdmission {
     private var screenReady by mutableStateOf(false)
     private val overlays=mutableStateMapOf<Any,Unit>()
-    val admitted:Boolean get()=screenReady&&overlays.isEmpty()
+    private var navigating by mutableStateOf(false)
+    private var exitGuard:(suspend ()->Boolean)?=null
+    val admitted:Boolean get()=screenReady&&overlays.isEmpty()&&!navigating
+    fun setExitGuard(guard:(suspend ()->Boolean)?){exitGuard=guard}
+    suspend fun prepareNavigation():Boolean{
+        if(!admitted)return false
+        navigating=true
+        return try{exitGuard?.invoke()?:true}finally{navigating=false}
+    }
     fun update(allowed:Boolean){screenReady=allowed}
     fun block(owner:Any){overlays[owner]=Unit}
     fun unblock(owner:Any){overlays.remove(owner)}
 }
 internal val LocalDrawerAdmission=staticCompositionLocalOf<DrawerAdmission?>{null}
 @Composable
-internal fun ReportDrawerScreen(allowed:Boolean){
+internal fun ReportDrawerScreen(allowed:Boolean,beforeNavigation:(suspend ()->Boolean)?=null){
     val admission=LocalDrawerAdmission.current ?: return
+    val latestGuard by rememberUpdatedState(beforeNavigation)
     SideEffect { admission.update(allowed) }
-    DisposableEffect(admission){onDispose{admission.update(false)}}
+    DisposableEffect(admission){
+        admission.setExitGuard { latestGuard?.invoke()?:true }
+        onDispose{admission.update(false);admission.setExitGuard(null)}
+    }
 }
 
 /** Child menus/dialogs can veto the active screen even before window focus
