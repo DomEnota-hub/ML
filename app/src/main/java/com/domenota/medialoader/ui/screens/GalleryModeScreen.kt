@@ -96,9 +96,9 @@ internal fun GalleryModeScreen(
     onArchivePreview:((String)->Unit)?=null,
     onArchiveRestore:((String)->Unit)?=null,
     onSimpleArchive: ((List<String>) -> Unit)? = null,
-    onArchiveFolder: ((String) -> Unit)? = null,
     onOpenSimpleArchive: (() -> Unit)? = null,
     unifiedDrawerRoutes:Boolean=false,
+    onArchiveFolder: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
