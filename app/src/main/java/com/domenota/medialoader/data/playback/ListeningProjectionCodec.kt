@@ -79,8 +79,8 @@ internal object ListeningProjectionCodec {
         JSONObject().put("kind", "selection-v2").put("period", period.name).put("rows", digest).toString())
     fun resumeKey(sessions: List<ResumeQueueSession>, candidates: List<SmartTrackCandidate>): String = resumeKey(sessions,candidateDigest(candidates))
     fun resumeKey(sessions: List<ResumeQueueSession>, digest: String): String = PersistentProjectionCache.digest(
-        JSONObject().put("kind", "resume-v2").put("candidates", digest)
-            .put("queues", array(sessions) { session -> JSONObject().put("id",session.id)
+        JSONObject().put("kind", "resume-v3").put("candidates", digest)
+            .put("queues", array(sessions.sortedBy{it.id}) { session -> JSONObject().put("id",session.id)
                 .put("entries",JSONArray().also { a -> session.entries.forEach { a.put(JSONArray(it.sorted())) } })
                 .put("occurrences",JSONArray(session.occurrenceIds)) }).toString())
     fun encodeResume(value: List<ResolvedResumeQueue>): JSONObject = JSONObject().put("schema",1)

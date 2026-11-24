@@ -38,6 +38,9 @@ import com.domenota.medialoader.data.playback.SmartTrackCandidate
 import com.domenota.medialoader.data.playback.SmartStatsPeriod
 import com.domenota.medialoader.data.playback.SmartMusicPolicy
 import com.domenota.medialoader.data.playback.ResumeQueueStore
+import com.domenota.medialoader.data.playback.ResumeQueuePolicy
+import com.domenota.medialoader.core.logging.MusicRefreshBlock
+import com.domenota.medialoader.core.logging.MusicRefreshTrace
 import com.domenota.medialoader.data.playback.ResolvedResumeQueue
 import com.domenota.medialoader.ui.components.*
 import com.domenota.medialoader.ui.model.toUi
@@ -262,36 +265,38 @@ internal fun MusicModeScreen(
     val smartRevision by listeningStore.smartRevision.collectAsState()
     val resumeStore=remember(context){ResumeQueueStore.get(context)}
     val resumeSessions by resumeStore.sessions.collectAsState()
-    val resumeMembership = remember(resumeSessions) { resumeSessions.map { Triple(it.id,it.entries,it.occurrenceIds) } }
+    val resumeMembership = remember(resumeSessions) { ResumeQueuePolicy.membership(resumeSessions) }
     val resumeFailed by resumeStore.failed.collectAsState()
-    var resolvedMappings by remember(analyticsGuard,historyGeneration,resumeMembership,displayEpoch){mutableStateOf<List<ResolvedResumeQueue>>(emptyList())}
-    var resumeHasData by remember(analyticsGuard,historyGeneration,resumeMembership,displayEpoch){mutableStateOf(false)}
+    // Reordering or editing one saved queue must not empty all other queues.
+    // Identity changes (including new alias ambiguity), exclusion and privacy
+    // still invalidate every mapping immediately. Favorites are not identity.
+    var resolvedMappings by remember(analyticsGuard,historyGeneration,rankDigest,displayEpoch){mutableStateOf<List<ResolvedResumeQueue>>(emptyList())}
+    var resumeResolved by remember(analyticsGuard,historyGeneration,rankDigest,displayEpoch){mutableStateOf(false)}
     var resumeLoading by remember{mutableStateOf(false)}
-    var resumeError by remember(analyticsGuard,historyGeneration,resumeMembership,displayEpoch){mutableStateOf(false)}
-    // Position changes do not alter the identity mapping. Bind the cached ids to
-    // the latest scalar session state without rerunning SQLite or rebuilding keys.
+    var resumeError by remember(analyticsGuard,historyGeneration,resumeMembership,rankDigest,displayEpoch){mutableStateOf(false)}
     val resolvedSessions=remember(resolvedMappings,resumeSessions){
-        val mappings=resolvedMappings.associateBy{it.session.id}
-        resumeSessions.mapNotNull{session->mappings[session.id]?.takeIf{it.session.entries==session.entries&&it.session.occurrenceIds==session.occurrenceIds}
-            ?.let{ResolvedResumeQueue(session,it.ids)}}
+        ResumeQueuePolicy.rebindResolved(resolvedMappings,resumeSessions)
     }
-    LaunchedEffect(resumeOpen,resumeMembership,candidateDigest,analyticsGuard,analyticsUsable,historyGeneration) {
+    val resumeHasData=resumeResolved&&(resolvedSessions.isNotEmpty()||resumeSessions.isEmpty())
+    LaunchedEffect(resumeOpen,resumeMembership,rankDigest,displayEpoch,analyticsGuard,analyticsUsable,historyGeneration) {
         if(!resumeOpen||onResumeSelection==null||!analyticsUsable)return@LaunchedEffect
         resumeLoading=!resumeHasData;resumeError=false
+        val trace=MusicRefreshTrace.begin(MusicRefreshBlock.RESUME,resumeHasData,historyGeneration,resumeSessions.size)
         try {
             val sessions=resumeSessions
-            val key=withContext(Dispatchers.Default){ListeningProjectionCodec.resumeKey(sessions,candidateDigest)}
+            val key=withContext(Dispatchers.Default){ListeningProjectionCodec.resumeKey(sessions,rankDigest)}
             val cached=listeningStore.readProjection(key,ListeningProjectionDomain.RESUME){ListeningProjectionCodec.resume(it,sessions)}
             val revision=cached?.currentRevision ?: listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RESUME)
             val reusable=cached!=null&&cached.revision==revision
             val result=if(reusable)requireNotNull(cached).value else listeningStore.resolveResume(sessions,smartCandidates)
             if(listeningStore.visibilityRevision.value!=historyGeneration || listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RESUME)!=revision)return@LaunchedEffect
-            resolvedMappings=result;resumeHasData=true;resumeLoading=false
+            resolvedMappings=result;resumeResolved=true;resumeLoading=false
+            trace?.outcome=if(reusable)MusicRefreshTrace.Outcome.CACHE else MusicRefreshTrace.Outcome.PUBLISHED
             if(!reusable)try{listeningStore.writeProjection(key,ListeningProjectionDomain.RESUME,revision,System.currentTimeMillis(),withContext(Dispatchers.Default){ListeningProjectionCodec.encodeResume(result)})}
             catch(e:CancellationException){throw e}catch(_:Exception){/* derived cache */}
-        } catch(e:CancellationException){throw e}
-        catch(_:Exception){if(!resumeHasData)resumeError=true}
-        finally{resumeLoading=false}
+        } catch(e:CancellationException){trace?.outcome=MusicRefreshTrace.Outcome.CANCELLED;throw e}
+        catch(_:Exception){trace?.outcome=MusicRefreshTrace.Outcome.ERROR;if(!resumeHasData)resumeError=true}
+        finally{resumeLoading=false;trace?.close()}
     }
     var smartSnapshot by remember(analyticsGuard,historyGeneration,displayEpoch,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone) { mutableStateOf(SmartMusicSnapshot()) }
     var smartHasData by remember(analyticsGuard,historyGeneration,displayEpoch,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone) { mutableStateOf(false) }
@@ -303,6 +308,7 @@ internal fun MusicModeScreen(
     LaunchedEffect(smartPage,candidateDigest,smartRefresh,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone,analyticsGuard,analyticsUsable,historyGeneration) {
         if(smartPage==null||!listeningEnabled||!analyticsUsable) return@LaunchedEffect
         smartLoading=!smartHasData;smartError=null
+        val trace=MusicRefreshTrace.begin(MusicRefreshBlock.SMART,smartHasData,historyGeneration,smartCandidates.size)
         try {
             val now=System.currentTimeMillis()
             val seed=smartDay+mixNonce
@@ -328,12 +334,13 @@ internal fun MusicModeScreen(
             }
             if(listeningStore.visibilityRevision.value!=historyGeneration || (listeningStore.persistedProjectionRevision(ListeningProjectionDomain.STATS)!=revision && smartPage==SmartMusicPage.STATS))return@LaunchedEffect
             smartSnapshot=result;smartHasData=true;smartLoading=false
+            trace?.outcome=if(reusable)MusicRefreshTrace.Outcome.CACHE else MusicRefreshTrace.Outcome.PUBLISHED
             if(!reusable && candidates==smartCandidates) try {
                 listeningStore.writeProjection(cacheKey,ListeningProjectionDomain.STATS,revision,now,withContext(Dispatchers.Default){ListeningProjectionCodec.encode(result)})
             } catch(e:CancellationException){throw e} catch(_:Exception){/* derived cache can be rebuilt */}
-        } catch(e:CancellationException){throw e}
-        catch(_:Exception){if(!smartHasData)smartError="Не удалось загрузить подборку"}
-        finally{smartLoading=false}
+        } catch(e:CancellationException){trace?.outcome=MusicRefreshTrace.Outcome.CANCELLED;throw e}
+        catch(_:Exception){trace?.outcome=MusicRefreshTrace.Outcome.ERROR;if(!smartHasData)smartError="Не удалось загрузить подборку"}
+        finally{smartLoading=false;trace?.close()}
     }
     // Store already has a persistent SQLite rank cache; seed the first Compose
     // frame from the last *validated* in-process result before background IO.
@@ -344,6 +351,7 @@ internal fun MusicModeScreen(
     LaunchedEffect(listeningEnabled,listeningRevision,listeningPeriod,rankDigest,analyticsGuard,analyticsUsable,historyGeneration,rankTimeRevision,smartZone) {
         if (!listeningEnabled || !analyticsUsable) return@LaunchedEffect
         listeningLoading = !listeningHasData; listeningError = null
+        val trace=MusicRefreshTrace.begin(MusicRefreshBlock.RANK,listeningHasData,historyGeneration,frequentKeys.size)
         try {
             var eligible = frequentKeys
             val now = System.currentTimeMillis()
@@ -363,14 +371,28 @@ internal fun MusicModeScreen(
             }
             if(listeningStore.visibilityRevision.value!=historyGeneration || listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RANK)!=revision)return@LaunchedEffect
             listeningSelection = result;rankingBoundary=result.validUntil;listeningHasData=true;listeningLoading=false
+            trace?.outcome=if(reusable)MusicRefreshTrace.Outcome.CACHE else MusicRefreshTrace.Outcome.PUBLISHED
             warmRankKey?.let { key -> listeningStore.warmRanks.put(key,result,now) }
             if(!reusable && eligible==frequentKeys) try {
                 listeningStore.writeProjection(cacheKey,ListeningProjectionDomain.RANK,revision,now,withContext(Dispatchers.Default){ListeningProjectionCodec.encode(result)})
             } catch(e:CancellationException){throw e} catch(_:Exception){/* derived cache can be rebuilt */}
-        } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { if(!listeningHasData)listeningError = "Не удалось загрузить статистику" }
-        finally { listeningLoading = false }
+        } catch (e: CancellationException) { trace?.outcome=MusicRefreshTrace.Outcome.CANCELLED;throw e }
+        catch (_: Exception) { trace?.outcome=MusicRefreshTrace.Outcome.ERROR;if(!listeningHasData)listeningError = "Не удалось загрузить статистику" }
+        finally { listeningLoading = false;trace?.close() }
     }
+    if(resumeOpen) MusicReadModelTrace(MusicRefreshBlock.RESUME,resumeResolved&&resolvedSessions.size==resumeSessions.size,
+        resumeHasData,!resumeHasData&&(resumeLoading||!analyticsUsable||!resumeError),resumeFailed||resumeError,
+        resolvedSessions.size,analyticsGuard!=null,privacyEpoch=historyGeneration,
+        reasonMask=(if(!analyticsUsable)1 else 0) or (if(!resumeResolved)2 else 0) or
+            (if(resolvedSessions.size!=resumeSessions.size)4 else 0))
+    if(smartPage!=null) MusicReadModelTrace(MusicRefreshBlock.SMART,smartHasData,smartHasData&&analyticsGuard!=null,
+        !smartHasData&&(smartLoading||!analyticsUsable||smartError==null),smartError!=null,
+        smartSnapshot.playedTracks.size+smartSnapshot.forgotten.size+smartSnapshot.mix.size,
+        analyticsGuard!=null,privacyEpoch=historyGeneration,reasonMask=if(!analyticsUsable)1 else 0)
+    if(listeningEnabled) MusicReadModelTrace(MusicRefreshBlock.RANK,listeningHasData,listeningHasData&&analyticsGuard!=null,
+        !listeningHasData&&(listeningLoading||!analyticsUsable||listeningError==null),listeningError!=null,
+        listeningSelection.ranked.size,analyticsGuard!=null,privacyEpoch=historyGeneration,
+        reasonMask=if(!analyticsUsable)1 else 0)
     // Card and detail consume exactly the same currently eligible rows.
     val visibleSelection=remember(listeningSelection,frequentRows){listeningSelection.copy(ranked=listeningSelection.ranked.filter{it.rowId in frequentRows})}
     val tracks = browse.value.tracks

@@ -40,6 +40,22 @@ internal object ResumeQueuePolicy {
     fun keep(sessions:List<ResumeQueueSession>,snapshot:ResumeQueueSession):List<ResumeQueueSession> =
         (listOf(snapshot)+sessions.filterNot{it.id==snapshot.id}).take(MAX_SESSIONS)
 
+    /** Session order, current track and position are presentation state, not a
+     * membership change. Each occurrence still participates in the identity. */
+    fun membership(sessions:List<ResumeQueueSession>) =
+        sessions.associate { it.id to (it.entries to it.occurrenceIds) }
+
+    /** Keep only previously resolved queues whose complete membership is unchanged.
+     * Caller must separately invalidate on changes to identity or privacy guards. */
+    fun rebindResolved(previous:List<ResolvedResumeQueue>,sessions:List<ResumeQueueSession>):List<ResolvedResumeQueue> {
+        val mappings=previous.associateBy{it.session.id}
+        return sessions.mapNotNull{session->
+            mappings[session.id]?.takeIf{it.session.entries==session.entries&&
+                it.session.occurrenceIds==session.occurrenceIds&&it.ids.size==session.entries.size}
+                ?.let{ResolvedResumeQueue(session,it.ids)}
+        }
+    }
+
     /** Resolve both the physical aliases and known listening-history track ID.
      * A conflicting/ambiguous match is unavailable, never a guessed replacement.
      * Build an index once rather than scanning hundreds of tracks per queue entry. */
