@@ -63,6 +63,16 @@ internal object SimpleArchivePolicy {
         existing: List<SimpleArchiveRecord>,
         selected: List<SimpleArchiveRecord>,
     ): List<SimpleArchiveRecord> {
+        // Validate the whole transaction before deduplication: an unknown-size alias
+        // must not mask two contradictory known sizes, or a reused catalog ID.
+        val all = existing + selected
+        check(all.groupBy { it.catalogId }.values.all { entries ->
+            entries.map { it.savedUri }.distinct().size == 1
+        }) { "Идентификатор файла изменился. Требуется обновить Архив" }
+        check(all.groupBy { it.savedUri }.values.all { entries ->
+            entries.map { it.mediaType }.distinct().size == 1 &&
+                entries.mapNotNull { it.fileSizeBytes }.distinct().size <= 1
+        }) { "Адрес файла изменился. Требуется обновить Архив" }
         val result = existing.toMutableList()
         for (item in selected) {
             check(result.none { it.catalogId == item.catalogId &&
