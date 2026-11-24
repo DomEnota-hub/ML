@@ -97,6 +97,7 @@ internal fun GalleryModeScreen(
     onArchiveRestore:((String)->Unit)?=null,
     onSimpleArchive: ((List<String>) -> Unit)? = null,
     onOpenSimpleArchive: (() -> Unit)? = null,
+    unifiedDrawerRoutes:Boolean=false,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -530,7 +531,7 @@ internal fun GalleryModeScreen(
                 }
             }
             if (tab == 1) {
-                if (source==LibrarySource.APP) item(key="archive-entry",span={GridItemSpan(maxLineSpan)}) {
+                if (source==LibrarySource.APP && !unifiedDrawerRoutes) item(key="archive-entry",span={GridItemSpan(maxLineSpan)}) {
                     Surface(onClick={ if (onOpenSimpleArchive != null) onOpenSimpleArchive() else archiveOpen=true },
                         modifier=Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=8.dp)
                             .testTag("gallery-archive-entry"),

@@ -7,6 +7,10 @@ import com.domenota.medialoader.ui.components.DrawerAdmission
 import com.domenota.medialoader.ui.components.LocalDrawerAdmission
 import com.domenota.medialoader.ui.components.MediaNavigationDrawer
 import com.domenota.medialoader.ui.navigation.DrawerEntry
+import com.domenota.medialoader.ui.navigation.FAVORITES_ROUTE
+import com.domenota.medialoader.ui.navigation.JournalAccess
+import com.domenota.medialoader.ui.navigation.rememberJournalUnlocked
+import com.domenota.medialoader.ui.navigation.drawerAvailableEntries
 import com.domenota.medialoader.ui.navigation.MUSIC_SEARCH_ROUTE
 import com.domenota.medialoader.ui.navigation.drawerAllowed
 import com.domenota.medialoader.ui.navigation.drawerActiveEntry
@@ -317,6 +321,8 @@ fun MediaLoaderApp(
     val drawerIdentity=remember(currentRoute,appMode,backStackEntry?.id){Any()}
     val drawerAdmission=remember(drawerIdentity){DrawerAdmission()}
     var appearanceRequested by rememberSaveable{mutableStateOf(false)}
+    var journalRequested by rememberSaveable{mutableStateOf(false)}
+    val journalUnlocked=rememberJournalUnlocked(uiPrefs)
     val phoneGallery by libraryModel.gallery.collectAsStateWithLifecycle()
     val phoneMusic by libraryModel.music.collectAsStateWithLifecycle()
     com.domenota.medialoader.ui.components.ScreenPerformanceProbe(
@@ -858,7 +864,7 @@ fun MediaLoaderApp(
         if (collectionRouteActive) {
             if (!collectionViewerActive) needed += collectionScanModes(collectionCatalogRequest)
         } else {
-            if (currentRoute=="media-review"||currentRoute=="media-passport/{mediaId}") {
+            if (currentRoute=="media-review"||currentRoute=="media-passport/{mediaId}"||currentRoute==FAVORITES_ROUTE) {
                 needed+=AppMode.GALLERY;needed+=AppMode.MUSIC
             }
             if (appMode == AppMode.GALLERY && (librarySource == LibrarySource.PHONE ||
@@ -896,7 +902,8 @@ fun MediaLoaderApp(
             onCalendar = if (appMode == AppMode.GALLERY && galleryTab == 0) ({ galleryDateRequest++ }) else null,
             onHiddenTracks = if (appMode == AppMode.MUSIC) ({ hiddenMusicTracksOpen = true }) else null,
             onPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
-             onVault = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } })
+             onVault = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
+             unifiedDrawerRoutes=true)
     }
     // A single observable music-source state feeds Settings and BOTH preview hosts.
     // An experimental source may not silently fall back to HitMoz.
@@ -2445,7 +2452,7 @@ fun MediaLoaderApp(
     val collectionNoticeBottom = with(noticeDensity) {
         (collectionNoticeFooterPx + WindowInsets.navigationBars.getBottom(noticeDensity)).toDp()
     }
-    val checkingPhoneAccess = if (collectionRouteActive) false
+    val checkingPhoneAccess = if (collectionRouteActive || currentRoute==FAVORITES_ROUTE) false
     else if (currentRoute == AppDestination.Home.route && appMode != AppMode.DOWNLOADER)
         visibleLibraryValidationPending(appMode, libraryIndex, phoneGallery, phoneMusic)
     else phoneValidationPending(libraryIndex, phoneGallery, phoneMusic)
@@ -2505,6 +2512,7 @@ fun MediaLoaderApp(
                     onRecognizeDownload = recognizeVisibilityFile,
                 )
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
+                    unifiedDrawerRoutes=true,
                     onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.GALLERY) },
                     onOpenSimpleArchive = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
                     items = galleryBrowse.value.items,
@@ -2658,6 +2666,35 @@ fun MediaLoaderApp(
                     playing = libraryAudioState.playing)
                 }
                 }
+            },
+            LibraryRouteContent(FAVORITES_ROUTE) {
+                val ready=publicIndexAllowed && catalogAssignmentProjection.usable &&
+                    libraryPrivateKeys!=null && visibilityReady && simpleArchiveLoaded
+                val favorites=remember(ready,publicLibraryRefs,libraryCatalogAssignments,collectionBlocked,
+                    organizationHidden){
+                    if(!ready)emptyList() else com.domenota.medialoader.ui.navigation.publicFavoriteRows(
+                        publicLibraryRefs,libraryCatalogAssignments,collectionBlocked,organizationHidden)
+                }
+                val galleryGranted=hasPhoneLibraryAccess(context,AppMode.GALLERY)
+                val musicGranted=hasPhoneLibraryAccess(context,AppMode.MUSIC)
+                com.domenota.medialoader.ui.screens.UnifiedFavoritesScreen(
+                    rows=favorites,ready=ready,
+                    loading=phoneGallery.loading||phoneMusic.loading,
+                    galleryAccess=galleryGranted,musicAccess=musicGranted,
+                    onGalleryAccess={requestLibraryAccess(AppMode.GALLERY)},
+                    onMusicAccess={requestLibraryAccess(AppMode.MUSIC)},
+                    onBack={navController.popBackStack()},
+                    onOpen={id,ids->openDownloadWithQueue(id,ids)},
+                    onRemove={id->fileActionScope.launch{
+                        try{
+                            val ref=libraryRefsByAlias[id]?:error("Файл недоступен")
+                            val keys=libraryModel.privateKeys.value?:error("Файл недоступен")
+                            check(!collectionRefBlocked(ref,keys)&&!collectionRefBlocked(ref,currentBlocked)&&
+                                canOpenFolderMedia(ref.item)&&retainedPublicRow(ref.item))
+                            setLibraryFavorite(id,false)
+                        }catch(e:CancellationException){throw e}
+                        catch(_:Exception){AppNotice.post(context,"Не удалось изменить избранное")}
+                    }})
             },
             LibraryRouteContent(MUSIC_SEARCH_ROUTE) {
                 com.domenota.medialoader.ui.components.DirectMusicSearchScreen { navController.popBackStack() }
@@ -3045,6 +3082,7 @@ fun MediaLoaderApp(
             LibraryRouteContent(AppDestination.Settings.route) {
                 SettingsScreen(
                     openAppearance=appearanceRequested,onAppearanceOpened={appearanceRequested=false},
+                    openJournal=journalRequested,onJournalOpened={journalRequested=false},
                     musicSource = musicSource,
                     onMusicSourceChange = ::changeMusicSource,
                     downloadFolder = downloadFolder,
@@ -3724,6 +3762,7 @@ fun MediaLoaderApp(
         identity=drawerIdentity,
         allowed=drawerAllowed(currentRoute,appMode,drawerAdmission.admitted,drawerBlocked),
         active=drawerActiveEntry(currentRoute,appMode),
+        available=drawerAvailableEntries(journalUnlocked),journalUnlocked=journalUnlocked,
         onSelect={entry->
             when(entry){
                 DrawerEntry.HOME->openDrawerHome(AppMode.DOWNLOADER)
@@ -3739,8 +3778,21 @@ fun MediaLoaderApp(
                     appearanceRequested=true
                     navController.navigate(AppDestination.Settings.route){launchSingleTop=true}
                 }
-                // Stage 4 owns unified library and unlocked journal admission.
-                else->Unit
+                DrawerEntry.FAVORITES->navController.navigate(FAVORITES_ROUTE){launchSingleTop=true}
+                DrawerEntry.PRIVATE->{
+                    viewModel.privateAccess.lock()
+                    pendingPrivateMoves=emptyList()
+                    returnAfterPrivateSetup=false
+                    privateNavigation=true
+                    navController.navigate(PRIVATE_ROUTE){launchSingleTop=true}
+                }
+                DrawerEntry.ARCHIVE->navController.navigate(SIMPLE_ARCHIVE_ROUTE){launchSingleTop=true}
+                DrawerEntry.COLLECTIONS->openCollections(audioOnly=false)
+                DrawerEntry.TRASH->navController.navigate("trash"){launchSingleTop=true}
+                DrawerEntry.JOURNAL->if(JournalAccess.allowed(uiPrefs)){
+                    journalRequested=true
+                    navController.navigate(AppDestination.Settings.route){launchSingleTop=true}
+                }
             }
         }
     ){
@@ -3759,7 +3811,7 @@ fun MediaLoaderApp(
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
                 currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" && currentRoute != "collections" &&
-                currentRoute != MUSIC_SEARCH_ROUTE && currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
+                currentRoute != FAVORITES_ROUTE && currentRoute != SIMPLE_ARCHIVE_ROUTE && currentRoute != MUSIC_SEARCH_ROUTE && currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
                     // Gallery intentionally has no player chrome. Playback is

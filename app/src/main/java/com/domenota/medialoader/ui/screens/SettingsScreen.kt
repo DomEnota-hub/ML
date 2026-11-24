@@ -242,6 +242,7 @@ fun SettingsScreen(
     onMusicSourceChange: (FullSongSource) -> Unit = {},
     editorAlbumsById: Map<String, List<String>> = emptyMap(),
     openAppearance:Boolean=false,onAppearanceOpened:()->Unit={},
+    openJournal:Boolean=false,onJournalOpened:()->Unit={},
 ) {
     val context = LocalContext.current
     val permissionOwner = LocalLifecycleOwner.current
@@ -362,7 +363,7 @@ fun SettingsScreen(
         }
     }
     val logSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
-        if (uri != null) {
+        if (uri != null && com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
             gestureScope.launch {
                 // Extended logs can be ~20 MB; never read and export them on the UI thread.
                 val result = withContext(Dispatchers.IO) {
@@ -462,8 +463,20 @@ fun SettingsScreen(
     var confirmClearAppLog by remember { mutableStateOf(false) }
     var extendedLog by remember(context) { mutableStateOf(AppLog.isExtended()) }
     var detailedPerf by remember(context) { mutableStateOf(AppLog.isDetailedPerformance()) }
-    var developerVisible by remember {
-        mutableStateOf(prefs.getBoolean("developer_visible", prefs.getBoolean("logs_unlocked", false)))
+    val developerVisible=com.domenota.medialoader.ui.navigation.rememberJournalUnlocked(prefs)
+    androidx.compose.runtime.LaunchedEffect(openJournal,developerVisible){
+        if(openJournal){
+            if(developerVisible && com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)){
+                logsDialog=true
+                refreshAppLog()
+            }
+            onJournalOpened()
+        }
+        if(!developerVisible){
+            logsDialog=false
+            confirmClearAppLog=false
+            logText=""
+        }
     }
     var recoveryLabVisible by remember { mutableStateOf(prefs.getBoolean("recovery_lab_visible", false)) }
     val historicalRunning by com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.collectAsState()
@@ -499,17 +512,14 @@ fun SettingsScreen(
             return
         }
         if (recoveryLabBusy && developerVisible) return
-        developerVisible = !developerVisible
+        val enabled = !com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)
         aboutUnlockArmedUntil = 0L
         aboutTapCount = 0
-        prefs.edit()
-            .putBoolean("developer_visible", developerVisible)
-            .remove("logs_unlocked")
-            .apply()
-        AppLog.i("Settings", if (developerVisible) "Developer section enabled" else "Developer section disabled")
+        com.domenota.medialoader.ui.navigation.JournalAccess.setAllowed(prefs,enabled)
+        AppLog.i("Settings", if (enabled) "Developer section enabled" else "Developer section disabled")
         AppNotice.post(
             context,
-            if (developerVisible) "Режим для разработки включён" else "Режим для разработки выключен")
+            if (enabled) "Режим для разработки включён" else "Режим для разработки выключен")
     }
 
     val aboutGestureModifier = Modifier.pointerInput(developerVisible) {
@@ -655,7 +665,7 @@ fun SettingsScreen(
     )
 
 
-    if (logsDialog) Dialog(
+    if (developerVisible && logsDialog) Dialog(
         onDismissRequest = { logsDialog = false },
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
@@ -713,7 +723,7 @@ fun SettingsScreen(
         }
     }
 
-    if (confirmClearAppLog) AlertDialog(
+    if (developerVisible && confirmClearAppLog) AlertDialog(
         onDismissRequest = { confirmClearAppLog = false },
         title = { Text("Очистить журнал приложения?") },
         text = {
@@ -725,7 +735,8 @@ fun SettingsScreen(
             TextButton(onClick = {
                 confirmClearAppLog = false
                 gestureScope.launch {
-                    withContext(Dispatchers.IO) { AppLog.clear() }
+                    if(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                        withContext(Dispatchers.IO) { AppLog.clear() }
                     refreshAppLog()
                 }
             }) { Text("Очистить", color = MaterialTheme.colorScheme.error) }

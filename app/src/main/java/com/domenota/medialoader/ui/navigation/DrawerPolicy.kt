@@ -4,6 +4,7 @@ import com.domenota.medialoader.data.library.AppMode
 import kotlin.math.abs
 
 internal const val MUSIC_SEARCH_ROUTE="music-search"
+internal const val FAVORITES_ROUTE="favorites"
 internal enum class DrawerEntry(val label:String,val availableInStage3:Boolean=true){
     HOME("Главная"),DOWNLOADS("Загрузки"),GALLERY("Галерея"),MUSIC("Музыка"),
     MUSIC_SEARCH("Поиск музыки"),
@@ -11,6 +12,11 @@ internal enum class DrawerEntry(val label:String,val availableInStage3:Boolean=t
     COLLECTIONS("Коллекции",false),TRASH("Корзина",false),
     SETTINGS("Настройки"),APPEARANCE("Оформление"),JOURNAL("Журнал",false)
 }
+/** All ordinary destinations are available after NAV-08. Journal follows
+ * the same persisted developer gate as Settings, never an independent flag. */
+internal fun drawerAvailableEntries(journalUnlocked:Boolean):Set<DrawerEntry> =
+    DrawerEntry.entries.filterTo(linkedSetOf()){it!=DrawerEntry.JOURNAL||journalUnlocked}
+
 internal fun drawerRouteAllowed(route:String?,mode:AppMode):Boolean =
     route=="downloads" || (route=="home" && mode in setOf(AppMode.DOWNLOADER,AppMode.GALLERY,AppMode.MUSIC))
 
