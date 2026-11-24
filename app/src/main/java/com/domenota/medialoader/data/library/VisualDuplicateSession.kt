@@ -72,6 +72,43 @@ internal object VisualDuplicateSessionStore {
         }.isSuccess
     }
 
+    /** Clear completed report records, not media, fingerprints or the active checkpoint.
+     * Tombstone each generation before removing files so deferred UI writes cannot
+     * recreate deleted reports. No active scanner may commit during this operation. */
+    suspend fun clearCompletedJournal(context:Context,expectedEpoch:Long):Boolean =
+        withContext(Dispatchers.IO+NonCancellable){synchronized(lock){
+            val status=VisualDuplicateBackgroundScan.state.value
+            if(status.running||status.committing||DuplicatePrivacyGuard.generation(context)!=expectedEpoch)
+                return@synchronized false
+            runCatching {
+                val target=file(context)
+                val current=if(target.baseFile.exists()||File(target.baseFile.path+".bak").exists())
+                    decode(target.openRead().bufferedReader().use{it.readText()}).scannedAt else null
+                val stamps=File(context.noBackupFilesDir,"duplicate-journal-gallery").listFiles().orEmpty()
+                    .mapNotNull{Regex("([0-9]+)\\.json(?:\\.bak|\\.new)?").matchEntire(it.name)
+                        ?.groupValues?.get(1)?.toLongOrNull()?.takeIf{at->at>0}}
+                (stamps+listOfNotNull(current,status.session?.scannedAt)).filter{it>0}.distinct()
+                    .forEach{DuplicateReportJournal.markDeleted(context,"gallery",it)}
+                target.delete()
+                check(listOf(target.baseFile,File(target.baseFile.path+".bak"),File(target.baseFile.path+".new")).none{it.exists()})
+                DuplicateReportJournal.clearCompleted(context,"gallery")
+                VisualDuplicateBackgroundScan.forgetCompleted()
+            }.isSuccess
+        }}
+
+    /** Explicit replacement of an interrupted scan only. No completed report
+     * or fingerprint cache is changed. Reject stale confirmations and active jobs. */
+    suspend fun discardPartial(context:Context,expectedEpoch:Long,expectedToken:Long):Boolean =
+        withContext(Dispatchers.IO+NonCancellable){synchronized(lock){
+            val status=VisualDuplicateBackgroundScan.state.value
+            if(status.running||status.committing||status.token!=expectedToken||
+                DuplicatePrivacyGuard.generation(context)!=expectedEpoch)return@synchronized false
+            runCatching{
+                DuplicateReportJournal.clearPartial(context,"gallery")
+                check(VisualDuplicateBackgroundScan.forgetPartial(context,expectedToken))
+            }.isSuccess
+        }}
+
     private fun permitted(context:Context,session:VisualDuplicateSession)=session.result.privacyEpoch==DuplicatePrivacyGuard.generation(context)&&session.result.groups.all{g->g.files.all{DuplicatePrivacyGuard.accepts(context,session.result.privacyEpoch,it.id)}}
     private fun file(context:Context)=AtomicFile(File(context.noBackupFilesDir,"visual-duplicates-v1.json"))
     suspend fun load(context:Context):VisualDuplicateSession?=withContext(Dispatchers.IO){
