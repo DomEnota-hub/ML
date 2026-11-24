@@ -20,11 +20,12 @@ internal object MusicRefreshTrace {
     private val transitions=MusicRefreshBlock.entries.associateWith{MusicTraceWindow()}
     private val requests=MusicRefreshBlock.entries.associateWith{MusicTraceWindow()}
     fun transition(block:MusicRefreshBlock,ready:Boolean,usable:Boolean,loading:Boolean,error:Boolean,
-        count:Int,guardPresent:Boolean,accessEpoch:Long=0L,privacyEpoch:Long=0L,reasonMask:Int=0) {
-        if(!AppLog.isDetailedPerformance())return
+        count:Int,guardPresent:Boolean,accessEpoch:Long=0L,privacyEpoch:Long=0L,reasonMask:Int=0):Boolean {
+        if(!AppLog.isDetailedPerformance())return true
         val now=android.os.SystemClock.elapsedRealtime()
-        val skipped=synchronized(transitions){transitions.getValue(block).admit(now)}?:return
+        val skipped=synchronized(transitions){transitions.getValue(block).admit(now)}?:return false
         AppLog.i("Perf","MUSIC_READ_MODEL block=$block ready=$ready usable=$usable loading=$loading error=$error count=$count guard=$guardPresent accessEpoch=$accessEpoch privacyEpoch=$privacyEpoch reasonMask=$reasonMask suppressed=$skipped")
+        return true
     }
     fun begin(block:MusicRefreshBlock,retained:Boolean,revision:Long,count:Int):Request? {
         if(!AppLog.isDetailedPerformance())return null

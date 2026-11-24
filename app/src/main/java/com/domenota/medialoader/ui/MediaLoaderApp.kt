@@ -312,14 +312,6 @@ fun MediaLoaderApp(
     val journalUnlocked=rememberJournalUnlocked(uiPrefs)
     val phoneGallery by libraryModel.gallery.collectAsStateWithLifecycle()
     val phoneMusic by libraryModel.music.collectAsStateWithLifecycle()
-    com.domenota.medialoader.ui.components.ScreenPerformanceProbe(
-        "${currentRoute ?: "initial"}:$appMode:$librarySource",
-        if (appMode == AppMode.GALLERY && librarySource == LibrarySource.PHONE)
-            phoneGallery.loaded && !phoneGallery.requiresValidation
-        else if (appMode == AppMode.MUSIC && librarySource == LibrarySource.PHONE)
-            phoneMusic.loaded && !phoneMusic.requiresValidation
-        else true)
-
     val libraryIndex by libraryModel.index.collectAsStateWithLifecycle()
     val visibilityGuard by libraryModel.visibilityGuard.collectAsStateWithLifecycle()
     val nomediaRegistry = remember(mediaRepository) { mediaRepository.nomediaFolders }
@@ -1543,6 +1535,38 @@ fun MediaLoaderApp(
         revalidateRetained = { previous -> previous.retainAllowed(::retainedPublicRow) },
         kind = LibraryProjectionKind.MUSIC_BROWSE) {
         MusicBrowseCatalog.build(musicHomeItems, libraryAudioItems, recentDeviceFolders)
+    }
+    // Measure the usable read model, not an intermediate provider validation flag.
+    com.domenota.medialoader.ui.components.ScreenPerformanceProbe(
+        "${currentRoute ?: "initial"}:$appMode:$librarySource",
+        if(currentRoute==AppDestination.Home.route)when(appMode){
+            AppMode.GALLERY->galleryBrowse.usable
+            AppMode.MUSIC->musicBrowse.usable
+            AppMode.DOWNLOADER->true
+        }else true)
+    if(appMode==AppMode.MUSIC&&currentRoute==AppDestination.Home.route){
+        // Bit mask: 1 archive, 2 privacy unavailable, 4 audio snapshot absent,
+        // 8 access mismatch, 16 visibility mismatch, 32 recovery, 64 history absent,
+        // 128 privacy mismatch. No guard contents are ever written.
+        val reason=(if(!simpleArchiveLoaded)1 else 0) or (if(libraryPrivateKeys==null)2 else 0) or
+            (if(audioCatalog==null)4 else 0) or
+            (if(audioCatalog?.guard?.accessEpoch?.let{it!=musicAccessEpoch}==true)8 else 0) or
+            (if(audioCatalog?.guard?.let{it.visibility!=visibilityGuard}==true)16 else 0) or
+            (if(recoveryRunning)32 else 0) or
+            (if(historySnapshot==null||listeningHistoryRows==null)64 else 0) or
+            (if(audioCatalog?.guard?.let{it.privacy!=libraryPrivateKeys}==true)128 else 0)
+        com.domenota.medialoader.ui.components.MusicReadModelTrace(
+            com.domenota.medialoader.core.logging.MusicRefreshBlock.CATALOG,
+            analyticsProjection.ready,analyticsProjection.usable,!analyticsProjection.usable,false,
+            analyticsProjection.value.items.size,analyticsGuard!=null,musicAccessEpoch,collectionPrivacyGeneration,reason)
+        com.domenota.medialoader.ui.components.MusicReadModelTrace(
+            com.domenota.medialoader.core.logging.MusicRefreshBlock.RECENT,
+            recentProjection.ready,recentProjection.usable,!recentProjection.usable,false,
+            recentProjection.value.items.size,recentGuard!=null,musicAccessEpoch,collectionPrivacyGeneration)
+        com.domenota.medialoader.ui.components.MusicReadModelTrace(
+            com.domenota.medialoader.core.logging.MusicRefreshBlock.BROWSE,
+            musicBrowse.ready,musicBrowse.usable,!musicBrowse.usable,phoneMusic.message!=null,
+            musicBrowse.value.available.size,musicBrowseAccess!=null,musicAccessEpoch,collectionPrivacyGeneration)
     }
     suspend fun validCollectionRefs(ids: List<String>, recent: Boolean = false, analytics: Boolean = false, selectedId: String? = null): List<LibraryMediaRef> {
         val full = currentCollectionCatalog.byKey
