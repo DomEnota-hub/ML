@@ -35,12 +35,13 @@ class MediaNavigationDrawerTest{
         compose.onNodeWithTag("ml-drawer-panel").assertExists()
     }
     @Composable private fun TestHost(allowed:Boolean=true,identity:Int=0,
-        active:DrawerEntry=DrawerEntry.MUSIC,onSelect:(DrawerEntry)->Unit={}){
+        active:DrawerEntry=DrawerEntry.MUSIC,onSelect:(DrawerEntry)->Unit={},
+        journalUnlocked:Boolean=false){
         val density=LocalDensity.current
         val direction=LocalLayoutDirection.current
         val edge=WindowInsets.systemGestures.getLeft(density,direction)+with(density){4.dp.toPx()}
         SideEffect{edgePx=edge}
-        MediaNavigationDrawer(identity,allowed,active,onSelect=onSelect){
+        MediaNavigationDrawer(identity,allowed,active,journalUnlocked=journalUnlocked,onSelect=onSelect){
             Box(Modifier.fillMaxSize()){Text("Содержимое")}
         }
     }
@@ -54,7 +55,7 @@ class MediaNavigationDrawerTest{
         compose.onNodeWithText("MediaLoader").assertExists()
         compose.onNodeWithText("1.7.226").assertDoesNotExist()
         compose.onNodeWithTag("drawer-entry-MUSIC").assertIsSelected()
-        compose.onNodeWithTag("drawer-entry-FAVORITES").assertIsNotEnabled()
+        compose.onNodeWithTag("drawer-entry-FAVORITES").assertIsEnabled()
         compose.onNodeWithTag("drawer-entry-JOURNAL").assertDoesNotExist()
         host().performTouchInput{click(Offset(width*.95f,center.y))}
         compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
@@ -130,5 +131,24 @@ class MediaNavigationDrawerTest{
         second.update(true)
         first.update(false)
         assertTrue(second.admitted)
+    }
+
+    @Test fun libraryRowsNavigateAndJournalAppearsOnlyWhileUnlocked(){
+        var unlocked by mutableStateOf(false)
+        var selected:DrawerEntry?=null
+        compose.setContent{MaterialTheme{TestHost(onSelect={selected=it},journalUnlocked=unlocked)}}
+        open()
+        compose.onNodeWithTag("drawer-entry-JOURNAL").assertDoesNotExist()
+        for(entry in listOf(DrawerEntry.FAVORITES,DrawerEntry.PRIVATE,DrawerEntry.ARCHIVE,
+            DrawerEntry.COLLECTIONS,DrawerEntry.TRASH)){
+            val row=compose.onNodeWithTag("drawer-entry-${entry.name}")
+            row.assertIsEnabled().performScrollTo().performClick()
+            compose.runOnIdle{assertEquals(entry,selected)}
+            open()
+        }
+        compose.runOnIdle{unlocked=true}
+        compose.onNodeWithTag("drawer-entry-JOURNAL").assertExists().assertIsEnabled()
+        compose.runOnIdle{unlocked=false}
+        compose.onNodeWithTag("drawer-entry-JOURNAL").assertDoesNotExist()
     }
 }

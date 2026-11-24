@@ -12,7 +12,7 @@ class DrawerPolicyTest{
                 assertFalse(drawerAllowed(route,mode,false,false))
                 assertFalse(drawerAllowed(route,mode,true,true))
             }
-            for(route in listOf(null,"settings",MUSIC_SEARCH_ROUTE,"collections","trash","private","archive",
+            for(route in listOf(null,"settings",MUSIC_SEARCH_ROUTE,"collections","trash","private","archive","simple-archive",FAVORITES_ROUTE,
                 "music-duplicates","visual-duplicates","viewer/{downloadId}","video-editor/{downloadId}",
                 "photo-editor/{downloadId}","audio-editor/{downloadId}","batch-photo-editor","equalizer",
                 "browser/{source}","preview","bulk","playlist-add/{playlistId}","unknown")){
@@ -55,5 +55,13 @@ class DrawerPolicyTest{
         assertTrue(DrawerGesturePolicy.settleOpen(.35f,true))
         assertFalse(DrawerGesturePolicy.settleOpen(.64f,false))
         assertTrue(DrawerGesturePolicy.settleOpen(.65f,false))
+    }
+
+    @Test fun allLibraryDestinationsAreEnabledButJournalFollowsGate(){
+        val public=DrawerEntry.entries.toSet()-DrawerEntry.JOURNAL
+        assertEquals(public,drawerAvailableEntries(false))
+        assertEquals(DrawerEntry.entries.toSet(),drawerAvailableEntries(true))
+        assertTrue(setOf(DrawerEntry.FAVORITES,DrawerEntry.PRIVATE,DrawerEntry.ARCHIVE,
+            DrawerEntry.COLLECTIONS,DrawerEntry.TRASH).all{it in public})
     }
 }

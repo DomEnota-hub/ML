@@ -7955,6 +7955,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.LibraryModeHeaderTest#unifiedHeaderRemovesOnlyApprovedDuplicates": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.LibraryRefreshShieldTest#refreshDoesNotDisplayExitOrBlockInteractiveContent": {
     "skipped": false,
     "failed": false
@@ -7996,6 +8000,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#forbiddenStateClosesAndRejectsGesturesWhileMidContentRemainsFree": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#libraryRowsNavigateAndJournalAppearsOnlyWhileUnlocked": {
     "skipped": false,
     "failed": false
   },
@@ -8343,6 +8351,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#allLibraryDestinationsAreEnabledButJournalFollowsGate": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#dragFollowsFingerClampsAndSettlesInBothDirections": {
     "skipped": false,
     "failed": false
@@ -8359,6 +8371,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.navigation.JournalAccessTest#legacyFallbackAndExplicitRevocationShareOneGate": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.JournalAccessTest#preferenceObserverReactsToEnableAndDisableWithoutRecreatingScreen": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.navigation.LibraryReturnNavigationTest#drawerReturnsToExactHomeAndRestoresDownloadsFilterAcrossVisits": {
     "skipped": false,
     "failed": false
@@ -8368,6 +8388,22 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.navigation.StableLibraryNavHostTest#routeGraphSurvivesRootUpdatesAndContentRemainsFresh": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.UnifiedLibraryPolicyTest#explicitAppUnfavoriteWinsOverStaleExternalAlias": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.UnifiedLibraryPolicyTest#favoritesNeverPublishPrivateHiddenArchivedFailedOrRevokedRows": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.UnifiedLibraryPolicyTest#favoritesUseExistingAssignmentsAcrossAllTypesAndSources": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.UnifiedLibraryPolicyTest#mediaFilterAndDeleteConfirmationNeverExpandToAnotherTypeOrNewArrival": {
     "skipped": false,
     "failed": false
   },

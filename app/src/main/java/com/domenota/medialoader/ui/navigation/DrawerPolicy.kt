@@ -5,12 +5,12 @@ import kotlin.math.abs
 
 internal const val MUSIC_SEARCH_ROUTE="music-search"
 internal const val FAVORITES_ROUTE="favorites"
-internal enum class DrawerEntry(val label:String,val availableInStage3:Boolean=true){
+internal enum class DrawerEntry(val label:String){
     HOME("Главная"),DOWNLOADS("Загрузки"),GALLERY("Галерея"),MUSIC("Музыка"),
     MUSIC_SEARCH("Поиск музыки"),
-    FAVORITES("Избранное",false),PRIVATE("Личное",false),ARCHIVE("Архив",false),
-    COLLECTIONS("Коллекции",false),TRASH("Корзина",false),
-    SETTINGS("Настройки"),APPEARANCE("Оформление"),JOURNAL("Журнал",false)
+    FAVORITES("Избранное"),PRIVATE("Личное"),ARCHIVE("Архив"),
+    COLLECTIONS("Коллекции"),TRASH("Корзина"),
+    SETTINGS("Настройки"),APPEARANCE("Оформление"),JOURNAL("Журнал")
 }
 /** All ordinary destinations are available after NAV-08. Journal follows
  * the same persisted developer gate as Settings, never an independent flag. */

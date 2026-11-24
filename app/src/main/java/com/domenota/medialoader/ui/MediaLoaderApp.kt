@@ -859,7 +859,7 @@ fun MediaLoaderApp(
     }
     val phoneViewingId = backStackEntry?.arguments?.getString("downloadId")
     fun refreshPhoneLibraries(force: Boolean = false) {
-        if(currentRoute==FAVORITES_ROUTE){
+        if(currentRoute==FAVORITES_ROUTE||currentRoute==SIMPLE_ARCHIVE_ROUTE){
             for(mode in listOf(AppMode.GALLERY,AppMode.MUSIC)){
                 if(force)libraryModel.refresh(mode) else libraryModel.refreshOnNavigation(mode)
             }
@@ -2698,8 +2698,9 @@ fun MediaLoaderApp(
                         publicLibraryRefs.filter{it.appDownloadId!=null||it.item.mediaType in allowedPhoneTypes},
                         libraryCatalogAssignments,collectionBlocked,organizationHidden)
                 }
+                val favoriteById=remember(favorites.value){favorites.value.associateBy{it.id}}
                 fun currentFavorite(id:String):LibraryMediaRef?{
-                    val row=favorites.value.firstOrNull{it.id==id}?:return null
+                    val row=favoriteById[id]?:return null
                     val ref=libraryRefsByAlias[id]?.takeIf{it.item.savedUri==row.savedUri}?:return null
                     val keys=libraryModel.privateKeys.value?:return null
                     if(collectionRefBlocked(ref,keys)||collectionRefBlocked(ref,currentBlocked)||
