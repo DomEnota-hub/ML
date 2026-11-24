@@ -4867,11 +4867,23 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.DuplicateFolderScopeTest#missingNegativeOrOverflowedSizesRemainUnknownNotZero": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.DuplicateFolderScopeTest#sameNamedPhonePhotoAlbumsStaySeparateByBucketId": {
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.DuplicateFolderScopeTest#selectionSummaryCountsSharedVerifiedDirectoryOnceWithoutExpandingKeys": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.DuplicateFolderScopeTest#unknownAlbumDoesNotSilentlyExpandScope": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFolderScopeTest#visualBucketPathHintNeverCreatesAnUnverifiedLocation": {
     "skipped": false,
     "failed": false
   },
@@ -4883,11 +4895,23 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#nestedCountExcludesCurrentFolderAndIncludesActualIntermediateDescendants": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#resolvedPathsRejectForeignKeysAndUnsafeVolumeAndSegments": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#sameNamesOnDifferentVolumesAndUnknownBucketsAreNeverMerged": {
     "skipped": false,
     "failed": false
   },
   "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#searchShowsAncestorsButNeverSelectsUnmatchedSibling": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#totalSizeIsUnknownIfAnyNestedPartIsMissingOrOverflows": {
     "skipped": false,
     "failed": false
   },
@@ -7644,6 +7668,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#selectingParentSelectsOnlyItsVerifiedChildFolders": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#unknownFolderRetainsReadableCountWithLongDisplayName": {
     "skipped": false,
     "failed": false
   },

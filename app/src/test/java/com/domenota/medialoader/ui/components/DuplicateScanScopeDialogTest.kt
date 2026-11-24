@@ -1,6 +1,9 @@
 package com.domenota.medialoader.ui.components
 
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.platform.LocalDensity
@@ -140,6 +143,20 @@ class DuplicateScanScopeDialogTest {
         compose.onNodeWithTag("scope-start-selected").performClick()
         assertEquals(setOf(DuplicateFolderScope.key(alpha), DuplicateFolderScope.key(beta)),
             selected)
+    }
+
+    @Test fun unknownFolderRetainsReadableCountWithLongDisplayName() {
+        val longFolder = "ОченьДлинноеНазваниеПапки".repeat(8)
+        val track = audio("long", longFolder).copy(groupId = "external_primary:Music/$longFolder/")
+        compose.setContent {
+            MaterialTheme { DuplicateScanScopeScreen(listOf(track), "Музыка", {}, {}) }
+        }
+        compose.onNodeWithTag("scope-select-folders").performClick()
+        compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
+        compose.onNodeWithTag("scope-start-selected").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("1 файл", substring = true).assertExists()
+        compose.onNodeWithTag("scope-row-details-volume:external_primary|Music")
+            .assertExists()
     }
 
     @Test fun pickerBackReturnsToScopeOverviewWithoutClosingRoute() {

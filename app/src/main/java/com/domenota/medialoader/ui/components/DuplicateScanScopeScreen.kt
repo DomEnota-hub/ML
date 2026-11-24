@@ -71,18 +71,17 @@ internal fun DuplicateScanScopeScreen(
     val matchingKeys = remember(tree, filter) {
         DuplicateFolderTree.matchingKeys(tree, filter)
     }
-    val selectedCount = remember(selected, options) {
-        options.filter { it.key in selected }.sumOf { it.fileCount }
+    val selection = remember(selected, options) {
+        DuplicateFolderScope.selectionSummary(options, selected)
     }
-    val selectedBytes = remember(selected, options) {
-        val chosen = options.filter { it.key in selected }
-        if (chosen.all { it.sizeBytes != null }) chosen.sumOf { it.sizeBytes ?: 0L } else null
+    val folderCount = remember(options) {
+        DuplicateFolderScope.selectionSummary(options, options.mapTo(mutableSetOf()) { it.key }).folderCount
     }
     BackHandler { if (choosing) choosing = false else onDismiss() }
-    val countLabel = "${selected.size} ${DuplicateFolderScope.folderWord(selected.size)}"
-    val sizeLabel = selectedBytes?.let {
-        ", ${android.text.format.Formatter.formatShortFileSize(context, it)}"
-    } ?: ""
+    val countLabel = "${selection.folderCount} ${DuplicateFolderScope.folderWord(selection.folderCount)}"
+    val sizeLabel = selection.sizeBytes?.let {
+        android.text.format.Formatter.formatShortFileSize(context, it)
+    } ?: "размер неизвестен"
     // Render this screen inside the Activity NavHost viewport. Its parent
     // Scaffold has ALREADY reserved status/navigation bars (safeDrawing).
     // Never create a second Dialog window or apply navigationBarsPadding:
@@ -109,10 +108,10 @@ internal fun DuplicateScanScopeScreen(
                                     .testTag("scope-fixed-footer"),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text("Выбрано: $countLabel, $selectedCount файлов$sizeLabel",
+                                Text("Выбрано: $countLabel, ${selection.fileCount} ${DuplicateFolderScope.fileWord(selection.fileCount)}, $sizeLabel",
                                     style = MaterialTheme.typography.bodyMedium)
-                                Button({ onStart(selected.toSet()) },
-                                    enabled = selectedCount > 0,
+                                Button({ onStart(options.map { it.key }.filterTo(mutableSetOf()) { it in selected }) },
+                                    enabled = selection.fileCount > 0,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                                         .testTag("scope-start-selected")) {
                                     Text("Начать поиск")
@@ -171,7 +170,7 @@ internal fun DuplicateScanScopeScreen(
                         singleLine = true,
                     )
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Папки: ${folders.size}", modifier = Modifier.weight(1f),
+                        Text("Папки: $folderCount", modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodySmall)
                         TextButton({
                             selected = if (matchingKeys.isNotEmpty() && matchingKeys.all { it in selected })
@@ -233,19 +232,23 @@ internal fun DuplicateScanScopeScreen(
                                         if (folder.id in expanded) expanded - folder.id else expanded + folder.id
                                     else toggleSelection()
                                 }.padding(vertical = 8.dp)) {
-                                    Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    Text(folder.name, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.bodyMedium)
-                                    val path = folder.location.takeIf { it != folder.name &&
-                                        it != "Путь не определён" }
-                                    val details = "${folder.fileCount} файлов" +
-                                        (folder.children.takeIf { it.isNotEmpty() }?.let {
-                                            ", вложенных папок: ${folder.folderCount}"
-                                        } ?: "") +
-                                        (folder.sizeBytes?.let {
-                                            ", ${android.text.format.Formatter.formatShortFileSize(context, it)}"
-                                        } ?: ", размер неизвестен")
-                                    Text(path?.let { "$it · $details" } ?: details,
+                                    val verifiedPath = if (folder.id.startsWith("volume:") ||
+                                        folder.id.startsWith("file|")) folder.location else null
+                                    Text(verifiedPath?.let { "Расположение: $it" }
+                                            ?: "Расположение не определено",
                                         maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    val sizeText = folder.sizeBytes?.let {
+                                        android.text.format.Formatter.formatShortFileSize(context, it)
+                                    } ?: "размер неизвестен"
+                                    val details = "${folder.fileCount} ${DuplicateFolderScope.fileWord(folder.fileCount)}" +
+                                        (if (folder.children.isNotEmpty()) ", вложенных папок: ${folder.folderCount}" else "") +
+                                        ", $sizeText"
+                                    Text(details, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.testTag("scope-row-details-${folder.id}"),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }

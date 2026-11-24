@@ -55,9 +55,16 @@ internal object DuplicateFolderPathResolver {
     ): List<DuplicateFolderOption> = folders.map { folder ->
         val resolved = directories[folder.key]
         val separator = resolved?.indexOf('|') ?: -1
+        val namespace = if (separator > 0) resolved!!.substring(0, separator) else ""
+        val volume = namespace.removePrefix("volume:")
         val relative = if (separator > 0) resolved!!.substring(separator + 1).trim('/') else ""
-        if (relative.isBlank() || relative.split('/').any { it == "." || it == ".." }) folder
-        else folder.copy(name = relative.substringAfterLast('/'),
-            location = relative, directoryId = resolved)
+        val segments = relative.split('/')
+        val trusted = folder.key.startsWith("bucket:") && folder.directoryId == null &&
+            namespace.startsWith("volume:") && volume.isNotBlank() &&
+            volume.none { it == '/' || it == '\\' || it == '|' } &&
+            segments.all { it.isNotBlank() && it != "." && it != ".." &&
+                '\\' !in it && '|' !in it }
+        if (!trusted) folder else folder.copy(
+            name = relative.substringAfterLast('/'), location = relative, directoryId = resolved)
     }
 }
