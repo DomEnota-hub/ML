@@ -1753,7 +1753,8 @@ fun MediaLoaderApp(
             folderRefsById[row.id]?.item?.savedUri == row.savedUri && row.savedUri != null
         }.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
     }
-    val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
+    // Home renders only three recent entries; do not format the entire library on main.
+    val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.take(3).map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
 
     fun archiveSelection(ids: List<String>, source: ArchiveEntrySource) {
         if (!simpleArchiveLoaded || simpleArchiveBusy || ids.isEmpty()) return
@@ -2447,7 +2448,7 @@ fun MediaLoaderApp(
                         showPicker = false
                         navController.navigate("browser/$source")
                     },
-                    recentDownloads = recentDownloadItems.take(3),
+                    recentDownloads = recentDownloadItems,
                     onSimpleArchive = { archiveSelection(listOf(it), ArchiveEntrySource.DOWNLOADER) },
                     onOpenDownload = openDownload,
                     onCancelDownload = viewModel::cancelDownload,
