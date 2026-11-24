@@ -98,7 +98,7 @@ internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,star
 internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,partial:DuplicateJournalRow?,
     onOpen:(Long)->Unit,onResume:()->Unit,onDismiss:()->Unit,onPartial:(()->Unit)?=null,resumeEnabled:Boolean=true,
     onClear:(()->Unit)?=null,clearEnabled:Boolean=true,
-    onDelete:((Long)->Unit)?=null,deleteEnabled:Boolean=true){
+    onDelete:((Long)->Unit)?=null,deleteEnabled:Boolean=true,partialResultsEnabled:Boolean=true){
     var deleteCandidateAt by remember { mutableStateOf<Long?>(null) }
     androidx.compose.ui.window.Dialog(onDismissRequest=onDismiss) {
         Surface(Modifier.fillMaxWidth(), shape=MaterialTheme.shapes.extraLarge,
@@ -123,7 +123,7 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                     Text("Групп: ${partial.groups} · файлов: ${partial.files}")
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){
                         TextButton(onResume,enabled=resumeEnabled){Text("Продолжить")}
-                        onPartial?.let{TextButton(it){Text("Результаты")}}
+                        onPartial?.let{TextButton(it,enabled=partialResultsEnabled){Text("Результаты")}}
                     }
                 }}
             }
