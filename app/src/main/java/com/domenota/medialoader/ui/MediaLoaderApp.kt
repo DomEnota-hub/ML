@@ -1099,17 +1099,27 @@ fun MediaLoaderApp(
     val galleryRetentionAccess = libraryPrivateKeys?.takeIf { galleryBrowseAccess != null }
         ?.let { Triple(it, if (gallerySource == LibrarySource.APP) 0L else galleryAccessEpoch,
             gallerySource to FolderVisibilityStorageAccess.granted()) }
+    // Only the retention bridge needs this identity map; avoid eagerly rebuilding
+    // it on ordinary fresh projections. Keep the original last-wins precedence.
     val currentGalleryRows = remember(galleryPublicItems, folderRefs) {
-        (galleryPublicItems + folderRefs.map { it.item }).associate { it.id to it.savedUri }
+        lazy(LazyThreadSafetyMode.NONE) {
+            buildMap<String, String?> {
+                galleryPublicItems.forEach { put(it.id, it.savedUri) }
+                folderRefs.forEach { put(it.item.id, it.item.savedUri) }
+            }
+        }
     }
     val galleryBrowse = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
         GalleryBrowseInventory.EMPTY, publicProjectionGuard, galleryPublicItems, folderRefs,
         catalogFolders, libraryCatalogAssignments, displayInventory.deviceAlbums, visibilityFolders,
         accessGuard = galleryBrowseAccess, enabled = catalogAssignmentProjection.usable,
         retentionGuard = galleryRetentionAccess,
-        revalidateRetained = { previous -> previous.retainAllowed { row ->
-            currentGalleryRows.containsKey(row.id) && currentGalleryRows[row.id] == row.savedUri
-        } },
+        revalidateRetained = { previous ->
+            val currentRows = currentGalleryRows.value
+            previous.retainAllowed { row ->
+                currentRows.containsKey(row.id) && currentRows[row.id] == row.savedUri
+            }
+        },
         equivalentContent = { old, next -> old.equivalentContent(next) },
         kind = LibraryProjectionKind.GALLERY_BROWSE) {
         val items = GalleryBrowseInventory.withScopedItems(galleryPublicItems, folderRefs,
@@ -1740,18 +1750,6 @@ fun MediaLoaderApp(
     val nomediaHistoryIds = remember(catalogAssignments,nomediaSnapshot) {
         catalogAssignments.filter { it.folderId in nomediaSnapshot.hiddenFolderIds }
             .mapTo(mutableSetOf()) { it.downloadId }
-    }
-    val downloadItems = remember(downloads, fileStatuses, visibilityGuard, folderRefs,nomediaHistoryIds,archivedRecords,simpleArchiveLoaded) {
-        downloads.filter { row -> simpleArchiveLoaded && !isSimplyArchived(row) }.filter { row ->
-            visibilityGuard?.canOpen(row,null,emptyList()) == true ||
-            (row.id in nomediaHistoryIds && !row.hidden && !row.isPrivate &&
-                visibilityGuard?.let { guard ->
-                    !guard.policy.unknownPending &&
-                    guard.policy.pendingFolder == null &&
-                    guard.policy.snapshot.receipts.none { it.downloadId == row.id }
-                } == true) ||
-            folderRefsById[row.id]?.item?.savedUri == row.savedUri && row.savedUri != null
-        }.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
     }
     // Home renders only three recent entries; do not format the entire library on main.
     val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.take(3).map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
@@ -2827,6 +2825,18 @@ fun MediaLoaderApp(
                 }
             },
             LibraryRouteContent(AppDestination.Downloads.route) {
+                val downloadItems = remember(downloads, fileStatuses, visibilityGuard, folderRefs,nomediaHistoryIds,archivedRecords,simpleArchiveLoaded) {
+                    downloads.filter { row -> simpleArchiveLoaded && !isSimplyArchived(row) }.filter { row ->
+                        visibilityGuard?.canOpen(row,null,emptyList()) == true ||
+                        (row.id in nomediaHistoryIds && !row.hidden && !row.isPrivate &&
+                            visibilityGuard?.let { guard ->
+                                !guard.policy.unknownPending &&
+                                guard.policy.pendingFolder == null &&
+                                guard.policy.snapshot.receipts.none { it.downloadId == row.id }
+                            } == true) ||
+                        folderRefsById[row.id]?.item?.savedUri == row.savedUri && row.savedUri != null
+                    }.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
+                }
                 DownloadsScreen(
                     onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.DOWNLOADER) },
                     onOpenSimpleArchive = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
