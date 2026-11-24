@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import com.domenota.medialoader.ui.screens.ZoomablePhoto
+import com.domenota.medialoader.ui.components.DuplicateActionTrace
 import com.domenota.medialoader.ui.components.DuplicateScanPanel
 import com.domenota.medialoader.ui.components.DuplicateResultFilterPolicy
 import com.domenota.medialoader.ui.components.DuplicateJournalDialog
@@ -231,6 +232,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         else if(!status.running && shown==null) Text("Область поиска: ${if(catalog.source==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"}",style=MaterialTheme.typography.bodySmall)
         if(status.running){
+            DuplicateActionTrace("gallery", "pause", !status.committing, if(status.committing) "commit" else "none")
+            DuplicateActionTrace("gallery", "stop", !status.committing, if(status.committing) "commit" else "none")
             Text(status.partial?.scopeLabel ?: DuplicateFolderScope.label(VisualDuplicateBackgroundScan.resumeScope(context)),
                 style=MaterialTheme.typography.bodySmall)
             DuplicateScanPanel(status.phase,status.done,status.total,status.startedAt,status.phaseStartedAt,false,partial?.groups?.size?:0,exactBytes(partial?.groups.orEmpty()))
@@ -247,6 +250,28 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             val canStart=ready&&phonePermission&&loaded&&!saving&&trash==null&&catalog.scan.isNotEmpty()
             val canShow=loaded&&phonePermission&&!saving&&trash==null&&
                 (session?.result?.privacyEpoch==privacyEpoch||partial!=null)
+            val startBlocker = when {
+                !phonePermission -> "permission"
+                !ready -> "catalog_not_ready"
+                !loaded -> "checkpoint_restore"
+                saving -> "checkpoint_write"
+                trash != null -> "trash"
+                catalog.scan.isEmpty() -> "empty_catalog"
+                else -> "none"
+            }
+            DuplicateActionTrace("gallery", if(shown!=null) "new_search" else if(stopped) "resume" else "start",
+                canStart, startBlocker)
+            if(shown==null && stopped) {
+                val resultsBlocker = when {
+                    !phonePermission -> "permission"
+                    !loaded -> "checkpoint_restore"
+                    saving -> "checkpoint_write"
+                    trash != null -> "trash"
+                    !canShow -> "missing_current_epoch_report"
+                    else -> "none"
+                }
+                DuplicateActionTrace("gallery", "results", canShow, resultsBlocker)
+            }
             val openResults:()->Unit={
                 if(session==null&&partial!=null)showPartial=true
                 else if(!actionsReady){
