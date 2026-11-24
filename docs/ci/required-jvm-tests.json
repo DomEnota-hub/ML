@@ -5455,6 +5455,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#clearCompletedGalleryJournalKeepsPartialMusicAndMedia": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#confirmedTrashPreservesLatestSelectionAndPosition": {
     "skipped": false,
     "failed": false
@@ -5464,6 +5468,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#deleteSingleGalleryReportNeverResurrectsFromLateSaveOrScroll": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#fullJournalResetRequiresExplicitPartialFlag": {
     "skipped": false,
     "failed": false
   },
@@ -5483,6 +5491,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#replacingPartialRequiresIdleMatchingTokenAndEpochAndKeepsCompleted": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#roundTrip": {
     "skipped": false,
     "failed": false
@@ -5492,6 +5504,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#singletonRemovedFromResults": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.VisualDuplicateSessionTest#staleServiceWriterCannotRecreateDiscardedCheckpoint": {
     "skipped": false,
     "failed": false
   },
@@ -9491,6 +9507,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.gallery.VisualDuplicateStoppedPanelTest#newSearchDoesNotDependOnResumeAvailability": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.gallery.VisualDuplicateStoppedPanelTest#pendingAndZeroPartialReportsCannotOpenButPositiveCan": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.gallery.VisualDuplicateStoppedPanelTest#readyStateIsCompactAndDoesNotStartScanningBeforeExplicitTap": {
     "skipped": false,
     "failed": false
@@ -9500,6 +9524,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.gallery.VisualDuplicateStoppedPanelTest#stoppedStateShowsActualSavedCountWhenAvailable": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.gallery.VisualDuplicateStoppedScreenTest#pausedPartialOpensReadOnlyAndKeepsCompletedReportSeparate": {
     "skipped": false,
     "failed": false
   },
