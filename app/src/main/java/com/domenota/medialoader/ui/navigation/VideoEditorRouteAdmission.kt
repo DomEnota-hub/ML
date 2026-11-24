@@ -24,3 +24,13 @@ internal object VideoEditorRouteAdmissionPolicy {
         else -> VideoEditorRouteAdmission.EXIT
     }
 }
+
+/** An asynchronous visibility restore must not open an editor from a stale
+ * viewer entry or stack another player/editor while the first request is active. */
+internal object EditorOpenRequestPolicy {
+    fun canBegin(originEntryId:String?, originIsEditor:Boolean, inFlight:Boolean):Boolean =
+        originEntryId!=null && !originIsEditor && !inFlight
+
+    fun canCommit(originEntryId:String?, activeEntryId:String?):Boolean =
+        originEntryId!=null && originEntryId==activeEntryId
+}
