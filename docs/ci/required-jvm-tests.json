@@ -7483,6 +7483,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.LibraryValidationGateTest#cumulativeFullGrantPagesAndFinalSnapshotDoNotBlankValidatedIndex": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.LibraryValidationGateTest#drawerNavigationNeverRescansCompleteCatalogUnlessAccessOrValidationRequiresIt": {
     "skipped": false,
     "failed": false
@@ -7512,6 +7516,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.LibraryValidationGateTest#mediaStoreNotificationsRefreshOnlyTheRelevantLibrary": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.LibraryValidationGateTest#missingPhoneVisualWaitsForCompleteMatchingGenerationNotOnlyLoadedProjection": {
     "skipped": false,
     "failed": false
   },

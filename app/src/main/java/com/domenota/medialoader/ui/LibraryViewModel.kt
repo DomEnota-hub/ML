@@ -229,6 +229,28 @@ internal fun canBootstrapPhoneDuringTransfer(reason: PhoneScanReason, recovering
         !guard.policy.unknownPending && guard.policy.pendingFolder != null &&
         (!state.loaded || !state.complete || changedAccess || invalidated || selectedOnly)
 
+/** A progressive scan has already checked the same permission signature and
+ * private keys before each cumulative page. The first page of a new epoch
+ * still needs its canonical index. Subsequent pages must not revoke that
+ * epoch's already admitted index just because their revision advanced.
+ * Selected-only grants have no progressive publication and never use this path. */
+internal fun mayRetainProgressivePhoneIndex(
+    previous: PhoneLibraryState, accessEpoch: Long, selectedOnly: Boolean,
+): Boolean = !selectedOnly && previous.loaded && previous.loading &&
+    !previous.complete && previous.message == null && previous.accessEpoch == accessEpoch
+
+/** A missing exact phone visual is not a negative result until the relevant
+ * scan and its canonical index have caught up. A failed scan is distinct
+ * from a completed scan that proved absence. Never admit a stale locator. */
+internal fun phoneVisualResolutionPending(id: String?, gallery: PhoneLibraryState,
+    index: LibraryIndex, rowsReady: Boolean, aliasesReady: Boolean): Boolean {
+    if (id?.startsWith("phone:") != true || id.startsWith("phone:audio:")) return false
+    return !gallery.loaded || gallery.loading ||
+        (!gallery.complete && gallery.message == null) || !index.ready ||
+        index.galleryAccessEpoch != gallery.accessEpoch ||
+        index.galleryRevision != gallery.revision || !rowsReady || !aliasesReady
+}
+
 /** Retained editor references are not validated public display data until this snapshot lands. */
 internal fun phoneValidationPending(index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState): Boolean =
     index.galleryAccessEpoch != gallery.accessEpoch || index.musicAccessEpoch != music.accessEpoch ||
@@ -1152,9 +1174,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan started · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch · retained=${previous?.items?.size ?: 0}")
                 val progress: (suspend (PhoneMediaSnapshot) -> Unit)? = if (blocking && !partial) { { partialSnapshot ->
                     if (blocking && !partial && stillAllowed() && (!bootstrapDuringTransfer || !state.value.loaded)) {
+                        val retainAdmittedIndex = mayRetainProgressivePhoneIndex(state.value, accessEpoch, partial)
                         state.value = PhoneLibraryState(items = partialSnapshot.items, identities = partialSnapshot.identities,
                             fingerprints = partialSnapshot.fingerprints, loaded = true, loading = true,
-                            revision = ++revision, requiresValidation = true, accessEpoch = accessEpoch)
+                            revision = ++revision, requiresValidation = !retainAdmittedIndex, accessEpoch = accessEpoch)
                         // A large library can publish progress every second; serializing
                         // 11k+ entries to JSON on *every* update stalls the cursor.
                         // Keep first-page recovery, then bounded checkpoints; the final
@@ -1186,7 +1209,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     if (existing.loading || existing.message != null || existing.requiresValidation) state.value = existing.copy(loading=false,message=null,requiresValidation=false)
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone snapshot unchanged · mode=$mode")
                 } else state.value = PhoneLibraryState(items = snapshot.items, identities = snapshot.identities,
-                    fingerprints = snapshot.fingerprints, loaded = true, complete = true, revision = revision + 1, requiresValidation = blocking && !bootstrapDuringTransfer, accessEpoch = accessEpoch)
+                    fingerprints = snapshot.fingerprints, loaded = true, complete = true, revision = revision + 1, requiresValidation = blocking && !bootstrapDuringTransfer &&
+                        !mayRetainProgressivePhoneIndex(existing, accessEpoch, partial), accessEpoch = accessEpoch)
                 storeStamps[mode] = stamp
                 refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
                 if (!bootstrapDuringTransfer && !partial && (!unchanged || previousStamp != stamp)) try { phoneCache.write(mode, accessKey, privacy, stamp, snapshot) }

@@ -3277,14 +3277,20 @@ fun MediaLoaderApp(
                         ?: accessibleDownloads.firstOrNull { it.id == downloadId }
                 if (item == null || item.savedUri == null) {
                     if (!privateViewer &&
-                        ((!collectionViewer && awaitingPhone(downloadId)) || (visualRoute &&
+                        ((!collectionViewer && (if (visualRoute)
+                            phoneVisualResolutionPending(currentGalleryId, phoneGallery, libraryIndex,
+                                indexedLibraryProjection.ready, libraryAliasProjection.ready)
+                            else awaitingPhone(downloadId))) || (visualRoute &&
                             ((selectedHistoryRow != null && !addressFinished) || libraryPrivateKeys == null || (collectionViewer && scopedCatalog == null && scopeGuard != null && !scopedProjection.ready))))) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
                     }
                     else LaunchedEffect(currentGalleryId) {
-                        if (!privateViewer) AppNotice.post(context, "Выбранный файл недоступен")
+                        if (!privateViewer) AppNotice.post(context,
+                            if (visualRoute && currentGalleryId?.startsWith("phone:") == true && phoneGallery.message != null)
+                                phoneGallery.message ?: "Не удалось проверить доступность файла"
+                            else "Выбранный файл недоступен")
                         navController.popBackStack()
                     }
                 } else {
