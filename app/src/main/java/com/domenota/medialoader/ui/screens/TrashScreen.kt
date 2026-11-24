@@ -177,10 +177,13 @@ fun TrashScreen(
                 tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 3.dp) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = {
-                            selected = if (selected.size == allItems.size) emptySet()
-                            else allItems.mapTo(mutableSetOf()) { it.id }
-                        }) { Text(if (selected.size == allItems.size) "Снять выделение" else "Выбрать всё") }
+                        androidx.compose.material3.OutlinedButton(onClick = {
+                            selected = if (selected.intersect(visibleIds) == visibleIds) emptySet()
+                            else visibleIds.toSet()
+                        }, border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)) {
+                            Text(if (selected.intersect(visibleIds) == visibleIds) "Снять выделение" else "Выбрать всё")
+                        }
                         Spacer(Modifier.weight(1f))
                         Text("Выбрано: ${selected.size}", style = MaterialTheme.typography.bodySmall)
                     }

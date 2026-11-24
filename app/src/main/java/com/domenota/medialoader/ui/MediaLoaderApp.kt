@@ -3682,7 +3682,7 @@ fun MediaLoaderApp(
             else MaterialTheme.colorScheme.background,
         contentWindowInsets = when {
             currentRoute in setOf("music-duplicates", "visual-duplicates", "batch-photo-editor") -> WindowInsets.safeDrawing
-            fullBleedGalleryViewer || currentRoute == "collections" -> WindowInsets(0, 0, 0, 0)
+            fullBleedGalleryViewer || currentRoute in setOf("collections", "trash") -> WindowInsets(0, 0, 0, 0)
             galleryHomeOverlay -> WindowInsets.statusBars
             else -> ScaffoldDefaults.contentWindowInsets
         },

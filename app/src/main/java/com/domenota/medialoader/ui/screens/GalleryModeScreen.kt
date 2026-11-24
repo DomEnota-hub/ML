@@ -370,21 +370,35 @@ internal fun GalleryModeScreen(
         onRestore=onArchiveRestore,
     ) else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (selecting) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+        var selectionMenu by remember { mutableStateOf(false) }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             IconButton({ selectedIds = arrayListOf() }) { Icon(Icons.Rounded.Close, "Отменить выбор") }
-            Text("Выбрано: ${selectedIds.size}", Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            IconButton({ selectedIds = if (selectedIds.size == queue.size) arrayListOf() else ArrayList(queue) }) {
-                Icon(Icons.Rounded.SelectAll, "Выбрать все")
-            }
-            if(onAddCollection!=null) IconButton({ onAddCollection(queue.filter { it in selectedSet }) }) {
-                Icon(Icons.Rounded.CollectionsBookmark, "Добавить в коллекцию")
-            }
-            IconButton({ moveSnapshot = orderedDisplayed.filter { it.id in selectedSet } }) {
-                Icon(Icons.Rounded.DriveFileMove, "Переместить выбранные в альбом")
+            Text("${selectedIds.size}", Modifier.weight(1f).semantics {
+                contentDescription = "Выбрано: ${selectedIds.size}"
+            }, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (onSimpleArchive != null) IconButton(
+                onClick = { onSimpleArchive(queue.filter { it in selectedSet }) },
+                enabled = gridReady && queue.any { it in selectedSet },
+                modifier = Modifier.testTag("gallery-selected-archive")) {
+                com.domenota.medialoader.ui.components.ArchiveActionIcon("В архив", tint = MaterialTheme.colorScheme.primary)
             }
             IconButton({ onDeleteSelected?.invoke(queue.filter { it in selectedSet }) }, enabled = onDeleteSelected != null) {
                 Icon(Icons.Rounded.Delete, "Удалить выбранное", tint = MaterialTheme.colorScheme.error)
+            }
+            Box {
+                IconButton({ selectionMenu = true }) { Icon(Icons.Rounded.MoreVert, "Действия с выбранными") }
+                DropdownMenu(expanded = selectionMenu, onDismissRequest = { selectionMenu = false }) {
+                    DropdownMenuItem(text = { Text(if (selectedIds.size == queue.size) "Снять выбор" else "Выбрать все") },
+                        onClick = { selectionMenu = false; selectedIds = if (selectedIds.size == queue.size) arrayListOf() else ArrayList(queue) },
+                        leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
+                    if (onAddCollection != null) DropdownMenuItem(text = { Text("Добавить в коллекцию") },
+                        onClick = { selectionMenu = false; onAddCollection(queue.filter { it in selectedSet }) },
+                        leadingIcon = { Icon(Icons.Rounded.CollectionsBookmark, null) })
+                    DropdownMenuItem(text = { Text("Переместить выбранные в альбом") },
+                        onClick = { selectionMenu = false; moveSnapshot = orderedDisplayed.filter { it.id in selectedSet } },
+                        leadingIcon = { Icon(Icons.Rounded.DriveFileMove, null) })
+                }
             }
         }
         val batchPhotos=orderedDisplayed.filter { it.id in selectedSet && it.mediaType==MediaType.PHOTO && !it.isPrivate && !it.hidden && it.savedUri!=null }
@@ -751,17 +765,6 @@ internal fun GalleryModeScreen(
         }
         Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
             .onSizeChanged { galleryOverlayHeightPx = it.height }.zIndex(6f)) {
-            if (selecting && onSimpleArchive != null) Surface(color = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 5.dp, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { onSimpleArchive(queue.filter { it in selectedSet }) },
-                        modifier = Modifier.testTag("gallery-selected-archive")) {
-                        com.domenota.medialoader.ui.components.ArchiveActionIcon(null)
-                        Spacer(Modifier.width(6.dp)); Text("В архив")
-                    }
-                }
-            }
             if (!detailOpen && !selecting) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
         }
         }
