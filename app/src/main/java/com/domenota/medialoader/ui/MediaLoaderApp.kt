@@ -2550,7 +2550,9 @@ fun MediaLoaderApp(
                 }
                 val galleryGranted=hasPhoneLibraryAccess(context,AppMode.GALLERY)
                 val musicGranted=hasPhoneLibraryAccess(context,AppMode.MUSIC)
+                var favoriteMutationBusy by remember{mutableStateOf(false)}
                 com.domenota.medialoader.ui.screens.UnifiedFavoritesScreen(
+                    drawerBusy=favoriteMutationBusy,
                     rows=favorites.value,ready=ready&&favorites.usable,
                     loading=phoneGallery.loading||phoneMusic.loading||!favorites.ready,
                     galleryAccess=galleryGranted,musicAccess=musicGranted,
@@ -2561,13 +2563,19 @@ fun MediaLoaderApp(
                         if(currentFavorite(id)!=null)openDownloadWithQueue(id,ids.filter{currentFavorite(it)!=null})
                         else AppNotice.post(context,"Файл недоступен")
                     },
-                    onRemove={id->fileActionScope.launch{
-                        try{
-                            check(currentFavorite(id)!=null){"Файл недоступен"}
-                            setLibraryFavorite(id,false)
-                        }catch(e:CancellationException){throw e}
-                        catch(_:Exception){AppNotice.post(context,"Не удалось изменить избранное")}
-                    }})
+                    onRemove={id->
+                        if(!favoriteMutationBusy){
+                            favoriteMutationBusy=true
+                            fileActionScope.launch{
+                                try{
+                                    check(currentFavorite(id)!=null){"Файл недоступен"}
+                                    setLibraryFavorite(id,false)
+                                }catch(e:CancellationException){throw e}
+                                catch(_:Exception){AppNotice.post(context,"Не удалось изменить избранное")}
+                                finally{favoriteMutationBusy=false}
+                            }
+                        }
+                    })
             },
             LibraryRouteContent(MUSIC_SEARCH_ROUTE) {
                 com.domenota.medialoader.ui.components.DirectMusicSearchScreen { navController.popBackStack() }
@@ -3630,13 +3638,19 @@ fun MediaLoaderApp(
     }
     val drawerImeVisible=WindowInsets.ime.getBottom(LocalDensity.current)>0
     val drawerLifecycle=backStackEntry?.lifecycle?.currentStateFlow?.collectAsState()?.value
+    val drawerCheckingAccess=when(currentRoute){
+        PRIVATE_ROUTE,SIMPLE_ARCHIVE_ROUTE,FAVORITES_ROUTE,"collections"->false
+        "music-duplicates",AppDestination.Settings.route->visibleLibraryValidationPending(AppMode.MUSIC,libraryIndex,phoneGallery,phoneMusic)
+        else->checkingPhoneAccess
+    }
     val drawerBlocked= !drawerWindowFocused || drawerImeVisible ||
-        drawerLifecycle!=Lifecycle.State.RESUMED || checkingPhoneAccess ||
+        drawerLifecycle!=Lifecycle.State.RESUMED || drawerCheckingAccess ||
         showPicker || showNameDialog || usedLinkPrompt!=null ||
         preview.duplicateMatches.isNotEmpty() ||
         recognitionProposal?.let{proposal->downloads.any{it.id==proposal.downloadId}}==true ||
         trackRecognitionTarget!=null ||
-        privateNavigation || privateMoveBusy || pendingDeleteRecords.isNotEmpty() || albumTrash!=null ||
+        !com.domenota.medialoader.ui.navigation.drawerPrivateContextAllowed(currentRoute,privateNavigation,privateState.unlocked) ||
+        privateMoveBusy || pendingDeleteRecords.isNotEmpty() || albumTrash!=null ||
         hiddenMusicTracksOpen || editorOpenInFlight || visibilityBusy || nomediaBusy ||
         nomediaPickerShowFolder!=null || androidApprovalTicket!=null ||
         archiveQaRestoreId!=null || visibilityRestoreConsent!=null ||
@@ -3646,12 +3660,13 @@ fun MediaLoaderApp(
         if(appMode!=mode)selectAppMode(mode,true)
         com.domenota.medialoader.ui.navigation.returnDrawerHome(navController)
     }
-    MediaNavigationDrawer(
-        identity=drawerIdentity,
-        allowed=drawerAllowed(currentRoute,appMode,drawerAdmission.admitted,drawerBlocked),
-        active=drawerActiveEntry(currentRoute,appMode),
-        available=drawerAvailableEntries(journalUnlocked),journalUnlocked=journalUnlocked,
-        onSelect={entry->
+    fun navigateDrawerEntry(entry:DrawerEntry){
+        if(currentRoute==PRIVATE_ROUTE){
+            if(!viewModel.privateAccess.state.value.unlocked||entry==DrawerEntry.PRIVATE)return
+            viewModel.privateAccess.lock()
+            pendingPrivateMoves=emptyList()
+            returnAfterPrivateSetup=false
+        }
             when(entry){
                 DrawerEntry.HOME->openDrawerHome(AppMode.DOWNLOADER)
                 DrawerEntry.DOWNLOADS->{
@@ -3682,6 +3697,20 @@ fun MediaLoaderApp(
                     navController.navigate(AppDestination.Settings.route){launchSingleTop=true}
                 }
             }
+    }
+    MediaNavigationDrawer(
+        identity=drawerIdentity,
+        allowed=drawerAllowed(currentRoute,appMode,drawerAdmission.admitted,drawerBlocked),
+        active=drawerActiveEntry(currentRoute,appMode),
+        available=drawerAvailableEntries(journalUnlocked),journalUnlocked=journalUnlocked,
+        onSelect={entry->
+            if(currentRoute=="music-duplicates"){
+                val owner=backStackEntry?.id
+                fileActionScope.launch{
+                    if(drawerAdmission.prepareNavigation()&&owner!=null&&navController.currentBackStackEntry?.id==owner)
+                        navigateDrawerEntry(entry)
+                }
+            }else navigateDrawerEntry(entry)
         }
     ){
     Scaffold(
@@ -3778,6 +3807,8 @@ fun MediaLoaderApp(
             startDestination = AppDestination.Home.route,
             modifier = Modifier.fillMaxSize(),
             routes = libraryRoutes,
+            drawerAdmission = drawerAdmission,
+            drawerEntryId = backStackEntry?.id,
         )
         }
         val noticeExtra = when {
