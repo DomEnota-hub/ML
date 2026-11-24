@@ -698,7 +698,15 @@ internal fun LocalVideoPlayer(
             lifecycleOwner.lifecycle.removeObserver(observer)
             player.removeListener(listener)
             notifyGestureOwnership(false)
-            player.release()
+            val releaseStarted = android.os.SystemClock.elapsedRealtime()
+            var releaseCompleted = false
+            try {
+                player.release()
+                releaseCompleted = true
+            } finally {
+                AppLog.i("VideoPlayer", "PLAYER_RELEASE_FINISHED session=$playerSession success=$releaseCompleted" +
+                    " durationMs=${android.os.SystemClock.elapsedRealtime()-releaseStarted}")
+            }
         }
     }
 
