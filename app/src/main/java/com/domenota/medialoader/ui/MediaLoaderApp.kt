@@ -445,6 +445,8 @@ fun MediaLoaderApp(
         }
     }
     val toggleFolderVisibility:suspend (String,Boolean)->Unit={ folder,hidden ->
+        // QA226: physical hiding is retired. Only verified legacy restoration remains.
+        check(!hidden) { "Новые операции выполняются через Архив ML" }
         check(!nomediaBusy && nomediaPickerPlan==null && nomediaPickerShowFolder==null &&
             !nomediaSnapshot.unknown) { "Действие уже выполняется или реестр требует проверки" }
         check(folder !in (visibilityGuard?.policy?.snapshot?.hiddenFolders.orEmpty()) &&
@@ -2596,7 +2598,7 @@ fun MediaLoaderApp(
                     archiveRecovery=archiveQaEntries,
                     archiveBusy=archiveQaBusy, archiveError=archiveQaError,
                     onArchiveRefresh=::refreshArchiveQa,
-                    onArchivePreview=previewSelectiveArchive,
+                    onArchivePreview=null, // Legacy recovery only; never start a new physical archive.
                     onArchiveRestore=restoreSelectiveArchive,
                     source = librarySource, loading = !galleryBrowse.usable || !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneGallery.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneGallery.message else null,
