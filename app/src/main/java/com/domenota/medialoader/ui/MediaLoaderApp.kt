@@ -2751,11 +2751,24 @@ fun MediaLoaderApp(
                         TextButton({ navController.popBackStack() }) { Text("Назад") }
                         Text("Загрузка музыкальной библиотеки…")
                     }
-                } else com.domenota.medialoader.ui.screens.music.MusicDuplicatesDialog(
-                    libraryAudioItems, libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +
-                        playlists.flatMap { it.trackIds } + publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
-                    currentLibraryAudioId, libraryAudioState.playing,
-                    onDismiss = { navController.popBackStack() }, onTrash = trashDuplicates)
+                } else {
+                    val profiles by libraryModel.equalizerProfiles.collectAsStateWithLifecycle()
+                    // Build the profile key index once per input generation instead of
+                    // scanning every EQ profile for every media reference on each tick.
+                    val linkedIds = remember(libraryCatalogAssignments,playlists,publicLibraryRefs,profiles) {
+                        val profileKeys=profiles?.tracks.orEmpty().flatMapTo(hashSetOf<String>()){it.keys}
+                        buildSet<String> {
+                            libraryCatalogAssignments.forEach { if(it.folderId!=null||it.isFavorite)add(it.downloadId) }
+                            playlists.forEach { addAll(it.trackIds) }
+                            publicLibraryRefs.forEach { ref ->
+                                if("id:${ref.key}" in profileKeys || ref.aliases.any { it in profileKeys })add(ref.key)
+                            }
+                        }
+                    }
+                    com.domenota.medialoader.ui.screens.music.MusicDuplicatesDialog(
+                        libraryAudioItems, linkedIds, currentLibraryAudioId, libraryAudioState.playing,
+                        onDismiss = { navController.popBackStack() }, onTrash = trashDuplicates)
+                }
             },
             LibraryRouteContent("equalizer") {
                 val profiles by libraryModel.equalizerProfiles.collectAsStateWithLifecycle()
