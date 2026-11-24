@@ -32,19 +32,20 @@ internal class SimpleArchiveStore(context: Context) {
         mutex.withLock { read().also { current.value = it } }
     }
 
-    suspend fun archive(rows: List<DownloadEntity>, source: ArchiveEntrySource): List<SimpleArchiveRecord> =
+    suspend fun archive(rows: List<DownloadEntity>, source: ArchiveEntrySource,
+        group: SimpleArchiveGroup? = null): List<SimpleArchiveRecord> =
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 require(rows.isNotEmpty()) { "Не выбраны файлы" }
                 val now = System.currentTimeMillis()
-                val selected = rows.distinctBy { it.id }.map { row ->
+                val selected = rows.map { row ->
                     check(!row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED) {
                         "Недоступный или приватный файл нельзя отправить в обычный Архив"
                     }
                     val uri = row.savedUri?.takeIf(String::isNotBlank)
                         ?: error("У файла нет подтверждённого адреса")
                     SimpleArchiveRecord(row.id, uri, row.mediaType,
-                        row.originalName.ifBlank { "Файл" }, source, row.sizeBytes, now)
+                        row.originalName.ifBlank { "Файл" }, source, row.sizeBytes, now, group)
                 }
                 val next = SimpleArchivePolicy.archive(read(), selected)
                 persist(next)
@@ -91,6 +92,11 @@ internal class SimpleArchiveStore(context: Context) {
                     source = ArchiveEntrySource.valueOf(item.getString("source")),
                     fileSizeBytes = if (item.isNull("fileSizeBytes")) null else item.getLong("fileSizeBytes"),
                     archivedAtMillis = item.getLong("archivedAtMillis"),
+                    group = if (!item.has("group") || item.isNull("group")) null else
+                        item.getJSONObject("group").let { group ->
+                            SimpleArchiveGroup(SimpleArchiveGroupKind.valueOf(group.getString("kind")),
+                                group.getString("key"), group.getString("name"))
+                        },
                 )
             }
             check(rows.map { it.catalogId }.distinct().size == rows.size) {
@@ -111,7 +117,10 @@ internal class SimpleArchiveStore(context: Context) {
                 .put("displayName", item.displayName)
                 .put("source", item.source.name)
                 .put("fileSizeBytes", item.fileSizeBytes ?: JSONObject.NULL)
-                .put("archivedAtMillis", item.archivedAtMillis)) }
+                .put("archivedAtMillis", item.archivedAtMillis)
+                .put("group", item.group?.let { group -> JSONObject()
+                    .put("kind", group.kind.name).put("key", group.key).put("name", group.name)
+                } ?: JSONObject.NULL)) }
         })
         val stream = file.startWrite()
         try {
