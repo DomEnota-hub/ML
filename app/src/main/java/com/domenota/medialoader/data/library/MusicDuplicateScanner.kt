@@ -122,7 +122,16 @@ internal object MusicDuplicateScanner {
         val cacheKey=value+if(expanded)"#full" else "#sampled"
         val old = metrics.measure("checkpoint_read"){
             synchronized(cache) { cache[cacheKey] } ?: loadCheckpoint(context,value,before,expanded)
-                ?: if(expanded)loadCheckpoint(context,value,before,false)?.let{Cached(it.stamp,it.track.copy(acoustic=null))} else null
+                ?: if(before.modified != null) {
+                    val alternateKey = value + if(expanded) "#sampled" else "#full"
+                    val alternate = synchronized(cache) { cache[alternateKey] }
+                    val metadata = alternate?.track?.let {
+                        MusicMetadataCheckpointPolicy.forOtherMode(it,value,before.size,before.modified,before.folder,epoch,row.originalName)
+                    } ?: loadCheckpoint(context,value,before,!expanded)?.track?.let {
+                        MusicMetadataCheckpointPolicy.forOtherMode(it,value,before.size,before.modified,before.folder,epoch,row.originalName)
+                    }
+                    metadata?.let { metrics.hit("metadata_other_mode_cache"); Cached(before,it) }
+                } else null
         }
         if (before.modified != null && old != null && old.stamp == before && old.track.privacyEpoch == epoch && old.track.filename == row.originalName) { metrics.hit("metadata_cache"); return old.track.copy(id = row.id, linked = linked, current = current,
             title = row.recognizedTitle ?: row.sourceAudioTitle ?: old.track.title, artist = row.recognizedArtist ?: row.sourceAudioArtist ?: old.track.artist) }
