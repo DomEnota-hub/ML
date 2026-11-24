@@ -1813,7 +1813,8 @@ fun MediaLoaderApp(
     // Home renders only three recent entries; do not format the entire library on main.
     val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.take(3).map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
 
-    fun archiveSelection(ids: List<String>, source: ArchiveEntrySource) {
+    fun archiveSelection(ids: List<String>, source: ArchiveEntrySource,
+        group: com.domenota.medialoader.data.archive.SimpleArchiveGroup? = null) {
         if (!simpleArchiveLoaded || simpleArchiveBusy || ids.isEmpty()) return
         val requested = ids.distinct()
         val rows = requested.mapNotNull { id ->
@@ -1828,14 +1829,43 @@ fun MediaLoaderApp(
             try {
                 check(rows.all { row -> !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED &&
                     libraryModel.visibilityGuard.value?.canOpen(row, null, emptyList()) == true }) { "Выбранные файлы недоступны" }
-                val next = simpleArchive.archive(rows, source)
+                for (row in rows.distinctBy { it.savedUri }) {
+                    check(libraryModel.verifyVisibilityOpen(row, null) &&
+                        withContext(Dispatchers.IO) { availabilityCache.get(row.savedUri, fresh = true) } == SavedFileStatus.PRESENT) {
+                        "Выбранные файлы недоступны"
+                    }
+                }
+                check(rows.all { libraryModel.visibilityGuard.value?.canOpen(it, null, emptyList()) == true }) {
+                    "Доступ к выбранным файлам изменился"
+                }
+                val next = simpleArchive.archive(rows, source, group)
                 com.domenota.medialoader.data.playback.AudioPlaybackService.removeArchivedFromQueue(
                     next.filter { it.mediaType == MediaType.AUDIO }.map { it.savedUri })
-                AppNotice.post(context, "В архиве: ${rows.size}")
+                AppNotice.post(context, "В архиве: ${rows.mapNotNull { it.savedUri }.distinct().size}")
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { simpleArchiveError = e.message ?: "Не удалось добавить в Архив"; AppNotice.post(context, simpleArchiveError.orEmpty()) }
             finally { simpleArchiveBusy = false }
         }
+    }
+
+    fun archiveVirtualFolder(folderId: String, source: ArchiveEntrySource) {
+        val folder = viewModel.catalogFolders.value.firstOrNull { it.id == folderId }
+        if (folder == null || folderId in visibilityFolders || !publicIndexAllowed ||
+            !catalogAssignmentProjection.ready) {
+            AppNotice.post(context, "Состав папки недоступен")
+            return
+        }
+        val memberIds = viewModel.catalogAssignments.value.filter { it.folderId == folderId }.map { it.downloadId }.toSet() +
+            libraryModel.externalCatalog.entries.value.filter { it.folderId == folderId }.map { it.ref.key }
+        val available = memberIds.filter { id ->
+            publicLibraryRefs.any { it.key == id || id in it.aliases } || publicDownloads.any { it.id == id }
+        }
+        if (available.isEmpty() || available.size != memberIds.size) {
+            AppNotice.post(context, "Состав папки не подтверждён полностью")
+            return
+        }
+        archiveSelection(available, source, com.domenota.medialoader.data.archive.SimpleArchiveGroup(
+            com.domenota.medialoader.data.archive.SimpleArchiveGroupKind.VIRTUAL_FOLDER, folder.id, folder.name))
     }
     fun navigateTo(route: String) {
         navController.navigate(route) {
@@ -2982,6 +3012,10 @@ fun MediaLoaderApp(
                 CompositionLocalProvider(LocalDrawerAdmission provides drawerAdmission.takeIf{currentRoute==AppDestination.Downloads.route}){
                 DownloadsScreen(
                     onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.DOWNLOADER) },
+                    onArchiveFolder = { archiveVirtualFolder(it, ArchiveEntrySource.DOWNLOADER) },
+                    onArchivePublication = { key, name, ids -> archiveSelection(ids, ArchiveEntrySource.DOWNLOADER,
+                        com.domenota.medialoader.data.archive.SimpleArchiveGroup(
+                            com.domenota.medialoader.data.archive.SimpleArchiveGroupKind.PUBLICATION, key, name)) },
                     onOpenSimpleArchive = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
                     items = downloadItems,
                     hiddenFolderIds = visibilityFolders,
