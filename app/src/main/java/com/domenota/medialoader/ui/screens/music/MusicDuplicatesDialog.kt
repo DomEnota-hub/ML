@@ -377,8 +377,11 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         DuplicateActionTrace("music", "pause", !background.committing, if(background.committing) "commit" else "none")
         DuplicateActionTrace("music", "stop", !background.committing, if(background.committing) "commit" else "none")
     } else if(!scanning) {
-        if(displayPrevious==null || scanControlsExpanded) {
+        if(scanControlsExpanded || (displayPrevious==null && result==null)) {
             DuplicateActionTrace("music", "scan_controls", !verifying&&!clearingJournal, controlsBlocker)
+        }
+        if(displayPrevious==null && result!=null) {
+            DuplicateActionTrace("music", "new_search", !verifying&&!clearingJournal, controlsBlocker)
         }
         if(displayPrevious!=null && unfinished && partial!=null) {
             DuplicateActionTrace("music", "resume", !clearingJournal, if(clearingJournal) "journal_write" else "none")
