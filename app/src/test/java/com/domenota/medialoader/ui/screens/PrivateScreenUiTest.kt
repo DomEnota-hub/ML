@@ -85,7 +85,9 @@ class PrivateScreenUiTest {
         compose.waitUntil(10_000) { access.state.value.unlocked }
         compose.onNodeWithText(secretName).assertIsDisplayed()
 
-        compose.onNodeWithContentDescription("Заблокировать личное").performClick()
+        compose.onNodeWithContentDescription("Заблокировать личное").assertDoesNotExist()
+        // Exercise the same authorization revocation used by the root lifecycle observer.
+        compose.runOnIdle { access.lock() }
         compose.onNodeWithText("Введите PIN из 6 цифр").assertIsDisplayed()
         compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithContentDescription("Настройки личного").assertDoesNotExist()
@@ -142,7 +144,8 @@ class PrivateScreenUiTest {
         compose.onNodeWithText(secretName,useUnmergedTree=true).assertDoesNotExist()
         compose.onNodeWithText("Все",substring=false).performClick()
         compose.onNodeWithText(secretName).assertIsDisplayed()
-        compose.onNodeWithContentDescription("Заблокировать личное").performClick()
+        compose.onNodeWithContentDescription("Заблокировать личное").assertDoesNotExist()
+        compose.runOnIdle { access.lock() }
         compose.onNodeWithText("Музыка",substring=false).assertDoesNotExist()
         compose.onNodeWithText(secretName,useUnmergedTree=true).assertDoesNotExist()
     }

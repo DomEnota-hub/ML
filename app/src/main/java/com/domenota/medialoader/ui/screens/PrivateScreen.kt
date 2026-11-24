@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.automirrored.rounded.ViewList
@@ -65,7 +64,6 @@ fun PrivateScreen(
     var restoreTarget by remember { mutableStateOf<List<String>?>(null) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selecting by remember { mutableStateOf(false) }
-    var autoAuthenticate by rememberSaveable { mutableStateOf(true) }
     var expandedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
     var groupLimits by rememberSaveable { mutableStateOf(mapOf<String, Int>()) }
     val scope = rememberCoroutineScope()
@@ -137,11 +135,8 @@ fun PrivateScreen(
                     Icon(if (gridMode) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                         if (gridMode) "Показать списком" else "Показать сеткой")
                 }
-                IconButton(onClick = { settings = true; autoAuthenticate = true; access.lock() }, enabled = !busy && !externalBusy) {
+                IconButton(onClick = { settings = true; access.lock() }, enabled = !busy && !externalBusy) {
                     Icon(Icons.Rounded.Settings, "Настройки личного")
-                }
-                if (state.mode != PrivateAccessMode.NONE) IconButton(onClick = { autoAuthenticate = false; access.lock() }, enabled = !busy && !externalBusy) {
-                    Icon(Icons.Rounded.Lock, "Заблокировать личное")
                 }
             }
         }
@@ -152,7 +147,7 @@ fun PrivateScreen(
                 CircularProgressIndicator()
                 Text("Перемещаем файлы…", Modifier.padding(16.dp))
             }
-            !state.unlocked -> PrivateAccessGate(access, Modifier.weight(1f), autoAuthenticate = autoAuthenticate)
+            !state.unlocked -> PrivateAccessGate(access, Modifier.weight(1f))
             settings -> PrivateProtectionSettings(access, onDone = { settings = false })
             else -> Box(Modifier.weight(1f).fillMaxWidth()) {
                 @Composable fun fileRow(row: DownloadUiItem, modifier: Modifier = Modifier) {
