@@ -85,4 +85,27 @@ class VisualDuplicateStoppedPanelTest {
         compose.setContent{MaterialTheme{VisualDuplicateStoppedPanel(true,true,{},{},coverage)}}
         compose.onNodeWithText("Проверено: 33 из 100").assertIsDisplayed()
     }
+
+    @Test fun newSearchDoesNotDependOnResumeAvailability(){
+        var newSearches=0
+        compose.setContent{MaterialTheme{VisualDuplicateStoppedPanel(false,false,
+            {error("Cannot resume a different source")},{error("No results")},
+            onNew={newSearches++},canNew=true)}}
+        compose.onNodeWithText("Продолжить").assertIsNotEnabled()
+        compose.onNodeWithText("Результаты").assertIsNotEnabled()
+        compose.onNodeWithText("Новый поиск").assertIsEnabled().performClick()
+        assertEquals(1,newSearches)
+    }
+    @Test fun pendingAndZeroPartialReportsCannotOpenButPositiveCan(){
+        val count=androidx.compose.runtime.mutableStateOf<Int?>(null)
+        var opened=0
+        compose.setContent{MaterialTheme{VisualPartialResultCard(count.value,true){opened++}}}
+        compose.onNodeWithText("Проверяю результаты…").assertExists()
+        compose.onNodeWithTag("visual-open-partial").assertIsNotEnabled()
+        compose.runOnIdle{count.value=0}
+        compose.onNodeWithTag("visual-open-partial").assertIsNotEnabled()
+        compose.runOnIdle{count.value=1}
+        compose.onNodeWithTag("visual-open-partial").assertIsEnabled().performClick()
+        assertEquals(1,opened)
+    }
 }
