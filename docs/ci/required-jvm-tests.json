@@ -7479,6 +7479,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.LibraryValidationGateTest#mediaChangeBatchNeverDiscardsBusyOrUnknownMode": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.LibraryValidationGateTest#mediaStoreNotificationsRefreshOnlyTheRelevantLibrary": {
     "skipped": false,
     "failed": false

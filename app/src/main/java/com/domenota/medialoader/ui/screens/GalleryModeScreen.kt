@@ -274,7 +274,7 @@ internal fun GalleryModeScreen(
         val id = jumpToMedia ?: return@LaunchedEffect
         if (!detailOpen || tab != 0) return@LaunchedEffect
         val grouped = GalleryAlbumFileOrder.groupedByDate(albumFileSort)
-        val groups = if (grouped) dateSections.values.map { rows -> rows.map { it.id } } else listOf(orderedDisplayed.map { it.id })
+        val groups = if (grouped) grid?.dayIds?.values?.toList().orEmpty() else listOf(queue)
         val index = GalleryLibraryState.gridIndex(groups,id,grouped) ?: return@LaunchedEffect
         mediaGridState.scrollToItem(index)
         jumpToMedia = null; highlightedMedia = id
@@ -333,7 +333,7 @@ internal fun GalleryModeScreen(
     LaunchedEffect(selectedJumpDate, dateSections, tab, albumFileSort, detailOpen) {
         if (tab == 0 && (!detailOpen || GalleryAlbumFileOrder.groupedByDate(albumFileSort))) {
             selectedJumpDate?.let { chosen ->
-                galleryDateSectionIndex(dateSections.mapValues { it.value.size }, chosen)?.let {
+                galleryDateSectionIndex(grid?.daySizes.orEmpty(), chosen)?.let {
                     mediaGridState.animateScrollToItem(it)
                 }
             }

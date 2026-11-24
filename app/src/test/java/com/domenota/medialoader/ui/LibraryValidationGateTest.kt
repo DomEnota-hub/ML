@@ -341,4 +341,16 @@ class LibraryValidationGateTest {
         assertEquals(listOf(phone),guardedRetainedIndexRefs(raw.copy(galleryAccessEpoch=2),guard,emptySet(),fresh,PhoneLibraryState(),true))
     }
 
+
+    @Test fun mediaChangeBatchNeverDiscardsBusyOrUnknownMode(){
+        val both=phoneModesForMediaChange(null)
+        val pending=both.toMutableSet()
+        assertEquals(setOf(AppMode.MUSIC),readyPhoneMediaChanges(pending,setOf(AppMode.GALLERY)))
+        pending.removeAll(readyPhoneMediaChanges(pending,setOf(AppMode.GALLERY)))
+        assertEquals(setOf(AppMode.GALLERY),pending)
+        assertTrue(readyPhoneMediaChanges(pending,setOf(AppMode.GALLERY)).isEmpty())
+        pending+=phoneModesForMediaChange("content://media/external/audio/media/12")
+        assertEquals(both,readyPhoneMediaChanges(pending,emptySet()))
+        assertEquals(both,pending)
+    }
 }

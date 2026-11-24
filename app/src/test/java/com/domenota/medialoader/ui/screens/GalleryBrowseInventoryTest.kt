@@ -94,6 +94,7 @@ class GalleryBrowseInventoryTest {
         val key=GalleryGridKey("all","",false,0,GalleryAlbumFileSort.entries.first(),emptySet(),day,zone)
         val grid=browse.prepareGrid(key)
         assertEquals(setOf("a","b"),grid.dayIds.getValue(day).toSet())
+        assertEquals(mapOf(day to 2,day.minusDays(1) to 1),grid.daySizes)
         assertEquals(mapOf(day to 2,day.minusDays(1) to 1),grid.selectionCounts(setOf("a","b","c","missing")))
         assertTrue(grid.selectionCounts(emptySet()).isEmpty())
         assertSame(grid,grid.retainAllowed(key,browse::containsAddress))

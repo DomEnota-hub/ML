@@ -279,6 +279,11 @@ internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
     }
 }
 
+/** A busy gallery scan must not postpone audio reconciliation (and vice versa).
+ * Busy modes remain pending; consuming one batch never clears another mode. */
+internal fun readyPhoneMediaChanges(pending:Set<AppMode>,busy:Set<AppMode>):Set<AppMode> =
+    pending.filterTo(linkedSetOf()){it!=AppMode.DOWNLOADER&&it !in busy}
+
 /**
  * A ContentObserver callback can be redundant (e.g. provider/thumbnail metadata).
  * Only skip when the MediaStore generation AND version are unchanged, permission
@@ -920,11 +925,11 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             while(pendingMediaChanges.isNotEmpty()) {
                 kotlinx.coroutines.delay(500)
                 if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
-                val affected = pendingMediaChanges.toSet()
-                // Consume only after a scan finishes; events received during the
-                // join are folded into this reconciliation, not lost.
-                affected.forEach { jobs[it]?.join() }
-                if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
+                // Reconcile independently. A busy scan retains its pending
+                // notification; do not query the provider while every mode is busy.
+                val affected=readyPhoneMediaChanges(pendingMediaChanges,
+                    pendingMediaChanges.filterTo(mutableSetOf()){jobs[it]?.isActive==true})
+                if(affected.isEmpty())continue
                 pendingMediaChanges.removeAll(affected)
                 val loaded=affected.filter { mode ->
                     (if(mode==AppMode.GALLERY)galleryState else musicState).value.loaded

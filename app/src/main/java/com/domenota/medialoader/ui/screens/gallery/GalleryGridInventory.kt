@@ -18,6 +18,7 @@ internal data class GalleryGridInventory(val allVisible:List<DownloadEntity> = e
     val dateRange:GalleryDateRange?=null) {
     // Built once per grid generation, including a removal-only copy.
     val dayIds:Map<LocalDate,List<String>> = sections.mapValues { (_,rows)->rows.map{it.id} }
+    val daySizes:Map<LocalDate,Int> = dayIds.mapValues{it.value.size}
     private val dateById:Map<String,LocalDate> = buildMap {
         dayIds.forEach { (date,ids)->ids.forEach { put(it,date) } }
     }
