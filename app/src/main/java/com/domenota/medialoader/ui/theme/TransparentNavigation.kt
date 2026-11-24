@@ -8,7 +8,7 @@ import android.os.Build
 import android.view.Window
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
@@ -21,8 +21,12 @@ internal fun transparentNavigation(window: Window, dark: Boolean? = null) {
     window.navigationBarColor = Color.TRANSPARENT
     if (Build.VERSION.SDK_INT >= 28) window.navigationBarDividerColor = Color.TRANSPARENT
     if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
-    if (dark != null) WindowInsetsControllerCompat(window, window.decorView)
-        .isAppearanceLightNavigationBars = !dark
+    if (dark != null) {
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightNavigationBars = !dark
+            isAppearanceLightStatusBars = !dark
+        }
+    }
 }
 
 internal fun edgeToEdgeWindow(window: Window, dark: Boolean? = null) {
@@ -48,7 +52,12 @@ internal fun TransparentWindowNavigation() {
     val view = LocalView.current
     val dark = MaterialTheme.colorScheme.background.luminance() < .5f
     val window = (view.parent as? DialogWindowProvider)?.window ?: activity(view.context)?.window
-    SideEffect { window?.let { transparentNavigation(it, dark) } }
+    // Only update when the window/palette changes. A root recomposition must
+    // not overwrite an active immersive viewer or editor's own bar appearance.
+    DisposableEffect(window, dark) {
+        window?.let { transparentNavigation(it, dark) }
+        onDispose { }
+    }
 }
 
 private tailrec fun activity(context: Context): Activity? = when (context) {

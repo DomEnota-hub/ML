@@ -654,9 +654,9 @@ internal fun VisualDuplicateStoppedPanel(
             }
             coverage?.let{ Text("Проверено: ${it.checked} из ${it.total}",
                 color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall) }
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                CompactStoppedAction("Продолжить",canResume,true,onResume)
-                CompactStoppedAction("Результаты",canShowResults,false,onResults)
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                CompactStoppedAction("Продолжить",canResume,true,onResume,Modifier.weight(1f))
+                CompactStoppedAction("Результаты",canShowResults,false,onResults,Modifier.weight(1f))
             }
             onNew?.let{OutlinedButton(it,enabled=canNew,modifier=Modifier.fillMaxWidth()){Text("Новый поиск")}}
         }
@@ -678,15 +678,19 @@ internal fun VisualPartialResultCard(count:Int?,canOpen:Boolean,unavailable:Bool
 
 /** Keep both compact actions on a single row at narrow phone widths. */
 @Composable
-private fun CompactStoppedAction(label:String,enabled:Boolean,filled:Boolean,onClick:()->Unit){
+private fun CompactStoppedAction(label:String,enabled:Boolean,filled:Boolean,onClick:()->Unit,modifier:Modifier=Modifier){
     val scheme=MaterialTheme.colorScheme
-    Surface(onClick=onClick,enabled=enabled,shape=CircleShape,
+    Surface(onClick=onClick,modifier=modifier,enabled=enabled,shape=CircleShape,
         color=if(filled){if(enabled)scheme.primary else scheme.onSurface.copy(alpha=0.12f)} else Color.Transparent,
         contentColor=if(!enabled)scheme.onSurface.copy(alpha=0.38f) else if(filled)scheme.onPrimary else scheme.primary,
         border=if(filled)null else androidx.compose.foundation.BorderStroke(1.dp,
             if(enabled)scheme.outline else scheme.onSurface.copy(alpha=0.12f))){
-        Text(label,modifier=Modifier.padding(horizontal=10.dp,vertical=10.dp).widthIn(min=110.dp),
-            maxLines=1,softWrap=true,style=MaterialTheme.typography.labelSmall)
+        Box(Modifier.fillMaxWidth().heightIn(min=48.dp).padding(horizontal=10.dp,vertical=10.dp),
+            contentAlignment=Alignment.Center){
+            Text(label,modifier=Modifier.fillMaxWidth(),
+                textAlign=androidx.compose.ui.text.style.TextAlign.Center,
+                style=MaterialTheme.typography.labelSmall)
+        }
     }
 }
 

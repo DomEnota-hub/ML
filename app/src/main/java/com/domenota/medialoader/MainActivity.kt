@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         com.domenota.medialoader.core.logging.PerformanceLog.start()
-        com.domenota.medialoader.ui.theme.edgeToEdgeWindow(window)
+        com.domenota.medialoader.ui.theme.edgeToEdgeWindow(window, dark = com.domenota.medialoader.ui.theme.appThemeIsDark(this))
         val archivePrefs = getSharedPreferences("module_archive", MODE_PRIVATE)
         if (!archivePrefs.getBoolean("instagram_profile_disabled", false)) {
             val controller = InstagramProfileController(applicationContext)
