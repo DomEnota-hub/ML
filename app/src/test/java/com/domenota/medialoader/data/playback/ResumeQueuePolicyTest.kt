@@ -50,4 +50,19 @@ class ResumeQueuePolicyTest {
         assertEquals(saved,ResumeQueuePolicy.removeOccurrences(resolved,emptySet()))
         assertEquals(saved.shuffle,next.shuffle);assertEquals(saved.repeat,next.repeat)
     }
+    @Test fun membershipIgnoresSessionOrderAndPlaybackPositionButNotQueueChanges(){
+        val a=session("a");val b=session("b")
+        assertEquals(ResumeQueuePolicy.membership(listOf(a,b)),ResumeQueuePolicy.membership(listOf(b.copy(positionMs=8000),a)))
+        assertNotEquals(ResumeQueuePolicy.membership(listOf(a,b)),ResumeQueuePolicy.membership(listOf(a.copy(entries=a.entries.reversed()),b)))
+        assertNotEquals(ResumeQueuePolicy.membership(listOf(a,b)),ResumeQueuePolicy.membership(listOf(a.copy(occurrenceIds=a.occurrenceIds.reversed()),b)))
+    }
+    @Test fun rebindPreservesOnlyUnchangedQueuesAndTheirLatestPosition(){
+        val a=session("a");val b=session("b");val c=session("c")
+        val saved=listOf(a,b,c).map{ResolvedResumeQueue(it,listOf("a","b","c"))}
+        val recent=b.copy(positionMs=9000)
+        val edited=a.copy(entries=a.entries.reversed())
+        val result=ResumeQueuePolicy.rebindResolved(saved,listOf(recent,edited,session("new")))
+        assertEquals(listOf(ResolvedResumeQueue(recent,listOf("a","b","c"))),result)
+        assertTrue(ResumeQueuePolicy.rebindResolved(saved,emptyList()).isEmpty())
+    }
 }

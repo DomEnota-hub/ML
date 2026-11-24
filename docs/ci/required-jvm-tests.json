@@ -471,6 +471,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.MusicTraceWindowTest#aggregatesRapidEventsAndResumesAtBoundary": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.logging.PerfWorkCountersTest#aggregatesFixedCategoriesAndMaximum": {
     "skipped": false,
     "failed": false
@@ -6019,11 +6023,19 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.ResumeQueuePolicyTest#membershipIgnoresSessionOrderAndPlaybackPositionButNotQueueChanges": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.ResumeQueuePolicyTest#missingEntriesNeverChangeTheCurrentTrackSilently": {
     "skipped": false,
     "failed": false
   },
   "com.domenota.medialoader.data.playback.ResumeQueuePolicyTest#queueLimitAndContextAreStable": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.ResumeQueuePolicyTest#rebindPreservesOnlyUnchangedQueuesAndTheirLatestPosition": {
     "skipped": false,
     "failed": false
   },
@@ -9836,6 +9848,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.music.DuplicateResultsFooterTest#portraitFooterAndButtonFitAboveViewportEnd": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.DuplicateResultsFooterTest#trackKeepActionsStayRightWithoutMovingPlay": {
     "skipped": false,
     "failed": false
   },

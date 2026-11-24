@@ -658,20 +658,14 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                                 }
                                             }
                                         }
-                                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                                            IconButton({play(t)},enabled=!verifying){
-                                                Icon(if(previewId==t.id&&previewPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,"Прослушать ${t.filename}")
-                                            }
-                                            if(t.id==keep)Text("Остаётся",color=musicPlaybackAccent,
-                                                style=MaterialTheme.typography.labelMedium,modifier=Modifier.weight(1f))
-                                            else Spacer(Modifier.weight(1f))
-                                            if(t.id!=keep||group.tracks.any{it.id!=t.id&&eligible(it)&&it.id !in selected})
-                                                TextButton({keepVersion(group,t.id)},enabled=!verifying&&!clearingJournal&&
-                                                    liveRows[t.id]?.let{it.savedUri==t.uri&&!it.hidden&&!it.isPrivate}==true,
-                                                    modifier=Modifier.weight(1.8f,fill=false)){
-                                                    Text(if(t.id==keep)"Отметить остальные" else "Оставить этот",style=MaterialTheme.typography.labelMedium)
-                                                }
-                                        }
+                                        DuplicateTrackActionRow(
+                                            kept=t.id==keep,
+                                            showKeepAction=t.id!=keep||group.tracks.any{it.id!=t.id&&eligible(it)&&it.id !in selected},
+                                            playEnabled=!verifying,
+                                            keepEnabled=!verifying&&!clearingJournal&&liveRows[t.id]?.let{it.savedUri==t.uri&&!it.hidden&&!it.isPrivate}==true,
+                                            isPlaying=previewId==t.id&&previewPlaying,
+                                            description="Прослушать ${t.filename}",
+                                            onPlay={play(t)},onKeep={keepVersion(group,t.id)})
                                         if(previewId==t.id)DuplicatePreviewSeek(t.id,previewPosition,previewDuration,previewSeekable&&!verifying,
                                             onSeek={seekPreview(t,it)})
                                         }
@@ -1500,3 +1494,20 @@ internal fun preliminaryArtworkRow(track:DuplicateTrack,rows:Map<String,Download
         row.mediaType==com.domenota.medialoader.core.model.MediaType.AUDIO&&
         row.state==com.domenota.medialoader.core.model.DownloadState.COMPLETED&&
         !row.isPrivate&&!row.hidden&&(row.sizeBytes==null||row.sizeBytes==track.bytes)}
+
+@Composable
+internal fun DuplicateTrackActionRow(kept:Boolean,showKeepAction:Boolean,playEnabled:Boolean,
+    keepEnabled:Boolean,isPlaying:Boolean,description:String,onPlay:()->Unit,onKeep:()->Unit){
+    Row(Modifier.fillMaxWidth().testTag("duplicate-track-actions"),verticalAlignment=Alignment.CenterVertically){
+        IconButton(onPlay,enabled=playEnabled,modifier=Modifier.testTag("duplicate-track-play")){
+            Icon(if(isPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,description)
+        }
+        if(kept)Text("Остаётся",color=musicPlaybackAccent,style=MaterialTheme.typography.labelMedium,modifier=Modifier.weight(1f))
+        else Spacer(Modifier.weight(1f))
+        if(showKeepAction)Box(Modifier.weight(1.8f),contentAlignment=Alignment.CenterEnd){
+            TextButton(onKeep,enabled=keepEnabled,modifier=Modifier.testTag("duplicate-track-keep")){
+                Text(if(kept)"Отметить остальные" else "Оставить этот",style=MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
