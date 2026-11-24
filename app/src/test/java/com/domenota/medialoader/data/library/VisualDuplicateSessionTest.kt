@@ -117,4 +117,60 @@ class VisualDuplicateSessionTest {
                 VisualDuplicateSessionStore.history(context).map{it.scannedAt})
         }finally{VisualDuplicateSessionStore.clearForPrivacy(context)}
     }
+
+    @Test fun clearCompletedGalleryJournalKeepsPartialMusicAndMedia()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        VisualDuplicateSessionStore.clearForPrivacy(context)
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val a=session.copy(result=session.result.copy(privacyEpoch=epoch),scannedAt=1700001001000L)
+        val b=a.copy(scannedAt=1700001002000L)
+        val partial=a.copy(scannedAt=1700001003000L)
+        val media=java.io.File(context.cacheDir,"gallery-journal-media-sentinel").apply{writeText("media")}
+        try{
+            assertTrue(VisualDuplicateSessionStore.save(context,a))
+            assertTrue(VisualDuplicateSessionStore.save(context,b))
+            VisualDuplicateSessionStore.savePartial(context,partial)
+            val music=DuplicateSession(DuplicateScanResult(emptyList(),0,privacyEpoch=epoch),emptySet(),emptyMap(),0,0,1700001004000L)
+            assertTrue(MusicDuplicateSessionStore.save(context,music))
+            assertFalse(VisualDuplicateSessionStore.clearCompletedJournal(context,epoch+1))
+            assertEquals(b,VisualDuplicateSessionStore.load(context))
+            assertTrue(VisualDuplicateSessionStore.clearCompletedJournal(context,epoch))
+            assertTrue(VisualDuplicateSessionStore.history(context).isEmpty())
+            assertNull(VisualDuplicateSessionStore.load(context))
+            assertFalse(VisualDuplicateSessionStore.save(context,a))
+            assertFalse(VisualDuplicateSessionStore.save(context,b))
+            assertFalse(VisualDuplicateSessionStore.savePosition(context,b.scannedAt,0,9))
+            assertEquals(partial,VisualDuplicateSessionStore.partial(context))
+            assertEquals(music,MusicDuplicateSessionStore.load(context))
+            assertEquals("media",media.readText())
+        }finally{media.delete();VisualDuplicateSessionStore.clearForPrivacy(context);MusicDuplicateSessionStore.clearForPrivacy(context)}
+    }
+
+    @Test fun replacingPartialRequiresIdleMatchingTokenAndEpochAndKeepsCompleted()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        VisualDuplicateSessionStore.clearForPrivacy(context)
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val completed=session.copy(result=session.result.copy(privacyEpoch=epoch),scannedAt=1700001005000L)
+        val partial=completed.copy(scannedAt=1700001006000L)
+        try {
+            assertTrue(VisualDuplicateSessionStore.save(context,completed))
+            VisualDuplicateSessionStore.savePartial(context,partial)
+            VisualDuplicateBackgroundScan.start(context,emptyList(),LibrarySource.APP,epoch,setOf("selected"))
+            val token=VisualDuplicateBackgroundScan.state.value.token
+            assertEquals(LibrarySource.APP,VisualDuplicateBackgroundScan.resumeSource(context))
+            assertEquals(setOf("selected"),VisualDuplicateBackgroundScan.resumeScope(context))
+            assertFalse(VisualDuplicateSessionStore.discardPartial(context,epoch,token))
+            assertFalse(VisualDuplicateSessionStore.clearCompletedJournal(context,epoch))
+            VisualDuplicateBackgroundScan.finish(context,token,null,paused=true)
+            assertFalse(VisualDuplicateSessionStore.discardPartial(context,epoch,token+1))
+            assertFalse(VisualDuplicateSessionStore.discardPartial(context,epoch+1,token))
+            assertEquals(partial,VisualDuplicateSessionStore.partial(context))
+            assertTrue(VisualDuplicateSessionStore.discardPartial(context,epoch,token))
+            assertFalse(VisualDuplicateBackgroundScan.interrupted(context))
+            assertNull(VisualDuplicateBackgroundScan.resumeSource(context))
+            assertNull(VisualDuplicateSessionStore.partial(context))
+            assertEquals(completed,VisualDuplicateSessionStore.load(context))
+            assertEquals(listOf(completed.scannedAt),VisualDuplicateSessionStore.history(context).map{it.scannedAt})
+        }finally{VisualDuplicateSessionStore.clearForPrivacy(context)}
+    }
 }
