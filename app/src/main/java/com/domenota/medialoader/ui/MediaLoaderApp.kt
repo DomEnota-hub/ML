@@ -147,6 +147,7 @@ import com.domenota.medialoader.ui.navigation.MEDIA_VIEWER_ROUTE
 import com.domenota.medialoader.ui.navigation.VIDEO_EDITOR_ROUTE
 import com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmission
 import com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicy
+import com.domenota.medialoader.ui.navigation.EditorOpenRequestPolicy
 import com.domenota.medialoader.ui.navigation.AUDIO_EDITOR_ROUTE
 import com.domenota.medialoader.ui.navigation.PHOTO_EDITOR_ROUTE
 import com.domenota.medialoader.ui.screens.DownloadsScreen
@@ -1008,14 +1009,36 @@ fun MediaLoaderApp(
             catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось выполнить действие")}
         }
     }
+    var editorOpenInFlight by remember { mutableStateOf(false) }
     fun openVisibilityEditor(row:com.domenota.medialoader.core.database.DownloadEntity) {
-        runRestoredAction(listOf(row.id)) { restored ->
-            val current=restored[row.id]?:row
-            if(restored.isNotEmpty() && current.id.startsWith("phone:")) {
-                check(withTimeoutOrNull(8000L){libraryModel.index.first { index -> index.refs.any { it.key==current.id && it.item.savedUri==current.savedUri } }}!=null) { "Обновление медиатеки ещё не завершено" }
-            }
-            val route=when(current.mediaType){MediaType.PHOTO->"photo-editor/";MediaType.VIDEO->"video-editor/";MediaType.AUDIO->"audio-editor/"}
-            navController.navigate(route+android.net.Uri.encode(current.id))
+        val origin=navController.currentBackStackEntry
+        val isVideo=row.mediaType==MediaType.VIDEO
+        val originIsEditor=origin?.destination?.route in setOf(VIDEO_EDITOR_ROUTE,AUDIO_EDITOR_ROUTE,PHOTO_EDITOR_ROUTE)
+        if(!EditorOpenRequestPolicy.canBegin(origin?.id,originIsEditor,editorOpenInFlight)){
+            if(isVideo)AppLog.i("VideoEditorNav","EDITOR_OPEN_IGNORED reason=duplicate_or_no_origin")
+            return
+        }
+        editorOpenInFlight=true
+        val operation=AppLog.newOperationId("editor-open")
+        val started=android.os.SystemClock.elapsedRealtime()
+        if(isVideo)AppLog.i("VideoEditorNav","EDITOR_OPEN_REQUEST operation=$operation")
+        fileActionScope.launch {
+            try {
+                val restored=restoreBeforeAction(listOf(row.id))
+                val current=restored[row.id]?:row
+                if(restored.isNotEmpty() && current.id.startsWith("phone:")) {
+                    check(withTimeoutOrNull(8000L){libraryModel.index.first { index -> index.refs.any { it.key==current.id && it.item.savedUri==current.savedUri } }}!=null) { "Обновление медиатеки ещё не завершено" }
+                }
+                if(!EditorOpenRequestPolicy.canCommit(origin?.id,navController.currentBackStackEntry?.id)){
+                    if(isVideo)AppLog.i("VideoEditorNav","EDITOR_OPEN_IGNORED reason=stale_origin operation=$operation")
+                    return@launch
+                }
+                val route=when(current.mediaType){MediaType.PHOTO->"photo-editor/";MediaType.VIDEO->"video-editor/";MediaType.AUDIO->"audio-editor/"}
+                if(isVideo)AppLog.i("VideoEditorNav","EDITOR_NAVIGATE operation=$operation preNavigationMs=${android.os.SystemClock.elapsedRealtime()-started}")
+                navController.navigate(route+android.net.Uri.encode(current.id)){launchSingleTop=true}
+            }catch(e:CancellationException){throw e}
+            catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось выполнить действие")}
+            finally{editorOpenInFlight=false}
         }
     }
     val renameVisibilityFile:(String,String)->Unit={id,name->runRestoredAction(listOf(id)){viewModel.renameDownload(id,name)}}
