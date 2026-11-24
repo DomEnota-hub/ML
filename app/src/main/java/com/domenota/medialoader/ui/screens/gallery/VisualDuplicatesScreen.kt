@@ -89,6 +89,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     var newSearchAfterPause by remember{mutableStateOf(false)}
     var clearJournalConfirm by remember{mutableStateOf(false)}
     var clearPartialToo by remember{mutableStateOf(false)}
+    var clearTargetToken by remember{mutableStateOf<Long?>(null)}
     var filter by remember{mutableStateOf<VisualMatch?>(null)}
     var preview by remember{mutableStateOf<Pair<VisualDuplicateGroup,String>?>(null)}
     var choosingScope by remember { mutableStateOf(false) }
@@ -100,7 +101,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         storedPartial=VisualDuplicateSessionStore.partial(context)
         journalLoaded=true
     }
-    LaunchedEffect(privacyEpoch){preview=null;journal=false;showPartial=false;replacement=null;newSearchAfterPause=false}
+    LaunchedEffect(privacyEpoch){preview=null;journal=false;showPartial=false;replacement=null;newSearchAfterPause=false;clearJournalConfirm=false;clearTargetToken=null}
     val list=rememberLazyListState()
     val projectionGuard=emptySet<String>().takeIf{reportReady && phonePermission}
     val indexProjection=com.domenota.medialoader.ui.components.backgroundLibraryProjection(
@@ -195,8 +196,9 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     }
     val partialReady=reportReady&&phonePermission&&indexProjection.ready&&partialProjection.ready&&partial!=null
     val partialGroups=if(partialReady)partialProjection.value else emptyList()
-    val partialCanShow=partialReady&&partialGroups.isNotEmpty()
-    val partialCount=if(partialReady)partialGroups.size else if(partial==null&&journalLoaded&&!status.running)0 else null
+    val partialCanShow=partialReady&&partialGroups.isNotEmpty()&&!saving&&trash==null
+    val partialCount=if(partialReady)partialGroups.size else null
+    val partialAbsent=partial==null&&journalLoaded&&!status.running
     fun openPartial(){if(partialCanShow){preview=null;showPartial=true}}
     fun exactBytes(value:List<VisualDuplicateGroup>)=value.filter{it.reason==VisualMatch.EXACT}.sumOf{g->g.files.sumOf{it.bytes}-(g.files.firstOrNull()?.bytes?:0L)}
     LaunchedEffect(privacyEpoch) {
@@ -308,9 +310,10 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 saving=true
                 val includePartial=clearPartialToo&&interrupted
                 val actionEpoch=latestEpoch
+                val actionToken=clearTargetToken
                 scope.launch{
                     try{
-                        if(VisualDuplicateSessionStore.clearCompletedJournal(context,actionEpoch,includePartial)){
+                        if(actionToken!=null&&VisualDuplicateSessionStore.clearCompletedJournal(context,actionEpoch,includePartial,expectedToken=actionToken)){
                             if(includePartial){storedPartial=null;showPartial=false}
                             session=null;lastVerified=null;openedHistoryAt=null;preview=null;restored=false
                             history=VisualDuplicateSessionStore.history(context)
@@ -478,7 +481,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         if(status.running||interrupted){
             DuplicateActionTrace("gallery","partial_results",partialCanShow,
                 if(!phonePermission)"permission" else if(!partialReady)"report_pending" else if(partialGroups.isEmpty())"zero_groups" else "none")
-            VisualPartialResultCard(partialCount,partialCanShow,::openPartial)
+            VisualPartialResultCard(partialCount,partialCanShow,::openPartial,unavailable=partialAbsent)
         }
         if(status.running)return@Column
         if(shown==null){
@@ -582,7 +585,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         onResume={journal=false;if(!status.running)startScan(VisualDuplicateBackgroundScan.resumeScope(context),resume=true)},onDismiss={journal=false},
         onPartial={journal=false;openPartial()},partialResultsEnabled=partialCanShow,
         resumeEnabled=startBlocker==null&&interrupted&&sameScope,
-        onClear={journal=false;clearPartialToo=false;clearJournalConfirm=true},clearEnabled=(history.isNotEmpty()||interrupted)&&!status.running&&!status.committing&&!saving&&trash==null,
+        onClear={journal=false;clearPartialToo=false;clearTargetToken=VisualDuplicateBackgroundScan.state.value.token;clearJournalConfirm=true},clearEnabled=(history.isNotEmpty()||interrupted)&&!status.running&&!status.committing&&!saving&&trash==null,
         onDelete={at->
             if(!status.running&&!status.committing&&!saving&&trash==null){
                 saving=true
@@ -661,10 +664,10 @@ internal fun VisualDuplicateStoppedPanel(
 }
 
 @Composable
-internal fun VisualPartialResultCard(count:Int?,canOpen:Boolean,onOpen:()->Unit){
+internal fun VisualPartialResultCard(count:Int?,canOpen:Boolean,onOpen:()->Unit,unavailable:Boolean=false){
     Card(Modifier.fillMaxWidth().testTag("visual-partial-card")){
         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
-            Text(if(count==null)"Проверяю результаты…" else visualResultGroupCount(count),
+            Text(if(count!=null)visualResultGroupCount(count) else if(unavailable)"Предварительный отчёт пока не сохранён" else "Проверяю результаты…",
                 style=MaterialTheme.typography.titleMedium)
             OutlinedButton(onOpen,enabled=canOpen&&count!=null&&count>0,modifier=Modifier.fillMaxWidth().testTag("visual-open-partial")){
                 Text("Предварительные результаты")
