@@ -9491,6 +9491,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.gallery.VisualScanStartGateTest#blocksConcurrentOperationsAndPermissionLoss": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.gallery.VisualScanStartGateTest#permitsOnlyCompleteCurrentCatalog": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.music.ComparisonWaveformLayoutTest#alignedCursorLookupUsesOriginalColumnPositions": {
     "skipped": false,
     "failed": false
