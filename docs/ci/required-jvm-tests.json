@@ -1207,7 +1207,15 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.archive.SimpleArchiveStoreTest#previousV1WithoutGroupLoadsAndConflictingBatchLeavesPersistedIndexUntouched": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.archive.SimpleArchiveStoreTest#selectedMediaFromThreeModulesSurviveStoreRecreationAndReturnWithoutChangingBytes": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.archive.SimpleArchiveStoreTest#virtualFolderSixOf866AcrossDirectoriesPreservesAllBytesAndGroupAfterRestart": {
     "skipped": false,
     "failed": false
   },
