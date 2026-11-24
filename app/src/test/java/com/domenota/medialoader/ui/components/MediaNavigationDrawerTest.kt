@@ -97,4 +97,38 @@ class MediaNavigationDrawerTest{
             compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
         }finally{InstagramShareSettings.setAutomatic(context,old)}
     }
+
+    @Test fun reverseSwipeClosesAndVerticalEdgeGestureDoesNotOpen(){
+        compose.setContent{MaterialTheme{TestHost()}}
+        host().performTouchInput{
+            swipe(Offset(edgePx,center.y),Offset(edgePx,center.y*.3f),durationMillis=500)
+        }
+        compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
+        open()
+        host().performTouchInput{
+            swipe(Offset(width*.65f,center.y),Offset(width*.1f,center.y),durationMillis=500)
+        }
+        compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
+    }
+
+    @Test fun multipleChildOverlaysVetoIndependentlyAndOldOwnerCannotAdmitNewScreen(){
+        val first=DrawerAdmission()
+        val second=DrawerAdmission()
+        val menu=Any()
+        val dialog=Any()
+        assertFalse(first.admitted)
+        first.update(true)
+        assertTrue(first.admitted)
+        first.block(menu)
+        first.block(dialog)
+        assertFalse(first.admitted)
+        first.unblock(menu)
+        assertFalse(first.admitted)
+        first.unblock(dialog)
+        assertTrue(first.admitted)
+        assertFalse(second.admitted)
+        second.update(true)
+        first.update(false)
+        assertTrue(second.admitted)
+    }
 }

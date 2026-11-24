@@ -121,7 +121,10 @@ internal fun MediaNavigationDrawer(
             .pointerInput(identity,allowed,widthPx,systemInset,edgePx){
                 if(!allowed||widthPx<=0f)return@pointerInput
                 awaitEachGesture {
-                    val down=awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
+                    // Observe the down after the child. A tappable row may
+                    // consume DOWN; only subsequent movement consumption is
+                    // a veto. Main pass avoids rereading that same down.
+                    val down=awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Main)
                     if(!latestAllowed||latestPredictive||
                         !DrawerGesturePolicy.canStart(down.position.x,latestProgress,widthPx,systemInset,edgePx))
                         return@awaitEachGesture
