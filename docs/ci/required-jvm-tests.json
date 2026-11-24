@@ -5023,6 +5023,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.FreshEncodedDigestCacheTest#absentStampDigestOrDifferentPrivacyEpochCannotReuse": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.FreshEncodedDigestCacheTest#cacheIsBoundedAndDoesNotPersistAcrossScans": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.FreshEncodedDigestCacheTest#identicalFreshFullDigestCanReuseEncodedPayload": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.HistoricalSnapshotValidationTest#absentCatalogCacheNeverAcceptsLaterCorruptEmptyOrInvalidDocument": {
     "skipped": false,
     "failed": false
@@ -8256,6 +8268,14 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicyTest#rebuildingMediaStoreCanRecoverAfterNormalGracePeriod": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicyTest#repeatedEditorRequestCannotStartAnotherNavigation": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicyTest#suspendedEditorRequestMustStillOwnOriginalNavigationEntry": {
     "skipped": false,
     "failed": false
   },
