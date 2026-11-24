@@ -28,7 +28,10 @@ internal object VisualDuplicateBackgroundScan {
     private var pending: Request? = null
     private var nextToken = 0L
     private fun prefs(context: Context) = context.getSharedPreferences("visual_duplicate_background_scan",Context.MODE_PRIVATE)
-    fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false)
+    fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false) &&
+        prefs(context).getLong("journalEpoch",0)==DuplicatePrivacyGuard.generation(context)
+    fun resumeSource(context:Context):LibrarySource? =
+        prefs(context).getString("scopeSource",null)?.let{runCatching{LibrarySource.valueOf(it)}.getOrNull()}
     fun stopped(context: Context) = !state.value.running &&
         prefs(context).getLong("journalEpoch",0)==DuplicatePrivacyGuard.generation(context) &&
         (state.value.stopped || prefs(context).getString("journalStatus",null) in setOf("stopped","paused"))
@@ -48,6 +51,7 @@ internal object VisualDuplicateBackgroundScan {
         val now=android.os.SystemClock.elapsedRealtime()
         mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now,coverage=VisualScanCoverage(source,rows.size))
         prefs(context).edit().putString("journalStatus","running").putLong("journalEpoch",epoch)
+            .putString("scopeSource",source.name)
             .putBoolean("scopeAll",scopeKeys==null)
             .putStringSet("scopeKeys",scopeKeys?.toSet() ?: emptySet()).apply()
         mark(context,true)
@@ -83,9 +87,23 @@ internal object VisualDuplicateBackgroundScan {
             stopped = cancelled || paused,token = token,partial=if(session==null)previous.partial else null,
             coverage=coverage,done=coverage?.checked?:previous.done,total=coverage?.total?:previous.total)
     }
-    fun pause(context:Context){
-        if(!state.value.running||state.value.committing)return
-        runCatching{context.startService(Intent(context,VisualDuplicateScanService::class.java).setAction(VisualDuplicateScanService.PAUSE))}
+    /** Called only after a confirmed journal-only deletion under the privacy lock. */
+    @Synchronized fun forgetPartial(context:Context,expectedToken:Long):Boolean {
+        val s=mutable.value
+        if(s.running||s.committing||s.token!=expectedToken)return false
+        prefs(context).edit().remove("journalStatus").remove("scopeSource").remove("scopeKeys")
+            .remove("scopeAll").putBoolean("incomplete",false).apply()
+        mutable.value=s.copy(stopped=false,partial=null,coverage=null,done=0,total=0,error=null)
+        return true
+    }
+    @Synchronized fun forgetCompleted(at:Long?=null){
+        val s=mutable.value
+        if(!s.running&&!s.committing&&(at==null||s.session?.scannedAt==at))
+            mutable.value=s.copy(session=null)
+    }
+    fun pause(context:Context):Boolean{
+        if(!state.value.running||state.value.committing)return false
+        return runCatching{context.startService(Intent(context,VisualDuplicateScanService::class.java).setAction(VisualDuplicateScanService.PAUSE))!=null}.getOrDefault(false)
     }
     fun cancel(context: Context) {
         if (!state.value.running || state.value.committing) return
