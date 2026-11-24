@@ -83,8 +83,8 @@ internal fun ReportDrawerOverlay(blocked:Boolean){
 @Composable
 internal fun MediaNavigationDrawer(
     identity:Any,allowed:Boolean,active:DrawerEntry?,
-    available:Set<DrawerEntry> = com.domenota.medialoader.ui.navigation.drawerAvailableEntries(journalUnlocked=false),
     journalUnlocked:Boolean=false,
+    available:Set<DrawerEntry> = com.domenota.medialoader.ui.navigation.drawerAvailableEntries(journalUnlocked),
     onSelect:(DrawerEntry)->Unit,
     content:@Composable ()->Unit,
 ){

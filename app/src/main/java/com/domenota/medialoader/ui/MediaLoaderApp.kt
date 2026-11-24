@@ -870,7 +870,7 @@ fun MediaLoaderApp(
         if (collectionRouteActive) {
             if (!collectionViewerActive) needed += collectionScanModes(collectionCatalogRequest)
         } else {
-            if (currentRoute=="media-review"||currentRoute=="media-passport/{mediaId}" ) {
+            if (currentRoute=="media-review"||currentRoute=="media-passport/{mediaId}") {
                 needed+=AppMode.GALLERY;needed+=AppMode.MUSIC
             }
             if (appMode == AppMode.GALLERY && (librarySource == LibrarySource.PHONE ||
@@ -2681,28 +2681,51 @@ fun MediaLoaderApp(
                         ContextCompat.checkSelfPermission(context,it)==PackageManager.PERMISSION_GRANTED
                     }
                 }.toSet()
-                val favorites=remember(ready,publicLibraryRefs,libraryCatalogAssignments,collectionBlocked,
-                    organizationHidden,allowedPhoneTypes){
-                    if(!ready)emptyList() else com.domenota.medialoader.ui.navigation.publicFavoriteRows(
+                val favoriteGuard=publicProjectionGuard.takeIf{ready}?.let{
+                    listOf(it,collectionBlocked,galleryAccessEpoch,musicAccessEpoch,allowedPhoneTypes,collectionPrivacyGeneration)
+                }
+                val favorites=com.domenota.medialoader.ui.components.addressedLibraryProjection(
+                    emptyList<com.domenota.medialoader.core.database.DownloadEntity>(),favoriteGuard,
+                    publicLibraryRefs,libraryCatalogAssignments,organizationHidden,
+                    revalidateRetained={previous->previous.filter{row->
+                        val ref=libraryRefsByAlias[row.id]
+                        ref!=null&&ref.item.savedUri==row.savedUri&&
+                            !collectionRefBlocked(ref,collectionBlocked)&&retainedPublicRow(row)&&
+                            (ref.appDownloadId!=null||row.mediaType in allowedPhoneTypes)
+                    }}
+                ){
+                    com.domenota.medialoader.ui.navigation.publicFavoriteRows(
                         publicLibraryRefs.filter{it.appDownloadId!=null||it.item.mediaType in allowedPhoneTypes},
                         libraryCatalogAssignments,collectionBlocked,organizationHidden)
+                }
+                fun currentFavorite(id:String):LibraryMediaRef?{
+                    val row=favorites.value.firstOrNull{it.id==id}?:return null
+                    val ref=libraryRefsByAlias[id]?.takeIf{it.item.savedUri==row.savedUri}?:return null
+                    val keys=libraryModel.privateKeys.value?:return null
+                    if(collectionRefBlocked(ref,keys)||collectionRefBlocked(ref,currentBlocked)||
+                        !canOpenFolderMedia(ref.item)||!retainedPublicRow(ref.item)||
+                        !DuplicatePrivacyGuard.accepts(context,collectionPrivacyGeneration,ref.appDownloadId?:ref.key,ref.aliases))return null
+                    if(ref.appDownloadId==null&&!PhoneMediaLibrary.canRead(row.mediaType,Build.VERSION.SDK_INT){
+                        ContextCompat.checkSelfPermission(context,it)==PackageManager.PERMISSION_GRANTED
+                    })return null
+                    return ref
                 }
                 val galleryGranted=hasPhoneLibraryAccess(context,AppMode.GALLERY)
                 val musicGranted=hasPhoneLibraryAccess(context,AppMode.MUSIC)
                 com.domenota.medialoader.ui.screens.UnifiedFavoritesScreen(
-                    rows=favorites,ready=ready,
-                    loading=phoneGallery.loading||phoneMusic.loading,
+                    rows=favorites.value,ready=ready&&favorites.usable,
+                    loading=phoneGallery.loading||phoneMusic.loading||!favorites.ready,
                     galleryAccess=galleryGranted,musicAccess=musicGranted,
                     onGalleryAccess={requestLibraryAccess(AppMode.GALLERY)},
                     onMusicAccess={requestLibraryAccess(AppMode.MUSIC)},
                     onBack={navController.popBackStack()},
-                    onOpen={id,ids->openDownloadWithQueue(id,ids)},
+                    onOpen={id,ids->
+                        if(currentFavorite(id)!=null)openDownloadWithQueue(id,ids.filter{currentFavorite(it)!=null})
+                        else AppNotice.post(context,"Файл недоступен")
+                    },
                     onRemove={id->fileActionScope.launch{
                         try{
-                            val ref=libraryRefsByAlias[id]?:error("Файл недоступен")
-                            val keys=libraryModel.privateKeys.value?:error("Файл недоступен")
-                            check(!collectionRefBlocked(ref,keys)&&!collectionRefBlocked(ref,currentBlocked)&&
-                                canOpenFolderMedia(ref.item)&&retainedPublicRow(ref.item))
+                            check(currentFavorite(id)!=null){"Файл недоступен"}
                             setLibraryFavorite(id,false)
                         }catch(e:CancellationException){throw e}
                         catch(_:Exception){AppNotice.post(context,"Не удалось изменить избранное")}

@@ -359,7 +359,9 @@ fun SettingsScreen(
     var logText by remember { mutableStateOf("") }
     fun refreshAppLog() {
         gestureScope.launch {
-            logText = withContext(Dispatchers.IO) { AppLog.readText() }
+            if(!com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))return@launch
+            val content=withContext(Dispatchers.IO) { AppLog.readText() }
+            if(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))logText=content
         }
     }
     val logSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
@@ -368,6 +370,7 @@ fun SettingsScreen(
                 // Extended logs can be ~20 MB; never read and export them on the UI thread.
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
+                        check(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
                         context.contentResolver.openOutputStream(uri)
                             ?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
                                 writer.write(AppLog.exportMarkdown(includeExplanations = exportLogExplanations))
@@ -1349,7 +1352,11 @@ fun SettingsScreen(
                     "Ошибки, предупреждения и события",
                     grouped = true,
                     iconTone = SettingIconTone.LOG,
-                    onClick = { logsDialog = true; refreshAppLog() },
+                    onClick = {
+                        if(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)){
+                            logsDialog = true; refreshAppLog()
+                        }
+                    },
                 )
                 GroupDivider()
                 SettingRow(

@@ -12,11 +12,11 @@ import com.domenota.medialoader.ui.screens.music.MusicTrackVisibility
  * alias does not authorize publishing a private/hidden/archived address. */
 internal fun publicFavoriteRows(refs:List<LibraryMediaRef>,assignments:List<CatalogAssignmentEntity>,
     blocked:Set<String>,hiddenTracks:Set<String>):List<DownloadEntity>{
-    val favorite=assignments.asSequence().filter{it.isFavorite}.map{it.downloadId}.toHashSet()
+    val assigned=assignments.associateBy{it.downloadId}
     return refs.asSequence().filter{ref->
         val row=ref.item
         row.state==DownloadState.COMPLETED&&!row.isPrivate&&!row.hidden&&!row.savedUri.isNullOrBlank()&&
-            (ref.key in favorite||row.id in favorite||ref.appDownloadId in favorite||ref.aliases.any(favorite::contains))&&
+            (ref.appDownloadId?.let(assigned::get) ?: assigned[ref.key] ?: assigned[row.id])?.isFavorite==true&&
             !collectionRefBlocked(ref,blocked)&&
             (row.mediaType!=MediaType.AUDIO||!MusicTrackVisibility.hidden(row,hiddenTracks))
     }.distinctBy{it.item.id}.map{it.item}.sortedByDescending{it.createdAtEpochMillis}.toList()

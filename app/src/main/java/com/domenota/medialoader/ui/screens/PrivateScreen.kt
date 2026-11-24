@@ -209,7 +209,7 @@ fun PrivateScreen(
                             horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Rounded.CheckCircle,null,tint=MaterialTheme.colorScheme.primary)
                             Text("${selectedIds.size} файлов",Modifier.weight(1f))
-                            Button(onClick={restoreTarget=selectedIds.toList()},
+                            Button(onClick={restoreTarget=selectedIds.intersect(visibleIds).toList()},
                                 enabled=selectedIds.isNotEmpty() && !busy && !externalBusy) {
                                 Icon(Icons.Rounded.Restore,null)
                                 Spacer(Modifier.width(6.dp))
