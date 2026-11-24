@@ -98,13 +98,13 @@ internal fun DownloadFolderSheet(
     onAssign: suspend (String, String?) -> Unit,
     hiddenFolderIds: Set<String> = emptySet(),
     onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
-    onArchiveFolder: ((String) -> Unit)? = null,
     pendingVisibilityFolderId: String? = null,
     nomediaFolderStatuses: Map<String,String> = emptyMap(),
     onCheckFolderAccess: (suspend (String) -> Unit)? = null,
     onBrowseSafFiles: (suspend (String) -> List<NomediaSafEntry>)? = null,
     onVerifySafFile: (suspend (String,String) -> Boolean)? = null,
     onOpenSafFile: (suspend (String,String) -> android.net.Uri)? = null,
+    onArchiveFolder: ((String) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
