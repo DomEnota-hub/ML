@@ -14,7 +14,6 @@ import com.domenota.medialoader.ui.navigation.drawerAvailableEntries
 import com.domenota.medialoader.ui.navigation.MUSIC_SEARCH_ROUTE
 import com.domenota.medialoader.ui.navigation.drawerAllowed
 import com.domenota.medialoader.ui.navigation.drawerActiveEntry
-import com.domenota.medialoader.data.archive.SimpleArchiveStore
 import com.domenota.medialoader.data.archive.SimpleArchiveRecord
 import com.domenota.medialoader.data.archive.SimpleArchiveCandidate
 import com.domenota.medialoader.data.archive.SimpleArchivePolicy
@@ -229,22 +228,10 @@ fun MediaLoaderApp(
     val lifecycleOwner = LocalLifecycleOwner.current
     com.domenota.medialoader.ui.components.NoticeForeground()
     val fileActionScope = rememberCoroutineScope()
-    val simpleArchive = remember(context) { SimpleArchiveStore(context) }
-    val archivedRecords by simpleArchive.records.collectAsStateWithLifecycle()
-    var simpleArchiveLoaded by remember { mutableStateOf(false) }
-    var simpleArchiveBusy by remember { mutableStateOf(false) }
-    var simpleArchiveError by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(simpleArchive) {
-        try { simpleArchive.refresh(); simpleArchiveLoaded = true }
-        catch (e: CancellationException) { throw e }
-        catch (e: Exception) { simpleArchiveError = "Не удалось открыть Архив" }
-    }
-    val archivedByUri = remember(archivedRecords) { archivedRecords.groupBy { it.savedUri } }
-    fun isSimplyArchived(row: com.domenota.medialoader.core.database.DownloadEntity): Boolean {
-        val uri = row.savedUri ?: return false
-        return SimpleArchivePolicy.isArchived(archivedByUri[uri].orEmpty(),
-            SimpleArchiveCandidate(row.id, uri, row.mediaType, row.sizeBytes))
-    }
+    val archiveSession = rememberSimpleArchiveSession(context)
+    val archivedRecords = archiveSession.records
+    val simpleArchiveLoaded = archiveSession.loaded
+    fun isSimplyArchived(row: com.domenota.medialoader.core.database.DownloadEntity) = archiveSession.isArchived(row)
     val availabilityCache = remember(viewModel) { SavedFileStatusCache(viewModel::savedFileStatus) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -509,16 +496,12 @@ fun MediaLoaderApp(
     }
 
 
-    // Stage 5: QA-only selective Archive access. Never call hide() from the
-    // read-only preflight. An explicit second user confirmation is mandatory.
+    // QA226: only the legacy archive journal and verified recovery remain.
     val qaArchive=remember(mediaRepository) { mediaRepository.selectiveArchive }
     var archiveQaBusy by remember { mutableStateOf(false) }
     var archiveQaError by remember { mutableStateOf<String?>(null) }
     var archiveQaEntries by remember {
         mutableStateOf<List<SelectiveArchiveQaEntry>>(emptyList())
-    }
-    var archiveQaPending by remember {
-        mutableStateOf<Pair<NomediaAutoFolderPlan,SelectiveArchiveQaPreview>?>(null)
     }
     var archiveQaRestoreId by remember { mutableStateOf<String?>(null) }
 
@@ -535,89 +518,9 @@ fun MediaLoaderApp(
             }
         }
     }
-    val previewSelectiveArchive:(String)->Unit = { folderId ->
-        if(!archiveQaBusy && archiveQaPending==null && archiveQaRestoreId==null) {
-            fileActionScope.launch {
-                archiveQaBusy=true
-                archiveQaError=null
-                try {
-                    check(!nomediaBusy && !visibilityBusy && !visibilityWork.state.value.active &&
-                        !nomediaSnapshot.unknown && visibilityGuard?.policy?.unknownPending==false) {
-                        "Реестр видимости занят или требует проверки"
-                    }
-                    check(folderId !in nomediaSnapshot.hiddenFolderIds &&
-                        folderId !in visibilityGuard?.policy?.excludedFolders.orEmpty()) {
-                        "Для этого альбома уже существует другой режим скрытия"
-                    }
-                    visibilityAccess.ensure()
-                    val plan=resolveNomediaAutoPlan(context,folderId,
-                        viewModel.downloads.value,viewModel.catalogAssignments.value)
-                    val preview=qaArchive.previewForQa(plan)
-                    archiveQaPending=plan to preview
-                } catch(cancelled:CancellationException){throw cancelled}
-                catch(error:Exception) {
-                    archiveQaError=error.message ?: "Не удалось проверить выбранные файлы"
-                } finally { archiveQaBusy=false }
-            }
-        }
-    }
     val restoreSelectiveArchive:(String)->Unit = { folderId ->
-        if(!archiveQaBusy && archiveQaPending==null && archiveQaRestoreId==null)
+        if(!archiveQaBusy && archiveQaRestoreId==null)
             archiveQaRestoreId=folderId
-    }
-    archiveQaPending?.let { (plan,preview) ->
-        AlertDialog(onDismissRequest={if(!archiveQaBusy)archiveQaPending=null},
-            modifier=Modifier.testTag("archive-qa-confirm-hide"),
-            title={Text("Тестовое выборочное скрытие")},
-            text={Text("Выбрано: ${preview.selectedCount} файлов из ${preview.physicalCount} " +
-                "в физической папке. Остальные файлы не должны измениться. " +
-                "Подтверди перенос только тестовых копий. При ошибке " +
-                "приложение сохранит журнал и потребует отдельной проверки.")},
-            confirmButton={TextButton(enabled=!archiveQaBusy,onClick={
-                archiveQaPending=null
-                fileActionScope.launch {
-                    archiveQaBusy=true
-                    archiveQaError=null
-                    try {
-                        visibilityAccess.ensure()
-                        check(!nomediaBusy && !visibilityBusy &&
-                            !visibilityWork.state.value.active &&
-                            !nomediaSnapshot.unknown &&
-                            visibilityGuard?.policy?.unknownPending==false &&
-                            plan.folderId !in nomediaSnapshot.hiddenFolderIds &&
-                            plan.folderId !in visibilityGuard?.policy?.excludedFolders.orEmpty()) {
-                            "Состояние медиатеки изменилось до начала теста"
-                        }
-                        val fresh=resolveNomediaAutoPlan(context,plan.folderId,
-                            viewModel.downloads.value,viewModel.catalogAssignments.value)
-                        check(fresh==plan && qaArchive.previewForQa(fresh)==preview) {
-                            "Выбранные файлы или физическая папка изменились. Начни проверку заново"
-                        }
-                        val receipts=qaArchive.hide(fresh)
-                        check(receipts.size==preview.selectedCount &&
-                            receipts.all { it.phase==SelectiveArchiveMovePhase.HIDDEN_VERIFIED } &&
-                            qaArchive.privacy.value.verified &&
-                            receipts.all { it.catalogId in qaArchive.privacy.value.blockedIds }) {
-                            "Скрытие не подтверждено для всех файлов; проверь журнал"
-                        }
-                        AppNotice.post(context,
-                            "Тест: выборочно скрыто ${receipts.size} файлов. Проверь Галерею Android и восстановление")
-                    } catch(cancelled:CancellationException){throw cancelled}
-                    catch(error:Exception){
-                        archiveQaError=error.message ?: "Выборочное скрытие не завершилось; проверь журнал"
-                    } finally {
-                        archiveQaEntries=runCatching { qaArchive.qaRecoveryEntries() }
-                            .getOrElse {
-                                archiveQaError="Журнал Архива требует проверки. Не повторяй перенос"
-                                emptyList()
-                            }
-                        archiveQaBusy=false
-                    }
-                }
-            }){Text("Скрыть выбранные")}},
-            dismissButton={TextButton(enabled=!archiveQaBusy,onClick={archiveQaPending=null}){
-                Text("Отмена")
-            }})
     }
     archiveQaRestoreId?.let { folderId ->
         AlertDialog(onDismissRequest={if(!archiveQaBusy)archiveQaRestoreId=null},
@@ -700,30 +603,13 @@ fun MediaLoaderApp(
     val guardedPublicRefs = remember(libraryIndex,visibilityGuard,libraryPrivateKeys,phoneGallery,phoneMusic) {
         guardedRetainedIndexRefs(libraryIndex,visibilityGuard,libraryPrivateKeys,phoneGallery,phoneMusic,allowUnaffectedKinds=true)
     }
-    val archiveBlocked = remember(archivedRecords, guardedPublicRefs, downloads) { buildSet {
-        // Exact live file membership; do not block a recycled catalog ID by itself.
-        guardedPublicRefs.orEmpty().filter { isSimplyArchived(it.item) }.forEach { ref ->
-            add(ref.key); addAll(ref.aliases)
-            ref.item.savedUri?.let { addAll(com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(it)) }
-        }
-        downloads.filter { isSimplyArchived(it) }.forEach { row ->
-            add(row.id); add("app:${row.id}")
-            row.savedUri?.let { addAll(com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(it)) }
-        }
-    } }
+    val archiveProjection = rememberSimpleArchiveProjection(archiveSession, guardedPublicRefs, downloads, libraryAudioState.queueGeneration)
+    val archiveBlocked = archiveProjection.blocked
     val publicProjectionGuard=remember(libraryPrivateKeys,visibilityGuard,visibilityBlocked,archiveBlocked,simpleArchiveLoaded) {
         libraryPrivateKeys?.takeIf { visibilityReady && simpleArchiveLoaded }?.plus(visibilityBlocked)?.plus(archiveBlocked)
     }
-    LaunchedEffect(simpleArchiveLoaded, archivedRecords, libraryAudioState.queueGeneration) {
-        if (simpleArchiveLoaded && archivedRecords.isNotEmpty()) {
-            val uris = archivedRecords.filter { it.mediaType == MediaType.AUDIO }.map { it.savedUri }
-            com.domenota.medialoader.data.playback.AudioPlaybackService.removeArchivedFromQueue(uris)
-        }
-    }
     val publicIndexAllowed = guardedPublicRefs != null
-    val publicLibraryRefs = remember(guardedPublicRefs, archivedRecords, simpleArchiveLoaded) {
-        if (!simpleArchiveLoaded) emptyList() else guardedPublicRefs.orEmpty().filterNot { isSimplyArchived(it.item) }
-    }
+    val publicLibraryRefs = archiveProjection.publicRefs
     val displayInventory = remember(libraryIndex,visibilityGuard,guardedPublicRefs,publicLibraryRefs,simpleArchiveLoaded) {
         when {
             guardedPublicRefs == null || !simpleArchiveLoaded -> LibraryDisplayInventory.EMPTY
@@ -1815,95 +1701,10 @@ fun MediaLoaderApp(
     // Home renders only three recent entries; do not format the entire library on main.
     val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.take(3).map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
 
-    val liveArchiveRefs by rememberUpdatedState(publicLibraryRefs)
-    val liveArchiveGuardedRefs by rememberUpdatedState(guardedPublicRefs.orEmpty())
-    val liveArchiveDownloads by rememberUpdatedState(publicDownloads)
-    val liveArchiveRecords by rememberUpdatedState(archivedRecords)
-
-    fun resolveArchiveRow(id: String): com.domenota.medialoader.core.database.DownloadEntity? {
-        val matches = liveArchiveRefs.filter { it.key == id || id in it.aliases }.map { it.item } +
-            liveArchiveDownloads.filter { it.id == id }
-        val first = matches.firstOrNull() ?: return null
-        if (first.savedUri.isNullOrBlank() || matches.any {
-                it.savedUri != first.savedUri || it.mediaType != first.mediaType
-            } || matches.mapNotNull { it.sizeBytes }.distinct().size > 1) return null
-        return matches.firstOrNull { it.sizeBytes != null } ?: first
-    }
-
-    fun archiveSelection(ids: List<String>, source: ArchiveEntrySource,
-        group: com.domenota.medialoader.data.archive.SimpleArchiveGroup? = null,
-        validateScope: () -> Boolean = { true }) {
-        if (!simpleArchiveLoaded || simpleArchiveBusy || ids.isEmpty()) return
-        val requested = ids.distinct()
-        val rows = requested.mapNotNull(::resolveArchiveRow)
-        if (rows.size != requested.size) { AppNotice.post(context, "Некоторые файлы недоступны"); return }
-        simpleArchiveBusy = true
-        simpleArchiveError = null
-        libraryPreviewJob?.cancel()
-        fileActionScope.launch {
-            try {
-                check(validateScope() && rows.all { row -> !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED &&
-                    libraryModel.visibilityGuard.value?.canOpen(row, null, emptyList()) == true }) { "Выбранные файлы недоступны" }
-                for (row in rows.distinctBy { it.savedUri }) {
-                    check(libraryModel.verifyVisibilityOpen(row, null) &&
-                        withContext(Dispatchers.IO) { availabilityCache.get(row.savedUri, fresh = true) } == SavedFileStatus.PRESENT) {
-                        "Выбранные файлы недоступны"
-                    }
-                }
-                check(validateScope() && requested.zip(rows).all { (id, row) ->
-                    val current = resolveArchiveRow(id)
-                    current != null && current.savedUri == row.savedUri && current.mediaType == row.mediaType &&
-                        current.sizeBytes == row.sizeBytes && !current.isPrivate && !current.hidden &&
-                        current.state == DownloadState.COMPLETED &&
-                        libraryModel.visibilityGuard.value?.canOpen(current, null, emptyList()) == true
-                }) { "Состав или доступ к выбранным файлам изменился" }
-                val next = simpleArchive.archive(rows, source, group)
-                com.domenota.medialoader.data.playback.AudioPlaybackService.removeArchivedFromQueue(
-                    next.filter { it.mediaType == MediaType.AUDIO }.map { it.savedUri })
-                AppNotice.post(context, "В архиве: ${rows.mapNotNull { it.savedUri }.distinct().size}")
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { simpleArchiveError = e.message ?: "Не удалось добавить в Архив"; AppNotice.post(context, simpleArchiveError.orEmpty()) }
-            finally { simpleArchiveBusy = false }
-        }
-    }
-
-    fun archiveVirtualFolder(folderId: String, source: ArchiveEntrySource) {
-        val folder = viewModel.catalogFolders.value.firstOrNull { it.id == folderId }
-        if (folder == null || folderId in visibilityFolders || !publicIndexAllowed ||
-            !catalogAssignmentProjection.ready) {
-            AppNotice.post(context, "Состав папки недоступен")
-            return
-        }
-        fun members(): Set<String> =
-            viewModel.catalogAssignments.value.filter { it.folderId == folderId }.map { it.downloadId }.toSet() +
-                libraryModel.externalCatalog.entries.value.filter { it.folderId == folderId }.map { it.ref.key }
-        val memberIds = members()
-        val available = memberIds.filter { resolveArchiveRow(it) != null }
-        // An already archived member remains assigned to its original folder. It is not
-        // a new action target, but must be proven to match the stored URI/type/size.
-        val unavailable = memberIds - available.toSet()
-        val knownArchived = unavailable.all { id ->
-            val candidates = liveArchiveGuardedRefs.filter { it.key == id || id in it.aliases }.map { it.item } +
-                viewModel.downloads.value.filter { it.id == id }
-            candidates.isNotEmpty() && candidates.all { row ->
-                !row.isPrivate && !row.hidden && row.savedUri != null &&
-                    SimpleArchivePolicy.isArchived(liveArchiveRecords, SimpleArchiveCandidate(
-                        row.id, row.savedUri.orEmpty(), row.mediaType, row.sizeBytes))
-            }
-        }
-        if (!knownArchived) {
-            AppNotice.post(context, "Состав папки не подтверждён полностью")
-            return
-        }
-        if (available.isEmpty()) {
-            AppNotice.post(context, "Нет доступных файлов для архива")
-            return
-        }
-        archiveSelection(available, source, com.domenota.medialoader.data.archive.SimpleArchiveGroup(
-            com.domenota.medialoader.data.archive.SimpleArchiveGroupKind.VIRTUAL_FOLDER, folder.id, folder.name)) {
-            members() == memberIds && viewModel.catalogFolders.value.any { it.id == folderId && it.name == folder.name }
-        }
-    }
+    val archiveActions = rememberSimpleArchiveActions(context, archiveSession, viewModel, libraryModel,
+        fileActionScope, availabilityCache, SimpleArchiveInputs(publicLibraryRefs, guardedPublicRefs.orEmpty(),
+            publicDownloads, visibilityFolders, publicIndexAllowed && catalogAssignmentProjection.ready,
+            cancelPreview = { libraryPreviewJob?.cancel() }))
     fun navigateTo(route: String) {
         navController.navigate(route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -2573,7 +2374,7 @@ fun MediaLoaderApp(
                         navController.navigate("browser/$source")
                     },
                     recentDownloads = recentDownloadItems,
-                    onSimpleArchive = { archiveSelection(listOf(it), ArchiveEntrySource.DOWNLOADER) },
+                    onSimpleArchive = { archiveActions.archiveSelection(listOf(it), ArchiveEntrySource.DOWNLOADER) },
                     onOpenDownload = openDownload,
                     onCancelDownload = viewModel::cancelDownload,
                     onShareDownload = shareDownload,
@@ -2586,8 +2387,8 @@ fun MediaLoaderApp(
                 )
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
                     unifiedDrawerRoutes=true,
-                    onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.GALLERY) },
-                    onArchiveFolder = { archiveVirtualFolder(it, ArchiveEntrySource.GALLERY) },
+                    onSimpleArchive = { archiveActions.archiveSelection(it, ArchiveEntrySource.GALLERY) },
+                    onArchiveFolder = { archiveActions.archiveVirtualFolder(it, ArchiveEntrySource.GALLERY) },
                     onOpenSimpleArchive = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
                     items = galleryBrowse.value.items,
                     preparedBrowse = galleryBrowse,
@@ -2637,7 +2438,7 @@ fun MediaLoaderApp(
                     deviceAlbums = displayInventory.deviceAlbums,
                     )
                 else MusicModeScreen(
-                    onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.MUSIC) },
+                    onSimpleArchive = { archiveActions.archiveSelection(it, ArchiveEntrySource.MUSIC) },
                     duplicateRequest = duplicateRequest,
                     onDuplicateRequestHandled = { duplicateRequest = 0 },
                     hiddenTracksOpen = hiddenMusicTracksOpen,
@@ -3049,9 +2850,9 @@ fun MediaLoaderApp(
                 }
                 CompositionLocalProvider(LocalDrawerAdmission provides drawerAdmission.takeIf{currentRoute==AppDestination.Downloads.route}){
                 DownloadsScreen(
-                    onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.DOWNLOADER) },
-                    onArchiveFolder = { archiveVirtualFolder(it, ArchiveEntrySource.DOWNLOADER) },
-                    onArchivePublication = { key, name, ids -> archiveSelection(ids, ArchiveEntrySource.DOWNLOADER,
+                    onSimpleArchive = { archiveActions.archiveSelection(it, ArchiveEntrySource.DOWNLOADER) },
+                    onArchiveFolder = { archiveActions.archiveVirtualFolder(it, ArchiveEntrySource.DOWNLOADER) },
+                    onArchivePublication = { key, name, ids -> archiveActions.archiveSelection(ids, ArchiveEntrySource.DOWNLOADER,
                         com.domenota.medialoader.data.archive.SimpleArchiveGroup(
                             com.domenota.medialoader.data.archive.SimpleArchiveGroupKind.PUBLICATION, key, name)) },
                     onOpenSimpleArchive = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
@@ -3189,16 +2990,9 @@ fun MediaLoaderApp(
                             catch (e: Exception) { AppNotice.post(context, e.message ?: "Не удалось открыть файл") }
                         }
                     },
-                    onRestore = { ids -> if (!simpleArchiveBusy && simpleArchiveLoaded) {
-                        simpleArchiveBusy = true; simpleArchiveError = null
-                        fileActionScope.launch {
-                            try { simpleArchive.restore(ids); AppNotice.post(context, "Возвращено: ${ids.size}") }
-                            catch (e: CancellationException) { throw e }
-                            catch (e: Exception) { simpleArchiveError = e.message ?: "Не удалось вернуть файлы" }
-                            finally { simpleArchiveBusy = false }
-                        }
-                    } }, busy = simpleArchiveBusy || !archiveAccessReady,
-                    message = simpleArchiveError)
+                    onRestore = { ids -> if (archiveAccessReady) archiveActions.restore(ids) },
+                    busy = archiveSession.busy || !archiveAccessReady,
+                    message = archiveSession.error)
             },
             LibraryRouteContent(VAULT_ROUTE) {
                 VaultScreen(viewModel.privateAccess,
@@ -3876,7 +3670,7 @@ fun MediaLoaderApp(
         privateNavigation || privateMoveBusy || pendingDeleteRecords.isNotEmpty() || albumTrash!=null ||
         hiddenMusicTracksOpen || editorOpenInFlight || visibilityBusy || nomediaBusy ||
         nomediaPickerPlan!=null || nomediaPickerShowFolder!=null || androidApprovalTicket!=null ||
-        archiveQaPending!=null || archiveQaRestoreId!=null || visibilityRestoreConsent!=null ||
+        archiveQaRestoreId!=null || visibilityRestoreConsent!=null ||
         (visibilityWorkExpanded && com.domenota.medialoader.ui.components.visibilityWorkPanelVisible(
             visibilityWorkState,visibilityWorkDismissed))
     fun openDrawerHome(mode:AppMode){
