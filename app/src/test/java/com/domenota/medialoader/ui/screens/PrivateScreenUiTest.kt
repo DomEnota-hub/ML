@@ -4,6 +4,10 @@ import android.app.KeyguardManager
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
+import com.domenota.medialoader.ui.components.DrawerAdmission
+import com.domenota.medialoader.ui.components.LocalDrawerAdmission
+import org.junit.Assert.assertTrue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -35,6 +39,7 @@ class PrivateScreenUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private lateinit var access: PrivateAccessManager
     private val secretName = "personal-secret-trip.jpg"
+    private val drawerAdmission=DrawerAdmission()
 
     @Before fun configureRealPin() = runBlocking {
         val context = compose.activity.applicationContext
@@ -53,9 +58,11 @@ class PrivateScreenUiTest {
         )
         compose.setContent {
             MaterialTheme {
+                CompositionLocalProvider(LocalDrawerAdmission provides drawerAdmission){
                 PrivateScreen(access, listOf(secret), onBack = {}, onOpen = {},
                     onRestore = {}, onFinishMove = {}, onDelete = {}, onRename = { _, _ -> },
                     onOpenVault = {}, legacyRecoveryProbe = { legacyRecovery })
+                }
             }
         }
     }
@@ -76,6 +83,7 @@ class PrivateScreenUiTest {
     @Test fun secretFilenameIsHiddenUntilCorrectPinAndHiddenAgainAfterLock() {
         showPrivateScreen()
         compose.onNodeWithText("Введите PIN из 6 цифр").assertIsDisplayed()
+        compose.runOnIdle{assertFalse(drawerAdmission.admitted)}
         compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
 
         enterPin("000000")
@@ -85,12 +93,14 @@ class PrivateScreenUiTest {
         enterPin("123456")
         compose.waitUntil(10_000) { access.state.value.unlocked }
         compose.onNodeWithText(secretName).assertIsDisplayed()
+        compose.runOnIdle{assertTrue(drawerAdmission.admitted)}
         compose.onNodeWithText("Ранее защищённые файлы").assertDoesNotExist()
 
         compose.onNodeWithContentDescription("Заблокировать личное").assertDoesNotExist()
         // Exercise the same authorization revocation used by the root lifecycle observer.
         compose.runOnIdle { access.lock() }
         compose.onNodeWithText("Введите PIN из 6 цифр").assertIsDisplayed()
+        compose.runOnIdle{assertFalse(drawerAdmission.admitted)}
         compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithContentDescription("Настройки личного").assertDoesNotExist()
     }

@@ -8035,6 +8035,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#beforeNavigationPreservesScreenStateAndRejectsBlockedOrFailedExit": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#downloadModeUsesExistingPreferenceAndBackClosesWithoutChangingRoute": {
     "skipped": false,
     "failed": false
@@ -8404,6 +8408,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#onlyMainRoutesAndActualScreenAdmissionCanOpen": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#privateDrawerContextNeverAdmitsLockedOrPrivateViewerRoutes": {
     "skipped": false,
     "failed": false
   },

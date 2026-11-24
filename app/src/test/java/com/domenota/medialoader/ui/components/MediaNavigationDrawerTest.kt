@@ -133,6 +133,22 @@ class MediaNavigationDrawerTest{
         assertTrue(second.admitted)
     }
 
+    @Test fun beforeNavigationPreservesScreenStateAndRejectsBlockedOrFailedExit()=kotlinx.coroutines.runBlocking{
+        val admission=DrawerAdmission()
+        var calls=0
+        admission.setExitGuard{calls++;false}
+        assertFalse(admission.prepareNavigation())
+        assertEquals(0,calls)
+        admission.update(true)
+        admission.setExitGuard{calls++;assertFalse(admission.admitted);false}
+        assertFalse(admission.prepareNavigation())
+        assertEquals(1,calls)
+        assertTrue(admission.admitted)
+        admission.setExitGuard{calls++;true}
+        assertTrue(admission.prepareNavigation())
+        assertEquals(2,calls)
+        assertTrue(admission.admitted)
+    }
     @Test fun libraryRowsNavigateAndJournalAppearsOnlyWhileUnlocked(){
         var unlocked by mutableStateOf(false)
         var selected:DrawerEntry?=null
