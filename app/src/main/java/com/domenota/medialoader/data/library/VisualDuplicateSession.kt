@@ -78,10 +78,11 @@ internal object VisualDuplicateSessionStore {
     /** Clear completed report records, not media, fingerprints or the active checkpoint.
      * Tombstone each generation before removing files so deferred UI writes cannot
      * recreate deleted reports. No active scanner may commit during this operation. */
-    suspend fun clearCompletedJournal(context:Context,expectedEpoch:Long,includePartial:Boolean=false):Boolean =
+    suspend fun clearCompletedJournal(context:Context,expectedEpoch:Long,includePartial:Boolean=false,expectedToken:Long?=null):Boolean =
         withContext(Dispatchers.IO+NonCancellable){synchronized(lock){
             val status=VisualDuplicateBackgroundScan.state.value
             if(status.running||status.committing||DuplicatePrivacyGuard.generation(context)!=expectedEpoch||
+                (expectedToken!=null&&status.token!=expectedToken)||
                 !VisualDuplicateBackgroundScan.beginJournalMaintenance(status.token))return@synchronized false
             try{runCatching {
                 val target=file(context)
