@@ -58,6 +58,39 @@ internal fun SimpleArchiveScreen(
     fun toggle(id: String) {
         if (!busy && id in liveIds) selected = if (id in selected) selected - id else selected + id
     }
+    var expandedGroups by remember { mutableStateOf(emptySet<String>()) }
+    val grouped = remember(filtered) { filtered.filter { it.group != null }.groupBy {
+        val group = checkNotNull(it.group)
+        group.kind.name + ":" + group.key
+    } }
+    val ungrouped = remember(filtered) { filtered.filter { it.group == null } }
+        @Composable
+        fun itemRow(item: SimpleArchiveRecord) {
+                Row(
+                    Modifier.fillMaxWidth().combinedClickable(enabled = !busy,
+                        onClick = { if (chosen.isEmpty()) onOpen(item) else toggle(item.catalogId) },
+                        onLongClick = { toggle(item.catalogId) }).padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    val liveRow = liveRows[item.catalogId]
+                    if (liveRow != null) DownloadThumbnail(liveRow.savedUri, liveRow.previewUrl,
+                        liveRow.toUi().kind, Modifier.size(56.dp))
+                    else Icon(when (item.mediaType) {
+                        MediaType.PHOTO -> Icons.Rounded.Image
+                        MediaType.VIDEO -> Icons.Rounded.Movie
+                        MediaType.AUDIO -> Icons.Rounded.MusicNote
+                    }, null, Modifier.size(32.dp))
+                    Text(item.displayName, Modifier.weight(1f), maxLines = 2,
+                        overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = { toggle(item.catalogId) }, enabled = !busy) {
+                        Icon(if (item.catalogId in chosen) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                            if (item.catalogId in chosen) "Снять выбор" else "Выбрать",
+                            tint = if (item.catalogId in chosen) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
     androidx.activity.compose.BackHandler(chosen.isNotEmpty() && !busy) { selected = emptySet() }
     Column(Modifier.fillMaxSize().testTag("simple-archive-screen")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -127,31 +160,38 @@ internal fun SimpleArchiveScreen(
                             enabled = !busy && !legacyBusy && onLegacyFolderRestore != null) { Text("Вернуть") }
                     }
                 }
-                items(filtered, key = { it.catalogId }) { item ->
-                    Row(
-                        Modifier.fillMaxWidth().combinedClickable(enabled = !busy,
-                            onClick = { if (chosen.isEmpty()) onOpen(item) else toggle(item.catalogId) },
-                            onLongClick = { toggle(item.catalogId) }).padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        val liveRow = liveRows[item.catalogId]
-                        if (liveRow != null) DownloadThumbnail(liveRow.savedUri, liveRow.previewUrl,
-                            liveRow.toUi().kind, Modifier.size(56.dp))
-                        else Icon(when (item.mediaType) {
-                            MediaType.PHOTO -> Icons.Rounded.Image
-                            MediaType.VIDEO -> Icons.Rounded.Movie
-                            MediaType.AUDIO -> Icons.Rounded.MusicNote
-                        }, null, Modifier.size(32.dp))
-                        Text(item.displayName, Modifier.weight(1f), maxLines = 2,
-                            overflow = TextOverflow.Ellipsis)
-                        IconButton(onClick = { toggle(item.catalogId) }, enabled = !busy) {
-                            Icon(if (item.catalogId in chosen) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                                if (item.catalogId in chosen) "Снять выбор" else "Выбрать",
-                                tint = if (item.catalogId in chosen) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant)
+                items(ungrouped, key = { "file:" + it.catalogId }) { item -> itemRow(item) }
+                grouped.forEach { (key, members) ->
+                    val expanded = key in expandedGroups
+                    val ids = members.mapTo(mutableSetOf()) { it.catalogId }
+                    val allSelected = chosen.containsAll(ids)
+                    item(key = "group:" + key) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.weight(1f).combinedClickable(enabled = !busy,
+                                onClick = { expandedGroups = if (expanded) expandedGroups - key else expandedGroups + key },
+                                onLongClick = { selected = if (allSelected) selected - ids else selected + ids })
+                                .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.primary)
+                                Column(Modifier.weight(1f)) {
+                                    Text(members.first().group?.name.orEmpty(), maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                                    Text("Файлов: ${members.size}", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                    if (expanded) "Свернуть" else "Развернуть")
+                            }
+                            IconButton(onClick = { selected = if (allSelected) selected - ids else selected + ids },
+                                enabled = !busy) {
+                                Icon(if (allSelected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                    if (allSelected) "Снять выбор группы" else "Выбрать группу",
+                                    tint = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
+                    if (expanded) items(members, key = { "file:" + it.catalogId }) { item -> itemRow(item) }
                 }
             }
         }
