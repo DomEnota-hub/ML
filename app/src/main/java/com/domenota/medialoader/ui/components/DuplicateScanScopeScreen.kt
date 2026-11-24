@@ -35,6 +35,8 @@ import com.domenota.medialoader.data.library.DuplicateFolderSort
 import com.domenota.medialoader.data.library.DuplicateFolderTree
 import com.domenota.medialoader.data.library.DuplicateFileSearch
 import com.domenota.medialoader.data.library.DuplicateFileSearchHit
+import com.domenota.medialoader.data.library.DuplicatePrivacyGuard
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.domenota.medialoader.core.model.MediaType
 
 /** Same full-screen folder chooser for Gallery and Music.
@@ -48,7 +50,15 @@ internal fun DuplicateScanScopeScreen(
     onStart: (Set<String>?) -> Unit,
 ) {
     val context = LocalContext.current
-    val folders = remember(rows) { DuplicateFolderScope.options(rows) }
+    val privacyEpoch by DuplicatePrivacyGuard.changes.collectAsStateWithLifecycle()
+    val blockedKeys=DuplicatePrivacyGuard.currentBlockedKeys()
+    // Parent routes can recreate structurally identical lists during progress ticks.
+    // Stabilize the input for the referential background-projection key.
+    val stableRows=remember(rows,privacyEpoch,blockedKeys){
+        rows.filter{row->row.id !in blockedKeys&&row.savedUri !in blockedKeys&&
+            DuplicatePrivacyGuard.accepts(context,privacyEpoch,row.id)}
+    }
+    val folders = remember(stableRows) { DuplicateFolderScope.options(stableRows) }
     var choosing by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
     var fileFilter by remember { mutableStateOf("") }
@@ -58,13 +68,13 @@ internal fun DuplicateScanScopeScreen(
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     var sortMode by remember { mutableStateOf(DuplicateFolderSort.FILE_COUNT) }
     var descending by remember { mutableStateOf(true) }
-    var resolvedPaths by remember(rows) { mutableStateOf(emptyMap<String, String>()) }
-    var resolvingPaths by remember(rows) { mutableStateOf(false) }
-    LaunchedEffect(choosing, rows) {
+    var resolvedPaths by remember(stableRows) { mutableStateOf(emptyMap<String, String>()) }
+    var resolvingPaths by remember(stableRows) { mutableStateOf(false) }
+    LaunchedEffect(choosing, stableRows) {
         if (choosing && folders.any { it.key.startsWith("bucket:") }) {
             resolvingPaths = true
             try {
-                resolvedPaths = DuplicateFolderPathResolver.resolve(context, rows)
+                resolvedPaths = DuplicateFolderPathResolver.resolve(context, stableRows)
             } finally {
                 resolvingPaths = false
             }
@@ -93,11 +103,11 @@ internal fun DuplicateScanScopeScreen(
     // Only publish results for the exact current query and inputs; never keep
     // stale rows when permissions/catalogue change.
     val fileProjection=backgroundLibraryProjection(
-        emptyList<DuplicateFileSearchHit>(),emptySet<String>(),rows,options,fileFilter,
+        emptyList<DuplicateFileSearchHit>(),blockedKeys,stableRows,options,fileFilter,accessGuard=privacyEpoch,
         enabled=choosing&&searchFiles&&fileFilter.isNotBlank()){
-        DuplicateFileSearch.matches(rows,options,fileFilter)
+        DuplicateFileSearch.matches(stableRows,options,fileFilter)
     }
-    val fileHits=if(fileProjection.ready)fileProjection.value else emptyList()
+    val fileHits=if(fileProjection.ready&&DuplicatePrivacyGuard.generation(context)==privacyEpoch)fileProjection.value else emptyList()
     val selection = remember(selected, options) {
         DuplicateFolderScope.selectionSummary(options, selected)
     }
@@ -141,7 +151,10 @@ internal fun DuplicateScanScopeScreen(
                             ) {
                                 Text("Выбрано: $countLabel, ${selection.fileCount} ${DuplicateFolderScope.fileWord(selection.fileCount)}, $sizeLabel",
                                     style = MaterialTheme.typography.bodyMedium)
-                                Button({ onStart(options.map { it.key }.filterTo(mutableSetOf()) { it in selected }) },
+                                Button({
+                                    val currentKeys=options.map { it.key }.filterTo(mutableSetOf()) { it in selected }
+                                    if(DuplicatePrivacyGuard.generation(context)==privacyEpoch&&currentKeys.isNotEmpty())onStart(currentKeys)
+                                },
                                     enabled = selection.fileCount > 0,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                                         .testTag("scope-start-selected")) {
@@ -172,7 +185,7 @@ internal fun DuplicateScanScopeScreen(
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Проверить всё", style = MaterialTheme.typography.titleMedium)
-                            Text("Все доступные файлы раздела: ${DuplicateFolderScope.availableFileCount(rows)}",
+                            Text("Все доступные файлы раздела: ${DuplicateFolderScope.availableFileCount(stableRows)}",
                                 style = MaterialTheme.typography.bodySmall)
                             Button({ onStart(null) }, Modifier.fillMaxWidth().testTag("scope-all")) {
                                 Text("Проверить всё")
@@ -205,7 +218,9 @@ internal fun DuplicateScanScopeScreen(
                         value = query, onValueChange = {
                             if(searchFiles)fileFilter=it else{filter=it;focusedKey=null}
                         },
-                        label = { Text(if(searchFiles)"Имя файла или трека" else "Название или путь папки") },
+                        label = { Text(if(searchFiles){
+                            if(stableRows.any{it.mediaType==MediaType.AUDIO})"Имя файла или трека" else "Имя фото или видео"
+                        }else "Название или путь папки") },
                         leadingIcon={Icon(Icons.Rounded.Search,null)},
                         trailingIcon={if(query.isNotEmpty())IconButton({
                             if(searchFiles)fileFilter="" else {filter="";focusedKey=null}
@@ -285,7 +300,7 @@ internal fun DuplicateScanScopeScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilterChip(sortMode == DuplicateFolderSort.FILE_COUNT,
                             { sortMode = DuplicateFolderSort.FILE_COUNT },
-                            label = { Text("Файлы") })
+                            label = { Text("Количество") })
                         FilterChip(sortMode == DuplicateFolderSort.NAME,
                             { sortMode = DuplicateFolderSort.NAME; descending = false },
                             label = { Text("Название") })
@@ -341,10 +356,12 @@ internal fun DuplicateScanScopeScreen(
                                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    val scopedSummary=remember(options,selectable){DuplicateFolderScope.selectionSummary(options,selectable)}
                                     val filtered=filter.isNotBlank()||focusedKey!=null
-                                    val bytes=if(filtered)scopedSummary.sizeBytes else folder.sizeBytes
-                                    val count=if(filtered)scopedSummary.fileCount else folder.fileCount
+                                    val scopedSummary=if(filtered)remember(options,selectable){
+                                        DuplicateFolderScope.selectionSummary(options,selectable)
+                                    }else null
+                                    val bytes=if(scopedSummary!=null)scopedSummary.sizeBytes else folder.sizeBytes
+                                    val count=scopedSummary?.fileCount?:folder.fileCount
                                     val sizeText = bytes?.let {
                                         android.text.format.Formatter.formatShortFileSize(context, it)
                                     } ?: "размер неизвестен"
