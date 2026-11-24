@@ -390,6 +390,7 @@ internal fun GalleryModeScreen(
                 IconButton({ selectionMenu = true }) { Icon(Icons.Rounded.MoreVert, "Действия с выбранными") }
                 DropdownMenu(expanded = selectionMenu, onDismissRequest = { selectionMenu = false }) {
                     DropdownMenuItem(text = { Text(if (selectedIds.size == queue.size) "Снять выбор" else "Выбрать все") },
+                        modifier = Modifier.testTag("gallery-selection-all"),
                         onClick = { selectionMenu = false; selectedIds = if (selectedIds.size == queue.size) arrayListOf() else ArrayList(queue) },
                         leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
                     if (onAddCollection != null) DropdownMenuItem(text = { Text("Добавить в коллекцию") },
