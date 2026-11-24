@@ -596,8 +596,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                         items(visibleGroups, key = { "$scannedAt:${it.key}" }) { group ->
                             val keep = kept[group.key] ?: MusicDuplicatePolicy.recommended(group)
-                            Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp)) {
-                                Column(Modifier.padding(horizontal=10.dp,vertical=6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(16.dp)) {
+                                Column(Modifier.padding(horizontal=8.dp,vertical=6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     var expanded by rememberSaveable(privacyRevision) { mutableStateOf(true) }
                                     Row(Modifier.fillMaxWidth().heightIn(min=56.dp)
                                         .testTag("duplicate-group-${group.key}").clickable {
@@ -616,11 +616,9 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                         TextButton({comparing=group},enabled=!verifying&&!clearingJournal){Text("Сравнить")}
                                     }
                                     if(expanded) group.tracks.forEach { t ->
-                                        Surface(Modifier.fillMaxWidth().padding(vertical=3.dp),
-                                            shape=RoundedCornerShape(12.dp),
-                                            color=MaterialTheme.colorScheme.surfaceContainer,
-                                            border=if(t.id==keep) androidx.compose.foundation.BorderStroke(1.dp,musicPlaybackAccent) else null){
-                                        Column(Modifier.padding(start=6.dp,end=2.dp,top=6.dp,bottom=4.dp)){
+                                        com.domenota.medialoader.ui.components.DuplicateRecordCard(
+                                            keeper=t.id==keep, tag="duplicate-record-${t.id}",accent=musicPlaybackAccent){
+                                        Column(Modifier.fillMaxWidth()){
                                         Row(verticalAlignment = Alignment.Top) {
                                             DownloadThumbnail(t.uri,null,MediaKind.AUDIO,Modifier.size(48.dp))
                                             Column(Modifier.weight(1f).padding(start=8.dp)) {
@@ -630,17 +628,6 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                                 t.folder?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                                 MusicDuplicatePolicy.version(t)?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                                                 if (t.linked) Text("Есть связи библиотеки", style = MaterialTheme.typography.labelSmall, color = musicPlaybackAccent)
-                                                Row(verticalAlignment=Alignment.CenterVertically){
-                                                    IconButton({play(t)},enabled=!verifying){
-                                                        Icon(if(previewId==t.id&&previewPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,"Прослушать ${t.filename}")
-                                                    }
-                                                    if(t.id==keep)Text("Остаётся",color=musicPlaybackAccent,style=MaterialTheme.typography.labelLarge)
-                                                }
-                                                if(t.id!=keep||group.tracks.any{it.id!=t.id&&eligible(it)&&it.id !in selected})
-                                                    TextButton({keepVersion(group,t.id)},enabled=!verifying&&!clearingJournal&&
-                                                        liveRows[t.id]?.let{it.savedUri==t.uri&&!it.hidden&&!it.isPrivate}==true){
-                                                        Text(if(t.id==keep)"Отметить остальные" else "Оставить этот",style=MaterialTheme.typography.labelMedium)
-                                                    }
                                                 if(t.id==currentId)Text("Текущий трек",style=MaterialTheme.typography.labelSmall)
                                                 else if(!eligible(t))Text("Недоступен для корзины",style=MaterialTheme.typography.labelSmall)
                                             }
@@ -656,6 +643,20 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                                     if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.surface)
                                                 }
                                             }
+                                        }
+                                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                                            IconButton({play(t)},enabled=!verifying){
+                                                Icon(if(previewId==t.id&&previewPlaying)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,"Прослушать ${t.filename}")
+                                            }
+                                            if(t.id==keep)Text("Остаётся",color=musicPlaybackAccent,
+                                                style=MaterialTheme.typography.labelMedium,modifier=Modifier.weight(1f))
+                                            else Spacer(Modifier.weight(1f))
+                                            if(t.id!=keep||group.tracks.any{it.id!=t.id&&eligible(it)&&it.id !in selected})
+                                                TextButton({keepVersion(group,t.id)},enabled=!verifying&&!clearingJournal&&
+                                                    liveRows[t.id]?.let{it.savedUri==t.uri&&!it.hidden&&!it.isPrivate}==true,
+                                                    modifier=Modifier.weight(1.8f,fill=false)){
+                                                    Text(if(t.id==keep)"Отметить остальные" else "Оставить этот",style=MaterialTheme.typography.labelMedium)
+                                                }
                                         }
                                         if(previewId==t.id)DuplicatePreviewSeek(t.id,previewPosition,previewDuration,previewSeekable&&!verifying,
                                             onSeek={seekPreview(t,it)})

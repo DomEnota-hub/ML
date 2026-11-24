@@ -544,8 +544,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         if(exact.isNotEmpty()||shown.selected.isNotEmpty())OutlinedButton({if(actionsReady)current?.let{persist(it.copy(selected=if(shown.selected==exact)emptySet() else exact))}},enabled=actionsReady&&!saving&&!status.running&&trash==null){Text(if(shown.selected==exact)"Снять выделение" else "Выделить точные")}
         LazyColumn(state=list,modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){
             items(visibleGroups,key={"${shown.scannedAt}:${it.files.first().id}"}){group->
-                Card {
-                    Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+                Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surfaceContainerHigh)) {
+                    Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                         var expanded by rememberSaveable(privacyEpoch){mutableStateOf(true)}
                         Row(Modifier.fillMaxWidth().heightIn(min=48.dp)
                             .testTag("visual-duplicate-group-${group.files.first().id}").clickable{expanded=!expanded},
@@ -562,6 +562,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                             val pendingIndex=!displayReady &&
                                 shown.result.privacyEpoch==privacyEpoch && phonePermission && loaded
                             val canDisplay=ref!=null||pendingIndex
+                            com.domenota.medialoader.ui.components.DuplicateRecordCard(
+                                keeper=false,tag="visual-duplicate-record-${file.id}"){
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
                                 if(canDisplay) DownloadThumbnail(file.uri,null,if(file.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(76.dp).testTag("visual-thumbnail-media-${file.id}")
                                     .clickable(enabled=actionsReady&&ref!=null){preview=group to file.id})
@@ -575,6 +577,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                                     val selected=if(file.id !in shown.selected)shown.selected+file.id else shown.selected-file.id
                                     if(actionsReady)current?.let{persist(it.copy(selected=selected,index=list.firstVisibleItemIndex,offset=list.firstVisibleItemScrollOffset))}
                                 }
+                            }
                             }
                         }
                     }

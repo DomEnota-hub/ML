@@ -134,7 +134,7 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
                         Text("Определяем композицию")
                         if(attempt>0)Text("Анализируем другой участок аудио",style=MaterialTheme.typography.bodySmall)
                         if(p!=null)Text("Фрагмент ${p.index+1} из ${p.total}" +
-                            (p.startMs?.let { at -> " · ${at/1000} с" + (p.durationMs?.let { " · ${it/1000} с аудио" } ?: "") } ?: ""),
+                            (p.startMs?.let { at -> ", ${at/1000} с" + (p.durationMs?.let { ", ${it/1000} с аудио" } ?: "") } ?: ""),
                             style=MaterialTheme.typography.bodySmall)
                     }
                     error!=null->{
