@@ -59,6 +59,7 @@ internal fun DuplicateScanScopeScreen(
             DuplicatePrivacyGuard.accepts(context,privacyEpoch,row.id)}
     }
     val folders = remember(stableRows) { DuplicateFolderScope.options(stableRows) }
+    val hasAudio=remember(stableRows){stableRows.any{it.mediaType==MediaType.AUDIO}}
     var choosing by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
     var fileFilter by remember { mutableStateOf("") }
@@ -222,7 +223,7 @@ internal fun DuplicateScanScopeScreen(
                             if(searchFiles)fileFilter=it else{filter=it;focusedKey=null}
                         },
                         label = { Text(if(searchFiles){
-                            if(stableRows.any{it.mediaType==MediaType.AUDIO})"Имя файла или трека" else "Имя фото или видео"
+                            if(hasAudio)"Имя файла или трека" else "Имя фото или видео"
                         }else "Название или путь папки") },
                         leadingIcon={Icon(Icons.Rounded.Search,null)},
                         trailingIcon={if(query.isNotEmpty())IconButton({
@@ -300,7 +301,11 @@ internal fun DuplicateScanScopeScreen(
                         }
                     }else{
                     if(focusedKey!=null){
-                        Text(if(focusPath.isEmpty())"Папка больше недоступна" else "Отметьте папку, чтобы включить все её доступные файлы в поиск.",
+                        Text(when{
+                            focusPath.isEmpty()->"Папка больше недоступна"
+                            focusPath.last().node.id.startsWith("folder:")->"Путь не подтверждён. Отметка включает все доступные файлы только этой группы."
+                            else->"Отметьте папку, чтобы включить её доступные файлы без вложенных папок."
+                        },
                             modifier=Modifier.testTag("scope-focused-folder"),style=MaterialTheme.typography.bodySmall)
                         TextButton({focusedKey=null;filter=""}){Text("Все папки")}
                     }
@@ -308,7 +313,7 @@ internal fun DuplicateScanScopeScreen(
                         Text(if(filter.isBlank()&&focusedKey==null)"Папки: $folderCount" else "Найдено: $matchedFolderCount из $folderCount папок",
                             modifier = Modifier.weight(1f).testTag("scope-folder-count"),
                             style = MaterialTheme.typography.bodySmall)
-                        TextButton({
+                        if(focusedKey==null)TextButton({
                             selected = if (matchingKeys.isNotEmpty() && matchingKeys.all { it in selected })
                                 selected - matchingKeys else selected + matchingKeys
                         }, enabled = matchingKeys.isNotEmpty()) {
@@ -318,7 +323,7 @@ internal fun DuplicateScanScopeScreen(
                                 "Снять выбор" else "Выбрать все")
                         }
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    if(focusedKey==null)Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilterChip(sortMode == DuplicateFolderSort.FILE_COUNT,
@@ -342,7 +347,8 @@ internal fun DuplicateScanScopeScreen(
                         verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(visible, key = { it.node.id }) { row ->
                             val folder = row.node
-                            val selectable=DuplicateFileSearch.selectableKeys(folder,matchingKeys)
+                            val contextOnly=focusedKey!=null&&focusedKey !in folder.ownKeys
+                            val selectable=if(contextOnly)emptySet() else DuplicateFileSearch.selectableKeys(folder,matchingKeys)
                             val selectedChildren = selectable.count { it in selected }
                             val state = when {
                                 selectedChildren == 0 -> ToggleableState.Off
@@ -365,7 +371,7 @@ internal fun DuplicateScanScopeScreen(
                                 } else Spacer(Modifier.width(40.dp))
                                 Icon(Icons.Rounded.Folder, null, Modifier.size(20.dp)
                                     .padding(end = 3.dp),tint=MaterialTheme.colorScheme.primary)
-                                Column(Modifier.weight(1f).clickable {
+                                Column(Modifier.weight(1f).clickable(enabled=!contextOnly) {
                                     if (folder.children.isNotEmpty()&&focusedKey==null) expanded =
                                         if (folder.id in expanded) expanded - folder.id else expanded + folder.id
                                     else toggleSelection()
@@ -388,7 +394,7 @@ internal fun DuplicateScanScopeScreen(
                                     val sizeText = bytes?.let {
                                         android.text.format.Formatter.formatShortFileSize(context, it)
                                     } ?: "размер неизвестен"
-                                    val details = "$count ${DuplicateFolderScope.fileWord(count)}" +
+                                    val details = if(contextOnly)"Родительская папка" else "$count ${DuplicateFolderScope.fileWord(count)}" +
                                         (if (folder.children.isNotEmpty()&&!filtered) ", вложенных папок: ${folder.folderCount}" else "") +
                                         ", $sizeText"
                                     Text(details, maxLines = 2, overflow = TextOverflow.Ellipsis,
@@ -396,8 +402,9 @@ internal fun DuplicateScanScopeScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                TriStateCheckbox(state = state, onClick = toggleSelection,enabled=selectable.isNotEmpty(),
+                                if(!contextOnly)TriStateCheckbox(state = state, onClick = toggleSelection,enabled=selectable.isNotEmpty(),
                                     modifier = Modifier.testTag("scope-node-${folder.id}"))
+                                else Spacer(Modifier.width(48.dp))
                             }
                             HorizontalDivider()
                         }
