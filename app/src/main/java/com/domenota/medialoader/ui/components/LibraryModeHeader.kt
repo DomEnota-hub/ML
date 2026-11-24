@@ -58,7 +58,7 @@ internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource, onMode: (Ap
                 }
             }
             onCalendar?.let { action -> IconButton(action) {
-                Icon(Icons.Rounded.CalendarMonth, "Перейти к дате", Modifier.size(23.dp), tint = androidx.compose.ui.graphics.Color.White)
+                Icon(Icons.Rounded.CalendarMonth, "Перейти к дате", Modifier.size(23.dp), tint = MaterialTheme.colorScheme.onSurface)
             } }
             IconButton(onSearch) { Icon(Icons.Rounded.Search, "Поиск", Modifier.size(23.dp)) }
             IconButton(onPrivate) { Icon(Icons.Rounded.Lock, "Личное", Modifier.size(23.dp)) }

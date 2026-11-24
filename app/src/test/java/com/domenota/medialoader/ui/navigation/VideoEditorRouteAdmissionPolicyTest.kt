@@ -51,4 +51,18 @@ class VideoEditorRouteAdmissionPolicyTest {
         assertEquals(VideoEditorRouteAdmission.WAIT,
             decision(row = false, ready = false, elapsed = 0L))
     }
+
+    @Test fun repeatedEditorRequestCannotStartAnotherNavigation() {
+        assertEquals(true, EditorOpenRequestPolicy.canBegin("viewer", false, false))
+        assertEquals(false, EditorOpenRequestPolicy.canBegin("viewer", false, true))
+        assertEquals(false, EditorOpenRequestPolicy.canBegin("editor", true, false))
+        assertEquals(false, EditorOpenRequestPolicy.canBegin(null, false, false))
+    }
+
+    @Test fun suspendedEditorRequestMustStillOwnOriginalNavigationEntry() {
+        assertEquals(true, EditorOpenRequestPolicy.canCommit("viewer-1", "viewer-1"))
+        assertEquals(false, EditorOpenRequestPolicy.canCommit("viewer-1", "viewer-2"))
+        assertEquals(false, EditorOpenRequestPolicy.canCommit("viewer-1", "editor"))
+        assertEquals(false, EditorOpenRequestPolicy.canCommit(null, null))
+    }
 }

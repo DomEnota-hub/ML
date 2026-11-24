@@ -24,8 +24,10 @@ class TransparentNavigationTest {
         assertEquals(Color.TRANSPARENT, window.navigationBarDividerColor)
         assertFalse(window.isNavigationBarContrastEnforced)
         assertFalse(WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightNavigationBars)
+        assertFalse(WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars)
         transparentNavigation(window, dark = false)
         assertTrue(WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightNavigationBars)
+        assertTrue(WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars)
         assertFalse(window.isNavigationBarContrastEnforced)
     }
     @Test fun fullscreenVideoExitDoesNotRestoreTheOpaqueNavigationPanel() {
@@ -35,11 +37,13 @@ class TransparentNavigationTest {
             activity.getSharedPreferences("ui", 0).edit().putString("theme", mode).commit()
             applyFullscreen(activity, window.decorView, fullscreen = true, landscapeVideo = true)
             assertFalse(window.isNavigationBarContrastEnforced)
+            assertFalse(WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars)
             window.navigationBarColor = Color.LTGRAY // Simulate a previous window override.
             applyFullscreen(activity, window.decorView, fullscreen = false, landscapeVideo = true)
             assertEquals(Color.TRANSPARENT, window.navigationBarColor)
             assertFalse(window.isNavigationBarContrastEnforced)
             assertEquals(mode == "light", WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightNavigationBars)
+            assertEquals(mode == "light", WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars)
         }
     }
 }

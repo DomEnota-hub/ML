@@ -147,6 +147,7 @@ import com.domenota.medialoader.ui.navigation.MEDIA_VIEWER_ROUTE
 import com.domenota.medialoader.ui.navigation.VIDEO_EDITOR_ROUTE
 import com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmission
 import com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicy
+import com.domenota.medialoader.ui.navigation.EditorOpenRequestPolicy
 import com.domenota.medialoader.ui.navigation.AUDIO_EDITOR_ROUTE
 import com.domenota.medialoader.ui.navigation.PHOTO_EDITOR_ROUTE
 import com.domenota.medialoader.ui.screens.DownloadsScreen
@@ -1008,14 +1009,36 @@ fun MediaLoaderApp(
             catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось выполнить действие")}
         }
     }
+    var editorOpenInFlight by remember { mutableStateOf(false) }
     fun openVisibilityEditor(row:com.domenota.medialoader.core.database.DownloadEntity) {
-        runRestoredAction(listOf(row.id)) { restored ->
-            val current=restored[row.id]?:row
-            if(restored.isNotEmpty() && current.id.startsWith("phone:")) {
-                check(withTimeoutOrNull(8000L){libraryModel.index.first { index -> index.refs.any { it.key==current.id && it.item.savedUri==current.savedUri } }}!=null) { "Обновление медиатеки ещё не завершено" }
-            }
-            val route=when(current.mediaType){MediaType.PHOTO->"photo-editor/";MediaType.VIDEO->"video-editor/";MediaType.AUDIO->"audio-editor/"}
-            navController.navigate(route+android.net.Uri.encode(current.id))
+        val origin=navController.currentBackStackEntry
+        val isVideo=row.mediaType==MediaType.VIDEO
+        val originIsEditor=origin?.destination?.route in setOf(VIDEO_EDITOR_ROUTE,AUDIO_EDITOR_ROUTE,PHOTO_EDITOR_ROUTE)
+        if(!EditorOpenRequestPolicy.canBegin(origin?.id,originIsEditor,editorOpenInFlight)){
+            if(isVideo)AppLog.i("VideoEditorNav","EDITOR_OPEN_IGNORED reason=duplicate_or_no_origin")
+            return
+        }
+        editorOpenInFlight=true
+        val operation=AppLog.newOperationId("editor-open")
+        val started=android.os.SystemClock.elapsedRealtime()
+        if(isVideo)AppLog.i("VideoEditorNav","EDITOR_OPEN_REQUEST operation=$operation")
+        fileActionScope.launch {
+            try {
+                val restored=restoreBeforeAction(listOf(row.id))
+                val current=restored[row.id]?:row
+                if(restored.isNotEmpty() && current.id.startsWith("phone:")) {
+                    check(withTimeoutOrNull(8000L){libraryModel.index.first { index -> index.refs.any { it.key==current.id && it.item.savedUri==current.savedUri } }}!=null) { "Обновление медиатеки ещё не завершено" }
+                }
+                if(!EditorOpenRequestPolicy.canCommit(origin?.id,navController.currentBackStackEntry?.id)){
+                    if(isVideo)AppLog.i("VideoEditorNav","EDITOR_OPEN_IGNORED reason=stale_origin operation=$operation")
+                    return@launch
+                }
+                val route=when(current.mediaType){MediaType.PHOTO->"photo-editor/";MediaType.VIDEO->"video-editor/";MediaType.AUDIO->"audio-editor/"}
+                if(isVideo)AppLog.i("VideoEditorNav","EDITOR_NAVIGATE operation=$operation preNavigationMs=${android.os.SystemClock.elapsedRealtime()-started}")
+                navController.navigate(route+android.net.Uri.encode(current.id)){launchSingleTop=true}
+            }catch(e:CancellationException){throw e}
+            catch(e:Exception){AppNotice.post(context,e.message?:"Не удалось выполнить действие")}
+            finally{editorOpenInFlight=false}
         }
     }
     val renameVisibilityFile:(String,String)->Unit={id,name->runRestoredAction(listOf(id)){viewModel.renameDownload(id,name)}}
@@ -1099,17 +1122,27 @@ fun MediaLoaderApp(
     val galleryRetentionAccess = libraryPrivateKeys?.takeIf { galleryBrowseAccess != null }
         ?.let { Triple(it, if (gallerySource == LibrarySource.APP) 0L else galleryAccessEpoch,
             gallerySource to FolderVisibilityStorageAccess.granted()) }
+    // Only the retention bridge needs this identity map; avoid eagerly rebuilding
+    // it on ordinary fresh projections. Keep the original last-wins precedence.
     val currentGalleryRows = remember(galleryPublicItems, folderRefs) {
-        (galleryPublicItems + folderRefs.map { it.item }).associate { it.id to it.savedUri }
+        lazy(LazyThreadSafetyMode.NONE) {
+            buildMap<String, String?> {
+                galleryPublicItems.forEach { put(it.id, it.savedUri) }
+                folderRefs.forEach { put(it.item.id, it.item.savedUri) }
+            }
+        }
     }
     val galleryBrowse = com.domenota.medialoader.ui.components.backgroundLibraryProjection(
         GalleryBrowseInventory.EMPTY, publicProjectionGuard, galleryPublicItems, folderRefs,
         catalogFolders, libraryCatalogAssignments, displayInventory.deviceAlbums, visibilityFolders,
         accessGuard = galleryBrowseAccess, enabled = catalogAssignmentProjection.usable,
         retentionGuard = galleryRetentionAccess,
-        revalidateRetained = { previous -> previous.retainAllowed { row ->
-            currentGalleryRows.containsKey(row.id) && currentGalleryRows[row.id] == row.savedUri
-        } },
+        revalidateRetained = { previous ->
+            val currentRows = currentGalleryRows.value
+            previous.retainAllowed { row ->
+                currentRows.containsKey(row.id) && currentRows[row.id] == row.savedUri
+            }
+        },
         equivalentContent = { old, next -> old.equivalentContent(next) },
         kind = LibraryProjectionKind.GALLERY_BROWSE) {
         val items = GalleryBrowseInventory.withScopedItems(galleryPublicItems, folderRefs,
@@ -1741,19 +1774,8 @@ fun MediaLoaderApp(
         catalogAssignments.filter { it.folderId in nomediaSnapshot.hiddenFolderIds }
             .mapTo(mutableSetOf()) { it.downloadId }
     }
-    val downloadItems = remember(downloads, fileStatuses, visibilityGuard, folderRefs,nomediaHistoryIds,archivedRecords,simpleArchiveLoaded) {
-        downloads.filter { row -> simpleArchiveLoaded && !isSimplyArchived(row) }.filter { row ->
-            visibilityGuard?.canOpen(row,null,emptyList()) == true ||
-            (row.id in nomediaHistoryIds && !row.hidden && !row.isPrivate &&
-                visibilityGuard?.let { guard ->
-                    !guard.policy.unknownPending &&
-                    guard.policy.pendingFolder == null &&
-                    guard.policy.snapshot.receipts.none { it.downloadId == row.id }
-                } == true) ||
-            folderRefsById[row.id]?.item?.savedUri == row.savedUri && row.savedUri != null
-        }.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
-    }
-    val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
+    // Home renders only three recent entries; do not format the entire library on main.
+    val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.take(3).map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
 
     fun archiveSelection(ids: List<String>, source: ArchiveEntrySource) {
         if (!simpleArchiveLoaded || simpleArchiveBusy || ids.isEmpty()) return
@@ -2447,7 +2469,7 @@ fun MediaLoaderApp(
                         showPicker = false
                         navController.navigate("browser/$source")
                     },
-                    recentDownloads = recentDownloadItems.take(3),
+                    recentDownloads = recentDownloadItems,
                     onSimpleArchive = { archiveSelection(listOf(it), ArchiveEntrySource.DOWNLOADER) },
                     onOpenDownload = openDownload,
                     onCancelDownload = viewModel::cancelDownload,
@@ -2752,11 +2774,24 @@ fun MediaLoaderApp(
                         TextButton({ navController.popBackStack() }) { Text("Назад") }
                         Text("Загрузка музыкальной библиотеки…")
                     }
-                } else com.domenota.medialoader.ui.screens.music.MusicDuplicatesDialog(
-                    libraryAudioItems, libraryCatalogAssignments.filter { it.folderId != null || it.isFavorite }.mapTo(mutableSetOf()) { it.downloadId } +
-                        playlists.flatMap { it.trackIds } + publicLibraryRefs.filter { ref -> libraryModel.equalizerProfiles.value?.tracks.orEmpty().any { profile -> profile.keys.any { it in ref.aliases || it == "id:${ref.key}" } } }.map { it.key },
-                    currentLibraryAudioId, libraryAudioState.playing,
-                    onDismiss = { navController.popBackStack() }, onTrash = trashDuplicates)
+                } else {
+                    val profiles by libraryModel.equalizerProfiles.collectAsStateWithLifecycle()
+                    // Build the profile key index once per input generation instead of
+                    // scanning every EQ profile for every media reference on each tick.
+                    val linkedIds = remember(libraryCatalogAssignments,playlists,publicLibraryRefs,profiles) {
+                        val profileKeys=profiles?.tracks.orEmpty().flatMapTo(hashSetOf<String>()){it.keys}
+                        buildSet<String> {
+                            libraryCatalogAssignments.forEach { if(it.folderId!=null||it.isFavorite)add(it.downloadId) }
+                            playlists.forEach { addAll(it.trackIds) }
+                            publicLibraryRefs.forEach { ref ->
+                                if("id:${ref.key}" in profileKeys || ref.aliases.any { it in profileKeys })add(ref.key)
+                            }
+                        }
+                    }
+                    com.domenota.medialoader.ui.screens.music.MusicDuplicatesDialog(
+                        libraryAudioItems, linkedIds, currentLibraryAudioId, libraryAudioState.playing,
+                        onDismiss = { navController.popBackStack() }, onTrash = trashDuplicates)
+                }
             },
             LibraryRouteContent("equalizer") {
                 val profiles by libraryModel.equalizerProfiles.collectAsStateWithLifecycle()
@@ -2826,6 +2861,18 @@ fun MediaLoaderApp(
                 }
             },
             LibraryRouteContent(AppDestination.Downloads.route) {
+                val downloadItems = remember(downloads, fileStatuses, visibilityGuard, folderRefs,nomediaHistoryIds,archivedRecords,simpleArchiveLoaded) {
+                    downloads.filter { row -> simpleArchiveLoaded && !isSimplyArchived(row) }.filter { row ->
+                        visibilityGuard?.canOpen(row,null,emptyList()) == true ||
+                        (row.id in nomediaHistoryIds && !row.hidden && !row.isPrivate &&
+                            visibilityGuard?.let { guard ->
+                                !guard.policy.unknownPending &&
+                                guard.policy.pendingFolder == null &&
+                                guard.policy.snapshot.receipts.none { it.downloadId == row.id }
+                            } == true) ||
+                        folderRefsById[row.id]?.item?.savedUri == row.savedUri && row.savedUri != null
+                    }.map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) }
+                }
                 DownloadsScreen(
                     onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.DOWNLOADER) },
                     onOpenSimpleArchive = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },

@@ -36,6 +36,14 @@ gradle.projectsEvaluated {
             task.maxParallelForks = 1
             task.forkEvery = 1
             task.ignoreFailures = false
+            // Keep the exact failure message and stack even if the batch stops.
+            task.testLogging {
+                events 'failed'
+                exceptionFormat 'full'
+                showExceptions = true
+                showCauses = true
+                showStackTraces = true
+            }
             task.filter {
                 includeTestsMatching(row[0] + '.' + row[1])
                 failOnNoMatchingTests = true

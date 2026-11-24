@@ -204,4 +204,54 @@ class DuplicateScanScopeDialogTest {
         compose.runOnIdle { assertEquals(1, closed) }
     }
 
+
+    @Test fun folderSearchShowsExplicitEmptyCountAndPreservesSelection(){
+        var scope:Set<String>?=null
+        compose.setContent{MaterialTheme{DuplicateScanScopeScreen(listOf(alpha,beta),"Музыка",{},{scope=it})}}
+        compose.onNodeWithTag("scope-select-folders").performClick()
+        compose.onNodeWithTag("scope-search-folder").performTextInput("Alpha")
+        compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
+        compose.onNodeWithTag("scope-search-folder").performTextReplacement("Вселенная")
+        compose.onNodeWithTag("scope-search-empty").assertExists()
+        compose.onNodeWithTag("scope-folder-count").assertTextEquals("Найдено: 0 из 2 папок")
+        compose.onNodeWithTag("scope-start-selected").assertIsEnabled()
+        compose.onNodeWithTag("scope-start-selected").performClick()
+        assertEquals(setOf(DuplicateFolderScope.key(alpha)),scope)
+    }
+
+    @Test fun fileMatchNavigatesWithoutSelectingThenOnlyExplicitFolderCanStart(){
+        var scope:Set<String>?=null
+        val track=alpha.copy(originalName="Вселенная.mp3")
+        val sibling=audio("other","Alpha/Child")
+        compose.setContent{MaterialTheme{
+            DuplicateScanScopeScreen(listOf(track,beta,sibling),"Музыка",{},{scope=it})
+        }}
+        compose.onNodeWithTag("scope-select-folders").performClick()
+        compose.onNodeWithTag("scope-search-mode-files").performClick()
+        compose.onNodeWithTag("scope-search-file").performTextInput("вселенная")
+        compose.waitUntil(5000){compose.onAllNodesWithTag("scope-file-folder-a").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithTag("scope-start-selected").assertIsNotEnabled()
+        compose.onNodeWithTag("scope-file-folder-a").performClick()
+        compose.onNodeWithTag("scope-focused-folder").assertExists()
+        compose.onNodeWithTag("scope-start-selected").assertIsNotEnabled()
+        compose.onNodeWithText("Beta").assertDoesNotExist()
+        compose.onNodeWithText("Child").assertDoesNotExist()
+        compose.onNodeWithTag("scope-node-volume:external_primary|Music/Alpha").performClick()
+        compose.onNodeWithTag("scope-start-selected").assertIsEnabled().performClick()
+        assertEquals(setOf(DuplicateFolderScope.key(track)),scope)
+    }
+
+    @Test fun noFileMatchDoesNotClearEarlierFolderSelection(){
+        var scope:Set<String>?=null
+        compose.setContent{MaterialTheme{DuplicateScanScopeScreen(listOf(alpha,beta),"Музыка",{},{scope=it})}}
+        compose.onNodeWithTag("scope-select-folders").performClick()
+        compose.onNodeWithTag("scope-search-folder").performTextInput("Alpha")
+        compose.onNodeWithText("Выбрать все").performClick()
+        compose.onNodeWithTag("scope-search-mode-files").performClick()
+        compose.onNodeWithTag("scope-search-file").performTextInput("不存在")
+        compose.waitUntil(5000){compose.onAllNodesWithTag("scope-search-empty").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithTag("scope-file-count").assertTextEquals("Найдено: 0 файлов")
+        compose.onNodeWithTag("scope-start-selected").assertIsEnabled().performClick()
+        assertEquals(setOf(DuplicateFolderScope.key(alpha)),scope)
+    }
 }

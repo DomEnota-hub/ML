@@ -559,8 +559,14 @@ private fun VideoEditorContent(
     } }
     val previewPlayer = previewSession?.players?.collectAsState()?.value
     DisposableEffect(previewPlayer) {
+        val listenerStarted = android.os.SystemClock.elapsedRealtime()
+        var firstFrameLogged = false
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
+                if (!firstFrameLogged) {
+                    firstFrameLogged = true
+                    AppLog.i("VideoPreview", "EDITOR_FIRST_FRAME listenerToFrameMs=${android.os.SystemClock.elapsedRealtime()-listenerStarted}")
+                }
                 val draft = project ?: return
                 val player = previewPlayer ?: return
                 if (!trimGestureActive && VideoPreviewQueueSync.matches(

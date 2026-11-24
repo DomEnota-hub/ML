@@ -23,6 +23,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.style.TextOverflow
 import com.domenota.medialoader.ui.components.AudioWaveform
 import com.domenota.medialoader.ui.components.DownloadThumbnail
+import com.domenota.medialoader.ui.components.DuplicateActionTrace
 import com.domenota.medialoader.ui.components.DuplicateScanPanel
 import com.domenota.medialoader.ui.components.DuplicateResultFilterPolicy
 import com.domenota.medialoader.ui.components.DuplicateJournalDialog
@@ -132,6 +133,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }
     var history by remember{mutableStateOf(emptyList<DuplicateSession>(),referentialEqualityPolicy())}
     var storedPartial by remember{mutableStateOf<DuplicateSession?>(null,referentialEqualityPolicy())}
+    var partialLoaded by remember(background.running,privacyRevision){mutableStateOf(false)}
     var filter by rememberSaveable{mutableStateOf<DuplicateKind?>(null)}
     var preliminaryFilter by rememberSaveable{mutableStateOf<DuplicateKind?>(null)}
     var expandedGroupKey by rememberSaveable { mutableStateOf<String?>(null) }
@@ -141,6 +143,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     LaunchedEffect(journal,background.running,privacyRevision) {
         if (journal) history=MusicDuplicateSessionStore.history(context)
         storedPartial=MusicDuplicateSessionStore.partial(context)
+        partialLoaded=true
     }
     var kept by remember { mutableStateOf<Map<String,String>>(emptyMap()) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -263,6 +266,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }
     fun restorePrevious(saved: DuplicateSession, fromPartial: Boolean = false) {
         if (scanning||clearingJournal) return
+        if (fromPartial && (saved.result.groups.isEmpty() || !admissible(saved.result))) return
         journalGeneration = MusicDuplicateSessionStore.journalGeneration()
         quickSummary = DuplicateSavedSummary(saved.scannedAt,saved.result.groups.size,
             saved.result.groups.sumOf{it.tracks.size},saved.selected.size,
@@ -304,7 +308,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         }
     }
     val displayPrevious=remember(DuplicateReferenceKey(previous),privacyRevision){previous?.takeIf{admissible(it.result)}}
-    val partial=remember(background.running,background.partial,storedPartial,privacyRevision){
+    val partial=remember(background.running,DuplicateReferenceKey(background.partial),DuplicateReferenceKey(storedPartial),privacyRevision){
         (if(background.running)background.partial else background.partial?:storedPartial?.result)?.takeIf(::admissible)
     }
     val resultCounts=remember(DuplicateReferenceKey(result),privacyRevision){
@@ -316,6 +320,24 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     }
     val unfinished=DuplicateBackgroundScan.interrupted(context)||partial!=null
     val unfinishedExpanded=DuplicateBackgroundScan.resumeExpanded(context)
+    val savedPartialReport=remember(DuplicateReferenceKey(storedPartial),partialLoaded,background.running,privacyRevision){
+        storedPartial?.takeIf{partialLoaded&&!background.running&&admissible(it.result)}
+    }
+    val savedPartialCount=savedPartialReport?.result?.groups?.size ?: partial?.groups?.size
+    val canOpenSavedPartial=!clearingJournal&&!verifying&&!background.running&&
+        savedPartialReport?.result?.groups?.isNotEmpty()==true
+    fun openSavedPartial(){
+        if(!canOpenSavedPartial||DuplicateBackgroundScan.state.value.running)return
+        savedPartialReport?.takeIf{admissible(it.result)}?.let{restorePrevious(it,fromPartial=true)}
+    }
+    val savedPartialBlocker=when{
+        clearingJournal->"journal_write"
+        verifying->"verifying"
+        !partialLoaded->"report_pending"
+        savedPartialReport==null->"missing_results"
+        savedPartialReport.result.groups.isEmpty()->"zero_groups"
+        else->"none"
+    }
     fun resume(){
         stopPreview()
         expandedScan=unfinishedExpanded
@@ -344,9 +366,20 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             group.tracks.filter(::eligible).map{it.id}.toSet())
         kept=kept+(group.key to id)
     }
-    val allSelected = MusicDuplicatePolicy.selectAll(groups,kept).intersect(groups.flatMap{it.tracks}.filter(::eligible).map{it.id}.toSet())
+    // Recommendation (regex, sorting and key construction) depends only on
+    // report/keeper changes, not 200ms preview ticks. Admission remains live.
+    val bulkCandidates = remember(DuplicateReferenceKey(groups),kept){
+        MusicDuplicatePolicy.selectAll(groups,kept)
+    }
+    fun eligibleBulk():Set<String> = if(bulkCandidates.isEmpty()) emptySet() else buildSet {
+        for(group in groups) for(track in group.tracks)
+            if(track.id in bulkCandidates && eligible(track)) add(track.id)
+    }
+    val allSelected = eligibleBulk()
     LaunchedEffect(currentId){currentId?.let{selected=selected-it}}
-    val size = groups.sumOf { g -> g.tracks.filter { it.id in selected }.sumOf { it.bytes } }
+    val size = remember(DuplicateReferenceKey(groups),selected){
+        groups.sumOf { g -> g.tracks.sumOf { if(it.id in selected)it.bytes else 0L } }
+    }
     fun close() {
         stopPreview()
         val saved = snapshot()
@@ -365,6 +398,30 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             onStart = { keys -> choosingScope = false; beginScope(keys) },
         )
         return
+    }
+    val controlsBlocker = when {
+        verifying -> "verifying"
+        clearingJournal -> "journal_write"
+        else -> "none"
+    }
+    DuplicateActionTrace("music", "journal", !verifying&&!clearingJournal, controlsBlocker)
+    if(scanning && background.running) {
+        DuplicateActionTrace("music", "pause", !background.committing, if(background.committing) "commit" else "none")
+        DuplicateActionTrace("music", "stop", !background.committing, if(background.committing) "commit" else "none")
+    } else if(!scanning) {
+        if(scanControlsExpanded || (displayPrevious==null && result==null)) {
+            DuplicateActionTrace("music", "scan_controls", !verifying&&!clearingJournal, controlsBlocker)
+        }
+        if(displayPrevious==null && result!=null) {
+            DuplicateActionTrace("music", "new_search", !verifying&&!clearingJournal, controlsBlocker)
+        }
+        if(displayPrevious!=null && unfinished) {
+            DuplicateActionTrace("music", "resume", !clearingJournal, if(clearingJournal) "journal_write" else "none")
+        }
+        if(unfinished && !background.running && (displayPrevious!=null || result==null)){
+            DuplicateActionTrace("music", "results", canOpenSavedPartial,
+                if(canOpenSavedPartial) "none" else savedPartialBlocker)
+        }
     }
     BackHandler(enabled = true) { if (!verifying&&!clearingJournal) close() }
     // This is a NavHost destination within the Activity's bounded Scaffold.
@@ -388,7 +445,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                             DuplicateScanPanel(background.phase,background.done,background.total,
                                 background.startedAt,background.phaseStartedAt,true,partial?.groups?.size?:0,
-                                exactBytes(partial?.groups.orEmpty()),showSummary=partial==null,
+                                remember(DuplicateReferenceKey(partial)){exactBytes(partial?.groups.orEmpty())},showSummary=partial==null,
                                 completedMetadata=background.completedMetadata)
                             Button({ close() }, Modifier.fillMaxWidth()) { Text("Продолжить в фоне") }
                             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -398,12 +455,12 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         }
                         // Only the list of preliminary groups scrolls below the full header.
                         if(partial!=null) {
-                            val preliminaryCounts=remember(partial){
+                            val preliminaryCounts=remember(DuplicateReferenceKey(partial)){
                                 DuplicateResultFilterPolicy.counts(partial.groups.map { it.kind })
                             }
                             val activePreliminaryFilter=DuplicateResultFilterPolicy.active(
                                 preliminaryFilter,preliminaryCounts)
-                            val visiblePreliminaryGroups=remember(partial,activePreliminaryFilter){
+                            val visiblePreliminaryGroups=remember(DuplicateReferenceKey(partial),activePreliminaryFilter){
                                 partial.groups.filter {
                                     activePreliminaryFilter==null || it.kind==activePreliminaryFilter
                                 }
@@ -419,7 +476,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             }
                             PreliminaryMusicGroups(
                                 visiblePreliminaryGroups,
-                                exactBytes(visiblePreliminaryGroups),previewRows,
+                                remember(DuplicateReferenceKey(visiblePreliminaryGroups)){exactBytes(visiblePreliminaryGroups)},previewRows,
                                 Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
                         }
                     } else {
@@ -440,19 +497,13 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     val savedBytes = remember(DuplicateReferenceKey(saved)) {
                         saved.result.groups.sumOf { g -> g.tracks.filter { it.id in saved.selected }.sumOf { it.bytes.coerceAtLeast(0L) } }
                     }
-                    if(unfinished&&partial!=null){
-                        Text("Незавершённый поиск",style=MaterialTheme.typography.titleMedium,
-                            color=musicPlaybackAccent)
-                        Text("Предварительно найдено: ${partial.groups.size} групп",
-                            style=MaterialTheme.typography.bodyMedium)
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                            Button({resume()},Modifier.weight(1f).testTag("duplicate-resume-interrupted"),
-                                enabled=!clearingJournal){Text("Продолжить поиск")}
-                            if(storedPartial!=null) OutlinedButton(
-                                {restorePrevious(requireNotNull(storedPartial),fromPartial=true)},
-                                Modifier.weight(1f).testTag("duplicate-open-partial"),
-                                enabled=!clearingJournal){Text("Открыть результат")}
+                    if(unfinished){
+                        Button({resume()},Modifier.fillMaxWidth().testTag("duplicate-resume-interrupted"),
+                            enabled=!clearingJournal&&!verifying){
+                            Text(musicScanActionLabel(unfinishedExpanded,true,unfinishedExpanded))
                         }
+                        MusicSavedPartialControls(DuplicateBackgroundScan.outcome(context),savedPartialCount,
+                            !partialLoaded,canOpenSavedPartial,error?:background.error,::openSavedPartial)
                     }
                     Text("Завершённый результат · ${saved.result.scopeLabel}",
                         style=MaterialTheme.typography.bodySmall)
@@ -467,7 +518,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     if(scanControlsExpanded) {
                         MusicScanModeControls(expandedScan,{expandedScan=it},unfinished,unfinishedExpanded,
                             { if(shouldResumeMusicScan(unfinished,expandedScan,unfinishedExpanded))resume() else startSelected() },!verifying&&!clearingJournal)
-                        MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
+                        if(!unfinished) MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
                     }
                     }
                 } else {
@@ -500,25 +551,20 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     }else{
                         Text("Область поиска · ${partial?.scopeLabel ?: DuplicateFolderScope.label(selectedScope)}",
                             style=MaterialTheme.typography.bodySmall)
-                        if(partial!=null) Text("Предварительные результаты: ${partial.groups.size} групп",
-                            style=MaterialTheme.typography.titleMedium)
                     }
                     if(result==null||scanControlsExpanded)
                         MusicScanModeControls(expandedScan,{expandedScan=it},unfinished,unfinishedExpanded,
                             { if(shouldResumeMusicScan(unfinished,expandedScan,unfinishedExpanded))resume() else startSelected() },!verifying&&!clearingJournal)
-                    if(result==null&&partial!=null) {
-                        Text("Сохранено групп: ${partial.groups.size}. Поиск можно продолжить отдельно.")
-                        if (!background.running && storedPartial != null) Button(
-                            { restorePrevious(requireNotNull(storedPartial), fromPartial = true) },
-                            Modifier.fillMaxWidth().testTag("duplicate-open-partial"),
-                            enabled = !clearingJournal
-                        ) { Text("Открыть сохранённые результаты") }
+                    if(result==null&&unfinished&&!background.running) {
+                        MusicSavedPartialControls(DuplicateBackgroundScan.outcome(context),savedPartialCount,
+                            !partialLoaded,canOpenSavedPartial,error?:background.error,::openSavedPartial)
                     }
                     if (showingPartial) Text(
                         "Акустическая проверка не завершена. Перед корзиной проверяются выбранные файлы.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if(result==null||scanControlsExpanded) MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
+                    if((result==null||scanControlsExpanded)&&!(result==null&&unfinished&&!background.running))
+                        MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
                     MusicDuplicateResultFilters(resultCounts,activeResultFilter,{next ->
                         filter=next
                         scope.launch { listState.scrollToItem(0) }
@@ -547,7 +593,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     // Acoustic and version groups are never selected for deletion automatically.
                     if(groups.isNotEmpty()){
                         val clearBulk=selected.isNotEmpty()&&(selected==allSelected||allSelected.isEmpty())
-                        OutlinedButton({selected=if(clearBulk)emptySet() else allSelected},
+                        OutlinedButton({selected=if(clearBulk)emptySet() else eligibleBulk()},
                             Modifier.fillMaxWidth(),enabled=(allSelected.isNotEmpty()||selected.isNotEmpty())&&!verifying&&!clearingJournal){
                             Text(if(clearBulk)"Снять выделение" else "Выбрать всё")
                         }
@@ -645,7 +691,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     if(journal)DuplicateJournalDialog("Журнал музыки",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size},mode=musicScanModeName(it.result.expanded)+" · "+it.result.scopeLabel)},
         storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size} ,DuplicateBackgroundScan.journalStatus(context),musicScanModeName(it.result.expanded)+" · "+it.result.scopeLabel)},
         onOpen={at->journal=false;history.firstOrNull{it.scannedAt==at}?.let{if(!scanning&&!clearingJournal){stopPreview();restorePrevious(it)}}},
-        onResume={journal=false;if(!scanning&&!clearingJournal)resume()},onDismiss={journal=false},onPartial={journal=false;storedPartial?.let { if(!scanning&&!clearingJournal) restorePrevious(it,fromPartial=true) }},resumeEnabled=!scanning&&!clearingJournal,
+        onResume={journal=false;if(!scanning&&!clearingJournal)resume()},onDismiss={journal=false},onPartial={journal=false;if(!scanning)openSavedPartial()},resumeEnabled=!scanning&&!clearingJournal,
+         partialResultsEnabled=canOpenSavedPartial&&!scanning,
         onClear={clearPartialToo=false;clearJournalConfirm=true},
         clearEnabled=!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal,
         onDelete={at->

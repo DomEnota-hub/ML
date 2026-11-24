@@ -39,7 +39,7 @@ internal fun MusicScanModeControls(expanded:Boolean,onMode:(Boolean)->Unit,unfin
 }
 
 @Composable
-internal fun MusicScanStatusCard(outcome:Outcome,partialGroups:Int?,error:String?){
+internal fun MusicScanStatusCard(outcome:Outcome,partialGroups:Int?,error:String?,partialLoading:Boolean=false){
     if(outcome==Outcome.IDLE&&error==null)return
     val state=if(error!=null)Outcome.FAILED else outcome
     if(state==Outcome.FAILED){
@@ -62,10 +62,26 @@ internal fun MusicScanStatusCard(outcome:Outcome,partialGroups:Int?,error:String
             Icon(icon,null,tint=accent,modifier=Modifier.size(30.dp))
             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
                 Text(title,color=accent,style=MaterialTheme.typography.titleSmall)
-                val message=when(state){Outcome.PAUSED,Outcome.STOPPED,Outcome.INTERRUPTED->if(partialGroups!=null)"Предварительные результаты сохранены. Групп: $partialGroups" else "Можно продолжить проверку. Сохранённые отпечатки используются повторно."
+                val message=when(state){Outcome.PAUSED,Outcome.STOPPED,Outcome.INTERRUPTED->when {
+                        partialLoading -> "Проверяю сохранённые результаты…"
+                        partialGroups!=null -> "Найдено групп: $partialGroups"
+                        else -> "Предварительный отчёт пока не сохранён"
+                    }
                     Outcome.COMPLETED->"Результаты доступны в журнале";Outcome.FAILED->error?:"Проверку можно запустить повторно";else->null}
                 message?.let{Text(it,color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
             }
         }
+    }
+}
+
+/** The resume action is independent of the report; unknown/zero must not open it. */
+@Composable
+internal fun MusicSavedPartialControls(outcome:Outcome,count:Int?,loading:Boolean,canOpen:Boolean,
+    error:String?,onOpen:()->Unit){
+    MusicScanStatusCard(if(outcome==Outcome.IDLE)Outcome.INTERRUPTED else outcome,
+        count,error,partialLoading=loading)
+    Button(onOpen,Modifier.fillMaxWidth().testTag("duplicate-open-partial"),
+        enabled=canOpen&&!loading&&count!=null&&count>0){
+        Text("Открыть сохранённые результаты")
     }
 }

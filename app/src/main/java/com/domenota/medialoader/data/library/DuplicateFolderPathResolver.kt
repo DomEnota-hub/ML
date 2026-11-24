@@ -22,30 +22,39 @@ internal object DuplicateFolderPathResolver {
                 .filter { it.mediaType != MediaType.AUDIO && DuplicateFolderScope.key(it).startsWith("bucket:") }
                 .distinctBy(DuplicateFolderScope::key).toList()
             val result = linkedMapOf<String, String>()
-            val projection = arrayOf("relative_path", "volume_name", "bucket_id")
             representatives.forEach { row ->
                 currentCoroutineContext().ensureActive()
                 val key = DuplicateFolderScope.key(row)
-                val mediaUri = row.savedUri?.let(Uri::parse) ?: return@forEach
-                if (mediaUri.scheme != "content" || mediaUri.authority != "media") return@forEach
-                val resolved = runCatching {
-                    context.contentResolver.query(mediaUri, projection, null, null, null)?.use { cursor ->
-                        if (!cursor.moveToFirst() || cursor.moveToNext()) return@use null
-                        if (!cursor.moveToFirst()) return@use null
-                        fun value(field: String): String? {
-                            val index = cursor.getColumnIndex(field)
-                            return if (index < 0 || cursor.isNull(index)) null else cursor.getString(index)?.trim()
-                        }
-                        val volume = value("volume_name")
-                        val relative = value("relative_path")
-                        val bucket = value("bucket_id")
-                        if (bucket != row.bulkMediaKey) null else verifiedDirectory(volume, relative)
-                    }
-                }.getOrNull()
+                val resolved = readVisualDirectory(context,row)
                 if (resolved != null) result[key] = resolved
             }
             result
         }
+
+    /** File search must confirm the displayed file's location itself. A
+     * representative bucket row is evidence for the folder tree only. */
+    suspend fun resolveFileDirectory(context:Context,row:DownloadEntity):String?=
+        withContext(Dispatchers.IO){readVisualDirectory(context,row)}
+
+    private fun readVisualDirectory(context:Context,row:DownloadEntity):String? {
+        if(Build.VERSION.SDK_INT<29||!DuplicateFolderScope.eligible(row)||
+            row.mediaType==MediaType.AUDIO||!DuplicateFolderScope.key(row).startsWith("bucket:"))return null
+        val mediaUri=row.savedUri?.let(Uri::parse)?:return null
+        if(mediaUri.scheme!="content"||mediaUri.authority!="media")return null
+        val projection=arrayOf("relative_path","volume_name","bucket_id")
+        return runCatching {
+            context.contentResolver.query(mediaUri,projection,null,null,null)?.use{cursor->
+                if(!cursor.moveToFirst()||cursor.moveToNext())return@use null
+                if(!cursor.moveToFirst())return@use null
+                fun value(field:String):String?{
+                    val index=cursor.getColumnIndex(field)
+                    return if(index<0||cursor.isNull(index))null else cursor.getString(index)?.trim()
+                }
+                if(value("bucket_id")!=row.bulkMediaKey)null
+                else verifiedDirectory(value("volume_name"),value("relative_path"))
+            }
+        }.getOrNull()
+    }
 
     /** MediaStore RELATIVE_PATH normally ends in exactly one slash. Reject
      * absolute paths, repeated separators, traversal and untrusted volumes
