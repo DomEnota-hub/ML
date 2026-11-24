@@ -27,6 +27,16 @@ internal object VisualDuplicateBackgroundScan {
     val state = mutable.asStateFlow()
     private var pending: Request? = null
     private var nextToken = 0L
+    // Reservation only; never hold this monitor across disk I/O. It closes
+    // the gap between the idle check and a journal-only mutation.
+    private var journalMaintenance=false
+    @Synchronized fun beginJournalMaintenance(expectedToken:Long):Boolean {
+        val s=mutable.value
+        if(journalMaintenance||s.running||s.committing||s.token!=expectedToken)return false
+        journalMaintenance=true
+        return true
+    }
+    @Synchronized fun endJournalMaintenance(){journalMaintenance=false}
     private fun prefs(context: Context) = context.getSharedPreferences("visual_duplicate_background_scan",Context.MODE_PRIVATE)
     fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false) &&
         prefs(context).getLong("journalEpoch",0)==DuplicatePrivacyGuard.generation(context)
@@ -44,8 +54,8 @@ internal object VisualDuplicateBackgroundScan {
             else saved.getStringSet("scopeKeys",emptySet())?.toSet() ?: emptySet()
     }
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
-    @Synchronized fun start(context: Context, rows: List<LibraryMediaRef>, source:LibrarySource, epoch:Long, scopeKeys:Set<String>?=null) {
-        if (mutable.value.running) return
+    @Synchronized fun start(context: Context, rows: List<LibraryMediaRef>, source:LibrarySource, epoch:Long, scopeKeys:Set<String>?=null):Boolean {
+        if (mutable.value.running || journalMaintenance) return false
         val token = ++nextToken
         pending = Request(token,rows.toList(),source,epoch,DuplicateFolderScope.label(scopeKeys))
         val now=android.os.SystemClock.elapsedRealtime()
@@ -55,8 +65,8 @@ internal object VisualDuplicateBackgroundScan {
             .putBoolean("scopeAll",scopeKeys==null)
             .putStringSet("scopeKeys",scopeKeys?.toSet() ?: emptySet()).apply()
         mark(context,true)
-        try { ContextCompat.startForegroundService(context,Intent(context,VisualDuplicateScanService::class.java)) }
-        catch (e: Exception) { pending = null; mark(context,false); mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
+        return try { ContextCompat.startForegroundService(context,Intent(context,VisualDuplicateScanService::class.java));true }
+        catch (e: Exception) { pending = null; mark(context,false); mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token);false }
     }
     @Synchronized fun invalidateForPrivacy(){pending=null;mutable.value=Status(error="Поиск сброшен после переноса в Личное",token=++nextToken)}
     @Synchronized fun claim(): Request? = pending.also { pending = null }
@@ -152,8 +162,13 @@ class VisualDuplicateScanService : Service() {
             try {
                 val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,request.source,request.epoch,isScoped=request.scopeLabel!="Все файлы",onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
                         val scoped=partial.copy(scopeLabel=request.scopeLabel)
-                        VisualDuplicateBackgroundScan.partial(scanToken,scoped)
-                        VisualDuplicateSessionStore.savePartial(this@VisualDuplicateScanService,VisualDuplicateSession(scoped,emptySet(),0,0,scanAt))
+                        val saved=VisualDuplicateSessionStore.savePartial(this@VisualDuplicateScanService,
+                            VisualDuplicateSession(scoped,emptySet(),0,0,scanAt),expectedToken=scanToken)
+                        if(saved)VisualDuplicateBackgroundScan.partial(scanToken,scoped)
+                        else {
+                            val current=VisualDuplicateBackgroundScan.state.value
+                            if(current.running&&current.token==scanToken)error("Не удалось сохранить предварительный отчёт")
+                        }
                     }) { coverage ->
                     val done=coverage.checked;val total=coverage.total
                     val now = android.os.SystemClock.elapsedRealtime()
@@ -166,7 +181,7 @@ class VisualDuplicateScanService : Service() {
                 ensureActive()
                 if (!VisualDuplicateBackgroundScan.beginCommit(scanToken)) return@launch
                 val session = VisualDuplicateSession(result.copy(scopeLabel=request.scopeLabel),emptySet(),0,0,scanAt)
-                check(VisualDuplicateSessionStore.save(this@VisualDuplicateScanService,session)) { "Не удалось сохранить поиск" }
+                check(VisualDuplicateSessionStore.save(this@VisualDuplicateScanService,session,expectedToken=scanToken)) { "Не удалось сохранить поиск" }
                 synchronized(DuplicatePrivacyGuard.lock){DuplicateReportJournal.clearPartial(this@VisualDuplicateScanService,"gallery")}
                 terminal = true
                 stopForeground(STOP_FOREGROUND_REMOVE)
