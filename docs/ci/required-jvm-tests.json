@@ -1199,6 +1199,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.archive.SimpleArchivePolicyTest#unknownSizeAliasCannotMaskContradictoryKnownSizes": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.archive.SimpleArchiveStoreTest#damagedIndexIsNotOverwrittenAndPrivateRowsAreNotImported": {
     "skipped": false,
     "failed": false
