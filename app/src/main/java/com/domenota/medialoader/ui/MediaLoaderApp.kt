@@ -3130,9 +3130,15 @@ fun MediaLoaderApp(
                     onCreateFolder = viewModel::createCatalogFolder)
             },
             LibraryRouteContent(SIMPLE_ARCHIVE_ROUTE) {
-                val archiveLiveRows = remember(archivedRecords, guardedPublicRefs, downloads, visibilityGuard) {
+                val archiveAccessReady = simpleArchiveLoaded && visibilityReady && libraryPrivateKeys != null && !recoveryRunning
+                val archivePrivacyKeys = libraryPrivateKeys.orEmpty() + inFlightPrivacyKeys
+                val archiveLiveRows = remember(archivedRecords, guardedPublicRefs, downloads, visibilityGuard, archiveAccessReady, archivePrivacyKeys) {
+                    if (!archiveAccessReady) return@remember emptyMap<String, com.domenota.medialoader.core.database.DownloadEntity>()
                     val candidates = (guardedPublicRefs.orEmpty().map { it.item } + downloads)
-                        .filter { !it.isPrivate && !it.hidden && it.state == DownloadState.COMPLETED && visibilityGuard?.canOpen(it, null, emptyList()) == true }
+                        .filter { row -> !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED &&
+                            visibilityGuard?.canOpen(row, null, emptyList()) == true &&
+                            row.id !in archivePrivacyKeys && "app:${row.id}" !in archivePrivacyKeys &&
+                            row.savedUri?.let { uri -> com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(uri).none { it in archivePrivacyKeys } } == true }
                         .groupBy { it.savedUri }
                     archivedRecords.mapNotNull { record ->
                         candidates[record.savedUri]?.firstOrNull { row ->
@@ -3141,7 +3147,11 @@ fun MediaLoaderApp(
                     }.toMap()
                 }
                 LaunchedEffect(Unit) { refreshArchiveQa() }
-                SimpleArchiveScreen(records = archivedRecords, liveRows = archiveLiveRows,
+                // Unresolved records retain their durable identity for restoration, not their potentially private name or group label.
+                val archiveDisplayRecords = if (!archiveAccessReady) emptyList() else archivedRecords.map { record ->
+                    if (archiveLiveRows.containsKey(record.catalogId)) record else record.copy(displayName = "Недоступный файл", group = null)
+                }
+                SimpleArchiveScreen(records = archiveDisplayRecords, liveRows = archiveLiveRows,
                     legacyRecovery = archiveQaEntries.filterNot { it.restored },
                     legacyNames = catalogFolders.associate { it.id to it.name },
                     legacyBusy = archiveQaBusy || nomediaBusy, legacyMessage = archiveQaError,
@@ -3186,7 +3196,7 @@ fun MediaLoaderApp(
                             catch (e: Exception) { simpleArchiveError = e.message ?: "Не удалось вернуть файлы" }
                             finally { simpleArchiveBusy = false }
                         }
-                    } }, busy = simpleArchiveBusy || !simpleArchiveLoaded,
+                    } }, busy = simpleArchiveBusy || !archiveAccessReady,
                     message = simpleArchiveError)
             },
             LibraryRouteContent(VAULT_ROUTE) {
