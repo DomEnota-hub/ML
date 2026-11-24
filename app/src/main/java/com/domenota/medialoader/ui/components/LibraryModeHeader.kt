@@ -30,7 +30,7 @@ internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
             .clickable { expanded = true }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(mode.label, fontSize = if (mode == AppMode.DOWNLOADER) 32.sp else 24.sp,
                 fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Icon(Icons.Rounded.ExpandMore, null, Modifier.padding(start = 6.dp))
+            if (mode == AppMode.DOWNLOADER) Icon(Icons.Rounded.ExpandMore, null, Modifier.padding(start = 6.dp))
         }
         DropdownMenu(expanded, { expanded = false }) {
             AppMode.entries.forEach { item -> DropdownMenuItem(

@@ -343,7 +343,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                         items(partialGroups,key={it.files.first().id}){group->
                             Card(Modifier.fillMaxWidth()){
                                 Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
-                                    Text("Точные копии · ${group.files.size} файлов")
+                                    Text("Точные копии, ${group.files.size} файлов")
                                     group.files.forEach{f->
                                         val row=byId[f.id]?.item
                                         if(row!=null)Row(Modifier.fillMaxWidth().clickable{preview=group to f.id},
@@ -493,7 +493,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         if(!actionsReady)Text("Обновляю каталог. Результат сохранён; выбор и корзина пока недоступны.",
             style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Column(Modifier.fillMaxWidth().testTag("visual-result-summary"),
+        Column(Modifier.fillMaxWidth().padding(top=12.dp).testTag("visual-result-summary"),
             verticalArrangement=Arrangement.spacedBy(3.dp)){
             Text("Результаты поиска",style=MaterialTheme.typography.titleMedium)
             Text(shown.result.scopeLabel,style=MaterialTheme.typography.bodySmall,
@@ -555,7 +555,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                                 else Box(Modifier.size(76.dp),contentAlignment=Alignment.Center){Icon(Icons.Rounded.Image,contentDescription=null,tint=MaterialTheme.colorScheme.onSurfaceVariant)}
                                 Column(Modifier.weight(1f)){
                                     Text(ref?.let{displayFileName(it.item)} ?: if(pendingIndex)file.uri.substringAfterLast('/').takeIf{it.isNotBlank()} ?: "Проверка файла" else "Проверяю доступность файла",maxLines=2)
-                                    Text(android.text.format.Formatter.formatFileSize(context,file.bytes)+" · ${file.width} × ${file.height}",style=MaterialTheme.typography.bodySmall)
+                                    Text(android.text.format.Formatter.formatFileSize(context,file.bytes)+", ${file.width} × ${file.height}",style=MaterialTheme.typography.bodySmall)
                                     file.durationMs?.let{Text("${it/1000} с",style=MaterialTheme.typography.bodySmall)}
                                 }
                                 com.domenota.medialoader.ui.screens.organization.PickerMark(file.id in shown.selected,false,enabled=actionsReady&&!saving&&!status.running&&trash==null&&ref!=null&&(file.id in shown.selected||group.files.count{it.id !in shown.selected}>1)){
@@ -696,8 +696,8 @@ private fun CompactStoppedAction(label:String,enabled:Boolean,filled:Boolean,onC
 
 @Composable
 private fun VisualCoverageSummary(coverage:VisualScanCoverage){
-    Text("${if(coverage.source==LibrarySource.PHONE)"Телефон" else "ML"} · охват: ${coverage.total} · проверено: ${coverage.checked}",style=MaterialTheme.typography.bodyMedium)
-    Text("Из кеша: ${coverage.cached} · новые: ${coverage.computed} · ошибки: ${coverage.failed}",style=MaterialTheme.typography.bodySmall)
+    Text("${if(coverage.source==LibrarySource.PHONE)"Телефон" else "ML"}, охват: ${coverage.total}, проверено: ${coverage.checked}",style=MaterialTheme.typography.bodyMedium)
+    Text("Из кеша: ${coverage.cached}, новые: ${coverage.computed}, ошибки: ${coverage.failed}",style=MaterialTheme.typography.bodySmall)
     if(coverage.aliases>0) Text("Совпадающие адреса: ${coverage.aliases}",style=MaterialTheme.typography.bodySmall)
     if(coverage.incompleteVisual>0) Text("Без полного визуального отпечатка: ${coverage.incompleteVisual}",style=MaterialTheme.typography.bodySmall)
 }

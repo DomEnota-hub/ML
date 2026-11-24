@@ -649,7 +649,7 @@ internal fun MusicModeScreen(
                 } else items(visibleFolders, key = { "folder:$it" }) { folder ->
                     TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Rounded.Folder, null)
-                        Text("${MusicFolderRules.title(folder)} · ${RussianCounts.tracks(folders[folder].orEmpty().size)}",
+                        Text("${MusicFolderRules.title(folder)}: ${RussianCounts.tracks(folders[folder].orEmpty().size)}",
                             Modifier.weight(1f).padding(start = 12.dp), maxLines = 2, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
@@ -670,7 +670,7 @@ internal fun MusicModeScreen(
                         PlaylistCover(playlist, available, Modifier.size(100.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             val minutes = browseRows.value.playlistMinutes
-                            Text(RussianCounts.tracks(playlist.trackIds.size) + if (minutes > 0) " · $minutes минут" else "", fontSize = 13.sp)
+                            Text(RussianCounts.tracks(playlist.trackIds.size) + if (minutes > 0) ", $minutes минут" else "", fontSize = 13.sp)
                             Text("Музыка для тебя", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Button(enabled = displayed.isNotEmpty(), onClick = { displayed.firstOrNull()?.let { preview(it.id) } }, shape = RoundedCornerShape(18.dp)) {
                                 Icon(Icons.Rounded.PlayArrow, null); Text("Слушать", fontSize = 13.sp)

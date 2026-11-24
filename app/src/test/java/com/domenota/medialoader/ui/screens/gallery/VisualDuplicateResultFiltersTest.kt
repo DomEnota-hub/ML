@@ -39,7 +39,7 @@ class VisualDuplicateResultFiltersTest {
         compose.onNodeWithTag("visual-result-filter-SIMILAR_VIDEO").assertExists()
         compose.onNodeWithTag("visual-result-filter-EXACT").assertDoesNotExist()
         compose.onNodeWithTag("visual-result-filter-SIMILAR_PHOTO").assertDoesNotExist()
-        compose.onNodeWithText("Видео · 3").assertExists()
+        compose.onNodeWithText("Видео: 3").assertExists()
     }
 
     @Test fun hiddenOldGallerySelectionFallsBackToAll() {

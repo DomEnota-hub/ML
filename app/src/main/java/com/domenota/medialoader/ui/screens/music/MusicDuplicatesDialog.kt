@@ -505,7 +505,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         MusicSavedPartialControls(DuplicateBackgroundScan.outcome(context),savedPartialCount,
                             !partialLoaded,canOpenSavedPartial,error?:background.error,::openSavedPartial)
                     }
-                    Text("Завершённый результат · ${saved.result.scopeLabel}",
+                    Text("Завершённый результат, ${saved.result.scopeLabel}",
                         style=MaterialTheme.typography.bodySmall)
                     DuplicateSavedSummaryPanel(DuplicateSavedSummary(saved.scannedAt,saved.result.groups.size,
                         saved.result.groups.sumOf { it.tracks.size },saved.selected.size,savedBytes,
@@ -541,7 +541,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                 Icon(if(scanControlsExpanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,null)
                             }
                         }
-                        Text("Результаты поиска",style=MaterialTheme.typography.titleMedium)
+                        Text("Результаты поиска",Modifier.padding(top=12.dp),style=MaterialTheme.typography.titleMedium)
                         Text(result?.scopeLabel.orEmpty(),style=MaterialTheme.typography.bodySmall,
                             color=MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(visualMusicGroupLabel(groups.size),style=MaterialTheme.typography.titleLarge,
@@ -549,7 +549,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         Text("$fileCount файлов",style=MaterialTheme.typography.bodySmall,
                             color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }else{
-                        Text("Область поиска · ${partial?.scopeLabel ?: DuplicateFolderScope.label(selectedScope)}",
+                        Text("Область поиска: ${partial?.scopeLabel ?: DuplicateFolderScope.label(selectedScope)}",
                             style=MaterialTheme.typography.bodySmall)
                     }
                     if(result==null||scanControlsExpanded)
@@ -614,7 +614,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                         Icon(Icons.Rounded.MusicNote,null,Modifier.size(24.dp),tint=musicPlaybackAccent)
                                         Column(Modifier.weight(1f)){
                                             Text(group.title,style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
-                                            Text("${MusicDuplicatePolicy.shortReason(group)} · ${RussianCounts.files(group.tracks.size)}",
+                                            Text("${MusicDuplicatePolicy.shortReason(group)}, ${RussianCounts.files(group.tracks.size)}",
                                                 style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                             Text("Выбрано: ${group.tracks.count{it.id in selected}}",style=MaterialTheme.typography.labelSmall,color=musicPlaybackAccent)
                                         }
@@ -629,7 +629,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                                             Column(Modifier.weight(1f).padding(start=8.dp)) {
                                                 Text(t.title, fontWeight = FontWeight.Medium,maxLines=2,overflow=TextOverflow.Ellipsis)
                                                 Text(displayFileName(t.filename,MediaKind.AUDIO),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
-                                                Text(listOfNotNull(t.artist, t.duration?.let { "%d:%02d".format(it/60000,it/1000%60) }, t.bitrate?.let { "${it/1000} кбит/с" }, android.text.format.Formatter.formatFileSize(context,t.bytes)).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                                                Text(listOfNotNull(t.artist, t.duration?.let { "%d:%02d".format(it/60000,it/1000%60) }, t.bitrate?.let { "${it/1000} кбит/с" }, android.text.format.Formatter.formatFileSize(context,t.bytes)).joinToString(", "), style = MaterialTheme.typography.bodySmall)
                                                 t.folder?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                                 MusicDuplicatePolicy.version(t)?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                                                 if (t.linked) Text("Есть связи библиотеки", style = MaterialTheme.typography.labelSmall, color = musicPlaybackAccent)
@@ -688,8 +688,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             }
         },confirmButton={TextButton({showTrashReport=false}){Text("Закрыть")}})
     }
-    if(journal)DuplicateJournalDialog("Журнал музыки",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size},mode=musicScanModeName(it.result.expanded)+" · "+it.result.scopeLabel)},
-        storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size} ,DuplicateBackgroundScan.journalStatus(context),musicScanModeName(it.result.expanded)+" · "+it.result.scopeLabel)},
+    if(journal)DuplicateJournalDialog("Журнал музыки",history.map{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size},mode=musicScanModeName(it.result.expanded)+", "+it.result.scopeLabel)},
+        storedPartial?.let{DuplicateJournalRow(it.scannedAt,it.result.groups.size,it.result.groups.sumOf{g->g.tracks.size} ,DuplicateBackgroundScan.journalStatus(context),musicScanModeName(it.result.expanded)+", "+it.result.scopeLabel)},
         onOpen={at->journal=false;history.firstOrNull{it.scannedAt==at}?.let{if(!scanning&&!clearingJournal){stopPreview();restorePrevious(it)}}},
         onResume={journal=false;if(!scanning&&!clearingJournal)resume()},onDismiss={journal=false},onPartial={journal=false;if(!scanning)openSavedPartial()},resumeEnabled=!scanning&&!clearingJournal,
          partialResultsEnabled=canOpenSavedPartial&&!scanning,
@@ -719,7 +719,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         },
         deleteEnabled=!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal)
     if(replaceScan)AlertDialog(onDismissRequest={replaceScan=false},title={Text("Заменить незавершённый поиск?")},
-        text={Text("Сохранённый предварительный отчёт будет удалён. Акустические отпечатки сохранятся. ${DuplicateFolderScope.label(selectedScope)} · ${musicScanModeName(expandedScan)}.")},
+        text={Text("Сохранённый предварительный отчёт будет удалён. Акустические отпечатки сохранятся. ${DuplicateFolderScope.label(selectedScope)}, ${musicScanModeName(expandedScan)}.")},
         dismissButton={TextButton({replaceScan=false}){Text("Отмена")}},confirmButton={TextButton({
             replaceScan=false
             if(!scanning&&!verifying&&!clearingJournal){
@@ -1132,7 +1132,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                                     style=MaterialTheme.typography.titleSmall)
                                                 Text("Послушайте этот момент в обеих записях.",
                                                     style=MaterialTheme.typography.bodySmall)
-                                                Text("Основа: ${seekFrame(true)?.let(::pairTime)?:"нет фрагмента"} · " +
+                                                Text("Основа: ${seekFrame(true)?.let(::pairTime)?:"нет фрагмента"}, " +
                                                     "Сравниваемая: ${seekFrame(false)?.let(::pairTime)?:"нет фрагмента"}",
                                                     style=MaterialTheme.typography.bodySmall)
                                                 TextButton(onClick={technicalDetails=!technicalDetails}){
@@ -1150,7 +1150,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                                             color=MaterialTheme.colorScheme.onSurfaceVariant)
                                                     }
                                                 }
-                                                Text("Увеличенный участок · ${pairTime((range.last-range.first+1)*result.stepMs)}",
+                                                Text("Увеличенный участок: ${pairTime((range.last-range.first+1)*result.stepMs)}",
                                                     style=MaterialTheme.typography.labelSmall)
                                                 ComparisonTwoWaveforms(result,shownZoneIndex,previewId==referenceId,
                                                     previewId==targetId,position,
@@ -1211,7 +1211,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                             Column(Modifier.weight(1f)){
                                 Text(t.title,maxLines=2,overflow=TextOverflow.Ellipsis)
                                 Text(listOfNotNull(t.duration?.let(::pairTime),t.bitrate?.let{"${it/1000} кбит/с"},
-                                    android.text.format.Formatter.formatFileSize(context,t.bytes)).joinToString(" · "),
+                                    android.text.format.Formatter.formatFileSize(context,t.bytes)).joinToString(", "),
                                     style=MaterialTheme.typography.labelSmall)
                                 Text(displayFileName(t.filename,MediaKind.AUDIO),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
                             }
@@ -1232,10 +1232,10 @@ private fun ComparisonTrackSelector(label:String,track:DuplicateTrack,active:Boo
             horizontalArrangement=Arrangement.spacedBy(8.dp)){
             Icon(Icons.Rounded.MusicNote,null,tint=musicPlaybackAccent,modifier=Modifier.size(22.dp))
             Column(Modifier.weight(1f)){
-                Text(label+(if(keeper)" · Остаётся" else ""),style=MaterialTheme.typography.labelSmall,color=musicPlaybackAccent)
+                Text(label+(if(keeper)", Остаётся" else ""),style=MaterialTheme.typography.labelSmall,color=musicPlaybackAccent)
                 Text(track.title,style=MaterialTheme.typography.titleSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
                 Text(listOfNotNull(track.duration?.let(::pairTime),track.bitrate?.let{"${it/1000} кбит/с"},
-                    displayFileName(track.filename,MediaKind.AUDIO)).joinToString(" · "),
+                    displayFileName(track.filename,MediaKind.AUDIO)).joinToString(", "),
                     style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
             }
             Icon(Icons.Rounded.ExpandMore,"Выбрать $label")
@@ -1261,12 +1261,12 @@ private fun ComparisonTwoWaveforms(result:AlignedAudioComparison,selected:Int,
     referenceName:String,targetName:String,focus:Boolean=false,
     onTap:(Int,Int,Boolean)->Unit){
     Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
-        Text("Основа · $referenceName",style=MaterialTheme.typography.labelSmall,
+        Text("Основа: $referenceName",style=MaterialTheme.typography.labelSmall,
             maxLines=1,overflow=TextOverflow.Ellipsis)
         AlignedPairWaveform(result,selected,playingFirst,playingSecond,position,
             firstCue,secondCue,range=range,focus=focus,laneFirst=true){zone,column->onTap(zone,column,true)}
         Spacer(Modifier.height(4.dp))
-        Text("Сравниваемая · $targetName",style=MaterialTheme.typography.labelSmall,
+        Text("Сравниваемая: $targetName",style=MaterialTheme.typography.labelSmall,
             maxLines=1,overflow=TextOverflow.Ellipsis)
         AlignedPairWaveform(result,selected,playingFirst,playingSecond,position,
             firstCue,secondCue,range=range,focus=focus,laneFirst=false){zone,column->onTap(zone,column,false)}
@@ -1432,7 +1432,7 @@ private fun PreliminaryMusicGroup(group:DuplicateGroup,rows:Map<String,DownloadE
                             Column(Modifier.weight(1f)){
                                 Text(FileNameDisplay.name(track.filename,MediaKind.AUDIO,hide),style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
                                 Text(listOfNotNull(track.bytes.takeIf{it>0}?.let{android.text.format.Formatter.formatFileSize(context,it)},
-                                    track.duration?.takeIf{it>0L}?.let{ms->"%d:%02d".format(ms/60000,ms/1000%60)}).joinToString(" · "),
+                                    track.duration?.takeIf{it>0L}?.let{ms->"%d:%02d".format(ms/60000,ms/1000%60)}).joinToString(", "),
                                     style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
