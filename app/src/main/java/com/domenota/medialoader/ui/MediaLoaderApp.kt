@@ -3164,19 +3164,20 @@ fun MediaLoaderApp(
                     } },
                     onClose = { navController.popBackStack() },
                     onOpen = { record ->
-                        // Resolve a fresh public reference, not an unverified historical URI.
-                        val matching = guardedPublicRefs.orEmpty().firstOrNull { ref ->
-                            val row = ref.item
-                            row.savedUri == record.savedUri && !row.isPrivate && !row.hidden &&
-                                SimpleArchivePolicy.matches(record, SimpleArchiveCandidate(row.id, record.savedUri, row.mediaType, row.sizeBytes))
-                        }?.item ?: downloads.firstOrNull { row -> row.savedUri == record.savedUri && !row.isPrivate && !row.hidden &&
-                            SimpleArchivePolicy.matches(record, SimpleArchiveCandidate(row.id, record.savedUri, row.mediaType, row.sizeBytes)) }
+                        // Only the admitted live row may open; redacted/unresolved records cannot.
+                        val matching = archiveLiveRows[record.catalogId]
                         if (matching == null) AppNotice.post(context, "Файл недоступен")
                         else fileActionScope.launch {
                             try {
                                 check(libraryModel.visibilityGuard.value?.canOpen(matching, null, emptyList()) == true &&
                                     libraryModel.verifyVisibilityOpen(matching, null) &&
                                     withContext(Dispatchers.IO) { availabilityCache.get(matching.savedUri, fresh = true) } == SavedFileStatus.PRESENT) { "Файл недоступен" }
+                                val currentPrivateKeys = libraryModel.privateKeys.value
+                                check(currentPrivateKeys != null) { "Доступ к файлу не подтверждён" }
+                                val blocked = currentPrivateKeys + DuplicatePrivacyGuard.currentBlockedKeys()
+                                check(matching.id !in blocked && "app:${matching.id}" !in blocked &&
+                                    com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(record.savedUri).none { it in blocked } &&
+                                    libraryModel.visibilityGuard.value?.canOpen(matching, null, emptyList()) == true) { "Доступ к файлу изменился" }
                                 val uri = android.net.Uri.parse(record.savedUri)
                                 check(uri.scheme == "content") { "Нет доступного адреса файла" }
                                 val mime = context.contentResolver.getType(uri) ?: when(record.mediaType) {
