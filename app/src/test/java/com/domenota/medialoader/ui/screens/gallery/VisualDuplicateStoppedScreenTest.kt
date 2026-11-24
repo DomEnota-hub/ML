@@ -77,4 +77,25 @@ class VisualDuplicateStoppedScreenTest {
         compose.onNodeWithText(summary).assertDoesNotExist()
         compose.onNodeWithText("a.jpg").assertDoesNotExist()
     }
+
+    @Test fun pausedPartialOpensReadOnlyAndKeepsCompletedReportSeparate(){
+        val catalog=prepare()
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        runBlocking{
+            val previous=requireNotNull(VisualDuplicateSessionStore.load(context))
+            VisualDuplicateSessionStore.savePartial(context,previous.copy(scannedAt=124,selected=emptySet()))
+        }
+        compose.setContent{MaterialTheme{VisualDuplicatesScreen(catalog,true,true,{true},{},{_,_->error("Partial cannot trash")},{})}}
+        compose.waitUntil(5000){
+            compose.onAllNodes(hasTestTag("visual-open-partial") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("visual-open-partial").assertIsEnabled().performClick()
+        compose.onNodeWithTag("visual-partial-results").assertExists()
+        compose.onNodeWithTag("visual-result-trash").assertDoesNotExist()
+        compose.onNodeWithText("Только просмотр и сравнение.",substring=true).assertExists()
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithTag("visual-partial-results").assertDoesNotExist()
+        compose.onNodeWithTag("visual-result-summary").assertExists()
+        runBlocking{assertEquals(setOf("a"),VisualDuplicateSessionStore.load(context)?.selected)}
+    }
 }
