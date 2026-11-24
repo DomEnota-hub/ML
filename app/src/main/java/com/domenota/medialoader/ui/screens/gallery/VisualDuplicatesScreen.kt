@@ -481,7 +481,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         if(status.running||interrupted){
             DuplicateActionTrace("gallery","partial_results",partialCanShow,
                 if(!phonePermission)"permission" else if(!partialReady)"report_pending" else if(partialGroups.isEmpty())"zero_groups" else "none")
-            VisualPartialResultCard(partialCount,partialCanShow,::openPartial,unavailable=partialAbsent)
+            VisualPartialResultCard(partialCount,partialCanShow,unavailable=partialAbsent,onOpen=::openPartial)
         }
         if(status.running)return@Column
         if(shown==null){
@@ -664,7 +664,7 @@ internal fun VisualDuplicateStoppedPanel(
 }
 
 @Composable
-internal fun VisualPartialResultCard(count:Int?,canOpen:Boolean,onOpen:()->Unit,unavailable:Boolean=false){
+internal fun VisualPartialResultCard(count:Int?,canOpen:Boolean,unavailable:Boolean=false,onOpen:()->Unit){
     Card(Modifier.fillMaxWidth().testTag("visual-partial-card")){
         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
             Text(if(count!=null)visualResultGroupCount(count) else if(unavailable)"Предварительный отчёт пока не сохранён" else "Проверяю результаты…",
