@@ -108,6 +108,9 @@ internal fun DuplicateScanScopeScreen(
         DuplicateFileSearch.matches(stableRows,options,fileFilter)
     }
     val fileHits=if(fileProjection.ready&&DuplicatePrivacyGuard.generation(context)==privacyEpoch)fileProjection.value else emptyList()
+    // Resolve only visible results, once per URI and current catalogue. A
+    // nullable value in the map is an attempted but unconfirmed location.
+    val checkedFilePaths=remember(stableRows,privacyEpoch){mutableStateMapOf<String,String?>()}
     val selection = remember(selected, options) {
         DuplicateFolderScope.selectionSummary(options, selected)
     }
@@ -243,6 +246,15 @@ internal fun DuplicateScanScopeScreen(
                                 else LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("scope-file-list"),
                                     verticalArrangement=Arrangement.spacedBy(6.dp)){
                                     items(fileHits,key={requireNotNull(it.row.savedUri)}){hit->
+                                        val uri=requireNotNull(hit.row.savedUri)
+                                        val needsCheck=hit.folder.key.startsWith("bucket:")
+                                        LaunchedEffect(uri,needsCheck,checkedFilePaths){
+                                            if(needsCheck&&!checkedFilePaths.containsKey(uri))
+                                                checkedFilePaths[uri]=DuplicateFolderPathResolver.resolveFileDirectory(context,hit.row)
+                                        }
+                                        val checking=needsCheck&&!checkedFilePaths.containsKey(uri)
+                                        val directory=if(needsCheck)checkedFilePaths[uri] else hit.folder.directoryId
+                                        val conflict=directory!=null&&hit.folder.directoryId!=null&&directory!=hit.folder.directoryId
                                         Card(Modifier.fillMaxWidth()){
                                             Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
                                                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -259,14 +271,25 @@ internal fun DuplicateScanScopeScreen(
                                                         Text(it,maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodySmall)
                                                     }
                                                 }
-                                                Text("Папка: ${hit.folder.name}",style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
-                                                Text(if(hit.folder.directoryId!=null)"Расположение папки: ${hit.folder.location}" else "Расположение не определено",
-                                                    style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                                val parentName=directory?.substringAfter('|')?.substringAfterLast('/')?:hit.folder.name
+                                                Text("Папка: $parentName",style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                                Text(when{
+                                                    checking->"Проверяю расположение…"
+                                                    directory!=null->"Расположение: ${directory.substringAfter('|')}"
+                                                    else->"Расположение не определено"
+                                                },style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                                directory?.substringBefore('|')?.takeIf{it.startsWith("volume:")}?.let{volume->
+                                                    Text(if(volume=="volume:external_primary")"Внутренняя память" else "Носитель: ${volume.removePrefix("volume:")}",
+                                                        style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                                if(conflict)Text("Путь не совпадает с папкой каталога. Обновите каталог.",
+                                                    style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)
                                                 TextButton({
                                                     // Navigation alone never touches selected keys.
                                                     focusedKey=hit.folder.key;filter="";searchFiles=false
-                                                },modifier=Modifier.fillMaxWidth().testTag("scope-file-folder-${hit.row.id}")){
-                                                    Text("Перейти к папке")
+                                                },enabled=!checking&&!conflict,
+                                                    modifier=Modifier.fillMaxWidth().testTag("scope-file-folder-${hit.row.id}")){
+                                                    Text(if(hit.folder.directoryId==null)"Перейти к группе файлов" else "Перейти к папке")
                                                     Spacer(Modifier.width(4.dp));Icon(Icons.Rounded.ChevronRight,null,Modifier.size(18.dp))
                                                 }
                                             }
