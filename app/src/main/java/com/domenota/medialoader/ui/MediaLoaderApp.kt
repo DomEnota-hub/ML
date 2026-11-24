@@ -859,12 +859,18 @@ fun MediaLoaderApp(
     }
     val phoneViewingId = backStackEntry?.arguments?.getString("downloadId")
     fun refreshPhoneLibraries(force: Boolean = false) {
+        if(currentRoute==FAVORITES_ROUTE){
+            for(mode in listOf(AppMode.GALLERY,AppMode.MUSIC)){
+                if(force)libraryModel.refresh(mode) else libraryModel.refreshOnNavigation(mode)
+            }
+            return
+        }
         val needed = mutableSetOf<AppMode>()
         editorLibraryMode?.let { needed += it }
         if (collectionRouteActive) {
             if (!collectionViewerActive) needed += collectionScanModes(collectionCatalogRequest)
         } else {
-            if (currentRoute=="media-review"||currentRoute=="media-passport/{mediaId}"||currentRoute==FAVORITES_ROUTE) {
+            if (currentRoute=="media-review"||currentRoute=="media-passport/{mediaId}" ) {
                 needed+=AppMode.GALLERY;needed+=AppMode.MUSIC
             }
             if (appMode == AppMode.GALLERY && (librarySource == LibrarySource.PHONE ||
@@ -2670,10 +2676,16 @@ fun MediaLoaderApp(
             LibraryRouteContent(FAVORITES_ROUTE) {
                 val ready=publicIndexAllowed && catalogAssignmentProjection.usable &&
                     libraryPrivateKeys!=null && visibilityReady && simpleArchiveLoaded
+                val allowedPhoneTypes=MediaType.entries.filter{type->
+                    PhoneMediaLibrary.canRead(type,Build.VERSION.SDK_INT){
+                        ContextCompat.checkSelfPermission(context,it)==PackageManager.PERMISSION_GRANTED
+                    }
+                }.toSet()
                 val favorites=remember(ready,publicLibraryRefs,libraryCatalogAssignments,collectionBlocked,
-                    organizationHidden){
+                    organizationHidden,allowedPhoneTypes){
                     if(!ready)emptyList() else com.domenota.medialoader.ui.navigation.publicFavoriteRows(
-                        publicLibraryRefs,libraryCatalogAssignments,collectionBlocked,organizationHidden)
+                        publicLibraryRefs.filter{it.appDownloadId!=null||it.item.mediaType in allowedPhoneTypes},
+                        libraryCatalogAssignments,collectionBlocked,organizationHidden)
                 }
                 val galleryGranted=hasPhoneLibraryAccess(context,AppMode.GALLERY)
                 val musicGranted=hasPhoneLibraryAccess(context,AppMode.MUSIC)

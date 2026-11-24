@@ -27,19 +27,16 @@ internal fun UnifiedFavoritesScreen(rows:List<DownloadEntity>,ready:Boolean,load
     galleryAccess:Boolean,musicAccess:Boolean,onGalleryAccess:()->Unit,onMusicAccess:()->Unit,
     onBack:()->Unit,onOpen:(String,List<String>)->Unit,onRemove:(String)->Unit){
     var type by rememberSaveable{mutableStateOf<MediaType?>(null)}
-    val visible=remember(rows,type,ready){if(ready)rows.filter{type==null||it.mediaType==type}else emptyList()}
+    val visible=remember(rows,type,ready){
+        if(ready)com.domenota.medialoader.ui.navigation.filterLibraryMedia(rows,type){it.mediaType}else emptyList()
+    }
     val queues=remember(visible){visible.groupBy{it.mediaType}.mapValues{(_,v)->v.map{it.id}}}
     Column(Modifier.fillMaxSize().testTag("unified-favorites")){
         Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.CenterVertically){
             IconButton(onBack){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
             Text("Избранное",style=MaterialTheme.typography.headlineSmall)
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=16.dp),
-            horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            for((value,label) in listOf(null to "Все",MediaType.PHOTO to "Фото",MediaType.VIDEO to "Видео",MediaType.AUDIO to "Музыка")){
-                FilterChip(selected=type==value,onClick={type=value},label={Text(label)})
-            }
-        }
+        com.domenota.medialoader.ui.components.LibraryMediaTypeFilters(type,{type=it})
         if(!galleryAccess&&(type==null||type!=MediaType.AUDIO))
             TextButton(onGalleryAccess,Modifier.padding(horizontal=8.dp)){Text("Разрешить доступ к фото и видео")}
         if(!musicAccess&&(type==null||type==MediaType.AUDIO))
@@ -56,7 +53,7 @@ internal fun UnifiedFavoritesScreen(rows:List<DownloadEntity>,ready:Boolean,load
                         horizontalArrangement=Arrangement.spacedBy(12.dp)){
                         DownloadThumbnail(ui.savedUri,ui.previewUrl,ui.kind,Modifier.size(52.dp))
                         Column(Modifier.weight(1f)){
-                            Text(ui.title,style=MaterialTheme.typography.bodyLarge,maxLines=2,
+                            Text(com.domenota.medialoader.ui.model.displayFileName(ui.title,ui.kind),style=MaterialTheme.typography.bodyLarge,maxLines=2,
                                 overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             Text(listOfNotNull(when(row.mediaType){MediaType.PHOTO->"Фото";MediaType.VIDEO->"Видео";MediaType.AUDIO->"Музыка"},
                                 ui.sizeLabel).joinToString(", "),style=MaterialTheme.typography.bodySmall,

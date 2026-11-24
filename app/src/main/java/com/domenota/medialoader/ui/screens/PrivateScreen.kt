@@ -72,7 +72,12 @@ fun PrivateScreen(
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("ui", 0) }
     var gridMode by rememberSaveable { mutableStateOf(prefs.getBoolean("private_grid", false)) }
-    val uiItems = remember(items) { items.map { it.toUi() } }
+    var mediaType by rememberSaveable { mutableStateOf<com.domenota.medialoader.core.model.MediaType?>(null) }
+    val visibleItems=remember(items,mediaType){
+        com.domenota.medialoader.ui.navigation.filterLibraryMedia(items,mediaType){it.mediaType}
+    }
+    val visibleIds=remember(visibleItems){visibleItems.mapTo(mutableSetOf()){it.id}}
+    val uiItems = remember(visibleItems) { visibleItems.map { it.toUi() } }
     val groups = remember(uiItems) { uiItems.groupBy { VkDownloadGroup.key(it) } }
     val assignments = remember(catalogAssignments) { catalogAssignments.associateBy { it.downloadId } }
     fun action(block: suspend () -> Unit) {
@@ -89,12 +94,12 @@ fun PrivateScreen(
         val result = runFileBatch(ids, block)
         AppNotice.postBatch(context, "Результат операции", result, "Обработано")
     }
-    LaunchedEffect(state.unlocked) {
+    LaunchedEffect(state.unlocked,visibleIds) {
         if (!state.unlocked) {
             deleteTarget = null; folderTarget = null; restoreTarget = null
             selectedIds = emptySet(); selecting = false
         } else {
-            selectedIds = selectedIds.intersect(items.map { it.id }.toSet())
+            selectedIds = selectedIds.intersect(visibleIds)
         }
     }
     LaunchedEffect(state.mode, state.unlocked) {
@@ -114,9 +119,9 @@ fun PrivateScreen(
             Text(if (settings) "Защита личного" else if (selecting) "Выбрано: ${selectedIds.size}" else "Личное",
                 style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             if (selecting && state.unlocked) {
-                TextButton(onClick = { selectedIds = if (selectedIds.size == items.size) emptySet()
-                    else items.map { it.id }.toSet() },enabled = !busy && !externalBusy) {
-                    Text(if (selectedIds.size == items.size) "Снять всё" else "Выбрать все")
+                TextButton(onClick = { selectedIds = if (selectedIds==visibleIds) emptySet()
+                    else visibleIds },enabled = !busy && !externalBusy) {
+                    Text(if (selectedIds==visibleIds) "Снять всё" else "Выбрать все")
                 }
                 IconButton(onClick = { selecting = false; selectedIds = emptySet() },
                     enabled = !busy && !externalBusy) {
@@ -193,6 +198,9 @@ fun PrivateScreen(
                     }
                 }
                 Column {
+                com.domenota.medialoader.ui.components.LibraryMediaTypeFilters(mediaType,{next->
+                    mediaType=next;selectedIds=emptySet();selecting=false
+                },enabled=!busy&&!externalBusy&&!selecting)
                 if (selecting) {
                     Surface(color=MaterialTheme.colorScheme.surfaceVariant,shape=MaterialTheme.shapes.medium,
                         modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp)) {
@@ -214,7 +222,7 @@ fun PrivateScreen(
                         style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (items.isEmpty()) item { Text("Здесь пока нет файлов. Переместите их через меню в загрузках.") }
+                    if (visibleItems.isEmpty()) item { Text(if(items.isEmpty()) "Здесь пока нет файлов. Переместите их через меню в загрузках." else "Нет файлов этого типа") }
                     items(items.filter { it.privateSourceUri != null }, key = { "pending:${it.id}" }) { row ->
                         Column {
                             Text("Публичная копия ещё не удалена и может быть видна в галерее.", color = MaterialTheme.colorScheme.error)
@@ -272,7 +280,7 @@ fun PrivateScreen(
         }
     }
     if (state.unlocked && !settings && folderTarget != null) DownloadFolderSheet(
-        folders = catalogFolders, assignments = assignments, items = uiItems,
+        folders = catalogFolders, assignments = assignments, items = items.map{it.toUi()},
         selectedKey = CATALOG_ALL, targetDownloadId = folderTarget!!.first(),
         onDismiss = { folderTarget = null }, onSelect = {}, onCreate = onCreateFolder,
         onRename = { _, _ -> }, onDelete = {},
