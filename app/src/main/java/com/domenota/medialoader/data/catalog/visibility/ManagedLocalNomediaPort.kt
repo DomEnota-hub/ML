@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
+import com.domenota.medialoader.core.logging.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -82,13 +83,21 @@ internal class ManagedLocalNomediaPort(
                         check(depth == 0) { "Вложенные медиа требуют отдельной проверки" }
                         val extension = child.extension.lowercase(java.util.Locale.ROOT)
                         val mime = mimeForExtension(extension)
-                        check(mime != null && (mime.startsWith("image/") ||
-                            mime.startsWith("video/") || mime.startsWith("audio/"))) {
+                        val mediaMime=mime!=null&&(mime.startsWith("image/")||
+                            mime.startsWith("video/")||mime.startsWith("audio/"))
+                        if(!mediaMime){
+                            // No names, paths, URI, file content or unknown arbitrary metadata.
+                            val safeExtension=extension.takeIf{it.matches(Regex("[a-z0-9]{1,12}"))}?:
+                                if(extension.isEmpty())"none" else "other"
+                            val safeMime=mime?.takeIf{it.matches(Regex("[a-zA-Z0-9.+-]{1,40}/[a-zA-Z0-9.+-]{1,60}"))}?:"unknown"
+                            AppLog.w("FolderVisibility","INVENTORY_REJECTED reason=unsupported_mime extension=$safeExtension mime=$safeMime")
+                        }
+                        check(mediaMime) {
                             "В папке есть файлы, которые нельзя безопасно отнести к медиа"
                         }
                         check(found.size < 2048) { "Слишком много файлов для проверки" }
                         val rel = child.relativeTo(root).invariantSeparatorsPath
-                        found += NomediaSafEntry(rel, child.name, mime, Files.size(path))
+                        found += NomediaSafEntry(rel, child.name, checkNotNull(mime), Files.size(path))
                     }
                     else -> error("Неподдерживаемый элемент каталога")
                 }

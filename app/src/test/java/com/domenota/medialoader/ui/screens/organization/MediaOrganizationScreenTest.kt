@@ -165,6 +165,8 @@ class MediaOrganizationScreenTest {
         assertEquals(.8f,card.width/card.height,.01f)
         assertEquals(.8f,create.width/create.height,.01f)
         assertEquals(card.width,create.width,.01f)
+        assertEquals(card.top,create.top,.01f)
+        assertEquals(card.bottom,create.bottom,.01f)
         assertEquals(card.height,create.height,.01f)
         assertEquals(card.width,cover.width,.01f)
         assertEquals(card.height,cover.height,.01f)

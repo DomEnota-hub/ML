@@ -88,10 +88,18 @@ class ComparisonWaveformLayoutTest {
         assertEquals(27300L,seconds.first)
         assertEquals(78000L,seconds.second)
         assertNotEquals(seconds.first,seconds.second)
+        assertEquals(ComparisonListeningWindow(27000L,27600L),
+            comparisonListeningWindow(listOf(c),0,1,100L,true,30000L))
+        assertEquals(ComparisonListeningWindow(77700L,78150L),
+            comparisonListeningWindow(listOf(c),0,1,100L,false,78150L))
+        val beginning=com.domenota.medialoader.data.library.ComparisonColumn(0,0,true)
+        assertEquals(ComparisonListeningWindow(0L,100L),
+            comparisonListeningWindow(listOf(beginning),0,1,100L,true,100L))
     }
     @Test fun insertedOrMissingRegionNeverInventsAbsentSide() {
         val col=com.domenota.medialoader.data.library.ComparisonColumn(null,123,true)
         assertEquals(null to 12300L,comparisonZonePositions(listOf(col),0,1,100L))
+        assertNull(comparisonListeningWindow(listOf(col),0,1,100L,true,20000L))
         val reversed=com.domenota.medialoader.data.library.ComparisonColumn(50,null,true)
         assertEquals(5000L to null,comparisonZonePositions(listOf(reversed),0,1,100L))
     }

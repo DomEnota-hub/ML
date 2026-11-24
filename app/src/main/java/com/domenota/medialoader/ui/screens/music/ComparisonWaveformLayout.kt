@@ -16,6 +16,25 @@ internal fun comparisonZonePositions(
         range.firstNotNullOfOrNull { it.second }?.toLong()?.times(stepMs)
 }
 
+/** Playback context is independent of the exact highlighted zone. Missing sides
+ * remain absent; use their own actual timing and duration, not the other track's. */
+internal data class ComparisonListeningWindow(val startMs:Long,val endExclusiveMs:Long)
+
+internal fun comparisonListeningWindow(
+    columns:List<com.domenota.medialoader.data.library.ComparisonColumn>,
+    start:Int,endExclusive:Int,stepMs:Long,firstTrack:Boolean,durationMs:Long?,
+):ComparisonListeningWindow? {
+    if(start<0||endExclusive>columns.size||start>=endExclusive||stepMs<=0)return null
+    val frames=columns.subList(start,endExclusive)
+    fun frame(c:com.domenota.medialoader.data.library.ComparisonColumn)=if(firstTrack)c.first else c.second
+    val first=frames.firstNotNullOfOrNull(::frame)?.toLong()?.times(stepMs)?:return null
+    val last=frames.asReversed().firstNotNullOfOrNull(::frame)?.toLong()?.plus(1)?.times(stepMs)?:return null
+    val limit=durationMs?.takeIf{it>0} ?: columns.asReversed().firstNotNullOfOrNull(::frame)
+        ?.toLong()?.plus(1)?.times(stepMs)?:return null
+    if(first>=limit||last<=first||first<0)return null
+    return ComparisonListeningWindow((first-300L).coerceAtLeast(0L),(last+200L).coerceAtMost(limit))
+}
+
 /** A focus window always covers the entire selected change, bounded by existing columns. */
 internal fun comparisonFocusRange(count:Int,start:Int,endExclusive:Int,close:Boolean):IntRange =
     comparisonFocusRange(count,start,endExclusive,if(close)3 else 1)

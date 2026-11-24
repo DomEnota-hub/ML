@@ -976,13 +976,19 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
         val times=comparisonZonePositions(aligned.columns,selected.start,selected.endExclusive,aligned.stepMs)
         return if(first)times.first else times.second
     }
+    fun listeningWindow(first:Boolean):ComparisonListeningWindow? {
+        val selected=zone?:return null
+        val aligned=result?:return null
+        return comparisonListeningWindow(aligned.columns,selected.start,selected.endExclusive,
+            aligned.stepMs,first,if(first)reference.duration else target.duration)
+    }
     fun selectZone(next:Int){
         val aligned=result?:return
         val selected=zones.getOrNull(next)?:return
         zoneIndex=next
-        val (firstAt,secondAt)=comparisonZonePositions(
-            aligned.columns,selected.start,selected.endExclusive,aligned.stepMs)
-        latestOnNavigate(referenceId,firstAt,targetId,secondAt)
+        fun start(first:Boolean)=comparisonListeningWindow(aligned.columns,selected.start,selected.endExclusive,
+            aligned.stepMs,first,if(first)reference.duration else target.duration)?.startMs
+        latestOnNavigate(referenceId,start(true),targetId,start(false))
     }
     fun play(t:DuplicateTrack,at:Long?=null){
         if(allowed(t))latestOnPlay(t,at)
@@ -1042,12 +1048,12 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                 val firstPlaying=previewId==referenceId&&playing
                                 val secondPlaying=previewId==targetId&&playing
                                 ComparisonPlaybackButton("Основа",firstPlaying,
-                                    zone==null||seekFrame(true)!=null,Modifier.weight(1f)){
-                                    play(reference,if(firstPlaying)null else seekFrame(true))
+                                    zone==null||listeningWindow(true)!=null,Modifier.weight(1f)){
+                                    play(reference,if(firstPlaying)null else listeningWindow(true)?.startMs)
                                 }
                                 ComparisonPlaybackButton("Сравниваемая",secondPlaying,
-                                    zone==null||seekFrame(false)!=null,Modifier.weight(1f)){
-                                    play(target,if(secondPlaying)null else seekFrame(false))
+                                    zone==null||listeningWindow(false)!=null,Modifier.weight(1f)){
+                                    play(target,if(secondPlaying)null else listeningWindow(false)?.startMs)
                                 }
                             }
                             if(failed)Text("Анализ недоступен",style=MaterialTheme.typography.bodySmall,
@@ -1136,8 +1142,10 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                                     style=MaterialTheme.typography.titleSmall)
                                                 Text("Послушайте этот момент в обеих записях.",
                                                     style=MaterialTheme.typography.bodySmall)
-                                                Text("Основа: ${seekFrame(true)?.let(::pairTime)?:"нет фрагмента"}, " +
-                                                    "Сравниваемая: ${seekFrame(false)?.let(::pairTime)?:"нет фрагмента"}",
+                                                fun contextLabel(first:Boolean)=listeningWindow(first)?.let{
+                                                    "${pairTime(it.startMs)}–${pairTime(it.endExclusiveMs)}"
+                                                }?:"нет фрагмента"
+                                                Text("Основа: ${contextLabel(true)}, сравниваемая: ${contextLabel(false)}",
                                                     style=MaterialTheme.typography.bodySmall)
                                                 TextButton(onClick={technicalDetails=!technicalDetails}){
                                                     Text(if(technicalDetails)"Скрыть подробности" else "Подробнее об участке")
