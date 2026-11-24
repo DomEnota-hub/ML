@@ -3185,6 +3185,7 @@ fun MediaLoaderApp(
                 }
             },
             LibraryRouteContent(MEDIA_VIEWER_ROUTE) { entry ->
+                val visualScanActive by libraryModel.galleryScanInProgress.collectAsStateWithLifecycle()
                 val viewerState = rememberSaveableStateHolder()
                 val downloadId = entry.arguments?.getString("downloadId")
                 val galleryPresentation = entry.savedStateHandle.get<Boolean>("gallery_presentation") == true
@@ -3279,7 +3280,7 @@ fun MediaLoaderApp(
                     if (!privateViewer &&
                         ((!collectionViewer && (if (visualRoute)
                             phoneVisualResolutionPending(currentGalleryId, phoneGallery, libraryIndex,
-                                indexedLibraryProjection.ready, libraryAliasProjection.ready)
+                                indexedLibraryProjection.ready, libraryAliasProjection.ready, visualScanActive)
                             else awaitingPhone(downloadId))) || (visualRoute &&
                             ((selectedHistoryRow != null && !addressFinished) || libraryPrivateKeys == null || (collectionViewer && scopedCatalog == null && scopeGuard != null && !scopedProjection.ready))))) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

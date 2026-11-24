@@ -391,6 +391,7 @@ class LibraryValidationGateTest {
         assertTrue(phoneVisualResolutionPending(id,full,aligned,false,true))
         assertTrue(phoneVisualResolutionPending(id,full,aligned,true,false))
         assertTrue(phoneVisualResolutionPending(id,full.copy(accessEpoch=3),aligned,true,true))
+        assertTrue(phoneVisualResolutionPending(id,full,aligned,true,true,scanInProgress=true))
         assertFalse(phoneVisualResolutionPending(id,full,aligned,true,true))
         assertFalse(phoneVisualResolutionPending(id,full.copy(complete=false,message="Ошибка"),aligned,true,true))
         assertFalse(phoneVisualResolutionPending("phone:audio:42",partial,raw,true,true))

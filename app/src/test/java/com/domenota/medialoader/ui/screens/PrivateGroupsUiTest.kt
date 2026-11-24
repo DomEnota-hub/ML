@@ -2,6 +2,7 @@ package com.domenota.medialoader.ui.screens
 
 import android.content.Context
 import android.app.KeyguardManager
+import android.hardware.biometrics.BiometricPrompt
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import com.domenota.medialoader.ui.components.PrivateAccessGateTest
 import org.robolectric.Shadows.shadowOf
@@ -17,6 +18,7 @@ import com.domenota.medialoader.data.privatevault.PrivateAccessMode
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,12 +33,14 @@ import org.robolectric.annotation.LooperMode
 class PrivateGroupsUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val restored = mutableListOf<String>()
+    private lateinit var screenAccess: PrivateAccessManager
     private fun show(count: Int = 30, locked: Boolean = false, externalBusy: Boolean = false) {
         val context = compose.activity.applicationContext
         context.getSharedPreferences("ui", Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences("private_access", Context.MODE_PRIVATE).edit().clear().commit()
         val access = PrivateAccessManager::class.java.getDeclaredConstructor(Context::class.java)
             .apply { isAccessible = true }.newInstance(context)
+        screenAccess = access
         runBlocking { access.configure(PrivateAccessMode.PIN, "123456"); if (locked) access.lock() }
         val rows = (1..count).map { DownloadEntity(id = "p$it", providerId = "test",
             originalName = "secret-$it.jpg", mediaType = MediaType.PHOTO,
@@ -62,7 +66,8 @@ class PrivateGroupsUiTest {
         assertTrue(cells.zipWithNext().all { (left, right) -> left.right <= right.left && left.top == right.top })
         assertTrue(cells.all { kotlin.math.abs(it.width - cells.first().width) < 1f })
         assertEquals(true, compose.activity.getSharedPreferences("ui", Context.MODE_PRIVATE).getBoolean("private_grid", false))
-        compose.onNodeWithContentDescription("Заблокировать личное").performClick()
+        compose.onNodeWithContentDescription("Заблокировать личное").assertDoesNotExist()
+        compose.runOnIdle { screenAccess.lock() }
         compose.onNodeWithContentDescription("Показать списком").assertDoesNotExist()
         compose.onNodeWithText("secret-1.jpg", useUnmergedTree = true).assertDoesNotExist()
     }
@@ -117,14 +122,25 @@ class PrivateGroupsUiTest {
         restoration.setContent {
             MaterialTheme { PrivateScreen(access, emptyList(), {}, {}, {}, {}, {}, { _, _ -> }) }
         }
-        compose.onNodeWithContentDescription("Заблокировать личное").performClick()
+        // Historical test ID retained. The owner removed the manual button:
+        // exercise the same access revocation as the lifecycle observer instead.
+        compose.onNodeWithContentDescription("Заблокировать личное").assertDoesNotExist()
+        compose.runOnIdle { access.lock() }
         compose.waitForIdle()
-        assertEquals(0, PrivateAccessGateTest.PlatformPrompt.requests)
+        assertEquals(1, PrivateAccessGateTest.PlatformPrompt.requests)
+        assertFalse(access.state.value.unlocked)
+        compose.runOnUiThread {
+            PrivateAccessGateTest.PlatformPrompt.callback.onAuthenticationError(
+                BiometricPrompt.BIOMETRIC_ERROR_CANCELED, "Отмена")
+        }
+        compose.onNodeWithText("Повторить вход").assertIsDisplayed()
         restoration.emulateSavedInstanceStateRestore()
         compose.waitForIdle()
-        assertEquals("Manual lock must survive restored composition", 0, PrivateAccessGateTest.PlatformPrompt.requests)
-        compose.onNodeWithText("Подтвердить вход").performClick()
-        assertEquals(1, PrivateAccessGateTest.PlatformPrompt.requests)
+        assertEquals("Cancelled prompt must not restart after restoration", 1, PrivateAccessGateTest.PlatformPrompt.requests)
+        assertFalse(access.state.value.unlocked)
+        compose.onNodeWithText("Повторить вход").performClick()
+        assertEquals(2, PrivateAccessGateTest.PlatformPrompt.requests)
+        assertFalse(access.state.value.unlocked)
     }
 
     @Test fun transferAfterFirstSetupDoesNotAskForReadAccessWhenLocked() {

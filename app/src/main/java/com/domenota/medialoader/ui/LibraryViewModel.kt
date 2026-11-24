@@ -243,9 +243,9 @@ internal fun mayRetainProgressivePhoneIndex(
  * scan and its canonical index have caught up. A failed scan is distinct
  * from a completed scan that proved absence. Never admit a stale locator. */
 internal fun phoneVisualResolutionPending(id: String?, gallery: PhoneLibraryState,
-    index: LibraryIndex, rowsReady: Boolean, aliasesReady: Boolean): Boolean {
+    index: LibraryIndex, rowsReady: Boolean, aliasesReady: Boolean, scanInProgress: Boolean = false): Boolean {
     if (id?.startsWith("phone:") != true || id.startsWith("phone:audio:")) return false
-    return !gallery.loaded || gallery.loading ||
+    return scanInProgress || !gallery.loaded || gallery.loading ||
         (!gallery.complete && gallery.message == null) || !index.ready ||
         index.galleryAccessEpoch != gallery.accessEpoch ||
         index.galleryRevision != gallery.revision || !rowsReady || !aliasesReady
