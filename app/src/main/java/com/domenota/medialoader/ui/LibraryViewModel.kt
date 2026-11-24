@@ -263,6 +263,12 @@ internal fun canRefreshLibrarySilently(
     (!state.requiresValidation || state.revision == indexedRevision) &&
     !accessChanged && !selectedOnlyAccess && !privacyInvalidated
 
+/** Navigation is not a provider-change notification. An already complete
+ * full-access catalog remains usable, but cold, failed or changed-access
+ * states must go through the existing validation path. */
+internal fun needsPhoneRefreshOnNavigation(state:PhoneLibraryState,accessChanged:Boolean,selectedOnly:Boolean):Boolean =
+    accessChanged||selectedOnly||!state.loaded||!state.complete||state.message!=null
+
 /** Map MediaStore notifications to the affected library without guessing for unknown URIs. */
 internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
     val both = setOf(AppMode.GALLERY, AppMode.MUSIC)
@@ -999,6 +1005,22 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 }
             }
         }
+    }
+
+    fun refreshOnNavigation(mode:AppMode){
+        if(mode==AppMode.DOWNLOADER)return
+        val permissions=PhoneMediaLibrary.permissions(mode)
+        val signature=permissions.map{permission->
+            ContextCompat.checkSelfPermission(getApplication(),permission)==PackageManager.PERMISSION_GRANTED
+        }
+        val selectedOnly=android.os.Build.VERSION.SDK_INT>=34&&mode==AppMode.GALLERY&&
+            permissions.zip(signature).any{(name,granted)->name==android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED&&granted}&&
+            permissions.zip(signature).any{(name,granted)->name!=android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED&&!granted}
+        val state=(if(mode==AppMode.GALLERY)galleryState else musicState).value
+        if(needsPhoneRefreshOnNavigation(state,accessSignatures[mode]!=signature,selectedOnly))refresh(mode)
+        // Keep existing observer reconciliation, including changes queued during
+        // an editor/transfer; never consume or discard them just on navigation.
+        else if(mode in pendingMediaChanges)scheduleMediaChange(null,addModes=false)
     }
 
     fun refresh(mode: AppMode, force: Boolean = false, invalidate: Boolean = false, reason: PhoneScanReason = PhoneScanReason.REQUEST) {

@@ -27,8 +27,8 @@ internal fun drawerActiveEntry(route:String?,mode:AppMode):DrawerEntry? = when(r
     else->null
 }
 
-/** Pixel-space helpers: opening starts inside the left system-gesture inset,
- * never from the rest of the screen. No system gesture-exclusion rectangles. */
+/** Pixel-space helpers: opening starts immediately inside app content, after
+ * the left system-gesture inset. No system gesture-exclusion rectangles. */
 internal object DrawerGesturePolicy {
     fun canStart(x:Float,progress:Float,panelWidth:Float,systemInset:Float,edge:Float):Boolean =
         panelWidth>0f && if(progress>0f) x>=0f&&x<=panelWidth*progress

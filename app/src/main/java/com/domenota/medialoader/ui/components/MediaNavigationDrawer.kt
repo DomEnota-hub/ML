@@ -106,7 +106,7 @@ internal fun MediaNavigationDrawer(
     LaunchedEffect(allowed){
         if(!allowed){animation?.cancel();progress=0f;predictive=false}
     }
-    val shown=if(allowed)progress else 0f
+    val shown=if(allowed)progress.coerceIn(0f,1f) else 0f
     val visible=shown>0f
     BoxWithConstraints(Modifier.fillMaxSize()){
         val panelWidth=maxWidth*.8f

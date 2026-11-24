@@ -834,7 +834,9 @@ fun MediaLoaderApp(
         val dispatchedAt = com.domenota.medialoader.core.logging.PerformanceLog.begin("mode_switch:$next")
         // Check access synchronously before a cached phone-backed screen can be rendered.
         if (next == AppMode.MUSIC || (next == AppMode.GALLERY &&
-                (gallerySource == LibrarySource.PHONE || phoneGallery.loaded))) libraryModel.refresh(next)
+                (gallerySource == LibrarySource.PHONE || phoneGallery.loaded))) {
+            if(preserveBrowsing)libraryModel.refreshOnNavigation(next) else libraryModel.refresh(next)
+        }
         if (!preserveBrowsing && next == AppMode.MUSIC && appMode != AppMode.MUSIC) { musicTab = 0; musicTopRequest++ }
         libraryPreferences.mode = next
         appMode = next
@@ -3705,7 +3707,9 @@ fun MediaLoaderApp(
     val drawerBlocked= !drawerWindowFocused || drawerImeVisible ||
         drawerLifecycle!=Lifecycle.State.RESUMED || checkingPhoneAccess ||
         showPicker || showNameDialog || usedLinkPrompt!=null ||
-        preview.duplicateMatches.isNotEmpty() || recognitionProposal!=null || trackRecognitionTarget!=null ||
+        preview.duplicateMatches.isNotEmpty() ||
+        recognitionProposal?.let{proposal->downloads.any{it.id==proposal.downloadId}}==true ||
+        trackRecognitionTarget!=null ||
         privateNavigation || privateMoveBusy || pendingDeleteRecords.isNotEmpty() || albumTrash!=null ||
         hiddenMusicTracksOpen || editorOpenInFlight || visibilityBusy || nomediaBusy ||
         nomediaPickerPlan!=null || nomediaPickerShowFolder!=null || androidApprovalTicket!=null ||

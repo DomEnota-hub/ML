@@ -288,7 +288,8 @@ internal fun GalleryModeScreen(
     var dragSelectionEnd by remember { mutableStateOf<String?>(null) }
     com.domenota.medialoader.ui.components.ReportDrawerScreen(
         !detailOpen && !archiveOpen && !selecting && folderTarget==null && renameTarget==null &&
-            !creating && !showDatePicker && deletingAlbum==null && !albumSortMenuExpanded &&
+            !creating && !(showDatePicker&&selectableDateRange!=null) &&
+            deletingAlbum==null && !albumSortMenuExpanded &&
             moveSnapshot==null && removingDeviceAlbum==null && draggingAlbumKey==null &&
             dragSelectionAnchor==null)
     fun galleryItemAt(point: Offset): String? {
