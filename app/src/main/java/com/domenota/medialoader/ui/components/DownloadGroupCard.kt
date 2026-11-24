@@ -28,6 +28,7 @@ fun DownloadGroupCard(
     onDelete: (() -> Unit)? = null,
     privateGroup: Boolean = false,
     actionsEnabled: Boolean = true,
+    onArchive: (() -> Unit)? = null,
 ) {
     if (group.isEmpty()) return
     var menu by remember { mutableStateOf(false) }
@@ -55,7 +56,7 @@ fun DownloadGroupCard(
                 Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     if (expanded) "Свернуть" else "Развернуть")
             }
-            if (listOf(onFavorite, onChooseFolder, onMoveToPrivate, onRestore, onDelete).any { it != null }) Box {
+            if (listOf(onFavorite, onChooseFolder, onMoveToPrivate, onRestore, onDelete, onArchive).any { it != null }) Box {
                 IconButton(onClick = { menu = true }, enabled = actionsEnabled) {
                     Icon(Icons.Rounded.MoreVert, "Действия с группой")
                 }
@@ -65,6 +66,8 @@ fun DownloadGroupCard(
                         leadingIcon = { Icon(Icons.Rounded.Star, null) }, onClick = { menu = false; action() }) }
                     onChooseFolder?.let { action -> DropdownMenuItem(text = { Text("Добавить в папку") },
                         leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = { menu = false; action() }) }
+                    if (!privateGroup) onArchive?.let { action -> DropdownMenuItem(text = { Text("В архив") },
+                        leadingIcon = { ArchiveActionIcon(null) }, onClick = { menu = false; action() }) }
                     if (!privateGroup) onMoveToPrivate?.let { action -> DropdownMenuItem(text = { Text("Переместить в личное") },
                         leadingIcon = { Icon(Icons.Rounded.Lock, null) }, onClick = { menu = false; action() }) }
                     onRestore?.let { action -> DropdownMenuItem(text = { Text("Вернуть из личного") },
