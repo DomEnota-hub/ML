@@ -168,7 +168,7 @@ class DuplicateScanScopeDialogTest {
         compose.onNodeWithText("Все доступные файлы раздела: 2").assertExists()
         compose.onNodeWithTag("scope-select-folders").performClick()
         compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
-        compose.onNodeWithText("2 файла", substring = true).assertExists()
+        compose.onNodeWithText("Выбрано: 2 папки, 2 файла", substring = true).assertExists()
     }
 
     @Test fun unknownGalleryBucketKeepsLocationUnverified() {
