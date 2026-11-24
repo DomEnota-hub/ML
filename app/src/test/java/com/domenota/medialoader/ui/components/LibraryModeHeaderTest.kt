@@ -27,6 +27,26 @@ class LibraryModeHeaderTest {
             compose.onNodeWithContentDescription("Сменить режим").performClick()
             compose.onNodeWithText(label).performClick()
             compose.onNodeWithText(label).assertExists()
+            val arrow=compose.onNodeWithTag("app-mode-chevron",useUnmergedTree=true)
+            if(label=="Загрузчик")arrow.assertExists() else arrow.assertDoesNotExist()
         }
+    }
+
+    @Test fun unifiedHeaderRemovesOnlyApprovedDuplicates(){
+        var mode by mutableStateOf(AppMode.GALLERY)
+        compose.setContent { MaterialTheme {
+            LibraryModeHeader(mode,com.domenota.medialoader.data.library.LibrarySource.APP,
+                {},{}, {},{},onCalendar={},
+                onHiddenTracks={},unifiedDrawerRoutes=true)
+        } }
+        compose.onNodeWithContentDescription("Личное").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Архив").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Корзина").assertExists()
+        compose.onNodeWithContentDescription("Поиск").assertExists()
+        compose.onNodeWithContentDescription("Перейти к дате").assertExists()
+        compose.runOnIdle{mode=AppMode.MUSIC}
+        compose.onNodeWithContentDescription("Настройки").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Скрытые треки").assertExists()
+        compose.onNodeWithContentDescription("Поиск").assertExists()
     }
 }

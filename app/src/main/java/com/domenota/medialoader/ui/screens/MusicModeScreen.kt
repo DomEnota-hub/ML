@@ -406,6 +406,11 @@ internal fun MusicModeScreen(
         } }, confirmButton = { TextButton(onClick = onDismissHiddenTracks) { Text("Готово") } })
     val folders = browse.value.folders
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        playlist==null && addingPlaylist==null && !frequentOpen && smartPage==null &&
+            !resumeOpen && folderOpen==null && !recentOpen && selectedTrackIds.isEmpty() &&
+            !duplicatesOpen && !creating && renameTarget==null && deleteTarget==null &&
+            addTrack==null && !busy && !sortMenu && !hiddenTracksOpen)
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen,recentOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null || recentOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
@@ -649,7 +654,7 @@ internal fun MusicModeScreen(
                 } else items(visibleFolders, key = { "folder:$it" }) { folder ->
                     TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Rounded.Folder, null)
-                        Text("${MusicFolderRules.title(folder)} · ${RussianCounts.tracks(folders[folder].orEmpty().size)}",
+                        Text("${MusicFolderRules.title(folder)}: ${RussianCounts.tracks(folders[folder].orEmpty().size)}",
                             Modifier.weight(1f).padding(start = 12.dp), maxLines = 2, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
@@ -670,7 +675,7 @@ internal fun MusicModeScreen(
                         PlaylistCover(playlist, available, Modifier.size(100.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             val minutes = browseRows.value.playlistMinutes
-                            Text(RussianCounts.tracks(playlist.trackIds.size) + if (minutes > 0) " · $minutes минут" else "", fontSize = 13.sp)
+                            Text(RussianCounts.tracks(playlist.trackIds.size) + if (minutes > 0) ", $minutes минут" else "", fontSize = 13.sp)
                             Text("Музыка для тебя", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Button(enabled = displayed.isNotEmpty(), onClick = { displayed.firstOrNull()?.let { preview(it.id) } }, shape = RoundedCornerShape(18.dp)) {
                                 Icon(Icons.Rounded.PlayArrow, null); Text("Слушать", fontSize = 13.sp)
@@ -874,6 +879,7 @@ private fun UnavailablePlaylistTrackRow(position: Int, onRemove: () -> Unit) {
 @Composable
 private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDelete: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия с плейлистом ${playlist.name}") }
         DropdownMenu(menu, { menu = false }) {
@@ -891,6 +897,7 @@ internal fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> U
                               onCollection: (() -> Unit)? = null,onPassport: (() -> Unit)? = null,onRecognize:(()->Unit)?=null) {
     var menu by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu||properties)
     if (properties) MusicFilePropertiesDialog(track) { properties = false }
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия: ${track.originalName}") }

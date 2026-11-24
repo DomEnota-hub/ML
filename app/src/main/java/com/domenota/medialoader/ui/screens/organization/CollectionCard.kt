@@ -262,8 +262,16 @@ private fun collectionCoverSourceCheck(context:android.content.Context,source:St
 @Composable
 private fun CreateCollectionCard(onOpen:()->Unit,modifier:Modifier=Modifier) {
     val border=MaterialTheme.colorScheme.outline
-    Box(modifier.aspectRatio(4f/5f).clickable(onClick=onOpen).testTag("collection-create-card"),contentAlignment=Alignment.Center){
-        Canvas(Modifier.matchParentSize()) {drawRoundRect(border,cornerRadius=androidx.compose.ui.geometry.CornerRadius(14.dp.toPx()),style=Stroke(1.dp.toPx(),pathEffect=PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(),6.dp.toPx()))))}
+    Box(modifier.aspectRatio(4f/5f).clip(RoundedCornerShape(14.dp)).clickable(onClick=onOpen).testTag("collection-create-card"),contentAlignment=Alignment.Center){
+        Canvas(Modifier.matchParentSize()) {
+            val stroke=1.dp.toPx()
+            val inset=stroke/2f
+            drawRoundRect(border,
+                topLeft=androidx.compose.ui.geometry.Offset(inset,inset),
+                size=androidx.compose.ui.geometry.Size((size.width-stroke).coerceAtLeast(0f),(size.height-stroke).coerceAtLeast(0f)),
+                cornerRadius=androidx.compose.ui.geometry.CornerRadius((14.dp.toPx()-inset).coerceAtLeast(0f)),
+                style=Stroke(stroke,pathEffect=PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(),6.dp.toPx()))))
+        }
         Column(Modifier.padding(12.dp),horizontalAlignment=Alignment.CenterHorizontally){
             Icon(Icons.Rounded.Add,null,Modifier.size(32.dp),tint=MaterialTheme.colorScheme.primary)
             Text("Создать коллекцию",style=MaterialTheme.typography.titleSmall)

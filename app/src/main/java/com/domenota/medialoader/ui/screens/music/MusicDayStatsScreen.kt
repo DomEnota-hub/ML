@@ -118,7 +118,7 @@ internal fun MusicDayStatsScreen(interval:SmartStatsInterval,snapshot:SmartMusic
                     Text(timeLabel,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
                     Text(displayAudioTitle(row),style=MaterialTheme.typography.bodyLarge)
                     audioArtist(row)?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
-                    Text(listeningTime(entry.wallMs)+if(entry.creditedAt!=null)" · Засчитано прослушивание" else "",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(listeningTime(entry.wallMs)+if(entry.creditedAt!=null)", засчитано прослушивание" else "",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     if(entry.legacyAttribution)Text("Часть времени относится к последней сохранённой дате; точной разбивки нет.",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     HorizontalDivider()
                 }

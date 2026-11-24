@@ -36,9 +36,10 @@ class ManagedLocalNomediaPortTest {
     @Test fun exactPhysicalAlbumCreatesOnlyOwnedMarkerAndRestoresWithoutTouchingMedia()=fixture { root,folder,tree ->
         val first=File(folder,"a.jpg").apply { writeBytes(byteArrayOf(1,2,3));setLastModified(1_600_000_000_000) }
         val second=File(folder,"b.mp3").apply { writeBytes(byteArrayOf(4,5,6,7));setLastModified(1_600_000_005_000) }
-        val files=listOf(first,second)
+        val third=File(folder,"c.mp4").apply { writeBytes(byteArrayOf(8,9,10));setLastModified(1_600_000_010_000) }
+        val files=listOf(first,second,third)
         val originals=files.map { Triple(it.readBytes().toList(),it.length(),it.lastModified()) }
-        val expected=listOf(NomediaMediaSignature("a.jpg",3),NomediaMediaSignature("b.mp3",4))
+        val expected=listOf(NomediaMediaSignature("a.jpg",3),NomediaMediaSignature("b.mp3",4),NomediaMediaSignature("c.mp4",3))
         val direct=port(root,expected)
         runBlocking {
             assertNull(direct.inspect(tree))
@@ -53,7 +54,7 @@ class ManagedLocalNomediaPortTest {
             assertNull(direct.inspect(tree))
         }
         assertEquals(originals,files.map { Triple(it.readBytes().toList(),it.length(),it.lastModified()) })
-        assertEquals(listOf("a.jpg","b.mp3"),files.map { it.name })
+        assertEquals(listOf("a.jpg","b.mp3","c.mp4"),files.map { it.name })
     }
 
     @Test fun sixSelectedFrom806PhysicalFilesNeverCreatesDirectoryWideMarker()=fixture { root,folder,tree ->
@@ -128,11 +129,51 @@ class ManagedLocalNomediaPortTest {
 
     @Test fun unknownSidecarIsNeverMistakenForOnlySelectedPhoto()=fixture { root,folder,tree ->
         File(folder,"photo.jpg").writeBytes(byteArrayOf(1,2))
-        File(folder,"unknown.custom").writeText("metadata")
-        assertThrows(IllegalStateException::class.java) {
-            port(root,listOf(NomediaMediaSignature("photo.jpg",2))).listMedia(tree)
-        }
+        val sidecar=File(folder,"unknown.custom").apply{writeText("metadata")}
+        val direct=port(root,listOf(NomediaMediaSignature("photo.jpg",2)))
+        assertThrows(IllegalStateException::class.java) { direct.listMedia(tree) }
+        assertThrows(IllegalStateException::class.java) { runBlocking { direct.createEmpty(tree) } }
         assertFalse(File(folder,".nomedia").exists())
+        assertEquals("metadata",sidecar.readText())
+        assertArrayEquals(byteArrayOf(1,2),File(folder,"photo.jpg").readBytes())
+    }
+
+
+    @Test fun missingMimeMappingRecoversOnlyStructurallyRecognizedSelectedMedia()=fixture { root,folder,tree ->
+        // Small structural fixtures: not a claim of full decode/playability.
+        val jpeg=File(folder,"a.JPG").apply {
+            writeBytes(byteArrayOf(0xff.toByte(),0xd8.toByte(),0xff.toByte(),0xc0.toByte(),
+                0,11,8,0,1,0,1,1,1,0x11,0,0xff.toByte(),0xda.toByte(),
+                0,8,1,1,0,0,63,0,1,0xff.toByte(),0xd9.toByte()))
+        }
+        fun box(type:String,body:ByteArray)=java.nio.ByteBuffer.allocate(8+body.size)
+            .putInt(8+body.size).put(type.toByteArray(Charsets.US_ASCII)).put(body).array()
+        val video=File(folder,"b.mp4").apply {
+            writeBytes(box("ftyp","isom0000isom".toByteArray())+
+                box("mdat",byteArrayOf(1,2,3))+box("moov",byteArrayOf(1,2,3)))
+        }
+        val files=listOf(jpeg,video)
+        val before=files.map{it.readBytes().toList() to it.lastModified()}
+        val expected=files.map{NomediaMediaSignature(it.name,it.length())}
+        val direct=ManagedLocalNomediaPort(expected,{root},{true}) { null }
+        assertEquals(setOf("image/jpeg","video/mp4"),direct.listMedia(tree).map{it.mimeType}.toSet())
+        runBlocking {
+            val proof=direct.createEmpty(tree)
+            assertTrue(direct.deleteVerified(tree,proof.documentId))
+        }
+        assertEquals(before,files.map{it.readBytes().toList() to it.lastModified()})
+        assertFalse(File(folder,".nomedia").exists())
+        // A spoofed extension, conflicting MIME, unrecognized sidecar, or
+        // an extra real file never authorizes a directory-wide marker.
+        val fake=File(folder,"fake.jpg").apply{writeText("not a jpeg")}
+        assertThrows(IllegalStateException::class.java){direct.listMedia(tree)}
+        assertTrue(fake.delete())
+        val conflict=ManagedLocalNomediaPort(expected,{root},{true}) { "text/plain" }
+        assertThrows(IllegalStateException::class.java){conflict.listMedia(tree)}
+        val extra=File(folder,"extra.jpg").apply{writeBytes(jpeg.readBytes())}
+        assertThrows(IllegalStateException::class.java){runBlocking{direct.createEmpty(tree)}}
+        assertFalse(File(folder,".nomedia").exists())
+        assertTrue(extra.exists())
     }
 
 }

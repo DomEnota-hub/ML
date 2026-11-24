@@ -1,12 +1,6 @@
 package com.domenota.medialoader.ui.screens.music
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.library.DuplicateKind
 import com.domenota.medialoader.ui.components.DuplicateResultFilterPolicy
 
@@ -23,25 +17,13 @@ internal fun MusicDuplicateResultFilters(
 
     val active = DuplicateResultFilterPolicy.active(selected, counts)
     val options = listOf<DuplicateKind?>(null) + found
-    Column(Modifier.fillMaxWidth().testTag("duplicate-result-filters"),
-        verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        options.chunked(2).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { kind ->
-                    val label = when (kind) {
-                        null -> "Все"
-                        DuplicateKind.EXACT -> "Точные · ${counts[kind] ?: 0}"
-                        DuplicateKind.ACOUSTIC -> "Акустика · ${counts[kind] ?: 0}"
-                        DuplicateKind.POSSIBLE -> "Версии · ${counts[kind] ?: 0}"
-                    }
-                    FilterChip(
-                        active == kind, { onSelect(kind) },
-                        label = { Text(label) },
-                        modifier = Modifier.weight(1f)
-                            .testTag("duplicate-result-filter-${kind?.name ?: "ALL"}"),
-                    )
-                }
-            }
-        }
-    }
+    com.domenota.medialoader.ui.components.DuplicateFilterRows(
+        options, active, "duplicate-result-filters",
+        { kind -> "duplicate-result-filter-${kind?.name ?: "ALL"}" },
+        { kind -> when (kind) {
+            null -> "Все"
+            DuplicateKind.EXACT -> "Точные: ${counts[kind] ?: 0}"
+            DuplicateKind.ACOUSTIC -> "Акустика: ${counts[kind] ?: 0}"
+            DuplicateKind.POSSIBLE -> "Версии: ${counts[kind] ?: 0}"
+        } }, onSelect)
 }

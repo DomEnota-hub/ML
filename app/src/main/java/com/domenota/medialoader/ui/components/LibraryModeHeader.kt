@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -25,12 +26,13 @@ internal val AppMode.label: String get() = when (this) {
 @Composable
 internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    ReportDrawerOverlay(expanded)
     Box {
         Row(Modifier.semantics { contentDescription = "Сменить режим" }
             .clickable { expanded = true }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(mode.label, fontSize = if (mode == AppMode.DOWNLOADER) 32.sp else 24.sp,
                 fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Icon(Icons.Rounded.ExpandMore, null, Modifier.padding(start = 6.dp))
+            if (mode == AppMode.DOWNLOADER) Icon(Icons.Rounded.ExpandMore, null, Modifier.padding(start = 6.dp).testTag("app-mode-chevron"))
         }
         DropdownMenu(expanded, { expanded = false }) {
             AppMode.entries.forEach { item -> DropdownMenuItem(
@@ -47,7 +49,8 @@ internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
 @Composable
 internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource, onMode: (AppMode) -> Unit,
     onSource: (LibrarySource) -> Unit, onTrash: () -> Unit, onSettings: () -> Unit,
-    onSearch: () -> Unit = {}, onPrivate: () -> Unit = {}, onVault: () -> Unit = {}, onHiddenTracks: (() -> Unit)? = null, onCalendar: (() -> Unit)? = null) {
+    onSearch: () -> Unit = {}, onPrivate: () -> Unit = {}, onVault: () -> Unit = {}, onHiddenTracks: (() -> Unit)? = null, onCalendar: (() -> Unit)? = null,
+    unifiedDrawerRoutes:Boolean=false) {
     Column(Modifier.fillMaxWidth().padding(start = 17.dp, end = 17.dp, top = 9.dp, bottom = 15.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { AppModeTitle(mode, onMode) }
@@ -61,13 +64,15 @@ internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource, onMode: (Ap
                 Icon(Icons.Rounded.CalendarMonth, "Перейти к дате", Modifier.size(23.dp), tint = MaterialTheme.colorScheme.onSurface)
             } }
             IconButton(onSearch) { Icon(Icons.Rounded.Search, "Поиск", Modifier.size(23.dp)) }
-            IconButton(onPrivate) { Icon(Icons.Rounded.Lock, "Личное", Modifier.size(23.dp)) }
-            IconButton(onVault) { ArchiveActionIcon() }
+            if(!unifiedDrawerRoutes){
+                IconButton(onPrivate) { Icon(Icons.Rounded.Lock, "Личное", Modifier.size(23.dp)) }
+                IconButton(onVault) { ArchiveActionIcon() }
+            }
             if (mode == AppMode.GALLERY) {
                 IconButton(onTrash) {
                     Icon(Icons.Rounded.DeleteOutline, "Корзина", Modifier.size(23.dp))
                 }
-            } else {
+            } else if(!unifiedDrawerRoutes) {
                 IconButton(onSettings) {
                     Icon(Icons.Rounded.Settings, "Настройки", Modifier.size(23.dp))
                 }

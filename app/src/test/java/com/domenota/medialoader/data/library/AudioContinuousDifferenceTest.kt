@@ -90,4 +90,41 @@ class AudioContinuousDifferenceTest {
             it.endExclusive - it.start > 8
         })
     }
+
+    @Test fun singleStreamCapturePreservesEverySampleAndSpectralFrame(){
+        val input=synthetic(4)
+        val original=AcousticFingerprints.ComparisonBuilder(256L){}
+        val capture=ComparisonSampleCapture(256L,true,{})
+        input.forEach { original.accept(it);capture.accept(it) }
+        val result=capture.finish()
+        val expected=original.finish()
+        assertEquals(expected.size,result.frames.size)
+        for(i in expected.indices){
+            assertArrayEquals(expected[i].spectrum,result.frames[i].spectrum,0f)
+            assertEquals(expected[i].rms,result.frames[i].rms,0f)
+        }
+        val pcm=requireNotNull(result.pcm)
+        assertEquals(input.size,pcm.size)
+        for(i in input.indices)assertEquals(input[i],pcm[i],0f)
+        assertTrue(result.pcmAttempted)
+    }
+
+    @Test fun overLimitCaptureDropsAllPcmButKeepsSpectralStream(){
+        val input=synthetic(1)
+        val original=AcousticFingerprints.ComparisonBuilder(256L){}
+        val capture=ComparisonSampleCapture(256L,true,{},pcmLimit=1024)
+        input.forEach { original.accept(it);capture.accept(it) }
+        val result=capture.finish()
+        assertTrue(result.pcmAttempted)
+        assertNull(result.pcm)
+        val expected=original.finish()
+        assertEquals(expected.size,result.frames.size)
+        for(i in expected.indices)assertArrayEquals(expected[i].spectrum,result.frames[i].spectrum,0f)
+        val framesOnly=ComparisonSampleCapture(256L,false,{})
+        input.forEach(framesOnly::accept)
+        val cached=framesOnly.finish()
+        assertFalse(cached.pcmAttempted)
+        assertNull(cached.pcm)
+        assertEquals(expected.size,cached.frames.size)
+    }
 }

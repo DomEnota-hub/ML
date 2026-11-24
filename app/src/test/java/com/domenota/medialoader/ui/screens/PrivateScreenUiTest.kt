@@ -132,4 +132,18 @@ class PrivateScreenUiTest {
         compose.onNodeWithText("Выберите способ входа").assertDoesNotExist()
     }
 
+
+    @Test fun mediaFiltersAreAvailableOnlyInsideAuthenticatedPrivateLibrary(){
+        showPrivateScreen()
+        compose.onNodeWithText("Музыка",substring=false).assertDoesNotExist()
+        enterPin("123456")
+        compose.waitUntil(10_000){access.state.value.unlocked}
+        compose.onNodeWithText("Музыка",substring=false).performScrollTo().performClick()
+        compose.onNodeWithText(secretName,useUnmergedTree=true).assertDoesNotExist()
+        compose.onNodeWithText("Все",substring=false).performClick()
+        compose.onNodeWithText(secretName).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Заблокировать личное").performClick()
+        compose.onNodeWithText("Музыка",substring=false).assertDoesNotExist()
+        compose.onNodeWithText(secretName,useUnmergedTree=true).assertDoesNotExist()
+    }
 }

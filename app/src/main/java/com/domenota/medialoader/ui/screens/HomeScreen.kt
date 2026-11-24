@@ -86,6 +86,7 @@ fun HomeScreen(
     deferredEntries:List<com.domenota.medialoader.data.deferred.DeferredLink> =
         deferredLinks.map{com.domenota.medialoader.data.deferred.DeferredLink(it,it)},
 ) {
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(true)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {

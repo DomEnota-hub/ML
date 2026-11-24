@@ -45,4 +45,37 @@ class LibraryReturnNavigationTest {
             compose.onNodeWithText("Выбор: 1").assertExists()
         }
     }
+
+    @Test fun drawerReturnsToExactHomeAndRestoresDownloadsFilterAcrossVisits(){
+        compose.setContent {
+            val nav=rememberNavController()
+            NavHost(nav,startDestination=AppDestination.Home.route){
+                composable(AppDestination.Home.route){
+                    var tab by rememberSaveable{mutableIntStateOf(0)}
+                    Column{
+                        Text("Вкладка: $tab")
+                        Button({tab++}){Text("Сменить вкладку")}
+                        Button({openDrawerDownloads(nav)}){Text("Загрузки")}
+                    }
+                }
+                composable(AppDestination.Downloads.route){
+                    var filter by rememberSaveable{mutableIntStateOf(0)}
+                    Column{
+                        Text("Фильтр: $filter")
+                        Button({filter++}){Text("Изменить фильтр")}
+                        Button({returnDrawerHome(nav)}){Text("Главная")}
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Сменить вкладку").performClick()
+        compose.onNodeWithText("Загрузки").performClick()
+        compose.onNodeWithText("Изменить фильтр").performClick()
+        repeat(2){
+            compose.onNodeWithText("Главная").performClick()
+            compose.onNodeWithText("Вкладка: 1").assertExists()
+            compose.onNodeWithText("Загрузки").performClick()
+            compose.onNodeWithText("Фильтр: 1").assertExists()
+        }
+    }
 }

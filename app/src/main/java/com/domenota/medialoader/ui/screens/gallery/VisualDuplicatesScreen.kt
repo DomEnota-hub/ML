@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
@@ -340,11 +341,17 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 else->{
                     Text(visualResultGroupCount(partialGroups.size),style=MaterialTheme.typography.titleMedium)
                     LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                        items(partialGroups,key={it.files.first().id}){group->
+                        items(partialGroups,key={"${status.token}:${it.files.first().id}"}){group->
                             Card(Modifier.fillMaxWidth()){
                                 Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
-                                    Text("Точные копии · ${group.files.size} файлов")
-                                    group.files.forEach{f->
+                                    var expanded by rememberSaveable(privacyEpoch){mutableStateOf(true)}
+                                    Row(Modifier.fillMaxWidth().heightIn(min=48.dp)
+                                        .clickable{expanded=!expanded},
+                                        verticalAlignment=Alignment.CenterVertically){
+                                        Text("Точные копии: ${group.files.size} файлов",Modifier.weight(1f))
+                                        Icon(if(expanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(expanded)"Свернуть" else "Развернуть")
+                                    }
+                                    if(expanded) group.files.forEach{f->
                                         val row=byId[f.id]?.item
                                         if(row!=null)Row(Modifier.fillMaxWidth().clickable{preview=group to f.id},
                                             verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -493,7 +500,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         if(!actionsReady)Text("Обновляю каталог. Результат сохранён; выбор и корзина пока недоступны.",
             style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Column(Modifier.fillMaxWidth().testTag("visual-result-summary"),
+        Column(Modifier.fillMaxWidth().padding(top=12.dp).testTag("visual-result-summary"),
             verticalArrangement=Arrangement.spacedBy(3.dp)){
             Text("Результаты поиска",style=MaterialTheme.typography.titleMedium)
             Text(shown.result.scopeLabel,style=MaterialTheme.typography.bodySmall,
@@ -536,11 +543,17 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         if(exact.isNotEmpty()||shown.selected.isNotEmpty())OutlinedButton({if(actionsReady)current?.let{persist(it.copy(selected=if(shown.selected==exact)emptySet() else exact))}},enabled=actionsReady&&!saving&&!status.running&&trash==null){Text(if(shown.selected==exact)"Снять выделение" else "Выделить точные")}
         LazyColumn(state=list,modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){
-            items(visibleGroups,key={it.files.first().id}){group->
-                Card {
-                    Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
-                        Text(when(group.reason){VisualMatch.EXACT->"Точные копии";VisualMatch.SIMILAR_PHOTO->"Похожие фотографии";VisualMatch.SIMILAR_VIDEO->"Похожие видео"},style=MaterialTheme.typography.titleMedium)
-                        group.files.forEach{file->
+            items(visibleGroups,key={"${shown.scannedAt}:${it.files.first().id}"}){group->
+                Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surfaceContainerHigh)) {
+                    Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+                        var expanded by rememberSaveable(privacyEpoch){mutableStateOf(true)}
+                        Row(Modifier.fillMaxWidth().heightIn(min=48.dp)
+                            .testTag("visual-duplicate-group-${group.files.first().id}").clickable{expanded=!expanded},
+                            verticalAlignment=Alignment.CenterVertically){
+                            Text(when(group.reason){VisualMatch.EXACT->"Точные копии";VisualMatch.SIMILAR_PHOTO->"Похожие фотографии";VisualMatch.SIMILAR_VIDEO->"Похожие видео"},Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
+                            Icon(if(expanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(expanded)"Свернуть" else "Развернуть")
+                        }
+                        if(expanded) group.files.forEach{file->
                             // Thumbnail visibility is not tied to the temporary action
                             // gate. Retain a public, same-epoch result while MediaStore
                             // recalculates; still disable selection and deletion until
@@ -549,19 +562,22 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                             val pendingIndex=!displayReady &&
                                 shown.result.privacyEpoch==privacyEpoch && phonePermission && loaded
                             val canDisplay=ref!=null||pendingIndex
+                            com.domenota.medialoader.ui.components.DuplicateRecordCard(
+                                keeper=false,tag="visual-duplicate-record-${file.id}"){
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
                                 if(canDisplay) DownloadThumbnail(file.uri,null,if(file.type==MediaType.PHOTO)MediaKind.IMAGE else MediaKind.VIDEO,Modifier.size(76.dp).testTag("visual-thumbnail-media-${file.id}")
                                     .clickable(enabled=actionsReady&&ref!=null){preview=group to file.id})
                                 else Box(Modifier.size(76.dp),contentAlignment=Alignment.Center){Icon(Icons.Rounded.Image,contentDescription=null,tint=MaterialTheme.colorScheme.onSurfaceVariant)}
                                 Column(Modifier.weight(1f)){
                                     Text(ref?.let{displayFileName(it.item)} ?: if(pendingIndex)file.uri.substringAfterLast('/').takeIf{it.isNotBlank()} ?: "Проверка файла" else "Проверяю доступность файла",maxLines=2)
-                                    Text(android.text.format.Formatter.formatFileSize(context,file.bytes)+" · ${file.width} × ${file.height}",style=MaterialTheme.typography.bodySmall)
+                                    Text(android.text.format.Formatter.formatFileSize(context,file.bytes)+", ${file.width} × ${file.height}",style=MaterialTheme.typography.bodySmall)
                                     file.durationMs?.let{Text("${it/1000} с",style=MaterialTheme.typography.bodySmall)}
                                 }
                                 com.domenota.medialoader.ui.screens.organization.PickerMark(file.id in shown.selected,false,enabled=actionsReady&&!saving&&!status.running&&trash==null&&ref!=null&&(file.id in shown.selected||group.files.count{it.id !in shown.selected}>1)){
                                     val selected=if(file.id !in shown.selected)shown.selected+file.id else shown.selected-file.id
                                     if(actionsReady)current?.let{persist(it.copy(selected=selected,index=list.firstVisibleItemIndex,offset=list.firstVisibleItemScrollOffset))}
                                 }
+                            }
                             }
                         }
                     }
@@ -696,8 +712,8 @@ private fun CompactStoppedAction(label:String,enabled:Boolean,filled:Boolean,onC
 
 @Composable
 private fun VisualCoverageSummary(coverage:VisualScanCoverage){
-    Text("${if(coverage.source==LibrarySource.PHONE)"Телефон" else "ML"} · охват: ${coverage.total} · проверено: ${coverage.checked}",style=MaterialTheme.typography.bodyMedium)
-    Text("Из кеша: ${coverage.cached} · новые: ${coverage.computed} · ошибки: ${coverage.failed}",style=MaterialTheme.typography.bodySmall)
+    Text("${if(coverage.source==LibrarySource.PHONE)"Телефон" else "ML"}, охват: ${coverage.total}, проверено: ${coverage.checked}",style=MaterialTheme.typography.bodyMedium)
+    Text("Из кеша: ${coverage.cached}, новые: ${coverage.computed}, ошибки: ${coverage.failed}",style=MaterialTheme.typography.bodySmall)
     if(coverage.aliases>0) Text("Совпадающие адреса: ${coverage.aliases}",style=MaterialTheme.typography.bodySmall)
     if(coverage.incompleteVisual>0) Text("Без полного визуального отпечатка: ${coverage.incompleteVisual}",style=MaterialTheme.typography.bodySmall)
 }

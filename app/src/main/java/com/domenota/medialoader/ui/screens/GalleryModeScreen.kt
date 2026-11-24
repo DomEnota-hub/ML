@@ -97,6 +97,7 @@ internal fun GalleryModeScreen(
     onArchiveRestore:((String)->Unit)?=null,
     onSimpleArchive: ((List<String>) -> Unit)? = null,
     onOpenSimpleArchive: (() -> Unit)? = null,
+    unifiedDrawerRoutes:Boolean=false,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -198,18 +199,22 @@ internal fun GalleryModeScreen(
         } else if (!checkingAlbum) { AppNotice.post(context, "Альбом недоступен"); onAlbumRequestHandled() }
     }
     val orderedAlbums = remember(albums, albumSettings.order) { orderedGalleryAlbums(albums, albumSettings) }
-    val visibleAlbums = orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
+    val visibleAlbums = remember(orderedAlbums,albumSettings.hiddenAlbums) {
+        orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
+    }
     val standardQuickKeys = remember(visibleAlbums) {
         galleryStandardAlbums(visibleAlbums).map { it.key }.toSet()
     }
     // The five fixed shortcuts come first; device Camera/Screenshots never duplicate pinned cards.
-    val quickAlbums = visibleAlbums.filter {
-        it.key in albumSettings.quickAlbums && it.key !in standardQuickKeys
+    val quickAlbums = remember(visibleAlbums,albumSettings.quickAlbums,standardQuickKeys) {
+        visibleAlbums.filter { it.key in albumSettings.quickAlbums && it.key !in standardQuickKeys }
     }
-    val regularAlbums = visibleAlbums.filter {
-        it.key !in albumSettings.quickAlbums && it.key !in standardQuickKeys
+    val regularAlbums = remember(visibleAlbums,albumSettings.quickAlbums,standardQuickKeys) {
+        visibleAlbums.filter { it.key !in albumSettings.quickAlbums && it.key !in standardQuickKeys }
     }
-    val otherAlbums = orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
+    val otherAlbums = remember(orderedAlbums,albumSettings.hiddenAlbums) {
+        orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
+    }
     val gridKey=GalleryGridKey(selection,search,detailOpen,tab,albumFileSort,albumSettings.excludedFromMedia,
         LocalDate.now(),ZoneId.systemDefault())
     val canPrepare=preparedBrowse?.usable!=false
@@ -221,11 +226,11 @@ internal fun GalleryModeScreen(
         LaunchedEffect(browse,gridKey,canPrepare,preparedBrowseAccess){
             if(canPrepare)retained=cached?:withContext(Dispatchers.Default){browse.prepareGrid(gridKey)}
         }
-        val allowedRows=remember(browse){browse.items.associate { it.id to it.savedUri }}
-        val safeRetained=remember(retained,browse,gridKey){retained?.retainAllowed(gridKey){row ->
-            allowedRows.containsKey(row.id) && allowedRows[row.id]==row.savedUri
-        }}
-        if(canPrepare)cached?:safeRetained else null
+        // A current prepared grid needs no whole-catalog retention scan.
+        // Keep the synchronous removal guard for an older grid.
+        if(!canPrepare)null else cached?:remember(retained,browse,gridKey){
+            retained?.retainAllowed(gridKey,browse::containsAddress)
+        }
     }
     val gridReady=grid!=null
     val shortcutAllMedia=grid?.allVisible ?: browse.media.takeIf{albumSettings.excludedFromMedia.isEmpty()}.orEmpty()
@@ -264,12 +269,13 @@ internal fun GalleryModeScreen(
     // LazyVerticalGrid offsets. No catalog-wide date parsing on the UI thread.
     val selectableDateRange=grid?.dateRange
     val dateSections=grid?.sections.orEmpty()
+    val daySelectionCounts=remember(grid,selectedSet){grid?.selectionCounts(selectedSet).orEmpty()}
     val galleryScrollLabels=grid?.labels.orEmpty()
     LaunchedEffect(jumpToMedia, orderedDisplayed, detailOpen, tab, albumFileSort) {
         val id = jumpToMedia ?: return@LaunchedEffect
         if (!detailOpen || tab != 0) return@LaunchedEffect
         val grouped = GalleryAlbumFileOrder.groupedByDate(albumFileSort)
-        val groups = if (grouped) dateSections.values.map { rows -> rows.map { it.id } } else listOf(orderedDisplayed.map { it.id })
+        val groups = if (grouped) grid?.dayIds?.values?.toList().orEmpty() else listOf(queue)
         val index = GalleryLibraryState.gridIndex(groups,id,grouped) ?: return@LaunchedEffect
         mediaGridState.scrollToItem(index)
         jumpToMedia = null; highlightedMedia = id
@@ -281,6 +287,12 @@ internal fun GalleryModeScreen(
     var dragSelectionPointer by remember { mutableStateOf(Offset.Zero) }
     var dragSelectionBase by remember { mutableStateOf(emptySet<String>()) }
     var dragSelectionEnd by remember { mutableStateOf<String?>(null) }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        !detailOpen && !archiveOpen && !selecting && folderTarget==null && renameTarget==null &&
+            !creating && !(showDatePicker&&selectableDateRange!=null) &&
+            deletingAlbum==null && !albumSortMenuExpanded &&
+            moveSnapshot==null && removingDeviceAlbum==null && draggingAlbumKey==null &&
+            dragSelectionAnchor==null)
     fun galleryItemAt(point: Offset): String? {
         val visible = mediaGridState.layoutInfo.visibleItemsInfo.filter { it.key.toString() in queueSet }
         val hit = visible.firstOrNull { cell ->
@@ -328,7 +340,7 @@ internal fun GalleryModeScreen(
     LaunchedEffect(selectedJumpDate, dateSections, tab, albumFileSort, detailOpen) {
         if (tab == 0 && (!detailOpen || GalleryAlbumFileOrder.groupedByDate(albumFileSort))) {
             selectedJumpDate?.let { chosen ->
-                galleryDateSectionIndex(dateSections.mapValues { it.value.size }, chosen)?.let {
+                galleryDateSectionIndex(grid?.daySizes.orEmpty(), chosen)?.let {
                     mediaGridState.animateScrollToItem(it)
                 }
             }
@@ -519,7 +531,7 @@ internal fun GalleryModeScreen(
                 }
             }
             if (tab == 1) {
-                if (source==LibrarySource.APP) item(key="archive-entry",span={GridItemSpan(maxLineSpan)}) {
+                if (source==LibrarySource.APP && !unifiedDrawerRoutes) item(key="archive-entry",span={GridItemSpan(maxLineSpan)}) {
                     Surface(onClick={ if (onOpenSimpleArchive != null) onOpenSimpleArchive() else archiveOpen=true },
                         modifier=Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=8.dp)
                             .testTag("gallery-archive-entry"),
@@ -651,8 +663,8 @@ internal fun GalleryModeScreen(
                     }
                 } else dateSections.forEach { (date, rows) ->
                         item(key = "date:$date", span = { GridItemSpan(maxLineSpan) }) {
-                            val dayIds = remember(rows) { rows.map { it.id } }
-                            val selectedInDay = dayIds.count { it in selectedSet }
+                            val dayIds = grid?.dayIds?.get(date).orEmpty()
+                            val selectedInDay = daySelectionCounts[date] ?: 0
                             Row(
                                 Modifier.fillMaxWidth().padding(start = 17.dp, end = 9.dp, top = 4.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -857,6 +869,7 @@ private fun GalleryAlbumCell(
     systemVisibility: Boolean = false, visibilityPending: Boolean = false, visibilityEnabled: Boolean = true,
 ) {
     var menu by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
     Column(
         Modifier
             .alpha(if (dragged) 0.30f else 1f)
@@ -930,6 +943,7 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
                              onLongSelect: () -> Unit, highlighted: Boolean = false) {
     val shownName = displayFileName(item)
     var menu by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
         .semantics { contentDescription = shownName }
         .combinedClickable(onClick = onOpen, onLongClick = onLongSelect, onLongClickLabel = "Выбрать файл")) {

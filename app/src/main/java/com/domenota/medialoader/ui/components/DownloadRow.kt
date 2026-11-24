@@ -241,6 +241,9 @@ fun DownloadRow(
     }
 
     var menuExpanded by remember { mutableStateOf(false) }
+    ReportDrawerOverlay(menuExpanded||renameDialog||videoSongSearch||
+        (sourceDialog&&sourceUrl!=null)||(failureDetailsOpen&&item.state==DownloadUiState.FAILED)||
+        selectedMusicSource!=null)
     val sourceLabel = if (item.kind == MediaKind.AUDIO) "Музыка" else when (item.providerId?.lowercase()) {
         "instagram" -> "Instagram"
         "youtube" -> "YouTube"

@@ -17,6 +17,7 @@ import com.domenota.medialoader.data.library.LibrarySource
 @Composable
 internal fun LibrarySourceSelector(source: LibrarySource, onSource: (LibrarySource) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    ReportDrawerOverlay(expanded)
     Box {
         Row(Modifier.semantics { contentDescription = "Источник файлов" }.clickable { expanded = true }.heightIn(min = 40.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {

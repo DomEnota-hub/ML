@@ -530,7 +530,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 val row=missingMetadata[infoMember.id]
                 AlertDialog(onDismissRequest={missingInfo=null},title={Text("Информация о файле")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
                     Text(row?.originalName?:"Недоступный файл")
-                    row?.let{Text("${it.mediaType.caption()} · ${it.providerId}");Text(date(it.createdAtEpochMillis));it.savedUri?.let{uri->Text(uri,style=MaterialTheme.typography.bodySmall)}}
+                    row?.let{Text("${it.mediaType.caption()}, ${it.providerId}");Text(date(it.createdAtEpochMillis));it.savedUri?.let{uri->Text(uri,style=MaterialTheme.typography.bodySmall)}}
                     Text("Файл недоступен. Связь с коллекцией сохранена.")
                 }},confirmButton={TextButton({missingInfo=null}){Text("Закрыть")}})
             }
@@ -606,7 +606,7 @@ internal fun ReviewScreen(entries:List<MediaReviewEntity>,refs:List<LibraryMedia
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                         Column(Modifier.weight(1f)){
                             Text(rows.first().second.item.providerId,style=MaterialTheme.typography.titleMedium)
-                            Text("${date(rows.first().first.completedAt)} · ${rows.size} файлов",style=MaterialTheme.typography.bodySmall)
+                            Text("${date(rows.first().first.completedAt)}, ${rows.size} файлов",style=MaterialTheme.typography.bodySmall)
                         }
                         if(rows.size>1)TextButton({mutate{repository.setReviewed(rows.map{it.first.downloadId})}},enabled=!busy){Text("Готово")}
                     }
@@ -665,7 +665,7 @@ internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>
             item{
                 DownloadThumbnail(row.savedUri,row.previewUrl,row.mediaType.kind(),Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(16.dp)))
                 Text(row.originalName,style=MaterialTheme.typography.titleLarge)
-                Text("${row.mediaType.caption()} · ${row.sizeBytes?.let{android.text.format.Formatter.formatFileSize(androidx.compose.ui.platform.LocalContext.current,it)}?:"Размер неизвестен"}")
+                Text("${row.mediaType.caption()}, ${row.sizeBytes?.let{android.text.format.Formatter.formatFileSize(androidx.compose.ui.platform.LocalContext.current,it)}?:"Размер неизвестен"}")
                 row.durationMs?.let{Text("Длительность: ${it/1000} с")}
                 Text("Дата записи: ${date(row.createdAtEpochMillis)}")
                 Text(if(ref.appDownloadId!=null&&row.providerId!="device")"Источник: ${row.providerId}" else "Файл телефона; источник не подтверждён")
@@ -673,7 +673,7 @@ internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>
                 HorizontalDivider()
                 Text("История обработки",style=MaterialTheme.typography.titleMedium)
                 if(operations.isEmpty())Text(if(passport.parentKnown)"Создан производный файл; точная операция не записана" else "Нет подтверждённых операций")
-                operations.forEach{Text("${date(it.occurredAt)} · ${it.operation}")}
+                operations.forEach{Text("${date(it.occurredAt)}, ${it.operation}")}
             }
             if(passport.parentKnown)item{
                 Text("Оригинал",style=MaterialTheme.typography.titleMedium)

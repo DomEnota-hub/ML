@@ -10,6 +10,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,7 +64,7 @@ private data class MusicSearchLaunch(val artist: String, val title: String,
 
 /** Home entry point; the microphone is active only while its dialog is open. */
 @Composable
-fun MusicHomeSection() {
+fun MusicHomeSection(showTitle:Boolean=true) {
     val context = LocalContext.current
     val repository = remember(context) { MediaRepository.get(context) }
     val scope = rememberCoroutineScope()
@@ -72,6 +75,7 @@ fun MusicHomeSection() {
     var searchLaunch by remember { mutableStateOf<MusicSearchLaunch?>(null) }
     var recognitionJob by remember { mutableStateOf<Job?>(null) }
     var generation by remember { mutableIntStateOf(0) }
+    ReportDrawerOverlay(stage!=MicStage.IDLE||searchLaunch!=null)
 
     fun stopListening() {
         generation++
@@ -138,8 +142,10 @@ fun MusicHomeSection() {
 
     AppCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp)) {
-            Text("Поиск музыки", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(6.dp))
+            if(showTitle){
+                Text("Поиск музыки", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(6.dp))
+            }
             Text("Узнайте трек по звучанию или найдите его по названию",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -217,6 +223,23 @@ fun MusicHomeSection() {
             recognitionMessage = launch.message,
             onDismiss = { searchLaunch = null },
         )
+    }
+}
+
+/** A direct route to the existing search/recognition entry. The Home card
+ * and this screen share the same implementation and providers. */
+@Composable
+internal fun DirectMusicSearchScreen(onBack:()->Unit){
+    Column(androidx.compose.ui.Modifier.fillMaxSize()
+        .verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp)){
+        Row(verticalAlignment=Alignment.CenterVertically){
+            androidx.compose.material3.IconButton(onClick=onBack){
+                Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack,"Назад")
+            }
+            Text("Поиск музыки",style=MaterialTheme.typography.titleLarge)
+        }
+        Spacer(Modifier.height(12.dp))
+        MusicHomeSection(showTitle=false)
     }
 }
 

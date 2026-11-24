@@ -214,6 +214,11 @@ class LibraryValidationGateTest {
         assertEquals(setOf(AppMode.GALLERY, AppMode.MUSIC),
             phoneModesForMediaChange("content://media/external/file/20"))
         assertEquals(setOf(AppMode.GALLERY, AppMode.MUSIC), phoneModesForMediaChange(null))
+        for(uri in listOf("content://other/external/images/media/1",
+            "content://media/external/file/audio","content://media/external/audio/media/no-id",
+            "content://media/external/images/unknown","content://media/external")){
+            assertEquals(setOf(AppMode.GALLERY,AppMode.MUSIC),phoneModesForMediaChange(uri))
+        }
     }
 
     @Test fun unchangedMediaStoreGenerationDoesNotTriggerRedundantScan() {
@@ -336,4 +341,26 @@ class LibraryValidationGateTest {
         assertEquals(listOf(phone),guardedRetainedIndexRefs(raw.copy(galleryAccessEpoch=2),guard,emptySet(),fresh,PhoneLibraryState(),true))
     }
 
+
+    @Test fun mediaChangeBatchNeverDiscardsBusyOrUnknownMode(){
+        val both=phoneModesForMediaChange(null)
+        val pending=both.toMutableSet()
+        assertEquals(setOf(AppMode.MUSIC),readyPhoneMediaChanges(pending,setOf(AppMode.GALLERY)))
+        pending.removeAll(readyPhoneMediaChanges(pending,setOf(AppMode.GALLERY)))
+        assertEquals(setOf(AppMode.GALLERY),pending)
+        assertTrue(readyPhoneMediaChanges(pending,setOf(AppMode.GALLERY)).isEmpty())
+        pending+=phoneModesForMediaChange("content://media/external/audio/media/12")
+        assertEquals(both,readyPhoneMediaChanges(pending,emptySet()))
+        assertEquals(both,pending)
+    }
+
+    @Test fun drawerNavigationNeverRescansCompleteCatalogUnlessAccessOrValidationRequiresIt(){
+        val warm=PhoneLibraryState(loaded=true,complete=true,requiresValidation=false)
+        assertFalse(needsPhoneRefreshOnNavigation(warm,false,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm,true,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm,false,true))
+        assertTrue(needsPhoneRefreshOnNavigation(warm.copy(complete=false),false,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm.copy(loaded=false),false,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm.copy(message="Ошибка"),false,false))
+    }
 }

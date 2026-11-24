@@ -1543,6 +1543,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.catalog.visibility.ManagedLocalNomediaPortTest#missingMimeMappingRecoversOnlyStructurallyRecognizedSelectedMedia": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.catalog.visibility.ManagedLocalNomediaPortTest#narrowerTreeMustNotBeConvertedFromBroadOrTraversalPath": {
     "skipped": false,
     "failed": false
@@ -4623,7 +4627,15 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#overLimitCaptureDropsAllPcmButKeepsSpectralStream": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#rejectsUnrelatedPairsWithoutInventingAComparison": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#singleStreamCapturePreservesEverySampleAndSpectralFrame": {
     "skipped": false,
     "failed": false
   },
@@ -7447,6 +7459,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.LibraryValidationGateTest#drawerNavigationNeverRescansCompleteCatalogUnlessAccessOrValidationRequiresIt": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.LibraryValidationGateTest#duplicateScanRequiresFullCurrentVisualGenerationEvenWhenPartialPageIsVisible": {
     "skipped": false,
     "failed": false
@@ -7464,6 +7480,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.LibraryValidationGateTest#galleryStillBlocksWhenItsOwnPermissionOrPrivacyIsUnvalidated": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.LibraryValidationGateTest#mediaChangeBatchNeverDiscardsBusyOrUnknownMode": {
     "skipped": false,
     "failed": false
   },
@@ -7699,6 +7719,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.DuplicateRecordCardTest#keeperAndOtherCardHaveEqualBoundsAndIndependentSelectionInBothThemes": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.DuplicateResultFilterPolicyTest#countsIncludeOnlyPresentKinds": {
     "skipped": false,
     "failed": false
@@ -7931,6 +7955,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.LibraryModeHeaderTest#unifiedHeaderRemovesOnlyApprovedDuplicates": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.LibraryRefreshShieldTest#refreshDoesNotDisplayExitOrBlockInteractiveContent": {
     "skipped": false,
     "failed": false
@@ -7964,6 +7992,30 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.components.MediaDeletionPolicyTest#phoneSelectionUsesOneSystemConsentOrOneLocalConfirmationWithSpecialAccess": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#downloadModeUsesExistingPreferenceAndBackClosesWithoutChangingRoute": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#forbiddenStateClosesAndRejectsGesturesWhileMidContentRemainsFree": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#libraryRowsNavigateAndJournalAppearsOnlyWhileUnlocked": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#multipleChildOverlaysVetoIndependentlyAndOldOwnerCannotAdmitNewScreen": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#panelUsesEightyPercentAndNoVersionAndClosesOutside": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#reverseSwipeClosesAndVerticalEdgeGestureDoesNotOpen": {
     "skipped": false,
     "failed": false
   },
@@ -8295,11 +8347,67 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#activeEntryUsesRouteAndModeNotPlayback": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#allLibraryDestinationsAreEnabledButJournalFollowsGate": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#dragFollowsFingerClampsAndSettlesInBothDirections": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#edgeStartsAfterSystemBackInsetAndNeverMidContent": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#onlyMainRoutesAndActualScreenAdmissionCanOpen": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#verticalWrongDirectionAndSmallDragDoNotCapture": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.JournalAccessTest#exportRechecksGateAfterPreparationBeforeOpeningDestination": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.JournalAccessTest#legacyFallbackAndExplicitRevocationShareOneGate": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.JournalAccessTest#preferenceObserverReactsToEnableAndDisableWithoutRecreatingScreen": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.LibraryReturnNavigationTest#drawerReturnsToExactHomeAndRestoresDownloadsFilterAcrossVisits": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.navigation.LibraryReturnNavigationTest#settingsReturnKeepsExistingLibrarySelectionAcrossRepeatedVisits": {
     "skipped": false,
     "failed": false
   },
   "com.domenota.medialoader.ui.navigation.StableLibraryNavHostTest#routeGraphSurvivesRootUpdatesAndContentRemainsFresh": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.UnifiedLibraryPolicyTest#explicitAppUnfavoriteWinsOverStaleExternalAlias": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.UnifiedLibraryPolicyTest#favoritesNeverPublishPrivateHiddenArchivedFailedOrRevokedRows": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.UnifiedLibraryPolicyTest#favoritesUseExistingAssignmentsAcrossAllTypesAndSources": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.UnifiedLibraryPolicyTest#mediaFilterAndDeleteConfirmationNeverExpandToAnotherTypeOrNewArrival": {
     "skipped": false,
     "failed": false
   },
@@ -8524,6 +8632,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.GalleryBrowseInventoryTest#hideFiltersOnlyAffectedRowsAndCarriesWarmGridWithMatchingCountsAndCover": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.GalleryBrowseInventoryTest#preparedDayCountsTrackOnlySelectedPublicAddressesAndRemoval": {
     "skipped": false,
     "failed": false
   },
@@ -8939,6 +9051,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.PrivateScreenUiTest#mediaFiltersAreAvailableOnlyInsideAuthenticatedPrivateLibrary": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.PrivateScreenUiTest#secretFilenameIsHiddenUntilCorrectPinAndHiddenAgainAfterLock": {
     "skipped": false,
     "failed": false
@@ -8956,6 +9072,14 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.SourceBrowserLinkTest#youtubeShortShareLinkNavigatesAndResolvesCanonicalVideo": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.UnifiedLibraryScreenTest#favoritesFilterKeepsTypedQueueAndRemovesRowsWhenGateCloses": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.UnifiedLibraryScreenTest#trashDeleteConfirmationExcludesNewArrivalsAndOtherTypes": {
     "skipped": false,
     "failed": false
   },
@@ -9704,6 +9828,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.music.MusicDuplicateResultFiltersTest#beforeScanNothingRendered": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.MusicDuplicateResultFiltersTest#fourCategoriesRemainEqualAndLargeTextKeepsLastChipCentered": {
     "skipped": false,
     "failed": false
   },

@@ -86,9 +86,9 @@ internal fun DuplicateScanPanel(phase:DuplicateScanPhase,done:Int,total:Int,star
                     if(eta!=null)Text("До конца этапа ≈ ${duration(eta)}",style=MaterialTheme.typography.bodySmall)
                 }
             }
-            phases.forEachIndexed{i,p->Text((if(i<index)"✓ " else if(i==index)"● " else "○ ")+p.caption+(if(i==0&&i<index&&music&&completedMetadata>0)" · $completedMetadata обработано" else if(i<index)" · готово" else ""),
+            phases.forEachIndexed{i,p->Text((if(i<index)"✓ " else if(i==index)"● " else "○ ")+p.caption+(if(i==0&&i<index&&music&&completedMetadata>0)", $completedMetadata обработано" else if(i<index)", готово" else ""),
                 color=if(i==index)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
-            if(showSummary)Text("Найдено групп: $groups · точные копии: ${android.text.format.Formatter.formatFileSize(context,bytes)}",
+            if(showSummary)Text("Найдено групп: $groups, точные копии: ${android.text.format.Formatter.formatFileSize(context,bytes)}",
                 style=MaterialTheme.typography.bodyMedium)
         }
     }
@@ -120,7 +120,7 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                     Text(partial.status,style=MaterialTheme.typography.titleMedium)
                     partial.mode?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
                     Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(partial.at)))
-                    Text("Групп: ${partial.groups} · файлов: ${partial.files}")
+                    Text("Групп: ${partial.groups}, файлов: ${partial.files}")
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){
                         TextButton(onResume,enabled=resumeEnabled){Text("Продолжить")}
                         onPartial?.let{TextButton(it,enabled=partialResultsEnabled){Text("Результаты")}}
@@ -147,7 +147,7 @@ internal fun DuplicateJournalDialog(title:String,rows:List<DuplicateJournalRow>,
                         Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(row.at)),
                             style=MaterialTheme.typography.titleMedium)
                         row.mode?.let{Text(it,style=MaterialTheme.typography.bodySmall)}
-                        Text("${row.status} · групп: ${row.groups} · файлов: ${row.files}",
+                        Text("${row.status}, групп: ${row.groups}, файлов: ${row.files}",
                             style=MaterialTheme.typography.bodySmall)
                     }}
                     if(onDelete!=null)IconButton(

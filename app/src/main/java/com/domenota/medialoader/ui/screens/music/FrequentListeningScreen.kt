@@ -96,7 +96,7 @@ internal fun FrequentListeningScreen(selection: ListeningSelection, rows: Map<St
                             }
                             Column(Modifier.weight(1f)) {
                                 Text("Твой топ",style=MaterialTheme.typography.titleLarge,color=musicPlaybackAccent)
-                                Text("${ids.size} треков · ${period.label}",style=MaterialTheme.typography.bodyMedium)
+                                Text("${ids.size} треков, ${period.label}",style=MaterialTheme.typography.bodyMedium)
                             }
                         }
                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {

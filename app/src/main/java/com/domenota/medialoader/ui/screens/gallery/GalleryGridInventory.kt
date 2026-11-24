@@ -16,9 +16,22 @@ internal data class GalleryGridInventory(val allVisible:List<DownloadEntity> = e
     val queue:List<String> = emptyList(),val queueSet:Set<String> = emptySet(),
     val sections:Map<LocalDate,List<DownloadEntity>> = emptyMap(),val labels:List<String> = listOf(""),
     val dateRange:GalleryDateRange?=null) {
+    // Built once per grid generation, including a removal-only copy.
+    val dayIds:Map<LocalDate,List<String>> = sections.mapValues { (_,rows)->rows.map{it.id} }
+    val daySizes:Map<LocalDate,Int> = dayIds.mapValues{it.value.size}
+    private val dateById:Map<String,LocalDate> = buildMap {
+        dayIds.forEach { (date,ids)->ids.forEach { put(it,date) } }
+    }
+    fun selectionCounts(selected:Set<String>):Map<LocalDate,Int> {
+        if(selected.isEmpty())return emptyMap()
+        val counts=HashMap<LocalDate,Int>()
+        selected.forEach { id->dateById[id]?.let { day->counts[day]=(counts[day]?:0)+1 } }
+        return counts
+    }
     fun retainAllowed(key: GalleryGridKey, allowed: (DownloadEntity) -> Boolean): GalleryGridInventory {
+        // No list allocation when the retained addresses are all still allowed.
+        if (ordered.all(allowed) && allVisible.all(allowed)) return this
         val kept = ordered.filter(allowed)
-        if (kept.size == ordered.size && allVisible.all(allowed)) return this
         val ids = kept.map { it.id }
         val remainingVisible = visible.filter(allowed)
         return copy(allVisible = allVisible.filter(allowed), visible = remainingVisible,

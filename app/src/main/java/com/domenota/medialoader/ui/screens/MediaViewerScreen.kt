@@ -1792,7 +1792,7 @@ internal fun ZoomablePhoto(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        "${image.sourceWidth} × ${image.sourceHeight} · ${formatMediaSize(item.sizeBytes)}",
+                        "${image.sourceWidth} × ${image.sourceHeight}, ${formatMediaSize(item.sizeBytes)}",
                         color = androidx.compose.ui.graphics.Color.White,
                         style = MaterialTheme.typography.bodyMedium,
                     )

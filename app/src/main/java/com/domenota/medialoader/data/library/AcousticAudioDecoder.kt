@@ -29,19 +29,22 @@ internal object AcousticAudioDecoder {
         // Some providers/codecs cannot seek reliably; do not silently omit their acoustic analysis.
         return first ?: if(windows.size>1)decode(listOf(AcousticWindow(0,null))) else null
     }
-    suspend fun comparisonFrames(context:Context,uri:Uri,stepMs:Long):List<ComparisonFrame>? {
+    suspend fun comparisonFrames(context:Context,uri:Uri,stepMs:Long):List<ComparisonFrame>? =
+        comparisonCapture(context,uri,stepMs,false)?.frames
+
+    suspend fun comparisonCapture(context:Context,uri:Uri,stepMs:Long,capturePcm:Boolean):ComparisonFrameCapture? {
         require(stepMs in setOf(256L,512L,1024L))
         val active = coroutineContext
-        val builder = AcousticFingerprints.ComparisonBuilder(stepMs) { active.ensureActive() }
-        if (!decodeWindow(context,uri,AcousticWindow(0,null),{},builder::accept)) return null
+        val capture=ComparisonSampleCapture(stepMs,capturePcm,{active.ensureActive()})
+        if (!decodeWindow(context,uri,AcousticWindow(0,null),{},capture::accept)) return null
         active.ensureActive()
-        return builder.finish()
+        return capture.finish()
     }
     /** Continuous PCM is scoped to the actively opened comparison pair only.
      * It is never written to a persistent cache or included in a cached report.
      * On long/unsupported recordings the previous spectral path remains.
      */
-    private suspend fun comparisonPcm(context:Context,uri:Uri):AudioPcmBlocks? {
+    suspend fun comparisonPcm(context:Context,uri:Uri):AudioPcmBlocks? {
         val active = coroutineContext
         val samples = AudioPcmBlocks()
         return try {
@@ -61,7 +64,11 @@ internal object AcousticAudioDecoder {
             val b = async { comparisonPcm(context,secondUri) }
             a.await() to b.await()
         }
-        val first=source.first;val second=source.second
+        return refineCapturedPair(context,firstUri,secondUri,aligned,source.first,source.second)
+    }
+
+    suspend fun refineCapturedPair(context:Context,firstUri:Uri,secondUri:Uri,
+        aligned:AlignedAudioComparison,first:AudioPcmBlocks?,second:AudioPcmBlocks?):AlignedAudioComparison {
         if(first==null || second==null) {
             AppLog.i("MusicCompare", "fullPcm unavailable; fallback to coarse spectral verification")
             return refineShortDifferences(context,firstUri,secondUri,aligned)
