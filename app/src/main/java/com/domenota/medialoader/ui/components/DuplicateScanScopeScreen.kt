@@ -23,8 +23,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.data.library.DuplicateFolderPathResolver
 import com.domenota.medialoader.data.library.DuplicateFolderScope
@@ -35,7 +33,7 @@ import com.domenota.medialoader.data.library.DuplicateFolderTree
  * Never expands scope from an ambiguous MediaStore bucket or display name.
  */
 @Composable
-internal fun DuplicateScanScopeDialog(
+internal fun DuplicateScanScopeScreen(
     rows: List<DownloadEntity>,
     mediaLabel: String,
     onDismiss: () -> Unit,
@@ -73,23 +71,23 @@ internal fun DuplicateScanScopeDialog(
     val matchingKeys = remember(tree, filter) {
         DuplicateFolderTree.matchingKeys(tree, filter)
     }
-    val selectedCount = remember(selected, options) {
-        options.filter { it.key in selected }.sumOf { it.fileCount }
+    val selection = remember(selected, options) {
+        DuplicateFolderScope.selectionSummary(options, selected)
     }
-    val selectedBytes = remember(selected, options) {
-        val chosen = options.filter { it.key in selected }
-        if (chosen.all { it.sizeBytes != null }) chosen.sumOf { it.sizeBytes ?: 0L } else null
+    val folderCount = remember(options) {
+        DuplicateFolderScope.selectionSummary(options, options.mapTo(mutableSetOf()) { it.key }).folderCount
     }
     BackHandler { if (choosing) choosing = false else onDismiss() }
-    val countLabel = "${selected.size} ${DuplicateFolderScope.folderWord(selected.size)}"
-    val sizeLabel = selectedBytes?.let {
-        ", ${android.text.format.Formatter.formatShortFileSize(context, it)}"
-    } ?: ""
-    // The chooser owns its window insets. The parent route's Scaffold cannot
-    // protect a full-screen Dialog's controls on edge-to-edge Xiaomi devices.
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(
-        usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    val countLabel = "${selection.folderCount} ${DuplicateFolderScope.folderWord(selection.folderCount)}"
+    val sizeLabel = selection.sizeBytes?.let {
+        android.text.format.Formatter.formatShortFileSize(context, it)
+    } ?: "размер неизвестен"
+    // Render this screen inside the Activity NavHost viewport. Its parent
+    // Scaffold has ALREADY reserved status/navigation bars (safeDrawing).
+    // Never create a second Dialog window or apply navigationBarsPadding:
+    // dialog window insets were zero on the reported Xiaomi Android 16.
+    Surface(Modifier.fillMaxSize().testTag("scope-route-screen"),
+        color = MaterialTheme.colorScheme.background) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 containerColor = MaterialTheme.colorScheme.background,
@@ -101,20 +99,19 @@ internal fun DuplicateScanScopeDialog(
                             tonalElevation = 3.dp,
                             shadowElevation = 8.dp,
                         ) {
-                            // Independent Scaffold slot: scrolling 700+ folders
-                            // cannot push the button behind navigation or IME.
+                            // Footer stays within the Activity's already-safe
+                            // viewport. Only the IME needs extra space here.
                             Column(
                                 Modifier.fillMaxWidth()
-                                    .navigationBarsPadding()
                                     .imePadding()
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                                     .testTag("scope-fixed-footer"),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text("Выбрано: $countLabel, $selectedCount файлов$sizeLabel",
+                                Text("Выбрано: $countLabel, ${selection.fileCount} ${DuplicateFolderScope.fileWord(selection.fileCount)}, $sizeLabel",
                                     style = MaterialTheme.typography.bodyMedium)
-                                Button({ onStart(selected.toSet()) },
-                                    enabled = selectedCount > 0,
+                                Button({ onStart(options.map { it.key }.filterTo(mutableSetOf()) { it in selected }) },
+                                    enabled = selection.fileCount > 0,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                                         .testTag("scope-start-selected")) {
                                     Text("Начать поиск")
@@ -127,7 +124,6 @@ internal fun DuplicateScanScopeDialog(
                 Column(
                     Modifier.fillMaxSize()
                         .padding(layoutPadding)
-                        .statusBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -145,7 +141,7 @@ internal fun DuplicateScanScopeDialog(
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Проверить всё", style = MaterialTheme.typography.titleMedium)
-                            Text("Все доступные файлы раздела: ${rows.count(DuplicateFolderScope::eligible)}",
+                            Text("Все доступные файлы раздела: ${DuplicateFolderScope.availableFileCount(rows)}",
                                 style = MaterialTheme.typography.bodySmall)
                             Button({ onStart(null) }, Modifier.fillMaxWidth().testTag("scope-all")) {
                                 Text("Проверить всё")
@@ -174,7 +170,7 @@ internal fun DuplicateScanScopeDialog(
                         singleLine = true,
                     )
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Папки: ${folders.size}", modifier = Modifier.weight(1f),
+                        Text("Папки: $folderCount", modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodySmall)
                         TextButton({
                             selected = if (matchingKeys.isNotEmpty() && matchingKeys.all { it in selected })
@@ -236,19 +232,23 @@ internal fun DuplicateScanScopeDialog(
                                         if (folder.id in expanded) expanded - folder.id else expanded + folder.id
                                     else toggleSelection()
                                 }.padding(vertical = 8.dp)) {
-                                    Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    Text(folder.name, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.bodyMedium)
-                                    val path = folder.location.takeIf { it != folder.name &&
-                                        it != "Путь не определён" }
-                                    val details = "${folder.fileCount} файлов" +
-                                        (folder.children.takeIf { it.isNotEmpty() }?.let {
-                                            ", вложенных папок: ${folder.folderCount}"
-                                        } ?: "") +
-                                        (folder.sizeBytes?.let {
-                                            ", ${android.text.format.Formatter.formatShortFileSize(context, it)}"
-                                        } ?: ", размер неизвестен")
-                                    Text(path?.let { "$it · $details" } ?: details,
+                                    val verifiedPath = if (folder.id.startsWith("volume:") ||
+                                        folder.id.startsWith("file|")) folder.location else null
+                                    Text(verifiedPath?.let { "Расположение: $it" }
+                                            ?: "Расположение не определено",
                                         maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    val sizeText = folder.sizeBytes?.let {
+                                        android.text.format.Formatter.formatShortFileSize(context, it)
+                                    } ?: "размер неизвестен"
+                                    val details = "${folder.fileCount} ${DuplicateFolderScope.fileWord(folder.fileCount)}" +
+                                        (if (folder.children.isNotEmpty()) ", вложенных папок: ${folder.folderCount}" else "") +
+                                        ", $sizeText"
+                                    Text(details, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.testTag("scope-row-details-${folder.id}"),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -261,6 +261,5 @@ internal fun DuplicateScanScopeDialog(
                 }
                 }
             }
-        }
     }
 }

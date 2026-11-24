@@ -48,10 +48,63 @@ class DuplicateFolderScopeTest {
         val a=photo("one","bucket-1","Camera");val b=photo("two","bucket-2","Camera")
         val options=DuplicateFolderScope.options(listOf(a,b))
         assertEquals(2,options.size)
-        assertTrue(options.all{it.name=="Camera" && it.fileCount==1})
+        assertEquals(setOf("Camera №1", "Camera №2"), options.map { it.name }.toSet())
+        assertTrue(options.all { it.fileCount == 1 && it.location == "Расположение не определено" })
         assertNotEquals(DuplicateFolderScope.key(a),DuplicateFolderScope.key(b))
         assertEquals(listOf(b),DuplicateFolderScope.filter(listOf(a,b),
             setOf(DuplicateFolderScope.key(b))){it})
+    }
+
+    @Test fun visualBucketPathHintNeverCreatesAnUnverifiedLocation() {
+        val a = photo("one", "bucket-a", "DCIM/Camera/")
+        val b = photo("two", "bucket-b", "DCIM/Camera/")
+        val options = DuplicateFolderScope.options(listOf(a, b))
+        assertEquals(2, options.size)
+        assertEquals(setOf("Camera №1", "Camera №2"), options.map { it.name }.toSet())
+        assertTrue(options.all { it.location == "Расположение не определено" && it.directoryId == null })
+        assertEquals(2, DuplicateFolderTree.build(options).size)
+        val resolved = DuplicateFolderPathResolver.apply(options,
+            mapOf("bucket:bucket-a" to "volume:external_primary|DCIM/Camera"))
+        assertEquals("DCIM/Camera", resolved.first { it.key == "bucket:bucket-a" }.location)
+        assertNull(resolved.first { it.key == "bucket:bucket-b" }.directoryId)
+    }
+
+    @Test fun selectionSummaryCountsSharedVerifiedDirectoryOnceWithoutExpandingKeys() {
+        val a = photo("one", "bucket-a", "Shared")
+        val b = photo("two", "bucket-b", "Shared")
+        val options = DuplicateFolderPathResolver.apply(DuplicateFolderScope.options(listOf(a, b)),
+            mapOf("bucket:bucket-a" to "volume:external_primary|Pictures/Shared",
+                "bucket:bucket-b" to "volume:external_primary|Pictures/Shared"))
+        val both = options.mapTo(mutableSetOf()) { it.key }
+        val selected = DuplicateFolderScope.selectionSummary(options, both)
+        assertEquals(1, selected.folderCount)
+        assertEquals(2, selected.fileCount)
+        assertEquals(4000L, selected.sizeBytes)
+        assertEquals(1, DuplicateFolderScope.selectionSummary(options, setOf("bucket:bucket-a")).fileCount)
+        assertEquals(0, DuplicateFolderScope.selectionSummary(options, setOf("removed-key")).folderCount)
+        assertEquals(listOf(a, b), DuplicateFolderScope.filter(listOf(a, b), both) { it })
+    }
+
+    @Test fun missingNegativeOrOverflowedSizesRemainUnknownNotZero() {
+        assertNull(DuplicateFolderScope.totalKnownBytes(listOf(100L, null)))
+        assertNull(DuplicateFolderScope.totalKnownBytes(listOf(-1L)))
+        assertNull(DuplicateFolderScope.totalKnownBytes(listOf(Long.MAX_VALUE, 1L)))
+        assertEquals(0L, DuplicateFolderScope.totalKnownBytes(emptyList()))
+        assertEquals(100L, DuplicateFolderScope.totalKnownBytes(listOf(60L, 40L)))
+        val unknown = audio("x", "Music/Unknown").copy(sizeBytes = null)
+        assertNull(DuplicateFolderScope.options(listOf(unknown)).single().sizeBytes)
+        assertEquals("файл", DuplicateFolderScope.fileWord(1))
+        assertEquals("файла", DuplicateFolderScope.fileWord(2))
+        assertEquals("файлов", DuplicateFolderScope.fileWord(12))
+    }
+
+    @Test fun overviewFileCountExcludesAliasesAndIneligibleMedia() {
+        val valid = audio("one","Music/Album")
+        val alias = valid.copy(id="alias")
+        val hidden = audio("hidden","Music/Album",hidden=true)
+        val running = audio("running","Music/Album",state=DownloadState.RUNNING)
+        assertEquals(1, DuplicateFolderScope.availableFileCount(listOf(valid, alias, hidden, running)))
+        assertEquals(1, DuplicateFolderScope.options(listOf(valid, alias, hidden, running)).single().fileCount)
     }
 
     @Test fun unknownAlbumDoesNotSilentlyExpandScope(){

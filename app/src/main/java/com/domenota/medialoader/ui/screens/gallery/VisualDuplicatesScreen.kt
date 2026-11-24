@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import com.domenota.medialoader.ui.screens.ZoomablePhoto
 import com.domenota.medialoader.ui.components.DuplicateScanPanel
+import com.domenota.medialoader.ui.components.DuplicateResultFilterPolicy
 import com.domenota.medialoader.ui.components.DuplicateJournalDialog
 import com.domenota.medialoader.ui.components.DuplicateJournalRow
 import android.net.Uri
@@ -202,6 +203,17 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             onClose={trash=null;onRefresh()},visual=fingerprints,
             catalogReady=ready && phonePermission && currentGeneration())
     }
+    // Replace the Activity-bounded NavHost content instead of opening a Dialog.
+    // Gallery and Music now share precisely the same system-bar-safe picker.
+    if (choosingScope) {
+        com.domenota.medialoader.ui.components.DuplicateScanScopeScreen(
+            rows = catalog.scan.map { it.item },
+            mediaLabel = "Фото и видео",
+            onDismiss = { choosingScope = false },
+            onStart = { keys -> choosingScope = false; startScan(keys) },
+        )
+        return
+    }
     Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Row(Modifier.fillMaxWidth().heightIn(min=56.dp),verticalAlignment=Alignment.CenterVertically){
             IconButton(onBack,enabled=trash==null){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
@@ -314,14 +326,25 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                     style=MaterialTheme.typography.bodySmall)
             }
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-            FilterChip(filter==null,{filter=null},{Text("Все")})
-            VisualMatch.entries.forEach{k->FilterChip(filter==k,{filter=k},{Text(when(k){VisualMatch.EXACT->"Точные";VisualMatch.SIMILAR_PHOTO->"Похожие фото";VisualMatch.SIMILAR_VIDEO->"Видео"})})}
+        val kindCounts=remember(shown.result.groups) {
+            DuplicateResultFilterPolicy.counts(shown.result.groups.map { it.reason })
+        }
+        val availableKinds=DuplicateResultFilterPolicy.available(VisualMatch.entries,kindCounts)
+        val activeFilter=DuplicateResultFilterPolicy.active(filter,kindCounts)
+        if(availableKinds.isNotEmpty()) {
+            VisualDuplicateResultFilters(kindCounts,activeFilter,{ next ->
+                filter=next
+                scope.launch { list.scrollToItem(0) }
+            })
+        } else {
+            Text("Совпадений не найдено",Modifier.padding(vertical=20.dp)
+                .testTag("visual-empty-result"),style=MaterialTheme.typography.bodyMedium,
+                color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         val exact=VisualDuplicatePolicy.selectExact(shown.result.groups)
         if(exact.isNotEmpty()||shown.selected.isNotEmpty())OutlinedButton({if(actionsReady)current?.let{persist(it.copy(selected=if(shown.selected==exact)emptySet() else exact))}},enabled=actionsReady&&!saving&&!status.running&&trash==null){Text(if(shown.selected==exact)"Снять выделение" else "Выделить точные")}
         LazyColumn(state=list,modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){
-            items(shown.result.groups.filter{filter==null||it.reason==filter},key={it.files.first().id}){group->
+            items(shown.result.groups.filter{activeFilter==null||it.reason==activeFilter},key={it.files.first().id}){group->
                 Card {
                     Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                         Text(when(group.reason){VisualMatch.EXACT->"Точные копии";VisualMatch.SIMILAR_PHOTO->"Похожие фотографии";VisualMatch.SIMILAR_VIDEO->"Похожие видео"},style=MaterialTheme.typography.titleMedium)
@@ -354,7 +377,10 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }
         }
         val selectedBytes=shown.result.groups.sumOf{g->g.files.filter{it.id in shown.selected}.sumOf{it.bytes}}
-        Button({if(actionsReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true},enabled=actionsReady&&shown.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("visual-result-trash")){
+        if(shown.result.groups.isNotEmpty()) Button({
+            if(actionsReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true
+        },enabled=actionsReady&&shown.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,
+            modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("visual-result-trash")){
             Text("В корзину: ${shown.selected.size} файл(ов), ${android.text.format.Formatter.formatFileSize(context,selectedBytes)}")
         }
     }
@@ -384,11 +410,6 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }
         },
         deleteEnabled=!status.running&&!status.committing&&!saving&&trash==null)
-    if(choosingScope)com.domenota.medialoader.ui.components.DuplicateScanScopeDialog(
-        rows=catalog.scan.map{it.item},mediaLabel="Фото и видео",
-        onDismiss={choosingScope=false},
-        onStart={keys->choosingScope=false;startScan(keys)},
-    )
     if(showPartial&&displayReady&&partial!=null)AlertDialog(onDismissRequest={showPartial=false},title={Text("Предварительные результаты")},
         text={LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             item{Text("Только просмотр. Удаление доступно после завершения.")}

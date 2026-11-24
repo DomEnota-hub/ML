@@ -38,8 +38,9 @@ internal object DuplicateFolderTree {
                 allKeys = keys,
                 children = nested,
                 fileCount = options.sumOf { it.fileCount } + nested.sumOf { it.fileCount },
-                sizeBytes = if (sizes.any { it == null }) null else sizes.sumOf { it ?: 0L },
-                folderCount = options.size + nested.sumOf { it.folderCount },
+                sizeBytes = DuplicateFolderScope.totalKnownBytes(sizes),
+                // Count actual descendants, not this folder's own file-bearing options.
+                folderCount = nested.sumOf { 1 + it.folderCount },
             )
         }
     }

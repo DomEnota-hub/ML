@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.domenota.medialoader.ui.components.AudioWaveform
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.components.DuplicateScanPanel
+import com.domenota.medialoader.ui.components.DuplicateResultFilterPolicy
 import com.domenota.medialoader.ui.components.DuplicateJournalDialog
 import com.domenota.medialoader.ui.components.DuplicateJournalRow
 import com.domenota.medialoader.ui.model.MediaKind
@@ -132,6 +133,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     var history by remember{mutableStateOf(emptyList<DuplicateSession>(),referentialEqualityPolicy())}
     var storedPartial by remember{mutableStateOf<DuplicateSession?>(null,referentialEqualityPolicy())}
     var filter by rememberSaveable{mutableStateOf<DuplicateKind?>(null)}
+    var preliminaryFilter by rememberSaveable{mutableStateOf<DuplicateKind?>(null)}
     var expandedGroupKey by rememberSaveable { mutableStateOf<String?>(null) }
     var initialGroupExpanded by rememberSaveable { mutableStateOf(false) }
     var comparing by remember{mutableStateOf<DuplicateGroup?>(null, referentialEqualityPolicy())}
@@ -212,6 +214,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     LaunchedEffect(scanRevision) {
         journalGeneration = MusicDuplicateSessionStore.journalGeneration()
         scanning = true; restoringSaved = false; showingPartial = false; result = null; previous = null; error = null; selected = emptySet(); kept = emptyMap()
+        filter = null; preliminaryFilter = null
         initialGroupExpanded=false; expandedGroupKey=null
         if(scanRevision != 0) quickSummary = null
         try {
@@ -304,7 +307,13 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
     val partial=remember(background.running,background.partial,storedPartial,privacyRevision){
         (if(background.running)background.partial else background.partial?:storedPartial?.result)?.takeIf(::admissible)
     }
-    val visibleGroups=remember(DuplicateReferenceKey(result),privacyRevision,filter){groups.filter{filter==null||it.kind==filter}}
+    val resultCounts=remember(DuplicateReferenceKey(result),privacyRevision){
+        DuplicateResultFilterPolicy.counts(groups.map { it.kind })
+    }
+    val activeResultFilter=DuplicateResultFilterPolicy.active(filter,resultCounts)
+    val visibleGroups=remember(DuplicateReferenceKey(result),privacyRevision,activeResultFilter){
+        groups.filter { activeResultFilter==null || it.kind==activeResultFilter }
+    }
     val unfinished=DuplicateBackgroundScan.interrupted(context)||partial!=null
     val unfinishedExpanded=DuplicateBackgroundScan.resumeExpanded(context)
     fun resume(){
@@ -346,6 +355,17 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             onDismiss()
         }
     }
+    // The picker replaces this NavHost route's CONTENT instead of opening a
+    // second Android Window. Our Activity Scaffold already reserves system bars.
+    if (choosingScope) {
+        com.domenota.medialoader.ui.components.DuplicateScanScopeScreen(
+            rows = latestRows.filter { it.mediaType == com.domenota.medialoader.core.model.MediaType.AUDIO },
+            mediaLabel = "Музыка",
+            onDismiss = { choosingScope = false },
+            onStart = { keys -> choosingScope = false; beginScope(keys) },
+        )
+        return
+    }
     BackHandler(enabled = true) { if (!verifying&&!clearingJournal) close() }
     // This is a NavHost destination within the Activity's bounded Scaffold.
     // No independent Dialog window, no duplicate system-bar fitting.
@@ -377,8 +397,31 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             }
                         }
                         // Only the list of preliminary groups scrolls below the full header.
-                        if(partial!=null)PreliminaryMusicGroups(partial.groups,exactBytes(partial.groups),previewRows,
-                            Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
+                        if(partial!=null) {
+                            val preliminaryCounts=remember(partial){
+                                DuplicateResultFilterPolicy.counts(partial.groups.map { it.kind })
+                            }
+                            val activePreliminaryFilter=DuplicateResultFilterPolicy.active(
+                                preliminaryFilter,preliminaryCounts)
+                            val visiblePreliminaryGroups=remember(partial,activePreliminaryFilter){
+                                partial.groups.filter {
+                                    activePreliminaryFilter==null || it.kind==activePreliminaryFilter
+                                }
+                            }
+                            if (partial.groups.isNotEmpty()) {
+                                Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
+                                    MusicDuplicateResultFilters(preliminaryCounts,activePreliminaryFilter,
+                                        { next ->
+                                            preliminaryFilter=next
+                                            scope.launch { preliminaryListState.scrollToItem(0) }
+                                        })
+                                }
+                            }
+                            PreliminaryMusicGroups(
+                                visiblePreliminaryGroups,
+                                exactBytes(visiblePreliminaryGroups),previewRows,
+                                Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
+                        }
                     } else {
                         // Restoration retains its normal page scroll, independent of scan UI.
                         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -476,31 +519,28 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if(result==null||scanControlsExpanded) MusicScanStatusCard(DuplicateBackgroundScan.outcome(context),partial?.groups?.size,error?:background.error)
-                    val counts=remember(DuplicateReferenceKey(result),privacyRevision){
-                        groups.groupingBy{it.kind}.eachCount()
-                    }
-                    // Two complete rows, no clipped fourth filter or horizontal scrolling.
-                    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(2.dp)){
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                            FilterChip(filter==null,{filter=null},{Text("Все")},
-                                modifier=Modifier.weight(1f))
-                            FilterChip(filter==DuplicateKind.EXACT,{filter=DuplicateKind.EXACT},
-                                {Text("Точные · "+(counts[DuplicateKind.EXACT]?:0))},
-                                modifier=Modifier.weight(1f))
-                        }
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                            FilterChip(filter==DuplicateKind.ACOUSTIC,{filter=DuplicateKind.ACOUSTIC},
-                                {Text("Акустика · "+(counts[DuplicateKind.ACOUSTIC]?:0))},
-                                modifier=Modifier.weight(1f))
-                            FilterChip(filter==DuplicateKind.POSSIBLE,{filter=DuplicateKind.POSSIBLE},
-                                {Text("Версии · "+(counts[DuplicateKind.POSSIBLE]?:0))},
-                                modifier=Modifier.weight(1f))
-                        }
-                    }
+                    MusicDuplicateResultFilters(resultCounts,activeResultFilter,{next ->
+                        filter=next
+                        scope.launch { listState.scrollToItem(0) }
+                    })
                     if(scanControlsExpanded) {
                         result?.let{r->Text(if(r.expanded)"Режим: расширенный" else "Режим: быстрый",style=MaterialTheme.typography.labelMedium)
                             if(r.acousticUnavailable>0)Text("Без акустического отпечатка: ${r.acousticUnavailable}. Точные совпадения сохранены.",style=MaterialTheme.typography.bodySmall)}
                         if ((result?.skipped ?: 0) > 0) Text("Недоступно файлов: ${result!!.skipped}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if(result==null && partial==null && !unfinished && error==null &&
+                        DuplicateBackgroundScan.outcome(context)==DuplicateBackgroundScan.Outcome.IDLE) {
+                        Column(Modifier.fillMaxWidth().padding(vertical=24.dp)
+                            .testTag("duplicate-empty-before-scan"),
+                            horizontalAlignment=Alignment.CenterHorizontally,
+                            verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Rounded.MusicNote,null,Modifier.size(32.dp),
+                                tint=MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Поиск ещё не запускался",style=MaterialTheme.typography.titleSmall)
+                            Text("Выберите режим и запустите поиск, чтобы найти похожие треки.",
+                                color=MaterialTheme.colorScheme.onSurfaceVariant,
+                                style=MaterialTheme.typography.bodySmall)
+                        }
                     }
                     previewError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (result!=null && groups.isEmpty() && error == null && !unfinished) Text("Совпадений не найдено", Modifier.padding(vertical = 24.dp))
@@ -631,12 +671,6 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             }
         },
         deleteEnabled=!scanning&&!verifying&&!background.running&&!background.committing&&!clearingJournal)
-    if(choosingScope)com.domenota.medialoader.ui.components.DuplicateScanScopeDialog(
-        rows=latestRows.filter{it.mediaType==com.domenota.medialoader.core.model.MediaType.AUDIO},
-        mediaLabel="Музыка",
-        onDismiss={choosingScope=false},
-        onStart={keys->choosingScope=false;beginScope(keys)},
-    )
     if(replaceScan)AlertDialog(onDismissRequest={replaceScan=false},title={Text("Заменить незавершённый поиск?")},
         text={Text("Сохранённый предварительный отчёт будет удалён. Акустические отпечатки сохранятся. ${DuplicateFolderScope.label(selectedScope)} · ${musicScanModeName(expandedScan)}.")},
         dismissButton={TextButton({replaceScan=false}){Text("Отмена")}},confirmButton={TextButton({

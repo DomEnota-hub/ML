@@ -36,12 +36,10 @@ internal object DuplicateFolderPathResolver {
                             val index = cursor.getColumnIndex(field)
                             return if (index < 0 || cursor.isNull(index)) null else cursor.getString(index)?.trim()
                         }
-                        val volume = value("volume_name")?.takeIf { it.isNotBlank() }
-                        val relative = value("relative_path")?.trim('/')?.takeIf { it.isNotBlank() }
+                        val volume = value("volume_name")
+                        val relative = value("relative_path")
                         val bucket = value("bucket_id")
-                        if (volume == null || relative == null || bucket != row.bulkMediaKey) null
-                        else if (relative.split('/').any { it == "." || it == ".." || it.isBlank() || it.contains('\\') }) null
-                        else "volume:$volume|$relative"
+                        if (bucket != row.bulkMediaKey) null else verifiedDirectory(volume, relative)
                     }
                 }.getOrNull()
                 if (resolved != null) result[key] = resolved
@@ -49,15 +47,34 @@ internal object DuplicateFolderPathResolver {
             result
         }
 
+    /** MediaStore RELATIVE_PATH normally ends in exactly one slash. Reject
+     * absolute paths, repeated separators, traversal and untrusted volumes
+     * before showing a navigable directory. Never repair a malformed path.
+     */
+    internal fun verifiedDirectory(volume: String?, relativePath: String?): String? {
+        if (volume.isNullOrBlank() || relativePath.isNullOrBlank() ||
+            volume.any { !it.isLetterOrDigit() && it != '_' && it != '-' && it != '.' }) return null
+        if (relativePath.startsWith('/') || relativePath.startsWith('\\')) return null
+        val path = relativePath.removeSuffix("/")
+        if (path.isBlank() || path.endsWith('/')) return null
+        if (path.split('/').any { it.isBlank() || it == "." || it == ".." ||
+                '\\' in it || '|' in it || '\u0000' in it }) return null
+        return "volume:$volume|$path"
+    }
+
     fun apply(
         folders: List<DuplicateFolderOption>,
         directories: Map<String, String>,
     ): List<DuplicateFolderOption> = folders.map { folder ->
         val resolved = directories[folder.key]
         val separator = resolved?.indexOf('|') ?: -1
-        val relative = if (separator > 0) resolved!!.substring(separator + 1).trim('/') else ""
-        if (relative.isBlank() || relative.split('/').any { it == "." || it == ".." }) folder
-        else folder.copy(name = relative.substringAfterLast('/'),
-            location = relative, directoryId = resolved)
+        val namespace = if (separator > 0) resolved!!.substring(0, separator) else ""
+        val rawPath = if (separator > 0) resolved!!.substring(separator + 1) else ""
+        val verified = if (namespace.startsWith("volume:"))
+            verifiedDirectory(namespace.removePrefix("volume:"), rawPath) else null
+        val trusted = folder.key.startsWith("bucket:") && folder.directoryId == null &&
+            verified != null && verified == resolved
+        if (!trusted) folder else folder.copy(
+            name = rawPath.substringAfterLast('/'), location = rawPath, directoryId = resolved)
     }
 }
