@@ -91,12 +91,12 @@ internal fun ResumeMusicScreen(sessions:List<ResolvedResumeQueue>,rows:Map<Strin
         items(if(editingId==null)sessions else emptyList(),key={it.session.id}){resolved->
             val saved=resolved.session
             val track=resolved.currentId?.let(rows::get)
-            val title=if(saved.playlistId!=null)playlistNames[saved.playlistId]?:"Сохранённая очередь" else "Сохранённая очередь"
+            val title=saved.playlistId?.let(playlistNames::get)
             val date=Instant.ofEpochMilli(saved.updatedAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM HH:mm"))
             Surface(Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=6.dp),
                 shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surfaceVariant) {
                 Column(Modifier.padding(15.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                    Text(title,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
+                    if(!title.isNullOrBlank())Text(title,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold)
                     Text(if(track!=null) displayAudioTitle(track) else "Трек недоступен",style=MaterialTheme.typography.bodyLarge)
                     Text("Трек ${saved.index+1} из ${saved.entries.size}, остановился на ${position(saved.positionMs)}",
                         style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

@@ -46,6 +46,9 @@ class MusicOverviewUiTest {
         compose.onNodeWithText("7 треков",useUnmergedTree=true).assertExists()
         compose.onNodeWithText("30 дней",useUnmergedTree=true).assertExists()
         compose.onNodeWithText("Автоподборка",substring=true).assertDoesNotExist()
+        compose.onNodeWithText("История добавления по датам",useUnmergedTree=true).assertDoesNotExist()
+        compose.onNodeWithText("Любимое и новые открытия",useUnmergedTree=true).assertDoesNotExist()
+        compose.onNodeWithText("Сохранено сеансов: 2",useUnmergedTree=true).assertExists()
         compose.onNodeWithTag("frequent-playlist-card").performClick()
         compose.runOnIdle{assertEquals(1,opened)}
     }

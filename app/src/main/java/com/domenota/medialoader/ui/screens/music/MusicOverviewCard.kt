@@ -31,7 +31,7 @@ internal fun MusicOverviewCard(title:String, description:String, icon:ImageVecto
             }
             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(1.dp)) {
                 Text(title,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,color=musicPlaybackAccent)
-                Text(description,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                if(description.isNotBlank())Text(description,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 period?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=musicPlaybackAccent)}
             }
             Icon(Icons.Rounded.ChevronRight,null,Modifier.size(20.dp),tint=musicPlaybackAccent)

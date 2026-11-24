@@ -126,6 +126,7 @@ internal fun SimpleArchiveScreen(
                         }
                     }
                     Box(Modifier.align(Alignment.TopEnd).size(48.dp)
+                        .testTag("archive-select-${item.catalogId}")
                         .toggleable(value = checked, enabled = !busy, role = Role.Checkbox,
                             onValueChange = { toggle(item.catalogId) })
                         .semantics { contentDescription = if (checked) "Снять выбор" else "Выбрать" },

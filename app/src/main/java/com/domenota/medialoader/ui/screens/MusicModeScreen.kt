@@ -584,7 +584,7 @@ internal fun MusicModeScreen(
                     item(key="frequent-playlist") { FrequentListeningCard(visibleSelection.ranked.size.takeIf{listeningHasData},listeningPeriod) { frequentOpen=true } }
                     listOf(SmartMusicPage.FORGOTTEN,SmartMusicPage.MIX).forEach { page -> item(key="smart-${page.name}") { SmartMusicCard(page){smartPage=page} } }
                     if(onOpenCollections!=null)item(key="music-collections"){
-                        MusicOverviewCard("Коллекции","Музыка из коллекций",Icons.Rounded.CollectionsBookmark,"music-collections",onOpenCollections)
+                        MusicOverviewCard("Коллекции","",Icons.Rounded.CollectionsBookmark,"music-collections",onOpenCollections)
                     }
                     item(key="smart-${SmartMusicPage.STATS.name}"){SmartMusicCard(SmartMusicPage.STATS){smartPage=SmartMusicPage.STATS}}
                 }

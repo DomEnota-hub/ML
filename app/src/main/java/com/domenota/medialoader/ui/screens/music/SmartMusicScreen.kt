@@ -47,7 +47,7 @@ internal enum class SmartMusicPage(val label: String) {
 
 @Composable
 internal fun SmartMusicCard(page: SmartMusicPage,onOpen: ()->Unit) {
-    MusicOverviewCard(page.label,when(page){SmartMusicPage.FORGOTTEN->"Вернуться к любимой музыке"; SmartMusicPage.MIX->"Любимое и новые открытия"; SmartMusicPage.STATS->"Время, треки и исполнители"},
+    MusicOverviewCard(page.label,"",
         page.icon,"smart-card-${page.name}",onOpen)
 }
 

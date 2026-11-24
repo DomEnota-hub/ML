@@ -95,7 +95,6 @@ internal fun FrequentListeningScreen(selection: ListeningSelection, rows: Map<St
                                 Icon(Icons.Rounded.GraphicEq,null,Modifier.size(40.dp),tint=musicPlaybackAccent)
                             }
                             Column(Modifier.weight(1f)) {
-                                Text("Твой топ",style=MaterialTheme.typography.titleLarge,color=musicPlaybackAccent)
                                 Text("${ids.size} треков, ${period.label}",style=MaterialTheme.typography.bodyMedium)
                             }
                         }
