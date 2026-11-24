@@ -88,6 +88,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     var replacement by remember{mutableStateOf<VisualReplacementRequest?>(null)}
     var newSearchAfterPause by remember{mutableStateOf(false)}
     var clearJournalConfirm by remember{mutableStateOf(false)}
+    var clearPartialToo by remember{mutableStateOf(false)}
     var filter by remember{mutableStateOf<VisualMatch?>(null)}
     var preview by remember{mutableStateOf<Pair<VisualDuplicateGroup,String>?>(null)}
     var choosingScope by remember { mutableStateOf(false) }
@@ -293,15 +294,24 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             }){Text("Начать новый поиск")}})
     }
     if(clearJournalConfirm)AlertDialog(onDismissRequest={clearJournalConfirm=false},title={Text("Очистить журнал Галереи?")},
-        text={Text("Будут удалены все завершённые отчёты. Фото, видео, отпечатки и незавершённый поиск останутся на устройстве.")},
+        text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+            Text("Будут удалены все завершённые отчёты. Фото, видео и отпечатки останутся на устройстве.")
+            if(interrupted)Row(verticalAlignment=Alignment.CenterVertically){
+                Checkbox(clearPartialToo,{clearPartialToo=it})
+                Text("Также удалить незавершённый поиск")
+            }
+        }},
         dismissButton={TextButton({clearJournalConfirm=false}){Text("Отмена")}},
         confirmButton={TextButton({
             clearJournalConfirm=false
             if(!status.running&&!status.committing&&!saving&&trash==null){
                 saving=true
+                val includePartial=clearPartialToo&&interrupted
+                val actionEpoch=latestEpoch
                 scope.launch{
                     try{
-                        if(VisualDuplicateSessionStore.clearCompletedJournal(context,latestEpoch)){
+                        if(VisualDuplicateSessionStore.clearCompletedJournal(context,actionEpoch,includePartial)){
+                            if(includePartial){storedPartial=null;showPartial=false}
                             session=null;lastVerified=null;openedHistoryAt=null;preview=null;restored=false
                             history=VisualDuplicateSessionStore.history(context)
                         }else error="Не удалось очистить журнал"
@@ -381,16 +391,17 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         }
         else if(!status.running && shown==null) Text("Область поиска: ${if(catalog.source==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"}",style=MaterialTheme.typography.bodySmall)
         if(status.running){
-            DuplicateActionTrace("gallery", "pause", !status.committing, if(status.committing) "commit" else "none")
-            DuplicateActionTrace("gallery", "stop", !status.committing, if(status.committing) "commit" else "none")
+            val pauseBlocker=if(status.committing)"commit" else if(newSearchAfterPause)"pause_requested" else "none"
+            DuplicateActionTrace("gallery", "pause", pauseBlocker=="none",pauseBlocker)
+            DuplicateActionTrace("gallery", "stop", pauseBlocker=="none",pauseBlocker)
             Text(status.partial?.scopeLabel ?: DuplicateFolderScope.label(VisualDuplicateBackgroundScan.resumeScope(context)),
                 style=MaterialTheme.typography.bodySmall)
             DuplicateScanPanel(status.phase,status.done,status.total,status.startedAt,status.phaseStartedAt,false,partial?.groups?.size?:0,exactBytes(partial?.groups.orEmpty()))
             status.coverage?.let { VisualCoverageSummary(it) }
             Button(onBack,Modifier.fillMaxWidth()){Text("Продолжить в фоне")}
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                OutlinedButton({VisualDuplicateBackgroundScan.pause(context)},enabled=!status.committing,modifier=Modifier.weight(1f)){Text("Пауза")}
-                TextButton({VisualDuplicateBackgroundScan.cancel(context)},enabled=!status.committing){Text("Остановить")}
+                OutlinedButton({if(!VisualDuplicateBackgroundScan.pause(context))error="Не удалось приостановить поиск"},enabled=!status.committing&&!newSearchAfterPause,modifier=Modifier.weight(1f)){Text("Пауза")}
+                TextButton({VisualDuplicateBackgroundScan.cancel(context)},enabled=!status.committing&&!newSearchAfterPause){Text("Остановить")}
             }
             OutlinedButton(::chooseNewSearch,enabled=!status.committing&&!newSearchAfterPause&&phonePermission,
                 modifier=Modifier.fillMaxWidth()){Text(if(newSearchAfterPause)"Приостанавливаю поиск…" else "Новый поиск")}
@@ -571,7 +582,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         onResume={journal=false;if(!status.running)startScan(VisualDuplicateBackgroundScan.resumeScope(context),resume=true)},onDismiss={journal=false},
         onPartial={journal=false;openPartial()},partialResultsEnabled=partialCanShow,
         resumeEnabled=startBlocker==null&&interrupted&&sameScope,
-        onClear={journal=false;clearJournalConfirm=true},clearEnabled=history.isNotEmpty()&&!status.running&&!status.committing&&!saving&&trash==null,
+        onClear={journal=false;clearPartialToo=false;clearJournalConfirm=true},clearEnabled=(history.isNotEmpty()||interrupted)&&!status.running&&!status.committing&&!saving&&trash==null,
         onDelete={at->
             if(!status.running&&!status.committing&&!saving&&trash==null){
                 saving=true
