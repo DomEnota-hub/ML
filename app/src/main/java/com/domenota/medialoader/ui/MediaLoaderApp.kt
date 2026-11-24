@@ -2550,6 +2550,7 @@ fun MediaLoaderApp(
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
                     unifiedDrawerRoutes=true,
                     onSimpleArchive = { archiveSelection(it, ArchiveEntrySource.GALLERY) },
+                    onArchiveFolder = { archiveVirtualFolder(it, ArchiveEntrySource.GALLERY) },
                     onOpenSimpleArchive = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
                     items = galleryBrowse.value.items,
                     preparedBrowse = galleryBrowse,
