@@ -1167,11 +1167,19 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.archive.SimpleArchivePolicyTest#conflictingAliasWithSameUriAndDifferentSizeRejectsWholeBatch": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.archive.SimpleArchivePolicyTest#duplicateCatalogIdWithDifferentBytesMustNotCorruptPersistedIndex": {
     "skipped": false,
     "failed": false
   },
   "com.domenota.medialoader.data.archive.SimpleArchivePolicyTest#recycledIdDifferentUriAndSameNameDoNotAccidentallyHideNewFile": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.archive.SimpleArchivePolicyTest#repeatingPublicationSelectionDoesNotDuplicateRecordsOrLoseGroup": {
     "skipped": false,
     "failed": false
   },
@@ -1184,6 +1192,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.archive.SimpleArchivePolicyTest#selectedFilesOnlyAreHiddenAndOtherMembersOfSamePhysicalFolderAreUnaffected": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.archive.SimpleArchivePolicyTest#sixOf866OnlyAreArchivedAndRestoredWithVirtualFolderMetadata": {
     "skipped": false,
     "failed": false
   },
