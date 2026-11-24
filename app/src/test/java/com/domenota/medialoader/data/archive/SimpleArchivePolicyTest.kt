@@ -87,4 +87,13 @@ internal class SimpleArchivePolicyTest {
         val after = SimpleArchivePolicy.archive(before, listOf(first.copy(catalogId = "phone-a"), second))
         assertEquals(before, after)
     }
+
+    @Test fun unknownSizeAliasCannotMaskContradictoryKnownSizes() {
+        val unknown = entry("unknown", "content://shared").copy(fileSizeBytes = null)
+        val one = entry("one", "content://shared", size = 100)
+        val two = entry("two", "content://shared", size = 200)
+        assertThrows(IllegalStateException::class.java) {
+            SimpleArchivePolicy.archive(emptyList(), listOf(unknown, one, two))
+        }
+    }
 }
