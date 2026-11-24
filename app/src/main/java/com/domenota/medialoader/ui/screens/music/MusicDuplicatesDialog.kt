@@ -468,7 +468,8 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             PreliminaryMusicGroups(
                                 visiblePreliminaryGroups,
                                 remember(DuplicateReferenceKey(visiblePreliminaryGroups)){exactBytes(visiblePreliminaryGroups)},previewRows,
-                                Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
+                                Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState,
+                                reportKey="$privacyRevision:$scanRevision")
                         }
                     } else {
                         // Restoration retains its normal page scroll, independent of scan UI.
@@ -1388,7 +1389,8 @@ internal fun DuplicatePreviewSeek(id:String,position:Long,duration:Long,enabled:
 /** Provisional groups are read-only, and never trigger decoding or network artwork fetching. */
 @Composable
 internal fun PreliminaryMusicGroups(groups:List<DuplicateGroup>,exactBytes:Long,rows:Map<String,DownloadEntity>,
-    modifier:Modifier=Modifier,state:androidx.compose.foundation.lazy.LazyListState=rememberLazyListState()){
+    modifier:Modifier=Modifier,state:androidx.compose.foundation.lazy.LazyListState=rememberLazyListState(),
+    reportKey:String=""){
     val context=LocalContext.current
     LazyColumn(modifier.fillMaxWidth().testTag("music-preliminary-groups"),state=state,
         verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=12.dp)){
@@ -1408,7 +1410,7 @@ internal fun PreliminaryMusicGroups(groups:List<DuplicateGroup>,exactBytes:Long,
                 }
             }
         }
-        items(groups,key={"preliminary:${it.key}"}){group->PreliminaryMusicGroup(group,rows)}
+        items(groups,key={"preliminary:$reportKey:${it.key}"}){group->PreliminaryMusicGroup(group,rows)}
     }
 }
 

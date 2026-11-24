@@ -27,7 +27,8 @@ class MusicDuplicatePreliminaryTest {
     @Test fun provisionalCardsExpandWithoutDeletionAndRetainStateOnUpdate(){
         val first=group("a","b")
         val groups=mutableStateOf(listOf(first))
-        compose.setContent{MaterialTheme{PreliminaryMusicGroups(groups.value,100,emptyMap())}}
+        val report=mutableStateOf("first")
+        compose.setContent{MaterialTheme{PreliminaryMusicGroups(groups.value,100,emptyMap(),reportKey=report.value)}}
         val card=compose.onNodeWithTag("music-preliminary-${first.key}")
         compose.onNodeWithText("2 файла",useUnmergedTree=true).assertExists()
         // QA-225-04: initial expansion, independent manual collapse survives updates.
@@ -44,6 +45,8 @@ class MusicDuplicatePreliminaryTest {
         compose.onNodeWithText("Сравнить").assertDoesNotExist()
         card.performClick()
         compose.onNodeWithText("track-a.mp3").assertDoesNotExist()
+        compose.runOnIdle{report.value="new"}
+        compose.onNodeWithText("track-a.mp3").assertExists()
     }
 
     @Test fun largeGroupHasAccessToAllFilesWithoutEagerRendering(){

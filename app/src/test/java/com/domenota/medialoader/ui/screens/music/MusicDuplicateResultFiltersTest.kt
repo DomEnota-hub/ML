@@ -66,13 +66,14 @@ class MusicDuplicateResultFiltersTest {
 
     @Test fun fourCategoriesRemainEqualAndLargeTextKeepsLastChipCentered() {
         val fontScale=androidx.compose.runtime.mutableStateOf(1f)
+        val counts=androidx.compose.runtime.mutableStateOf(DuplicateKind.entries.associateWith{1})
         compose.setContent {
             val density=androidx.compose.ui.platform.LocalDensity.current
             androidx.compose.runtime.CompositionLocalProvider(
                 androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density,fontScale.value)
             ) {
                 MaterialTheme {
-                    MusicDuplicateResultFilters(DuplicateKind.entries.associateWith{1},null,{})
+                    MusicDuplicateResultFilters(counts.value,null,{})
                 }
             }
         }
@@ -86,8 +87,17 @@ class MusicDuplicateResultFiltersTest {
         assertEquals(all.width,version.width,1f)
         assertEquals(all.top,exact.top,1f)
         assertEquals(acoustic.top,version.top,1f)
-        compose.runOnIdle{fontScale.value=1.5f}
-        assertEquals(bounds("ALL").width,bounds("POSSIBLE").width,1f)
+        compose.runOnIdle{
+            fontScale.value=1.5f
+            counts.value=mapOf(DuplicateKind.ACOUSTIC to 1,DuplicateKind.POSSIBLE to 1)
+        }
+        val largeAll=bounds("ALL")
+        val largeAcoustic=bounds("ACOUSTIC")
+        val largeVersion=bounds("POSSIBLE")
+        assertEquals(largeAll.width,largeVersion.width,1f)
+        assertEquals((largeAll.left+largeAcoustic.right)/2f,largeVersion.center.x,1f)
+        assertEquals(largeAll.top,largeAcoustic.top,1f)
+        org.junit.Assert.assertTrue(largeVersion.top>largeAll.top)
         compose.onNodeWithText("Версии: 1").assertExists()
     }
 }
