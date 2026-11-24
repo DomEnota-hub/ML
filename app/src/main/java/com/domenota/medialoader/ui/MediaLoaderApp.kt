@@ -1813,21 +1813,34 @@ fun MediaLoaderApp(
     // Home renders only three recent entries; do not format the entire library on main.
     val recentDownloadItems = remember(publicDownloads,fileStatuses) { publicDownloads.take(3).map { it.toUi(fileStatuses[it.id] ?: SavedFileStatus.UNCHECKED) } }
 
+    val liveArchiveRefs by rememberUpdatedState(publicLibraryRefs)
+    val liveArchiveGuardedRefs by rememberUpdatedState(guardedPublicRefs.orEmpty())
+    val liveArchiveDownloads by rememberUpdatedState(publicDownloads)
+    val liveArchiveRecords by rememberUpdatedState(archivedRecords)
+
+    fun resolveArchiveRow(id: String): com.domenota.medialoader.core.database.DownloadEntity? {
+        val matches = liveArchiveRefs.filter { it.key == id || id in it.aliases }.map { it.item } +
+            liveArchiveDownloads.filter { it.id == id }
+        val first = matches.firstOrNull() ?: return null
+        if (first.savedUri.isNullOrBlank() || matches.any {
+                it.savedUri != first.savedUri || it.mediaType != first.mediaType
+            } || matches.mapNotNull { it.sizeBytes }.distinct().size > 1) return null
+        return matches.firstOrNull { it.sizeBytes != null } ?: first
+    }
+
     fun archiveSelection(ids: List<String>, source: ArchiveEntrySource,
-        group: com.domenota.medialoader.data.archive.SimpleArchiveGroup? = null) {
+        group: com.domenota.medialoader.data.archive.SimpleArchiveGroup? = null,
+        validateScope: () -> Boolean = { true }) {
         if (!simpleArchiveLoaded || simpleArchiveBusy || ids.isEmpty()) return
         val requested = ids.distinct()
-        val rows = requested.mapNotNull { id ->
-            publicLibraryRefs.firstOrNull { it.key == id || id in it.aliases }?.item
-                ?: publicDownloads.firstOrNull { it.id == id }
-        }
+        val rows = requested.mapNotNull(::resolveArchiveRow)
         if (rows.size != requested.size) { AppNotice.post(context, "Некоторые файлы недоступны"); return }
         simpleArchiveBusy = true
         simpleArchiveError = null
         libraryPreviewJob?.cancel()
         fileActionScope.launch {
             try {
-                check(rows.all { row -> !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED &&
+                check(validateScope() && rows.all { row -> !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED &&
                     libraryModel.visibilityGuard.value?.canOpen(row, null, emptyList()) == true }) { "Выбранные файлы недоступны" }
                 for (row in rows.distinctBy { it.savedUri }) {
                     check(libraryModel.verifyVisibilityOpen(row, null) &&
@@ -1835,9 +1848,13 @@ fun MediaLoaderApp(
                         "Выбранные файлы недоступны"
                     }
                 }
-                check(rows.all { libraryModel.visibilityGuard.value?.canOpen(it, null, emptyList()) == true }) {
-                    "Доступ к выбранным файлам изменился"
-                }
+                check(validateScope() && requested.zip(rows).all { (id, row) ->
+                    val current = resolveArchiveRow(id)
+                    current != null && current.savedUri == row.savedUri && current.mediaType == row.mediaType &&
+                        current.sizeBytes == row.sizeBytes && !current.isPrivate && !current.hidden &&
+                        current.state == DownloadState.COMPLETED &&
+                        libraryModel.visibilityGuard.value?.canOpen(current, null, emptyList()) == true
+                }) { "Состав или доступ к выбранным файлам изменился" }
                 val next = simpleArchive.archive(rows, source, group)
                 com.domenota.medialoader.data.playback.AudioPlaybackService.removeArchivedFromQueue(
                     next.filter { it.mediaType == MediaType.AUDIO }.map { it.savedUri })
@@ -1855,17 +1872,35 @@ fun MediaLoaderApp(
             AppNotice.post(context, "Состав папки недоступен")
             return
         }
-        val memberIds = viewModel.catalogAssignments.value.filter { it.folderId == folderId }.map { it.downloadId }.toSet() +
-            libraryModel.externalCatalog.entries.value.filter { it.folderId == folderId }.map { it.ref.key }
-        val available = memberIds.filter { id ->
-            publicLibraryRefs.any { it.key == id || id in it.aliases } || publicDownloads.any { it.id == id }
+        fun members(): Set<String> =
+            viewModel.catalogAssignments.value.filter { it.folderId == folderId }.map { it.downloadId }.toSet() +
+                libraryModel.externalCatalog.entries.value.filter { it.folderId == folderId }.map { it.ref.key }
+        val memberIds = members()
+        val available = memberIds.filter { resolveArchiveRow(it) != null }
+        // An already archived member remains assigned to its original folder. It is not
+        // a new action target, but must be proven to match the stored URI/type/size.
+        val unavailable = memberIds - available.toSet()
+        val knownArchived = unavailable.all { id ->
+            val candidates = liveArchiveGuardedRefs.filter { it.key == id || id in it.aliases }.map { it.item } +
+                viewModel.downloads.value.filter { it.id == id }
+            candidates.isNotEmpty() && candidates.all { row ->
+                !row.isPrivate && !row.hidden && row.savedUri != null &&
+                    SimpleArchivePolicy.isArchived(liveArchiveRecords, SimpleArchiveCandidate(
+                        row.id, row.savedUri.orEmpty(), row.mediaType, row.sizeBytes))
+            }
         }
-        if (available.isEmpty() || available.size != memberIds.size) {
+        if (!knownArchived) {
             AppNotice.post(context, "Состав папки не подтверждён полностью")
             return
         }
+        if (available.isEmpty()) {
+            AppNotice.post(context, "Нет доступных файлов для архива")
+            return
+        }
         archiveSelection(available, source, com.domenota.medialoader.data.archive.SimpleArchiveGroup(
-            com.domenota.medialoader.data.archive.SimpleArchiveGroupKind.VIRTUAL_FOLDER, folder.id, folder.name))
+            com.domenota.medialoader.data.archive.SimpleArchiveGroupKind.VIRTUAL_FOLDER, folder.id, folder.name)) {
+            members() == memberIds && viewModel.catalogFolders.value.any { it.id == folderId && it.name == folder.name }
+        }
     }
     fun navigateTo(route: String) {
         navController.navigate(route) {
