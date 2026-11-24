@@ -50,9 +50,12 @@ import kotlin.math.roundToInt
  * Separate owner per route/mode prevents a departing screen's report opening
  * the next screen's drawer before its own selection/dialog state is known. */
 internal class DrawerAdmission {
-    var admitted by mutableStateOf(false)
-        private set
-    fun update(allowed:Boolean){admitted=allowed}
+    private var screenReady by mutableStateOf(false)
+    private val overlays=mutableStateMapOf<Any,Unit>()
+    val admitted:Boolean get()=screenReady&&overlays.isEmpty()
+    fun update(allowed:Boolean){screenReady=allowed}
+    fun block(owner:Any){overlays[owner]=Unit}
+    fun unblock(owner:Any){overlays.remove(owner)}
 }
 internal val LocalDrawerAdmission=staticCompositionLocalOf<DrawerAdmission?>{null}
 @Composable
@@ -60,6 +63,20 @@ internal fun ReportDrawerScreen(allowed:Boolean){
     val admission=LocalDrawerAdmission.current ?: return
     SideEffect { admission.update(allowed) }
     DisposableEffect(admission){onDispose{admission.update(false)}}
+}
+
+/** Child menus/dialogs can veto the active screen even before window focus
+ * changes. Only an actual open overlay registers; no per-row state map churn. */
+@Composable
+internal fun ReportDrawerOverlay(blocked:Boolean){
+    val admission=LocalDrawerAdmission.current ?: return
+    if(blocked){
+        val owner=remember(admission){Any()}
+        DisposableEffect(admission,owner){
+            admission.block(owner)
+            onDispose{admission.unblock(owner)}
+        }
+    }
 }
 
 /** Single app-level overlay; no blanket horizontal gesture interception. */

@@ -3,7 +3,6 @@ package com.domenota.medialoader.ui
 import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.layout.ime
-import androidx.compose.ui.platform.LocalLayoutDirection
 import com.domenota.medialoader.ui.components.DrawerAdmission
 import com.domenota.medialoader.ui.components.LocalDrawerAdmission
 import com.domenota.medialoader.ui.components.MediaNavigationDrawer

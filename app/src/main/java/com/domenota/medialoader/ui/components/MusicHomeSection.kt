@@ -64,7 +64,7 @@ private data class MusicSearchLaunch(val artist: String, val title: String,
 
 /** Home entry point; the microphone is active only while its dialog is open. */
 @Composable
-fun MusicHomeSection() {
+fun MusicHomeSection(showTitle:Boolean=true) {
     val context = LocalContext.current
     val repository = remember(context) { MediaRepository.get(context) }
     val scope = rememberCoroutineScope()
@@ -75,6 +75,7 @@ fun MusicHomeSection() {
     var searchLaunch by remember { mutableStateOf<MusicSearchLaunch?>(null) }
     var recognitionJob by remember { mutableStateOf<Job?>(null) }
     var generation by remember { mutableIntStateOf(0) }
+    ReportDrawerOverlay(stage!=MicStage.IDLE||searchLaunch!=null)
 
     fun stopListening() {
         generation++
@@ -141,8 +142,10 @@ fun MusicHomeSection() {
 
     AppCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp)) {
-            Text("Поиск музыки", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(6.dp))
+            if(showTitle){
+                Text("Поиск музыки", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(6.dp))
+            }
             Text("Узнайте трек по звучанию или найдите его по названию",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -236,7 +239,7 @@ internal fun DirectMusicSearchScreen(onBack:()->Unit){
             Text("Поиск музыки",style=MaterialTheme.typography.titleLarge)
         }
         Spacer(Modifier.height(12.dp))
-        MusicHomeSection()
+        MusicHomeSection(showTitle=false)
     }
 }
 

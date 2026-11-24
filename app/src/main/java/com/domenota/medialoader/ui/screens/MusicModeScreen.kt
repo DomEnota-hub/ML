@@ -879,6 +879,7 @@ private fun UnavailablePlaylistTrackRow(position: Int, onRemove: () -> Unit) {
 @Composable
 private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDelete: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия с плейлистом ${playlist.name}") }
         DropdownMenu(menu, { menu = false }) {
@@ -896,6 +897,7 @@ internal fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> U
                               onCollection: (() -> Unit)? = null,onPassport: (() -> Unit)? = null,onRecognize:(()->Unit)?=null) {
     var menu by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu||properties)
     if (properties) MusicFilePropertiesDialog(track) { properties = false }
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия: ${track.originalName}") }

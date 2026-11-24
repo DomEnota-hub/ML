@@ -26,6 +26,7 @@ internal val AppMode.label: String get() = when (this) {
 @Composable
 internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    ReportDrawerOverlay(expanded)
     Box {
         Row(Modifier.semantics { contentDescription = "Сменить режим" }
             .clickable { expanded = true }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {

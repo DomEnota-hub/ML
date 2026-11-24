@@ -867,6 +867,7 @@ private fun GalleryAlbumCell(
     systemVisibility: Boolean = false, visibilityPending: Boolean = false, visibilityEnabled: Boolean = true,
 ) {
     var menu by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
     Column(
         Modifier
             .alpha(if (dragged) 0.30f else 1f)
@@ -940,6 +941,7 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
                              onLongSelect: () -> Unit, highlighted: Boolean = false) {
     val shownName = displayFileName(item)
     var menu by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
         .semantics { contentDescription = shownName }
         .combinedClickable(onClick = onOpen, onLongClick = onLongSelect, onLongClickLabel = "Выбрать файл")) {
