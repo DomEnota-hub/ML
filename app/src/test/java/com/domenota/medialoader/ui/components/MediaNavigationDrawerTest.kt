@@ -1,0 +1,100 @@
+package com.domenota.medialoader.ui.components
+
+import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.unit.dp
+import com.domenota.medialoader.data.share.InstagramShareSettings
+import com.domenota.medialoader.ui.navigation.DrawerEntry
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.*
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk=[34],qualifiers="w393dp-h852dp-xhdpi")
+@LooperMode(LooperMode.Mode.PAUSED)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class MediaNavigationDrawerTest{
+    @get:Rule val compose=createAndroidComposeRule<ComponentActivity>()
+    private var edgePx=0f
+    private fun host()=compose.onNodeWithTag("ml-drawer-host")
+    private fun open(){
+        host().performTouchInput{
+            swipe(Offset(edgePx,center.y),Offset(width*.75f,center.y),durationMillis=500)
+        }
+        compose.onNodeWithTag("ml-drawer-panel").assertExists()
+    }
+    @Composable private fun TestHost(allowed:Boolean=true,identity:Int=0,
+        active:DrawerEntry=DrawerEntry.MUSIC,onSelect:(DrawerEntry)->Unit={}){
+        val density=LocalDensity.current
+        val direction=LocalLayoutDirection.current
+        val edge=WindowInsets.systemGestures.getLeft(density,direction)+with(density){4.dp.toPx()}
+        SideEffect{edgePx=edge}
+        MediaNavigationDrawer(identity,allowed,active,onSelect=onSelect){
+            Box(Modifier.fillMaxSize()){Text("Содержимое")}
+        }
+    }
+
+    @Test fun panelUsesEightyPercentAndNoVersionAndClosesOutside(){
+        compose.setContent{MaterialTheme{TestHost()}}
+        open()
+        val parent=host().fetchSemanticsNode().boundsInRoot
+        val panel=compose.onNodeWithTag("ml-drawer-panel").fetchSemanticsNode().boundsInRoot
+        assertEquals(parent.width*.8f,panel.width,2f)
+        compose.onNodeWithText("MediaLoader").assertExists()
+        compose.onNodeWithText("1.7.226").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-entry-MUSIC").assertIsSelected()
+        compose.onNodeWithTag("drawer-entry-FAVORITES").assertIsNotEnabled()
+        compose.onNodeWithTag("drawer-entry-JOURNAL").assertDoesNotExist()
+        host().performTouchInput{click(Offset(width*.95f,center.y))}
+        compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
+    }
+
+    @Test fun forbiddenStateClosesAndRejectsGesturesWhileMidContentRemainsFree(){
+        var allowed by mutableStateOf(true)
+        var identity by mutableIntStateOf(0)
+        compose.setContent{MaterialTheme{TestHost(allowed,identity)}}
+        host().performTouchInput{swipe(Offset(width*.3f,center.y),Offset(width*.9f,center.y))}
+        compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
+        open()
+        compose.runOnIdle{allowed=false}
+        compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
+        host().performTouchInput{swipe(Offset(edgePx,center.y),Offset(width*.75f,center.y))}
+        compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
+        compose.runOnIdle{allowed=true}
+        open()
+        compose.runOnIdle{identity++}
+        compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
+    }
+
+    @Test fun downloadModeUsesExistingPreferenceAndBackClosesWithoutChangingRoute(){
+        val context=compose.activity
+        val old=InstagramShareSettings.isAutomatic(context)
+        try{
+            InstagramShareSettings.setAutomatic(context,false)
+            var selected:DrawerEntry?=null
+            compose.setContent{MaterialTheme{TestHost(onSelect={selected=it})}}
+            open()
+            val toggle=compose.onNodeWithTag("drawer-download-mode")
+            toggle.assertIsOff().performClick().assertIsOn()
+            compose.runOnIdle{assertTrue(InstagramShareSettings.isAutomatic(context));assertNull(selected)}
+            compose.onNodeWithTag("ml-drawer-panel").assertExists()
+            compose.runOnIdle{context.onBackPressedDispatcher.onBackPressed()}
+            compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
+            open()
+            compose.onNodeWithTag("drawer-entry-GALLERY").performClick()
+            compose.runOnIdle{assertEquals(DrawerEntry.GALLERY,selected)}
+            compose.onNodeWithTag("ml-drawer-panel").assertDoesNotExist()
+        }finally{InstagramShareSettings.setAutomatic(context,old)}
+    }
+}

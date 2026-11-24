@@ -3718,11 +3718,7 @@ fun MediaLoaderApp(
             visibilityWorkState,visibilityWorkDismissed))
     fun openDrawerHome(mode:AppMode){
         if(appMode!=mode)selectAppMode(mode,true)
-        if(navController.currentDestination?.route!=AppDestination.Home.route){
-            // Save Downloads' own scroll/filter state before popping to Home.
-            if(!navController.popBackStack(AppDestination.Home.route,false,saveState=true))
-                navController.navigate(AppDestination.Home.route){launchSingleTop=true}
-        }
+        com.domenota.medialoader.ui.navigation.returnDrawerHome(navController)
     }
     MediaNavigationDrawer(
         identity=drawerIdentity,
@@ -3733,8 +3729,7 @@ fun MediaLoaderApp(
                 DrawerEntry.HOME->openDrawerHome(AppMode.DOWNLOADER)
                 DrawerEntry.DOWNLOADS->{
                     if(appMode!=AppMode.DOWNLOADER)selectAppMode(AppMode.DOWNLOADER,true)
-                    if(navController.currentDestination?.route!=AppDestination.Downloads.route)
-                        navigateTo(AppDestination.Downloads.route)
+                    com.domenota.medialoader.ui.navigation.openDrawerDownloads(navController)
                 }
                 DrawerEntry.GALLERY->openDrawerHome(AppMode.GALLERY)
                 DrawerEntry.MUSIC->openDrawerHome(AppMode.MUSIC)

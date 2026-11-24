@@ -7459,6 +7459,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.LibraryValidationGateTest#drawerNavigationNeverRescansCompleteCatalogUnlessAccessOrValidationRequiresIt": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.LibraryValidationGateTest#duplicateScanRequiresFullCurrentVisualGenerationEvenWhenPartialPageIsVisible": {
     "skipped": false,
     "failed": false
@@ -7987,6 +7991,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#downloadModeUsesExistingPreferenceAndBackClosesWithoutChangingRoute": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#forbiddenStateClosesAndRejectsGesturesWhileMidContentRemainsFree": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#panelUsesEightyPercentAndNoVersionAndClosesOutside": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.MusicSpeedActionTest#compactSpeedMenuHasNormalSpeedAndDeterministicOptions": {
     "skipped": false,
     "failed": false
@@ -8312,6 +8328,30 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.navigation.BottomTabPolicyTest#repeatedDownloadsTapRequestsScrollToTop": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#activeEntryUsesRouteAndModeNotPlayback": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#dragFollowsFingerClampsAndSettlesInBothDirections": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#edgeStartsAfterSystemBackInsetAndNeverMidContent": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#onlyMainRoutesAndActualScreenAdmissionCanOpen": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#verticalWrongDirectionAndSmallDragDoNotCapture": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.LibraryReturnNavigationTest#drawerReturnsToExactHomeAndRestoresDownloadsFilterAcrossVisits": {
     "skipped": false,
     "failed": false
   },

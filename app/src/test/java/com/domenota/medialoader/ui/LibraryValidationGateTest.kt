@@ -353,4 +353,14 @@ class LibraryValidationGateTest {
         assertEquals(both,readyPhoneMediaChanges(pending,emptySet()))
         assertEquals(both,pending)
     }
+
+    @Test fun drawerNavigationNeverRescansCompleteCatalogUnlessAccessOrValidationRequiresIt(){
+        val warm=PhoneLibraryState(loaded=true,complete=true,requiresValidation=false)
+        assertFalse(needsPhoneRefreshOnNavigation(warm,false,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm,true,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm,false,true))
+        assertTrue(needsPhoneRefreshOnNavigation(warm.copy(complete=false),false,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm.copy(loaded=false),false,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm.copy(message="Ошибка"),false,false))
+    }
 }
