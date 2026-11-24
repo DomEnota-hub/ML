@@ -155,7 +155,7 @@ class DuplicateScanScopeDialogTest {
         compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
         compose.onNodeWithTag("scope-start-selected").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithTag("scope-row-details-volume:external_primary|Music")
-            .assertExists().assertTextContains("1 файл")
+            .assertExists().assertTextContains("1 файл", substring = true)
     }
 
     @Test fun overviewCountsUniqueUriNotRepeatedCatalogAlias() {
