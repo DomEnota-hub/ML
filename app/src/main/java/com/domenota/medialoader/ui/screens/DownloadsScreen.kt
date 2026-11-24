@@ -851,8 +851,7 @@ private fun LazyListScope.DownloadRows(
                 DownloadItemRow(file, onOpenDownload, onCancelDownload, onShareDownload,
                     onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload,
                     recognitionEnabled, onRecognizeDownload, assignments, folderNames,
-                    onFavorite, onChooseFolder, onMoveToPrivate,onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive,
-                onArchivePublication=onArchivePublication)
+                    onFavorite, onChooseFolder, onMoveToPrivate,onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
             }
             Spacer(Modifier.height(10.dp))
           }
