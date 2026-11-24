@@ -30,7 +30,12 @@ runs:
           ~/.gradle/wrapper
           ~/.m2/repository/org/robolectric
         key: ${{ runner.os }}-ml-ci-v1-${{ inputs.lane }}-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-${{ github.event.pull_request.head.sha || github.sha }}
+        # Reuse the successful JVM dependency/compilation cache for lint when its
+        # own lane is cold. Same repo, epoch and Gradle inputs only; Test result
+        # cache stays disabled, no secrets and no dependency repository changes.
         restore-keys: |
+          ${{ runner.os }}-ml-ci-v1-jvm-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-${{ github.event.pull_request.head.sha || github.sha }}
+          ${{ runner.os }}-ml-ci-v1-jvm-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-
           ${{ runner.os }}-ml-ci-v1-${{ inputs.lane }}-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-
     - shell: bash
       env:

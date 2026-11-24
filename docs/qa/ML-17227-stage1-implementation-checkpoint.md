@@ -17,3 +17,7 @@ Base c27fef7034d49a938194b6497a0b0ca5262bfdc0 (1.7.226/286), new code HEAD d7c32
 - Do not advance stages 2/3 or mark Stage 1 complete until remaining targeted validation is resolved. Stage 2 visual mockups still require prior agreement. No merge, CI labels, release or background execution.
 
 Next: finish Stage 1 focused validation and review remaining integration concerns; record terminal stage status in original Drive summary before moving on.
+
+## VERIFY recovery (24.11.2026)
+- Source 376ed205eb883d3180afeada4969fb5ea061694a; refactored SimpleArchiveSession/root delegation fixed MethodTooLargeException. Run 45466830628: Quick/compile PASS; full JVM 2552 IDs, 2551 passed, 1 approved Shazam skip, 37 isolated methods, 38 worker markers. Lint attempt 1 job 138703984511 and attempt 2 job 138713018066 both failed before source analysis with Maven Central HTTP 429 on Gradle classpath, including internal transport retry. No APK. Not a lint code failure, no lint PASS. No further identical retries.
+- JVM saved a successful Gradle cache for the same inputs hash; lint had cache misses on both attempts. Proposed controlled cross-lane fallback and profile quick verification. Stage 1 remains open until the new exact-source checks and risk review. Stages 2/3 not started. No merge or stable.

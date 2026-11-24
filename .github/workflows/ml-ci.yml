@@ -11,6 +11,14 @@ on:
         type: choice
         options: [quick, verify, qualify, perf]
         default: verify
+      quick_profiles:
+        description: Quick only; comma-separated baseline/archive/privacy/navigation/library/playback/editors/download/storage/diagnostics
+        default: baseline
+        type: string
+      quick_lint:
+        description: Run full Android lint with quick (also mandatory for archive/privacy/storage)
+        type: boolean
+        default: false
       cache_epoch:
         description: Change to invalidate all lane caches (same epoch for cold/warm comparison)
         default: v1
@@ -22,19 +30,25 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && !contains(fromJSON('["ci:qualify","ci:verify"]'), github.event.label.name) && github.run_id || 'active' }}
+  group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && !contains(fromJSON('["ci:qualify","ci:verify","ci:quick-baseline","ci:quick-archive","ci:quick-privacy","ci:quick-navigation","ci:quick-library","ci:quick-playback","ci:quick-editors","ci:quick-download","ci:quick-storage","ci:quick-diagnostics"]'), github.event.label.name) && github.run_id || 'active' }}
   cancel-in-progress: true
 env:
   ML_MODE: ${{ inputs.mode || (github.event.label.name == 'ci:verify' && 'verify') || (github.event.label.name == 'ci:qualify' && 'qualify') || 'quick' }}
   ML_CI_PROFILE: 'true'
+  ML_QUICK_PROFILES: ${{ inputs.quick_profiles || 'baseline' }}
+  ML_QUICK_LINT: ${{ inputs.quick_lint || false }}
+  ML_CI_EVENT_LABEL: ${{ github.event.label.name || '' }}
+  ML_CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
   ML_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   ML_FAULT: ${{ inputs.fault || 'none' }}
   ML_MODE_CONFLICT: ${{ contains(github.event.pull_request.labels.*.name, 'ci:audit') || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && contains(github.event.pull_request.labels.*.name, 'ci:qualify')) }}
 jobs:
   quick:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(fromJSON('["ci:qualify","ci:verify"]'), github.event.label.name))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(fromJSON('["ci:qualify","ci:verify","ci:quick-baseline","ci:quick-archive","ci:quick-privacy","ci:quick-navigation","ci:quick-library","ci:quick-playback","ci:quick-editors","ci:quick-download","ci:quick-storage","ci:quick-diagnostics"]'), github.event.label.name))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      focused_lint: ${{ steps.profile.outputs.lint }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,6 +60,9 @@ jobs:
           python3 scripts/ci/gate.py inputs
           python3 -m unittest discover -s tests/ci -v
           bash scripts/ci/source-guards.sh
+      - name: Validate explicit CI profile and selection
+        id: profile
+        run: python3 scripts/ci/focused.py request
   jvm:
     needs: quick
     if: inputs.fault != 'lint' && inputs.mode != 'perf'
@@ -66,10 +83,8 @@ jobs:
       - name: Focused PR feedback
         if: env.ML_MODE == 'quick'
         run: |
-          mapfile -t classes < scripts/ci/focused-tests.txt
-          args=()
-          for name in "${classes[@]}"; do args+=(--tests "$name"); done
-          python3 scripts/ci/gate.py stage focused "$ML_GRADLE" :app:testDebugUnitTest -Parm64Release=true "${args[@]}" --console=plain --stacktrace
+          python3 scripts/ci/gate.py stage focused python3 scripts/ci/focused.py run
+          python3 scripts/ci/focused.py validate
       - name: Full JVM including every isolated Compose method
         if: env.ML_MODE == 'qualify' || env.ML_MODE == 'verify'
         run: |
@@ -125,7 +140,7 @@ jobs:
           retention-days: 5
   lint:
     needs: quick
-    if: (inputs.mode == 'qualify' || inputs.mode == 'verify' || github.event.label.name == 'ci:qualify' || github.event.label.name == 'ci:verify') && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
+    if: (inputs.mode == 'qualify' || inputs.mode == 'verify' || github.event.label.name == 'ci:qualify' || github.event.label.name == 'ci:verify' || needs.quick.outputs.focused_lint == 'true') && (inputs.fault == 'none' || inputs.fault == 'lint' || inputs.fault == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
