@@ -5219,6 +5219,22 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.MusicMetadataCheckpointPolicyTest#missingEncodedEvidenceRequiresFreshExtraction": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MusicMetadataCheckpointPolicyTest#rejectsChangedOrUnknownFileStamp": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MusicMetadataCheckpointPolicyTest#rejectsDifferentUriFilenameOrPrivacyEpoch": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MusicMetadataCheckpointPolicyTest#reusesExactMetadataButNeverOtherModeAcousticFingerprint": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.MusicPairResultCacheTest#changingFileOrEpochOrDirectionProducesCacheMiss": {
     "skipped": false,
     "failed": false
