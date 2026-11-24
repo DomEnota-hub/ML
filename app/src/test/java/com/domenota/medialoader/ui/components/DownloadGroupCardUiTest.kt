@@ -44,4 +44,27 @@ class DownloadGroupCardUiTest {
         assertEquals(1, expanded)
         compose.onNodeWithText("Сохранено 3 из 3").assertIsDisplayed()
     }
+
+    @Test fun archiveActionRunsDirectlyWithoutOpeningGroupOrConfirmation() {
+        var archived = 0
+        var expanded = 0
+        var deleted = 0
+        compose.setContent { MaterialTheme { DownloadGroupCard(group, false,
+            { expanded++ }, {}, onDelete = { deleted++ }, onArchive = { archived++ }) } }
+        compose.onNodeWithContentDescription("Действия с группой").performClick()
+        compose.onNodeWithText("В архив").performClick()
+        assertEquals(1, archived)
+        assertEquals(0, expanded)
+        assertEquals(0, deleted)
+        compose.onNodeWithText("В архив").assertDoesNotExist()
+    }
+
+    @Test fun privateGroupNeverOffersOrdinaryArchiveAction() {
+        var archived = 0
+        compose.setContent { MaterialTheme { DownloadGroupCard(group, false, {}, {},
+            privateGroup = true, onRestore = {}, onArchive = { archived++ }) } }
+        compose.onNodeWithContentDescription("Действия с группой").performClick()
+        compose.onNodeWithText("В архив").assertDoesNotExist()
+        assertEquals(0, archived)
+    }
 }
