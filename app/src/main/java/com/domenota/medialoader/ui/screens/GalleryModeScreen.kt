@@ -286,6 +286,11 @@ internal fun GalleryModeScreen(
     var dragSelectionPointer by remember { mutableStateOf(Offset.Zero) }
     var dragSelectionBase by remember { mutableStateOf(emptySet<String>()) }
     var dragSelectionEnd by remember { mutableStateOf<String?>(null) }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        !detailOpen && !archiveOpen && !selecting && folderTarget==null && renameTarget==null &&
+            !creating && !showDatePicker && deletingAlbum==null && !albumSortMenuExpanded &&
+            moveSnapshot==null && removingDeviceAlbum==null && draggingAlbumKey==null &&
+            dragSelectionAnchor==null)
     fun galleryItemAt(point: Offset): String? {
         val visible = mediaGridState.layoutInfo.visibleItemsInfo.filter { it.key.toString() in queueSet }
         val hit = visible.firstOrNull { cell ->

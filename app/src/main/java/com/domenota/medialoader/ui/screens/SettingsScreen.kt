@@ -241,6 +241,7 @@ fun SettingsScreen(
     musicSource: FullSongSource = FullSongSource.HITMOZ,
     onMusicSourceChange: (FullSongSource) -> Unit = {},
     editorAlbumsById: Map<String, List<String>> = emptyMap(),
+    openAppearance:Boolean=false,onAppearanceOpened:()->Unit={},
 ) {
     val context = LocalContext.current
     val permissionOwner = LocalLifecycleOwner.current
@@ -431,6 +432,13 @@ fun SettingsScreen(
     var themeMode by remember { mutableStateOf(prefs.getString("theme", null) ?:
         if (prefs.getBoolean("dark", false)) "dark" else "light") }
     var themeDialog by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(openAppearance){
+        if(openAppearance){
+            interfaceOptionsExpanded=true
+            themeDialog=true
+            onAppearanceOpened()
+        }
+    }
     var recognitionDialog by remember { mutableStateOf(false) }
     var musicSourceDialog by remember { mutableStateOf(false) }
     var instagramModeDialog by remember { mutableStateOf(false) }

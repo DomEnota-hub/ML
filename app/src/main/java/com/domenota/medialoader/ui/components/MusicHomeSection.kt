@@ -10,6 +10,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -217,6 +220,23 @@ fun MusicHomeSection() {
             recognitionMessage = launch.message,
             onDismiss = { searchLaunch = null },
         )
+    }
+}
+
+/** A direct route to the existing search/recognition entry. The Home card
+ * and this screen share the same implementation and providers. */
+@Composable
+internal fun DirectMusicSearchScreen(onBack:()->Unit){
+    Column(androidx.compose.ui.Modifier.fillMaxSize()
+        .verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp)){
+        Row(verticalAlignment=Alignment.CenterVertically){
+            androidx.compose.material3.IconButton(onClick=onBack){
+                Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack,"Назад")
+            }
+            Text("Поиск музыки",style=MaterialTheme.typography.titleLarge)
+        }
+        Spacer(Modifier.height(12.dp))
+        MusicHomeSection()
     }
 }
 

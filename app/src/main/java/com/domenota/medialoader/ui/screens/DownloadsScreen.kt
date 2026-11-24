@@ -242,6 +242,10 @@ fun DownloadsScreen(
     var folderGroupTargets by remember { mutableStateOf<List<String>>(emptyList()) }
     var deleteGroupTargets by remember { mutableStateOf<List<String>>(emptyList()) }
     var groupBusy by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        !selectionMode && selectedHistoryIds.isEmpty() && !selectedCatalog.startsWith("folder:") &&
+            !folderSheetOpen && folderTargetId==null && folderGroupTargets.isEmpty() &&
+            deleteGroupTargets.isEmpty() && !groupBusy)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val assignmentById = remember(catalogAssignments) { catalogAssignments.associateBy { it.downloadId } }
     val folderNames = remember(catalogFolders) { catalogFolders.associate { it.id to it.name } }

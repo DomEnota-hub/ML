@@ -406,6 +406,11 @@ internal fun MusicModeScreen(
         } }, confirmButton = { TextButton(onClick = onDismissHiddenTracks) { Text("Готово") } })
     val folders = browse.value.folders
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        playlist==null && addingPlaylist==null && !frequentOpen && smartPage==null &&
+            !resumeOpen && folderOpen==null && !recentOpen && selectedTrackIds.isEmpty() &&
+            !duplicatesOpen && !creating && renameTarget==null && deleteTarget==null &&
+            addTrack==null && !busy && !sortMenu && !hiddenTracksOpen)
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen,recentOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null || recentOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
