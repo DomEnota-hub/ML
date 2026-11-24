@@ -373,28 +373,11 @@ fun MediaLoaderApp(
         try { visibilityAccess.ensure(); action() }
         finally { visibilityBusy=false }
     }
-    // The virtual ML album does not imply a physical directory. Resolve the
-    // actual files first. A .nomedia marker excludes every real media file
-    // inside a tree, so a mismatched inventory must fail without mutation.
-    // The menu action is already explicit: do not require a second alert.
-    // The only possible additional consent is Android's own SAF permission.
-    var nomediaPickerPlan by remember { mutableStateOf<NomediaAutoFolderPlan?>(null) }
+    // QA226: SAF is retained only for restoring previously hidden folders.
     var nomediaPickerShowFolder by remember { mutableStateOf<String?>(null) }
     var nomediaBusy by remember { mutableStateOf(false) }
-    suspend fun hideNomediaPlan(plan:NomediaAutoFolderPlan) {
-        val fresh=resolveNomediaAutoPlan(context,plan.folderId,
-            viewModel.downloads.value,viewModel.catalogAssignments.value)
-        check(fresh==plan) { "Состав или расположение папки изменились. Попробуйте ещё раз" }
-        NomediaSafTrace.event("INVENTORY_START",fresh.expected.size)
-        val result=nomediaRegistry.hideVerified(fresh)
-        check(result.excludedFromMl) { "Скрытие не подтверждено" }
-        NomediaSafTrace.event("MARKER_VERIFIED",fresh.expected.size)
-        AppNotice.post(context,"Медиа скрыты в ML. Галерея Android обновляется отдельно")
-    }
     val nomediaTreePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        val plan=nomediaPickerPlan
         val showFolder=nomediaPickerShowFolder
-        nomediaPickerPlan=null
         nomediaPickerShowFolder=null
         if(uri==null) {
             NomediaSafTrace.event("PICKER_CANCELLED")
@@ -402,7 +385,7 @@ fun MediaLoaderApp(
         } else fileActionScope.launch {
             nomediaBusy=true
             try {
-                val expectedTree=plan?.treeUri ?: showFolder?.let{key->
+                val expectedTree=showFolder?.let{key->
                     android.net.Uri.parse(checkNotNull(nomediaRegistry.snapshot.value.folders[key]).treeUri)
                 }
                 check(expectedTree!=null &&
@@ -416,8 +399,7 @@ fun MediaLoaderApp(
                     "Android не подтвердил доступ к папке"
                 }
                 NomediaSafTrace.event("GRANT_PERSISTED")
-                if(plan!=null) hideNomediaPlan(plan)
-                else if(showFolder!=null) {
+                if(showFolder!=null) {
                     val result=nomediaRegistry.show(showFolder)
                     NomediaSafTrace.event("SHOW_VERIFIED")
                     AppNotice.post(context,if(result.markerState==NomediaMarkerState.FOREIGN_MARKER)
@@ -434,36 +416,18 @@ fun MediaLoaderApp(
     val toggleFolderVisibility:suspend (String,Boolean)->Unit={ folder,hidden ->
         // QA226: physical hiding is retired. Only verified legacy restoration remains.
         check(!hidden) { "Новые операции выполняются через Архив ML" }
-        check(!nomediaBusy && nomediaPickerPlan==null && nomediaPickerShowFolder==null &&
+        check(!nomediaBusy && nomediaPickerShowFolder==null &&
             !nomediaSnapshot.unknown) { "Действие уже выполняется или реестр требует проверки" }
         check(folder !in (visibilityGuard?.policy?.snapshot?.hiddenFolders.orEmpty()) &&
             visibilityGuard?.policy?.pendingFolder != folder) {
             "Для старого физического архива сохранена только диагностика"
         }
         val current=nomediaSnapshot.folders[folder]
-        check(if(hidden) current?.excludedFromMl != true else current?.excludedFromMl == true) {
+        check(current?.excludedFromMl == true) {
             "Состояние папки изменилось. Повторите проверку"
         }
         nomediaBusy=true
         try {
-            if(hidden) {
-                val plan=resolveNomediaAutoPlan(context,folder,
-                    viewModel.downloads.value,viewModel.catalogAssignments.value)
-                NomediaSafTrace.event("PHYSICAL_FOLDER_RESOLVED",plan.expected.size)
-                if(FolderVisibilityStorageAccess.granted() ||
-                    NomediaSafPickerPolicy.hasExactReadWriteGrant(context.contentResolver,plan.treeUri)) {
-                    NomediaSafTrace.event(if(FolderVisibilityStorageAccess.granted())
-                        "MANAGED_LOCAL_ACCESS" else "EXACT_GRANT_REUSED",plan.expected.size)
-                    hideNomediaPlan(plan)
-                } else {
-                    val initial=NomediaSafPickerPolicy.suggestedInitialDocument(plan.treeUri)
-                    nomediaPickerPlan=plan
-                    NomediaSafTrace.event("PICKER_LAUNCHED_DOCUMENT",plan.expected.size)
-                    // Android may ignore this initial location; no permissions
-                    // are inferred until it returns the exact selected tree.
-                    nomediaTreePicker.launch(initial)
-                }
-            } else {
                 val saved=checkNotNull(current)
                 val oldTree=android.net.Uri.parse(saved.treeUri)
                 if((saved.accessMode==NomediaAccessMode.MANAGED_LOCAL &&
@@ -485,11 +449,9 @@ fun MediaLoaderApp(
                     NomediaSafTrace.event("SHOW_GRANT_REQUIRED")
                     nomediaTreePicker.launch(NomediaSafPickerPolicy.suggestedInitialDocument(oldTree))
                 }
-            }
         } catch(cancelled:CancellationException){throw cancelled}
         catch(error:Exception){
-            nomediaPickerPlan=null
-            nomediaPickerShowFolder=null
+                nomediaPickerShowFolder=null
             NomediaSafTrace.failure("VISIBILITY_ACTION_FAILED",error)
             throw error
         } finally { nomediaBusy=false }
@@ -3669,7 +3631,7 @@ fun MediaLoaderApp(
         trackRecognitionTarget!=null ||
         privateNavigation || privateMoveBusy || pendingDeleteRecords.isNotEmpty() || albumTrash!=null ||
         hiddenMusicTracksOpen || editorOpenInFlight || visibilityBusy || nomediaBusy ||
-        nomediaPickerPlan!=null || nomediaPickerShowFolder!=null || androidApprovalTicket!=null ||
+        nomediaPickerShowFolder!=null || androidApprovalTicket!=null ||
         archiveQaRestoreId!=null || visibilityRestoreConsent!=null ||
         (visibilityWorkExpanded && com.domenota.medialoader.ui.components.visibilityWorkPanelVisible(
             visibilityWorkState,visibilityWorkDismissed))
