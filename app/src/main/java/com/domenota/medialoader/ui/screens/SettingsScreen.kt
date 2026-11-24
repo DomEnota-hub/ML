@@ -366,15 +366,23 @@ fun SettingsScreen(
     }
     val logSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri != null && com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
+            val includeExplanations = exportLogExplanations
             gestureScope.launch {
                 // Extended logs can be ~20 MB; never read and export them on the UI thread.
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
-                        check(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
-                        context.contentResolver.openOutputStream(uri)
-                            ?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
-                                writer.write(AppLog.exportMarkdown(includeExplanations = exportLogExplanations))
-                            } ?: error("Не удалось открыть файл для записи")
+                        com.domenota.medialoader.ui.navigation.writePreparedJournalIfAllowed(
+                            allowed = { com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs) },
+                            prepare = { AppLog.exportMarkdown(includeExplanations = includeExplanations) },
+                            write = { content ->
+                                check(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                                context.contentResolver.openOutputStream(uri)
+                                    ?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
+                                        check(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                                        writer.write(content)
+                                    } ?: error("Не удалось открыть файл для записи")
+                            },
+                        )
                     }
                 }
                 result.onSuccess {
@@ -738,8 +746,9 @@ fun SettingsScreen(
             TextButton(onClick = {
                 confirmClearAppLog = false
                 gestureScope.launch {
-                    if(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
-                        withContext(Dispatchers.IO) { AppLog.clear() }
+                    withContext(Dispatchers.IO) {
+                        if(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))AppLog.clear()
+                    }
                     refreshAppLog()
                 }
             }) { Text("Очистить", color = MaterialTheme.colorScheme.error) }

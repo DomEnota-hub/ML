@@ -31,6 +31,29 @@ class JournalAccessTest{
         assertTrue(JournalAccess.allowed(prefs))
         prefs.edit().clear().commit()
     }
+    @Test fun exportRechecksGateAfterPreparationBeforeOpeningDestination(){
+        var allowed=false
+        var prepared=0
+        var written=0
+        fun export(revokeDuringPreparation:Boolean)=runCatching{
+            writePreparedJournalIfAllowed(
+                allowed={allowed},
+                prepare={prepared++;if(revokeDuringPreparation)allowed=false;"report"},
+                write={assertEquals("report",it);written++},
+            )
+        }
+        assertTrue(export(false).isFailure)
+        assertEquals(0,prepared)
+        assertEquals(0,written)
+        allowed=true
+        assertTrue(export(true).isFailure)
+        assertEquals(1,prepared)
+        assertEquals(0,written)
+        allowed=true
+        assertTrue(export(false).isSuccess)
+        assertEquals(2,prepared)
+        assertEquals(1,written)
+    }
     @Test fun preferenceObserverReactsToEnableAndDisableWithoutRecreatingScreen(){
         val prefs=compose.activity.getSharedPreferences("journal-observer-test",Context.MODE_PRIVATE)
         prefs.edit().clear().commit()

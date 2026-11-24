@@ -14,6 +14,17 @@ internal object JournalAccess {
     }
 }
 
+/** Recheck the existing gate after potentially expensive log preparation.
+ * Revocation before the write callback must not open the destination. */
+internal fun <T> writePreparedJournalIfAllowed(
+    allowed:()->Boolean,prepare:()->T,write:(T)->Unit,
+){
+    check(allowed()){"Журнал недоступен"}
+    val content=prepare()
+    check(allowed()){"Журнал недоступен"}
+    write(content)
+}
+
 @Composable
 internal fun rememberJournalUnlocked(prefs:SharedPreferences):Boolean{
     var unlocked by remember(prefs){mutableStateOf(JournalAccess.allowed(prefs))}
