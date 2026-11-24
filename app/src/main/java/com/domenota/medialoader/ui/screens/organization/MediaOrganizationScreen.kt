@@ -167,6 +167,10 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     val initialSelectionReady = initialAdd.isEmpty() || ready
     val detailScope = detailCatalog.takeIf { useScoped && detailCatalogId == selected }
     val activeUsable = if (useScoped) detailScope != null else usable
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        (if(collection==null)overviewAccessReady else activeUsable)&&!busy&&!ordering&&!selecting&&
+        !choosing&&!picker&&!rename&&!create&&!remove&&!linkDialog&&!detailMenu&&!missingPanel&&
+        missingInfo==null&&missingRemove==null&&!removeMembers)
     // Bound the initial visible wait even if new provider revisions continually
     // supersede an addressed result. Ordinary refreshes retain the current view.
     var detailRetry by remember(selected) { mutableIntStateOf(0) }

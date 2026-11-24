@@ -31,7 +31,8 @@ import com.domenota.medialoader.ui.model.toUi
 @Composable
 internal fun UnifiedFavoritesScreen(rows:List<DownloadEntity>,ready:Boolean,loading:Boolean,
     galleryAccess:Boolean,musicAccess:Boolean,onGalleryAccess:()->Unit,onMusicAccess:()->Unit,
-    onBack:()->Unit,onOpen:(String,List<String>)->Unit,onRemove:(String)->Unit){
+    onBack:()->Unit,onOpen:(String,List<String>)->Unit,onRemove:(String)->Unit,drawerBusy:Boolean=false){
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(ready&&!drawerBusy)
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("ui", 0) }
     var gridMode by rememberSaveable { mutableStateOf(prefs.getBoolean("favorites_grid", false)) }

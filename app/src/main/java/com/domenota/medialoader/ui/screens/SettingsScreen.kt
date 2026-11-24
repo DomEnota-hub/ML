@@ -496,6 +496,13 @@ fun SettingsScreen(
     val recoveryLabBusy = oldRecoveryRunning || sandboxRunning || historicalRunning || storageMigrationRunning || galleryDateAuditBusy ||
         migrationInventoryBusy || republishTrialBusy || exifTrialBusy || videoTrialBusy ||
         sameUriBusy || dateRecoveryBusy
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        !recoveryLabBusy&&!openAppearance&&!openJournal&&editorKind==null&&
+        !showMediaWriteExplanation&&!videoThumbnailDialog&&!aiModelsDialog&&!themeDialog&&
+        !recognitionDialog&&!musicSourceDialog&&!instagramModeDialog&&!gapiKeysDialog&&
+        !spareAuthorizationDialog&&!folderDialog&&!confirmClear&&!confirmInstagramSignOut&&
+        !confirmYouTubeSignOut&&!confirmVkSignOut&&!confirmRutubeSignOut&&!trashDialog&&
+        !confirmEmptyTrash&&!sessionDialog&&!logsDialog&&!confirmClearAppLog)
     fun setRecoveryLabVisible(value: Boolean) {
         if (recoveryLabBusy) return
         recoveryLabVisible = value

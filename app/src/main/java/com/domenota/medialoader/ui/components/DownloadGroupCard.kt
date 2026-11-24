@@ -32,6 +32,7 @@ fun DownloadGroupCard(
 ) {
     if (group.isEmpty()) return
     var menu by remember { mutableStateOf(false) }
+    ReportDrawerOverlay(menu&&actionsEnabled)
     val cover = group.first()
     val community = VkDownloadGroup.isCommunity(cover)
     val missing = group.count { it.state == DownloadUiState.COMPLETED && it.fileStatus == SavedFileStatus.MISSING }

@@ -379,6 +379,19 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             onDismiss()
         }
     }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        !verifying&&!clearingJournal&&!restoringSaved&&!background.committing&&!choosingScope&&
+        !replaceScan&&!clearJournalConfirm&&!journal&&!showTrashReport&&comparing==null&&
+        selected.isEmpty()&&!confirm&&previewId==null,
+        beforeNavigation={
+            stopPreview()
+            val saved=snapshot()
+            try{
+                if(saved==null)true else MusicDuplicateSessionStore.saveInteraction(context,saved,showingPartial,journalGeneration)
+                    .also{if(!it)error="Не удалось сохранить выбор"}
+            }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
+            catch(_:Exception){error="Не удалось сохранить выбор";false}
+        })
     // The picker replaces this NavHost route's CONTENT instead of opening a
     // second Android Window. Our Activity Scaffold already reserves system bars.
     if (choosingScope) {

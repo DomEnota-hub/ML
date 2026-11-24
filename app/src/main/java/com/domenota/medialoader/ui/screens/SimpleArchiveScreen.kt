@@ -144,6 +144,7 @@ internal fun SimpleArchiveScreen(
             }
         }
     }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(!busy&&!legacyBusy&&chosen.isEmpty())
     androidx.activity.compose.BackHandler(chosen.isNotEmpty() && !busy) { selected = emptySet() }
     Column(Modifier.fillMaxSize().testTag("simple-archive-screen")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {

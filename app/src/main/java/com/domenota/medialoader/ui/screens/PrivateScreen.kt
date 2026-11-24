@@ -3,7 +3,9 @@ package com.domenota.medialoader.ui.screens
 import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Restore
@@ -124,6 +126,9 @@ fun PrivateScreen(
     LaunchedEffect(state.mode, state.unlocked) {
         if (state.mode == PrivateAccessMode.NONE && !state.unlocked) access.unlockWithoutProtection()
     }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        state.unlocked&&!settings&&!busy&&!externalBusy&&!selecting&&
+            deleteTarget==null&&folderTarget==null&&restoreTarget==null)
     BackHandler(busy || externalBusy || settings || selecting) {
         if (!busy && !externalBusy) {
             if (selecting) { selecting = false; selectedIds = emptySet() }
@@ -176,23 +181,34 @@ fun PrivateScreen(
             else -> Box(Modifier.weight(1f).fillMaxWidth()) {
                 @Composable fun fileRow(row: DownloadUiItem, modifier: Modifier = Modifier) {
                     val favorite = assignments[row.id]?.isFavorite == true
-                    var swipeDistance by remember(row.id) { mutableFloatStateOf(0f) }
                     val swipeGesture = Modifier.pointerInput(row.id, state.unlocked, busy, externalBusy, selecting) {
                         if (!state.unlocked || busy || externalBusy || selecting) return@pointerInput
-                        detectHorizontalDragGestures(
-                            onDragStart = { swipeDistance = 0f },
-                            onHorizontalDrag = { change, amount ->
+                        awaitEachGesture {
+                            val down=awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Main)
+                            var dragging=false
+                            while(true){
+                                val event=awaitPointerEvent(PointerEventPass.Main)
+                                val change=event.changes.firstOrNull{it.id==down.id}?:break
+                                if(event.changes.count{it.pressed}>1)break
+                                val dx=change.position.x-down.position.x
+                                val dy=change.position.y-down.position.y
+                                if(!change.pressed){
+                                    if(dragging){
+                                        change.consume()
+                                        if(dx < -72f-viewConfiguration.touchSlop && access.state.value.unlocked)
+                                            restoreTarget=listOf(row.id)
+                                    }
+                                    break
+                                }
+                                if(!dragging){
+                                    if(change.isConsumed||dx>viewConfiguration.touchSlop||
+                                        (kotlin.math.abs(dy)>viewConfiguration.touchSlop&&kotlin.math.abs(dy)>=kotlin.math.abs(dx)))break
+                                    if(dx>=-viewConfiguration.touchSlop||kotlin.math.abs(dx)<=kotlin.math.abs(dy))continue
+                                    dragging=true
+                                }
                                 change.consume()
-                                swipeDistance += amount
-                            },
-                            onDragEnd = {
-                                // Reveal confirmation; never publish a private file on a gesture alone.
-                                if (swipeDistance < -72f && !busy && !externalBusy && state.unlocked)
-                                    restoreTarget = listOf(row.id)
-                                swipeDistance = 0f
-                            },
-                            onDragCancel = { swipeDistance = 0f }
-                        )
+                            }
+                        }
                     }
                     Box(modifier.then(swipeGesture)) {
                         DownloadRow(row, modifier = Modifier.fillMaxWidth(), compact = gridMode,
