@@ -4859,6 +4859,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.DuplicateFileSearchTest#aliasesAndUnavailableRowsCannotCreateExtraHits": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFileSearchTest#contextParentCannotSelectHiddenSiblingOrNestedScope": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFileSearchTest#exactKeyNavigationDistinguishesSameNamesOnDifferentVolumes": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFileSearchTest#photoAndVideoAreSearchableAndUnknownPathsAreNotInvented": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFileSearchTest#russianFilenameAndTrackMetadataMatchCaseInsensitively": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.DuplicateFolderScopeTest#folderChoiceNeverBecomesWholeLibrary": {
     "skipped": false,
     "failed": false
@@ -7699,7 +7719,15 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#fileMatchNavigatesWithoutSelectingThenOnlyExplicitFolderCanStart": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#filteredSelectAllDoesNotSelectHiddenSibling": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#folderSearchShowsExplicitEmptyCountAndPreservesSelection": {
     "skipped": false,
     "failed": false
   },
@@ -7712,6 +7740,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#narrowShortWindowStillOffersSelectableFooter": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#noFileMatchDoesNotClearEarlierFolderSelection": {
     "skipped": false,
     "failed": false
   },
