@@ -305,7 +305,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
         }
     }
     val displayPrevious=remember(DuplicateReferenceKey(previous),privacyRevision){previous?.takeIf{admissible(it.result)}}
-    val partial=remember(background.running,background.partial,storedPartial,privacyRevision){
+    val partial=remember(background.running,DuplicateReferenceKey(background.partial),DuplicateReferenceKey(storedPartial),privacyRevision){
         (if(background.running)background.partial else background.partial?:storedPartial?.result)?.takeIf(::admissible)
     }
     val resultCounts=remember(DuplicateReferenceKey(result),privacyRevision){
@@ -345,9 +345,20 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             group.tracks.filter(::eligible).map{it.id}.toSet())
         kept=kept+(group.key to id)
     }
-    val allSelected = MusicDuplicatePolicy.selectAll(groups,kept).intersect(groups.flatMap{it.tracks}.filter(::eligible).map{it.id}.toSet())
+    // Recommendation (regex, sorting and key construction) depends only on
+    // report/keeper changes, not 200ms preview ticks. Admission remains live.
+    val bulkCandidates = remember(DuplicateReferenceKey(groups),kept){
+        MusicDuplicatePolicy.selectAll(groups,kept)
+    }
+    fun eligibleBulk():Set<String> = if(bulkCandidates.isEmpty()) emptySet() else buildSet {
+        for(group in groups) for(track in group.tracks)
+            if(track.id in bulkCandidates && eligible(track)) add(track.id)
+    }
+    val allSelected = eligibleBulk()
     LaunchedEffect(currentId){currentId?.let{selected=selected-it}}
-    val size = groups.sumOf { g -> g.tracks.filter { it.id in selected }.sumOf { it.bytes } }
+    val size = remember(DuplicateReferenceKey(groups),selected){
+        groups.sumOf { g -> g.tracks.sumOf { if(it.id in selected)it.bytes else 0L } }
+    }
     fun close() {
         stopPreview()
         val saved = snapshot()
@@ -412,7 +423,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                             DuplicateScanPanel(background.phase,background.done,background.total,
                                 background.startedAt,background.phaseStartedAt,true,partial?.groups?.size?:0,
-                                exactBytes(partial?.groups.orEmpty()),showSummary=partial==null,
+                                remember(DuplicateReferenceKey(partial)){exactBytes(partial?.groups.orEmpty())},showSummary=partial==null,
                                 completedMetadata=background.completedMetadata)
                             Button({ close() }, Modifier.fillMaxWidth()) { Text("Продолжить в фоне") }
                             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -422,12 +433,12 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                         }
                         // Only the list of preliminary groups scrolls below the full header.
                         if(partial!=null) {
-                            val preliminaryCounts=remember(partial){
+                            val preliminaryCounts=remember(DuplicateReferenceKey(partial)){
                                 DuplicateResultFilterPolicy.counts(partial.groups.map { it.kind })
                             }
                             val activePreliminaryFilter=DuplicateResultFilterPolicy.active(
                                 preliminaryFilter,preliminaryCounts)
-                            val visiblePreliminaryGroups=remember(partial,activePreliminaryFilter){
+                            val visiblePreliminaryGroups=remember(DuplicateReferenceKey(partial),activePreliminaryFilter){
                                 partial.groups.filter {
                                     activePreliminaryFilter==null || it.kind==activePreliminaryFilter
                                 }
@@ -443,7 +454,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             }
                             PreliminaryMusicGroups(
                                 visiblePreliminaryGroups,
-                                exactBytes(visiblePreliminaryGroups),previewRows,
+                                remember(DuplicateReferenceKey(visiblePreliminaryGroups)){exactBytes(visiblePreliminaryGroups)},previewRows,
                                 Modifier.weight(1f).padding(horizontal=16.dp),preliminaryListState)
                         }
                     } else {
@@ -571,7 +582,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                     // Acoustic and version groups are never selected for deletion automatically.
                     if(groups.isNotEmpty()){
                         val clearBulk=selected.isNotEmpty()&&(selected==allSelected||allSelected.isEmpty())
-                        OutlinedButton({selected=if(clearBulk)emptySet() else allSelected},
+                        OutlinedButton({selected=if(clearBulk)emptySet() else eligibleBulk()},
                             Modifier.fillMaxWidth(),enabled=(allSelected.isNotEmpty()||selected.isNotEmpty())&&!verifying&&!clearingJournal){
                             Text(if(clearBulk)"Снять выделение" else "Выбрать всё")
                         }
