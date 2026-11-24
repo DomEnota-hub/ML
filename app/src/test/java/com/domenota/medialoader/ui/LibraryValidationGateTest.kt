@@ -214,6 +214,11 @@ class LibraryValidationGateTest {
         assertEquals(setOf(AppMode.GALLERY, AppMode.MUSIC),
             phoneModesForMediaChange("content://media/external/file/20"))
         assertEquals(setOf(AppMode.GALLERY, AppMode.MUSIC), phoneModesForMediaChange(null))
+        for(uri in listOf("content://other/external/images/media/1",
+            "content://media/external/file/audio","content://media/external/audio/media/no-id",
+            "content://media/external/images/unknown","content://media/external")){
+            assertEquals(setOf(AppMode.GALLERY,AppMode.MUSIC),phoneModesForMediaChange(uri))
+        }
     }
 
     @Test fun unchangedMediaStoreGenerationDoesNotTriggerRedundantScan() {

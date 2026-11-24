@@ -267,13 +267,14 @@ internal fun canRefreshLibrarySilently(
 internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
     val both = setOf(AppMode.GALLERY, AppMode.MUSIC)
     if (uri.isNullOrBlank()) return both
-    val segments = runCatching { java.net.URI(uri).path.orEmpty()
-        .split('/').map { it.lowercase(java.util.Locale.ROOT) } }.getOrNull() ?: return both
-    val pictures = "images" in segments || "video" in segments
-    val audio = "audio" in segments
-    return when {
-        pictures && !audio -> setOf(AppMode.GALLERY)
-        audio && !pictures -> setOf(AppMode.MUSIC)
+    val address = runCatching { java.net.URI(uri) }.getOrNull() ?: return both
+    if(address.scheme!="content"||address.authority!="media")return both
+    val segments=address.path.orEmpty().trim('/').split('/')
+    if(segments.size !in 3..4||segments[0].isBlank()||segments[2]!="media"||
+        (segments.size==4&&segments[3].toLongOrNull()?.let{it>=0}!=true))return both
+    return when(segments[1]){
+        "images","video" -> setOf(AppMode.GALLERY)
+        "audio" -> setOf(AppMode.MUSIC)
         else -> both
     }
 }
@@ -910,38 +911,61 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
             notifyCollectionAddresses(uri)
         }
-        mediaChangeJob?.cancel()
         if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
-        if (AppMode.MUSIC in pendingMediaChanges) AudioWaveformPrecompute.request(getApplication())
-        mediaChangeJob?.cancel()
+        // A fixed window, not a restartable debounce: notifications arriving
+        // while a scan or stamp read is in flight belong to the next batch.
+        // Do not cancel a worker on every callback or starve a busy provider.
+        if(mediaChangeJob?.isActive==true)return
         mediaChangeJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(500)
-            if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
-            val affected = pendingMediaChanges.toSet()
-            // The current scan must finish before the next reconciliation starts.
-            affected.forEach { jobs[it]?.join() }
-            if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
-            pendingMediaChanges.removeAll(affected)
-            affected.forEach { mode ->
-                val state = if (mode == AppMode.GALLERY) galleryState else musicState
-                if (!state.value.loaded) return@forEach
-                val permissions = PhoneMediaLibrary.permissions(mode)
-                val signature = permissions.map { permission ->
-                    ContextCompat.checkSelfPermission(getApplication(), permission) == PackageManager.PERMISSION_GRANTED
+            while(pendingMediaChanges.isNotEmpty()) {
+                kotlinx.coroutines.delay(500)
+                if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
+                val affected = pendingMediaChanges.toSet()
+                // Consume only after a scan finishes; events received during the
+                // join are folded into this reconciliation, not lost.
+                affected.forEach { jobs[it]?.join() }
+                if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
+                pendingMediaChanges.removeAll(affected)
+                val loaded=affected.filter { mode ->
+                    (if(mode==AppMode.GALLERY)galleryState else musicState).value.loaded
                 }
-                val selectedOnly = android.os.Build.VERSION.SDK_INT >= 34 && mode == AppMode.GALLERY &&
-                    permissions.zip(signature).any { (name, granted) ->
-                        name == android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && granted
-                    } && permissions.zip(signature).any { (name, granted) ->
-                        name != android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && !granted
+                if(AppMode.MUSIC in affected) AudioWaveformPrecompute.request(getApplication())
+                if(loaded.isEmpty())continue
+                val currentStamp=try { phone.storeStamp() }
+                catch(e:CancellationException){pendingMediaChanges+=affected;throw e}
+                // A hold may have cancelled this coroutine during the IO call.
+                // If not cancelled, still check the barrier before dispatching.
+                if(editorHoldsAutomaticIndexing||HistoricalRecoverySignals.isRunning.value){
+                    pendingMediaChanges+=affected
+                    return@launch
+                }
+                for (mode in loaded) {
+                    val state = if (mode == AppMode.GALLERY) galleryState else musicState
+                    val permissions = PhoneMediaLibrary.permissions(mode)
+                    val signature = permissions.map { permission ->
+                        ContextCompat.checkSelfPermission(getApplication(), permission) == PackageManager.PERMISSION_GRANTED
                     }
-                val currentStamp = phone.storeStamp()
-                if (maySkipUnchangedMediaNotification(storeStamps[mode], currentStamp,
-                        accessSignatures[mode] == signature, selectedOnly)) {
-                    com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED){}
-                    return@forEach
+                    val selectedOnly = android.os.Build.VERSION.SDK_INT >= 34 && mode == AppMode.GALLERY &&
+                        permissions.zip(signature).any { (name, granted) ->
+                            name == android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && granted
+                        } && permissions.zip(signature).any { (name, granted) ->
+                            name != android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && !granted
+                        }
+                    // Never treat partial or failed catalogs as a complete
+                    // generation. Permissions and privacy invalidations keep
+                    // their existing direct refresh path.
+                    if (state.value.complete && state.value.message==null &&
+                        maySkipUnchangedMediaNotification(storeStamps[mode], currentStamp,
+                            accessSignatures[mode] == signature, selectedOnly)) {
+                        com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED){}
+                        continue
+                    }
+                    if(jobs[mode]?.isActive==true){
+                        pendingMediaChanges+=mode
+                        continue
+                    }
+                    refresh(mode, force = true, reason = PhoneScanReason.MEDIASTORE_CHANGE)
                 }
-                refresh(mode, force = true, reason = PhoneScanReason.MEDIASTORE_CHANGE)
             }
         }
     }
