@@ -98,6 +98,7 @@ internal fun DownloadFolderSheet(
     onAssign: suspend (String, String?) -> Unit,
     hiddenFolderIds: Set<String> = emptySet(),
     onFolderVisibility: (suspend (String, Boolean) -> Unit)? = null,
+    onArchiveFolder: ((String) -> Unit)? = null,
     pendingVisibilityFolderId: String? = null,
     nomediaFolderStatuses: Map<String,String> = emptyMap(),
     onCheckFolderAccess: (suspend (String) -> Unit)? = null,
@@ -207,7 +208,12 @@ internal fun DownloadFolderSheet(
                                 DropdownMenuItem(text = { Text("Переименовать") }, onClick = {
                                     menuOpen = false; editTarget = folder; name = folder.name; error = null
                                 })
-                                if (onFolderVisibility != null) DropdownMenuItem(
+                                if (onArchiveFolder != null && !folderHidden && !visibilityPending) DropdownMenuItem(
+                                    text = { Text("В архив") },
+                                    leadingIcon = { com.domenota.medialoader.ui.components.ArchiveActionIcon(null) },
+                                    enabled = !busy && count > 0,
+                                    onClick = { menuOpen = false; onArchiveFolder(folder.id) })
+                                if (onFolderVisibility != null && (folderHidden || visibilityPending || onArchiveFolder == null)) DropdownMenuItem(
                                     text = { Text(if (visibilityPending) "Старый журнал: диагностика" else if (folderHidden) "Показать медиа" else "Скрыть медиа") },
                                     leadingIcon = { Icon(if (folderHidden) Icons.Rounded.RemoveRedEye else Icons.Rounded.VisibilityOff,null) },
                                     enabled = !busy && (pendingVisibilityFolderId == null || visibilityPending),
