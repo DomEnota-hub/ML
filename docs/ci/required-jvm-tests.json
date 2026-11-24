@@ -1543,6 +1543,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.catalog.visibility.ManagedLocalNomediaPortTest#missingMimeMappingRecoversOnlyStructurallyRecognizedSelectedMedia": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.catalog.visibility.ManagedLocalNomediaPortTest#narrowerTreeMustNotBeConvertedFromBroadOrTraversalPath": {
     "skipped": false,
     "failed": false

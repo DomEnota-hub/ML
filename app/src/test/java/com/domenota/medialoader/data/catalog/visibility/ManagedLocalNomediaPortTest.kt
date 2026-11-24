@@ -138,4 +138,42 @@ class ManagedLocalNomediaPortTest {
         assertArrayEquals(byteArrayOf(1,2),File(folder,"photo.jpg").readBytes())
     }
 
+
+    @Test fun missingMimeMappingRecoversOnlyStructurallyRecognizedSelectedMedia()=fixture { root,folder,tree ->
+        // Small structural fixtures: not a claim of full decode/playability.
+        val jpeg=File(folder,"a.JPG").apply {
+            writeBytes(byteArrayOf(0xff.toByte(),0xd8.toByte(),0xff.toByte(),0xc0.toByte(),
+                0,11,8,0,1,0,1,1,1,0x11,0,0xff.toByte(),0xda.toByte(),
+                0,8,1,1,0,0,63,0,1,0xff.toByte(),0xd9.toByte()))
+        }
+        fun box(type:String,body:ByteArray)=java.nio.ByteBuffer.allocate(8+body.size)
+            .putInt(8+body.size).put(type.toByteArray(Charsets.US_ASCII)).put(body).array()
+        val video=File(folder,"b.mp4").apply {
+            writeBytes(box("ftyp","isom0000isom".toByteArray())+
+                box("mdat",byteArrayOf(1,2,3))+box("moov",byteArrayOf(1,2,3)))
+        }
+        val files=listOf(jpeg,video)
+        val before=files.map{it.readBytes().toList() to it.lastModified()}
+        val expected=files.map{NomediaMediaSignature(it.name,it.length())}
+        val direct=ManagedLocalNomediaPort(expected,{root},{true}) { null }
+        assertEquals(setOf("image/jpeg","video/mp4"),direct.listMedia(tree).map{it.mimeType}.toSet())
+        runBlocking {
+            val proof=direct.createEmpty(tree)
+            assertTrue(direct.deleteVerified(tree,proof.documentId))
+        }
+        assertEquals(before,files.map{it.readBytes().toList() to it.lastModified()})
+        assertFalse(File(folder,".nomedia").exists())
+        // A spoofed extension, conflicting MIME, unrecognized sidecar, or
+        // an extra real file never authorizes a directory-wide marker.
+        val fake=File(folder,"fake.jpg").apply{writeText("not a jpeg")}
+        assertThrows(IllegalStateException::class.java){direct.listMedia(tree)}
+        assertTrue(fake.delete())
+        val conflict=ManagedLocalNomediaPort(expected,{root},{true}) { "text/plain" }
+        assertThrows(IllegalStateException::class.java){conflict.listMedia(tree)}
+        val extra=File(folder,"extra.jpg").apply{writeBytes(jpeg.readBytes())}
+        assertThrows(IllegalStateException::class.java){runBlocking{direct.createEmpty(tree)}}
+        assertFalse(File(folder,".nomedia").exists())
+        assertTrue(extra.exists())
+    }
+
 }

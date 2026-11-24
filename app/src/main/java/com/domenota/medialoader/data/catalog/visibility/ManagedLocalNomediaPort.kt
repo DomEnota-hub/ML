@@ -82,14 +82,19 @@ internal class ManagedLocalNomediaPort(
                     Files.isRegularFile(path, NOFOLLOW_LINKS) -> {
                         check(depth == 0) { "Вложенные медиа требуют отдельной проверки" }
                         val extension = child.extension.lowercase(java.util.Locale.ROOT)
-                        val mime = mimeForExtension(extension)
+                        val reported = mimeForExtension(extension)
+                        val mime = if(reported!=null&&(reported.startsWith("image/")||
+                            reported.startsWith("video/")||reported.startsWith("audio/"))) reported
+                            else NomediaMediaProbe.fallback(path,extension,reported)
+                        if(mime!=null&&mime!=reported)
+                            AppLog.i("FolderVisibility","INVENTORY_MIME_FALLBACK extension=$extension mime=$mime")
                         val mediaMime=mime!=null&&(mime.startsWith("image/")||
                             mime.startsWith("video/")||mime.startsWith("audio/"))
                         if(!mediaMime){
                             // No names, paths, URI, file content or unknown arbitrary metadata.
                             val safeExtension=extension.takeIf{it.matches(Regex("[a-z0-9]{1,12}"))}?:
                                 if(extension.isEmpty())"none" else "other"
-                            val safeMime=mime?.takeIf{it.matches(Regex("[a-zA-Z0-9.+-]{1,40}/[a-zA-Z0-9.+-]{1,60}"))}?:"unknown"
+                            val safeMime=reported?.takeIf{it.matches(Regex("[a-zA-Z0-9.+-]{1,40}/[a-zA-Z0-9.+-]{1,60}"))}?:"unknown"
                             AppLog.w("FolderVisibility","INVENTORY_REJECTED reason=unsupported_mime extension=$safeExtension mime=$safeMime")
                         }
                         check(mediaMime) {
