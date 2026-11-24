@@ -157,6 +157,8 @@ fun DownloadsScreen(
     onMoveToPrivate: (String) -> Unit = {},
     onMoveGroupToPrivate: (List<String>) -> Unit = {},
     onSimpleArchive: ((List<String>) -> Unit)? = null,
+    onArchiveFolder: ((String) -> Unit)? = null,
+    onArchivePublication: ((String, String, List<String>) -> Unit)? = null,
     onOpenSimpleArchive: (() -> Unit)? = null,
     onSetFavorite: suspend (String, Boolean) -> Unit = { _, _ -> },
     onDeleteGroupFile: suspend (String) -> Unit = {},
@@ -299,6 +301,7 @@ fun DownloadsScreen(
         galleryOnlyFolderIds = galleryOnlyFolderIds,
         hiddenFolderIds = hiddenFolderIds,
         onFolderVisibility = onFolderVisibility,
+        onArchiveFolder = onArchiveFolder,
         pendingVisibilityFolderId = pendingVisibilityFolderId,
         nomediaFolderStatuses = nomediaFolderStatuses,
         onCheckFolderAccess = onCheckFolderAccess,
@@ -582,7 +585,8 @@ fun DownloadsScreen(
                 },
                 onGroupFolder = { ids -> folderGroupTargets = ids; folderTargetId = ids.firstOrNull(); folderSheetOpen = true },
                 onGroupMove = onMoveGroupToPrivate, onGroupDelete = { deleteGroupTargets = it }, groupActionsEnabled = !groupBusy,
-                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
+                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive,
+                onArchivePublication=onArchivePublication)
         }
 
       item(key = "history-header", contentType = "header") {
@@ -728,7 +732,8 @@ fun DownloadsScreen(
                 },
                 onGroupFolder = { ids -> folderGroupTargets = ids; folderTargetId = ids.firstOrNull(); folderSheetOpen = true },
                 onGroupMove = onMoveGroupToPrivate, onGroupDelete = { deleteGroupTargets = it }, groupActionsEnabled = !groupBusy,
-                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
+                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive,
+                onArchivePublication=onArchivePublication)
         }
     }
 }
@@ -763,6 +768,7 @@ private fun LazyListScope.DownloadRows(
     onAddCollection: ((List<String>)->Unit)? = null,
     onPassport: ((String)->Unit)? = null,
     onSimpleArchive: ((List<String>)->Unit)? = null,
+    onArchivePublication: ((String, String, List<String>) -> Unit)? = null,
 ) {
     if (grid) {
         val rows = items.flatten().chunked(4)
@@ -802,7 +808,11 @@ private fun LazyListScope.DownloadRows(
                     onChooseFolder = { onGroupFolder(groupIds) },
                     onMoveToPrivate = { onGroupMove(groupIds) },
                     onDelete = { onGroupDelete(groupIds) },
-                    actionsEnabled = groupActionsEnabled)
+                    actionsEnabled = groupActionsEnabled,
+                    onArchive = onArchivePublication?.takeIf { group.all { item ->
+                        item.state == DownloadUiState.COMPLETED && item.fileStatus != SavedFileStatus.MISSING &&
+                            item.fileStatus != SavedFileStatus.INACCESSIBLE
+                    } }?.let { archive -> { archive(groupKey, if (VkDownloadGroup.isCommunity(group.first())) "VK" else "Публикация", groupIds) } })
             }
             Spacer(Modifier.height(8.dp))
           }
@@ -841,7 +851,8 @@ private fun LazyListScope.DownloadRows(
                 DownloadItemRow(file, onOpenDownload, onCancelDownload, onShareDownload,
                     onHideDownload, onRetryDownload, onReanalyzeMissing, onRenameDownload,
                     recognitionEnabled, onRecognizeDownload, assignments, folderNames,
-                    onFavorite, onChooseFolder, onMoveToPrivate,onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
+                    onFavorite, onChooseFolder, onMoveToPrivate,onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive,
+                onArchivePublication=onArchivePublication)
             }
             Spacer(Modifier.height(10.dp))
           }
