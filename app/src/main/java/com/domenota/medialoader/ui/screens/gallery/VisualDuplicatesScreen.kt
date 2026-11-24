@@ -120,17 +120,24 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
     val latestSession by rememberUpdatedState(session)
     val latestCatalog by rememberUpdatedState(catalog)
     val latestReady by rememberUpdatedState(ready && phonePermission)
+    val latestPermission by rememberUpdatedState(phonePermission)
+    val startBlocker = VisualScanStartGate.blocker(ready,phonePermission,loaded,saving,trash!=null,
+        catalog.scan.isNotEmpty(),currentGeneration(),status.running)
     val latestEpoch by rememberUpdatedState(privacyEpoch)
     val liveGeneration by rememberUpdatedState(currentGeneration)
     fun startScan(keys: Set<String>? = null){
-        if(latestReady && liveGeneration() && DuplicatePrivacyGuard.generation(context)==latestEpoch) {
-            openedHistoryAt=null
-            val currentCatalog=latestCatalog
-            if(currentCatalog.source==LibrarySource.PHONE && !com.domenota.medialoader.ui.hasPhoneLibraryAccess(context,AppMode.GALLERY))return
-            val scanned=DuplicateFolderScope.filter(currentCatalog.scan,keys){it.item}
-            if(scanned.isEmpty()) { error="В выбранных папках нет доступных файлов";return }
-            VisualDuplicateBackgroundScan.start(context,scanned,currentCatalog.source,latestEpoch,keys)
-        }
+        val currentCatalog=latestCatalog
+        val permission=latestPermission && (currentCatalog.source!=LibrarySource.PHONE ||
+            com.domenota.medialoader.ui.hasPhoneLibraryAccess(context,AppMode.GALLERY))
+        val blocker=VisualScanStartGate.blocker(latestReady,permission,loaded,saving,trash!=null,
+            currentCatalog.scan.isNotEmpty(),liveGeneration() && DuplicatePrivacyGuard.generation(context)==latestEpoch,
+            VisualDuplicateBackgroundScan.state.value.running)
+        if(blocker!=null){error=blocker.message;return}
+        val scanned=DuplicateFolderScope.filter(currentCatalog.scan,keys){it.item}
+        if(scanned.isEmpty()) { error="В выбранных папках нет доступных файлов";return }
+        openedHistoryAt=null
+        error=null
+        VisualDuplicateBackgroundScan.start(context,scanned,currentCatalog.source,latestEpoch,keys)
     }
     val partial=(if(status.running)status.partial else status.partial?:storedPartial?.result)?.takeIf{it.privacyEpoch==privacyEpoch}
     fun exactBytes(value:List<VisualDuplicateGroup>)=value.filter{it.reason==VisualMatch.EXACT}.sumOf{g->g.files.sumOf{it.bytes}-(g.files.firstOrNull()?.bytes?:0L)}
@@ -247,20 +254,14 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
             val previousScope=storedPartial?.result?.coverage?.source
             val sameScope=previousScope==null||previousScope==catalog.source
             if(!sameScope)Text("Незавершённый поиск: ${if(previousScope==LibrarySource.PHONE)"Доступные файлы телефона" else "Файлы ML"}",style=MaterialTheme.typography.bodySmall)
-            val canStart=ready&&phonePermission&&loaded&&!saving&&trash==null&&catalog.scan.isNotEmpty()
+            val canStart=startBlocker==null
             val canShow=loaded&&phonePermission&&!saving&&trash==null&&
                 (session?.result?.privacyEpoch==privacyEpoch||partial!=null)
-            val startBlocker = when {
-                !phonePermission -> "permission"
-                !ready -> "catalog_not_ready"
-                !loaded -> "checkpoint_restore"
-                saving -> "checkpoint_write"
-                trash != null -> "trash"
-                catalog.scan.isEmpty() -> "empty_catalog"
-                else -> "none"
-            }
             DuplicateActionTrace("gallery", if(shown!=null) "new_search" else if(stopped) "resume" else "start",
-                canStart, startBlocker)
+                canStart, startBlocker?.code ?: "none")
+            if(startBlocker!=null && startBlocker!=VisualScanStartGate.Blocker.PERMISSION)
+                Text(startBlocker.message,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier=Modifier.testTag("visual-scan-blocker"))
             if(shown==null && stopped) {
                 val resultsBlocker = when {
                     !phonePermission -> "permission"
@@ -366,10 +367,13 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 .testTag("visual-empty-result"),style=MaterialTheme.typography.bodyMedium,
                 color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        val exact=VisualDuplicatePolicy.selectExact(shown.result.groups)
+        val exact=remember(shown.result.groups){VisualDuplicatePolicy.selectExact(shown.result.groups)}
+        val visibleGroups=remember(shown.result.groups,activeFilter){
+            shown.result.groups.filter{activeFilter==null||it.reason==activeFilter}
+        }
         if(exact.isNotEmpty()||shown.selected.isNotEmpty())OutlinedButton({if(actionsReady)current?.let{persist(it.copy(selected=if(shown.selected==exact)emptySet() else exact))}},enabled=actionsReady&&!saving&&!status.running&&trash==null){Text(if(shown.selected==exact)"Снять выделение" else "Выделить точные")}
         LazyColumn(state=list,modifier=Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){
-            items(shown.result.groups.filter{activeFilter==null||it.reason==activeFilter},key={it.files.first().id}){group->
+            items(visibleGroups,key={it.files.first().id}){group->
                 Card {
                     Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                         Text(when(group.reason){VisualMatch.EXACT->"Точные копии";VisualMatch.SIMILAR_PHOTO->"Похожие фотографии";VisualMatch.SIMILAR_VIDEO->"Похожие видео"},style=MaterialTheme.typography.titleMedium)
@@ -401,7 +405,9 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 }
             }
         }
-        val selectedBytes=shown.result.groups.sumOf{g->g.files.filter{it.id in shown.selected}.sumOf{it.bytes}}
+        val selectedBytes=remember(shown.result.groups,shown.selected){
+            shown.result.groups.sumOf{g->g.files.sumOf{if(it.id in shown.selected)it.bytes else 0L}}
+        }
         if(shown.result.groups.isNotEmpty()) Button({
             if(actionsReady&&liveGeneration()&&DuplicatePrivacyGuard.generation(context)==latestEpoch)confirm=true
         },enabled=actionsReady&&shown.selected.isNotEmpty()&&!saving&&!status.running&&trash==null,
@@ -414,7 +420,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         onOpen={at->journal=false;if(!status.running&&displayReady)history.firstOrNull{it.scannedAt==at}?.let{saved->scope.launch{val checked=withContext(Dispatchers.Default){saved.reconcileById(byId)};if(DuplicatePrivacyGuard.generation(context)==privacyEpoch){openedHistoryAt=at;persist(checked);restored=false}}}},
         onResume={journal=false;if(!status.running)startScan(VisualDuplicateBackgroundScan.resumeScope(context))},onDismiss={journal=false},
         onPartial={journal=false;showPartial=true},
-        resumeEnabled=!status.running&&ready&&phonePermission&&catalog.scan.isNotEmpty(),
+        resumeEnabled=startBlocker==null,
         onDelete={at->
             if(!status.running&&!status.committing&&!saving&&trash==null){
                 saving=true
